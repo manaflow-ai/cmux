@@ -13,11 +13,16 @@ extension AgentTurnStates {
     /// AgentTurnStates.promptGist("<chat> 0+512|user: merge…")                          // nil
     /// ```
     public nonisolated static func promptGist(_ text: String) -> String? {
+        promptGist(text, requiringTitleHeader: false)
+    }
+
+    /// Workspace names accept only a leading Title header, after context blocks and labels.
+    public nonisolated static func promptGist(_ text: String, requiringTitleHeader: Bool) -> String? {
         guard let body = strippingLeadingBlocks(text) else { return nil }
         for raw in body.split(whereSeparator: \.isNewline) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || isLabel(line) || headerValue(line, key: "group") != nil { continue }
-            return headerValue(line, key: "title") ?? line
+            return headerValue(line, key: "title") ?? (requiringTitleHeader ? nil : line)
         }
         return nil
     }

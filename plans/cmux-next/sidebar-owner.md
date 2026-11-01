@@ -153,6 +153,11 @@
   `SidebarMachine.Status.disconnected` is new; "Failed to start" stays for a create or a machine the provider failed.
   Nothing else about the header changes. Leo 2026-10-29: "a whole lot of this cloud stuff ought to get better...".
   Regression: `CloudLinkEndedHeaderTests`.
+- 2026-10-29: one row per workspace id. Cloud machines made from one image share its workspace ids, and the list keeps
+  one row view per key, so a second row with the same id drew nothing (a blank slot above the Cloud rows) and the one
+  view showed either row's content. `SidebarLayout.make` lists a repeated id once, in the first section that lists it
+  (this Mac's first), and the list's row content comes from that same section. Leo: "why is there all this weird
+  stuff at the bottom of the sidebar", "the rendering gets borked there too :(". Regression: `SidebarOneRowPerWorkspaceTests`.
 
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
@@ -821,6 +826,10 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 
 - PR [#27899](https://github.com/manaflow-ai/cmux/pull/27899). Leo, verbatim: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next". A workspace row whose agent chats acpmux finds breaking a usage rule (no autocompact cap, context over 400k, more than 40 subagents an hour; acpmux `usageWarnings`) draws a small `exclamationmark.triangle.fill` in the theme's attention color in the trailing cluster, left of the muted bell's slot, the same size as that bell. Its tooltip is each warning's line, and the row's accessibility label says them. It is its own view (`usageWarningMark`), never the working spinner. It never gives way to the hover controls: while the row is hovered it sits just left of the ⋯ and ×, the title fading before it, so a person can still point at it and read its tooltip (the first fleet capture showed the controls in its place). Rows with no warnings are unchanged. Tests: `SidebarUsageWarningTests`; gallery `AAUsageWarningGalleryTests` (before/after, light and dark).
 
+## Agent rows carry their harness mark, not a shared glyph (2026-10-29)
+
+- Leo 2026-10-29 ("all of these icons that are literally all the same icon, that is terrible ... one of these is Codex, one of these is Claude ... randomize the colors"). Before: Priority rows drew no mark, and Chief subagents, remote chats and harness workspaces without a registered brand all drew one grey generic glyph; untitled Chief children each read "Subagent" under the Chief header, Priority rows repeated a status word beside the indicator, and a workspace item's hover controls dropped while its menu was open. Root cause of the shared glyph: rows passed the raw harness id (`codex`) as a brand id, so Codex resolved to no mark; `SidebarItemInfo.agentBrand(forHarness:)` maps it through `AgentBrandCatalog.brand(for:)` at each source (remote chats, Chief subagents, Priority). Now: a Priority row draws its harness mark on `SidebarStyle`'s icon column with its title on `leadingTextX` (row height unchanged); a harness with no registered mark tints its glyph with `SidebarItemInfo.stableAgentColor(for:)` (FNV `GroupColor.unset`, the same color every launch); an untitled Chief child keeps an empty title with "Subagent" in its accessibility label; Priority rows show only a working duration, the words move to the accessibility label; `showsMenu` holds a workspace item's hover controls. Tests: `SidebarAgentIdentityTests`, `ChiefSidebarItemTests`.
+
 ## Workspace hover preview includes its tabs (2026-10-30)
 
 Leo: "and also why dont we have the rex thing yet of being abel to access the individual tabs in a workspace on its hover preview the best of both worlds thing"
@@ -846,3 +855,7 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
 ## Top workspace insert lands without a cascade (2026-10-31)
 
 - PR #28205, implementation `ac80839dcfa`. Leo: "when you create a workspace at the top it's a huge cascade" and it "pushes all the workspaces below down pretty hard". The proposed `sidebar.insertMotion` default is `.snap`: existing rows land at once and only the new row fades. Nudge, quick and full spring remain available. The real-sidebar gallery exercises all four variants; its PNGs show settled states. Fleet recordings and macOS validation remain follow-up validation.
+
+## Agent and lane session row titles (2026-10-30)
+
+- Leo: “i feel like there's still a big mess of uncategorized stuff in the sidebar”, “eg a lot of these subtitles are bad”, and “im saying for my particular sidebar there's a lot of wack stuff there”. Agent and lane session rows prefer a generated chat title or an explicit leading `Title:` task header before their short session name. Generating titles for named lanes belongs to acpmux ([#28376](https://github.com/manaflow-ai/cmux/pull/28376)); until that metadata arrives, the session name remains. The sidebar, titlebar, palette and window lists share this resolver. User-role last-message previews are excluded from subtitles so status, repository, branch or pull request metadata can show through; agent replies remain eligible. The opt-in Now line uses activity/plan metadata instead of a prompt-derived lane step. Explicit user workspace and chat names remain authoritative, and automatic naming still obeys its existing setting. General workspace defaults and fleet grouping are unchanged. Test: `SidebarAgentRowPresentationTests`.
