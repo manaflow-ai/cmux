@@ -23,14 +23,17 @@ enum QuitPolicy {
     /// Whether the decision needs `QuitFacts` (read from the daemon).
     static func needsFacts(_ origin: QuitOrigin) -> Bool { origin == .interactive }
 
-    /// Quit at once with a choice, or ask. `facts` is read only for an
-    /// interactive quit. Quitting never asks about sessions (Lawrence
-    /// 2026-10-07, no "Quit cmux?"): Keep, the default, loses no work,
-    /// because local terminals and agents run in their daemons and reattach
-    /// on the next launch; a remembered end choice applies as set. The one
-    /// question left is incognito windows' running programs, which end with
-    /// the windows and cannot come back, and it is asked at most once
-    /// (#17501): never after the unsaved-changes question (`alreadyAsked`).
+    /// Quit at once with a choice, or ask (QUIT P0, Lawrence 2026-11-01: "cmd q
+    /// needs to prompt for what type of quit"). A person's quit (Cmd-Q, the
+    /// menu, the Dock) with local terminals and `app.quitBehavior` "ask" asks
+    /// how to quit: Keep Sessions (the default), End Sessions and Keep Layout,
+    /// End Everything, or Cancel. A remembered choice applies as set, with no
+    /// question. With no local terminal there is nothing to choose: Keep. The
+    /// incognito close confirmation (their programs end with their windows
+    /// and cannot come back) folds into the same question, or is the only one
+    /// when a remembered choice applies. Scripts, signals and power off never
+    /// ask. A quit asks at most once (#17501): never after the unsaved-changes
+    /// question (`alreadyAsked`). `facts` is read only for an interactive quit.
     static func decide(_ origin: QuitOrigin, behavior: QuitBehavior, facts: QuitFacts, alreadyAsked: Bool = false) -> QuitDecision {
         let remembered: QuitSessionsChoice? = switch behavior {
         case .ask: nil
@@ -45,15 +48,15 @@ enum QuitPolicy {
         case .scripted: return .quit(remembered ?? .keep)
         case .interactive: break
         }
-        guard !alreadyAsked, !facts.incognitoPrograms.isEmpty else { return .quit(remembered ?? .keep) }
-        // The incognito close confirmation: Quit applies the remembered choice (else Keep).
+        let offersSessionChoice = remembered == nil && facts.terminals > 0
+        guard !alreadyAsked, offersSessionChoice || !facts.incognitoPrograms.isEmpty else { return .quit(remembered ?? .keep) }
         return .ask(QuitPrompt(
             terminals: facts.terminals,
             runningPrograms: facts.programs.count,
             busiest: busiest(facts.programs),
             incognitoPrograms: facts.incognitoPrograms,
             remoteSessions: facts.remoteSessions,
-            offersSessionChoice: false,
+            offersSessionChoice: offersSessionChoice,
             defaultChoice: remembered ?? .keep,
             agents: facts.agents?.live,
             agentsInTurn: facts.agents?.inTurn ?? 0,
