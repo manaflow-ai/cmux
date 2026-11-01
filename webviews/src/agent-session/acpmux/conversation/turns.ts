@@ -30,6 +30,7 @@ import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { backgroundTurnRowId, foldBackgroundTurns, openBackgroundTurns } from "./backgroundTurns";
+import { foldMessageRuns, messageRunFoldFor, openMessageRuns } from "./messageRuns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -366,6 +367,8 @@ type ShapedTurn = {
   open: string;
   /// Which of its background turns' lines are open (backgroundTurns.ts `openBackgroundTurns`).
   background: string;
+  /// Which of its message runs' lines are open (messageRuns.ts `openMessageRuns`).
+  messageRuns: string;
   last: boolean;
   clockOffset: number;
   dated: boolean;
@@ -409,11 +412,13 @@ function shapedTurn(
   // open-fold key is never needed, and a streamed token does no work over its rows for it.
   const open = live ? "" : openFolds(rows, start, end, expanded);
   const background = openBackgroundTurns(rows, start + 1, end, expanded);
+  const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
     cached.open === open &&
     cached.background === background &&
+    cached.messageRuns === messageRuns &&
     cached.last === last &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
@@ -467,7 +472,7 @@ function shapedTurn(
     if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
     shaped = [...date, ...drawnUser, line];
   } else {
-    const body = shapeTurn(
+    const shapedBody = shapeTurn(
       user,
       turn,
       expanded,
@@ -481,6 +486,10 @@ function shapedTurn(
       lineBelow,
       agentFamily,
     );
+    // Where its runs fold, a run of them that carries messages between agents folds under one line
+    // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
+    const body =
+      liveRuns || agentFamily?.startsWith("claude") === true ? foldMessageRuns(shapedBody, expanded) : shapedBody;
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -506,7 +515,7 @@ function shapedTurn(
     }
   }
   if (!live)
-    shapedTurns.set(user, { source, open, background, last, clockOffset, dated, liveRuns, agentFamily, rows: shaped });
+    shapedTurns.set(user, { source, open, background, messageRuns, last, clockOffset, dated, liveRuns, agentFamily, rows: shaped });
   return shaped;
 }
 
@@ -1461,6 +1470,13 @@ export function openViewTurnFold(
 /// a turn's last one stays outside the fold: a link to a message that worked lands on a folded row,
 /// and the fold has to open before the transcript can scroll to it. Undefined when the chat's rows
 /// hold none of `messageRows` (another machine's transcript, or history not loaded yet).
+/// The fold that keeps `rows[index]` out of `drawn`: a message run's closed line that holds it
+/// (messageRuns.ts), else its turn's (``turnFoldFor``). Find, a link and a running line's count open it.
+export function hiddenRowFold(rows: readonly AcpmuxRow[], drawn: readonly AcpmuxRow[], index: number): string | undefined {
+  const row = rows[index];
+  return (row && messageRunFoldFor(drawn, row.id)) ?? turnFoldFor(rows, index);
+}
+
 export function messageRevealTarget(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],
@@ -1471,7 +1487,7 @@ export function messageRevealTarget(
   const shown = places.find((at) => findRowIndex(drawn, rows[at]!.id) >= 0);
   if (shown !== undefined) return { rowId: rows[shown]!.id };
   const at = places[0]!;
-  return { rowId: rows[at]!.id, fold: turnFoldFor(rows, at) };
+  return { rowId: rows[at]!.id, fold: hiddenRowFold(rows, drawn, at) };
 }
 
 /// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward
