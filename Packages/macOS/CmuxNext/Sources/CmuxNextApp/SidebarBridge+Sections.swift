@@ -30,6 +30,7 @@ extension SidebarBridge {
         .customize: "appearance.customize",
         .searchChats: "agentPane.searchChats",
         .chief: ChiefSidebar.openAction,
+        .automations: "automations.show",
     ]
 
     /// Runs item `id` as a click does: a top-section item that stands for a
@@ -79,7 +80,7 @@ extension SidebarBridge {
     func observeSections() {
         let model = model
         // Another client's group fold (the sidebar document's fold-only batches) folds this window's rows.
-        if let doc = SidebarDocStore.current { rows.followFolds(of: doc) }
+        if let doc = SidebarDocStore.current { rows.edits.followFolds(of: doc) }
         let registry = services.registry
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout

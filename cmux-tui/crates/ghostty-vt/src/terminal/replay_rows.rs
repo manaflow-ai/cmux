@@ -177,7 +177,21 @@ impl Terminal {
             if segment_end < segment_start {
                 continue;
             }
-            let selection = self.screen_selection(segment_start, segment_end)?;
+            let mut selection = self.screen_selection(segment_start, segment_end)?;
+            // A segment that ends on the spacer head a wide character left when it wrapped ends one column earlier: the
+            // spacer holds no text, and an unwrapping formatter extends a selection that ends on it into the next row's
+            // wide character (formatter.zig, "if our end x/y falls on a spacer head AND we're unwrapping"), which the
+            // next segment then prints again (VT fuzz finding E2: the replay drew the character twice and scrolled).
+            if cols > 1
+                && matches!(
+                    self.screen_cell(cols - 1, segment_end),
+                    Some((_, CellWidth::SpacerHead))
+                )
+            {
+                selection.end = self
+                    .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, cols - 2, segment_end)
+                    .ok_or(Error::InvalidValue)?;
+            }
             let first = segment_start == range.start;
             let last = segment_end == range.end;
             let remaining = format_max_bytes.saturating_sub(bytes.len());

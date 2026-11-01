@@ -11,6 +11,11 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { Composer as ComposerView, ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
+import {
+  DEFAULT_COMPOSER,
+  setComposerSettings,
+  type AttachmentView,
+} from "../src/agent-session/acpmux/composerSettings";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -65,6 +70,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
+  showAttachments(DEFAULT_COMPOSER.attachmentView);
 });
 
 afterAll(() => {
@@ -196,18 +202,40 @@ async function openComposer(
 }
 
 const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
-const chips = () => [...host.querySelectorAll<HTMLElement>(".acpmux-attachments .acpmux-attachment")];
+/// Settings' attachment view: the default draws a paste's chip in the prompt where it went (at the
+/// caret); the strip view draws it in the strip (inlineAttachments.tsx).
+let view: AttachmentView = DEFAULT_COMPOSER.attachmentView;
+const showAttachments = (next: AttachmentView) => {
+  view = next;
+  act(() => setComposerSettings({ attachmentView: next }));
+};
+/// The attachment chips the view draws: in the prompt, or in the strip.
+const chips = () => [
+  ...host.querySelectorAll<HTMLElement>(
+    view === "inline" ? "[data-inline-attachment] .acpmux-md-inline-chip" : ".acpmux-attachments .acpmux-attachment",
+  ),
+];
 const placeholders = () => chips().filter((chip) => chip.getAttribute("aria-busy") === "true");
 
 /// Pastes `files` on the prompt field as WebKit delivers it, in one task: what the strip shows
 /// when the event's own task ends (React flushes a paste's update before the next paint).
-function paste(files: File[]) {
+/// The task ends with its microtasks, still before the frame paints: the prompt's field tells the
+/// composer of a placed chip's element in one (MarkdownField `tellInlineViews`). No macrotask runs,
+/// so no read of a pasted file can finish.
+async function paste(files: File[]) {
   const data = { files, types: ["Files"], getData: () => "" };
   const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clipboardData", { value: data });
   act(() => {
     field().dispatchEvent(event);
   });
+  // As the page runs, not a test's act(): an update React only schedules does not draw in this task.
+  scope.IS_REACT_ACT_ENVIRONMENT = false;
+  try {
+    for (let turn = 0; turn < 3; turn++) await new Promise<void>((resolve) => queueMicrotask(resolve));
+  } finally {
+    scope.IS_REACT_ACT_ENVIRONMENT = true;
+  }
 }
 
 /// The host's kept chips (AgentPaneDraftAttachments.swift), in memory: what each chat holds.
@@ -223,40 +251,49 @@ function keptStore() {
   return { chats, store };
 }
 
-test("a pasted screenshot shows a chip in the paste's own frame, before its bytes are read", async () => {
-  const composer = await openComposer();
-  const shot = slowScreenshot();
-  paste([shot.file]);
-  // Nothing is read yet, and the strip already holds the image's chip.
-  expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
-  expect(chips()).toHaveLength(1);
-  expect(placeholders()).toHaveLength(1);
-  expect(placeholders()[0]!.classList.contains("acpmux-attachment-image")).toBe(true);
-  // Once read, the image's own chip takes the placeholder's place.
-  shot.release();
-  await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");
-  expect(placeholders()).toHaveLength(0);
-  expect(chips()).toHaveLength(1);
-  expect(composer.current!.wakeState().attachments![0]!.kind).toBe("image");
-});
+test.each(["inline", "strip"] as const)(
+  "a pasted screenshot shows a chip in the paste's own frame, before its bytes are read (%s view)",
+  async (shown) => {
+    const composer = await openComposer();
+    showAttachments(shown);
+    const shot = slowScreenshot();
+    await paste([shot.file]);
+    // Nothing is read yet, and the prompt (or the strip) already holds the image's chip.
+    expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
+    expect(chips()).toHaveLength(1);
+    expect(placeholders()).toHaveLength(1);
+    if (shown === "strip") expect(placeholders()[0]!.classList.contains("acpmux-attachment-image")).toBe(true);
+    else expect(placeholders()[0]!.dataset.state).toBe("loading");
+    // Once read, the image's own chip takes the placeholder's place.
+    shot.release();
+    await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");
+    expect(placeholders()).toHaveLength(0);
+    expect(chips()).toHaveLength(1);
+    expect(composer.current!.wakeState().attachments![0]!.kind).toBe("image");
+  },
+);
 
-test("two screenshots pasted at once show two chips at once", async () => {
-  await openComposer();
-  const first = slowScreenshot();
-  const second = slowScreenshot();
-  paste([first.file, second.file]);
-  expect(placeholders()).toHaveLength(2);
-  first.release();
-  second.release();
-  await until(() => placeholders().length === 0, "the read chips");
-  expect(chips()).toHaveLength(2);
-});
+test.each(["inline", "strip"] as const)(
+  "two screenshots pasted at once show two chips at once (%s view)",
+  async (shown) => {
+    await openComposer();
+    showAttachments(shown);
+    const first = slowScreenshot();
+    const second = slowScreenshot();
+    await paste([first.file, second.file]);
+    expect(placeholders()).toHaveLength(2);
+    first.release();
+    second.release();
+    await until(() => placeholders().length === 0, "the read chips");
+    expect(chips()).toHaveLength(2);
+  },
+);
 
 test("a prompt sent while its screenshot is still being read goes once the chip is ready, with it", async () => {
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
   const composer = await openComposer(sent);
   const shot = slowScreenshot();
-  paste([shot.file]);
+  await paste([shot.file]);
   act(() => {
     composer.current!.send();
   });
@@ -277,7 +314,7 @@ test("a prompt held for its screenshot never goes to the chat the composer moved
   const { chats, store } = keptStore();
   const composer = await openComposer(sent, "chat-a", { keptAttachments: store });
   const shot = slowScreenshot();
-  paste([shot.file]);
+  await paste([shot.file]);
   act(() => {
     composer.current!.send();
   });
@@ -295,7 +332,7 @@ test("a screenshot still being read when the composer moves to another chat goes
   const { chats, store } = keptStore();
   await openComposer([], "chat-a", { keptAttachments: store });
   const shot = slowScreenshot();
-  paste([shot.file]);
+  await paste([shot.file]);
   expect(placeholders()).toHaveLength(1);
   const onB = await openComposer([], "chat-b", { keptAttachments: store });
   // Its placeholder stays with chat-a.
@@ -316,7 +353,7 @@ test("⌘Return in the Quick Composer while a screenshot is being read sends it 
   const opened: boolean[] = [];
   await openComposer(sent, "chat-a", { onOpenInWindow: (didSend) => opened.push(didSend) });
   const shot = slowScreenshot();
-  paste([shot.file]);
+  await paste([shot.file]);
   act(() => {
     field().dispatchEvent(
       new dom.window.KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true, cancelable: true }),
