@@ -66,7 +66,8 @@ struct SidebarHugeGroupTests {
     /// `DateComponentsFormatter` per row's age; a fold copied and sorted every member row). After: open 452, fold 58,
     /// unfold 129, reorder 235. The ceilings sit between the two, so they fail on the old code; the rest of the cost
     /// is row content made for every row of a layout (the next step: build only the rows in view).
-    @Test func oneGroup10k() {
+    @Test(.disabled("Quarantined: absolute ms ceilings, not scaled to the runner, fail on every CI runner class, https://github.com/manaflow-ai/cmux/issues/30971"))
+    func oneGroup10k() {
         let n = Self.measure("one-group", count: 10_000, shape: .oneGroup)
         #expect(n.openMs < 540, "open \(n.openMs) ms")
         #expect(n.unfoldMs < 175, "unfold \(n.unfoldMs) ms")

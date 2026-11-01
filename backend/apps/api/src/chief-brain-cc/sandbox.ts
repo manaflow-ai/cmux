@@ -2,6 +2,7 @@ import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { writeConfig } from "../chief-brain/brain-store.ts"
 import { CcError, freestyle, vmName } from "./vm.ts"
 import { freestyleCustomer } from "../providers/freestyle/customer.ts"
+import { freestyleIdleSeconds } from "../auto-pause.ts"
 import type { Env } from "../env.ts"
 import { execAs, grant, LINUX_USERS, revokeGrant, revokeIdentity } from "./sandbox-access.ts"
 import { fileVerb, snapshotVerb, snapsOf, takeSnapshot } from "./sandbox-files.ts"
@@ -31,6 +32,7 @@ const DEFAULT_CAP = 2
 const MAX_CAP = 10
 const TTL_S = 12 * 3600
 const MAX_TTL_S = 72 * 3600
+/** The default idle pause of a sandbox, only with CLOUD_IDLE_PAUSE on (auto-pause.ts); otherwise -1, never. An explicit --idle-seconds still applies. */
 const IDLE_S = 1800
 const EXEC_MAX_MS = 300_000
 const OWNER_KEY = "cmux_chief_sandbox"
@@ -270,7 +272,7 @@ const create = async (b: ChiefBrainDO, agent: string, owner: string | null, req:
     const res = await freestyle(env, "POST", "/v5/vms", {
       slug: name,
       snapshotId: snapshot,
-      idleTimeoutSeconds: IDLE_S,
+      idleTimeoutSeconds: freestyleIdleSeconds(env, IDLE_S),
       ttlSeconds: TTL_S,
       automaticRestart: false,
       ...rest,
@@ -291,7 +293,7 @@ const create = async (b: ChiefBrainDO, agent: string, owner: string | null, req:
     await grant(b, id).catch(() => undefined)
     // Both images have the `chief` user exec --user chief runs as (Freestyle's Ubuntu has only ubuntu).
     await execAs(b, id, { command: CHIEF_USER, timeout_ms: 30_000, user: "root" }).catch(() => undefined)
-    const made = { vm: s, ttl_seconds: rest.ttlSeconds ?? TTL_S, idle_pause_seconds: rest.idleTimeoutSeconds ?? IDLE_S }
+    const made = { vm: s, ttl_seconds: rest.ttlSeconds ?? TTL_S, idle_pause_seconds: rest.idleTimeoutSeconds ?? freestyleIdleSeconds(env, IDLE_S) }
     const v = await fetchVm(b, id)
     const vm = v && v !== "unknown" ? v : null
     if (!hasSize(size) || !vm) return { status: 200, json: { ...made, resources: vm?.resources ?? null, cost: costOf(vm?.resources ?? null) } }

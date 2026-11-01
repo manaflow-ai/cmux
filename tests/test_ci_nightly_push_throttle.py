@@ -15,6 +15,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
@@ -116,7 +118,7 @@ run(github, context, core, process, exec).then(() => {
 
 
 def decide_script() -> str:
-    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    lines = nightly_expand(WORKFLOW.read_text(encoding="utf-8")).splitlines()
     start = lines.index("      - name: Decide whether a nightly build is needed")
     script_at = next(
         i for i in range(start, len(lines)) if lines[i].strip() == "script: |"
@@ -130,7 +132,7 @@ def decide_script() -> str:
 
 
 def env_value(name: str) -> str:
-    text = WORKFLOW.read_text(encoding="utf-8")
+    text = nightly_expand(WORKFLOW.read_text(encoding="utf-8"))
     marker = f"          {name}: "
     return next(l for l in text.splitlines() if l.startswith(marker))[len(marker) :]
 
@@ -354,7 +356,7 @@ def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
 
     consumer = "scripts/build_remote_daemon_release_assets.sh"
     assert nightly.NIGHTLY_SHIPPED_SOURCES == ("daemon/remote/",)
-    assert consumer in WORKFLOW.read_text(encoding="utf-8"), (
+    assert consumer in nightly_expand(WORKFLOW.read_text(encoding="utf-8")), (
         f"the Nightly no longer runs {consumer}; drop daemon/remote/"
     )
     assert not detect.classify_files(["daemon/remote/src/lib.rs"]).release_build
@@ -365,7 +367,7 @@ def test_decide_checks_out_before_it_classifies() -> None:
     """Without the checkout the gate silently never fires."""
     import yaml
 
-    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+    steps = yaml.safe_load(nightly_expand(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["decide"]["steps"]
     names = [step.get("id") or step.get("uses", "") for step in steps]
     checkout = next(i for i, n in enumerate(names) if n.startswith("actions/checkout@"))
     assert checkout < names.index("decide"), "decide must classify a checked-out tree"
@@ -375,7 +377,7 @@ def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
     """NEXT needs only its controls; other branches still classify the full tree."""
     import yaml
 
-    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+    steps = yaml.safe_load(nightly_expand(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["decide"]["steps"]
     checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
     assert len(checkouts) == 2
     sparse = next(step for step in checkouts if "sparse-checkout" in step["with"])
