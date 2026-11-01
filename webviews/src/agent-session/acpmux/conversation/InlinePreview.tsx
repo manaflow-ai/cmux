@@ -17,7 +17,7 @@ import { CodeBlock, languageLabel } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
 import { OpenPreview } from "./OpenPreview";
 import { renderFrameCSS } from "./renderBase";
-import { ranRenders, useRenderFrame } from "./RenderCard";
+import { useRenderFrame } from "./RenderCard";
 import {
   INLINE_PREVIEW_EXPANDED_MAX_HEIGHT,
   INLINE_PREVIEW_MAX_HEIGHT,
@@ -43,7 +43,9 @@ export function InlinePreview({
   const [showCode, setShowCode] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const scripted = useMemo(() => artifactNeedsRun(code), [code]);
-  const [running, setRunning] = useState(() => ranRenders.has(code));
+  // Run authorizes this fenced document only. A global code-text cache would auto-run the same
+  // scripted snippet when it appears later in a different chat, without a click there.
+  const [running, setRunning] = useState(false);
   // The frame left its document (its frame counts its loads): the card shows the source.
   const [left, setLeft] = useState(false);
   // Run needs a frame that may run script: the native artifact frame, or the gallery's srcdoc.
@@ -72,7 +74,6 @@ export function InlinePreview({
                 type="button"
                 className="cv-codeblock__action cv-codeblock__action--text"
                 onClick={() => {
-                  ranRenders.add(code);
                   setRunning(true);
                   setShowCode(false);
                 }}
