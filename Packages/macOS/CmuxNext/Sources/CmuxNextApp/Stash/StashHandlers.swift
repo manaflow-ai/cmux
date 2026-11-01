@@ -44,9 +44,11 @@ enum StashHandlers {
                 guard !ids.isEmpty else { throw ActionFailure.invalidTarget(StashHandlerStrings.noPage) }
                 save(invocation, services, workspaces: false, toastIn: services.windows.active?.window) { try await stash.stash(tabs: ids) }
             })
-            // A tab menu shows the row disabled with the reason; nothing to look up without a tab target.
-            ActionTargetReasons.set(id, in: registry) { invocation in
-                guard invocation.target?.kind == .tab, let found = try? pages(scope, invocation, context, quiet: true) else { return nil }
+            // The tab the run takes, targeted (a tab menu) or focused (the palette, a key, the CLI without
+            // `tab`): no web page there disables the row with the reason on every path alike, so the
+            // palette never offers what its run then refuses. The lookup reports nothing (`setTargetReason`).
+            context.setTargetReason(id) { invocation in
+                guard let found = try? pages(scope, invocation, context) else { return nil }
                 return found.isEmpty ? StashHandlerStrings.noPage : nil
             }
             ActionTargetVisibility.hide(id, in: registry) { invocation in
@@ -93,19 +95,12 @@ enum StashHandlers {
 
     // MARK: What a run takes
 
-    /// The browser pages `scope` takes from the invocation's tab, in strip order; nil when the
-    /// tab did not resolve (the context reported why, unless `quiet`). Pages of an incognito
+    /// The browser pages `scope` takes from the invocation's tab (targeted, else focused), in strip
+    /// order; nil when the tab did not resolve (the context reported why). Pages of an incognito
     /// workspace or another machine are never stashed.
-    static func pages(_ scope: TabScope, _ invocation: ActionInvocation, _ context: AppActionContext,
-                      quiet: Bool = false) throws -> [TabModel]? {
+    static func pages(_ scope: TabScope, _ invocation: ActionInvocation, _ context: AppActionContext) throws -> [TabModel]? {
         let services = context.services
-        let found: (TabModel, PaneModel)?
-        if quiet {
-            found = invocation.target.flatMap { $0.kind == .tab ? services.locateTab($0.id) : nil }
-        } else {
-            found = context.daemonTab(invocation).map { ($0.tab, $0.pane) }
-        }
-        guard let (tab, pane) = found else { return nil }
+        guard let (tab, pane) = context.daemonTab(invocation).map({ ($0.tab, $0.pane) }) else { return nil }
         let daemon = services.machines.daemon(forPane: pane)
         guard daemon.isLocal else { throw ActionFailure.invalidTarget(StashHandlerStrings.otherMachine) }
         guard daemon.store.workspace(containing: pane.handle)?.ephemeral != true else { return [] }
