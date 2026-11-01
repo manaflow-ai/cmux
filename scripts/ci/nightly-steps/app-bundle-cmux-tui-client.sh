@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # nightly.yml build-nightly-app: "Bundle the cmux-tui client". Moved out of the workflow to keep nightly.yml under
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# One attested commit manifest for every variant, also on a reused app: the
+# resolved commit, or while the tree publishes the one await-tree-client.sh finds.
+# install-cmux-tui-client.sh verifies the manifest's build-provenance
+# attestation with gh before trusting it.
 set -euo pipefail
 app="build-universal/Build/Products/Release/cmux.app"
 cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
