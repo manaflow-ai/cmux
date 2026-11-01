@@ -47,6 +47,7 @@ pub(crate) struct Adapter {
     next: u64,
     pending: HashMap<u64, Pending>,
     tabs: BTreeMap<String, Tab>,
+    surface_sessions: HashMap<u64, String>,
     attached: HashSet<u64>,
 }
 
@@ -54,7 +55,13 @@ impl Adapter {
     // Machine/team authorization belongs to the service's fresh app snapshot,
     // and the native daemon's authenticated connection. Neither is an ACP arg.
     pub(crate) fn new(_machine: String, _team: String) -> Self {
-        Self { next: 0, pending: HashMap::new(), tabs: BTreeMap::new(), attached: HashSet::new() }
+        Self {
+            next: 0,
+            pending: HashMap::new(),
+            tabs: BTreeMap::new(),
+            surface_sessions: HashMap::new(),
+            attached: HashSet::new(),
+        }
     }
 
     fn call(&mut self, mut command: Value, phone_id: Option<Value>, reply: Reply) -> Effects {
@@ -189,6 +196,8 @@ impl Adapter {
             Reply::Directory => {
                 let tabs = discover(&data)?;
                 let summaries = tabs.values().map(|t| t.summary.clone()).collect::<Vec<_>>();
+                self.surface_sessions =
+                    tabs.iter().map(|(session, tab)| (tab.surface, session.clone())).collect();
                 self.tabs = tabs;
                 Ok(answer(phone, json!({"sessions":summaries})))
             }
@@ -231,7 +240,7 @@ impl Adapter {
         let Some(surface) = event.get("surface").and_then(Value::as_u64) else {
             return Ok(Effects::default());
         };
-        let Some((session, _)) = self.tabs.iter().find(|(_, tab)| tab.surface == surface) else {
+        let Some(session) = self.surface_sessions.get(&surface) else {
             return Ok(Effects::default());
         };
         let (method, field) = match event.get("event").and_then(Value::as_str) {
