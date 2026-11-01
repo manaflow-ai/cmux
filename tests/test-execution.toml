@@ -357,15 +357,18 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_control_runner.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30657 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks scripts/ci/nightly_next_control_runner.py; run python3 tests/test_nightly_next_control_runner.py yourself after changing it or the nightly-next control placement in nightly.yml (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_nightly_next_control_rescue.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30657 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks scripts/ci/nightly_next_control_rescue.py; run python3 tests/test_nightly_next_control_rescue.py yourself after changing it or the nightly-next control rescue in nightly.yml (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_ci_fast_checks_runner.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30648 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks scripts/ci/fast_checks_runner.py's live admission and bounded overflow; run python3 tests/test_ci_fast_checks_runner.py yourself after changing it or fast-checks.yml's picker (about 1 s, no build)."
 
 [[test]]
 path = "tests/test_ci_simple_pool_picker.py"

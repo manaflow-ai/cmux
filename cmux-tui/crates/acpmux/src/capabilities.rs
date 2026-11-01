@@ -21,6 +21,9 @@ use crate::rpc::method;
 /// Session-to-session message events; a daemon with it names, in each prompt acceptance, the
 /// message its journal kept (`hub/message_events.rs` `name_message`).
 pub const SESSION_MESSAGES: &str = "session-messages-v1";
+/// Cloud trigger chat: a short-lived trigger principal may bootstrap one scoped chat and
+/// submit idempotent ensure/send/status operations over fd0.
+pub const TRIGGER_CHAT: &str = "trigger-chat-v1";
 
 pub struct Capability {
     pub id: &'static str,
@@ -84,6 +87,14 @@ pub const CAPABILITIES: &[Capability] = &[
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    Capability {
+        id: TRIGGER_CHAT,
+        wire: &[
+            method::TRIGGER_CHAT_ENSURE,
+            method::TRIGGER_CHAT_SEND,
+            method::TRIGGER_CHAT_STATUS,
+        ],
+    },
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },

@@ -32,7 +32,11 @@ const transcript = (background: Partial<NonNullable<AcpmuxRow["background"]>>) =
     row("check", "activity", {
       inBackground: "bg",
       items: [
-        { kind: "tool", text: "Ran check", tool: { id: "check", title: "check", kind: "execute", status: "completed" } },
+        {
+          kind: "tool",
+          text: "Ran check",
+          tool: { id: "check", title: "check", kind: "execute", status: "completed" },
+        },
       ],
     }),
     row("note", "assistant", { text: "Nothing new for you yet.", inBackground: "bg" }),
