@@ -28,8 +28,6 @@ pub(super) enum Why {
     NameNotUtf8,
     /// A dependency or build folder the project rebuilds on the machine.
     Heavy,
-    /// Left out by the share's own rule (`cmux link access`).
-    NotShared,
     /// The name of the sync record itself.
     Reserved,
 }
@@ -43,7 +41,6 @@ impl Why {
             Self::Special => "special",
             Self::NameTooLong | Self::NameControl | Self::NameNotUtf8 => "name",
             Self::Heavy => "heavy",
-            Self::NotShared => "not_shared",
             Self::Reserved => "reserved",
         }
     }
@@ -61,7 +58,6 @@ impl Why {
             Self::NameControl => "a name Linux can't hold (control character)",
             Self::NameNotUtf8 => "a name Linux can't hold (not UTF-8)",
             Self::Heavy => "a heavy folder rebuilt on the machine",
-            Self::NotShared => "not part of this share",
             Self::Reserved => "the name of the sync record",
         }
     }
