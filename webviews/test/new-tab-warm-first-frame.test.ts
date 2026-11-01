@@ -296,8 +296,8 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
         expect(painted).toHaveLength(1);
         expect(painted[0]).toContain("Fix the atlas build");
         expect(painted[0]).toContain("Older device chat");
-        // The environment picker puts New Worktree beside the folder (not behind Labs since #29059).
-        expect(painted[0]).toStartWith("atlas New Worktree cosmic-gray ::");
+        // The bar names the folder and the machine; New Worktree is in the folder menu only.
+        expect(painted[0]).toStartWith("atlas cosmic-gray ::");
       },
     );
   }
@@ -331,7 +331,7 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
       expect(painted).toHaveLength(1);
       expect(painted[0]).toContain("Fix the atlas build");
       // The adopting tab's project, not the spare's "Choose folder".
-      expect(painted[0]).toStartWith("atlas New Worktree cosmic-gray ::");
+      expect(painted[0]).toStartWith("atlas cosmic-gray ::");
     },
   );
 

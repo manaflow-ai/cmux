@@ -130,13 +130,14 @@ class MainTests(unittest.TestCase):
     def test_a_github_error_warns_instead_of_failing_the_schedule(self):
         def boom(*_args, **_kwargs):
             raise urllib.error.HTTPError("u", 502, "Bad Gateway", {}, None)
-        original = watch.GitHub.call, watch.read_feed
-        watch.GitHub.call, watch.read_feed = boom, lambda url: NEWEST
+        feed = f"<rss><channel><item><pubDate>{NEWEST.strftime('%a, %d %b %Y %H:%M:%S +0000')}</pubDate></item></channel></rss>"
+        original = watch.GitHub.call, watch.fetch_feed
+        watch.GitHub.call, watch.fetch_feed = boom, lambda url: feed
         try:
             with unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
                 self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
         finally:
-            watch.GitHub.call, watch.read_feed = original
+            watch.GitHub.call, watch.fetch_feed = original
 
 
 class FeedTests(unittest.TestCase):
@@ -144,10 +145,74 @@ class FeedTests(unittest.TestCase):
         # nightly-next ships as cmux NEXT with its own feed (cx-x7hwx); the old
         # cmux NIGHTLY-identity feed is no longer written.
         self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
+        self.assertEqual(watch.LEGACY_FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
 
     def test_feed_watch_runs_every_five_minutes(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
         self.assertIn('cron: "*/5 * * * *"', workflow)
+
+
+def appcast(*items):
+    body = "".join(
+        f"<item><sparkle:channel>{channel}</sparkle:channel><sparkle:version>{build}</sparkle:version>"
+        f"<pubDate>{(NOW - dt.timedelta(minutes=minutes)).strftime('%a, %d %b %Y %H:%M:%S +0000')}</pubDate></item>"
+        for build, minutes, channel in items)
+    return f"<rss><channel>{body}</channel></rss>"
+
+
+class LegacyFeedTests(unittest.TestCase):
+    NEXT = appcast((4023540480101, 40, "cmux-next"), (4020374816001, 450, "cmux-next"))
+    OLD = appcast((4020374816001, 450, "cmux-next"))
+
+    def test_legacy_feed_lag_is_measured_from_the_oldest_missing_build(self):
+        build, reason = watch.legacy_lag(NOW, self.NEXT, self.OLD)
+        self.assertEqual(build, 4023540480101)
+        self.assertIn("4020374816001", reason)
+
+    def test_multiple_missing_builds_retry_the_oldest_run_first(self):
+        next_xml = appcast((4025000000101, 5, "cmux-next"),
+                           (4023540480101, 40, "cmux-next"),
+                           (4020374816001, 450, "cmux-next"))
+        build, reason = watch.legacy_lag(NOW, next_xml, self.OLD)
+        self.assertEqual(build, 4023540480101)
+        self.assertIn("retry begins at 4023540480101", reason)
+
+    def test_fresh_or_non_nightly_items_do_not_trigger_lag(self):
+        self.assertIsNone(watch.legacy_lag(
+            NOW, appcast((4023540480101, 5, "cmux-next")), appcast((4023540480101, 5, "cmux-next")))[0])
+        self.assertIsNone(watch.legacy_lag(
+            NOW, appcast((4023540480101, 40, "cmux-next-dev")), self.OLD)[0])
+
+    def test_legacy_rerun_retries_the_earliest_unpublished_job(self):
+        class API:
+            def __init__(self):
+                self.posts = []
+
+            def call(self, method, path, body=None):
+                if method == "GET":
+                    return {"path": ".github/workflows/nightly.yml", "head_branch": "nightly-next",
+                            "status": "completed", "run_attempt": 1, "html_url": "run-url"}
+                self.posts.append(path)
+                return {}
+
+            def jobs(self, run):
+                return [{"id": 11, "name": "legacy-identity-target", "conclusion": "success"},
+                        {"id": 12, "name": "sign-nightly-identity-legacy", "conclusion": "success",
+                         "steps": [{"name": "Notarize", "conclusion": "failure"}]},
+                        {"id": 13, "name": "nightly-identity-legacy-published", "conclusion": "failure"}]
+
+        api = API()
+        reason = watch.legacy_rerun(api, 4023540480101)
+        self.assertEqual(api.posts, ["/actions/jobs/12/rerun"])
+        self.assertIn("sign-nightly-identity-legacy", reason)
+
+    def test_legacy_rerun_leaves_an_active_run_alone(self):
+        class API:
+            def call(self, method, path, body=None):
+                return {"path": ".github/workflows/nightly.yml", "head_branch": "nightly-next",
+                        "status": "in_progress", "html_url": "run-url"}
+
+        self.assertIn("still running", watch.legacy_rerun(API(), 4023540480101))
 
 
 class StarvationGuardTests(unittest.TestCase):
