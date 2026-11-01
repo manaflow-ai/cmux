@@ -8,8 +8,9 @@ import CmuxNextCompat
 public enum DaemonVersionDecision: Sendable, Equatable {
     /// Keep the running daemon; the reason is for the log.
     case keep(String)
-    /// Hand off: the running daemon (`running` commit) exits, keeping its
-    /// terminal hosts, and a daemon of the bundled build (`bundled`) adopts them.
+    /// Hand off: the running daemon (`running` build id, or its commit) exits,
+    /// keeping its terminal hosts, and a daemon of the bundled build (`bundled`)
+    /// adopts them.
     case restart(running: String, bundled: String)
 }
 

@@ -38,10 +38,13 @@ extension DaemonLauncher {
 
     /// Build of the bundled binary (`cmux --version --json`: `build_commit` and `build_identity`),
     /// for the version handoff; nil when the binary does not answer with that JSON.
+    /// A binary older than `--version --json` (an external `CMUX_NEXT_TUI_BIN`) gets its commit
+    /// from the `--version` text, as before.
     public func bundledBuild() async throws -> DaemonBuildStamp? {
         let result = try await ProcessRunner.run(executable: configuration.binary, arguments: ["--version", "--json"],
                                                  environment: nil, timeout: .seconds(5), clock: clock)
-        return DaemonBuildStamp(versionJSON: result.stdout)
+        if let stamp = DaemonBuildStamp(versionJSON: result.stdout) { return stamp }
+        return try await bundledBuildCommit().map { DaemonBuildStamp(commit: $0, id: nil) }
     }
 
     static func parseBuildCommit(_ version: String) -> String? {
