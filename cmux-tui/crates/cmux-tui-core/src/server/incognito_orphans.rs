@@ -200,7 +200,11 @@ pub(super) fn close_orphaned(mux: &Arc<Mux>, client: u64) {
     match mux.read_registry_state(crate::state::store::ephemeral_workspaces) {
         Ok(live) => {
             let live: HashSet<String> = live.into_iter().collect();
-            creators.by_workspace.lock().recover_poison().retain(|workspace, _| live.contains(workspace));
+            creators
+                .by_workspace
+                .lock()
+                .recover_poison()
+                .retain(|workspace, _| live.contains(workspace));
         }
         Err(error) => {
             eprintln!("cmux-tui: could not list incognito workspaces: {error:#}");
@@ -242,9 +246,15 @@ mod tests {
         ]);
         let connected = HashSet::from(["token:2.1".to_string(), "token:3.1".to_string()]);
         let all_gone = |_: &str| true;
-        assert_eq!(orphaned(&creators, "token:2.1", &connected, all_gone), vec!["gone".to_string()]);
+        assert_eq!(
+            orphaned(&creators, "token:2.1", &connected, all_gone),
+            vec!["gone".to_string()]
+        );
         // A new process with the old pid (another pid version) is another process.
-        assert_eq!(orphaned(&creators, "token:1.2", &connected, all_gone), vec!["gone".to_string()]);
+        assert_eq!(
+            orphaned(&creators, "token:1.2", &connected, all_gone),
+            vec!["gone".to_string()]
+        );
         // A creator whose process still runs keeps its workspaces.
         assert!(orphaned(&creators, "token:2.1", &connected, |_| false).is_empty());
     }

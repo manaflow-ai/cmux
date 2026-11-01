@@ -44,7 +44,12 @@ fn send(
     response
 }
 
-fn create(mux: &Arc<Mux>, client: &(u64, MessageWriter, Arc<BoundedOutbound>), name: &str, ephemeral: bool) -> String {
+fn create(
+    mux: &Arc<Mux>,
+    client: &(u64, MessageWriter, Arc<BoundedOutbound>),
+    name: &str,
+    ephemeral: bool,
+) -> String {
     let mut params = json!({"name": name, "initial_content": "empty"});
     if ephemeral {
         params["ephemeral"] = json!(true);
@@ -52,7 +57,11 @@ fn create(mux: &Arc<Mux>, client: &(u64, MessageWriter, Arc<BoundedOutbound>), n
     create_with(mux, client, params)
 }
 
-fn create_with(mux: &Arc<Mux>, client: &(u64, MessageWriter, Arc<BoundedOutbound>), params: Value) -> String {
+fn create_with(
+    mux: &Arc<Mux>,
+    client: &(u64, MessageWriter, Arc<BoundedOutbound>),
+    params: Value,
+) -> String {
     let name = params["name"].as_str().unwrap_or("workspace").to_string();
     let response = send(mux, client, &format!("create-{name}"), "workspace.create", params);
     response["result"]["value"]["workspace_id"]
@@ -63,14 +72,12 @@ fn create_with(mux: &Arc<Mux>, client: &(u64, MessageWriter, Arc<BoundedOutbound
 }
 
 /// The workspace ids `client`'s session snapshot lists.
-fn listed(mux: &Arc<Mux>, client: &(u64, MessageWriter, Arc<BoundedOutbound>), id: &str) -> Vec<String> {
-    let response = send(
-        mux,
-        client,
-        id,
-        "session.snapshot",
-        json!({}),
-    );
+fn listed(
+    mux: &Arc<Mux>,
+    client: &(u64, MessageWriter, Arc<BoundedOutbound>),
+    id: &str,
+) -> Vec<String> {
+    let response = send(mux, client, id, "session.snapshot", json!({}));
     response["result"]["workspaces"]
         .as_array()
         .unwrap()
@@ -80,8 +87,10 @@ fn listed(mux: &Arc<Mux>, client: &(u64, MessageWriter, Arc<BoundedOutbound>), i
 }
 
 fn persistent(name: &'static str) -> (Arc<Mux>, PathBuf) {
-    let root = std::env::temp_dir()
-        .join(format!("cmux-incognito-orphans-{name}-{}", crate::workspace_registry::new_uuid_v4()));
+    let root = std::env::temp_dir().join(format!(
+        "cmux-incognito-orphans-{name}-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
     (Mux::open_persistent(name, SurfaceOptions::default(), &root).unwrap(), root)
 }
 
@@ -103,7 +112,10 @@ fn a_crashed_apps_incognito_workspaces_close_when_the_next_app_reads_the_session
     // And it leaves no closed-history record.
     let closed = send(&mux, &relaunched, "closed", "closed.list", json!({}));
     assert!(
-        closed["result"]["value"].as_array().or(closed["result"].as_array()).is_none_or(Vec::is_empty),
+        closed["result"]["value"]
+            .as_array()
+            .or(closed["result"].as_array())
+            .is_none_or(Vec::is_empty),
         "{closed}"
     );
     mux.shutdown();
@@ -164,7 +176,13 @@ fn a_crashed_app_never_takes_another_apps_moved_workspace_with_it() {
     // The other app's move commits; its answer has not been handled yet.
     let others = mux.move_tab_to_new_workspace(other_tab, None, None, None).unwrap();
     let others = mux.with_state(|state| {
-        state.workspaces.iter().find(|workspace| workspace.id == others).unwrap().public_id.to_string()
+        state
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == others)
+            .unwrap()
+            .public_id
+            .to_string()
     });
     move_to_new_workspace(&mux, &crashed, crashed_tab);
     assert!(disconnect_client(&mux, crashed.0, false));

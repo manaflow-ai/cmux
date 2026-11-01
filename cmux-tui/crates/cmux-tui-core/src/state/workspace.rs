@@ -246,8 +246,7 @@ impl Mux {
         workspace_id: &str,
         guard: TerminalCloseGuard,
     ) -> anyhow::Result<()> {
-        let ephemeral =
-            self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
+        let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         if !ephemeral.iter().any(|id| id == workspace_id) {
             return Ok(());
         }
@@ -260,9 +259,7 @@ impl Mux {
             let terminals = state
                 .panes
                 .values()
-                .filter(|pane| {
-                    state.screen_of(pane.id).is_some_and(|(owner, _)| owner == index)
-                })
+                .filter(|pane| state.screen_of(pane.id).is_some_and(|(owner, _)| owner == index))
                 .flat_map(|pane| pane.tabs.iter())
                 // From the topology, not the surfaces: a host still
                 // adopting on its own thread has no surface yet.
@@ -280,9 +277,7 @@ impl Mux {
         }
         for terminal in terminals {
             let orphan = self.with_state(|state| {
-                state
-                    .placements_of_content(&ContentPublicId::Terminal(terminal.clone()))
-                    .is_empty()
+                state.placements_of_content(&ContentPublicId::Terminal(terminal.clone())).is_empty()
             });
             if !orphan {
                 continue;
