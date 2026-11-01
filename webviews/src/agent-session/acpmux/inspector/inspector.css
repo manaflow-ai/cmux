@@ -592,6 +592,10 @@ button.acpmux-chat-inspector-port:hover,
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* The machine row's kind word and a Save after it: one auto margin, so they sit together at the end. */
+.acpmux-chat-inspector-row__end + .acpmux-chat-inspector-row__end {
+  margin-left: 8px;
+}
 .acpmux-chat-inspector-row__end[data-state="failed"] {
   color: var(--agent-status-failure);
 }

@@ -205,8 +205,43 @@ test("a scratchpad chat lists only its machine: no folder row and no Save", asyn
     onOpenFolder: () => undefined,
     onSaveEnvironment: () => undefined,
   });
-  expect(environment.textContent).toBe("studio-mac");
+  expect(environment.textContent).toBe(`studio-mac${translate("composer.envLocal")}`);
   expect(environment.querySelector("button")).toBeNull();
+});
+
+// Leo, 2026-10-31: "WHY THE FUCK IS THERE NOTHING THAT FUCKING TELLS ME IF IT'S LOCAL OR IF". The
+// machine row, at the top of Session Info, says in words where the chat runs, not only a name.
+test("the machine row says where the chat runs: Local, SSH or Cloud beside the machine's name", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const base = { sessionId: "s", cwd: SCRATCHPAD } as Summary;
+  const kindOf = async (summary: Summary, peerKinds?: Record<string, "ssh" | "cloud">) => {
+    await act(async () =>
+      root!.render(<EnvironmentSection summary={summary} machineName="studio-mac" peerKinds={peerKinds} />),
+    );
+    const row = container.querySelector<HTMLElement>("li[data-machine]")!;
+    return [
+      row.dataset.machine,
+      row.querySelector(".acpmux-chat-inspector-row__name")?.textContent,
+      row.querySelector("[data-machine-kind]")?.textContent,
+    ];
+  };
+  expect(await kindOf(base)).toEqual(["local", "studio-mac", translate("composer.envLocal")]);
+  expect(await kindOf({ ...base, peer: "build-box" }, { "build-box": "ssh" })).toEqual([
+    "ssh",
+    "build-box",
+    translate("composer.envSSH"),
+  ]);
+  expect(await kindOf({ ...base, peer: "vm-1" }, { "vm-1": "cloud" })).toEqual([
+    "cloud",
+    "vm-1",
+    translate("composer.cloud"),
+  ]);
+  expect(await kindOf({ ...base, hostKind: "cloud", host: "build-01" })).toEqual([
+    "cloud",
+    "build-01",
+    translate("composer.cloud"),
+  ]);
 });
 
 test("without the App's actions the rows are plain text, and no Remote Control row is drawn", async () => {
