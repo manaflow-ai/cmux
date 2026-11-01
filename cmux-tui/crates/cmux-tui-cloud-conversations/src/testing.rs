@@ -76,7 +76,6 @@ impl CloudWire for ScriptedWire {
 pub struct FakeBackend {
     pub replies: Mutex<HashMap<String, VecDeque<Result<HttpReply, TransportError>>>>,
     pub posted: Mutex<Vec<Posted>>,
-    pub patched: Mutex<Vec<Posted>>,
     pub wires: Mutex<VecDeque<Result<ScriptedWire, ConnectError>>>,
     pub connected: Mutex<Vec<Connected>>,
     /// `GET` requests (body `Null`); replies come from `replies` by path.
@@ -166,28 +165,6 @@ impl CloudBackend for FakeBackend {
             url: url.to_string(),
             bearer: bearer.unwrap_or_default().to_string(),
             client_version: client_version.map(str::to_string),
-            body: body.clone(),
-        });
-        self.scripted(&path_of(url))
-    }
-
-    fn platform(
-        &self,
-        method: &str,
-        url: &str,
-        bearer: &str,
-        body: &Value,
-    ) -> Result<HttpReply, TransportError> {
-        let requests = match method {
-            "GET" => &self.got,
-            "POST" => &self.posted,
-            "PATCH" => &self.patched,
-            _ => return Err(TransportError("unsupported platform method".into())),
-        };
-        requests.lock().unwrap_or_else(PoisonError::into_inner).push(Posted {
-            url: url.to_string(),
-            bearer: bearer.to_string(),
-            client_version: None,
             body: body.clone(),
         });
         self.scripted(&path_of(url))

@@ -58,7 +58,6 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         try await mapped { try await client.setConfig(id: configId, value: value) }
     }
 
-
     public func close() async { await client.close() }
 
     /// A daemon push as the pane's event: the record or request object, or the close reason.

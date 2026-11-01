@@ -1147,6 +1147,47 @@ export const SETTINGS_PAGE: LatencyPageSpec = {
   actions: settingsActions,
 };
 
+/** Opening another chat with Session Info open, once per arm of the chat-switch-motion experiment
+ *  (flows.harness.ts `switch=`): the frames from the switch until every part of its motion settled. */
+function chatSwitch(arm: string): LatencyPageSpec {
+  return {
+    name: `chat switch ${arm}`,
+    path: `/test/latency/flows.html?mock&switch=${arm}`,
+    ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+    actions: [
+      {
+        id: `chat.switch.${arm}`,
+        name: `open another chat (${arm} motion)`,
+        metricType: "frame_time",
+        requiredInstrumentation: requiredProfiled,
+        async prepare(page) {
+          await page.evaluate("window.__latencyFlows.restoreChat()");
+          await page.waitForSelector(".acpmux-scroll .acpmux-row");
+          if (!(await page.$("aside.acpmux-session-info")))
+            await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+          await page.waitForSelector("aside.acpmux-session-info[data-presence='shown']");
+          await quiet(page);
+          const from = await page.evaluate(() => document.querySelector(".acpmux-thread-title")?.textContent ?? "");
+          // Landed and settled: another title, rows drawn, and no part of the switch still moving.
+          return `(() => {
+            const title = document.querySelector(".acpmux-thread-title")?.textContent ?? "";
+            if (title === ${js(from)} || !document.querySelector(".acpmux-scroll .acpmux-row")) return false;
+            return !document.getAnimations().some((animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime));
+          })()`;
+        },
+        async input(page) {
+          await page.evaluate("window.__latency.markInput('chat-switch'); window.__latencyFlows.openOtherChat()");
+        },
+        async settle(page) {
+          await page.evaluate("window.__latencyFlows.restoreChat()");
+          await quiet(page);
+        },
+      },
+    ],
+  };
+}
+
 const GLASS_WHEEL_STEPS = 12;
 const GLASS_WHEEL_DELTA = 120;
 
@@ -1188,6 +1229,7 @@ function glassScroll(mode: string): LatencyPageSpec {
   };
 }
 
+export const CHAT_SWITCH_PAGES: LatencyPageSpec[] = ["off", "fade", "stagger", "depth"].map(chatSwitch);
 export const GLASS_PAGES: LatencyPageSpec[] = ["plain", "lens-flat", "lens", "prism", "svg"].map(glassScroll);
 
 const LIVE_WHEEL_STEPS = 12;
@@ -1247,6 +1289,7 @@ export const PAGES: LatencyPageSpec[] = [
   ...RAIL_SWEEP_PAGES,
   // Experiment comparisons (design/glass.md, design/motion-and-polish.md in leo-workspace): run on
   // demand with CMUX_LATENCY_EXPERIMENTS=1, never in the CI scoreboard.
+  ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? CHAT_SWITCH_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? LIVE_BACKGROUND_PAGES : []),
 ];
