@@ -72,7 +72,7 @@ if [ "$helper_calls" -lt 3 ]; then
 fi
 
 DELTAS="$ROOT_DIR/scripts/ci/generate-nightly-deltas.sh"
-if ! grep -Fq 'scripts/ci/generate-nightly-deltas.sh' "$WORKFLOW" "${step_scripts[@]}" || ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh" "$previous" "$SPARKLE_PUBLIC_KEY"' "$DELTAS"; then
+if ! grep -Fq 'scripts/ci/generate-nightly-deltas.sh' "$WORKFLOW" || ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh" "$previous" "$SPARKLE_PUBLIC_KEY"' "$DELTAS"; then
   echo "FAIL: the post-publication delta step must drop previous nightlies signed for another key before building deltas"
   exit 1
 fi
