@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import ImageIO
 @testable import MessagesLabHome
 import Testing
@@ -13,7 +14,7 @@ import UniformTypeIdentifiers
 /// `HomeNativeTranscriptView` over a `HomeStore` on the mock owner, through
 /// the same intake as Cmd+V, a drop and the + picker, in an offscreen window
 /// that is never ordered front.
-@MainActor @Suite(.serialized) struct HomeComposerInlineImageTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeComposerInlineImageTests {
     /// Pasteboard contents as a value (a ci-step mini has no pasteboard server).
     struct Board: HomePasteboardContents {
         var fileURLs: [URL] = []

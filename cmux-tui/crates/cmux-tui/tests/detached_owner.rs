@@ -202,11 +202,44 @@ fn an_owner_ensured_with_exit_with_pid_stops_when_that_process_exits() {
 /// home. The owner of the deleted state still serves the session socket, so
 /// ensure must refuse it, not report its stale state as the requested one.
 /// The same state dir keeps the owner (`ensure_starts_a_detached_owner_once`).
+/// One run in five failed at 30806df8b37 (job fcd88cea7a09018bf931c4f5),
+/// before df9eb15fa13 kept a client on the first owner; 50 rounds passed on
+/// both OSes after it, alone and under the full suite. To stress it again:
+/// `CMUX_TEST_RECREATED_STATE_ROUNDS=50`. A failure prints the first owner's
+/// log and whether it was still alive.
 #[test]
 fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
+    let rounds: usize = std::env::var("CMUX_TEST_RECREATED_STATE_ROUNDS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1);
+    for round in 0..rounds {
+        ensure_refuses_the_owner_of_a_recreated_state_dir(round);
+    }
+}
+
+fn ensure_refuses_the_owner_of_a_recreated_state_dir(round: usize) {
     let fixture = EnsureFixture::new("recreated");
-    let first = fixture.run("ensure");
+    // The owner's log goes outside the state dir the test removes, so a
+    // failure can say why the first owner was gone.
+    let log = fixture.dir.join("owner.log");
+    let mut first = fixture.command("ensure");
+    first.env("CMUX_TUI_LOG_FILE", &log);
+    let first = parse_success("ensure", &first.output().unwrap());
     assert_eq!(first["status"], "started", "{first}");
+    let first_pid = first["pid"].as_u64().expect("owner pid");
+    // A client stays connected to the first owner, as a person's app would: an owner whose
+    // state dir is gone and that has no client stops (headless/lost_paths.rs, #29349), and
+    // then a new owner is right. Held, the first owner keeps serving the socket, which is the
+    // case ensure must refuse (cx-lcxo2x). An answered request proves it registered.
+    let mut client =
+        std::os::unix::net::UnixStream::connect(first["socket"].as_str().unwrap()).unwrap();
+    client.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+    std::io::Write::write_all(&mut client, b"{\"id\":1,\"cmd\":\"identify\"}\n").unwrap();
+    let answered = std::io::BufRead::lines(std::io::BufReader::new(&client))
+        .map_while(Result::ok)
+        .any(|line| line.contains("\"id\":1"));
+    assert!(answered, "the first owner never answered identify");
 
     // The owner still writes in its state dir, so removing it in place can
     // race a new file (ENOTEMPTY). Move it away first: the path is then free
@@ -218,10 +251,15 @@ fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
     fs::create_dir_all(&state).unwrap();
 
     let output = fixture.command("ensure").output().unwrap();
+    // SAFETY: signal 0 only checks that the pid exists.
+    let first_alive = unsafe { libc::kill(first_pid as libc::pid_t, 0) } == 0;
+    drop(client);
     assert!(
         !output.status.success(),
-        "ensure reused the owner of the deleted state dir: {}",
-        String::from_utf8_lossy(&output.stdout)
+        "round {round}: ensure reused the owner of the deleted state dir (first owner {first_pid} \
+         alive: {first_alive}): {}\nfirst owner log:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        fs::read_to_string(&log).unwrap_or_default()
     );
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|_| {
         panic!("stderr is not one JSON error: {}", String::from_utf8_lossy(&output.stderr))

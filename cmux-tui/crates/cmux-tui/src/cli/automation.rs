@@ -45,6 +45,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if first != "automation" && first != "automations" {
         return None;
     }
+    // `automation show-page` is the app's `automations.show` (it opens the Automations page): the
+    // app action fallback runs it.
+    if rest.first().is_some_and(|verb| verb == "show-page") {
+        return None;
+    }
     let output = global.output;
     Some(match dispatch(rest, &global) {
         Ok(code) => code,
@@ -151,20 +156,17 @@ const SPEC_FLAGS: &[&str] = &["hourly", "manual", "paused"];
 fn take_target(args: &[String]) -> Result<(bool, Vec<String>), Failure> {
     let mut out = Vec::with_capacity(args.len());
     let mut target = None;
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
+    let mut words = args.iter();
+    while let Some(arg) = words.next() {
         if let Some(v) = arg.strip_prefix("--target=") {
             target = Some(v.to_string());
         } else if arg == "--target" {
-            i += 1;
-            target = Some(args.get(i).cloned().ok_or_else(|| {
+            target = Some(words.next().cloned().ok_or_else(|| {
                 Failure::Usage(messages().missing_value.replace("{flag}", "target"))
             })?);
         } else {
             out.push(arg.clone());
         }
-        i += 1;
     }
     match target.as_deref() {
         None | Some("local" | "this-mac") => Ok((false, out)),
@@ -1273,5 +1275,20 @@ mod tests {
         assert_eq!(parse_duration("45m").ok(), Some(2_700));
         assert_eq!(parse_duration("1d").ok(), Some(86_400));
         assert!(parse_duration("soon").is_err());
+    }
+
+    #[test]
+    fn target_is_taken_out_of_the_words_in_both_forms() {
+        let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let taken = |w: &[&str]| take_target(&words(w)).ok();
+        assert_eq!(taken(&["list"]), Some((false, words(&["list"]))));
+        assert_eq!(
+            taken(&["list", "--target", "cloud", "--json"]),
+            Some((true, words(&["list", "--json"])))
+        );
+        assert_eq!(taken(&["--target=cloud", "list"]), Some((true, words(&["list"]))));
+        assert_eq!(taken(&["list", "--target", "this-mac"]), Some((false, words(&["list"]))));
+        assert!(matches!(take_target(&words(&["list", "--target"])), Err(Failure::Usage(_))));
+        assert!(matches!(take_target(&words(&["--target", "mars"])), Err(Failure::Usage(_))));
     }
 }

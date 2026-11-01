@@ -28,6 +28,7 @@ mod computer_use_gate;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod open_tool;
 mod placement;
 mod render_tool;
 mod schema;
@@ -98,8 +99,6 @@ pub(super) fn agent_failure_value(failure: CallFailure) -> Value {
     error
 }
 
-/// MCP revisions this server speaks, newest first.
-const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 /// The largest JSON-RPC line read from the client.
 const MAX_MESSAGE_BYTES: usize = 8 << 20;
 /// The largest tool result; a larger page is cut and says where to go on.
@@ -223,6 +222,25 @@ pub(super) trait Backend {
             idempotency_key: None,
         })
     }
+
+    /// A scoped chat read for agent waits. The session is routed by the same
+    /// owner policy as a daemon read; the default does not guess another session.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        if session.is_some() {
+            return Err(CallFailure::local(
+                FailureKind::NotRun,
+                "chat.unavailable",
+                "this backend cannot route chats to another cmux session",
+            ));
+        }
+        self.chat(command, idempotency_key, origin)
+    }
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -323,6 +341,16 @@ impl Backend for LiveBackend {
         origin: &str,
     ) -> Result<Value, CallFailure> {
         super::agents::chat::run(&self.global, command, idempotency_key, origin)
+    }
+
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        super::agents::chat::run(&self.routed(session)?, command, idempotency_key, origin)
     }
 }
 
@@ -656,6 +684,15 @@ impl<B: Backend> Server<B> {
     /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
+        for proxied in &mut self.upstreams {
+            proxied.refresh();
+        }
+        self.listed()
+    }
+
+    /// [`Self::list`] from the actions and proxied tools as last read,
+    /// asking nothing again.
+    fn listed(&self) -> Vec<Value> {
         let mut tools =
             v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
         tools
@@ -669,14 +706,14 @@ impl<B: Backend> Server<B> {
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
+        tools.push(open_tool::descriptor());
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
-        for proxied in &mut self.upstreams {
-            proxied.refresh();
+        for proxied in &self.upstreams {
             let taken = tools
                 .iter()
                 .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
@@ -880,6 +917,12 @@ impl<B: Backend> Server<B> {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
         }
+        if name == open_tool::NAME {
+            if !self.actions_loaded {
+                self.refresh_actions();
+            }
+            return Ok(self.call_open(&arguments));
+        }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
                 Ok(receipt) => success(receipt, false),
@@ -910,9 +953,19 @@ impl<B: Backend> Server<B> {
             self.refresh_actions();
         }
         let Some(tool) = self.actions.iter().find(|tool| tool.name == name) else {
-            return Err((-32602, format!("unknown tool: {name}")));
+            return Err((-32602, self.unknown_tool(name)));
         };
         Ok(self.call_action(tool, &arguments))
+    }
+
+    /// `unknown tool: NAME`, naming the nearest tool `tools/list` offers when
+    /// one is close (`acpmux::mcp_hint`): in code mode only `cmux_exec`.
+    fn unknown_tool(&self, name: &str) -> String {
+        if self.code_mode && self.allowed.is_none() {
+            return acpmux::mcp_hint::unknown_tool(name, [code_mode::EXEC]);
+        }
+        let listed = self.listed();
+        acpmux::mcp_hint::unknown_tool(name, listed.iter().filter_map(|tool| tool["name"].as_str()))
     }
 
     /// A terminal tool called with a `tab` and no `terminal`, or a tab or pane given as
@@ -1074,6 +1127,7 @@ impl<B: Backend> Server<B> {
                 // (tests/tool-evals, 2026-10-27).
                 if let Err((_, message)) = &mut result
                     && message.starts_with("unknown tool")
+                    && !message.contains("; did you mean")
                 {
                     let tools = tools.get_or_insert_with(|| self.list());
                     let near = code_mode::nearest_names(tools, &name);
@@ -1223,13 +1277,8 @@ impl<B: Backend> Server<B> {
 }
 
 fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
-    let requested = params["protocolVersion"].as_str();
-    let version = PROTOCOL_VERSIONS
-        .iter()
-        .find(|version| Some(**version) == requested)
-        .unwrap_or(&PROTOCOL_VERSIONS[0]);
     json!({
-        "protocolVersion": version,
+        "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(

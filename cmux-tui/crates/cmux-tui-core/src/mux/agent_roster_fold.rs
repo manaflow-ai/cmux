@@ -10,7 +10,7 @@ impl Mux {
     /// projection fails. The ingress path catches the projection error, stages
     /// a durable pending row, and still returns the journal receipt so callers
     /// can retain exactly-once semantics while the terminal becomes available.
-    pub(super) fn apply_agent_hook_record(
+    pub(super) fn project_agent_hook_record(
         &self,
         ingress: &crate::JournalIngress,
         sequence: u64,
@@ -27,6 +27,10 @@ impl Mux {
             == Some(crate::journal_reducers::LEGACY_SCREEN_DETECT_NATIVE_EVENT)
         {
             return Ok(());
+        }
+        // A child agent changes no lifecycle state, but a turn's finish may wait for it.
+        if ingress.kind.starts_with("agent.child.") {
+            return self.apply_agent_child_hook(ingress, sequence);
         }
         use crate::journal_reducers::hook_roster_state;
         let native_event =
@@ -142,8 +146,16 @@ impl Mux {
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
         // replays the notification instead of posting it twice, and the fence
-        // (stored by the report) still advances exactly once.
-        if let Some((title, body, level)) = notification {
+        // (stored by the report) still advances exactly once. A turn that ends
+        // while its child agents run is not done: its finish waits for them
+        // (`agent_hook_children.rs`).
+        let gate =
+            self.gate_agent_finish(&terminal_id, &ingress.kind, sequence, notification.as_ref());
+        if let agent_hook_children::FinishGate::Release(held) = &gate {
+            self.release_held_agent_session_finish(&terminal_id, held, sequence)?;
+        }
+        let held = matches!(gate, agent_hook_children::FinishGate::Hold);
+        if let Some((title, body, level)) = notification.filter(|_| !held) {
             self.create_durable_notification(
                 &Actor::Daemon,
                 &format!("agent-hook-notification-{sequence}"),
