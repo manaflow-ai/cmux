@@ -26,8 +26,12 @@ public struct PushActiveAccount: Sendable {
         return user
     }
 
+    /// Signed out (no marker) never permits. Signed in with no pairing record
+    /// keeps the pre-marker behavior for Macs that do not seal; a record
+    /// paired by another account is refused.
     public func permits(_ trust: PushTrust?) -> Bool {
-        guard let trust, let user = userID() else { return false }
+        guard let user = userID() else { return false }
+        guard let trust else { return true }
         return trust.user == user
     }
 

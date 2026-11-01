@@ -33,7 +33,9 @@ public struct PushTrustGate: Sendable {
     public static func current() -> PushTrustGate {
         let keys = PushKeys.current()
         let trust = keys?.trust()
-        let active = keys.map { PushActiveAccount(store: $0.store).permits(trust) } ?? false
+        // A build signed without the shared keychain has no marker and no
+        // retained keys either: it keeps the unsealed behavior it had before.
+        let active = keys.map { PushActiveAccount(store: $0.store).permits(trust) } ?? true
         return PushTrustGate(trust: active ? trust : nil, keys: active ? keys : nil, authorized: active)
     }
 

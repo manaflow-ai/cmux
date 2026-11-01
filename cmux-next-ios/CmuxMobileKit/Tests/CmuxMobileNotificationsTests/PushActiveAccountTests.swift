@@ -29,6 +29,30 @@ import UserNotifications
         #expect(marker.permits(keys.trust()))
     }
 
+    /// A signed-in phone that never paired with a sealing Mac has no trust
+    /// record: its unsealed notifications keep working, and still stop at logout.
+    @Test func signedInWithoutPairingStillPermitsUnsealedPushes() throws {
+        let keys = PushKeys(store: PushMemoryStore(), enclave: false)
+        let marker = PushActiveAccount(store: keys.store)
+        #expect(!marker.permits(nil))
+        try marker.update(userID: "u1")
+        #expect(marker.permits(nil))
+        let content = UNMutableNotificationContent()
+        content.title = "Claude asks"
+        content.userInfo = SealedPushTests.question.userInfo
+        #expect(ServicePush().withheld(content, keys: keys) == nil)
+        try marker.update(userID: nil)
+        #expect(ServicePush().withheld(content, keys: keys)?.userInfo.isEmpty == true)
+    }
+
+    /// No shared keychain (a build signed without one): nothing is retained
+    /// to withhold, so behavior is unchanged.
+    @Test func noKeychainKeepsTheUnsealedPath() {
+        let content = UNMutableNotificationContent()
+        content.userInfo = SealedPushTests.question.userInfo
+        #expect(ServicePush().withheld(content, keys: nil) == nil)
+    }
+
     /// A Keychain write failure must be visible to the sign-out owner; the
     /// old marker is still authorized until the owner handles revocation.
     private struct RejectingSecrets: PushSecretStore {

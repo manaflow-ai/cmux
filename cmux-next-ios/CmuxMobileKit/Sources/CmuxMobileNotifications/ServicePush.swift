@@ -15,7 +15,9 @@ public struct ServicePush: Sendable {
     /// This also covers old Macs that sent an unsealed v2 push.
     public func withheld(_ content: UNNotificationContent, keys: PushKeys?) -> UNNotificationContent? {
         guard SealedPush(userInfo: content.userInfo) != nil || PushPayload(userInfo: content.userInfo) != nil else { return nil }
-        if let keys, PushActiveAccount(store: keys.store).permits(keys.trust()) { return nil }
+        // No shared keychain: no marker can exist and nothing sealed opens.
+        guard let keys else { return nil }
+        if PushActiveAccount(store: keys.store).permits(keys.trust()) { return nil }
         let out = UNMutableNotificationContent()
         let banner = PushBanner.generic(macName: nil)
         out.title = banner.title
