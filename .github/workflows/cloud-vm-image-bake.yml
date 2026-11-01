@@ -49,7 +49,7 @@ on:
         default: false
         type: boolean
       auto_promote:
-        description: After a successful kept bake and smoke, dispatch the checked-in dev promotion workflow
+        description: After a successful kept bake and smoke, let the completion receiver dispatch the checked-in dev promotion workflow
         required: false
         default: false
         type: boolean
@@ -235,6 +235,7 @@ jobs:
           NATIVE_RECEIVER: ${{ inputs.native_receiver && '--native-receiver' || '' }}
           PROBES: ${{ inputs.probes && '--agent-probe --resize-probe' || '' }}
           CLONES: ${{ inputs.clones }}
+          AUTO_PROMOTE: ${{ inputs.auto_promote }}
         run: |
           set -euo pipefail
           bake_json="$(find "$OUT_DIR" -maxdepth 1 -name 'bake-*.json' | head -1)"
@@ -250,10 +251,14 @@ jobs:
              ($bake | words) as $bake | ($smoke | words) as $smoke |
              {schema: 1, env: "dev", var: $var, snapshot: $b[0].name, snapshot_id: $id, lock_sha256: $b[0].lockSha256, source_sha: $sha, run: ($run|tonumber), baked_at: (now|todate),
               bake: "\($bake) (CI run \($run))", smoke: {result: "PASSED", at: (now|todate), detail: "\($smoke) (CI run \($run)): \($s[0].checks | length) checks passed"}}
+             + (if ($b[0].daemonIdentify.capabilities // [] | type) == "array" then {cmux_tui: {commit: ($b[0].daemonIdentify.build_commit // $sha), committed_at: (now|todate), capabilities: $b[0].daemonIdentify.capabilities}} else {} end)
              + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)
              | if $b[0].nativeReceiver then del(.var) + {native_receiver: true, transport: "vm-api"} else . end' \
             > "$candidate"
           cat "$candidate"
+          if [ "$AUTO_PROMOTE" = true ]; then
+            jq -n --arg var "$SNAPSHOT_VAR" --arg snapshot "$SNAPSHOT" '{auto_promote: true, var: $var, snapshot: $snapshot}' > "$OUT_DIR/auto-promote.json"
+          fi
 
       # The copy repeats the dev image's lock and flags. The key must not be the dev account's
       # (prod-copy.ts account-check: it resolves a trusted recorded
@@ -421,18 +426,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      # Staleness repair dispatches this workflow with auto_promote. The promotion workflow still
-      # records a diff artifact and never mutates the branch; a lane reviews and lands that diff.
-      - name: Request checked-in dev promotion
-        if: inputs.mode == 'bake' && inputs.auto_promote && inputs.keep_snapshot && steps.candidate.outcome == 'success' && steps.upload.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
-        run: |
-          set -euo pipefail
-          gh workflow run cloud-vm-image-promote.yml \
-            --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
-            -f channel=dev -f snapshot="$SNAPSHOT" -f bake_run="$GITHUB_RUN_ID"
 
   # Time to first build on new machines of the dev channel's image, which has no dev tree:
   # clone, toolchains and a cold build of this run's commit (first-build.ts --mode before), while the bake runs.

@@ -252,9 +252,9 @@ wrangler.jsonc it keeps one `cloud-image-stale` issue up to date and closes it w
 match again. The workflow job stays green (a warning only): staleness is not a code red and never
 blocks a landing. The daily schedule in the workflow is dormant until feat-cmux-next reaches main
 (GitHub schedules run only from the default branch). A stale report dispatches the checked-in bake
-workflow once per stale image kind; a successful kept bake runs the existing smoke and dispatches the
-promotion workflow, which uploads a reviewable channel diff. Landing that diff and the normal
-development deploy remain required. The manual repair remains: rebake from a published tip cmux-tui,
+workflow once per stale image kind; a successful kept bake uploads its candidate and the completion
+receiver dispatches the promotion workflow, which uploads a reviewable channel diff. Landing that
+diff and the normal development deploy remain required. The manual repair remains: rebake from a published tip cmux-tui,
 smoke (`--expect-capabilities <bake json>` checks the fresh clone's handshake), record, promote.
 `web/scripts/cmux-vm-image/capabilities-probe.ts` reads an existing image's handshake on one clone.
 

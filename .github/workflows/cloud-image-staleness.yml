@@ -18,7 +18,6 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 concurrency:
   group: cloud-image-staleness-${{ github.ref }}
@@ -30,6 +29,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: write
       issues: write
     defaults:
       run:
@@ -77,8 +77,8 @@ jobs:
               return;
             }
             // A stale report is actionable: dispatch one checked-in bake per image kind. The bake
-            // workflow owns the provider credentials, smoke and cleanup; after its candidate upload
-            // it dispatches the existing promotion workflow, which still produces a reviewable diff.
+            // workflow owns the provider credentials, smoke and cleanup; its completion receiver
+            // dispatches promotion only after the successful bake artifact is available.
             // Deduplicate channel pointers so staging and dev do not create duplicate snapshots.
             const variables = [...new Set((parsed?.images ?? [])
               .filter((image) => Array.isArray(image.problems) && image.problems.length > 0)
@@ -100,7 +100,7 @@ jobs:
                 },
               });
             }
-            const body = `A cmux-next Cloud VM image is behind the feat-cmux-next tip at ${process.env.HEAD_SHA} (${runUrl}). New Cloud machines and team VMs boot it, so app features gated on the missing daemon capabilities do not work there.\n\nThe staleness workflow automatically dispatches a checked-in bake and smoke for each stale image kind. A successful kept bake dispatches the promotion workflow, which uploads a reviewable channel diff; landing that diff and the normal development deploy remain required.\n\nFix: bake from a published tip cmux-tui (images/cmux-vm/inputs.lock.json, \`bun ../images/cmux-vm/bake.ts --tag <tag> --agent-tools [--team-vm]\` from web/), smoke it, append the bake record with \`cmux_tui.capabilities\` to images/cmux-vm/channels/dev.json history, promote with \`bun images/cmux-vm/promote.ts\`, and deploy the env (plans/cmux-next/release-rails.md). This issue is updated in place and closes itself on the first run that finds no drift.\n\n\`\`\`\n${report}\n\`\`\``;
+            const body = `A cmux-next Cloud VM image is behind the feat-cmux-next tip at ${process.env.HEAD_SHA} (${runUrl}). New Cloud machines and team VMs boot it, so app features gated on the missing daemon capabilities do not work there.\n\nThe staleness workflow automatically dispatches a checked-in bake and smoke for each stale image kind. A successful kept bake is handed to the completion receiver, which dispatches promotion and uploads a reviewable channel diff; landing that diff and the normal development deploy remain required.\n\nFix: bake from a published tip cmux-tui (images/cmux-vm/inputs.lock.json, \`bun ../images/cmux-vm/bake.ts --tag <tag> --agent-tools [--team-vm]\` from web/), smoke it, append the bake record with \`cmux_tui.capabilities\` to images/cmux-vm/channels/dev.json history, promote with \`bun images/cmux-vm/promote.ts\`, and deploy the env (plans/cmux-next/release-rails.md). This issue is updated in place and closes itself on the first run that finds no drift.\n\n\`\`\`\n${report}\n\`\`\``;
             try {
               await github.rest.issues.getLabel({ owner, repo, name: label });
             } catch (error) {
