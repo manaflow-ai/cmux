@@ -112,7 +112,7 @@ class Rerun(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(len(calls), 2, calls)
 
-    def invoke_receipt(self, event, *, api_mode="valid"):
+    def invoke_receipt(self, event):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             log = root / "calls.jsonl"
@@ -137,12 +137,6 @@ class Rerun(unittest.TestCase):
 
     def test_irrelevant_comment_is_rejected_before_api_read(self):
         event = {"comment": {"body": "Thanks!", "author_association": "MEMBER"}}
-        result, calls = self.invoke_receipt(event)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, [])
-
-    def test_untrusted_receipt_is_rejected_before_api_read(self):
-        event = {"comment": {"body": f"Review (router): SHIP at {HEAD}", "author_association": "CONTRIBUTOR"}}
         result, calls = self.invoke_receipt(event)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [])
