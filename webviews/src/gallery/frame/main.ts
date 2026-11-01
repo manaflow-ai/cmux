@@ -18,10 +18,13 @@ import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
 import { installUiFont } from "./uiFont";
+import { setLastingGrace } from "../../ui/lasting";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
 
 installGalleryClock();
+// A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
+setLastingGrace(0);
 
 const params = new URLSearchParams(location.search);
 const env = readEnv(params);

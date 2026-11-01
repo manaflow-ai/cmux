@@ -155,8 +155,11 @@ where
     .await
 }
 
-/// Stop condition: cancellation or accept failure. Shutdown aborts and joins all
-/// handlers; dropping this future also aborts them through the owned JoinSet.
+/// Stop condition: cancellation, or an accept failure that means the listener is
+/// gone. Any other accept failure (EMFILE, a connection reset in the queue) pauses
+/// and accepts again: the keeper ends the sandboxed session when this returns.
+/// Shutdown aborts and joins all handlers; dropping this future also aborts them
+/// through the owned JoinSet.
 async fn serve<F, Fut>(
     listener: std::net::TcpListener,
     handler: F,
@@ -177,7 +180,11 @@ where
             accepted = listener.accept(), if tasks.len() < MAX_TUNNELS => {
                 let (client, _) = match accepted {
                     Ok(pair) => pair,
-                    Err(e) => break Err(e),
+                    Err(e) if crate::server::accept_ends_listener(&e) => break Err(e),
+                    Err(e) => {
+                        tokio::time::sleep(crate::server::accept_retry_delay(&e)).await;
+                        continue;
+                    }
                 };
                 let connection = handler(client);
                 let stop = stop.clone();
@@ -718,6 +725,62 @@ mod tests {
         tokio::time::advance(Duration::from_secs(1)).await;
         bounded(task).await.unwrap().unwrap();
         assert!(headers(&mut client).await.starts_with("HTTP/1.1 408 Request Timeout\r\n"));
+    }
+
+    #[tokio::test]
+    async fn running_out_of_descriptors_pauses_the_proxy_instead_of_ending_it() {
+        const CHILD: &str = "ACPMUX_PROXY_TEST_EMFILE";
+        const NAME: &str = "linux_sandbox::proxy::tests::running_out_of_descriptors_pauses_the_proxy_instead_of_ending_it";
+        if std::env::var_os(CHILD).is_none() {
+            let result = tokio::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
+                .env(CHILD, "1")
+                .output()
+                .await
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            assert!(
+                result.status.success() && stdout.contains("1 passed"),
+                "isolated descriptor test failed: {stdout}\n{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        // Only in the re-executed child: a full descriptor table would fail parallel tests.
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        // SAFETY: plain getrlimit/setrlimit on a local struct, in this child process only.
+        unsafe {
+            assert_eq!(libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit), 0);
+            limit.rlim_cur = limit.rlim_cur.min(1024);
+            assert_eq!(libc::setrlimit(libc::RLIMIT_NOFILE, &limit), 0);
+        }
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (l, proxy) = listener();
+        let stop = CancellationToken::new();
+        let task = tokio::spawn(serve_forward(l, target.local_addr().unwrap(), stop.clone()));
+        let mut spare = Vec::new();
+        loop {
+            match std::fs::File::open("/dev/null") {
+                Ok(file) => spare.push(file),
+                Err(e) => {
+                    assert_eq!(e.raw_os_error(), Some(libc::EMFILE));
+                    break;
+                }
+            }
+        }
+        // One free slot holds the client's socket, so the proxy's accept fails with EMFILE.
+        spare.pop();
+        let mut client = TcpStream::connect(proxy).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!task.is_finished(), "the proxy ended on EMFILE: {:?}", task.await);
+        spare.clear();
+        client.write_all(b"raw").await.unwrap();
+        let (mut server, _) = bounded(target.accept()).await.unwrap();
+        let mut bytes = [0; 3];
+        bounded(server.read_exact(&mut bytes)).await.unwrap();
+        assert_eq!(&bytes, b"raw");
+        stop.cancel();
+        bounded(task).await.unwrap().unwrap();
     }
 
     #[tokio::test]

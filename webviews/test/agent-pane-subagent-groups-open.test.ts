@@ -150,8 +150,8 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     await page.goto(url(session));
     await page.getByText(shown).first().waitFor({ timeout: 25_000 });
     // Group cards are the older presentation: by default running subagents sit in the tray above
-    // the composer (agent-pane-agents-pill.test.ts). The host turns the tray off with the theme
-    // (Debug Settings agentPane.debug.subagentTray).
+    // the composer. The host turns the tray off with the theme (Debug Settings
+    // agentPane.debug.subagentTray); the removed running-activity pill is not part of this mode.
     await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }));
     return page;
   };

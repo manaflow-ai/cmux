@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
+import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
 import { Combobox } from "../../ui/Combobox";
@@ -7,7 +8,7 @@ import { AddProjectDialog } from "./AddProjectPanel";
 import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import type { ProjectRepo } from "./projectRepos";
+import { chooserRows, type ProjectRepo } from "./projectRepos";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
 /// its row carries a globe and the machine's name, and a pick starts the chat there. `repo` is the
@@ -27,7 +28,7 @@ const NO_PROJECT_KEY = "\u0000none";
 const rowKey = (project: Project) => (project.peer ? `${project.peer}\u0000${project.cwd}` : project.cwd);
 
 /// The project pill on the composer's tray: it opens a menu above the tray with a search field over the
-/// projects the user has chats in, newest first. Picking one other than the current
+/// projects the user has chats in, newest first, one row per repository. Picking one other than the current
 /// project starts a new chat there. The search field keeps focus; arrows move the
 /// highlight, Enter picks and Escape closes back to the pill.
 /// `inline` draws the trigger as the project's name inside a sentence (the new chat's "What should
@@ -54,7 +55,7 @@ export function ProjectChooser({
   currentLabel?: string;
   icon: React.ReactNode;
   onPick(cwd: string, peer?: string): void;
-  onBrowse?(): void;
+  onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   onNoProject?(): void;
   /// The chat is in no project: Do not work in a project is checked, and picking it changes nothing.
   noProject?: boolean;
@@ -73,13 +74,12 @@ export function ProjectChooser({
     ? rowKey({ cwd: current, label: "", ...(currentPeer ? { peer: currentPeer } : {}) })
     : undefined;
 
-  const shown = useMemo(() => {
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return projects.filter((project) => {
-      const text = `${project.label} ${project.cwd} ${project.host ?? ""}`.toLowerCase();
-      return words.every((word) => text.includes(word));
-    });
-  }, [projects, query]);
+  // One row per repository; a lane's worktree or a scratch folder only when the search names it
+  // (projectRepos.ts chooserRows).
+  const shown = useMemo(
+    () => chooserRows(projects, query, currentPeer ? undefined : current),
+    [projects, query, current, currentPeer],
+  );
   const rows = useMemo<Row[]>(() => {
     const listed: Row[] = shown.map((project) => ({ key: rowKey(project), project }));
     if (onNoProject) listed.unshift({ key: NO_PROJECT_KEY });

@@ -5,6 +5,8 @@
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
 //!            stdin and stdout (src/serve.rs); macOS and Linux
+//!   connect  the viewer side of a hub session: bridges the pane's framed byte stream on a
+//!            private Unix socket to the secure link (src/connect.rs)
 //!   encode-selftest --codec videotoolbox|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
 //!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
 //!            from Cisco into the per-user data directory (pinned SHA-256) and prints its path
@@ -24,6 +26,8 @@ mod capture;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod carrier;
 mod clock;
+#[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+mod connect;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod desktop;
 mod encoder;
@@ -84,6 +88,8 @@ fn main() {
         "testapp" => testapp::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "serve" => serve::run(&opts),
+        #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+        "connect" => connect::run(),
         "encode-selftest" => selftest::run(&opts),
         #[cfg(feature = "openh264")]
         "openh264-install" => encoder::install_openh264(&opts),

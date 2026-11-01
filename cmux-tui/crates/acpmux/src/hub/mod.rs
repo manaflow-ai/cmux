@@ -39,6 +39,10 @@ pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+#[cfg(test)]
+mod prompt_accept_tests;
+#[cfg(test)]
+mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
 mod fork_transcript_auth;
@@ -95,10 +99,15 @@ mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
+#[cfg(test)]
+mod prompt_line_tests;
+mod protected_hold;
 mod queue;
 mod queue_edit;
+pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+mod profile_respawn;
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -107,7 +116,10 @@ pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
 mod git_watch;
 mod github_owner;
+mod lane_report_reads;
+mod lane_report_text;
 mod lane_reports;
+mod meta_save;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -143,7 +155,7 @@ mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
-pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
+pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
 pub(crate) mod key_route;
@@ -320,8 +332,10 @@ pub struct TurnInfo {
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
-    /// `prompt_preview` masked before its cut, for the sub-session tools
-    /// (`subsession_row`): a secret across the cut leaves no head there.
+    /// The line its prompt leaves on the session summary (`turn.prompt`: the sidebar's step, the
+    /// hover card's task, the sub-session tools): another agent's message as "name: first line",
+    /// never its envelope (`prompt_line.rs`), masked before its cut, so a secret across the cut
+    /// leaves no head. `prompt_preview` stays the prompt as sent, for the turn's records.
     pub masked_preview: String,
     /// Stable turn identifier, assigned when the prompt is accepted and
     /// carried by `queued`, `user_message`, `turn_started` and `turn_result`.
@@ -547,9 +561,12 @@ pub struct Hub {
     /// What the coming shutdown does with hosted agents, decided once:
     /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
     pub(super) shutdown_plan: StdMutex<shutdown::ShutdownPlan>,
-    /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
-    /// futures must not write a second result when the agent ends.
+    /// Turns a shutdown settled as cancelled (`endAgents`) or handed to the next daemon: their
+    /// prompt futures write no result of their own when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// A turn's end under way (`Session::ending`) landed or went: a shutdown waiting for those
+    /// ends looks again (`shutdown.rs` `settle_ends`).
+    pub(super) ends_moved: Notify,
     /// `npx -y PACKAGE` launches resolved to their bin: (npx, package) to path.
     pub(super) launchers: StdMutex<HashMap<(String, String), String>>,
     /// Harnesses whose last model probe failed, with the reason; reported in
@@ -614,6 +631,12 @@ pub struct Hub {
     /// Tests only: pause a chat's first work once it holds it (`inbox.rs`), before its turn.
     #[cfg(test)]
     pub(super) first_work_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a turn's end once its turn is taken (`finish_turn`), before it writes.
+    #[cfg(test)]
+    pub(super) finish_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
+    #[cfg(test)]
+    pub(super) retry_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -639,6 +662,8 @@ pub struct Hub {
     pub(super) offers: offers::Offers,
     /// Which session each lane reports its turns to (`lane_reports.rs`).
     pub(super) lane_reports: lane_reports::LaneReports,
+    /// Authenticated parents already receiving a lane result through wait/history.
+    lane_report_reads: lane_report_reads::LaneReportReads,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
     /// Creates admitted and still starting (`admission.rs`).
@@ -780,6 +805,7 @@ impl Hub {
             agent_hosts: AtomicBool::new(false),
             shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
+            ends_moved: Notify::new(),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
@@ -815,6 +841,10 @@ impl Hub {
             prompt_start_seam: Default::default(),
             #[cfg(test)]
             first_work_seam: Default::default(),
+            #[cfg(test)]
+            finish_seam: Default::default(),
+            #[cfg(test)]
+            retry_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -828,6 +858,7 @@ impl Hub {
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
             lane_reports: Default::default(),
+            lane_report_reads: Default::default(),
             subsessions: Default::default(),
             admitting: Default::default(),
             subsession_runs: Default::default(),
@@ -1110,6 +1141,7 @@ impl Hub {
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
+            meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),
             loading: AtomicBool::new(false),
@@ -1118,8 +1150,11 @@ impl Hub {
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
             auto_resume_restored: AtomicBool::new(false),
+            protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
+            turn_claimed: AtomicBool::new(false),
+            admit: StdMutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
@@ -1135,6 +1170,7 @@ impl Hub {
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
+            unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
@@ -1144,10 +1180,14 @@ impl Hub {
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
             launch_env: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
+            profile_respawn: AtomicBool::new(false),
+            ending: StdMutex::new(None),
+            detaching: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
+            person: AtomicBool::new(false),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
@@ -1318,15 +1358,15 @@ impl Hub {
     pub(super) fn local_match_counts(&self, key: &str) -> [usize; 3] {
         let bare = !key.contains('/');
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut counts = [0; 3];
+        let mut counts = [0_usize; 3];
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if s.id.starts_with(key) || meta.name.starts_with(key) {
-                counts[0] += 1;
+                counts[0] = counts[0].saturating_add(1);
             } else if bare && crate::session_name::ends_with_segments(&meta.name, key) {
                 let slot = if meta.status == SessionStatus::Closed { 2 } else { 1 };
                 if let Some(count) = counts.get_mut(slot) {
-                    *count += 1;
+                    *count = count.saturating_add(1);
                 }
             }
         }
@@ -1477,7 +1517,7 @@ impl Hub {
         // copy was appended, so recovering an old message cannot regress activity.
         // Published only once stored: a failed copy is repaired later (`message_events.rs`),
         // and that repair's copy is the one clients and peers hear.
-        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None, true).1 {
+        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None, true, true).1 {
             ids.insert(key);
             true
         } else {
@@ -1551,6 +1591,23 @@ impl Hub {
         self.append_at(session, dir, kind, msg, host_seq, None)
     }
 
+    /// Persist a record without broadcasting it. Callers use this for a durable marker whose
+    /// in-memory state is installed immediately afterward; the following state event is the
+    /// first watcher-visible record.
+    pub(super) fn append_quiet(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+    ) -> EventRecord {
+        let mut msg = msg;
+        tool_paths::add_canonical_paths(session, kind, &mut msg);
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.catch_up_locked(session);
+        self.append_at_locked(session, dir, kind, msg, None, None, false, false).0
+    }
+
     /// [`Hub::append_logged`] of a record that happened at `at` (Unix ms;
     /// None: now), as a fork's copy of its parent's turns did.
     pub(super) fn append_at(
@@ -1558,15 +1615,16 @@ impl Hub {
         session: &Session,
         dir: &str,
         kind: &str,
-        mut msg: Value,
+        msg: Value,
         host_seq: Option<u64>,
         at: Option<u64>,
     ) -> (EventRecord, bool) {
+        let mut msg = msg;
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
-        self.append_at_locked(session, dir, kind, msg, host_seq, at, false)
+        self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)
     }
 
     /// [`Hub::append_at_locked`] of one record. `stored_only`: a record the store refused is
@@ -1583,6 +1641,7 @@ impl Hub {
         at: Option<u64>,
         stored_only: bool,
         kept: log_deferral::Kept,
+        notify: bool,
     ) -> (EventRecord, bool) {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
@@ -1676,21 +1735,36 @@ impl Hub {
                 | "created"
                 | "tags"
                 | "rules"
+                | profile_respawn::RECORD_KIND
         ) {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
         }
-        let _ = self.events.send(HubEvent {
-            session_id: session.id.clone(),
-            record: Arc::new(record.clone()),
-            remote: None,
-        });
+        if notify {
+            let _ = self.events.send(HubEvent {
+                session_id: session.id.clone(),
+                record: Arc::new(record.clone()),
+                remote: None,
+            });
+        }
         (record, stored)
     }
 
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
+        // A failed save is logged there; no request waits for this one.
+        let _ = self.set_rules_answered(session, rules);
+    }
+
+    /// [`Hub::set_rules`] for `_acpmux/set_rules`: answered only once the rules are saved
+    /// (`meta_save.rs`).
+    pub(crate) fn set_rules_answered(
+        &self,
+        session: &Session,
+        rules: Option<Value>,
+    ) -> Result<(), RpcError> {
         self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
-        self.save_meta(session);
+        let saved = self.save_meta_answered(session);
         self.append(session, "mux", "rules", json!({"rules": rules}));
+        saved
     }
 
     /// The largest composer draft the daemon will persist for one session.
@@ -1703,15 +1777,15 @@ impl Hub {
         &self,
         session: &Session,
         text: &str,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, RpcError> {
         if text.chars().count() > Self::MAX_COMPOSER_DRAFT_CHARS {
-            return Err(format!(
+            return Err(RpcError::invalid_params(format!(
                 "composer draft exceeds {} characters",
                 Self::MAX_COMPOSER_DRAFT_CHARS
-            ));
+            )));
         }
         if session.moving().is_some() {
-            return Err(queue::moving_error().message);
+            return Err(RpcError::invalid_params(queue::moving_error().message));
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
@@ -1719,7 +1793,8 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
-        self.save_meta(session);
+        // Answered only once the draft is in `session.json`: "the one durable shared draft".
+        self.save_meta_answered(session)?;
         Ok(draft)
     }
 
@@ -1782,6 +1857,9 @@ impl Hub {
                 }
                 "turn_result" => {
                     if let Some(t) = cur.as_mut() {
+                        if let Some(id) = e.msg.get("turnId") {
+                            t.insert("turnId".into(), id.clone());
+                        }
                         t.insert(
                             "status".into(),
                             e.msg.get("status").cloned().unwrap_or(json!("completed")),
@@ -1838,26 +1916,6 @@ impl Hub {
             })
             .map_err(|e| RpcError::internal(e.to_string()))?;
         Ok(latest)
-    }
-
-    /// Saves the session's record; never a purged session's. A late save (a generated title after
-    /// the turn, a tag) would write its record back after the purge deleted it, and the next daemon
-    /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
-    /// when the node is built, left about 450 of them in two hours (2026-10-20).
-    pub(super) fn save_meta(&self, session: &Session) {
-        if session.purged.load(Ordering::SeqCst) {
-            return;
-        }
-        let meta = session.meta();
-        if let Err(e) = self.store.save(&meta) {
-            tracing::warn!(session = %session.id, "save meta failed: {e}");
-        }
-        // The purge ran between the check and the save: delete it again.
-        if session.purged.load(Ordering::SeqCst)
-            && let Err(e) = self.store.delete(&session.id)
-        {
-            tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
-        }
     }
 
     /// Lists the temporary folders of sessions this daemon no longer has

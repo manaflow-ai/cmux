@@ -4,6 +4,19 @@
 /// tabs in the scrolling strip. It shows its tab bar like every pane
 /// (cx-v4dmy).
 public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
+    /// What a pick on a New Tab page in the chat dock does when a scrolling pane is beside it.
+    /// Kept in the layout domain so the app's composition root only applies the decision.
+    public enum DockPick: Equatable, Sendable {
+        /// The pick takes the usual route (nothing beside the dock).
+        case usual
+        /// The pick opens in the strip beside the dock.
+        case beside(closesPage: Bool)
+
+        public static func resolve(hasStrip: Bool, keep: Bool) -> Self {
+            hasStrip ? .beside(closesPage: !keep) : .usual
+        }
+    }
+
     /// A tab in the pane it was opened from.
     case here
     /// A tab in this pane of the scrolling strip.
@@ -35,6 +48,27 @@ public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
         guard column.dock == nil, strip.count == 1, !columns.contains(where: { $0.dock?.role == .agentChat }),
               isLoneChat(column) else { return .here }
         return .dockChat
+    }
+
+    /// Whether a person's New Tab page from `pane` opens in `pane` itself although its new tabs go
+    /// elsewhere: `pane` is the chat dock (not Home's pinned one), the main pane. Leo 2026-10-30: "IF I'M
+    /// FOCUSED ON THE MAIN PANE OPEN IT THERE". The page is an agent tab, so the dock still holds only
+    /// agent tabs; what is picked on it opens beside the chat.
+    public nonisolated static func keepsNewTabPage(from pane: PaneID, columns: [LayoutColumn]) -> Bool {
+        guard let dock = columns.first(where: { $0.root.contains(pane) })?.dock else { return false }
+        return dock.role == .agentChat && !dock.isPinned
+    }
+
+    /// Where a terminal or browser picked on a New Tab page in `pane` opens: for a page in the chat dock
+    /// (``keepsNewTabPage(from:columns:)``), the strip pane its new tabs go to (the one used last, else the
+    /// first), whatever else the dock holds, the page alone included. Nil anywhere else (the pick takes the
+    /// page's place), and on a zoomed screen or a dock with no strip beside it.
+    public nonisolated static func pagePick(from pane: PaneID, columns: [LayoutColumn], recent: [PaneID] = [],
+                                            zoomed: Bool = false) -> PaneID? {
+        guard keepsNewTabPage(from: pane, columns: columns),
+              case .tab(let strip) = resolve(from: pane, columns: columns, recent: recent, zoomed: zoomed, isLoneChat: { _ in false })
+        else { return nil }
+        return strip
     }
 
     /// `screen`'s columns in strip order. A screen stored as one split tree

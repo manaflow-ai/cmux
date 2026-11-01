@@ -250,6 +250,18 @@ path = "tests/test_runner_label_policy.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_linux_single_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_failover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_set.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
@@ -266,12 +278,26 @@ path = "tests/test_ci_nightly_off_blacksmith.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_static_capability_runtime_only.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_nightly_no_hosted_mac.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_no_shallow_dev_fetch.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_swift_test_main_thread_isolation.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the swift test job's main-thread-heavy split and its detector; run python3 tests/test_ci_swift_test_main_thread_isolation.py yourself after changing scripts/cmux-next/main-thread-heavy-suites.py or that job (under 10 s, no build)."
+
+[[test]]
+path = "tests/test_ci_swift_test_shards.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every suite lands in exactly one balanced shard and the build.db start gate; run python3 tests/test_ci_swift_test_shards.py yourself after changing scripts/cmux-next/swift-test-shards.py or the test sources' suite shapes (about 20 s, no build)."
 
 [[test]]
 path = "tests/test_ci_rust_targets_installed_first.py"
@@ -495,6 +521,10 @@ path = "tests/test_nightly_next_feed_watch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_build_src_worktree_prune.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_artifacts_retry.py"
 lane = "linux-guard"
 
@@ -592,6 +622,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_ffi_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_chief_benchmark_route.py"
 lane = "linux-guard"
 
 [[test]]
@@ -751,6 +785,10 @@ path = "tests/test_ci_required_checks_are_bounded.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_label_events_skip_full_ci.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_runs_cancel_superseded.py"
 lane = "linux-guard"
 
@@ -768,6 +806,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_checks_base_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ui_review_advisory.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1310,7 +1352,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_check_objc_selectors_step.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins the argument allowlist of the fleet step wrapper scripts/cmux-next/check-objc-selectors.sh (#27406); run python3 tests/test_check_objc_selectors_step.py yourself after changing the wrapper or check-objc-selectors.py (about 25 s, bash and python3, no build)."
 
 [[test]]
 path = "tests/test_crash_ratchet_compare.py"
@@ -1378,6 +1421,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_side_lane_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1495,6 +1542,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_test_reds.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cargo_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2012,6 +2063,10 @@ path = "tests/test_pr_design_spec_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_cloud_backend_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_pr_capture_check_paths.py"
 lane = "linux-guard"
 
@@ -2259,6 +2314,10 @@ path = "tests/test_ci_runs_on_fallback.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_warm_sources.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"
 
@@ -2282,4 +2341,32 @@ reason = "Run by hand before changing the Cloud capture provision scripts; no ne
 
 [[test]]
 path = "tests/test_cmux_next_kill_switches.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_stable_next.py"
+lane = "manual"
+reason = "Run by hand with python3 when stable_next.py or stable-next.yml changes; repository policy adds no new CI tests."
+
+[[test]]
+path = "tests/test_devbox_bubblewrap.py"
+lane = "manual"
+reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."
+
+[[test]]
+path = "tests/test_chromium_staleness.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_instant_bench_warm_arm.py"
+lane = "manual"
+reason = "Unit test of a fleet bench's arm logic (no app): its owner runs it with python3 -I before a change to instant-new-surfaces-bench.py; no CI job runs it (CLAUDE.md: no new CI tests)."
+
+[[test]]
+path = "tests/test_cef_cache_key_checkout_independent.py"
+lane = "manual"
+reason = "Shell-script unit test (no app, no network): run it with python3 -I before a change to merge-cef-universal.sh, build-cef-shim.sh or embed-cef.sh; no CI job runs it (CLAUDE.md: no new CI tests)."
+
+[[test]]
+path = "tests/test_layout_grid.py"
 lane = "linux-guard"
