@@ -60,6 +60,7 @@ jobs:
             scripts/ci/cloud_overflow_switch.py
             scripts/ci/runner_label_policy.py
             scripts/ci/signing_runner_variables.py
+            scripts/ci/car-guard-python.sh
           persist-credentials: false
 
       - name: Checkout feat runner-pool workflow boundary
@@ -81,7 +82,7 @@ jobs:
         env:
           RUNNER_POOL_POLICY_ROOT: ${{ github.workspace }}/.runner-pool-tooling
           RUNNER_POOL_WORKFLOW_ROOT: ${{ github.workspace }}/.runner-pool-feat
-        run: python3 .runner-pool-feat/tests/test_ci_runner_pool_reconcile.py
+        run: "$(.runner-pool-tooling/scripts/ci/car-guard-python.sh) .runner-pool-feat/tests/test_ci_runner_pool_reconcile.py"
 
       - name: Run the fast guard tests
         env:
