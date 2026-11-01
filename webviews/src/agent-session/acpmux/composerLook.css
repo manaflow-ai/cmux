@@ -34,6 +34,44 @@
   margin-inline-start: auto;
 }
 
+/* One gap and equal insets (Leo 2026-10-31: "WHY THE F*** IS THE SPACING F***ING SHIT", "IN THE
+   F***ING CODEX MODE F***ING COMPOSER"; leo-workspace design/composer.md: "the composer row uses one
+   gap token and equal insets; no per-control margins"). The row's rhythm tokens (composerLocation.css)
+   and nothing else: every control draws its ink --acpmux-row-inset in from its own hit box, and
+   every two controls stand --acpmux-row-group-gap apart, the mic and Send included, so what a
+   person sees between any two is inset + gap + inset. The only other space is the one flexible gap
+   between + and the mode on the left and the rest on the right. + and Send draw --acpmux-row-edge
+   in from the box's sides, and the row's center line stands as far over the box's bottom as +'s
+   glyph center stands in from its left, as Codex's does (Leo 2026-10-30: "why are the buttons so
+   high up"). test/composer-row-one-gap.test.ts measures it. */
+.acpmux-composer[data-composer-look="codex"] .acpmux-composer-bar {
+  min-height: 0;
+  padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
+  padding-block-end: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers),
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) > .acpmux-composer-actions {
+  gap: var(--acpmux-row-group-gap);
+}
+/* New Tab's mic and Send draw an 18 px glyph (newtab/screen.css): their hit boxes keep the inset too. */
+.nt-composer[data-composer-look="codex"] .nt-pickers :is(.acpmux-mic, .acpmux-send) {
+  width: calc(18px + 2 * var(--acpmux-row-inset));
+  height: calc(18px + 2 * var(--acpmux-row-inset));
+}
+/* The ring's hit box keeps the row's inset around its glyph, as every icon button's does. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-context-ring {
+  width: calc(var(--acpmux-context-glyph-size) + 2 * var(--acpmux-row-inset));
+  height: calc(var(--acpmux-context-glyph-size) + 2 * var(--acpmux-row-inset));
+}
+/* The chips lay out as the row's own items, so none adds the chips' group padding of its own. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > * {
+  padding-inline-start: 0;
+}
+/* Every chip, the mode's capsule included, takes the row's inset: its pill shows only on hover. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips .acpmux-picker-button {
+  padding-inline: var(--acpmux-row-inset);
+}
+
 /* The folder and computer strip: Codex's tray, set in from the box's sides where its corners end,
    its bottom tucked under the box (which is raised over it), its top corners round, a faint wash of
    the text colour over the card's glass. A new chat's strip and New Tab's (.nt-above). The plain
