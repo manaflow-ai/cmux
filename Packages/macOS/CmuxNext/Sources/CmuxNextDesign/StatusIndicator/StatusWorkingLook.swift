@@ -13,7 +13,7 @@ public nonisolated enum StatusWorkingLook: String, Sendable, CaseIterable, Tunab
     case breathe
     /// The same dot held still; on web pages the working row's words shimmer.
     case shimmer
-    /// The working spinner's turning arc (the default, `StatusIndicatorPlan.working`).
+    /// The working spinner: a faint ring with a short sweep turning (the default, `StatusIndicatorPlan.working`).
     case spinner
 
     /// The Debug Settings switch (section "Status Indicators").

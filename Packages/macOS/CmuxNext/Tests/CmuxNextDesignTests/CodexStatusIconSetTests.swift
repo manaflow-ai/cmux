@@ -23,7 +23,7 @@ import CmuxNextDesignTokens
 
     @Test func workSpinsInAGreyAndStandsStillAsARing() {
         let spinning = Self.plan(.working)
-        #expect(spinning.glyph == .arc && spinning.animation == .spin && spinning.tint == .spinner)
+        #expect(spinning.glyph == .sweep && spinning.animation == .spin && spinning.tint == .spinner)
         let still = Self.plan(.working, animates: false)
         #expect(still.glyph == .mark(.vector(.idle)) && still.animation == nil && still.tint == .spinner)
         // The grey is the theme's foreground at Codex's 66%, not a hue.
