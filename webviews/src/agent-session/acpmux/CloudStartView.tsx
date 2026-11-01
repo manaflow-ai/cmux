@@ -251,7 +251,7 @@ export function CloudStartView({
       data-look={arm}
       data-initialized={start.initialized ? "true" : undefined}
     >
-      {bubble && !failed && (
+      {bubble && (
         <div className="cv-user">
           <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
         </div>
