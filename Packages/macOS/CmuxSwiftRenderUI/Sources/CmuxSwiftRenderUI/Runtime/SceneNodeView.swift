@@ -515,7 +515,16 @@ private struct SceneBoxStyle: ViewModifier {
                 content
             }
         }
-        let padded = rotated.padding(paddingInsets)
+        // Spin turns in the same place, on top of any rotation. Only nodes
+        // that carry the prop pay for its timeline.
+        let spun = Group {
+            if let spin = node.props["spin"] {
+                rotated.modifier(SceneSpin(value: spin))
+            } else {
+                rotated
+            }
+        }
+        let padded = spun.padding(paddingInsets)
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let backed = Group {
             if let material = sceneMaterial(backgroundToken) {
@@ -597,6 +606,49 @@ private struct SceneBoxStyle: ViewModifier {
         guard let prop = node.props[key] else { return nil }
         if prop.stringValue == "infinity" { return .infinity }
         return prop.doubleValue.map { CGFloat($0) }
+    }
+}
+
+/// `.spin(seconds?)`: one full clockwise turn every `seconds` (a bare
+/// `.spin()` turns once a second), drawn by the host. A JS binding can only
+/// move on the one-second clock, so `.rotation` steps and pauses; this
+/// turns every frame. Reduce Motion stops it.
+struct SceneSpin: ViewModifier {
+    let value: ScenePropValue
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Wraps `content` in a timeline that turns it once per period, paused
+    /// while the prop or Reduce Motion says not to spin.
+    func body(content: Content) -> some View {
+        let period = Self.period(value, reduceMotion: reduceMotion)
+        // The angle comes from the timeline's date, not from a repeating
+        // animation started on appear, so a row that is rebuilt or scrolled
+        // back in picks up mid-turn instead of jumping or stalling. Stopping
+        // pauses the timeline rather than dropping it, so the content keeps
+        // its identity and state
+        TimelineView(.animation(minimumInterval: nil, paused: period == nil)) { context in
+            content.rotationEffect(.degrees(period.map { Self.angle(at: context.date, period: $0) } ?? 0))
+        }
+    }
+
+    /// Seconds per turn, or nil for no spin: `0`, `false`, a negative or
+    /// non-finite number, text that is not a number, or Reduce Motion.
+    nonisolated static func period(_ value: ScenePropValue?, reduceMotion: Bool) -> Double? {
+        guard !reduceMotion, let value else { return nil }
+        let seconds: Double?
+        if let on = value.boolValue {
+            seconds = on ? 1 : nil
+        } else {
+            seconds = value.doubleValue
+        }
+        guard let seconds, seconds.isFinite, seconds > 0 else { return nil }
+        return seconds
+    }
+
+    /// Degrees clockwise at `date`: the fraction of the current period that
+    /// has elapsed since the reference date, times 360.
+    nonisolated static func angle(at date: Date, period: Double) -> Double {
+        date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period * 360
     }
 }
 

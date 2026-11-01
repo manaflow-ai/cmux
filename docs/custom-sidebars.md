@@ -184,7 +184,11 @@ Rules of the runtime:
   one axis)
   `.fill` `.stroke` `.strokeWidth` `.size` `.rotation(degrees)` (spins the
   content in place inside its layout box, spring-animated - e.g. a group
-  chevron that turns instead of swapping glyphs) `.fade(width)` (constant
+  chevron that turns instead of swapping glyphs) `.spin(seconds?)` (one
+  full clockwise turn every `seconds`, default 1, drawn by the host every
+  frame, so a spinner never waits on the one-second clock; `0` or `false`
+  stops it and keeps the view's state, where `null` removes the prop and
+  rebuilds the view; Reduce Motion stops it too) `.fade(width)` (constant
   trailing fade: the last `width` points dissolve to transparent - use it
   instead of trailing padding where accessories float over the content)
   `.marquee(delaySeconds?)` (text only: after the hover holds `delay` seconds,
@@ -193,6 +197,12 @@ Rules of the runtime:
   hovered) `.onTap(fn)`. Any of them (except
   handlers) accepts a function for a live binding. Colors are the same tokens
   as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
+- A spinner that turns only while `busy()` (any signal or data read) is
+  true:
+  ```js
+  Image("arrow.triangle.2.circlepath").font(10)
+    .spin(() => (busy() ? 1 : 0))
+  ```
 - `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row
   template runs once per key and `item()` is the row's live item signal.
 - `.fixed()` on a row inside a `Reorderable` makes it a non-grabbable slot
