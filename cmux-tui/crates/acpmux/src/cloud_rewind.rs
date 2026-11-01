@@ -198,6 +198,8 @@ impl CloudTurnClient {
         ] {
             valid_component(name, value)?;
         }
+        anyhow::ensure!(matches!(scope.purpose.as_str(), "prepare" | "execute"), "turn purpose is malformed");
+        valid_component("attempt_id", &scope.attempt_id)?;
         let token = self.auth.bearer().context("turn capability unavailable")?;
         anyhow::ensure!(token.starts_with("trc_"), "turn capability is malformed");
         let mut url = self.origin.clone();
@@ -374,6 +376,10 @@ pub struct TurnScope {
     pub generation: u64,
     pub session: String,
     pub turn: String,
+    #[serde(default)]
+    pub purpose: String,
+    #[serde(default, rename = "attemptId")]
+    pub attempt_id: String,
 }
 
 /// Native-prepared turn capability carried only in the in-memory prompt request.
@@ -389,6 +395,10 @@ pub struct CloudTurnEnvelope {
     pub session: String,
     pub turn: String,
     pub expires_at: u64,
+    #[serde(default)]
+    pub purpose: String,
+    #[serde(default, rename = "attemptId")]
+    pub attempt_id: String,
 }
 
 impl CloudTurnEnvelope {
@@ -401,6 +411,8 @@ impl CloudTurnEnvelope {
             generation: self.generation,
             session: self.session.clone(),
             turn: self.turn.clone(),
+            purpose: if self.purpose.is_empty() { "execute".into() } else { self.purpose.clone() },
+            attempt_id: if self.attempt_id.is_empty() { self.turn.clone() } else { self.attempt_id.clone() },
         }
     }
 }
@@ -479,6 +491,10 @@ pub struct MintedCapability {
     pub session: String,
     pub turn: String,
     pub expires_at: u64,
+    #[serde(default)]
+    pub purpose: String,
+    #[serde(default, rename = "attemptId")]
+    pub attempt_id: String,
 }
 
 impl MintedCapability {
@@ -490,7 +506,9 @@ impl MintedCapability {
             machine: self.machine,
             generation: self.generation,
             session: self.session,
-            turn: self.turn,
+            turn: self.turn.clone(),
+            purpose: if self.purpose.is_empty() { "execute".into() } else { self.purpose },
+            attempt_id: if self.attempt_id.is_empty() { self.turn.clone() } else { self.attempt_id },
         };
         Ok((scope, EphemeralCapability::new(self.capability)?))
     }
