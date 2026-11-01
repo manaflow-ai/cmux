@@ -17,35 +17,6 @@ import { PNG } from "pngjs";
 import { backdropBlurRadius, holeIn, holeMask } from "../src/ui/glass/seeThroughBlur";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-describe("see-through blur geometry", () => {
-  test("reads the blur radius from a backdrop-filter value", () => {
-    expect(backdropBlurRadius("blur(24px) saturate(1.8)")).toBe(24);
-    expect(backdropBlurRadius("saturate(1.8) blur(12.5px)")).toBe(12.5);
-    expect(backdropBlurRadius("none")).toBe(24);
-    expect(backdropBlurRadius("none", 8)).toBe(8);
-  });
-
-  test("puts the hole in the covered element's own box, its corner no larger than the hole", () => {
-    const surface = new DOMRectReadOnlyLike(300, 60, 200, 100);
-    const target = new DOMRectReadOnlyLike(20, 10, 600, 400);
-    expect(holeIn(surface, target, { radius: 80, blur: 24, opacity: 1.4 })).toEqual({
-      x: 280,
-      y: 50,
-      width: 200,
-      height: 100,
-      radius: 50,
-      blur: 24,
-      opacity: 1,
-    });
-  });
-
-  test("the mask is a rounded rect of the hole's own size", () => {
-    const svg = decodeURIComponent(holeMask(200.4, 99.6, 12).replace("data:image/svg+xml,", ""));
-    expect(svg).toContain('width="200" height="100"');
-    expect(svg).toContain('rx="12" ry="12"');
-  });
-});
-
 /** A DOMRect for the geometry tests (bun has no DOM). */
 class DOMRectReadOnlyLike {
   readonly left: number;
@@ -72,6 +43,36 @@ class DOMRectReadOnlyLike {
 
 await requireBrowserLane("see-through-blur.test.ts", async () => {
   setDefaultTimeout(120_000);
+
+  describe("see-through blur geometry", () => {
+    test("reads the blur radius from a backdrop-filter value", () => {
+      expect(backdropBlurRadius("blur(24px) saturate(1.8)")).toBe(24);
+      expect(backdropBlurRadius("saturate(1.8) blur(12.5px)")).toBe(12.5);
+      expect(backdropBlurRadius("none")).toBe(24);
+      expect(backdropBlurRadius("none", 8)).toBe(8);
+    });
+
+    test("puts the hole in the covered element's own box, its corner no larger than the hole", () => {
+      const surface = new DOMRectReadOnlyLike(300, 60, 200, 100);
+      const target = new DOMRectReadOnlyLike(20, 10, 600, 400);
+      expect(holeIn(surface, target, { radius: 80, blur: 24, opacity: 1.4 })).toEqual({
+        x: 280,
+        y: 50,
+        width: 200,
+        height: 100,
+        radius: 50,
+        blur: 24,
+        opacity: 1,
+      });
+    });
+
+    test("the mask is a rounded rect of the hole's own size", () => {
+      const svg = decodeURIComponent(holeMask(200.4, 99.6, 12).replace("data:image/svg+xml,", ""));
+      expect(svg).toContain('width="200" height="100"');
+      expect(svg).toContain('rx="12" ry="12"');
+    });
+  });
+
   const source = path.resolve(import.meta.dir, "../src");
   const css = ["pages/shared/desktop.css", "ui/glass/glass.css"]
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
