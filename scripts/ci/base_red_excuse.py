@@ -690,7 +690,9 @@ def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
 #       file is declared in GUARD_READS qualifies (GUARD_READS_DEFAULT plus its own product paths): an undeclared
 #       test may read anything (tests/test_docs_deploy_auth_guard.py reads web/), so it is refused, never guessed;
 #   (c) the run is whole: a crash or a cut-short run never counts (refused before this is asked).
-# Any other job (Swift, cargo, webview tests) is never fixed on the base: its tests read product code.
+# Only a declared guard job (GUARD_JOBS) qualifies, and each failing test must be one its failed step's own script
+# runs (the step's echo names the test file) with a whole test-run summary printed: a Swift, cargo or webview job, or
+# product code printing a `FAILED tests/x.py::...` line, is never fixed on the base.
 TOP_LEVEL = "top-level files"  # every path with no directory: package.json, .gitmodules, the entitlements, ...
 RELEASE_MANIFESTS = (TOP_LEVEL, "release-notes/", "homebrew-cmux/", "cmux.xcodeproj/", "Resources/", "ghostty-next",
                      "vendor/")
@@ -704,13 +706,23 @@ GUARD_READS = {
     # focused_tests.plan reads the tree: Swift imports, the CmuxNext target graph, the webviews import graph, Cargo.
     "tests/test_car_guards.py": ("Packages/", "webviews/", "cmux-tui/", "Native/"),
 }
+# The jobs that run the declared guard tests: cmux-next.yml's checks job, and ci-guards.yml's release-notary group
+# (its check is '<caller> / workflow-guard-tests / release-notary').
+GUARD_JOBS = frozenset({"cmux-next checks (god files, concurrency, crash safety, l10n)"})
+GUARD_JOB_SUFFIXES = ("workflow-guard-tests / release-notary",)
 GUARD_TEST_FILE = re.compile(r"tests/[\w.-]+\.py")
+# A finished test run: unittest's `Ran N tests in`, or pytest's closing `==== ... in Ns ====` line.
+TEST_RUN_SUMMARY = re.compile(r"^Ran \d+ tests? in [\d.]+s$|^=+ .*\bin [\d.]+s\b.*=+$")
 # A traceback frame in a tests/*.py file: `File "/…/tests/test_x.py", line 12, in test_y`.
 TRACEBACK_FRAME = re.compile(r'^\s*File "(?:[^"]*/)?(tests/[\w.-]+\.py)", line \d+, in (\w+)$')
 # The cmux-next checks job's last step (`Fail on any red check`) names each red step it rolls up.
 ROLLUP_RED = re.compile(r"^##\[error\]red check: \S")
 # A compare lists at most 300 files: a longer diff cannot be shown to stay out of a test's paths.
 COMPARE_FILES_CAP = 300
+
+
+def guard_job(name: str) -> bool:
+    return name in GUARD_JOBS or any(name == end or name.endswith(" / " + end) for end in GUARD_JOB_SUFFIXES)
 
 
 def guard_test_file(name: str, output: list[str]) -> str | None:
@@ -734,6 +746,7 @@ def guard_tests(log: str) -> dict[str, str]:
     tested_steps = rolled_up = 0
     for start, end in zip([0] + starts, starts + [len(lines)]):
         output = [lines[n] for n in range(start, end) if n not in skip]
+        script = [lines[n] for n in range(start, end) if n in skip]
         errors = [text for text in output if test_reds.STEP_ERROR.match(text)]
         if not errors:
             continue
@@ -744,10 +757,14 @@ def guard_tests(log: str) -> dict[str, str]:
         names = test_reds.failed_names(output)
         if not names:
             raise Refused(f"a failed step names no failing test ({errors[0][:200]})")
+        if not any(TEST_RUN_SUMMARY.match(text) for text in output):
+            raise Refused(f"the failed step naming {sorted(names)[0]} printed no test-run summary")
         for name in sorted(names):
             path = guard_test_file(name, output)
             if path is None:
                 raise Refused(f"{name} is not a tests/*.py guard test whose file its log names")
+            if not any(path in text for text in script):
+                raise Refused(f"{name}: its failed step's script does not run {path}")
             found[name] = path
         tested_steps += 1
     if not found:
@@ -766,6 +783,8 @@ def touches(path: str, read: str) -> bool:
 def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base_run: dict, github) -> str:
     """The audit line for a red job whose every failing test is fixed on the base (the rule above); raises Refused
     with the reason it is not. BASE_RUN is the newest base run with a verdict for the job, and that verdict passed."""
+    if not guard_job(name):
+        raise Refused(f"'{name}' is not a declared guard job (GUARD_JOBS); its tests may read product code")
     tests = guard_tests(head_log)
     tested = tested_sha(base_run)
     if not re.fullmatch(r"[0-9a-f]{40}", tested):

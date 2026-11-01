@@ -1670,9 +1670,37 @@ class FixedOnBase(unittest.TestCase):
         # A Swift test reads product code: a pass on the base proves only that the head broke it.
         github = FakeGitHub()
         github.jobs[2]["conclusion"] = "success"
-        with self.assertRaisesRegex(excuse.Refused, "not a tests/\\*\\.py guard test"):
+        with self.assertRaisesRegex(excuse.Refused, "not a declared guard job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
         self.assertFalse([route for route in github.routes if "/compare/" in route])
+
+    def test_a_guard_test_line_printed_by_another_job_is_never_fixed_on_base(self):
+        github = FixedOnBaseGitHub()
+        for job in github.jobs.values():
+            job["name"] = SWIFT
+        github.logs[1] = github.logs[1].replace(GUARD, SWIFT)
+        with self.assertRaisesRegex(excuse.Refused, "not a declared guard job"):
+            self.judge(github)
+
+    def test_a_step_that_does_not_run_the_test_file_is_not_excused(self):
+        github = FixedOnBaseGitHub()
+        github.logs[1] = github.logs[1].replace("python3 tests/test_car_guards.py", "./build.sh")
+        with self.assertRaisesRegex(excuse.Refused, "script does not run tests/test_car_guards.py"):
+            self.judge(github)
+
+    def test_a_pytest_line_with_no_test_run_is_not_excused(self):
+        github = FixedOnBaseGitHub()
+        github.logs[1] = log(GUARD, GUARD_STEP, "##[group]Run python3 tests/test_car_guards.py",
+                             "python3 tests/test_car_guards.py", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+                             f"FAILED tests/test_car_guards.py::FocusedTests::{CAR_TEST}",
+                             "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, "printed no test-run summary"):
+            self.judge(github)
+
+    def test_the_checks_job_is_a_guard_job(self):
+        self.assertTrue(excuse.guard_job("cmux-next checks (god files, concurrency, crash safety, l10n)"))
+        self.assertTrue(excuse.guard_job("nightly-guards / workflow-guard-tests / release-notary"))
+        self.assertFalse(excuse.guard_job("nightly-guards / workflow-guard-tests / ci"))
 
     def test_a_too_long_diff_is_not_excused(self):
         github = FixedOnBaseGitHub(changed=[f"Sources/App/F{n}.swift" for n in range(excuse.COMPARE_FILES_CAP)])
