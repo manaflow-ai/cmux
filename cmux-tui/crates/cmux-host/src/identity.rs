@@ -10,12 +10,16 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::cloud::client::Store;
-use crate::cloud::wire::{BIND_FILE, INSTALL_KEY_FILE};
+use crate::cloud::wire::{BIND_FILE, BOUND_FILE, INSTALL_KEY_FILE};
 use crate::config::Paths;
 
 pub const SOCKET: &str = "/run/cmux-host/identity.sock";
 /// Written only after a successful enrollment, not when a key is rotated.
 pub const RECEIPT: &str = "/var/lib/cmux/install/identity.json";
+/// Platform-scope enrollment is deliberately kept separate from legacy bind state.  A
+/// late scoped read must never rotate the key or receipt owned by normal enrollment.
+const SCOPED_INSTALL_KEY_FILE: &str = "/var/lib/cmux/install/platform-scope-key.json";
+const SCOPED_RECEIPT: &str = "/var/lib/cmux/install/platform-scope-identity.json";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -97,18 +101,36 @@ pub(crate) fn enrolled(store: &dyn Store, fresh_instance: &str) -> Result<HostId
 /// this path until their normal enrollment completes.
 #[cfg(any(target_os = "linux", test))]
 pub(crate) fn scoped(store: &mut dyn Store, paths: &Paths) -> Result<HostIdentity, String> {
-    if store.present(BIND_FILE)? {
+    if store.present(BIND_FILE)? || store.present(BOUND_FILE)? || store.present(RECEIPT)? {
         return Err("identity enrollment is pending".to_owned());
     }
-    let values = crate::turn_scope::environment(paths).map_err(|_| "scope is unavailable".to_owned())?;
+    let values =
+        crate::turn_scope::environment(paths).map_err(|_| "scope is unavailable".to_owned())?;
     let machine = values
         .iter()
         .find_map(|(key, value)| (key == "CMUX_PLATFORM_MACHINE_ID").then_some(value.as_str()))
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "scope has no machine id".to_owned())?;
-    let loaded = crate::cloud::client::ensure_install_key(store, machine, &SystemRandom::new())?;
-    record(store, machine, &loaded.key)?;
-    Ok(HostIdentity::from_key(machine, machine, &loaded.key))
+    let key = if let Some(saved) = store.read(SCOPED_INSTALL_KEY_FILE) {
+        let parsed: SavedKey =
+            serde_json::from_str(&saved).map_err(|_| "invalid scoped install key")?;
+        if parsed.instance_id != machine {
+            return Err("scoped install key belongs to another machine".to_owned());
+        }
+        InstallKey::from_pkcs8_base64url(&parsed.pkcs8, &SystemRandom::new())?
+    } else {
+        let key = InstallKey::generate(&SystemRandom::new())?;
+        let text = serde_json::json!({
+            "instance_id": machine,
+            "pkcs8": key.pkcs8_base64url(),
+        });
+        store.write(SCOPED_INSTALL_KEY_FILE, &format!("{text}\n"), 0o600)?;
+        key
+    };
+    let identity = HostIdentity::from_key(machine, machine, &key);
+    let text = serde_json::to_string(&identity).map_err(|e| e.to_string())?;
+    store.write(SCOPED_RECEIPT, &text, 0o600)?;
+    Ok(identity)
 }
 
 #[cfg(target_os = "linux")]
