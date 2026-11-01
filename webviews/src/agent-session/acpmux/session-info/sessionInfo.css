@@ -197,6 +197,9 @@
   font-weight: 500;
 }
 .acpmux-session-info__body {
+  /* A section's drag handle (.acpmux-session-info-section__handle) is this wide; the body's right
+     padding (data-layout) holds it, then a step of the spacing scale clear of the scrollbar. */
+  --acpmux-session-info-handle-width: 6px;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -225,10 +228,10 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* The first 6px of the body's right padding (data-layout); in glance and rules the 4px past it keep it
-     off the scrollbar. */
-  right: -6px;
-  width: 6px;
+  /* The first part of the body's right padding (data-layout); in glance and rules the scale step past it
+     keeps it off the scrollbar. */
+  right: calc(-1 * var(--acpmux-session-info-handle-width));
+  width: var(--acpmux-session-info-handle-width);
   height: 28px;
   display: flex;
   align-items: center;
@@ -264,9 +267,9 @@
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
 .acpmux-session-info__body[data-layout] {
-  /* The handle's 6px, then 4px clear of the scrollbar's thumb (Leo, 2026-11-01: "the dragger is a bit
-     too close to the thumb"). */
-  padding-right: 10px;
+  /* The handle's width, then a scale step (4px) clear of the scrollbar's thumb: 10px in all (Leo,
+     2026-11-01: "the dragger is a bit too close to the thumb"). */
+  padding-right: calc(var(--acpmux-session-info-handle-width) + var(--ds-space-1, 4px));
   padding-left: 6px;
 }
 .acpmux-session-info-group {
