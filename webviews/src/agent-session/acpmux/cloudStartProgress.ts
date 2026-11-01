@@ -62,6 +62,12 @@ export type CloudStartupOperation = {
   startedAt?: number;
   finishedAt?: number;
   error?: string;
+  phase?: string;
+  progress?: {
+    receivedBytes?: number;
+    objects?: number;
+    totalObjects?: number;
+  };
 };
 
 export type CloudStartupSetup = {
@@ -182,7 +188,19 @@ function operation(value: unknown): CloudStartupOperation | undefined {
   const startedAt = number(record.startedAt ?? record.started_at);
   const finishedAt = number(record.finishedAt ?? record.finished_at);
   const error = line(record.error ?? record.message, 240);
-  return { state, ...(startedAt !== undefined && { startedAt }), ...(finishedAt !== undefined && { finishedAt }), ...(error && { error }) };
+  const phase = line(record.phase, 80);
+  const progressRecord = asRecord(record.progress);
+  const receivedBytes = number(progressRecord?.receivedBytes ?? progressRecord?.received_bytes);
+  const objects = number(progressRecord?.objects);
+  const totalObjects = number(progressRecord?.totalObjects ?? progressRecord?.total_objects);
+  const progress = progressRecord
+    ? {
+        ...(receivedBytes !== undefined && { receivedBytes }),
+        ...(objects !== undefined && { objects }),
+        ...(totalObjects !== undefined && { totalObjects }),
+      }
+    : undefined;
+  return { state, ...(startedAt !== undefined && { startedAt }), ...(finishedAt !== undefined && { finishedAt }), ...(error && { error }), ...(phase && { phase }), ...(progress && Object.keys(progress).length > 0 && { progress }) };
 }
 
 function setupStatus(value: unknown): CloudStartupSetup | undefined {

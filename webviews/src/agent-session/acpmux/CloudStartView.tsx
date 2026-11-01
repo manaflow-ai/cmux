@@ -32,12 +32,21 @@ function setupStatus(setup: CloudStartupSetup | undefined): ChecklistStatus | un
   return "pending";
 }
 
+function cloneDetail(operation: CloudStartupOperation | undefined): string | undefined {
+  if (!operation) return undefined;
+  const parts = [operation.phase];
+  const progress = operation.progress;
+  if (progress?.objects !== undefined && progress.totalObjects !== undefined) parts.push(`${progress.objects}/${progress.totalObjects} objects`);
+  if (progress?.receivedBytes !== undefined) parts.push(`${Math.round(progress.receivedBytes / 1024)} KB`);
+  return parts.filter(Boolean).join(" · ") || operation.error;
+}
+
 export function startupChecklist(start: CloudStartProgress): ChecklistStep[] {
   const oldStep = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1;
   const machine: ChecklistStep = { id: "machine", label: "Set up a Cloud machine", status: start.state === "failed" && oldStep < 0 ? "error" : oldStep > 0 || start.initialized ? "done" : oldStep === 0 ? "running" : "pending", duration: elapsed(start.machineStartedAt, start.machineFinishedAt) };
   const hasRepository = start.hasRepository ?? Boolean(start.repository || start.folder) && !start.home;
   const cloneStatus = operationStatus(start.clone);
-  const clone: ChecklistStep = { id: "clone", label: "Clone repository", status: !hasRepository ? "skipped" : cloneStatus ?? (oldStep > 1 ? "done" : oldStep === 1 ? "running" : "pending"), duration: elapsed(start.clone?.startedAt, start.clone?.finishedAt), ...(start.clone?.error ? { detail: start.clone.error } : {}) };
+  const clone: ChecklistStep = { id: "clone", label: "Clone repository", status: !hasRepository ? "skipped" : cloneStatus ?? (oldStep > 1 ? "done" : oldStep === 1 ? "running" : "pending"), duration: elapsed(start.clone?.startedAt, start.clone?.finishedAt), ...((cloneDetail(start.clone) || start.clone?.error) ? { detail: cloneDetail(start.clone) || start.clone?.error } : {}) };
   const hasScript = start.setup?.hasScript;
   const setup: ChecklistStep = { id: "setup", label: "Run setup script", status: hasScript === false ? "skipped" : setupStatus(start.setup) ?? (start.initialized ? "done" : "pending"), duration: elapsed(start.setup?.startedAt, start.setup?.finishedAt), ...(start.setup?.status === "ready" ? { detail: "cached" } : {}), ...(start.setup?.logTail ? { detail: start.setup.logTail, logTail: start.setup.logTail } : {}), ...(hasScript === false ? { detail: "Add a setup script to install dependencies and configure your environment.", action: true } : {}) };
   const harness: ChecklistStep = { id: "harness", label: `Started ${start.agent || "Harness"}`, status: start.state === "failed" ? "error" : start.initialized ? "done" : oldStep === 2 ? "running" : "pending", duration: elapsed(start.harnessStartedAt, start.harnessFinishedAt) };

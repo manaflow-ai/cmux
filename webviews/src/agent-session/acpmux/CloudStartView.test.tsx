@@ -68,3 +68,8 @@ test("environment setup status maps cached, running and failed states", () => {
   expect(startupChecklist({ ...base, setup: { state: "running", status: "building" } })[2]?.status).toBe("running");
   expect(startupChecklist({ ...base, setup: { state: "failed", status: "failed", logTail: "npm ERR!" } })[2]).toMatchObject({ status: "error", logTail: "npm ERR!" });
 });
+
+test("clone status keeps seed phase and object progress in the row", () => {
+  const rows = startupChecklist({ key: "k", task: "hi", state: "starting", hasRepository: true, clone: { state: "running", phase: "Receiving objects", progress: { objects: 2, totalObjects: 4, receivedBytes: 2048 } } });
+  expect(rows[1]?.detail).toBe("Receiving objects · 2/4 objects · 2 KB");
+});
