@@ -3847,7 +3847,7 @@ class Nightly(unittest.TestCase):
         api = NightlyAPI(clock, jobs, pushes=[RUN_ID + 1])
         api.branch_head = lambda branch: "b" * 40
         _, summary = run_main(api, clock, payload=nightly_event())
-        self.assertEqual(mutations(api), ["cancel", "rerun-failed"], summary)
+        self.assertEqual(mutations(api), [], summary)
         # Before the build has succeeded, main moving on still cancels without a re-run, as before.
         self.assertEqual(rescue.app_built([jobs(0)[0], dict(jobs(0)[1], conclusion="failure")]), False)
 
@@ -3900,9 +3900,8 @@ class Nightly(unittest.TestCase):
         api = NightlyAPI(clock, nightly_run(helper_done_at=300))
         code, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
         self.assertEqual(code, 0)
-        self.assertIn("cancel", api.calls)
-        self.assertGreaterEqual(api.first_cancel, 300)
-        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("started delivery work", summary)
         self.assertNotIn("rerun", api.calls)
         self.assertNotIn("pull", api.calls)
         self.assertIn(f"queued on {TRUSTED}", summary)
@@ -3983,11 +3982,8 @@ class Nightly(unittest.TestCase):
             result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
                                    log=lines.append)
             self.assertTrue(any(line.startswith(rescue.NIGHTLY_BUSY) for line in lines), (retry, lines))
-            self.assertEqual(result, "done", retry)
-            # The retried cancel (retry) never went out: the only cancel sent is the one after the sibling ended.
-            self.assertEqual(api.calls.count("cancel"), 1, retry)
-            self.assertGreaterEqual(api.first_cancel, state["start"] + lasts)
-            self.assertEqual(api.calls[-1], "rerun-failed", retry)
+            self.assertIn("watch limit reached", result, retry)
+            self.assertNotIn("cancel", api.calls)
 
     def test_a_resumed_watch_still_holds_off_a_stalled_label_for_the_nightly_hold(self):
         # The hold on a stalled label is timed for a nightly (NIGHTLY_HOLD_SECONDS): it then moves, never left queued.
@@ -3997,8 +3993,7 @@ class Nightly(unittest.TestCase):
         held = [index for index, line in enumerate(lines) if line.startswith("held on the owned pool")]
         self.assertTrue(held, lines)
         self.assertTrue(any(line.startswith("moving the held nightly job") for line in lines), lines)
-        self.assertEqual(api.calls[-1], "rerun-failed")
-        self.assertGreaterEqual(api.first_cancel, state["start"] + rescue.NIGHTLY_HOLD_SECONDS)
+        self.assertNotIn("cancel", api.calls)
 
     def test_a_sibling_in_its_runner_setup_is_started_work(self):
         setup = {**job("publish-nightly", status="in_progress", runner="linux"),
@@ -4008,7 +4003,8 @@ class Nightly(unittest.TestCase):
         self.assertEqual(look.action, "watch")
         api = NightlyAPI(Clock(), lambda seconds: jobs)
         target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True, path=rescue.NIGHTLY_WORKFLOW_PATH)
-        self.assertEqual(rescue.started_nightly_work(api, target, lambda _: None, lambda _: None), "publish-nightly")
+        self.assertEqual(rescue.started_nightly_work(api, target, lambda _: None, lambda _: None),
+                         "build-nightly-ghostty-cli-helper, publish-nightly")
         # A nightly build held in its own runner's setup is started too: never cancelled, even at the end.
         held = nightly_run(started_at=20, setup_until=10 ** 9, helper_done_at=0)(30 * 60)
         for closing in (False, True):
@@ -4137,7 +4133,7 @@ class Nightly(unittest.TestCase):
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(helper_done_at=300), newer=[RUN_ID + 7])
         _, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
-        self.assertIn("cancel", api.calls)
+        self.assertNotIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
         self.assertIn("a newer nightly run on main", summary)
 
@@ -5337,20 +5333,17 @@ def cancel_times(api):
 
 
 class NightlySigningStall(unittest.TestCase):
-    """nightly-next's signing jobs on a stalled Blacksmith macOS label: cancel and re-run failed jobs, only when the
-    cancel loses no work."""
+    """A started delivery run stays intact while a signing job waits for capacity."""
 
-    def test_stalled_signing_jobs_with_nothing_else_running_are_cancelled_and_their_failed_jobs_re_run(self):
+    def test_stalled_signing_jobs_with_nothing_else_running_stay_for_capacity(self):
         clock = Clock()
         api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
-        cancelled = cancel_times(api)
+        cancel_times(api)
         code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertEqual(code, 0)
-        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+        self.assertEqual(mutations(api), [])
         self.assertIn("past the 600s Blacksmith stall time, and every other job of the run has finished", summary)
-        self.assertIn("its signing jobs take their alternate macOS label", summary)
-        # Not before the stall time: both jobs had waited at least 10 minutes when the run was cancelled.
-        self.assertGreaterEqual(cancelled[0], 70 + rescue.SIGN_STALL_SECONDS)
+        self.assertIn("started delivery work", summary)
 
     def test_another_job_in_progress_holds_the_rescue_until_it_finishes(self):
         clock = Clock()
@@ -5360,9 +5353,9 @@ class NightlySigningStall(unittest.TestCase):
         _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertIn("but build-nightly-ghostty-cli-helper not finished; cancelling the run would lose that work",
                       summary)
-        # Nothing was cancelled while that job ran; once it finished the next look rescued.
-        self.assertGreaterEqual(cancelled[0], done_at)
-        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+        # The whole run is already started, so it remains intact even after
+        # the other sibling finishes.
+        self.assertEqual(mutations(api), [])
 
     def test_a_job_still_running_at_the_watch_limit_is_never_cancelled(self):
         clock = Clock()
@@ -5394,13 +5387,13 @@ class NightlySigningStall(unittest.TestCase):
         clock = Clock()
         api = NightlyAPI(clock, signing_run(), workflow=CLASSIC_SIGN_WORKFLOW)
         _, summary = run_main(api, clock, payload=nightly_event())
-        self.assertEqual(mutations(api), ["cancel", "rerun-failed"], summary)
+        self.assertEqual(mutations(api), [], summary)
         # main having moved on does not make a run whose app is built moot; a newer run pending behind it does.
         clock = Clock()
         api = NightlyAPI(clock, signing_run(), workflow=CLASSIC_SIGN_WORKFLOW, pushes=[RUN_ID + 1])
         api.branch_head = lambda branch: "b" * 40
         run_main(api, clock, payload=nightly_event())
-        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+        self.assertEqual(mutations(api), [])
         clock = Clock()
         api = NightlyAPI(clock, signing_run(), workflow=CLASSIC_SIGN_WORKFLOW, newer=[RUN_ID + 1])
         run_main(api, clock, payload=nightly_event())
@@ -5412,9 +5405,9 @@ class NightlySigningStall(unittest.TestCase):
         self.assertEqual(mutations(api), [])
         self.assertIn("takes no alternate label on a re-run", summary)
 
-    def test_signer_verify_and_dmg_image_are_rescued(self):
-        # Run 40585960129 (2026-10-28): signer-verify and the final-DMG verify sat on blacksmith-6vcpu-macos-26 for
-        # hours after every other job had finished; signer-verify was in no table, so it held the run as unfinished.
+    def test_signer_verify_and_dmg_image_are_left_for_capacity(self):
+        # A queued signer may appear only after the app build has completed.
+        # The run is already started, so queue rescue must leave it alone.
         def jobs(seconds):
             found = [dict(job("decide", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"]), id=1),
                      dict(job("signer-dmg-image", status="completed", labels=[BLACKSMITH]), id=2,
@@ -5426,8 +5419,8 @@ class NightlySigningStall(unittest.TestCase):
         clock = Clock()
         api = NightlyAPI(clock, jobs, workflow=SIGNER_WORKFLOW)
         _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
-        self.assertEqual(mutations(api), ["cancel", "rerun-failed"], summary)
-        self.assertIn("signer-verify", summary)
+        self.assertEqual(mutations(api), [], summary)
+        self.assertIn("started delivery work", summary)
         self.assertEqual(rescue.sign_job_key({"name": "signer-dmg-image"}), "signer-dmg-image")
         # Attempt 2 is already on the alternate label: it is never cancelled again for a stall.
         target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
@@ -5440,9 +5433,9 @@ class NightlySigningStall(unittest.TestCase):
         self.assertNotEqual(outcome, "stalled")
         self.assertEqual(mutations(api), [])
 
-    def test_legacy_blacksmith_fallback_is_rescued_only_with_an_alternate(self):
-        # The owned legacy signer fails its claim gate, then its Blacksmith fallback stalls.
-        # Re-running failed jobs retries the primary signer on its alternate label.
+    def test_legacy_blacksmith_fallback_is_left_for_capacity(self):
+        # The app build has already run; a stalled legacy signer is still part
+        # of this started delivery run and is left for capacity.
         fallback = "sign-nightly-identity-legacy-blacksmith"
         fallback_workflow = f"""  {fallback}:
     runs-on: ${{{{ github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || 'blacksmith-6vcpu-macos-26' }}}}
@@ -5465,9 +5458,8 @@ class NightlySigningStall(unittest.TestCase):
                 summary = rescue.rescue_stalled_signing(
                     api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
                     deadline=clock.now() + dt.timedelta(hours=1), sign_seen={2: START}, workflow_text=current)
-                self.assertEqual(mutations(api), ["cancel", "rerun-failed"] if has_alternate else [], summary)
-                if not has_alternate:
-                    self.assertIn("takes no alternate label on a re-run", summary)
+                self.assertEqual(mutations(api), [], summary)
+                self.assertIn("started delivery work", summary)
 
     def test_the_look_before_the_cancel_sees_a_job_that_started(self):
         clock = Clock()
@@ -5483,7 +5475,7 @@ class NightlySigningStall(unittest.TestCase):
         result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
                                                deadline=clock.now() + dt.timedelta(hours=1),
                                                sign_seen={4: START, 5: START}, workflow_text=SIGN_WORKFLOW_BEFORE)
-        self.assertIn("takes no alternate label on a re-run", result)
+        self.assertIn("started delivery work", result)
         self.assertEqual(mutations(api), [])
         # A job first seen queued late counts from then, not from its created_at.
         result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
@@ -5588,8 +5580,8 @@ class NightlySigningStall(unittest.TestCase):
                                                deadline=clock.now() + dt.timedelta(hours=1),
                                                sign_seen={4: START, 5: START}, workflow_text=SIGN_WORKFLOW)
         self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
-        self.assertIn("not attempt 1 in progress", result)
-        self.assertEqual(reads["count"], 3)
+        self.assertIn("started delivery work", result)
+        self.assertEqual(reads["count"], 1)
         self.assertEqual(mutations(api), [])
 
     def test_a_stall_found_while_held_keeps_its_first_seen_times(self):
@@ -5619,7 +5611,7 @@ class NightlySigningStall(unittest.TestCase):
             _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertTrue(calls[0]["sign_seen"])
         self.assertTrue(calls[0]["sign_text"])
-        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+        self.assertEqual(mutations(api), [])
 
     def test_every_retry_inside_request_keeps_the_guard(self):
         import inspect
@@ -5640,8 +5632,8 @@ class NightlySigningStall(unittest.TestCase):
                                                deadline=clock.now() + dt.timedelta(hours=1), sign_seen=seen,
                                                workflow_text=SIGN_WORKFLOW)
         self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
-        self.assertIn("sign-nightly-identity-legacy not finished", result)
-        self.assertEqual(seen[5], clock.now())
+        self.assertIn("started delivery work", result)
+        self.assertNotIn(5, seen)
         self.assertEqual(mutations(api), [])
 
     def test_a_change_at_the_last_look_resumes_the_watch(self):
@@ -5659,7 +5651,7 @@ class NightlySigningStall(unittest.TestCase):
         with unittest.mock.patch.object(rescue, "rescue_stalled_signing", once):
             _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertIn("not rescued yet: a sibling came back", summary)
-        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+        self.assertEqual(mutations(api), [])
 
     def test_a_started_nightly_at_the_signing_cancel_resumes_the_watch(self):
         # The cancel guard found a nightly job running (NightlyBusy): the watch goes on and rescues later.
@@ -5676,8 +5668,8 @@ class NightlySigningStall(unittest.TestCase):
         with unittest.mock.patch.object(rescue, "rescue_stalled_signing", once):
             _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertIn(rescue.NIGHTLY_BUSY, summary)
-        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
-        self.assertIn("its signing jobs take their alternate macOS label", summary)
+        self.assertEqual(mutations(api), [])
+        self.assertIn("started delivery work", summary)
 
     def test_a_busy_rescue_resumes_into_the_signing_stall_rescue(self):
         # An ordinary rescue found a started nightly at its cancel; the resumed watch then finds the signing jobs
@@ -5701,8 +5693,8 @@ class NightlySigningStall(unittest.TestCase):
         with unittest.mock.patch.object(rescue, "watch", watch), \
                 unittest.mock.patch.object(rescue, "rescue", rescue_once):
             _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
-        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
-        self.assertIn("its signing jobs take their alternate macOS label", summary)
+        self.assertEqual(mutations(api), [])
+        self.assertIn("started delivery work", summary)
 
     def later_attempt(self, attempt, jobs, *, after=None):
         """Attempt `attempt` of a nightly-next push run (a re-run the sweeper adopted), its jobs `jobs`; after a
@@ -5747,11 +5739,9 @@ class NightlySigningStall(unittest.TestCase):
                                    log=lines.append)
             self.assertEqual(result, "done", lines)
             # A full re-run (the pickers choose again), never a re-run of failed jobs onto the stalled label.
-            self.assertEqual(mutations(api), ["cancel", "rerun"], attempt)
-            self.assertEqual(api.attempt, attempt + 1)
-            self.assertTrue(any(f"attempt {attempt + 1}'s pickers choose its signing labels again" in line
-                                for line in lines), lines)
-            self.assertGreaterEqual(api.first_cancel, 90 + rescue.SIGN_STALL_SECONDS)
+            self.assertEqual(mutations(api), [], attempt)
+            self.assertEqual(api.attempt, attempt)
+            self.assertIn("started delivery work", "\n".join(lines))
             # The next attempt's sign and verify jobs run where the pickers put them: nothing more to rescue there.
             next_target = dataclasses.replace(target, attempt=attempt + 1)
             api.calls.clear()
@@ -5784,9 +5774,9 @@ class NightlySigningStall(unittest.TestCase):
                                    log=lines.append)
             self.assertEqual(result, "done", lines)
             self.assertFalse(any("the fleet accepted the retry" in line for line in lines), lines)
-            self.assertEqual(mutations(api), ["cancel", "rerun"], (attempt, lines))
-            self.assertEqual(api.attempt, attempt + 1)
-            self.assertGreaterEqual(api.first_cancel, 90 + rescue.SIGN_STALL_SECONDS)
+            self.assertEqual(mutations(api), [], (attempt, lines))
+            self.assertEqual(api.attempt, attempt)
+            self.assertIn("started delivery work", "\n".join(lines))
 
     def test_the_sweeper_adopts_a_nightly_next_re_run_on_blacksmith(self):
         # Run 40500413442's attempt 2 left no marker (its build picker chose Blacksmith): the sweeper lists it.
@@ -5950,8 +5940,10 @@ class NightlyCompileRed(unittest.TestCase):
         self.assertIn(rescue.COMPILE_RED, summary)
         self.assertIn("JoinConsent+App.swift:222", summary)
 
-    def test_the_same_stall_behind_a_build_that_failed_otherwise_is_still_rescued(self):
-        # Exit 137 (a signal), or no swiftc diagnostic: it may pass on another runner, so it is re-run as before.
+    def test_the_same_stall_behind_a_build_that_failed_otherwise_is_left_for_capacity(self):
+        # A non-timeout build failure is not a queue-rescue exception.  The
+        # started delivery run remains intact for a human or its normal
+        # failure handling, whatever signing fallback exists.
         for notes in ([dict(COMPILE_ANNOTATIONS[0], message="Process completed with exit code 137.")],
                       [COMPILE_ANNOTATIONS[0], COMPILE_ANNOTATIONS[2]]):
             with self.subTest(notes=notes):
@@ -5959,9 +5951,8 @@ class NightlyCompileRed(unittest.TestCase):
                 api = CompileRedAPI(clock, broken_signing_run(failed_build()), workflow=SIGN_WORKFLOW,
                                     notes={2: notes})
                 _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
-                self.assertIn("annotations:2", api.calls)
-                self.assertEqual(mutations(api)[0], "cancel", summary)
-                self.assertNotIn(rescue.COMPILE_RED, summary)
+                self.assertEqual(mutations(api), [], summary)
+                self.assertIn("started delivery work", summary)
 
     def test_a_compile_red_nightly_whose_head_moved_is_not_cancelled_either(self):
         # rescue() cancels an unfinished nightly whose branch moved on (or that a newer run replaces); a compile-red
