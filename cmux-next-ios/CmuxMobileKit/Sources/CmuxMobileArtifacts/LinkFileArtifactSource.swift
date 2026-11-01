@@ -316,6 +316,10 @@ public struct InlineArtifactSource: ArtifactSource {
     let inline: [String: ArtifactContent]
     let fallback: any ArtifactSource
 
+    /// Inline bytes can vary by chat even at the same path. An empty overlay
+    /// delegates safely to the fallback's owner; a nonempty one stays uncached.
+    public var thumbnailCacheScope: String? { inline.isEmpty ? fallback.thumbnailCacheScope : nil }
+
     public init(inline: [String: ArtifactContent], fallback: any ArtifactSource) {
         self.inline = inline
         self.fallback = fallback
