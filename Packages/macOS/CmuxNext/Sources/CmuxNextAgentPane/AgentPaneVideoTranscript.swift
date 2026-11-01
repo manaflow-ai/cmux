@@ -267,7 +267,9 @@ private nonisolated enum RecognizerEngine {
         request.addsPunctuation = true
         request.taskHint = .dictation
         let outcome = FirstOutcome<[AgentPaneVideoTranscript.Segment]?>()
-        nonisolated(unsafe) let task = recognizer.recognitionTask(with: request) { result, error in // crash-allow: an immutable let; cancel() is the only call made on it off this task (the cancel handler), and SFSpeechRecognitionTask.cancel() is safe from any thread
+        // Only this task calls `cancel()` on it; the cancel handler resolves the outcome, which wakes the
+        // body to cancel the recognition here.
+        let task = recognizer.recognitionTask(with: request) { result, error in
             if let result, result.isFinal {
                 let words = result.bestTranscription.segments.map {
                     (text: $0.substring, start: $0.timestamp, end: $0.timestamp + $0.duration)
@@ -287,10 +289,14 @@ private nonisolated enum RecognizerEngine {
                 task.cancel()
                 return nil
             }
-            guard let segments = await outcome.value() else { return nil }
+            let segments = await outcome.value()
+            if Task.isCancelled {
+                task.cancel()
+                return nil
+            }
+            guard let segments else { return nil }
             return (segments, recognizer.locale.identifier(.bcp47))
         } onCancel: {
-            task.cancel()
             outcome.resolve(nil)
         }
     }
