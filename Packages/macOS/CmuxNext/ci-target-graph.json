@@ -1793,6 +1793,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebarActions",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextDesignTokens",
         "CmuxNextSidebar"
       ],
       "packages": []

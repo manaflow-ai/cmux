@@ -1,15 +1,22 @@
-import CmuxNextActions
-import CmuxNextDesign
-import CmuxNextSettings
+public import CmuxNextActions
+public import CmuxNextDesignTokens
 import CmuxNextSidebar
 
 /// The existing one-line workspace prototype, discoverable beside the sidebar's view choices.
 /// It keeps its DEV/NIGHTLY gate and off-by-default tunable; density and manual order are untouched.
-enum SidebarCompactListToggle {
-    static let id: ActionID = "sidebar.compactList.toggle"
+@MainActor
+public struct SidebarCompactListToggle {
+    public static let id: ActionID = "sidebar.compactList.toggle"
+    private let store: TunableStore
 
-    static func bind(into registry: ActionRegistry, store: TunableStore = .shared) {
+    public init(store: TunableStore = .shared) {
+        self.store = store
+    }
+
+    public func bind(into registry: ActionRegistry) {
+        let store = store
         let tunable = SidebarTunables.workspacesAsTabs
+        let id = Self.id
         registry.bindEffect(id, unavailable: { nil }) { _ in
             guard store.isActive else { return .done }
             if tunable.value(in: store) { store.reset([tunable.key]) }
