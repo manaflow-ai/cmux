@@ -1,5 +1,7 @@
+import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextDaemon
 import Foundation
 import Testing
 
