@@ -30,7 +30,7 @@ extension WorkspaceHoverCardView {
     /// A status entry's own icon: its stored image, its SF Symbol or its emoji; nil for none (or
     /// an asset not read yet), so the fact's icon draws.
     static func ownImage(_ fact: WorkspaceHoverCardContent.Fact) -> NSImage? {
-        let size = NSSize(width: iconSize, height: iconSize)
+        let size = NSSize(width: HoverCardRowView.iconSize, height: HoverCardRowView.iconSize)
         if let image = fact.image { return NSImage(cgImage: image.image, size: size) }
         guard let mark = fact.mark, !mark.isEmpty else { return nil }
         if let symbol = NSImage(systemSymbolName: mark, accessibilityDescription: nil) { return symbol }

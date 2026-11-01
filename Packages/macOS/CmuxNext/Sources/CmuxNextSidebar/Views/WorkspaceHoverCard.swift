@@ -518,8 +518,9 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     func configure(_ content: WorkspaceHoverCardContent, now: Date = Date()) {
         self.content = content
-        hostRow.isHidden = content.host == nil
-        if let host = content.host {
+        let host = content.host ?? content.facts.first { $0.kind == "machine" }
+        hostRow.isHidden = host == nil
+        if let host {
             hostRow.configure(host.row, image: Self.ownImage(host) ?? NSImage.icon(host.icon, size: Self.iconSize))
         }
         width = content.options.layout == .log ? Self.logCardWidth : Self.cardWidth
