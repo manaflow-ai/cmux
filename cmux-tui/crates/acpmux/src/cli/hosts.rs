@@ -1001,7 +1001,22 @@ mod tests {
         let pid: i32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
         // SAFETY: signal 0 only asks whether the process exists.
         let alive = unsafe { libc::kill(pid, 0) } == 0;
-        assert!(!alive, "the command's child {pid} outlived the timeout");
+        // DIAG (scratch): how long the killed child stays visible to kill(0) (a zombie not yet
+        // reaped by its new parent, or still dying).
+        let seen = std::time::Instant::now();
+        let mut gone_after = None;
+        while seen.elapsed() < std::time::Duration::from_secs(5) {
+            // SAFETY: signal 0 only asks whether the process exists.
+            if unsafe { libc::kill(pid, 0) } != 0 {
+                gone_after = Some(seen.elapsed().as_millis());
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(
+            !alive,
+            "DIAGHOSTS the command's child {pid} outlived the timeout; gone after {gone_after:?} ms"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
