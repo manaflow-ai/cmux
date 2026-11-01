@@ -283,6 +283,7 @@ extension IconName {
     nonisolated public static let terminalCopymode = IconName("terminal.copymode")
     nonisolated public static let terminalDead = IconName("terminal.dead")
     nonisolated public static let terminalNew = IconName("terminal.new")
+    nonisolated public static let terminalPrompt = IconName("terminal.prompt")
     nonisolated public static let textDescription = IconName("text.description")
     nonisolated public static let textWrap = IconName("text.wrap")
     nonisolated public static let theme = IconName("theme")

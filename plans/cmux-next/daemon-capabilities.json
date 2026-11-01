@@ -56,6 +56,7 @@
     "creation-receipts-v1",
     "detached-terminals-v1",
     "dock-column-role-v1",
+    "dock-column-split-down-v1",
     "dock-columns-v1",
     "edge-docks-v1",
     "end-terminals-keep-layout-v1",

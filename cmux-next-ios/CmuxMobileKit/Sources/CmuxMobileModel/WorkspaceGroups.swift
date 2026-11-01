@@ -286,7 +286,7 @@ public protocol WorkspaceGroupBackend: AnyObject {
 }
 
 extension WorkspaceCreator {
-    private var grouper: (any WorkspaceGroupBackend)? { backend as? any WorkspaceGroupBackend }
+    var grouper: (any WorkspaceGroupBackend)? { backend as? any WorkspaceGroupBackend }
 
     /// The Mac's groups the workspace can move into (not its own group).
     public func groupChoices(for workspace: Workspace) -> [MacWorkspaceGroup] {

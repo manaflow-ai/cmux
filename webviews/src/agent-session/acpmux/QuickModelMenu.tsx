@@ -597,14 +597,13 @@ export function QuickModelMenu({
       pickRow({ ...model, effort: value });
     };
     const look = menu.effortLook ?? "list";
-    // A row of a tab other than the chat's runs nothing yet: its column names the level a pick
-    // lands (the model's recommended one), as the chat's running row names its own.
-    const held = !!families && model.family !== families.current;
+    // A row that does not run names the level a pick lands (the model's recommended one), as the
+    // running row names its own, on every tab: a blank column until pointed at hid that each model
+    // has an effort choice at all (https://github.com/manaflow-ai/cmux/issues/29915).
     const shown = running
       ? choices.find((choice) => choice.id === effort?.current)
-      : held
-        ? choices.find((choice) => choice.recommended)
-        : undefined;
+      : choices.find((choice) => choice.recommended);
+    const held = !running && !!shown;
     // The row stays one line: the model, then its effort item at the trailing edge (the running
     // model's level and a chevron). Pointing at it or ArrowRight opens the model's levels as a side
     // dropdown beside the row, a vertical list in its own popup (never clipped by the list's scroll,
@@ -615,7 +614,7 @@ export function QuickModelMenu({
         key={valueOf(model)}
         data-effort-look={look}
         data-running={running ? "" : undefined}
-        data-held={held && shown ? "" : undefined}
+        data-held={held ? "" : undefined}
       >
         {name}
         <Submenu

@@ -708,7 +708,7 @@ export function NewTabScreen(props: Props) {
     // Shell mode's command takes no attachment: a drop (whose intake never asks pasteTarget) waits in
     // the strip for the next prompt, as the chat composer's shell field keeps it, and goes into the
     // text once shell mode ends (inlineAttachments.tsx `placing`).
-    placing: () => attachmentView === "inline" && !shell,
+    placing: () => attachmentView !== "strip" && !shell,
   });
   pastedChips.opens.current = inline.expand;
   inlinePlace.current = (chips) => inline.place(chips, "paste");
@@ -1795,7 +1795,7 @@ export function NewTabScreen(props: Props) {
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages
                 shows them, each with its remove, cancel and retry (the strip below leaves them out). */}
-              {!shell && attachmentView === "inline" && inline.chips}
+              {!shell && attachmentView !== "strip" && inline.chips}
             </div>
             {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
               the mic and Send end the field's row and the empty box is one line tall, as the chat

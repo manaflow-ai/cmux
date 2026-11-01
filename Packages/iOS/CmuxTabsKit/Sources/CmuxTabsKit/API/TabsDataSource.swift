@@ -67,6 +67,10 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// The grid started (true) or stopped (false) scrolling: hold card
     /// updates until it stops, so none lands in a scroll frame.
     func overviewScrollingChanged(_ scrolling: Bool)
+    /// The grid settled and is not scrolling (true), or a zoom, a scroll or
+    /// the page took over (false): deferred card work (rendering a card's
+    /// snapshot) runs only while this is true. Default: nothing.
+    func overviewIdleChanged(_ idle: Bool)
     /// The grid settled with `id` active. Return true after making the
     /// tab's card show the live content's current frame (`thumbnail` or
     /// `card`) and pausing the live content (it keeps showing that frame):
@@ -152,6 +156,7 @@ extension TabsDataSource {
     public func overviewWillAppear() {}
     public func overviewVisibilityChanged(_ visible: Bool) {}
     public func overviewScrollingChanged(_ scrolling: Bool) {}
+    public func overviewIdleChanged(_ idle: Bool) {}
     public func showStaticCard(for id: TabsKitTab.ID) -> Bool { false }
     public func resumeLiveContent(_ id: TabsKitTab.ID) {}
     public func goBack(_ id: TabsKitTab.ID) {}
@@ -172,6 +177,14 @@ extension TabsDataSource {
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {}
     public var notice: String? { nil }
     public func clearNotice() {}
+}
+
+extension EnvironmentValues {
+    /// The page size a tab's card content is laid out at when the kit scales the full page into
+    /// it: set on the grid's cards and on the zoom's and swipe's cards. Nil where a card is laid
+    /// out at its own size (its long-press menu preview and its drag preview), so a card never
+    /// takes its own size for the page's.
+    @Entry public var tabsKitCardPageSize: CGSize? = nil
 }
 
 /// Where and how a tab's live page is shown.

@@ -133,10 +133,13 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
     assert_eq!(git(&synced, &status), git(&repo, &status), "git status differs on the VM");
     assert_eq!(git(&synced, &["rev-parse", "HEAD"]), git(&repo, &["rev-parse", "HEAD"]));
 
-    // 2. The chat moves, its running turn stopped for the move.
+    // 2. The chat moves mid-turn: its running turn stops for the move, and
+    // what the turn wrote after the sync above goes with it (`--sync push`,
+    // copied once the chat is frozen).
     let mut mac_acpmux = mac.acpmux();
     let session = chat_with_history_draft_and_queue(&mut mac_acpmux, &repo);
     let surface = bound_agent_tab(&mac, &session);
+    fs::write(repo.join("src/turn.txt"), "written by the running turn\n").unwrap();
     let (ok, moved) = run_json(
         Command::new(bin())
             .args(["link", "agent", "move", "--from-socket"])
@@ -147,11 +150,22 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
             .arg(&synced)
             .arg("--interrupt")
             .args(["--vm-kind", "owner"])
+            .args(["--sync", "push", "--sync-socket"])
+            .arg(&vm.socket)
+            .arg("--sync-local")
+            .arg(&repo)
+            .arg("--sync-remote")
+            .arg(&synced)
             .arg("--state-dir")
             .arg(root.join("pump")),
     );
     assert!(ok && moved["ok"] == json!(true), "agent move: {moved}");
     assert_eq!(moved["session_id"], json!(session), "{moved}");
+    assert_eq!(
+        fs::read_to_string(synced.join("src/turn.txt")).unwrap(),
+        "written by the running turn\n",
+        "the turn's last change stayed on the Mac"
+    );
 
     // 3. On the VM: the chat with its history and draft, in the synced
     // folder, and its queued prompt ran there exactly once.
@@ -164,6 +178,23 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
     });
     assert_eq!(count(&landed, "user_message", USER_TEXT, HISTORY), 1, "history: {landed:?}");
     assert_eq!(count(&landed, "agent_message_chunk", AGENT_TEXT, &format!("echo: {HISTORY}")), 1);
+    // The turn the move stopped went on on the VM, before the queued prompt.
+    let continued = landed
+        .iter()
+        .position(|e| {
+            e["kind"] == "user_message"
+                && e["msg"]["text"]
+                    .as_str()
+                    .is_some_and(|t| t.starts_with("This chat moved to another machine"))
+        })
+        .unwrap_or_else(|| panic!("the cut turn never went on on the VM: {landed:?}"));
+    let queued_at = landed
+        .iter()
+        .position(|e| {
+            e["kind"] == "user_message" && e["msg"].pointer(USER_TEXT) == Some(&json!(QUEUED))
+        })
+        .unwrap();
+    assert!(continued < queued_at, "the continuation ran after the queue: {landed:?}");
     // A second look later: nothing ran it again.
     std::thread::sleep(Duration::from_secs(2));
     let events = vm_acpmux.events(&session);
