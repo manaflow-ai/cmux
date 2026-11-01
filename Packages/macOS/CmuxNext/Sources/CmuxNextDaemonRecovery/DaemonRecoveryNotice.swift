@@ -1,20 +1,17 @@
-public import AppKit
+import AppKit
 import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextDaemonService
-public import CmuxNextDesign
+import CmuxNextDesign
 
-/// The local daemon's recovery wiring at the app's composition root: the automatic restart's
-/// Debug Settings toggle, and the notice that offers Restart cmux-tui in windows that show
-/// content (``DaemonRecoveryNotice``).
-public nonisolated struct DaemonRecoveryWiring {
-    public nonisolated init() {}
-
-    /// Wires `daemon` (the app's local one) for the app's lifetime.
-    @MainActor public static func install(_ daemon: DaemonService) {
+extension DaemonService {
+    /// The local daemon's recovery wiring at the app's composition root, for the app's lifetime:
+    /// the automatic restart's Debug Settings toggle, and the notice that offers Restart cmux-tui
+    /// in a window that shows content (``DaemonRecoveryNotice``).
+    public func installRecovery() {
         // A cmux-tui that stays alive but never answers restarts by itself (`UnresponsiveOwnerWatch`).
-        daemon.recovery.restartsUnresponsiveOwner = { DaemonTunables.restartUnresponsiveCmuxTUI.value }
-        DaemonRecoveryNotice(daemon: daemon).start()
+        recovery.restartsUnresponsiveOwner = { DaemonTunables.restartUnresponsiveCmuxTUI.value }
+        DaemonRecoveryNotice(daemon: self).start()
     }
 }
 
@@ -32,7 +29,7 @@ public nonisolated struct DaemonRecoveryWiring {
 /// person, it stays closed until the daemon has connected again; a cancelled confirm shows it
 /// again. It is a standard toast (`CmuxToastCenter`): its motion and keys are the toast's own.
 @MainActor
-public final class DaemonRecoveryNotice {
+final class DaemonRecoveryNotice {
     static let toastID = "daemon.recovery"
 
     /// What the notice shows now.
@@ -45,7 +42,7 @@ public final class DaemonRecoveryNotice {
         case offer(message: String, detail: String?)
     }
 
-    private weak var daemon: DaemonService?
+    private let daemon: DaemonService
     private let toasts: CmuxToastCenter
     private let window: @MainActor () -> NSWindow?
     private var handle: CmuxToastHandle?
@@ -70,16 +67,15 @@ public final class DaemonRecoveryNotice {
         return candidates.first { $0.windowKind == .main && $0.isVisible }
     }
 
-    /// Starts following the daemon; the observation keeps this notice until `stop()` or the daemon is gone.
+    /// Starts following the daemon; the observation keeps this notice until `stop()` (the app's local
+    /// daemon lives as long as the app).
     func start() {
-        guard observation == nil, daemon != nil else { return }
-        // task-owner: lives while the daemon does (weak), or until `stop()`; one main-actor step per change.
-        observation = Task { [weak daemon] in
-            for await shown in ObservationStream({ daemon.map(Self.shown) ?? .connected }) {
-                guard daemon != nil else { break }
+        guard observation == nil else { return }
+        // task-owner: ends at `stop()`; one main-actor step per change of what the notice shows.
+        observation = Task { [daemon] in
+            for await shown in ObservationStream({ Self.shown(daemon) }) {
                 self.apply(shown)
             }
-            self.end()
         }
     }
 
@@ -129,9 +125,10 @@ public final class DaemonRecoveryNotice {
         if let handle, !handle.isDismissed { end() }
         let shown = toasts.show(toast, in: window)
         handle = shown
-        shown.onAction = { [weak self, weak window, weak daemon] in
-            guard let daemon else { return }
-            DaemonRestartPrompt.confirm(daemon.recovery, in: window, cancelled: { [weak self] in
+        let recovery = daemon.recovery
+        shown.onAction = { [weak self, weak window, weak recovery] in
+            guard let recovery else { return }
+            DaemonRestartPrompt.confirm(recovery, in: window, cancelled: { [weak self] in
                 guard let self, observation != nil else { return }
                 apply(current)
             })
