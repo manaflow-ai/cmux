@@ -275,8 +275,12 @@ async fn import_once(read: &str) -> bool {
     // Literal machine declarations are local-spawn authority. A profile may
     // also source them, but they must not enter generic login APIs or the cache.
     let machine = machine::read();
-    let login: Vec<(String, String)> =
-        login.into_iter().filter(|(k, v)| !machine.contains_key(k) && storable(k, v)).collect();
+    let login: Vec<(String, String)> = login
+        .into_iter()
+        .filter(|(k, v)| {
+            !machine_before.contains_key(k) && !machine.contains_key(k) && storable(k, v)
+        })
+        .collect();
     save_cache(read, &login, login_path.as_deref());
     let imported = build(for_children(login), login_path);
     let added = imported.vars.len();
