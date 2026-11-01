@@ -295,6 +295,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertNotIn("fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned)", runs_on)
                 source = runs_on.removeprefix("${{").removesuffix("}}")
                 fallback = {
+                    "github.repository_owner": "manaflow-ai",
                     "github.run_attempt": 1,
                     "needs.pick-nightly-sign-runner.outputs.attempt": "1",
                     "needs.pick-nightly-sign-runner.outputs.sign_owned_pool": "",
