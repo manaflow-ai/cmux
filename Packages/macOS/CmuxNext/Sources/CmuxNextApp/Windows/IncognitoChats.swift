@@ -17,7 +17,8 @@ enum IncognitoChats {
     /// `WorkspaceClose.willClose`: every close path tells it before it closes `workspace`.
     static func closing(_ workspace: WorkspaceModel, _ services: AppServices) {
         guard let key = key(of: workspace.id, key: workspace.key?.rawValue, incognito: services.windows.isIncognito(workspace:)),
-              let acpmux = QuitAgents.environment(services) else { return }
+              // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) is another app's: its chats are not this app's to delete.
+              let acpmux = QuitAgents.environment(services), !acpmux.isAttached else { return }
         let id = UUID()
         // task-owner: this enum until acpmux answers (or its deadline); the quit drains it.
         pending[id] = Task { @MainActor in
