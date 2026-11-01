@@ -4902,6 +4902,7 @@ jobs:
       # Try the upload once more before that.
       - id: upload-unsigned-dmg
         continue-on-error: true
+        timeout-minutes: 5
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -4911,6 +4912,7 @@ jobs:
           retention-days: 1
           overwrite: true
       - if: steps.upload-unsigned-dmg.outcome == 'failure'
+        timeout-minutes: 5
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
