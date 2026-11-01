@@ -359,6 +359,8 @@ import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./
 import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
+import { BackgroundTurnLine } from "./conversation/BackgroundTurnLine";
+import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -1363,6 +1365,19 @@ const WorkedRow = memo(
     a.onToggleActivity === b.onToggleActivity,
 );
 
+/// A turn the agent ran on its own, folded to one line (conversation/backgroundTurns.ts); opening it
+/// lists its rows below.
+const BackgroundTurnRow = memo(
+  function BackgroundTurnRow({ row, onToggleActivity, expanded }: RowProps) {
+    return <BackgroundTurnLine row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+
 /// "Sun, Sep 13 at 7:55 PM" over a prompt after an hour's gap (turnView in conversation/turns.ts).
 const DateRow = memo(
   function DateRow({ row }: RowProps) {
@@ -1736,6 +1751,7 @@ const defaultRegistry: NativeRegistry = {
   assistant: MessageRow,
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
+  [BACKGROUND_TURN]: BackgroundTurnRow,
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
