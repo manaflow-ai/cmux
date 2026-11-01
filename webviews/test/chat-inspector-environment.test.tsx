@@ -211,7 +211,11 @@ test("a scratchpad chat lists only its machine: no folder row and no Save", asyn
 
 test("the machine row says in words whether the chat runs on this Mac, an SSH machine or a Cloud machine", async () => {
   // Leo, 2026-10-31: "WHY THE F*** IS THERE NOTHING THAT F***ING TELLS ME IF IT'S LOCAL OR IF".
-  const machineRow = async (summary: Partial<Summary>, machineName?: string, peerKinds?: Record<string, "ssh" | "cloud">) => {
+  const machineRow = async (
+    summary: Partial<Summary>,
+    machineName?: string,
+    peerKinds?: Record<string, "ssh" | "cloud">,
+  ) => {
     const host = installDom();
     root = createRoot(host);
     await act(async () =>
