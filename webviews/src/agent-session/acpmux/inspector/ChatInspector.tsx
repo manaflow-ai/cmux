@@ -33,6 +33,7 @@
 // While the pane shows a subagent's own view, it lists that subagent's things alone, under
 // "Subagent · <name>" with a back button (subagentScope.ts, SubagentScopeHeader.tsx).
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -68,7 +69,7 @@ import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
-import { InspectorGroup } from "./InspectorGroup";
+import { InspectorSectionList } from "./InspectorGroup";
 import { InspectorSection } from "./InspectorSection";
 import { SourcesSection } from "./SourcesSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
@@ -143,6 +144,20 @@ export const inspectorOverChat = (paneWidth: number, width: number, column?: Cha
   return width + 2 * FLOAT_MARGIN > gutterOf(paneWidth, column, wide);
 };
 
+/// Below this pane height, a panel that lies over the chat is a popover: it hides when a click lands
+/// anywhere else, and while it shows it covers the composer instead of stopping above it. A taller pane
+/// keeps the card above the composer, its foot following the composer's top with an animation
+/// (inspector.css), never a jump (Leo, 2026-10-31: "THE FACT THIS SHIT FUCKING EXPANDS WHEN THE
+/// COMPOSER GROWS OR SHRINKS IS... ok i guess but i feel like should have an animation... sometimes
+/// the claude code/chatgpt desktop just straight up make it a popover that hides when you click away
+/// when the viewport is indeed too small"). It reads the pane's height alone, never the composer's, so
+/// typing a long draft never switches the panel between the two.
+export const POPOVER_BELOW_HEIGHT = 520;
+
+/// Whether the floating panel is a popover (POPOVER_BELOW_HEIGHT): it lies over the chat in a short pane.
+export const inspectorPopover = (paneHeight: number, overChat: boolean) =>
+  overChat && paneHeight > 0 && paneHeight < POPOVER_BELOW_HEIGHT;
+
 /// Whether the Inspector shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
 /// chat tab), not stepped aside for a diff split, and only over the chat: never while a view takes
 /// the pane in its place (`covered`: a turn's diff in place hides the header, and the toggle with it).
@@ -158,8 +173,10 @@ export const inspectorShown = ({
   covered?: boolean;
 }) => on && open && !suppressed && !covered;
 
-/// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
-const SIDE_PANEL = ":scope > .acpmux-artifact";
+/// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell, or
+/// the Background tasks column (backgroundTasks/BackgroundTasksPanel.tsx), which docks under it or
+/// stands in its place at the same width.
+const SIDE_PANEL = ":scope > .acpmux-artifact, :scope > .acpmux-bg";
 
 /// The Inspector starts right below the header: the pane's tab row when the header is in it.
 export function inspectorTopOffset(tabRowHeight: number): string {
@@ -207,11 +224,11 @@ function useDockHeight(shell: HTMLElement | null | undefined, on: boolean): numb
 
 /// The chat's room in the pane: the pane's width less the side panel's beside the chat, and that
 /// panel's width, which the floating Inspector keeps clear of.
-export type PaneRoom = { width: number; side: number };
-const UNMEASURED: PaneRoom = { width: 0, side: 0 };
+export type PaneRoom = { width: number; side: number; height: number };
+const UNMEASURED: PaneRoom = { width: 0, side: 0, height: 0 };
 export function paneRoom(shell: HTMLElement): PaneRoom {
   const side = shell.querySelector<HTMLElement>(SIDE_PANEL)?.offsetWidth ?? 0;
-  return { width: Math.max(0, shell.clientWidth - side), side };
+  return { width: Math.max(0, shell.clientWidth - side), side, height: shell.clientHeight };
 }
 
 /// The chat's room, followed as the pane resizes and as the side panel opens, closes or resizes
@@ -225,7 +242,9 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
     if (!shell || !live) return;
     const measure = () => {
       const next = paneRoom(shell);
-      setRoom((current) => (current.width === next.width && current.side === next.side ? current : next));
+      setRoom((current) =>
+        current.width === next.width && current.side === next.side && current.height === next.height ? current : next,
+      );
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
@@ -269,6 +288,9 @@ export function useChatInspector({
   beside,
   wide = false,
   onReconnectMcp,
+  remoteControl,
+  onCompact,
+  onRender,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -330,6 +352,12 @@ export function useChatInspector({
   subagent?: SubagentScope;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
+  remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// Sends the chat's agent its `/compact` (Context's Compact); unset where Compact cannot reach.
+  onCompact?: () => void;
+  /// Test-only render probe for the transcript scroll isolation regression test.
+  onRender?: () => void;
 }): {
   on: boolean;
   /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
@@ -362,6 +390,27 @@ export function useChatInspector({
   const [revealed, setRevealed] = useState<{ section: InspectorSectionId; at: number }>();
   const clearRevealed = useCallback(() => setRevealed(undefined), []);
   const openedOutputAt = useRef(0);
+  const stableOnOpenOutput = useStableCallback(onOpenOutput);
+  const stableOnOpenSourceFile = useStableCallback(onOpenSourceFile);
+  const stableOnOpenUrl = useStableCallback(onOpenUrl);
+  const stableOnOpenImage = useStableCallback(onOpenImage);
+  const stableOnOpenDocument = useStableCallback(onOpenDocument);
+  const stableOnOpenFolder = useStableCallback(onOpenFolder);
+  const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
+  const stableOnReconnectMcp = useStableCallback(onReconnectMcp);
+  const stableOnCompact = useStableCallback(onCompact);
+  const stableOnShowCall = useStableCallback(onShowCall);
+  const stableOnStopProcess = useStableCallback(onStopProcess);
+  const openOutput = useMemo(
+    () =>
+      stableOnOpenOutput
+        ? (path: string) => {
+            openedOutputAt.current = Date.now();
+            stableOnOpenOutput(path);
+          }
+        : undefined,
+    [stableOnOpenOutput],
+  );
   const label = t("chatInspector.title");
   // Opening it while a view covers the chat closes that view first. The palette's opener outlives a
   // render, so it reads the latest from a ref.
@@ -421,12 +470,6 @@ export function useChatInspector({
     setInspectorOpen(true);
     setRevealed({ section, at: Date.now() });
   };
-  const openOutput = onOpenOutput
-    ? (path: string) => {
-        openedOutputAt.current = Date.now();
-        onOpenOutput(path);
-      }
-    : undefined;
   return {
     on: true,
     shown,
@@ -454,16 +497,19 @@ export function useChatInspector({
         workflows={workflows}
         revealed={revealed}
         onRevealed={clearRevealed}
-        onStopProcess={onStopProcess}
-        onOpenSourceFile={subagent?.agent.host ? undefined : onOpenSourceFile}
+        onStopProcess={stableOnStopProcess}
+        onOpenSourceFile={subagent?.agent.host ? undefined : stableOnOpenSourceFile}
         onOpenOutput={openOutput}
-        onOpenUrl={onOpenUrl}
-        onOpenImage={onOpenImage}
-        onOpenFolder={onOpenFolder}
-        onSaveEnvironment={onSaveEnvironment}
-        onReconnectMcp={onReconnectMcp}
-        onOpenDocument={onOpenDocument}
-        onShowCall={onShowCall}
+        onOpenUrl={stableOnOpenUrl}
+        onOpenImage={stableOnOpenImage}
+        onOpenFolder={stableOnOpenFolder}
+        onSaveEnvironment={stableOnSaveEnvironment}
+        onReconnectMcp={stableOnReconnectMcp}
+        remoteControl={remoteControl}
+        onCompact={stableOnCompact}
+        onRender={onRender}
+        onOpenDocument={stableOnOpenDocument}
+        onShowCall={stableOnShowCall}
         scope={subagent}
       />
     ),
@@ -471,6 +517,22 @@ export function useChatInspector({
 }
 
 const INSPECTOR_TOGGLE = "button.acpmux-chat-inspector-toggle";
+/// Keep event props stable while retaining the latest callback. The pane owns transcript scroll
+/// state, so a fresh inline callback would defeat the InspectorPresence memo.
+function useStableCallback<T extends (...args: never[]) => unknown>(callback: T | undefined): T | undefined {
+  const current = useRef<T | undefined>(callback);
+  current.current = callback;
+  const enabled = callback !== undefined;
+  return useMemo(
+    () => (enabled ? (((...args: Parameters<T>) => current.current?.(...args)) as T) : undefined),
+    [enabled],
+  );
+}
+
+/// What a press may land on without hiding the popover: a menu, popup or dialog the panel opened,
+/// drawn outside it in a portal.
+const DISMISS_KEEPERS =
+  'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup';
 
 /// Closes the Inspector from Esc and gives the keyboard to its header toggle, so focus is
 /// not dropped on the page when the panel it was in leaves. Over a diff in place the header, and the
@@ -484,7 +546,7 @@ const closeInspector = () => {
 /// and what it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
 /// alone, not the chat pane that calls useChatInspector (one Inspector open drew that pane five
 /// times in a frame).
-function InspectorPresence({
+const InspectorPresence = memo(function InspectorPresence({
   chat,
   shown,
   snapshot,
@@ -511,6 +573,9 @@ function InspectorPresence({
   onOpenFolder,
   onSaveEnvironment,
   onReconnectMcp,
+  remoteControl,
+  onCompact,
+  onRender,
   onOpenDocument,
   onShowCall,
   scope,
@@ -556,11 +621,15 @@ function InspectorPresence({
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  remoteControl?: { on: boolean; set: (on: boolean) => void };
+  onCompact?: () => void;
+  onRender?: () => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent it lists, while the pane shows one's own view.
   scope?: SubagentScope;
 }) {
+  onRender?.();
   const { width, sections } = useInspectorState(chat);
   const display = useChatDisplay();
   const sizing = useChatSizing();
@@ -571,12 +640,16 @@ function InspectorPresence({
   const drawn = presence.present;
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
-  const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
+  const { width: paneWidth, side, height: paneHeight } = usePaneRoom(shell, drawn, beside);
   const push = pushes(display.inspector);
   const overChat = !push && inspectorOverChat(paneWidth, width, column, wide);
-  // Over the chat, the card stops above the composer's stack: its height, followed while it lies over
-  // the chat (one ResizeObserver on the dock, disconnected when it no longer does or the panel goes).
-  const dockHeight = useDockHeight(shell, drawn && overChat);
+  // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT).
+  const popover = inspectorPopover(paneHeight, overChat);
+  // Over the chat in a taller pane, the card stops above the composer's stack: its height, followed
+  // while it lies over the chat (one ResizeObserver on the dock, disconnected when it no longer does,
+  // turns popover, or the panel goes). The card's foot animates to it (inspector.css).
+  const stopsAboveComposer = overChat && !popover;
+  const dockHeight = useDockHeight(shell, drawn && stopsAboveComposer);
   const tabRowHeight = useTabRow().height;
   const inspectorTop = inspectorTopOffset(tabRowHeight);
   // The placement marker: Push always's column narrows the transcript and not the header
@@ -685,7 +758,8 @@ function InspectorPresence({
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
       under={inspectorTop}
       side={push ? 0 : side}
-      foot={overChat ? dockHeight : undefined}
+      foot={stopsAboveComposer ? dockHeight : undefined}
+      onDismiss={popover ? onSuppress : undefined}
       presence={presence}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
@@ -731,12 +805,15 @@ function InspectorPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        remoteControl={scope ? undefined : remoteControl}
+        // Compact ends the chat's context, not a subagent's.
+        onCompact={scope ? undefined : onCompact}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
     </InspectorPanel>
   );
-}
+});
 
 /// The panel's frame: its width, its place beside the chat (push) or floating in the chat's right
 /// gutter (overlay), and the drag handle on its left edge (a double-click puts the width back). With
@@ -752,6 +829,7 @@ export function InspectorPanel({
   under,
   foot,
   side = 0,
+  onDismiss,
   presence,
   onClose,
   title,
@@ -763,6 +841,9 @@ export function InspectorPanel({
   under?: string;
   /// Over the chat's column, the composer's stack height in px: the card stops above it.
   foot?: number;
+  /// A popover (inspectorPopover): a press anywhere but the panel, its toggle, or a menu, popup or
+  /// dialog it opened hides it until the toggle opens it again.
+  onDismiss?: () => void;
   /// Floating, how far from the pane's right edge the chat ends (the side panel's width): the panel
   /// floats in the chat's gutter, left of the side panel.
   side?: number;
@@ -779,6 +860,31 @@ export function InspectorPanel({
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
+  // The foot animates only once it has been drawn at its first measure: the open draws it at once.
+  const footKnown = foot !== undefined && foot > 0;
+  const [footSettled, setFootSettled] = useState(false);
+  useEffect(() => {
+    if (!footKnown) {
+      setFootSettled(false);
+      return;
+    }
+    const frameId = requestAnimationFrame(() => setFootSettled(true));
+    return () => cancelAnimationFrame(frameId);
+  }, [footKnown]);
+  // A popover hides on a press elsewhere: one capture listener on the document while it is one.
+  useEffect(() => {
+    const doc = frame.current?.ownerDocument;
+    if (!onDismiss || !doc) return;
+    const away = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (!target || typeof target.closest !== "function") return;
+      if (frame.current?.contains(target)) return;
+      if (target.closest(`${INSPECTOR_TOGGLE}, ${DISMISS_KEEPERS}`)) return;
+      onDismiss();
+    };
+    doc.addEventListener("pointerdown", away, true);
+    return () => doc.removeEventListener("pointerdown", away, true);
+  }, [onDismiss]);
   return (
     <aside
       {...presence?.props}
@@ -791,6 +897,8 @@ export function InspectorPanel({
       data-placement={placement}
       data-chrome={title ? "title" : onClose ? chrome : "none"}
       data-over-chat={foot !== undefined ? "" : undefined}
+      data-popover={onDismiss ? "" : undefined}
+      data-foot-moves={footKnown && footSettled ? "" : undefined}
       style={
         {
           width,
@@ -915,6 +1023,7 @@ export function ChatInspector({
   remoteControl,
   onSaveEnvironment,
   onReconnectMcp,
+  onCompact,
   onOpenFolder,
   onShowCall,
   banner,
@@ -977,6 +1086,9 @@ export function ChatInspector({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
+  /// turn runs (the /compact queues behind it).
+  onCompact?: () => void;
   /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -1099,7 +1211,7 @@ export function ChatInspector({
         </>
       }
     >
-      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} />
+      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} onCompact={onCompact} />
     </InspectorSection>
   ) : (
     progress.length > 0 && (
@@ -1233,16 +1345,19 @@ export function ChatInspector({
   return (
     <div ref={body} className="acpmux-chat-inspector__body" data-layout={layout}>
       {banner}
-      {/* Where it runs. */}
-      <InspectorGroup group="about" sections={{ environment, context, connectors }} />
-      {/* What it made. */}
-      {(changes || sourcesSection || outputsSection) && (
-        <InspectorGroup group="made" sections={{ changes, sources: sourcesSection, outputs: outputsSection }} />
-      )}
-      {/* What it runs. */}
-      {(subagentsSection || tasks) && (
-        <InspectorGroup group="running" sections={{ subagents: subagentsSection, tasks }} />
-      )}
+      {/* Where it runs, what it made, what it runs: one order the person drags (InspectorGroup.tsx). */}
+      <InspectorSectionList
+        sections={{
+          environment,
+          context,
+          connectors,
+          changes,
+          sources: sourcesSection,
+          outputs: outputsSection,
+          subagents: subagentsSection,
+          tasks,
+        }}
+      />
       {gallery && (
         <GalleryDialog
           rows={rows}

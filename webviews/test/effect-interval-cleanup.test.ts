@@ -254,7 +254,9 @@ test("the installed lint engine rejects leaking effects and accepts owned handle
 test("removing the existing cleanup from real direct and nested interval effects fails", () => {
   for (const [index, path] of [
     "src/agent-session/acpmux/EnvironmentPicker.tsx",
-    "src/agent-session/acpmux/subagents/SubagentGroup.tsx",
+    // SubagentGroup.tsx's nested interval moved to the page clock (#28537, ui/pageClock.ts); the
+    // run board's poll is a conditional interval cleared inside a block cleanup.
+    "src/agent-session/acpmux/run-board/RunBoard.tsx",
   ].entries()) {
     const text = readFileSync(resolve(import.meta.dir, "..", path), "utf8");
     const mutation = text.replaceAll("clearInterval(", "forgetInterval(");

@@ -213,7 +213,6 @@ extension AgentPaneView {
     func beginLoadingState() {
         guard !model.hasPainted else { return }
         pageContent.alphaValue = 0
-        PageWebView.syncChromiumVisibility(in: pageContent)
         loadingView.frame = topBar.contentFrame(in: bounds)
         addSubview(loadingView, positioned: .above, relativeTo: nil)
         themeLoadingState(themeTokens)
@@ -257,7 +256,8 @@ extension AgentPaneView {
 
     func themeLoadingState(_ tokens: ThemeTokens) {
         guard loadingView.superview != nil else { return }
-        loadingView.paint(AgentPaneTheme.underPageColor(tokens, surface: surfaceKind).nsColor)
+        // In this view's scope: over its workspace's picture the loading state stays clear (#28867).
+        loadingView.paint(performWithTheme { AgentPaneTheme.underPageColor(tokens, surface: surfaceKind) }.nsColor)
     }
 }
 

@@ -31,7 +31,7 @@ use super::*;
 use serde_json::Map;
 
 /// The note an update whose content was left out carries in `_meta.acpmux`: the content's bytes.
-const NOTE: &str = "supersededContent";
+pub(super) const NOTE: &str = "supersededContent";
 /// `_meta` keys no reader folds: Codex's output increments, which the call's content holds too.
 const UNREAD_META: &[&str] = &["terminal_output_delta"];
 
@@ -56,7 +56,12 @@ fn update_of(rec: &mut EventRecord) -> Option<&mut Map<String, Value>> {
 /// subagent's calls, `params._meta.acpmux.subagent`, are numbered apart from the chat's), and
 /// whether the record carries nothing at its `params` but that owner.
 fn call_of(rec: &EventRecord) -> Option<(String, bool)> {
-    let params = rec.msg.get("params")?;
+    call_of_msg(&rec.msg)
+}
+
+/// [`call_of`] a record's message.
+pub(super) fn call_of_msg(msg: &Value) -> Option<(String, bool)> {
+    let params = msg.get("params")?;
     let id = params.pointer("/update/toolCallId")?.as_str()?;
     let owner = params.pointer("/_meta/acpmux/subagent");
     // Any `_meta` but that owner, of any type, may be read: the record is not plain.
@@ -74,7 +79,7 @@ fn call_of(rec: &EventRecord) -> Option<(String, bool)> {
 
 /// The fields of an update a reader folds (an explicit `content: null` clears the call's output),
 /// `_meta` ones as `_meta.<key>` (and `_meta.acpmux.<key>`).
-fn fields(update: &Map<String, Value>) -> BTreeSet<String> {
+pub(super) fn fields(update: &Map<String, Value>) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for (key, value) in update {
         match (key.as_str(), value.as_object()) {
@@ -105,7 +110,7 @@ fn fields(update: &Map<String, Value>) -> BTreeSet<String> {
 
 /// Whether the update carries nothing but its call's output: no field but `status` and `content`
 /// (beside the `_meta` no reader folds), and only text in the content.
-fn only_output(update: &Map<String, Value>, fields: &BTreeSet<String>) -> bool {
+pub(super) fn only_output(update: &Map<String, Value>, fields: &BTreeSet<String>) -> bool {
     let text = |part: &Value| match part.get("type").and_then(Value::as_str) {
         Some("text") => true,
         Some("content") => part.pointer("/content/type").and_then(Value::as_str) == Some("text"),

@@ -10,6 +10,7 @@ import { powerIntent, powerResult, providerStateResult, resizeIntent } from "./c
 import { snapshotCreate, snapshotDelete, snapshotRestore, snapshotResult, type SnapshotRow } from "./cloud-snapshot.ts"
 import { environmentBoot, environmentBuild, environmentBuildResult, environmentDelete, environmentSet } from "./cloud-environment.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
+import { machineCost } from "./cloud-cost.ts"
 
 /**
  * CloudDO's reducer (plans/cmux-next/state-placement.md 5.1-5.3). Pure: provider calls run in the
@@ -80,8 +81,15 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly vm_install?: string
   /** When the machine last became running by a start or a bind (private): idle counts from no earlier (review P2). */
   readonly last_power_at?: number
+  /** When the machine last became running: a bind, or a start the provider confirmed (private; public `running_since`). */
+  readonly running_at?: number
   /** A restore: the recorded snapshot slug the create boots (the pass branches on this, never on the image id). */
   readonly from_snapshot?: string
+  /**
+   * A restore's source machine (private; cloud-trajectory.ts), set only when the person restoring created that
+   * machine: this machine's VM may read (never write) the source's kept ACP chats and import the ones it lacks.
+   */
+  readonly trajectory_parent?: string
   /** The creator's SSO team at create (private): the VM install counts as registered from that SSO. */
   readonly creator_sso_team?: string
   /** The VM's last applied status report (private; activity feeds the idle pause). */
@@ -148,8 +156,8 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, env_setup: _es, platform: _pf, ...machine } = row
-  return machine
+  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, running_at: _ra, from_snapshot: _fs, env_setup: _es, platform: _pf, trajectory_parent: _tp, ...machine } = row
+  return { ...machine, ...machineCost(row) }
 }
 
 export const isAgent = (p: Principal) => p.kind === "agent" || p.agent !== undefined
@@ -293,6 +301,8 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     status: "provisioning",
     image: { id: from ? from.provider_name : config.image, daemon_version: null },
     ...(from ? { from_snapshot: from.provider_name } : {}),
+    // Only the source's own creator inherits its chats; a teammate's restore starts with none (#25584).
+    ...(from && p.user === (ctx.rows?.get<MachineRow>(TABLE_MACHINE, from.machine)?.row.creator ?? from.creator) ? { trajectory_parent: from.machine } : {}),
     host: null,
     classic: false,
     created_at: ctx.now,
@@ -386,10 +396,13 @@ const driverResult = (config: CloudConfig, state: CloudState, params: unknown, c
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
   const retainedCapture = l.transport === "vm-api" && !r.ok && (l.op === "snapshot_delete" || (l.op === "snapshot" && r.snapshot_outcome === undefined))
+  // Disabling a platform resume must retain the compensation beyond MAX_ATTEMPTS: an unknown
+  // start outcome can still be running. Only a confirmed pause (or gone VM) settles its ledger.
+  const retainedPlatformPause = !r.ok && l.op === "start" && r.error?.code === "cloud.platform.pause_pending" && machine?.row.platform === true && l.key.startsWith(ledgerKey(`${PLATFORM_IDENTITY_PREFIX}${machine.row.creator}`, ""))
   // Cleanup only stops cost. A refusal or exhausted retry budget must never forget a running builder.
-  if (retainedCapture || (l.op === "env_cleanup" && !r.ok)) {
+  if (retainedCapture || retainedPlatformPause || (l.op === "env_cleanup" && !r.ok)) {
     const attempts = l.attempts + 1
-    const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "provider cleanup is still being confirmed" }
+    const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "snapshot capture is still being confirmed" }
     return { ok: true, state: next(state, { pending: { ...state.pending, [r.key]: { machine: l.machine, due_at: ctx.now + retryDelayMs(attempts) } } }),
       value: { applied: true, final: false }, writes: [upsertLedger({ ...l, attempts, error, updated_at: ctx.now }, stored.n)] }
   }

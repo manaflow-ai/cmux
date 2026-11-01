@@ -80,6 +80,33 @@ body {
   min-width: 0;
 }
 
+/* Find (Cmd-F): the shared find pill at the top right of the document, under the toolbar, where
+   every pane's pill sits. The host takes no height, so opening find never moves the document. */
+.md-find-host {
+  position: relative;
+  height: 0;
+  z-index: var(--layer-overlay);
+}
+.md-find {
+  position: absolute;
+  top: var(--find-pill-inset, 10px);
+  right: var(--find-pill-inset, 10px);
+  left: var(--find-pill-inset, 10px);
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.md-find > .find-pill {
+  min-width: 0;
+}
+::highlight(cmux-md-find) {
+  background-color: light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34));
+}
+::highlight(cmux-md-find-active) {
+  background-color: light-dark(#ff9632, #e8821e);
+  color: #1a1208;
+}
+
 .md-page-message {
   align-items: center;
   justify-content: center;
@@ -791,7 +818,7 @@ body {
 [data-read-only="true"] .md-prose a,
 [data-read-only="true"] .md-prose sup[data-type="footnote_reference"],
 .md-prose [data-type="footnote_definition"] > dt {
-  cursor: pointer;
+  cursor: default;
 }
 
 .md-prose .md-link-broken,
@@ -844,7 +871,7 @@ body {
   color: var(--cmux-md-link-color);
   font: inherit;
   text-align: start;
-  cursor: pointer;
+  cursor: default;
 }
 
 .md-link-bubble-target:hover .md-link-bubble-url {
@@ -1404,7 +1431,7 @@ body {
   border-radius: 9px 9px 9px 3px;
   background: var(--cmux-accent);
   opacity: 0.85;
-  cursor: pointer;
+  cursor: default;
 }
 
 .cmux-comment-button:hover,
@@ -1450,7 +1477,7 @@ body {
   background: none;
   color: var(--cmux-md-muted-color);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 
 .cmux-comment-delete:hover {

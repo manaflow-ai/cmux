@@ -50,10 +50,11 @@ public struct Glass {
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
         interactive: Bool = true,
         tone: OverlayTone = .theme,
-        cardFill: Bool = false
+        cardFill: Bool = false,
+        activeLook: ActiveLookScope? = nil
     ) -> OverlaySurfaceView {
         let surface = OverlaySurfaceView(interactive: interactive, cornerRadius: cornerRadius,
-                                         card: tone.style == nil && cardFill, tone: tone)
+                                         card: tone.style == nil && cardFill, tone: tone, activeLook: activeLook)
         surface.translatesAutoresizingMaskIntoConstraints = false
         if let content {
             content.translatesAutoresizingMaskIntoConstraints = true
@@ -72,9 +73,11 @@ public struct Glass {
         _ role: SurfaceRole,
         content: NSView? = nil,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
-        interactive: Bool = true
+        interactive: Bool = true,
+        activeLook: ActiveLookScope? = nil
     ) -> OverlaySurfaceView {
-        makeOverlayPanel(content: content, cornerRadius: cornerRadius, interactive: interactive, tone: role.tone)
+        makeOverlayPanel(content: content, cornerRadius: cornerRadius, interactive: interactive, tone: role.tone,
+                         activeLook: activeLook)
     }
 
     /// A raw glass panel that hosts `content` edge to edge (Liquid Glass,
@@ -85,9 +88,10 @@ public struct Glass {
         content: NSView? = nil,
         style: Style = .regular,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
-        interactive: Bool = false
+        interactive: Bool = false,
+        activeLook: ActiveLookScope? = nil
     ) -> GlassPanelView {
-        let glass = GlassPanelView(style: style, cornerRadius: cornerRadius, interactive: interactive)
+        let glass = GlassPanelView(style: style, cornerRadius: cornerRadius, interactive: interactive, activeLook: activeLook)
         glass.translatesAutoresizingMaskIntoConstraints = false
         glass.tintColor = Palette.glassTint
         glass.contentView = content
