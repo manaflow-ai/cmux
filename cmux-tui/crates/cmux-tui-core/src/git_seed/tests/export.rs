@@ -225,8 +225,9 @@ fn a_retried_export_returns_the_same_job() {
 #[test]
 fn a_stash_only_change_is_exported() {
     let (world, folder, first) = seeded("export-stash");
-    write(&folder.join("a"), "a\nstashed on the machine\n");
-    git(&folder, &["stash", "-q"]);
+    // `b` is clean in the seed: stashing only it leaves WORK as it was.
+    write(&folder.join("b"), "b\nunpushed\nstashed on the machine\n");
+    git(&folder, &["stash", "push", "-q", "--", "b"]);
     let service = world.service();
     let bundle = world.home.join("back.bundle");
     let status = export(&service, &export_params(&folder, &first, &bundle));
