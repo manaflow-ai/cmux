@@ -51,17 +51,29 @@ fn managers(meta: &crate::store::SessionMeta) -> Managers {
 impl Hub {
     /// Whether the person took over `session`.
     pub(crate) fn agent_held(session: &Session) -> bool {
-        session.meta.lock().unwrap().tags.contains_key(HOLD_TAG)
+        session
+            .meta
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .tags
+            .contains_key(HOLD_TAG)
     }
 
     /// Whether `sender` manages `receiver` (see the module docs).
     pub(crate) fn manages(sender: &Session, receiver: &Session) -> bool {
-        let Managers { sessions, chief } = managers(&receiver.meta.lock().unwrap());
+        let Managers { sessions, chief } =
+            managers(&receiver.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         if sessions.contains(&sender.id) {
             return true;
         }
         let Some(home) = chief else { return false };
-        let sender_home = sender.meta.lock().unwrap().tags.get(CHIEF_TAG).map(|t| t.value.clone());
+        let sender_home = sender
+            .meta
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .tags
+            .get(CHIEF_TAG)
+            .map(|t| t.value.clone());
         match (home, sender_home) {
             (_, None) => false,
             (None, Some(_)) => true,
