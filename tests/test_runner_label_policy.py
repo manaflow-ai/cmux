@@ -230,6 +230,8 @@ class RunnerPoolsVariable(unittest.TestCase):
             '{"macos_26":"macos-26"}',
             '{"linux":"glaeda-std-xcode-26.6"}',
             '{"linux":"self-hosted"}',
+            '{"linux":["self-hosted","Linux"]}',
+            '{"linux":"macOS"}',
         ):
             with self.subTest(value=value):
                 self.assertEqual([name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],

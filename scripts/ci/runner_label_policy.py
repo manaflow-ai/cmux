@@ -359,12 +359,14 @@ def runner_pools_reason(value: str) -> str | None:
     for pool, label in pools.items():
         if str(pool).startswith("_"):
             continue
-        if not isinstance(label, str) or not label.strip():
+        if not isinstance(label, str):
+            return f"pool `{pool}` is not a string runner label"
+        if not label.strip():
             continue
-        label = label.strip().lower()
-        if HOSTED_MAC_LABEL.fullmatch(label):
-            return f"pool `{pool}` names a GitHub-hosted Mac `{label}`"
-        reason = forbidden_reason(label)
+        original = label.strip()
+        if HOSTED_MAC_LABEL.fullmatch(original.lower()):
+            return f"pool `{pool}` names a GitHub-hosted Mac `{original}`"
+        reason = forbidden_reason(original)
         if reason is not None:
             return f"pool `{pool}` {reason}"
     return None
