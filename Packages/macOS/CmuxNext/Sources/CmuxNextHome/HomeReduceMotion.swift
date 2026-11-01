@@ -26,6 +26,7 @@ final class HomeReduceMotion {
             case .speed:
                 HomeReduceMotion.mirror()
                 NotificationCenter.default.post(name: MessagesLabHomeView.reduceMotionDidChange, object: nil)
+                NotificationCenter.default.post(name: CmuxSidebarView.reduceMotionDidChange, object: nil)
             // The vendored views read the system setting themselves.
             case .systemReduceMotion: break
             }
