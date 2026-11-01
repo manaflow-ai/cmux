@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4131541733001",
+  "notes": "notes/4131541733001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 30189,
+      "title": "Chief: subagent reports are the final reply, not the glued run; Show all shares the action row",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
