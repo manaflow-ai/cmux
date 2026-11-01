@@ -124,5 +124,4 @@ struct CmdNThenNewTerminalTabTests {
             #expect(services.refusalHUD.shownCount == shown, "a refusal showed: \(services.refusalHUD.message ?? "")")
         }
     }
-
 }
