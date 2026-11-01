@@ -65,6 +65,7 @@ use cmux_json::JsonSet as _;
 pub(super) mod reset_hint;
 #[path = "restart_resume.rs"]
 mod restart_resume;
+pub(in crate::hub) use restart_resume::Cut;
 mod restore;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
@@ -409,8 +410,15 @@ impl TurnInfo {
             turn_seq: 0,
             control,
             doing: Default::default(),
+            persons: false,
         }
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
+    }
+
+    /// The turn, marked as one the person's own prompt started, or not ([`TurnInfo::persons`]).
+    pub(super) fn by_person(mut self, persons: bool) -> Self {
+        self.persons = persons;
+        self
     }
 
     /// The turn with `line` as the line its prompt leaves on the summary (`prompt_line.rs`): a

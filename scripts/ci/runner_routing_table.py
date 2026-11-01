@@ -71,7 +71,8 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 MACOS_HINT = re.compile(
     r"macos|glaeda-|MACOS_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER"
     r"|CI_NEXT_[A-Z_]*POOL|CI_SEED_TRUSTED_POOL|NIGHTLY_[A-Z_]*(RUNNER|POOL)"
-    r"|pr_[a-z_]*runner|macos_runner|mini_runner|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
+    r"|pr_[a-z_]*runner|macos_runner|mini_runner|pick-nightly-build-runner\.outputs\.helper"
+    r"|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
     re.IGNORECASE,
 )
 NON_MAC_HINT = re.compile(r"ubuntu|linux|windows", re.IGNORECASE)
@@ -81,13 +82,38 @@ NEEDS = ("macos", "linux", "any")
 PORTABLE_LINUX = re.compile(r"needs\.portable-placement\.outputs\.linux_runner$")
 PORTABLE_MINI = re.compile(r"needs\.portable-placement\.outputs\.mini_runner$")
 # nightly.yml's light jobs: build-nightly-app's last step places them (NIGHTLY=1) on a free mini, else
-# Blacksmith. They have no fleet Linux step: a nightly job never takes vars.LINUX_RUNNER as it is.
-NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_runner|decide\.outputs\.early_mini_runner)$")
+# Blacksmith; build-nightly-remote-daemon, which builds beside the app, takes the Ghostty helper's owned
+# Mac pick (pick-nightly-build-runner's helper) instead. They have no fleet Linux step: a nightly job
+# never takes vars.LINUX_RUNNER as it is.
+NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_runner|decide\.outputs\.early_mini_runner"
+                          r"|pick-nightly-build-runner\.outputs\.helper)$")
 # nightly.yml's first job (decide) has no job before it to place it: attempt 1 of a nightly-next push asks for
 # glaeda's nightly slot, which only nightly jobs take, and the owned-pool rescue moves it to Blacksmith when no
 # slot takes it (its picker_followup says so).
 NIGHTLY_SLOT = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER$")
 BLACKSMITH_LINUX = re.compile(r"^'blacksmith-\d+vcpu-ubuntu-2404'$")
+
+
+def nightly_reservation(term: str) -> bool:
+    """The explicit all-nightly reservation, restricted to NEXT and attempt one.
+
+    This exception is not a general permission to route a variable before fleet
+    admission. The exact label is enabled only after its managed runner enrolls.
+    """
+    parts = [part.strip() for part in _split_top(term, "&&")]
+    return (len(parts) == 5 and parts[0] == "github.repository == 'manaflow-ai/cmux'"
+            and parts[1] in ("needs.decide.outputs.track == 'nightly-next'",
+                             "github.ref == 'refs/heads/nightly-next'")
+            and parts[2:] == ["github.run_attempt == 1",
+                             "vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'",
+                             "vars.CI_NIGHTLY_ONLY_RUNNER"])
+
+
+def has_nightly_reservation(runs_on: str) -> bool:
+    text = json.loads(runs_on) if runs_on.startswith('"') else runs_on
+    expressions = EXPRESSION.findall(text)
+    return len(expressions) == 1 and any(nightly_reservation(part.strip())
+                                        for part in _split_top(expressions[0].strip(), "||"))
 
 
 def portable_order(runs_on: str, nightly: bool = False) -> str:
@@ -108,6 +134,8 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
         alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
         if alternatives[0] == "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'":
             alternatives = alternatives[1:]
+        if alternatives and nightly_reservation(alternatives[0]):
+            alternatives = alternatives[1:]
         gated = [part.strip() for part in _split_top(alternatives[0], "&&")]
         if len(gated) != 2 or gated[0] != "needs.decide.outputs.track == 'nightly-next'":
             return "early admission must be the first route for the NEXT track"
@@ -122,6 +150,8 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
             return "early admission must consume only its own attempt"
         return ""
     if nightly:
+        if has_nightly_reservation(runs_on):
+            return "" if BLACKSMITH_LINUX.match(terms[-1]) else "the nightly reservation lost its fallback"
         mini = next((i for i, term in enumerate(terms) if NIGHTLY_MINI.search(term) or NIGHTLY_SLOT.search(term)), None)
         if mini is None:
             return "it does not read needs.build-nightly-app.outputs.light_mini_runner (or the nightly slot)"
@@ -366,6 +396,52 @@ def iter_jobs(workflows: Path = WORKFLOWS) -> Iterable[tuple[Job, bool]]:
 
 
 
+def action_expressions(text: str) -> Iterable[str]:
+    """GitHub expressions, whose quoted strings may contain the closing token."""
+    offset = 0
+    while (start := text.find("${{", offset)) >= 0:
+        index, quoted = start + 3, False
+        while index < len(text):
+            if text[index] == "'":
+                if quoted and text[index:index + 2] == "''":
+                    index += 2
+                    continue
+                quoted = not quoted
+            elif not quoted and text[index:index + 2] == "}}":
+                yield text[start + 3:index]
+                offset = index + 2
+                break
+            index += 1
+        else:
+            raise ValueError("unterminated GitHub expression")
+
+
+def referenced_secrets(value: Any) -> set[str]:
+    """Literal secret references in expressions; reject dynamic/context-wide access."""
+    if isinstance(value, dict):
+        return set().union(*(referenced_secrets(v) for v in value.values())) if value else set()
+    if isinstance(value, list):
+        return set().union(*(referenced_secrets(v) for v in value)) if value else set()
+    if not isinstance(value, str):
+        return set()
+    names: set[str] = set()
+    for expression in action_expressions(value):
+        # Keep quoted literals whole so text that merely says secrets.NAME is
+        # not a credential access. GitHub escapes a quote by doubling it.
+        tokens = re.findall(r"'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_]*|[^\s]", expression)
+        for index, token in enumerate(tokens):
+            if token.lower() != "secrets" or index > 0 and tokens[index - 1] == ".":
+                continue
+            tail = tokens[index + 1:]
+            if len(tail) >= 2 and tail[0] == "." and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", tail[1]):
+                names.add(tail[1].upper())
+            elif len(tail) >= 3 and tail[0] == "[" and tail[2] == "]" and re.fullmatch(r"'[A-Za-z_][A-Za-z0-9_]*'", tail[1]):
+                names.add(tail[1][1:-1].upper())
+            else:
+                raise ValueError("secret references must name one literal declared secret")
+    return names
+
+
 def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> tuple[list[str], list[str]]:
     """Validate the central light-job exception and emit exact shell-guard lines.
 
@@ -404,6 +480,23 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             if issue:
                 problems.append(f"hosted_light_jobs[{key!r}] {issue}")
                 continue
+            permitted = entry.get("allowed_secrets", [])
+            if (not isinstance(permitted, list)
+                    or any(not isinstance(secret, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", secret)
+                           for secret in permitted)):
+                problems.append(f"hosted_light_jobs[{key!r}] allowed_secrets must list literal secret names")
+                continue
+            try:
+                used = referenced_secrets([workflow.get("env", {}), job])
+            except ValueError as error:
+                problems.append(f"hosted_light_jobs[{key!r}] {error}")
+                continue
+            if any(re.match(r"(?:APPLE|SIGN|CMUX_RELEASE|NOTARY)", secret) for secret in used):
+                problems.append(f"hosted_light_jobs[{key!r}] cannot authorize release/signing credentials")
+                continue
+            if used - set(permitted):
+                problems.append(f"hosted_light_jobs[{key!r}] references undeclared secrets: {', '.join(sorted(used - set(permitted)))}")
+                continue
             route = job.get("runs-on", "")
             expressions = EXPRESSION.findall(route) if isinstance(route, str) else []
             if len(expressions) != 1:
@@ -412,6 +505,8 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
             if alternatives and alternatives[0] == fork:
                 alternatives = alternatives[1:]
+            if path.name == "nightly.yml" and alternatives and nightly_reservation(alternatives[0]):
+                alternatives = alternatives[1:]
             text = " || ".join(alternatives)
             if re.search(r"(?<![a-z-])macos-", text):
                 problems.append(f"hosted_light_jobs[{key!r}] never permits hosted macOS")
@@ -419,10 +514,18 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             if "ubuntu-24.04'" not in text:
                 # A declaration may precede the separate workflow routing change.
                 continue
-            if alternatives.count(hosted) != 1 or alternatives[-1] not in paid:
+            track_hosted = "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04'"
+            hosted_terms = [part for part in alternatives if part in (hosted, track_hosted)]
+            if len(hosted_terms) != 1 or alternatives[-1] not in paid:
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
-            position = alternatives.index(hosted)
+            hosted_term = hosted_terms[0]
+            # Track-gating is required when a declared resolver also runs on
+            # non-NEXT tracks; a bare hosted branch would widen the exception.
+            if hosted_term == hosted and "needs.decide.outputs.track == 'nightly-next'" in text:
+                problems.append(f"hosted_light_jobs[{key!r}] must gate hosted Ubuntu to nightly-next")
+                continue
+            position = alternatives.index(hosted_term)
             tail = alternatives[position + 1:]
             measured16 = "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404'"
             if not (len(tail) == 1 and tail[0] in paid or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):
@@ -484,7 +587,8 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
         elif entry.get("placement_followup") and not bypass:
             problems.append(f"{job.key} no longer bypasses placement; remove its placement_followup")
         # A bypass is already one pin, recorded by its placement_followup.
-        pin = not bypass and not job.from_picker
+        reserved = job.key.startswith("nightly.yml#") and has_nightly_reservation(job.runs_on)
+        pin = not bypass and not job.from_picker and not reserved
         if pin and not entry.get("picker_followup"):
             problems.append(
                 f"{job.key} runs on macOS from a fixed label (no picker output can be its runs-on value), so "

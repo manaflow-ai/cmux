@@ -5,6 +5,7 @@
 // reads that API, so the rail and the rows never key a mark on their own.
 import { createContext, useContext } from "react";
 import { markSeq, useBookmarks } from "./bookmarks";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 /// A prompt as a mark names it: its row id.
 export type MarkedPrompt = { id: string };
@@ -23,9 +24,11 @@ export function usePromptMarks(sessionId: string | undefined): {
   can: (prompt: MarkedPrompt) => boolean;
   toggle: (prompt: MarkedPrompt) => void;
 } {
+  // Read only (a guest), marks are the owner's: none are read or set.
+  const readOnly = useTranscriptReadOnly();
   const session = markedSession(sessionId);
-  const { marks, toggle } = useBookmarks(session);
-  const can = (prompt: MarkedPrompt) => session !== undefined && markSeq(prompt.id) !== undefined;
+  const { marks, toggle } = useBookmarks(session, readOnly);
+  const can = (prompt: MarkedPrompt) => !readOnly && session !== undefined && markSeq(prompt.id) !== undefined;
   return {
     has: (prompt) => {
       const seq = markSeq(prompt.id);
@@ -33,6 +36,7 @@ export function usePromptMarks(sessionId: string | undefined): {
     },
     can,
     toggle: (prompt) => {
+      if (readOnly) return;
       const seq = markSeq(prompt.id);
       if (seq !== undefined) toggle(seq);
     },

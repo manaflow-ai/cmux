@@ -129,6 +129,9 @@ pub struct ServiceMultiplexer {
     next_stream: AtomicU64,
     generation: watch::Receiver<u64>,
     fatal: watch::Receiver<Option<String>>,
+    /// Set (before `fatal`) when the reader stopped because the daemon no
+    /// longer has the session, so every failure reports that typed end.
+    session_unavailable: Arc<AtomicBool>,
     reader: ReaderTask,
     cleanup: Arc<TerminalCleanup>,
 }
@@ -288,6 +291,7 @@ struct ReaderLoop {
     cleanup: Arc<TerminalCleanup>,
     accepted: mpsc::Sender<IncomingStream>,
     fatal: watch::Sender<Option<String>>,
+    session_unavailable: Arc<AtomicBool>,
     generation: watch::Receiver<u64>,
     shutdown: watch::Receiver<bool>,
     role: EndpointRole,
@@ -367,6 +371,8 @@ enum StreamFailure {
     GenerationChanged(u64),
     Reset(String),
     Transport(String),
+    /// The daemon no longer has the session: no reconnect can resume it.
+    SessionUnavailable,
 }
 
 impl fmt::Debug for ServiceMultiplexer {
@@ -393,6 +399,7 @@ impl ServiceMultiplexer {
         let cleanup = TerminalCleanup::new();
         let (accepted_tx, accepted) = mpsc::channel(128);
         let (fatal_tx, fatal) = watch::channel(None);
+        let session_unavailable = Arc::new(AtomicBool::new(false));
         let incoming_budget = IncomingBudget::new(incoming_budget_bytes);
         let generation = endpoint.subscribe_generation();
         let (shutdown, shutdown_rx) = watch::channel(false);
@@ -403,6 +410,7 @@ impl ServiceMultiplexer {
             cleanup: cleanup.clone(),
             accepted: accepted_tx,
             fatal: fatal_tx,
+            session_unavailable: session_unavailable.clone(),
             generation: generation.clone(),
             shutdown: shutdown_rx,
             role,
@@ -419,6 +427,7 @@ impl ServiceMultiplexer {
             }),
             generation,
             fatal,
+            session_unavailable,
             reader: ReaderTask { shutdown, handle: StdMutex::new(Some(handle)) },
             cleanup,
         })
@@ -440,7 +449,7 @@ impl ServiceMultiplexer {
         let terminal = LaneTerminalState::new(service);
         let mut streams = self.streams.lock().await;
         if let Some(message) = self.fatal.borrow().clone() {
-            return Err(ServiceError::Transport(message));
+            return Err(self.fatal_error(message));
         }
         if streams.len() >= MAX_OPEN_STREAMS {
             return Err(ServiceError::TooManyStreams);
@@ -507,15 +516,30 @@ impl ServiceMultiplexer {
 
     pub async fn accept(&self) -> Result<Option<IncomingStream>, ServiceError> {
         if let Some(message) = self.fatal.borrow().clone() {
-            return Err(ServiceError::Transport(message));
+            return Err(self.fatal_error(message));
         }
         let incoming = self.accepted.lock().await.recv().await;
         if incoming.is_none()
             && let Some(message) = self.fatal.borrow().clone()
         {
-            return Err(ServiceError::Transport(message));
+            return Err(self.fatal_error(message));
         }
         Ok(incoming)
+    }
+
+    /// Whether the reader stopped because the daemon no longer has the
+    /// session (it expired or was closed). Permanent for this multiplexer:
+    /// the caller should stop redialing and offer a new session.
+    pub fn session_unavailable(&self) -> bool {
+        self.session_unavailable.load(Ordering::Acquire)
+    }
+
+    fn fatal_error(&self, message: String) -> ServiceError {
+        if self.session_unavailable() {
+            ServiceError::SessionUnavailable
+        } else {
+            ServiceError::Transport(message)
+        }
     }
 
     /// Observe terminal reader failures without polling an application stream.
@@ -868,6 +892,7 @@ impl ServiceStream {
             StreamFailure::GenerationChanged(actual) => self.generation_error(actual),
             StreamFailure::Reset(message) => ServiceError::Reset(message),
             StreamFailure::Transport(message) => ServiceError::Transport(message),
+            StreamFailure::SessionUnavailable => ServiceError::SessionUnavailable,
         }
     }
 
@@ -945,6 +970,7 @@ async fn reader_loop(reader: ReaderLoop) {
         cleanup,
         accepted,
         fatal,
+        session_unavailable,
         mut generation,
         mut shutdown,
         role,
@@ -971,6 +997,9 @@ async fn reader_loop(reader: ReaderLoop) {
                 break;
             }
             Err(error) => {
+                if error.is_session_unavailable() {
+                    session_unavailable.store(true, Ordering::Release);
+                }
                 let _ = fatal.send(Some(error.to_string()));
                 break;
             }
@@ -1256,7 +1285,12 @@ async fn reader_loop(reader: ReaderLoop) {
     let message =
         fatal.borrow().clone().unwrap_or_else(|| "service multiplexer reader stopped".into());
     fatal.send_replace(Some(message.clone()));
-    fail_all_streams(&streams, StreamFailure::Transport(message)).await;
+    let failure = if session_unavailable.load(Ordering::Acquire) {
+        StreamFailure::SessionUnavailable
+    } else {
+        StreamFailure::Transport(message)
+    };
+    fail_all_streams(&streams, failure).await;
 }
 
 async fn reset_registered_stream(
@@ -1495,7 +1529,26 @@ pub enum ServiceError {
     TooManyStreams,
     Closed,
     Reset(String),
-    GenerationChanged { expected: u64, actual: u64 },
+    GenerationChanged {
+        expected: u64,
+        actual: u64,
+    },
+    /// The daemon no longer has the session (it outlived its resume lease or
+    /// was closed): nothing on it can be resumed, and redialing cannot help.
+    SessionUnavailable,
+}
+
+impl ServiceError {
+    /// Whether the error is the typed end of the session (see
+    /// [`ConnectionError::SessionUnavailable`]), at any layer.
+    pub fn is_session_unavailable(&self) -> bool {
+        matches!(
+            self,
+            Self::SessionUnavailable
+                | Self::Client(ConnectionError::SessionUnavailable)
+                | Self::Daemon(DaemonError::Connection(ConnectionError::SessionUnavailable))
+        )
+    }
 }
 
 impl fmt::Display for ServiceError {
@@ -1512,6 +1565,9 @@ impl fmt::Display for ServiceError {
             Self::GenerationChanged { expected, actual } => {
                 write!(formatter, "service stream generation changed from {expected} to {actual}")
             }
+            Self::SessionUnavailable => formatter.write_str(
+                "the remote session ended: the daemon no longer has it (it expired or was closed)",
+            ),
         }
     }
 }

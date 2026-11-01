@@ -1175,6 +1175,26 @@ while True:
                       "tool_use_id": "toolu_bgag", "status": "completed", "output_file": "", "summary": "Reviewed"})
 
             threading.Thread(target=end_background_agent, daemon=True).start()
+        # "own-turn: FIFO :: TEXT": once the test writes FIFO, while the chat is idle, a background
+        # shell ends and Claude Code runs a turn of its own for its task notification that says
+        # TEXT (acpmux hub/background_turn.rs).
+        if said.strip().startswith("own-turn:"):
+            gate, text = said.strip()[len("own-turn:"):].split(" :: ", 1)
+            gate = gate.strip()
+
+            def own_turn():
+                with open(gate) as g:
+                    g.read()
+                send({"type": "system", "subtype": "task_notification", "task_id": "own1",
+                      "tool_use_id": "toolu_own1", "status": "completed", "output_file": "", "summary": "Built"})
+                send(init())
+                send({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_own1"}}})
+                send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                         "delta": {"type": "text_delta", "text": text}}})
+                send({"type": "result", "subtype": "success", "result": text, "num_turns": 1,
+                      "duration_api_ms": 1, "usage": {"input_tokens": 1, "output_tokens": 1}})
+
+            threading.Thread(target=own_turn, daemon=True).start()
         if said.strip() == "late-agent-ask":
             send({"type": "control_request", "request_id": "late-1", "request": {"subtype": "can_use_tool",
                   "tool_name": "Write", "tool_use_id": "toolu_late_w", "input": {"file_path": "late.txt", "content": "x"}}})
