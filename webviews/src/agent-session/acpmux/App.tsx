@@ -60,6 +60,7 @@ import {
   QUEUED_MESSAGE,
   PENDING_MESSAGES,
   LANE_NOTICE_BATCH,
+  MESSAGE_RUN,
   isLineRow,
   restRoom,
 } from "./model";
@@ -376,6 +377,7 @@ import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
 import { BackgroundTurnLine } from "./conversation/BackgroundTurnLine";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
+import { MessageRunLine } from "./conversation/MessageRunLine";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -438,7 +440,7 @@ import {
   openViewTurnFold,
   toggleTurnFold,
   toggleViewTurnFold,
-  turnFoldFor,
+  hiddenRowFolds,
   turnFooterFrom,
   WORKING,
   type TurnView,
@@ -1441,6 +1443,19 @@ const BackgroundTurnRow = memo(
     a.onToggleActivity === b.onToggleActivity,
 );
 
+/// A run of one-line rows that carries messages between agents, folded to one line
+/// (conversation/messageRuns.ts); opening it lists its rows below.
+const MessageRunRow = memo(
+  function MessageRunRow({ row, onToggleActivity, expanded }: RowProps) {
+    return <MessageRunLine row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+
 /// "Sun, Sep 13 at 7:55 PM" over a prompt after an hour's gap (turnView in conversation/turns.ts).
 const DateRow = memo(
   function DateRow({ row }: RowProps) {
@@ -1840,6 +1855,7 @@ const defaultRegistry: NativeRegistry = {
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
   [BACKGROUND_TURN]: BackgroundTurnRow,
+  [MESSAGE_RUN]: MessageRunRow,
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
@@ -8533,6 +8549,7 @@ function AcpmuxPane() {
     const target = messageRevealTarget(rows, shown, directClient.current?.rowsOfMessage(messageId) ?? []);
     if (target === undefined) return undefined;
     if (target.fold !== undefined) openFold(target.fold);
+    if (target.run !== undefined) openFold(target.run);
     const key = Date.now();
     setRevealRow({ rowId: target.rowId, key, toolId: "" });
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
@@ -8548,8 +8565,7 @@ function AcpmuxPane() {
       const row = rows[index];
       if (!row || !toolId) return false;
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
-        const fold = turnFoldFor(rows, index);
-        if (fold) openFold(fold);
+        for (const fold of hiddenRowFolds(rows, shown, index)) openFold(fold);
       }
       const key = Date.now();
       setRevealRow({ rowId: row.id, key, toolId });
@@ -8568,8 +8584,7 @@ function AcpmuxPane() {
       const row = rows[index];
       if (!row) return;
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
-        const fold = turnFoldFor(rows, index);
-        if (fold) openFold(fold);
+        for (const fold of hiddenRowFolds(rows, shown, index)) openFold(fold);
       }
       const key = Date.now();
       setRevealRow({ rowId: row.id, key, toolId: "" });
