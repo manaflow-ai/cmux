@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { footnoteOrder } from "../src/agent-session/acpmux/conversation/Markdown";
+import { footnoteOrder, parseMarkdown } from "../src/agent-session/acpmux/conversation/Markdown";
 import { IncrementalMarkdown } from "../src/agent-session/acpmux/conversation/incrementalMarkdown";
+import { safeTail } from "../src/agent-session/acpmux/conversation/safeTail";
 
 // A streaming reply re-renders on every reveal frame. These pin that the per-frame shortcuts
 // (the parser's fence count, footnoteOrder's early exit, one block comparison) answer exactly
@@ -68,4 +69,34 @@ test("footnoteOrder's early exit returns what the full scan returns", () => {
     return ids;
   };
   for (const source of sources) expect([source, footnoteOrder(source)]).toEqual([source, fullScan(source)]);
+});
+
+// Markdown.tsx opens a fence on three or more backticks and closes it on a line of at least as many
+// (a reply that quotes Markdown opens with four to show its own three); a line like "```x``` y" has
+// backticks in its info string and opens nothing. The streaming helpers follow the same rule, or
+// the text after such a line is cut into blocks the whole text never has.
+const quoted = [
+  "Intro.\n\n````md\n```js\nx\n\nstill inside the four-tick fence\n\n- not a list\n```\n````\n\nAfter.\n\n- real list",
+  "Before.\n\n```x``` not a fence\n\n```\ncode\n\nmore code\n```\n\nAfter.",
+  "Para.\n\n``````\n`````\ninner five\n\nstill code\n``````\n\nEnd.",
+];
+
+for (const [index, fixture] of quoted.entries()) {
+  test(`an incremental parse equals the whole parse at every prefix: quoted fences ${index}`, () => {
+    const parser = new IncrementalMarkdown();
+    for (let end = 0; end <= fixture.length; end++) {
+      const prefix = fixture.slice(0, end);
+      const blocks = parser.update(prefix).map((entry) => entry.block);
+      expect([end, blocks]).toEqual([end, parseMarkdown(prefix)]);
+    }
+  });
+}
+
+test("inside a four-backtick fence a line of three is code, and a list marker is not held back", () => {
+  const tail = "````md\n```js\n- ";
+  expect(safeTail(tail)).toBe(tail);
+});
+
+test("inside a four-backtick fence a closer still being typed is held with its newline", () => {
+  expect(safeTail("````md\n```js\n``")).toBe("````md\n```js");
 });

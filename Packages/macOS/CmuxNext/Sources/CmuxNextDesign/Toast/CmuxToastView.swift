@@ -107,7 +107,7 @@ public final class CmuxToastView: NSView {
         if toast.action?.revealsDetails == true, let detail = toast.detail { addDetailLabel(detail, in: content, below: row) }
         // The shared neutral glass; the material follows this Mac (opaque under Reduce Transparency).
         let surface = OverlaySurfaceView(interactive: true, cornerRadius: Self.cornerRadius,
-                                         reduceTransparency: reduceTransparency, tone: .neutralGlass(.toast))
+                                         reduceTransparency: reduceTransparency, tone: SurfaceRole.toast.tone)
         surface.translatesAutoresizingMaskIntoConstraints = false
         content.translatesAutoresizingMaskIntoConstraints = true
         content.autoresizingMask = [.width, .height]
@@ -257,7 +257,7 @@ public final class CmuxToastView: NSView {
     static var messageInset: CGFloat { Metrics.space2 }
 
     /// The shared toast glass radius, never a capsule.
-    static let cornerRadius = FloatingGlassStyle.toast.cornerRadius
+    static let cornerRadius = SurfaceRole.toast.cornerRadius ?? FloatingGlassStyle.toast.cornerRadius
 
     /// The popups' one subtle shadow, on this view's layer behind the surface
     /// (the surface clips to its corners, so it cannot cast its own).

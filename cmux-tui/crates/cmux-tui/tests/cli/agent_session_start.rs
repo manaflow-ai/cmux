@@ -434,6 +434,7 @@ fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(capabilities.contains("agent-session-trust-vm-kind-v1"), "{identity}");
     assert!(capabilities.contains("agent-transfer-vm-kind-v1"), "{identity}");
+    assert!(capabilities.contains("agent-transfer-continues-v1"), "{identity}");
     let cwd = owner.dir.join("work").to_str().unwrap().to_owned();
     let read = json!({"surface": surface, "cwd": cwd, "machine": "current", "session": "current"});
     let (mut page, _) = owner.page_relay("agent");

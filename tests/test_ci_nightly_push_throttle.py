@@ -392,7 +392,9 @@ def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
     # Execute from precisely the declared files, without the full checkout on
     # sys.path. Import-time dependencies must work even when no job is placed.
     paths = sparse["with"]["sparse-checkout"].split()
-    assert all(path.startswith("/scripts/ci/") and path.endswith(".py") for path in paths)
+    # The pickers read the declared runner set (.github/runners.json, #30173) as data.
+    assert all(path.startswith("/scripts/ci/") and path.endswith(".py")
+               or path == "/.github/runners.json" for path in paths)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         for path in paths:

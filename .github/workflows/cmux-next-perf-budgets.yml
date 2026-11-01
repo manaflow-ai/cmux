@@ -331,7 +331,7 @@ jobs:
       frame_pacing: ${{ steps.plan.outputs.frame_pacing }}
       # The one place the Linux part's runner label is computed: the linux job runs on it, and its rows carry it as
       # their host (diff rows are compared only within one runner class).
-      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.

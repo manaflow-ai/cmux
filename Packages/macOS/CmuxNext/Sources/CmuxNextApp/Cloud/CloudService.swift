@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -26,6 +27,10 @@ final class CloudService {
     /// A machine's exec and file routes: ``api`` on the legacy link, the cmux API Worker's on the
     /// app server link, whose machines have no `/api/vm` row (cmux-platform#89).
     @ObservationIgnored let machineAPI: CloudAPIClient
+    /// Same person and team as the machine API, at the configured platform preview origin.
+    var previewAPI: CloudAPIClient? {
+        configuration.platformPreviewAPIBaseURL().map { machineAPI.previewClient(baseURL: $0) }
+    }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let networkAccess = CloudNetworkAccessQueue() // one network policy read-then-write per machine
@@ -159,8 +164,7 @@ final class CloudService {
         api = CloudAPIClient(
             configuration: configuration,
             tokens: { try await auth.tokens() },
-            teamID: { await auth.teamID }
-        )
+            teamID: { await auth.teamID })
         let identity = MacInstallIdentity(
             store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
                            service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
@@ -172,7 +176,8 @@ final class CloudService {
         installIdentity = identity
         machineAPI = configuration.linkSource == .appServer
             ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
-                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
+                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
+                                            machineIO: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
             : api
         let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build
@@ -213,24 +218,14 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
-        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
+        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
+            signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
+            allowedOps: { await CloudCredentialRelay.bundledServedOps() })
+        credentialProvider = CloudCredentialProvider(relay: relay)
+        let launcher = configuration.linkSource == .appServer
+            ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build, relay: relay) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
-        let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
-        let clientHeaders = identity.requestHeaders
-        credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
-            post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
-            token: { try await identity.installToken() },
-            invalidate: { await identity.invalidate() },
-            // The team is the backend team the relay bills: the install
-            // token's team claim (never the Stack team id) (cx-i6g4).
-            session: { [auth] in
-                guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
-                let token = try? await identity.installToken()
-                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
-            },
-            allowedOps: { await CloudCredentialRelay.bundledServedOps() }
-        ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
