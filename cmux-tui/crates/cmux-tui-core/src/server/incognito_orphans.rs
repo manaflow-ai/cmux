@@ -90,10 +90,12 @@ pub(super) struct MoveClaim<'a> {
 /// owns).
 pub(super) fn begin_move(mux: &Mux, always: bool) -> Option<MoveClaim<'_>> {
     let creators = &mux.control_clients.incognito_creators;
+    // Decided under the lock: an incognito create in flight holds it until
+    // its workspace is recorded, so a move never slips past it.
+    let moves = creators.moves.lock().recover_poison();
     if !always && creators.by_workspace.lock().recover_poison().is_empty() {
         return None;
     }
-    let moves = creators.moves.lock().recover_poison();
     match mux.read_registry_state(crate::state::store::ephemeral_workspaces) {
         Ok(before) => Some(MoveClaim { before: before.into_iter().collect(), _moves: moves }),
         Err(error) => {
