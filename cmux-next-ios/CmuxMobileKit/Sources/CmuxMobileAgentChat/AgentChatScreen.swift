@@ -954,17 +954,18 @@ extension SentAttachments {
     /// The thumbnail of `image` its bubble draws: its short side scaled to `side`, then its long
     /// side cut to the middle the bubble shows. Runs off the main thread.
     nonisolated static func thumbnail(of image: UIImage, side: CGFloat) -> UIImage {
-        let scaled = image.preparingThumbnail(of: fill(image.size, side: side)) ?? image
-        let crop = crop(scaled.size, side: side)
-        guard crop.width < scaled.size.width - 0.5 || crop.height < scaled.size.height - 0.5 else { return scaled }
+        let size = fill(image.size, side: side)
+        let crop = crop(size, side: side)
+        let scaled = image.preparingThumbnail(of: size)
+        guard crop.width < size.width - 0.5 || crop.height < size.height - 0.5 else { return scaled ?? image }
         let format = UIGraphicsImageRendererFormat()
-        format.scale = scaled.scale
+        format.scale = 1
         format.opaque = false
         // 4 bytes per pixel, as the cache's cost counts them (not an extended-range 8).
         format.preferredRange = .standard
-        return UIGraphicsImageRenderer(size: crop, format: format).image { _ in
-            scaled.draw(at: CGPoint(x: (crop.width - scaled.size.width) / 2, y: (crop.height - scaled.size.height) / 2))
-        }
+        // The scaled image (or, when it could not be made, the image scaled as it draws), centered.
+        let frame = CGRect(x: (crop.width - size.width) / 2, y: (crop.height - size.height) / 2, width: size.width, height: size.height)
+        return UIGraphicsImageRenderer(size: crop, format: format).image { _ in (scaled ?? image).draw(in: frame) }
     }
 }
 

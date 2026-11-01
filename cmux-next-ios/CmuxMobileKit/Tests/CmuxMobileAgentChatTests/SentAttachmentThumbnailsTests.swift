@@ -64,6 +64,24 @@ import UIKit
         #expect(cache.residentBytes <= bound, "kept \(cache.residentBytes) bytes, bound \(bound)")
     }
 
+    /// Review of the follow-up (P2): a waiting picture's hold took a thumbnail only when the
+    /// picture asked again, so with many cards waiting one decoded for it could be let go by the
+    /// bound before its turn, and be decoded again (the eviction ping-pong, at queue scale). A
+    /// thumbnail goes into the holds waiting for it as it lands: two that do not fit the bound
+    /// together are each decoded once, and the picture can be drawn.
+    @Test func aWaitingPictureHoldsWhatIsDecodedForIt() async throws {
+        // Each thumbnail is 600 x 1200 px (2.9 MB): one fits the bound, two do not.
+        let cache = SentAttachmentThumbnails(byteLimit: 4 << 20)
+        let turns = try (0 ..< 2).map { Self.turn($0, data: try Self.png(width: 600, height: 1200, hue: CGFloat($0) / 2)) }
+        let hold = SentAttachmentHold()
+        try #require(!cache.resident(turns, holding: hold), "nothing decoded yet")
+        for _ in 0 ..< 200 where cache.decodes == 2 && hold.images.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        let resident = cache.resident(turns, holding: hold)
+        #expect(resident, "both thumbnails are held for the picture")
+        #expect(cache.decodes == 2, "each decoded once: \(cache.decodes) decodes")
+        #expect(cache.residentBytes <= 4 << 20, "the cache stays under its bound: \(cache.residentBytes)")
+    }
+
     /// Review of #27664 (follow-up P2): only a thumbnail's short side was scaled, so a very tall
     /// screenshot decoded to 600 x 9000 (about 22 MB). A card whose last turns carried two of them
     /// passed the 32 MB bound: each landing evicted the other, `resident` never held for both, and

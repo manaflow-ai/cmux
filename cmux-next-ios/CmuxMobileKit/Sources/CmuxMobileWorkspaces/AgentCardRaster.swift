@@ -149,13 +149,16 @@ final class AgentCardRasterizer: NSObject {
             next = nil
         }
         guard let (feed, key) = next else { return stop() }
-        guard feed.raster?.key != key, key.isDrawable else { return }
         let id = ObjectIdentifier(feed)
-        var hold = holds[id] ?? AgentChatPreview.PictureHold()
+        guard feed.raster?.key != key, key.isDrawable else {
+            holds[id] = nil
+            return
+        }
+        let hold = holds[id] ?? AgentChatPreview.PictureHold()
         // A thumbnail the cache let go since the key was ready is decoded again first: this card
         // waits at the end of the queue rather than being drawn with a placeholder, holding the
         // thumbnails it has.
-        guard AgentChatPreview.picturesResident(key.turns, holding: &hold) else {
+        guard AgentChatPreview.picturesResident(key.turns, holding: hold) else {
             holds[id] = hold
             queue.append((feed, key))
             return

@@ -1036,7 +1036,11 @@ final class ChatRowLookup {
     func reuseKey(_ id: String) -> String { rows[id]?.hostedReuseKey ?? "other" }
 
     func configureNative(_ cell: ChatNativeRowCell, id: String) {
+        // A reused cell measures nothing for this row until it draws it.
+        cell.shown = nil
         guard let row = rows[id], let native = layouts.makeNow(row, revision: revisions[id] ?? 0, expanded: expanded(id)) else { return }
+        // The layout's width is the cell's less its 20 pt margins (`environmentChanged`).
+        cell.layoutWidth = (layouts.environment?.width ?? -40) + 40
         shownNative[id] = true
         shownPool[id] = "N:" + row.nativeReuseKey
         #if DEBUG

@@ -81,6 +81,10 @@ final class SentAttachmentThumbnails {
 
     /// Thumbnails a picture holds while it is drawn (`drawing`).
     @ObservationIgnored private var lent: [String: UIImage] = [:]
+    /// Holds waiting for a thumbnail being decoded: it goes into each as it lands, so a hold has it
+    /// even if the bound lets it go before the picture asks again (many cards waiting at once).
+    @ObservationIgnored private var waiting: [String: [WeakHold]] = [:]
+    private struct WeakHold { weak var hold: SentAttachmentHold? }
 
     /// Decodes the thumbnail off the main thread (once per image and size at a time) and keeps it.
     func decode(_ attachment: AgentAttachment, data: Data, side: CGFloat) async -> UIImage? {
@@ -168,37 +172,42 @@ final class SentAttachmentThumbnails {
     /// Whether every thumbnail `turns` draws is in memory now (or undecodable), to draw them into
     /// a picture; starts decoding again the ones evicted since. Not observed.
     func resident(_ turns: [AgentTurn]) -> Bool {
-        var held: [String: UIImage] = [:]
-        return resident(turns, holding: &held)
+        resident(turns, holding: SentAttachmentHold())
     }
 
-    /// `resident(_:)` for a picture that waits: `held` keeps a strong reference to each of its
-    /// thumbnails found in memory, and counts as in memory itself. A thumbnail the cache lets go
-    /// while the picture waits for another to decode again (each landing can evict the other) is
-    /// not decoded again: the picture is drawn with the ones it holds (`drawing`). `held` keeps
-    /// only the thumbnails `turns` draw. Not observed.
-    func resident(_ turns: [AgentTurn], holding held: inout [String: UIImage]) -> Bool {
+    /// `resident(_:)` for a picture that waits: `hold` keeps a strong reference to each of its
+    /// thumbnails found in memory or decoded for it, and counts as in memory itself. A thumbnail
+    /// the cache lets go while the picture waits for another to decode again (each landing can
+    /// evict the other) is not decoded again: the picture is drawn with the ones it holds
+    /// (`drawing`). `hold` keeps only the thumbnails `turns` draw. Not observed.
+    func resident(_ turns: [AgentTurn], holding hold: SentAttachmentHold) -> Bool {
         var resident = true
         var kept: [String: UIImage] = [:]
         for (key, data, side) in wanted(turns) where settled[key] != false {
-            if let image = cached(key) ?? held[key] {
+            if let image = cached(key) ?? hold.images[key] {
                 kept[key] = image
             } else {
                 resident = false
                 start(key, data: data, side: side)
             }
         }
-        held = kept
+        hold.images = kept
         return resident
     }
 
-    /// Runs `draw` (a synchronous `ImageRenderer` pass) with `held`'s thumbnails readable by the
+    /// Runs `draw` (a synchronous `ImageRenderer` pass) with `hold`'s thumbnails readable by the
     /// bubbles it draws, whether or not the cache still keeps them.
-    func drawing<T>(_ held: [String: UIImage], _ draw: () -> T) -> T {
+    func drawing<T>(_ hold: SentAttachmentHold, _ draw: () -> T) -> T {
         let previous = lent
-        lent.merge(held) { _, new in new }
+        lent.merge(hold.images) { _, new in new }
         defer { lent = previous }
         return draw()
     }
+}
+
+/// The thumbnails a still being drawn holds (`SentAttachmentThumbnails.resident(_:holding:)`).
+@MainActor
+final class SentAttachmentHold {
+    var images: [String: UIImage] = [:]
 }
 #endif
