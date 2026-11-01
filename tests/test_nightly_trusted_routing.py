@@ -356,7 +356,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 }
                 self.assertEqual(evaluate(parse_expression(source), fallback), "blacksmith-16vcpu-ubuntu-2404")
                 self.assertEqual(evaluate(parse_expression(source), {**fallback, "github.repository_owner": "someone"}),
-                                 "blacksmith-16vcpu-ubuntu-2404")
+                                 "ubuntu-24.04")
                 self.assertNotIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 steps = job["steps"]
                 gate_index = next(i for i, step in enumerate(steps) if step.get("id") == "claim-gate")
@@ -369,6 +369,34 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertTrue(any("signing-runner-claim.sh" in str(step.get("run", "")) for step in steps[gate_index + 1:]))
                 needs = job["needs"]
                 self.assertIn("pick-nightly-sign-runner", needs)
+
+    def test_publication_controls_prefer_proven_dedicated_m4pro_only_on_first_next_push(self):
+        jobs = DOC["jobs"]
+        dedicated = {
+            "github.repository_owner": "manaflow-ai",
+            "github.repository": "manaflow-ai/cmux",
+            "github.ref": "refs/heads/nightly-next",
+            "github.event_name": "push",
+            "github.run_attempt": 1,
+            "vars.CI_NIGHTLY_ONLY_RUNNER": "glaeda-nightly-only-m4pro",
+            "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+            "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+            "needs.pick-nightly-sign-runner.outputs.sign_owned_pool": "",
+        }
+        for name in ("publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"):
+            source = jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
+            expr = parse_expression(source)
+            with self.subTest(job=name):
+                self.assertEqual(evaluate(expr, dedicated), "glaeda-nightly-only-m4pro")
+                self.assertEqual(evaluate(expr, {**dedicated, "github.run_attempt": 2}),
+                                 "blacksmith-16vcpu-ubuntu-2404")
+                self.assertEqual(evaluate(expr, {**dedicated, "github.event_name": "schedule"}),
+                                 "blacksmith-16vcpu-ubuntu-2404")
+                self.assertEqual(evaluate(expr, {**dedicated, "vars.CI_NIGHTLY_ONLY_RUNNER": ""}),
+                                 "blacksmith-16vcpu-ubuntu-2404")
+                self.assertEqual(evaluate(expr, {**dedicated, "github.repository": "someone/cmux",
+                                                "github.repository_owner": "someone"}),
+                                 "ubuntu-24.04")
 
     def test_every_linux_nightly_job_takes_a_runner_set_member(self):
         # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds
