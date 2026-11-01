@@ -34,9 +34,10 @@ fn connect(path: &Path) -> io::Result<UnixStream> {
     if bytes.contains(&0) || bytes.len() >= addr.sun_path.len() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid identity socket path"));
     }
-    addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+    addr.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX)
+        .map_err(|_| io::Error::other("invalid Unix socket family"))?;
     for (dst, src) in addr.sun_path.iter_mut().zip(bytes) {
-        *dst = *src as libc::c_char;
+        *dst = libc::c_char::from_ne_bytes([*src]);
     }
     // SAFETY: socket takes scalar arguments and returns an owned fd.
     let fd = unsafe {
@@ -47,14 +48,10 @@ fn connect(path: &Path) -> io::Result<UnixStream> {
     }
     // SAFETY: fd was created above and has exactly one owner.
     let stream = unsafe { UnixStream::from_raw_fd(fd) };
+    let addr_len = libc::socklen_t::try_from(std::mem::size_of_val(&addr))
+        .map_err(|_| io::Error::other("invalid socket address size"))?;
     // SAFETY: addr is initialized and its complete size is passed.
-    let rc = unsafe {
-        libc::connect(
-            fd,
-            (&addr as *const libc::sockaddr_un).cast(),
-            std::mem::size_of_val(&addr) as libc::socklen_t,
-        )
-    };
+    let rc = unsafe { libc::connect(fd, (&addr as *const libc::sockaddr_un).cast(), addr_len) };
     if rc != 0 {
         return Err(io::Error::last_os_error());
     }
@@ -65,7 +62,8 @@ fn connect(path: &Path) -> io::Result<UnixStream> {
 fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
     // SAFETY: zero initializes ucred; getsockopt writes within the supplied size.
     let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
-    let mut len = std::mem::size_of_val(&cred) as libc::socklen_t;
+    let mut len = libc::socklen_t::try_from(std::mem::size_of_val(&cred))
+        .map_err(|_| io::Error::other("invalid peer credential size"))?;
     // SAFETY: valid fd and writable ucred/length pointers.
     let rc = unsafe {
         libc::getsockopt(
@@ -79,14 +77,16 @@ fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
     if rc != 0 {
         return Err(io::Error::last_os_error());
     }
-    if len as usize != std::mem::size_of_val(&cred) {
+    if usize::try_from(len).ok() != Some(std::mem::size_of_val(&cred)) {
         return Err(io::Error::other("invalid peer credentials"));
     }
     Ok(cred.uid)
 }
 
 fn read_reply(stream: &mut UnixStream, timeout: Duration) -> io::Result<HostIdentity> {
-    let deadline = Instant::now() + timeout;
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .ok_or_else(|| io::Error::other("invalid identity timeout"))?;
     let mut buf = Vec::new();
     loop {
         let left = deadline
@@ -99,7 +99,7 @@ fn read_reply(stream: &mut UnixStream, timeout: Duration) -> io::Result<HostIden
         if n == 0 {
             return Err(io::Error::other("identity unavailable"));
         }
-        buf.extend_from_slice(&bytes[..n]);
+        buf.extend(bytes.iter().take(n).copied());
         if buf.len() > MAX_REPLY {
             return Err(io::Error::other("identity reply too large"));
         }
@@ -165,8 +165,8 @@ impl Listener {
     pub fn reply(&mut self, identity: Option<&HostIdentity>) {
         let text = identity
             .and_then(|id| serde_json::to_string(id).ok())
-            .unwrap_or_else(|| "{\"error\":\"identity_unavailable\"}".to_owned())
-            + "\n";
+            .unwrap_or_else(|| "{\"error\":\"identity_unavailable\"}".to_owned());
+        let text = format!("{text}\n");
         for mut stream in self.pending.drain(..) {
             // Nonblocking, bounded message; a slow reader gets EOF, never holds the host.
             let _ = stream.write_all(text.as_bytes());
