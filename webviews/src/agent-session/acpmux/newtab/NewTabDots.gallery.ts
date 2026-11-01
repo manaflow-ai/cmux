@@ -7,7 +7,6 @@ import type { PlayContext } from "../../../gallery/play";
 import { CWD, manySessions, noChat } from "../../../gallery/fixtures/acpmux";
 import { setComposerLook } from "../composerLook";
 import { DOT_STATES, type NewTabDot } from "./tabDots";
-import { translateNewTab } from "./strings";
 
 const page = (dot: NewTabDot) => ({
   newTab: {
@@ -31,8 +30,12 @@ const pick = (dot: NewTabDot) => async (ctx: PlayContext) => {
   if (pills !== (DOT_STATES[dot].actions ? 3 : 0)) throw new Error(`the ${dot} dot shows ${pills} pills`);
   const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
   if (dots !== 3) throw new Error(`the page shows ${dots} dots, not three`);
+  // Load the pane's translator only after mountAgentPane has installed the locale tables. An
+  // eager import initializes i18n while the gallery registry is loading, before the pane exists,
+  // and freezes this check against the English fallback.
+  const { translateNewTab } = await import("./strings");
   const actionsLabel = ctx.document.querySelector<HTMLInputElement>('.nt-look-dots input[value="claudeActions"]')?.getAttribute("aria-label");
-  const locale = (ctx.document.documentElement.lang || "en") as Parameters<typeof translateNewTab>[2];
+  const locale = ctx.document.documentElement.lang || "en";
   const expectedActionsLabel = `Claude ${translateNewTab("template.minimal", {}, locale)} + ${translateNewTab("widget.actions", {}, locale)}`;
   if (actionsLabel !== expectedActionsLabel) throw new Error(`wrong actions dot label: ${actionsLabel}`);
 };
