@@ -334,6 +334,14 @@ def check_fork_hosted():
                                      "note": None if rows else "no shown Chromium page in debug.layers (a build without the counts?)"})
 
 
+def diag(name):
+    """MEASURE-ONLY: what the page and the app look like now."""
+    FACTS.setdefault("diag", {})[name] = {
+        "title": page("document.title"), "visible": page("document.visibilityState"), "rect": page_rect(),
+        "tab": TAB.get("tab"), "eval_raw": json.dumps(rpc("browser.page.eval", {"script": "1+1", **({"tab": TAB["tab"]} if TAB.get("tab") else {})}, timeout=20))[:300],
+        "cef": json.dumps(rpc("debug.cef"))[:600], "layers": json.dumps(rpc("debug.layers"))[:900]}
+
+
 def bars_ok(red, blue):
     return bool(red) and bool(blue) and max(red) < min(blue)
 
@@ -394,6 +402,9 @@ def main():
         if opts.tunables == "build":
             # The benches launch with no override: they read this file. Set the value live for this launch too.
             state = rpc("debug.tunables", {"action": "set", "key": KEY, "value": opts.mode == "on"}) or {}
+            if not state.get("file"):  # `set` answers with the tunable's row; the file is in the state
+                FACTS["tunables_set"] = state
+                state = rpc("debug.tunables", {"action": "state"}) or {}
             FACTS["tunables_file"] = state.get("file")
             if not state.get("file"):
                 row("tunables", False, f"debug.tunables gave no file: {json.dumps(state)[:200]}")
@@ -407,7 +418,11 @@ def main():
         # Right after the first page of the new pane loaded, before anything shows a tab again.
         check_valid_and_hosted()
         check_fork_hosted()
-        check_show_again()
+        diag("before_show_again")
+        late = os.environ.get("CMUX_VERIFY_SHOW_AGAIN_LAST") == "1" and opts.checks != "hosted"
+        if not late:
+            check_show_again()
+            diag("after_show_again")
         if opts.checks == "hosted":
             return
         time.sleep(1.5)  # test harness: first frames settle
@@ -439,6 +454,7 @@ def main():
         point = screen_point(0.3, 0.5)
         if not point:
             row("click", False, "no page rect in debug.layers")
+            diag("no_rect")
             return
         hid_click(point)  # the first click may only activate the app
         time.sleep(0.3)  # test harness: activation settles
@@ -497,6 +513,9 @@ def main():
         row("resize.top", at_top(moving) and at_top(settled),
             {name: ({"red_rows": [min(b[0]), max(b[0])] if b[0] else None, "rows": b[2]} if b else None)
              for name, b in (("moving", moving), ("settled", settled))})
+        if late:
+            check_show_again()
+            diag("after_show_again")
     finally:
         if not opts.keep:
             rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
