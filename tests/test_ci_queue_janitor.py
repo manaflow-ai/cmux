@@ -902,7 +902,7 @@ class SweepRunnerTests(unittest.TestCase):
 
     def test_falls_back_to_linux_runner_then_four_vcpu(self):
         self.assertEqual(self.runner({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}), "blacksmith-32vcpu-ubuntu-2404")
-        self.assertEqual(self.runner({"RUNNER_POOLS": json.dumps({"linux": "blacksmith-8vcpu-ubuntu-2404"}),
+        self.assertEqual(self.runner({"RUNNER_POOLS": json.dumps({"linux": "glaeda-std-xcode-26.6"}),
                                       "LINUX_RUNNER": "cmux-lawrence"}), "blacksmith-4vcpu-ubuntu-2404")
         self.assertEqual(self.runner({}), "blacksmith-4vcpu-ubuntu-2404")
 
