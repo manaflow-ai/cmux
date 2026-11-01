@@ -302,12 +302,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// field is missing or not text, or a frame that names a chat names another than this one.
     static func login(_ method: String, _ params: [String: Any], names: (Any?) -> Bool) -> (String, [String: String])? {
         let text = { (key: String) in (params[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        // Every step the page sends names this chat; the daemon pins it again on that machine.
+        guard names(params["sessionId"]) else { return nil }
         switch method {
         case "_acpmux/agent_login/start":
             guard let agent = text("agent") else { return nil }
             return ("start", ["agent": agent])
         case "_acpmux/agent_login/finish":
-            guard names(params["sessionId"]), let login = text("loginId") else { return nil }
+            guard let login = text("loginId") else { return nil }
             var fields = ["login_id": login]
             if params["code"] != nil {
                 guard let code = text("code") else { return nil }
@@ -315,7 +317,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             }
             return ("finish", fields)
         case "_acpmux/agent_login/api_key":
-            guard names(params["sessionId"]), let agent = text("agent"), let key = text("key") else { return nil }
+            guard let agent = text("agent"), let key = text("key") else { return nil }
             return ("api_key", ["agent": agent, "key": key])
         case "_acpmux/agent_login/cancel":
             guard let login = text("loginId") else { return nil }

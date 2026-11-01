@@ -75,26 +75,27 @@ import Testing
         let client = FakeClient()
         let (wire, frames) = try await Self.wire(client)
         for frame in [
-            #"{"jsonrpc":"2.0","id":2,"method":"_acpmux/agent_login/start","params":{"agent":"claude"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"_acpmux/agent_login/start","params":{"agent":"claude","sessionId":"sub"}}"#,
             #"{"jsonrpc":"2.0","id":3,"method":"_acpmux/agent_login/finish","params":{"loginId":"login_1","code":"wrong","sessionId":"sub"}}"#,
             #"{"jsonrpc":"2.0","id":4,"method":"_acpmux/agent_login/finish","params":{"loginId":"login_1","code":"abc","sessionId":"sub"}}"#,
             #"{"jsonrpc":"2.0","id":5,"method":"_acpmux/agent_login/api_key","params":{"agent":"codex","key":"sk-x","sessionId":"sub"}}"#,
-            #"{"jsonrpc":"2.0","id":6,"method":"_acpmux/agent_login/cancel","params":{"loginId":"login_1"}}"#,
+            #"{"jsonrpc":"2.0","id":6,"method":"_acpmux/agent_login/cancel","params":{"loginId":"login_1","sessionId":"sub"}}"#,
             // Another chat, or a step with a missing field, goes nowhere.
             #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/agent_login/finish","params":{"loginId":"login_1","sessionId":"acp_other"}}"#,
             #"{"jsonrpc":"2.0","id":8,"method":"_acpmux/agent_login/api_key","params":{"agent":"claude","sessionId":"sub"}}"#,
-            #"{"jsonrpc":"2.0","id":9,"method":"_acpmux/agent_login/start","params":{}}"#,
+            #"{"jsonrpc":"2.0","id":9,"method":"_acpmux/agent_login/start","params":{"sessionId":"sub"}}"#,
+            #"{"jsonrpc":"2.0","id":10,"method":"_acpmux/agent_login/start","params":{"agent":"claude"}}"#,
         ] {
             wire.send(frame) { _ in }
         }
-        try await Self.waitUntil { (2...9).allSatisfy { frames.reply($0) != nil } }
+        try await Self.waitUntil { (2...10).allSatisfy { frames.reply($0) != nil } }
         #expect((frames.reply(2)?["result"] as? [String: Any])?["loginId"] as? String == "login_1")
         #expect(Self.error(frames, 3)?["reason"] as? String == "bad_code")
         #expect(Self.error(frames, 3)?["code"] as? String == RemoteAcpmuxWire.loginRefused)
         #expect((frames.reply(4)?["result"] as? [String: Any])?["signedIn"] as? Bool == true)
         #expect((frames.reply(5)?["result"] as? [String: Any])?["saved"] as? Bool == true)
         #expect(frames.reply(6)?["result"] != nil)
-        for id in 7...9 { #expect(Self.error(frames, id)?["code"] as? String == RemoteAcpmuxWire.unsupported) }
+        for id in 7...10 { #expect(Self.error(frames, id)?["code"] as? String == RemoteAcpmuxWire.unsupported) }
         #expect(client.calls.withLock { $0 }.sorted() == [
             "api_key agent=codex key=sk-x",
             "cancel login_id=login_1",
@@ -107,7 +108,7 @@ import Testing
     @Test func anObserverNeverSignsIn() async throws {
         let client = FakeClient(readOnly: true)
         let (wire, frames) = try await Self.wire(client)
-        wire.send(#"{"jsonrpc":"2.0","id":2,"method":"_acpmux/agent_login/start","params":{"agent":"claude"}}"#) { _ in }
+        wire.send(#"{"jsonrpc":"2.0","id":2,"method":"_acpmux/agent_login/start","params":{"agent":"claude","sessionId":"sub"}}"#) { _ in }
         try await Self.waitUntil { frames.reply(2) != nil }
         #expect(Self.error(frames, 2)?["code"] as? String == RemoteAcpmuxWire.readOnly)
         #expect(client.calls.withLock { $0 }.isEmpty)
