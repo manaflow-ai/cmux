@@ -65,13 +65,9 @@ public struct PaneSplitCommand: Sendable {
             try await connection.split(try await target(), direction: direction, options: sent)
         }
         return {
-            let answer = await send()
-            // A pane still opening (``PaneNotReady``): the real refusal, already shown once where the command ended
-            // (or answered by a capturing caller), never the generic failure on top of it.
-            if case .failure(let notReady as PaneNotReady) = answer { throw notReady }
-            // The stand-in's own create failed or was closed: that reason, not a daemon refusal the daemon never sent.
-            if case .failure(let notCreated as PendingPaneNotCreated) = answer { throw notCreated }
-            guard case .success(let created) = answer else { throw PaneSplitFailure() }
+            // A failure is the real one (``NewTerminalTabCommand``, FC-1): the daemon's answer, a lost connection,
+            // ``PaneNotReady`` or ``PendingPaneNotCreated``, never a fixed text that hides it.
+            let created = try await send().get()
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
             // The store holds the daemon's pane before the next create of this workspace resolves its target.
@@ -96,9 +92,4 @@ public struct PaneSplitCommand: Sendable {
 /// An optimistic split whose pane the person closed before the daemon made it (CancelledCreation).
 public struct PaneSplitCancelled: Error, CustomStringConvertible {
     public var description: String { "the pane closed before the daemon made it" }
-}
-
-/// An optimistic split the daemon refused (the intent log logged the cause and removed the pane).
-public struct PaneSplitFailure: Error, CustomStringConvertible {
-    public var description: String { "the daemon refused the split" }
 }
