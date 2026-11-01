@@ -7786,6 +7786,108 @@
       },
       "shortcuts": [
         {
+          "id": "agentPaneZoomIn",
+          "title": {
+            "en": "Agent Chat: Zoom In",
+            "ar": "دردشة الوكيل: تكبير",
+            "bs": "Chat s agentom: uvećaj",
+            "da": "Agentchat: Zoom ind",
+            "de": "Agent-Chat: Vergrößern",
+            "es": "Chat del agente: acercar",
+            "fr": "Chat de l’agent : zoom avant",
+            "it": "Chat dell’agente: ingrandisci",
+            "ja": "エージェントチャット: 拡大",
+            "km": "ការជជែកជាមួយភ្នាក់ងារ៖ ពង្រីក",
+            "ko": "에이전트 채팅: 확대",
+            "no": "Agentchat: Zoom inn",
+            "pl": "Czat z agentem: Powiększ",
+            "pt-BR": "Chat do agente: Ampliar",
+            "ru": "Чат с агентом: увеличить",
+            "th": "แชตเอเจนต์: ซูมเข้า",
+            "tr": "Ajan sohbeti: Yakınlaştır",
+            "uk": "Чат з агентом: збільшити",
+            "vi": "Trò chuyện với tác tử: Phóng to",
+            "zh-CN": "智能体聊天：放大",
+            "zh-TW": "代理聊天：放大"
+          },
+          "shortcut": {
+            "key": "=",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "agentPaneZoomOut",
+          "title": {
+            "en": "Agent Chat: Zoom Out",
+            "ar": "دردشة الوكيل: تصغير",
+            "bs": "Chat s agentom: umanji",
+            "da": "Agentchat: Zoom ud",
+            "de": "Agent-Chat: Verkleinern",
+            "es": "Chat del agente: alejar",
+            "fr": "Chat de l’agent : zoom arrière",
+            "it": "Chat dell’agente: riduci",
+            "ja": "エージェントチャット: 縮小",
+            "km": "ការជជែកជាមួយភ្នាក់ងារ៖ បង្រួម",
+            "ko": "에이전트 채팅: 축소",
+            "no": "Agentchat: Zoom ut",
+            "pl": "Czat z agentem: Pomniejsz",
+            "pt-BR": "Chat do agente: Reduzir",
+            "ru": "Чат с агентом: уменьшить",
+            "th": "แชตเอเจนต์: ซูมออก",
+            "tr": "Ajan sohbeti: Uzaklaştır",
+            "uk": "Чат з агентом: зменшити",
+            "vi": "Trò chuyện với tác tử: Thu nhỏ",
+            "zh-CN": "智能体聊天：缩小",
+            "zh-TW": "代理聊天：縮小"
+          },
+          "shortcut": {
+            "key": "-",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "agentPaneZoomReset",
+          "title": {
+            "en": "Agent Chat: Actual Size",
+            "ar": "دردشة الوكيل: الحجم الفعلي",
+            "bs": "Chat s agentom: stvarna veličina",
+            "da": "Agentchat: Faktisk størrelse",
+            "de": "Agent-Chat: Originalgröße",
+            "es": "Chat del agente: tamaño real",
+            "fr": "Chat de l’agent : taille réelle",
+            "it": "Chat dell’agente: dimensioni reali",
+            "ja": "エージェントチャット: 実寸表示",
+            "km": "ការជជែកជាមួយភ្នាក់ងារ៖ ទំហំពិត",
+            "ko": "에이전트 채팅: 실제 크기",
+            "no": "Agentchat: Faktisk størrelse",
+            "pl": "Czat z agentem: Rzeczywisty rozmiar",
+            "pt-BR": "Chat do agente: Tamanho Real",
+            "ru": "Чат с агентом: фактический размер",
+            "th": "แชตเอเจนต์: ขนาดจริง",
+            "tr": "Ajan sohbeti: Gerçek Boyut",
+            "uk": "Чат з агентом: реальний розмір",
+            "vi": "Trò chuyện với tác tử: Kích thước thực",
+            "zh-CN": "智能体聊天：实际大小",
+            "zh-TW": "代理聊天：實際大小"
+          },
+          "shortcut": {
+            "key": "0",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "palette.newAgentChat",
           "title": {
             "en": "New Agent Chat",

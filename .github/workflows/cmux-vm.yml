@@ -32,7 +32,8 @@
 # CMUX_VM_SMOKE_SERVICE_TEAM it also smokes the service principal (cx-b4h.13);
 # the staging Worker then needs that key's hash in the environment secret
 # CMUX_VM_SERVICE_KEYS, which deploy-staging installs when it is set, with the
-# entries of the optional secret CMUX_VM_SERVICE_KEYS_EXTRA appended.
+# entries of the optional secrets CMUX_VM_SERVICE_KEYS_EXTRA and
+# CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM appended.
 #
 # Production: workflow_dispatch action deploy-production from feat-cmux-next runs
 # check, deploy-staging and smoke-staging, then deploy-production and
@@ -406,6 +407,8 @@ jobs:
           CMUX_VM_SERVICE_KEYS: ${{ secrets.CMUX_VM_SERVICE_KEYS }}
           # Optional: more entries appended to CMUX_VM_SERVICE_KEYS (deploy.sh), so a key is added without rewriting it.
           CMUX_VM_SERVICE_KEYS_EXTRA: ${{ secrets.CMUX_VM_SERVICE_KEYS_EXTRA }}
+          # Optional: cmux-platform's Cloud driver key entry, appended the same way (deploy.sh).
+          CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM: ${{ secrets.CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM }}
         run: bash scripts/deploy.sh
       # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
       # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and
@@ -579,6 +582,8 @@ jobs:
           CMUX_VM_SERVICE_KEYS: ${{ secrets.CMUX_VM_SERVICE_KEYS }}
           # Optional: more entries appended to CMUX_VM_SERVICE_KEYS (deploy.sh), so a key is added without rewriting it.
           CMUX_VM_SERVICE_KEYS_EXTRA: ${{ secrets.CMUX_VM_SERVICE_KEYS_EXTRA }}
+          # Optional: cmux-platform's Cloud driver key entry, appended the same way (deploy.sh).
+          CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM: ${{ secrets.CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM }}
         run: bash scripts/deploy.sh
       # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
       # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and

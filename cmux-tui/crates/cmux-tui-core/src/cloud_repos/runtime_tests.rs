@@ -203,6 +203,14 @@ fn cloud_repo_runtime_connected_installation_missing_repository_requests_org_acc
 
 #[test]
 fn cloud_repo_runtime_unknown_saved_job_is_restarted_on_retry() {
+    for code in ["seed.bad_request", "seed.unknown_job"] {
+        unknown_saved_job_is_restarted(code);
+    }
+}
+
+/// git-seed-v1 answers `seed.unknown_job` for a job its daemon no longer
+/// has; older answers said `seed.bad_request`.
+fn unknown_saved_job_is_restarted(code: &str) {
     let fixture = Fixture::new();
     store::set_job(
         &fixture.mux,
@@ -216,14 +224,14 @@ fn cloud_repo_runtime_unknown_saved_job_is_restarted_on_retry() {
     let seed = fixture.server(
         "seed.sock",
         vec![
-            json!({"ok":false,"error_code":"seed.bad_request","error":"unknown job"}),
+            json!({"ok":false,"error_code":code,"error":"unknown job"}),
             seed_reply(json!({"job":"fresh"})),
             done(),
         ],
     );
     let runtime = fixture.runtime();
     let args = json!({"session":fixture.session,"repo":"owner/tool"});
-    assert_eq!(add(&runtime, &args).unwrap_err().0["code"], "seed.bad_request");
+    assert_eq!(add(&runtime, &args).unwrap_err().0["code"], code);
     assert!(store::job(&fixture.mux, &fixture.session, "tool").unwrap().is_none());
     assert_eq!(add(&runtime, &args).unwrap()["state"], "done");
     let calls = seed.join().unwrap();

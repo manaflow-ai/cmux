@@ -667,6 +667,8 @@ while True:
                                "awsProfile": env.get("AWS_PROFILE"), "via": env.get("FAKE_CLAUDE_VIA"),
                                "loginOnly": sorted(k for k in ("GITHUB_TOKEN", "GH_TOKEN", "NPM_TOKEN", "MISE_GITHUB_TOKEN",
                                                                "NVM_AUTH_HEADER", "DEMO_KEY") if os.environ.get(k)),
+                               "machineMatches": (os.environ.get("DEMO_KEY") == os.environ["FAKE_CLAUDE_MACHINE_EXPECTED"])
+                                                 if "FAKE_CLAUDE_MACHINE_EXPECTED" in os.environ else None,
                                "miseDataDir": os.environ.get("MISE_DATA_DIR"), "proxy": os.environ.get("HTTPS_PROXY"),
                                "cloudMlRegion": os.environ.get("CLOUD_ML_REGION"),
                                "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_")),
