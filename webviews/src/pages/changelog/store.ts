@@ -46,11 +46,11 @@ export function parseSpan(hash: string): UpdateSpan | undefined {
   return from ? { from, to } : { to };
 }
 
-/** The design the route names (`design=journal|rail|digest`, Debug Settings `whatsNew.design`); journal by default. */
+/** The design the route names (`design=ledger|journal|rail|digest`, Debug Settings `whatsNew.design`); the sheet by default. */
 export function parseDesign(hash: string): ChangelogDesign {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const design = new URLSearchParams(query).get("design");
-  return design === "journal" || design === "rail" || design === "digest" ? design : "ledger";
+  return design === "ledger" || design === "journal" || design === "rail" || design === "digest" ? design : "sheet";
 }
 
 /** The update's news layout the route names (`news=alternate|stack|lead`); grid by default. */

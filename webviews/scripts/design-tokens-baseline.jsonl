@@ -84,20 +84,20 @@
 {"file":"agent-session/acpmux/header/header.css","kind":"spacing","property":"padding","values":{"0 6px":4,"8px 6px 2px":1,"0 10px":2,"8px 6px 6px":1,"2px 6px 6px":1,"4px 6px":1,"8px 6px 8px":1}}
 {"file":"agent-session/acpmux/Inspector.css","kind":"spacing","property":"gap","values":{"6px 16px":1}}
 {"file":"agent-session/acpmux/Inspector.css","kind":"spacing","property":"padding","values":{"10px 16px":1,"4px 10px":1,"3px 16px":1}}
-{"file":"agent-session/acpmux/inspector/ContextSection.css","kind":"height","property":"height","values":{"6px":1,"10px":1}}
-{"file":"agent-session/acpmux/inspector/ContextSection.css","kind":"spacing","property":"padding","values":{"2px 8px 6px":1}}
-{"file":"agent-session/acpmux/inspector/ContextSection.css","kind":"spacing","property":"padding-left","values":{"18px":1}}
-{"file":"agent-session/acpmux/inspector/inspector.css","kind":"height","property":"height","values":{"6px":1,"1px":1,"7px":2,"26px":1,"22px":1}}
-{"file":"agent-session/acpmux/inspector/inspector.css","kind":"height","property":"min-height","values":{"26px":2}}
-{"file":"agent-session/acpmux/inspector/inspector.css","kind":"spacing","property":"gap","values":{"6px":7,"2px":5,"3px":1}}
-{"file":"agent-session/acpmux/inspector/inspector.css","kind":"spacing","property":"padding","values":{"6px 10px 0 14px":1,"8px 10px 10px":1,"4px 8px 6px":1,"0 2px":1,"5px 4px 5px 8px":1,"0 6px":1,"2px 4px 2px 8px":2,"8px 10px":1}}
-{"file":"agent-session/acpmux/inspector/inspector.css","kind":"spacing","property":"padding-bottom","values":{"5px":1}}
-{"file":"agent-session/acpmux/inspector/inspector.css","kind":"spacing","property":"padding-left","values":{"6px":1,"10px":1}}
-{"file":"agent-session/acpmux/inspector/inspector.css","kind":"spacing","property":"padding-right","values":{"6px":1,"10px":1}}
-{"file":"agent-session/acpmux/inspector/inspector.css","kind":"spacing","property":"padding-top","values":{"34px":1,"5px":1}}
-{"file":"agent-session/acpmux/inspector/WorkflowTasks.css","kind":"height","property":"height","values":{"calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 6)":1}}
-{"file":"agent-session/acpmux/inspector/WorkflowTasks.css","kind":"height","property":"min-height","values":{"calc(var(--ds-control-row) + var(--ds-space-2) + var(--cmux-hairline, 0.5px) * 4)":1,"calc(var(--ds-control-row) + var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4)":1}}
-{"file":"agent-session/acpmux/inspector/WorkflowTasks.css","kind":"spacing","property":"gap","values":{"calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4)":1}}
+{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"height","property":"height","values":{"6px":1,"10px":1}}
+{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"spacing","property":"padding","values":{"2px 8px 6px":1}}
+{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"spacing","property":"padding-left","values":{"18px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"height","property":"height","values":{"6px":1,"1px":1,"7px":2,"26px":1,"22px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"height","property":"min-height","values":{"26px":2}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"gap","values":{"6px":7,"2px":5,"3px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding","values":{"6px 10px 0 14px":1,"8px 10px 10px":1,"4px 8px 6px":1,"0 2px":1,"5px 4px 5px 8px":1,"0 6px":1,"2px 4px 2px 8px":2,"8px 10px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-bottom","values":{"5px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-left","values":{"6px":1,"10px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-right","values":{"6px":1,"10px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-top","values":{"34px":1,"5px":1}}
+{"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"height","property":"height","values":{"calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 6)":1}}
+{"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"height","property":"min-height","values":{"calc(var(--ds-control-row) + var(--ds-space-2) + var(--cmux-hairline, 0.5px) * 4)":1,"calc(var(--ds-control-row) + var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4)":1}}
+{"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"spacing","property":"gap","values":{"calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4)":1}}
 {"file":"agent-session/acpmux/markdownField.css","kind":"spacing","property":"padding","values":{"calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1))":1,"0 5px":1,"1px 4px":1,"8px 10px":1}}
 {"file":"agent-session/acpmux/markdownField.css","kind":"spacing","property":"padding-left","values":{"22px":1,"10px":1}}
 {"file":"agent-session/acpmux/modelPicker.css","kind":"height","property":"height","values":{"44px":1}}
@@ -112,7 +112,7 @@
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"height","property":"min-height","values":{"52px":1,"84px":1,"34px":1,"96px":1,"60px":1,"56px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"gap","values":{"10px":11,"6px":13,"14px":2,"2px":7,"6px 16px":1,"5px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding","values":{"clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 24px":1,"0 18px":1,"2px 6px":1,"2px 8px":1,"12px 14px":1,"0 10px 6px":1,"0 6px":3,"0 12px 0 10px":1,"0 10px":5,"1px 0":2,"6px":3,"8px 10px":1,"0 8px 0 22px":1,"0 14px":1,"5px 14px":1,"14px 16px":1}}
-{"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-block","values":{"6px 18px":1,"18px":1}}
+{"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-block","values":{"6px 18px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-left","values":{"30px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-right","values":{"6px":1}}
@@ -166,8 +166,8 @@
 {"file":"agent-session/acpmux/started/startedSessions.css","kind":"spacing","property":"padding","values":{"7px 12px 7px 14px":1,"1px 5px":1}}
 {"file":"agent-session/acpmux/styles.css","kind":"height","property":"height","values":{"16px":7,"7px":1,".5px":1,"48px":1,"18px":1,"12px":3,"22px":7,"31px":1,"40px":3,"56px":4,"42px":2,"1px":1,"26px":5,"34px":1,"30px":1,"8px":2,"14px":1,"36px":1,"180px":2,"360px":1,"6px":2,"164px":1,"68px":1,"max(var(--ui-row-height,28px),calc(96px * var(--cmux-interface-scale,1)))":1,"44px":1,"17px":1,"21px":1,"5px":1}}
 {"file":"agent-session/acpmux/styles.css","kind":"height","property":"min-height","values":{"34px":2,"38px":1,"calc(var(--ds-control-row) + var(--ds-space-3) + 4 * var(--cmux-hairline,.5px))":1,"30px":1,"16px":1,"128px":1,"36px":1,"58px":1,"48px":1,"46px":1,"56px":1,"44px":1}}
-{"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"gap","values":{"7px":1,"6px":19,"10px":10,"2px":9,"14px":1,"5px":3,"3px":2,"6px 8px":1,"11px":1,"var(--acp-row-gap,7px)":1}}
-{"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"padding","values":{"16px var(--cv-inset,max(18px,calc((100% - 760px)/2)))":1,"9px 12px":2,"9px":1,"5px 0":2,"3px 0":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2)))":1,"11px":1,"7px 12px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px":1,"15px 16px 8px":1,"0 10px":6,"6px 6px 6px 12px":1,"0 8px 0 6px":2,"0 6px 0 8px":1,"2px 6px":3,"5px var(--ui-row-padding-inline)":1,"0 14px":1,"clamp(48px,16vh,168px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 32px":1,"0 8px 0 18px":1,"3px":2,"0 8px 0 10px":1,"2px 0 4px":1,"3px 6px 3px 12px":1,"0 6px 0 12px":1,"6px":2,"5px 10px":2,"6px 10px 8px":1,"6px 8px":4,"7px 8px":2,"0 2px":1,"0 5px":3,"0 max(16px,calc((100% - 760px)/2)) 12px":1,"4px 10px 2px":1,"2.5px":1,"0 9px":1,"6px 16px":1,"0 6px 0 16px":1,"4px 6px 4px 12px":1,"0 6px":1,"var(--acp-row-pad-y,11px)":1,"var(--acp-row-pad-y,7px) 10px":1,"var(--acp-row-pad-y,5px) 0":1,"6px 8px 0":2,"4px 10px 6px":1,"12px 8px 2px 12px":1,"2px 5px 4px":1,"14px 76px 14px 28px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px":1,"11px 12px":1,"6px 12px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px":1,"0 7px 0 8px":1,"10px 14px":1,"0 7px":1,"8px 14px 0":2,"2px 9px":1,"0.5px 4px":1,"10px":1,"10px 0 0":1,"5px 6px 5px 12px":1,"4px 2px":1,"0 3px":1,"4px 10px":1,"3px 6px":1,"2px 4px":1}}
+{"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"gap","values":{"7px":1,"6px":18,"10px":10,"2px":9,"14px":1,"5px":3,"3px":2,"6px 8px":1,"11px":1,"var(--acp-row-gap,7px)":1}}
+{"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"padding","values":{"16px var(--cv-inset,max(18px,calc((100% - 760px)/2)))":1,"9px 12px":2,"9px":1,"5px 0":2,"3px 0":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2)))":1,"11px":1,"7px 12px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px":1,"15px 16px 8px":1,"0 10px":6,"6px 6px 6px 12px":1,"0 8px 0 6px":2,"0 6px 0 8px":1,"2px 6px":3,"5px var(--ui-row-padding-inline)":1,"0 14px":1,"clamp(48px,16vh,168px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 32px":1,"0 8px 0 18px":1,"3px":2,"0 8px 0 10px":1,"2px 0 4px":1,"3px 6px 3px 12px":1,"0 6px 0 12px":1,"6px":2,"5px 10px":2,"6px 10px 8px":1,"6px 8px":4,"7px 8px":2,"0 2px":1,"0 5px":3,"0 max(16px,calc((100% - 760px)/2)) 12px":1,"4px 10px 2px":1,"2.5px":1,"0 9px":1,"6px 16px":1,"0 6px 0 16px":1,"4px 6px 4px 12px":1,"0 6px":1,"var(--acp-row-pad-y,11px)":1,"var(--acp-row-pad-y,7px) 10px":1,"var(--acp-row-pad-y,5px) 0":1,"6px 8px 0":2,"4px 10px 6px":1,"12px 8px 2px 12px":1,"2px 5px 4px":1,"14px 76px 14px 28px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px":1,"6px 12px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px":1,"0 7px 0 8px":1,"10px 14px":1,"0 7px":1,"8px 14px 0":2,"2px 9px":1,"0.5px 4px":1,"10px":1,"10px 0 0":1,"5px 6px 5px 12px":1,"4px 2px":1,"0 3px":1,"4px 10px":1,"3px 6px":1,"2px 4px":1}}
 {"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"padding-bottom","values":{"10px":1,"7px":1}}
 {"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"padding-top","values":{"6px":1,"7px":1}}
 {"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"row-gap","values":{"6px":1}}
@@ -176,7 +176,6 @@
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"height","property":"height","values":{"48px":2,"26px":1,"44px":2,"1px":1,"30px":1,"9px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"gap","values":{"10px":4,"6px":2,"2px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding","values":{"0 14px":1,"0 10px":1,"0 12px 0 10px":1,"6px":1,"6px 8px 4px":1,"8px 10px":1}}
-{"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding-right","values":{"48px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding-top","values":{"2px":1}}
 {"file":"agent-session/acpmux/summary/summary.css","kind":"height","property":"height","values":{"26px":5,"6px":1,"22px":2,"14px":1,"18px":1,"40px":1}}
 {"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"gap","values":{"2px":5,"6px":3}}
@@ -229,7 +228,6 @@
 {"file":"pages/changelog/updateSurfaces.css","kind":"height","property":"height","values":{"18px":1,"8px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"padding","values":{"10px 12px":1,"0 10px":1,"10px 12px 8px":1,"0 0 0 18px":1,"3px 0":1}}
-{"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"padding-bottom","values":{"6px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"padding-right","values":{"20px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"padding-top","values":{"6px":1}}
 {"file":"pages/chief-usage/styles.css","kind":"height","property":"height","values":{"8px":1,"2px":2,"3px":1,"4px":1}}

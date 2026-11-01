@@ -57,6 +57,15 @@ final class GroupHeaderRowView: SidebarRowView {
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                       label: GroupEditorStrings.newWorkspace)
     private var pinned = false
+    /// A remote group's machine mark (``SidebarGroup/machine``, ``SidebarHostGroupLook``).
+    let machineMark = DecorativeImageView()
+    /// A remote group's status dot, in the machine header's colors (`SectionHeaderRowView.tone`).
+    let machineDot = CALayer()
+    /// A remote group's status in words (``SidebarHostGroupLook/markAndWords``).
+    private let machineWords = SidebarRowView.label(font: SidebarStyle.headerFont)
+    private var machineTone: SectionHeaderRowView.StatusTone?
+    private var machine: SidebarMachine?
+    private var hostLook: SidebarHostGroupLook = .trailingMarkAndDot
     /// Archived in the sidebar document: the bar and its ink draw dimmed (`SidebarStyle.archivedAlpha`).
     private var archived = false
     private var hasIcon = false
@@ -95,9 +104,11 @@ final class GroupHeaderRowView: SidebarRowView {
         super.init(key: key)
         layer?.addSublayer(pill)
         layer?.addSublayer(dot)
+        layer?.addSublayer(machineDot)
+        machineDot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
-        [glyph, name, count, pin, chevron, activitySlot, badge, addButton, moreButton].forEach(addSubview)
+        [glyph, name, count, pin, chevron, activitySlot, badge, machineMark, machineWords, addButton, moreButton].forEach(addSubview)
         // The header's label says the name, the count and (through AXExpanded) the chevron.
         moreButton.onPress = { [weak self] in self?.onEdit?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
@@ -141,6 +152,7 @@ final class GroupHeaderRowView: SidebarRowView {
         var fontSize: CGFloat
         var details: GroupHeaderDetails
         var status: StatusIndicatorState?
+        var look: SidebarHostGroupLook
     }
 
     /// Shows `group`. A collapsed header shows its loading spinner on the right; `details` turns
@@ -151,7 +163,8 @@ final class GroupHeaderRowView: SidebarRowView {
     func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(),
                    status rollUp: StatusIndicatorState? = nil, animated: Bool) {
         let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed,
-                              fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp)
+                              fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp,
+                              look: group.hostLook)
         guard needsConfigure(content) else { return }
         tint = group.tint
         name.stringValue = group.name
@@ -159,6 +172,8 @@ final class GroupHeaderRowView: SidebarRowView {
         archived = group.isArchived
         hasIcon = group.icon != nil
         glyph.configure(icon: group.icon)
+        hostLook = group.hostLook
+        configureMachine(group.machine)
         pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.leadingGlyphSide) : nil
         collapsed = row.isCollapsed
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
@@ -180,7 +195,8 @@ final class GroupHeaderRowView: SidebarRowView {
         badge.configure(details.unreadCount && collapsed && unread > 0 ? .count(unread) : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
-        setAccessibilityLabel("\(group.name), \(Strings.groupCount(row.childCount))")
+        setAccessibilityLabel(group.machine.map { "\(group.name), \(SectionHeaderRowView.statusWords($0.status))" }
+            ?? "\(group.name), \(Strings.groupCount(row.childCount))")
         setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue)")
         moreButton.setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue).more")
         addButton.setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue).add")
@@ -288,6 +304,7 @@ final class GroupHeaderRowView: SidebarRowView {
             chevron.contentTintColor = ink
             moreButton.tintOverride = ink
             addButton.tintOverride = ink
+            paintMachine(ink: ink)
             // The bar carries the group's color: no dot over it (cx-rcby).
             dot.isHidden = true
             ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
@@ -319,6 +336,7 @@ final class GroupHeaderRowView: SidebarRowView {
         chevron.contentTintColor = quiet
         moreButton.tintOverride = quiet
         addButton.tintOverride = quiet
+        paintMachine(ink: quiet)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         dot.isHidden = false
@@ -405,6 +423,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // chevron back on the column, with the + and more left of it; never the spinner beside them.
         setHoverShown(chevron, !onColumn, fades: !onColumn && (fades || fadesNextActivity), token: .hoverReveal)
         var trailing = (showsActions ? (offersAdd ? addButton.frame.minX : moreButton.frame.minX) : chevronFrame.minX) - Metrics.space2
+        trailing = layoutMachineTrailing(trailing, height: b.height, showsActions: showsActions)
         if badge.state.isUnread {
             badge.isHidden = false
             let w = badge.preferredWidth, h = SidebarStyle.badgeHeight
@@ -423,7 +442,7 @@ final class GroupHeaderRowView: SidebarRowView {
             self.activity.configure(.idle)
         }
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
-        glyph.isHidden = !hasIcon
+        glyph.isHidden = !hasIcon || leadsWithMachineMark
         // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
         // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
         // aligned"; Leo 2026-10-28, "the alignment").
@@ -435,8 +454,11 @@ final class GroupHeaderRowView: SidebarRowView {
         pin.frame = NSRect(x: (pinX * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         let iconLead = pinned ? SidebarStyle.leadingTextX(leading: lead) : lead
         glyph.frame = NSRect(x: iconLead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        if leadsWithMachineMark {
+            machineMark.frame = glyph.frame
+        }
         // The label's frame sits its text inset left of the column, as a workspace title's does.
-        let nx = (hasIcon ? glyph.frame.maxX + Metrics.space3 : iconLead) - Metrics.space1
+        let nx = (hasIcon || leadsWithMachineMark ? glyph.frame.maxX + Metrics.space3 : iconLead) - Metrics.space1
         var countWidth = count.stringValue.isEmpty || renaming ? 0 : Self.drawnWidth(count)
         // A sidebar too narrow for the count drops it rather than drawing it over the trailing controls.
         if nx + countWidth + Metrics.space2 > trailing { countWidth = 0 }
@@ -466,5 +488,90 @@ final class GroupHeaderRowView: SidebarRowView {
         // The fill still shows at once on entry; the + and more fade both ways (u2397).
         fadesNextHover = true
         needsLayout = true
+    }
+}
+
+// MARK: - Remote group (user 2026-10-31, Chief msg 19277: "it needs to look like a group in the sidebar")
+
+extension GroupHeaderRowView {
+    /// The remote group's machine mark leads the name, in the icon's place (``SidebarHostGroupLook/leadingMark``).
+    var leadsWithMachineMark: Bool { machineIsShown && hostLook == .leadingMark }
+
+    private var machineIsShown: Bool { !machineMark.isHidden || !machineDot.isHidden || !machineWords.isHidden }
+
+    /// Whether this header is a remote group's (tests, the gallery).
+    var showsMachine: Bool { machineIsShown }
+    /// The status the remote group's dot shows (tests).
+    var debugMachineTone: SectionHeaderRowView.StatusTone? { machineDot.isHidden ? nil : machineTone }
+
+    fileprivate func configureMachine(_ machine: SidebarMachine?) {
+        guard let machine else {
+            self.machine = nil
+            machineTone = nil
+            machineMark.isHidden = true
+            machineDot.isHidden = true
+            machineWords.isHidden = true
+            return
+        }
+        self.machine = machine
+        let tone = SectionHeaderRowView.tone(machine, hostGroup: true)
+        machineTone = tone
+        let look = hostLook
+        let symbol: IconName = machine.kind == .cloud ? .cloud : .machineRemote
+        machineMark.image = NSImage.icon(symbol, size: SidebarStyle.leadingGlyphSide)
+        machineMark.isHidden = look == .dotOnly
+        // The quiet look keeps the dot for a machine that needs the person (or is on its way).
+        let quiet = look == .markQuietWhenConnected && (tone == .success || tone == nil)
+        machineDot.isHidden = tone == nil || look == .markAndWords || quiet
+        machineWords.stringValue = SectionHeaderRowView.statusWords(machine.status)
+        machineWords.isHidden = look != .markAndWords
+        machineMark.setAccessibilityElement(false)
+        themedToolTip = machine.detail.map { "\(SectionHeaderRowView.statusWords(machine.status)): \($0)" }
+            ?? SectionHeaderRowView.statusWords(machine.status)
+    }
+
+    // theme-scoped: called only inside performWithTheme
+    fileprivate func paintMachine(ink: NSColor) {
+        machineMark.contentTintColor = ink
+        machineWords.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        let color: NSColor? = switch machineTone {
+        case .success: Palette.success
+        case .attention: Palette.attention
+        case .danger: Palette.danger
+        case .quiet, .working, nil: ink.withAlphaComponent(0.55)
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        machineDot.backgroundColor = color?.cgColor
+        // A ring in the bar's ink keeps the dot apart from any bar color (green on green, red on red).
+        machineDot.borderColor = ink.withAlphaComponent(0.35).cgColor
+        machineDot.borderWidth = 1
+        CATransaction.commit()
+    }
+
+    /// Lays out the trailing machine mark, words and dot right to left from `trailing`, before the badge and
+    /// the name; returns the x left of them. They stay while the + and more show (a remote group says where it
+    /// runs also under the pointer).
+    fileprivate func layoutMachineTrailing(_ trailing: CGFloat, height: CGFloat, showsActions: Bool) -> CGFloat {
+        guard machine != nil else { return trailing }
+        var x = trailing
+        let dotSide = SidebarStyle.dotSize
+        if !machineDot.isHidden {
+            machineDot.frame = CGRect(x: x - dotSide, y: (height - dotSide) / 2, width: dotSide, height: dotSide)
+            machineDot.cornerRadius = dotSide / 2
+            x = machineDot.frame.minX - Metrics.space2
+        }
+        if !machineWords.isHidden {
+            let w = ceil(machineWords.intrinsicContentSize.width), h = ceil(machineWords.intrinsicContentSize.height)
+            machineWords.font = SidebarStyle.groupHeaderCountFont(name: name.font ?? SidebarStyle.headerFont)
+            machineWords.frame = NSRect(x: x - w, y: (height - h) / 2, width: w, height: h)
+            x = machineWords.frame.minX - Metrics.space1
+        }
+        if !machineMark.isHidden, !leadsWithMachineMark {
+            let side = SidebarStyle.leadingGlyphSide
+            machineMark.frame = NSRect(x: x - side, y: (height - side) / 2, width: side, height: side)
+            x = machineMark.frame.minX - Metrics.space2
+        }
+        return x
     }
 }

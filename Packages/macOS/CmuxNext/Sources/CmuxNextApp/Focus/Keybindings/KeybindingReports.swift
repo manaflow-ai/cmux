@@ -64,9 +64,8 @@ enum KeybindingReports {
     /// `.ghosttyFallback` entry (same keys and command as its `.ghostty`
     /// entry) is not a second row, so the remaining `ghostty-fallback` rows
     /// are Ghostty's defaults. A binding the table holds twice is one row,
-    /// its later entry (the one that runs): the Chrome tab keys repeat the
-    /// catalog's Cmd-1…9 and Cmd-Shift-] / [ (`KeyBindingDefaults.tabSwitching`),
-    /// and two rows with one identity piled up on the page (dogfood run 7).
+    /// its later entry (the one that runs): two rows with one identity piled
+    /// up on the page (dogfood run 7).
     /// A row of an action in `heldElsewhere` (a
     /// system-wide key `GlobalHotKeyService` could not register: another app
     /// holds it) carries `heldElsewhere: true`. An action cmux.json unbinds

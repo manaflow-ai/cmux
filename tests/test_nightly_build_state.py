@@ -146,6 +146,12 @@ class DedicatedBuilder(unittest.TestCase):
         self.build(finish=False)
         self.assertEqual(self.build()[:2], ('mode=clean', False))
 
+    def test_a_fleet_cache_settings_change_invalidates_incremental_state(self):
+        self.build()
+        self.commit({'scripts/ci/fleet-compilation-cache.sh': 'echo SWIFT_ENABLE_PREFIX_MAPPING=YES\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+        self.assertEqual(self.build()[0], 'mode=incremental')
+
     def test_a_toolchain_lockfile_or_submodule_change_makes_it_clean(self):
         self.build()
         self.assertEqual(self.build(toolchain='Xcode 26.7')[:2], ('mode=clean', False))

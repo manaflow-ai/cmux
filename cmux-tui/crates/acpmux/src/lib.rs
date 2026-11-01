@@ -21,6 +21,7 @@ pub mod agent;
 pub mod agent_displays;
 pub mod agent_host;
 pub mod agent_link;
+pub mod agent_login;
 pub mod agent_tools;
 pub mod attach;
 pub mod author;
@@ -37,6 +38,7 @@ pub mod claude_stdio;
 pub mod cli;
 pub mod client;
 pub mod clock;
+pub mod cloud_repo_mcp;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
@@ -47,6 +49,7 @@ pub mod cua_socket;
 pub mod cua_v2;
 pub mod cwd_pin;
 pub mod daemon;
+mod default_harness;
 pub mod deliver;
 pub mod forum;
 pub mod forum_mcp;
@@ -135,6 +138,8 @@ pub mod subsession_worktree;
 pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
+#[cfg(test)]
+mod test_stack;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;

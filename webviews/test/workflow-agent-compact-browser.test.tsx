@@ -1,5 +1,5 @@
 // l10n-allow-file: fixture workflow actions, not shipped UI.
-// The Inspector's workflow agent rows (inspector/WorkflowTasks.tsx) in the gallery's compact
+// Session Info's workflow agent rows (session-info/WorkflowTasks.tsx) in the gallery's compact
 // alternative (agent-pane.chat-inspector, workflow-agent-row-compact): the name and the current
 // action share one line. Before, the row's text was a block, so the action was an inline span that
 // `overflow: hidden` and `text-overflow` do not clip, and a long action ran past the panel with no
@@ -7,7 +7,7 @@
 // detail and grid rows keep theirs inside too.
 //
 // The rows are the real WorkflowTasks, rendered to markup, then laid out in real Chromium from the
-// inspector's stylesheets. CI fails the file when Chromium cannot launch (requireBrowserLane).
+// Session Info's stylesheets. CI fails the file when Chromium cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -17,7 +17,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("workflow-agent-compact-browser.test.tsx", async () => {
   setDefaultTimeout(60_000);
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { WorkflowTasks } = await import("../src/agent-session/acpmux/inspector/WorkflowTasks");
+  const { WorkflowTasks } = await import("../src/agent-session/acpmux/session-info/WorkflowTasks");
   const { createWorkflowAdapter } = await import("../src/agent-session/acpmux/summary/foldWorkflows");
   const { workflowFixture } = await import("../src/agent-session/acpmux/summary/workflowFixture");
   const { chromium } = await import("playwright");
@@ -40,9 +40,9 @@ await requireBrowserLane("workflow-agent-compact-browser.test.tsx", async () => 
   const src = path.resolve(import.meta.dir, "../src");
   const css = [
     "agent-session/acpmux/styles.css",
-    "agent-session/acpmux/inspector/inspector.css",
+    "agent-session/acpmux/session-info/sessionInfo.css",
     "agent-session/acpmux/summary/workflowDots.css",
-    "agent-session/acpmux/inspector/WorkflowTasks.css",
+    "agent-session/acpmux/session-info/WorkflowTasks.css",
   ]
     .map((file) => readFileSync(path.join(src, file), "utf8").replace(/^@import[^;]*;$/gm, ""))
     .join("\n");

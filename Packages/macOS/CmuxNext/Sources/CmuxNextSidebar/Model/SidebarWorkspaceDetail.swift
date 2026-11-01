@@ -27,6 +27,11 @@ public nonisolated struct SidebarWorkspaceDetail: Hashable, Sendable {
     public var contextTokens: Int?
     public var contextWindow: Int?
     public var costUsd24h: Double?
+    /// What the workspace's agent chats run below their turns now (acpmux, summed over its
+    /// tabs): running subagents, the first of their names, and background commands.
+    public var subagentsRunning = 0
+    public var subagentNames: [String] = []
+    public var commandsRunning = 0
 
     public init(activitySince: Date? = nil, model: String? = nil, task: String? = nil, needsInput: String? = nil,
                 command: String? = nil, commandSince: Date? = nil, contextTokens: Int? = nil, contextWindow: Int? = nil,

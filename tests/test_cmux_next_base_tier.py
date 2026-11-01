@@ -220,11 +220,39 @@ class Kick(unittest.TestCase):
         self.assertEqual(clock.slept[0], 10 * 60)
         self.assertEqual(len(api.dispatched), 1)
 
+    def test_a_new_base_tier_run_while_waiting_owns_its_full_window(self):
+        # A hand dispatch can start while this kick sleeps. The first run's
+        # deadline must never let a second Mac tier start inside the new window.
+        # The older run still waits for a Mac: the new run supersedes it, so it is
+        # cancelled even though this kick dispatches nothing.
+        api, clock = FakeApi([], TIP), Clock(T0 + 5 * 60)
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+
+        def sleep(seconds: float) -> None:
+            Clock.sleep(clock, seconds)
+            api.open_run(12, MID, T0 + 12 * 60, "queued", QUEUED_MAC)
+
+        self.assertIsNone(tier.kick(api, REPO, ["Packages/**"], now=clock.now,
+                                    sleep=sleep, log=lambda _: None))
+        self.assertEqual(clock.slept, [10 * 60])
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.cancelled, [11])
+        self.assertEqual(sum("/actions/workflows/cmux-next.yml/runs?" in p for p in api.gets), 3)
+
     def test_a_kick_never_waits_longer_than_the_window(self):
         # A clock behind the run's created_at (skew) still waits at most one window.
         api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 - 3600)
         kick(api, clock)
         self.assertEqual(clock.slept[0], tier.WINDOW_S)
+
+    def test_a_skewed_clock_still_dispatches_after_the_capped_wait(self):
+        # The run seen before the sleep is not a new run: a clock still behind its
+        # created_at after the capped wait must dispatch, not return (that starved
+        # the base tier on every kick).
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 - 3600)
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(clock.slept[0], tier.WINDOW_S)
+        self.assertEqual(len(api.dispatched), 1)
 
     def test_a_tip_that_already_has_a_base_tier_run_is_left_alone(self):
         api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
@@ -392,6 +420,19 @@ class Workflows(unittest.TestCase):
         self.assertGreater(job["timeout-minutes"] * 60, tier.WINDOW_S + tier.SETTLE_S)
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read"})
         self.assertIn("cmux_next_base_tier.py kick", job["steps"][-1]["run"])
+
+    def test_sleeping_dispatcher_uses_a_small_ephemeral_linux_runner(self):
+        # A pure Python timer/API call must not occupy the 32-vCPU build pool.
+        # Keep the hosted fork route and the small Blacksmith overflow route.
+        expression = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["runs-on"]
+        self.assertIn("'ubuntu-24.04'", expression)
+        self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", expression)
+        # A non-Blacksmith LINUX_RUNNER (a fleet pool, a hand failover) still wins;
+        # a Blacksmith one (the 32-vCPU compile size) never picks this job's size.
+        self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER ||", expression)
+        self.assertNotIn("|| vars.LINUX_RUNNER ||", expression)
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || "
+                      "'blacksmith-2vcpu-ubuntu-2404'", expression)
 
     def test_the_push_and_the_kick_read_the_same_switch(self):
         env = route_step()["env"]

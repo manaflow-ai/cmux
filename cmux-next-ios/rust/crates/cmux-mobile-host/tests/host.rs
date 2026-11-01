@@ -450,6 +450,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "removal-v1",
             "file-preview-v1",
             "localhost-forward-v1",
+            "cloud-directory-v1",
+            "cloud-acpmux-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
             "surface-stream-v1"
@@ -548,10 +550,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     assert_eq!(drain(&mut secret_preview).await, (Vec::new(), "forbidden".into()));
     let empty_path = fixture.root.join("empty-preview.bin");
     std::fs::write(&empty_path, []).unwrap();
-    let mut empty_preview = link
-        .open("file-preview", serde_json::json!({"path": empty_path.to_str().unwrap()}))
-        .await
-        .unwrap();
+    let mut empty_preview =
+        link.open("file-preview", serde_json::json!({"path": empty_path.to_str().unwrap()})).await.unwrap();
     assert_eq!(json_frame(empty_preview.recv().await), serde_json::json!({"size": 0}));
     assert_eq!(drain(&mut empty_preview).await, (Vec::new(), "eof".into()));
 

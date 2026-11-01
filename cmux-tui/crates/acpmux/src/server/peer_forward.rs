@@ -511,6 +511,11 @@ async fn forward_inner(
         // The link the request goes on and the generation the row names as it goes: a page is
         // kept only while that link is the peer's, and only as that generation's.
         let link = peer.link_epoch();
+        // A client here opens peer chats: their copies are read ahead from now on, so the next
+        // one opens on its copy even while its peer reconnects (`hub/peer_snapshot/warm.rs`).
+        if m == method::MUX_ATTACH && conn.origin != Origin::Peer {
+            hub.want_peer_copies();
+        }
         let pages = matches!(m, method::MUX_ATTACH | method::MUX_EVENTS);
         let purge =
             m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false);
@@ -572,7 +577,7 @@ async fn forward_inner(
             {
                 crate::hub::file_uploads::peer_unsupported(&peer)
             } else if e.message.contains("Method not found") {
-                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::build(), peer.name))
                                 .with_data(json!({
                                     "reason": "peer_version_skew",
                                     "try": format!("acpmux host update {}", peer.name),
@@ -664,7 +669,7 @@ fn mac_group_read(result: &mut Value, mac_signs: bool) {
 /// from too, that `Hub::peer_history_ask_counts` drops (its own asks from an
 /// older run stay there without their nonce). The rest of the reply, and the
 /// session, stay.
-fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut Value) {
+pub(crate) fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut Value) {
     let pending = match m {
         method::MUX_INFO => Some("/pending"),
         method::MUX_ATTACH => Some("/session/pending"),

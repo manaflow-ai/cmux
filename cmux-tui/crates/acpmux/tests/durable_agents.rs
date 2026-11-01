@@ -6,6 +6,8 @@
 
 #[path = "durable_agents/ancestor_answer.rs"]
 mod ancestor_answer;
+#[path = "durable_agents/bg_caller_restart.rs"]
+mod bg_caller_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[path = "support/daemon_env.rs"]

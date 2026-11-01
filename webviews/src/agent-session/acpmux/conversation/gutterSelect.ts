@@ -451,6 +451,11 @@ export function installGutterSelect(
       targetElement?.closest<HTMLElement>("[data-transcript-gap='row']") &&
       thread.contains(targetElement.closest("[data-transcript-gap='row']")),
     );
+    // A blank box that is the row's room (a reply's action row over a status row) counts only when
+    // the press lands on the box itself, never on one of its controls.
+    const blankPress = Boolean(
+      targetElement?.getAttribute("data-transcript-gap") === "blank" && thread.contains(targetElement),
+    );
     const strip = targetElement?.closest<HTMLElement>(".acpmux-composer-strip");
     const stripPress = Boolean(
       strip &&
@@ -458,7 +463,7 @@ export function installGutterSelect(
       !targetElement?.closest(INTERACTIVE_TARGETS) &&
       !targetElement?.closest(".acpmux-location-readonly"),
     );
-    if (!directTranscriptTarget && !stripPress && !rowGapPress) return;
+    if (!directTranscriptTarget && !stripPress && !rowGapPress && !blankPress) return;
     const geometry = measure(scroller, thread);
     if (!geometry) return;
     // A spacer band under the last row is still part of the transcript, even when the x coordinate is
@@ -470,9 +475,9 @@ export function installGutterSelect(
     const sideGutter = inGutter(event.clientX, geometry);
     const inColumn = event.clientX >= geometry.column.left && event.clientX <= geometry.column.right;
     const transcriptGap =
-      rowGapPress || inBottomBand || stripPress || (directTranscriptTarget && inColumn && !sideGutter);
+      rowGapPress || blankPress || inBottomBand || stripPress || (directTranscriptTarget && inColumn && !sideGutter);
     if (!sideGutter && !transcriptGap) return;
-    if (rowGapPress && hitsText(doc, thread, event.clientX, event.clientY)) return;
+    if ((rowGapPress || blankPress) && hitsText(doc, thread, event.clientX, event.clientY)) return;
     const point = clampIntoColumn(event.clientX, event.clientY, geometry);
     const resolved = nearestCaretAtPoint(doc, thread, point.x, point.y, geometry.view);
     // A plain click in a gap with no mounted text clears an existing transcript selection, while

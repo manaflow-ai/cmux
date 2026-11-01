@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFloating
 import CmuxNextHomeEngine
+import enum CmuxNextLayout.ChatColumnPlacement
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
 
@@ -146,7 +147,7 @@ extension AgentTabStore {
             return await services.home.agentPageFace(of: chief, avatars: avatars)
         }
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
+        tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)
@@ -195,8 +196,12 @@ extension AgentTabStore {
             // A page beside a chat of another machine shows that machine's folders (cx-k21v).
             // (A chat of this Mac keeps the plain page, as before.)
             let tab = beside.flatMap { services.locateTabOnAnyMachine($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
-            var page = NewTabPage.page(services, selected: tab)
+            // Without the Commands palette's actions (30-50 ms on the main thread, most of Cmd-N's
+            // key time: instant-new-surfaces `newTab.paletteActions`): they fill in on the frame
+            // after the page shows, as Cmd-T's do (``NewTabPage/fillPaletteActions(_:)``).
+            var page = NewTabPage.page(services, selected: tab, paletteActions: false)
             page.cwd = cwd ?? page.cwd
+            NewTabPage.fillPaletteActions(services)
             // Keys typed since Cmd-N wait for this page's field (NewTabInputCoordinator, cx-kql5h);
             // the token comes per workspace (``firstPage(cwd:token:)``).
             let input = services.keyRouter.newTabInputCoordinator
@@ -241,6 +246,19 @@ extension AgentTabStore {
                         }
                     }
                 }
+            }
+        }
+        // The header's Terminal and Browser on the chat's right (Leo, 2026-10-31): a tab in the pane holding that kind,
+        // else a split below, never a third column. A lone chat, Home's dock and an offline daemon keep their split's route (false).
+        tabs.openTool = { [weak services] chat, kind, cwd in
+            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let source = services.paneController(for: pane) else { return false }
+            switch ChatColumnPlacement.resolve(from: source, services: services) { case .dockChat, .besideDock: return false; case .here, .tab: break }
+            // As their splits did: a browser keeps its address bar focused through the move; with Ghostty's
+            // `split-inherit-working-directory = false` (the header passes no folder) a terminal starts in the home folder.
+            let start = cwd ?? NewTerminalStart.uninherited(.split, services: services, daemon: source.daemon, besides: nil)
+            return services.linkOpener.open(from: source, besideChat: true, kind: kind, focusing: kind == .browser ? .addressBar : .content) { target, placed in
+                guard kind == .browser else { guard target.daemon.connection != nil else { return false }; target.newTerminalTab(cwd: start, daemonResolvesCwd: true, placementOwner: placed != nil, then: placed); return true }
+                return target.newBrowserTab(placementOwner: placed != nil, then: placed)
             }
         }
         tabs.lookup = { [weak services] key in
@@ -518,7 +536,11 @@ extension AgentTabStore {
             return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
         }
     }
-    static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
-        isSignedIn // on either link: CloudService.machineAPI serves a legacy and a Worker machine
+    /// Signed in (on either link: CloudService.machineAPI serves a legacy and a Worker machine), and
+    /// this build passes the Mac's login at all (DEV and dogfood; production's card signs in on the
+    /// machine instead).
+    static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool,
+                                                   passesLogin: Bool = CloudStartChat.passesHarnessLoginHere) -> Bool {
+        isSignedIn && passesLogin
     }
 }

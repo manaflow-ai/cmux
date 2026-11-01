@@ -15,6 +15,11 @@
 //    every side it meets (left, top and bottom for +; right, top and bottom for the last trailing
 //    control). In Claude's look the three centers are the prompt's first line's center (a one-line
 //    prompt); in Codex's, the controls' own row under the prompt.
+// 4. Room around the text (Claude's look; Leo, 2026-11-01: "this is all still not aligned there's not
+//    enough of a space at the bottom"): the caret's center is +'s center, the first line has as much
+//    room under it as over it, and at least MIN_ROOM under its text, so it never sits on the edge.
+//    + stands as far off the box's top as its bottom, and as far off its left as the last control
+//    off its right.
 //
 // Chromium on the gallery stage: the chat pane (normal, narrow, a draft, an image), Home (a new
 // chat's composer) and New Tab (its default page, a typed draft with its suggestions, narrow), in
@@ -40,6 +45,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
   const GAP = 8;
   /** Subpixel rounding. */
   const TOLERANCE = 0.5;
+  /** The least room under a one-line prompt's text, to the box's bottom (10 px block inset). */
+  const MIN_ROOM = 12;
 
   type Row = "chips" | "pills" | "foot" | "suggestions";
   type Layout = {
@@ -217,7 +224,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     bar: Box | null;
     /** The prompt's first line, from the viewport: the center of its text's box (a range's box, the
         font's ascent to descent, which is what the eye centers: design/grid.md rule 7), not its line box. */
-    line: { top: number; center: number; source: string } | null;
+    line: { top: number; center: number; bottom: number; source: string } | null;
+    /** The caret's box in a focused ProseMirror prompt (its collapsed selection), when one is drawn. */
+    caret: Box | null;
     /** Where the placeholder's (or, with a draft, the typed text's) first character's box starts. */
     text: number | null;
     textSource: string;
@@ -330,7 +339,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         glyphs.selectNodeContents(probe);
         const ink = glyphs.getBoundingClientRect();
         probe.remove();
-        line = { top, center: (ink.top + ink.bottom) / 2, source: "textarea" };
+        line = { top: ink.top, center: (ink.top + ink.bottom) / 2, bottom: ink.bottom, source: "textarea" };
       } else {
         const prompt = card?.querySelector(".ProseMirror");
         const typed = firstChar(prompt);
@@ -350,7 +359,13 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         }
         inline = !!prompt?.querySelector(".acpmux-md-inline");
         // The first line's text: what is typed, else the placeholder.
-        if (chosen) line = { top: chosen.top, center: (chosen.top + chosen.bottom) / 2, source: textSource };
+        if (chosen)
+          line = {
+            top: chosen.top,
+            center: (chosen.top + chosen.bottom) / 2,
+            bottom: chosen.bottom,
+            source: textSource,
+          };
       }
       /** The leftmost drawn mark in `root`: a glyph (svg, img) or a text character, and what it is. */
       const leadingMark = (root: Element | null) => {
@@ -389,6 +404,14 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         if (!mark || !box || mark.left - box.left > box.width / 2) return null;
         return { left: mark.left - box.left, center: mark.center - box.left, kind: mark.kind };
       };
+      // The caret: a collapsed selection's client rect inside the prompt (Chromium draws the caret there).
+      let caret: Box | null = null;
+      const selection = getSelection();
+      const prompt = card?.querySelector(".ProseMirror");
+      if (prompt && selection?.rangeCount && prompt.contains(selection.anchorNode)) {
+        const rect = [...selection.getRangeAt(0).getClientRects()].find((r) => r.height > 0);
+        if (rect) caret = plain(rect);
+      }
       const rows = {
         chips: boxRow(
           ".acpmux-composer-box > .acpmux-attachments .acpmux-attachment, .nt-box > .acpmux-attachments .acpmux-attachment",
@@ -445,6 +468,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         mic,
         send,
         line,
+        caret,
         text,
         textSource,
         inline,
@@ -534,29 +558,55 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const dy = centerY(control.button) - target.y;
       if (Math.abs(dy) > TOLERANCE) out.push(`${name}'s center sits ${f(dy)} px off ${target.what}'s center`);
     }
-    // Equal insets: + off the box's left, top (one line) and bottom; the last control off its right.
-    // In Codex's look the bottom is the controls row's (the look's dots sit under it in the box).
+    // Equal insets. In Codex's look + stands as far off the box's left as off its row's bottom (the
+    // look's dots sit under it in the box), and the last control as far off its right. In Claude's,
+    // + stands as far under the box's top as over its bottom (one line), and as far off its left as
+    // the last control off its right.
     const floor = m.bar ? m.bar.bottom : m.box.bottom;
+    const oneLine = !m.bar && !m.rows.chips && !m.inline;
+    // The last control is the rightmost one shown (the mic stands after Send in some layouts).
+    const last = [m.send, m.mic]
+      .filter((control): control is Control => control !== null)
+      .sort((a, b) => b.button.right - a.button.right)[0];
     if (m.plus) {
       const b = m.plus.button;
       const left = b.left - m.box.left;
       const bottom = floor - b.bottom;
-      if (Math.abs(left - bottom) > TOLERANCE)
-        out.push(`+ stands ${f(left)} px off the box's left, ${f(bottom)} off its bottom`);
-      if (!m.bar) {
+      if (m.bar) {
+        if (Math.abs(left - bottom) > TOLERANCE)
+          out.push(`+ stands ${f(left)} px off the box's left, ${f(bottom)} off its bottom`);
+      } else {
         const top = b.top - m.box.top;
         // Over the attachments' band or beside an inline attachment the prompt is taller than one
         // line, and + stays on its last line.
-        if (Math.abs(top - bottom) > TOLERANCE && !m.rows.chips && !m.inline)
+        if (Math.abs(top - bottom) > TOLERANCE && oneLine)
           out.push(`+ stands ${f(top)} px under the box's top, ${f(bottom)} over its bottom`);
+        if (last) {
+          const right = m.box.right - last.button.right;
+          if (Math.abs(left - right) > TOLERANCE)
+            out.push(`+ stands ${f(left)} px off the box's left, the last control ${f(right)} off its right`);
+        }
       }
     }
-    const last = [m.send, m.mic].find((control) => control !== null);
     if (last) {
       const right = m.box.right - last.button.right;
       const bottom = floor - last.button.bottom;
-      if (Math.abs(right - bottom) > TOLERANCE)
+      if (m.bar && Math.abs(right - bottom) > TOLERANCE)
         out.push(`the last control stands ${f(right)} px off the box's right, ${f(bottom)} off its bottom`);
+      if (!m.bar && m.plus && Math.abs(bottom - (floor - m.plus.button.bottom)) > TOLERANCE)
+        out.push(`the last control stands ${f(bottom)} px over the box's bottom, + ${f(floor - m.plus.button.bottom)}`);
+    }
+    // Room around the text (4), Claude's look on one line.
+    if (oneLine && m.line) {
+      const over = m.line.top - m.box.top;
+      const under = m.box.bottom - m.line.bottom;
+      if (Math.abs(over - under) > TOLERANCE)
+        out.push(`the first line has ${f(over)} px over it and ${f(under)} px under it`);
+      if (under < MIN_ROOM - TOLERANCE) out.push(`the first line has ${f(under)} px under it, under ${MIN_ROOM}`);
+    }
+    if (!m.bar && m.caret && m.plus) {
+      const dy = centerY(m.caret) - centerY(m.plus.button);
+      if (Math.abs(dy) > TOLERANCE) out.push(`the caret's center sits ${f(dy)} px off +'s center`);
     }
     return out;
   };
@@ -602,6 +652,11 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
             gap: m.plus && m.text !== null ? +(m.text - m.plus.button.right).toFixed(2) : null,
             textFromBox: m.box && m.text !== null ? +(m.text - m.box.left).toFixed(2) : null,
             lineCenterFromTop: m.box && m.line ? +(m.line.center - m.box.top).toFixed(2) : null,
+            lineRoom:
+              m.box && m.line
+                ? [+(m.line.top - m.box.top).toFixed(2), +(m.box.bottom - m.line.bottom).toFixed(2)]
+                : null,
+            caretCenterFromTop: m.box && m.caret ? +(centerY(m.caret) - m.box.top).toFixed(2) : null,
             plus: rel(m.plus),
             mic: rel(m.mic),
             send: rel(m.send),

@@ -80,6 +80,9 @@ protocol ChatIntents: AnyObject {
     func openVideo(_ ref: PartRef, _ attachment: ID)
     /// A click on an agent-message fold's row: its messages show in full, or fold again.
     func toggleAgentMessages(_ group: String)
+    /// A click on the row of message `message`: an agent-message fold or notes row opens or closes
+    /// (true); false for every other row, which keeps its own click.
+    func agentRowClicked(_ message: ID) -> Bool
     /// The transcript moved (user scroll, pin): paging and read cursor.
     func scrolled()
     /// The rows read a new window place (RowCell.windowPlace: the pane moved by a fraction of a point or
@@ -92,6 +95,7 @@ extension ChatIntents {
     func canInteract(with message: ID) -> Bool { true }
     /// Hosts without agent messages have no folds.
     func toggleAgentMessages(_ group: String) {}
+    func agentRowClicked(_ message: ID) -> Bool { false }
     /// Hosts without a large viewer play the video in its bubble.
     func openVideo(_ ref: PartRef, _ attachment: ID) {}
     /// No Forward… unless the host routes it (test hosts, the New Message composer).

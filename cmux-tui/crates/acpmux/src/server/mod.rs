@@ -1581,12 +1581,15 @@ async fn serve_connection_from(
                 // on this connection sees the person decided.
                 if m == method::INITIALIZE
                     && conn.origin == Origin::Local
-                    && let Some(id) = params
-                        .as_ref()
-                        .and_then(|p| p.pointer("/_meta/acpmux/callerSession/sessionId"))
-                        .and_then(Value::as_str)
+                    && let Some(caller) =
+                        params.as_ref().and_then(|p| p.pointer("/_meta/acpmux/callerSession"))
+                    && let Some(id) = caller.get("sessionId").and_then(Value::as_str)
                 {
                     hub.session_meta(id).await;
+                    // Known once adoption has read the earlier run's token (`settle_caller`).
+                    if let Some(token) = caller.get("token").and_then(Value::as_str) {
+                        hub.settle_caller(id, token).await;
+                    }
                 }
                 conn.bind_person(&hub, &m, &mut params);
                 // Before its reply is built: the reply says whether large messages go compressed.
@@ -1903,6 +1906,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
+mod agent_login;
 mod agent_messages;
 mod app_reply;
 mod client_request;
@@ -1948,6 +1952,7 @@ use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
+pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;

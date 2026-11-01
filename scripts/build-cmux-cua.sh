@@ -12,9 +12,13 @@ CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="7f140fe2f75dcb43649297440b7902fd21b93
 #   machine-consent: manaflow-ai/cmux-cua#82 (merged as 07a6e0fba359, the diff
 #     against its parent 3b6166ff1f16), screen/control consent on a
 #     machine joined to a cmux team, checked on every tool call.
+#   display-still: host-only `display_still`, one still of the main display for
+#     cmux's Share Screen with Chief, so Screen Recording belongs to the helper
+#     (and its relaunch after a grant), never to cmux.app.
 CMUX_CUA_PATCH_RELATIVE_PATHS=(
   "scripts/cmux-cua-codex-delivery-mode.patch"
   "scripts/cmux-cua-machine-consent.patch"
+  "scripts/cmux-cua-display-still.patch"
 )
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"

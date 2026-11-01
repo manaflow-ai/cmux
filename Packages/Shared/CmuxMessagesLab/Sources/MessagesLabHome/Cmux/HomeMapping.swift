@@ -127,6 +127,8 @@ enum HomeMapping {
                                links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
         if let row = item.agentMessage {
+            // A fold or notes row: a muted caption line, no bubble (HomeAgentFoldRowProvider).
+            if let caption = HomeAgentFoldRowProvider.part(row) { return ([caption], [0]) }
             // An agent-message row: its words, as Markdown (the fold's link, the bold "Chief → a917" line).
             let shown = self.parts(.text(agentMessageText(row)), media: media, markdown: true, links: links)
             return (shown, Array(repeating: 0, count: shown.count))
@@ -141,19 +143,27 @@ enum HomeMapping {
         return (parts, owners)
     }
 
-    /// What an agent-message row says, as Markdown. The fold names its agents after a link that
-    /// expands or collapses it ("Agent messages (6) · a938, a917"); a message is its "from → to"
-    /// line in bold, then the whole message (the agent's own Markdown, its links kept).
+    /// What an agent-message row says, as Markdown. A fold or notes row is one muted (italic) line with
+    /// no link, a click anywhere on the row opens or closes it ("▸ Agent messages (6) · a938, a917";
+    /// "▸ Disconnected (5) · `a1` `a2`", the agents as code chips). A message is its bold
+    /// "from → to" line over the whole message; a status note is the agent's chip and its words, muted.
     static func agentMessageText(_ row: HomeAgentMessageRow) -> String {
         switch row.kind {
         case let .fold(count, peers, expanded):
             let label = expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count)
-            let link = "[\(expanded ? "▾" : "▸") \(label)](\(HomeAgentMessageRow.toggleLink(group: row.group)))"
-            return expanded ? link : "\(link) · \(peers.map(markdownEscaped).joined(separator: ", "))"
+            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(peers.map(markdownEscaped).joined(separator: ", "))"
+        case let .notes(count, peers, reason, expanded):
+            let label = CmuxStrings.agentNotes(reason, count)
+            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(peers.map(codeChip).joined(separator: " "))"
+        case let .note(peer, _, text):
+            return "\(codeChip(peer)) *\(markdownEscaped(text))*"
         case let .message(from, to, _, text):
             return "**\(markdownEscaped(from)) → \(markdownEscaped(to))**\n\(text)"
         }
     }
+
+    /// `name` as an inline code span (a chip-like pill), its backticks dropped.
+    private static func codeChip(_ name: String) -> String { "`\(name.replacingOccurrences(of: "`", with: ""))`" }
 
     /// `name` with the Markdown punctuation that would change its look escaped (an agent id, a display name).
     private static func markdownEscaped(_ name: String) -> String {

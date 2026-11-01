@@ -13,10 +13,48 @@ use cmux_link::overlay_addr::overlay_address;
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncBufReadExt, BufReader, DuplexStream};
 
+#[cfg(unix)]
+#[tokio::test]
+async fn relay_source_sends_scoped_connect_and_token_requests() {
+    use tokio::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cloud-relay");
+    let socket = dir.path().join("relay.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let source = RelaySource::socket(socket);
+    let task = tokio::spawn(async move {
+        for expected in [
+            serde_json::json!({"op":"connect_info","host":HOST}),
+            serde_json::json!({"op":"link_token","host":HOST,"services":["daemon"]}),
+        ] {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            assert_eq!(serde_json::from_str::<serde_json::Value>(line.trim()).unwrap(), expected);
+            let value = if expected["op"] == "connect_info" {
+                serde_json::to_value(record("running", &["daemon"])).unwrap()
+            } else {
+                serde_json::to_value(grant("token", HOST, &["daemon"])).unwrap()
+            };
+            let mut stream = reader.into_inner();
+            AsyncWriteExt::write_all(
+                &mut stream,
+                serde_json::json!({"ok":true,"value":value}).to_string().as_bytes(),
+            )
+            .await
+            .unwrap();
+            AsyncWriteExt::write_all(&mut stream, b"\n").await.unwrap();
+        }
+    });
+    assert_eq!(source.fetch(HOST).await.unwrap().host, HOST);
+    assert_eq!(source.mint_token(HOST, &[Service::Daemon]).await.unwrap().token, "token");
+    task.await.unwrap();
+}
+
 use super::super::dial::{Overlay, serve_dial_line};
 use super::*;
 
-const HOST: &str = "host_vm1";
+const HOST: &str = "host_0123456789abcdef0123";
 
 fn record(state: &str, services: &[&str]) -> ConnectInfo {
     serde_json::from_value(serde_json::json!({
@@ -32,7 +70,7 @@ fn record(state: &str, services: &[&str]) -> ConnectInfo {
 
 fn grant(token: &str, host: &str, services: &[&str]) -> LinkTokenGrant {
     serde_json::from_value(serde_json::json!({
-        "token": token, "expires_at": "2026-10-05T00:05:00Z",
+        "token": token, "expires_at": 1_790_000_301_000_u64,
         "host": host, "epoch": 4, "services": services
     }))
     .unwrap()
@@ -302,7 +340,7 @@ async fn forwarded_cloud_events_drop_records_and_peers() {
 }
 
 #[tokio::test]
-async fn the_relay_source_is_off_until_the_relay_ships() {
-    let resolver = CloudResolver::new(RelaySource);
+async fn a_missing_relay_is_unavailable() {
+    let resolver = CloudResolver::new(RelaySource::unavailable());
     assert!(matches!(resolver.resolve(HOST, false).await, Err(ConnectInfoError::Unavailable(_))));
 }

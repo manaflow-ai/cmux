@@ -78,6 +78,8 @@ mod protocol_serve;
 mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/queue_admission.rs"]
+mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
 #[path = "hub_integration/run_parent.rs"]

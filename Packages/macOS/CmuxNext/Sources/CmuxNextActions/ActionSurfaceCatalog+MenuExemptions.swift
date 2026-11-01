@@ -135,6 +135,8 @@ nonisolated extension ActionSurfaceCatalog {
         .dragGesture: [
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
             "space.moveToStart", "space.moveToEnd",
+            // A row drag drops next to any row; the row menu offers Move to Top, Up, Down and Bottom (cmux#29907).
+            "workspace.moveAbove", "workspace.moveBelow",
         ],
         .minimalMenu: [
             "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",
@@ -160,7 +162,9 @@ nonisolated extension ActionSurfaceCatalog {
             "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
             "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
             "palette.copyWorkspaceIDAndRef", "workspace.showResources", "palette.openWorkspacePullRequests",
-            "workspace.setRemoteLocalhost"],
+            "workspace.setRemoteLocalhost",
+            // The tab menu's Move folder already holds Move Tab to Workspace…; a space list there would bloat it.
+            "tab.moveToSpace"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],

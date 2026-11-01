@@ -268,7 +268,9 @@ export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Tra
   return ageWithDate(
     updatedAt,
     now,
-    (minutes, translate) => {
+    (_, translate, elapsedMs) => {
+      // Rounded, as this card's age always was; the date switch is ageWithDate's.
+      const minutes = Math.round(elapsedMs / 60_000);
       if (minutes < 1) return translate("age.now");
       if (minutes < 60) return translate("age.minutes", { n: minutes });
       const hours = Math.round(minutes / 60);
