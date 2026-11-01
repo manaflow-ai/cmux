@@ -1993,6 +1993,7 @@ mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
 mod team;
+mod trigger_authority;
 mod trigger_chat;
 pub use conn_auth::ConnAuth;
 mod fork_through;

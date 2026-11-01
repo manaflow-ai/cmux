@@ -177,6 +177,16 @@ async fn authorize(
     }
     let token = string(params, "token", 8192)?;
     let trigger = token_route(&token)?;
+    // Only the authority embedded in this build can attest a principal. In
+    // particular, neither a caller nor a runtime environment variable can
+    // redirect a release daemon to the development service.
+    let environment = match super::trigger_authority::configured()
+        .map_err(|message| RpcError::new(-32001, message))?
+    {
+        super::trigger_authority::Authority::Production => cmux_host::cloud::wire::Env::Prod,
+        super::trigger_authority::Authority::Staging => cmux_host::cloud::wire::Env::Stg,
+        super::trigger_authority::Authority::Development => cmux_host::cloud::wire::Env::Dev,
+    };
     let before = identity().await?;
     let mut op = serde_json::Map::new();
     op.insert("kind".into(), json!(operation));
@@ -192,10 +202,10 @@ async fn authorize(
         op.insert("body".into(), json!(prompt(params, "body")?));
         op.insert("quiet".into(), json!(true));
     }
-    let url = format!(
-        "https://cmux-platform-development.debussy.workers.dev/v1/triggers/{trigger}/authorize"
-    );
+    let url = format!("{}/v1/triggers/{trigger}/authorize", environment.platform_origin());
     let client = reqwest::Client::builder()
+        .https_only(true)
+        .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_millis(4500))
         .build()
