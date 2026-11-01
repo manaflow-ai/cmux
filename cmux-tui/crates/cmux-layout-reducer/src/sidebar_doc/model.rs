@@ -791,8 +791,8 @@ pub enum Op {
         to: Option<Target>,
     },
     /// Workspaces that closed. In a section that does not keep closed items
-    /// (a machine section) the item goes, and so does a group there that it
-    /// leaves empty; in Pinned and custom sections it stays (drawn dimmed,
+    /// (a machine section) the item goes, but its groups stay; in Pinned and
+    /// custom sections the item stays (drawn dimmed,
     /// reopened on click).
     #[serde(rename = "close")]
     Close { refs: Vec<WorkspaceRef> },

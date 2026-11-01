@@ -1,8 +1,8 @@
 //! Pin and Unpin on nested groups (a283's remote groups slice 1, pinning-DESIGN.md):
 //! a top-level group pins and unpins with its whole tree; a nested group or a
 //! workspace in one pins inside its own parent; a member of a pinned tree is not
-//! pinned itself, so Unpin leaves it in the tree. Closing the last workspace removes
-//! the groups it empties in a machine section, never in Pinned.
+//! pinned itself, so Unpin leaves it in the tree. Closing the last workspace keeps
+//! the groups it empties, in machine sections and in Pinned.
 
 use super::doc::Doc;
 use super::model::*;
@@ -137,7 +137,7 @@ fn unpin_on_a_member_of_a_pinned_tree_leaves_it_in_the_tree() {
 }
 
 #[test]
-fn closed_members_stay_while_pinned_and_go_with_their_groups_once_unpinned() {
+fn closed_members_stay_while_pinned_and_leave_their_groups_once_unpinned() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec!["host".into()] }]);
     let closed = vec![WorkspaceRef::new(A, "w3"), WorkspaceRef::new(A, "w4")];
@@ -147,6 +147,6 @@ fn closed_members_stay_while_pinned_and_go_with_their_groups_once_unpinned() {
     // Unpin, then the daemon closes what is not open (closes_for_unpin).
     run(&mut doc, vec![Op::Unpin { items: vec!["host".into()] }, Op::Close { refs: closed }]);
     assert!(doc.item(&ws("w3")).is_none() && doc.item(&ws("w4")).is_none());
-    assert!(doc.item("branch").is_none(), "the group the close emptied stays");
-    assert_eq!(names(&doc, &sec(), Some("project")), ["w1", "w2"]);
+    assert!(doc.item("branch").is_some(), "the group the close emptied stays");
+    assert_eq!(names(&doc, &sec(), Some("project")), ["w1", "w2", "branch"]);
 }

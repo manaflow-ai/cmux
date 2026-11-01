@@ -29,8 +29,7 @@
 //! synced back (the dirty marks are cleared at the end).
 //!
 //! Closes ([`close_workspaces`]): a tombstoned workspace leaves its machine
-//! section (and an emptied group there); in Pinned and custom sections it
-//! stays.
+//! section, keeping its groups; in Pinned and custom sections it stays.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 

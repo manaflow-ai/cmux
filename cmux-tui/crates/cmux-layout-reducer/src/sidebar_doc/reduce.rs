@@ -1006,16 +1006,8 @@ fn close(tx: &mut Tx, refs: &[WorkspaceRef]) {
             continue;
         }
         tx.remove_item(&item.id);
-        // Each group it leaves empty goes, up the tree.
-        let mut emptied = item.parent.clone();
-        while let Some(parent) = emptied {
-            if tx.doc.list_len(&item.section, Some(parent.as_str())) != 0 {
-                break;
-            }
-            let Some(group) = tx.doc.item(&parent) else { break };
-            emptied = group.parent.clone();
-            tx.remove_item(&parent);
-        }
+        // A workspace close preserves its groups, including empty ancestors.
+        // Only an explicit group operation removes or folds a group.
     }
 }
 

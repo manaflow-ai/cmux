@@ -897,3 +897,10 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
 ## Remote groups draw as groups (2026-10-31, a954)
 
 - User 2026-10-31 (Chief msg 19277), verbatim: "remote groups needs to be better, this is unintuitive to use, and also it needs to look like a group in the sidebar". Before: a remote group was its machine's section header (quiet text, status dot and word) over unindented rows. Now `SidebarDocProjection.arrange` wraps a remote group's section into one sidebar group (`SidebarSection.wrappedAsHostGroup`, id `host:<machine>`): the group bar, chevron, rail and member indent of any group, with a trailing machine mark and status dot left of the chevron (`SidebarHostGroupLook.trailingMarkAndDot`, the default; the gallery `AARemoteGroupGalleryTests` renders all six looks, light and dark, `sectionHeader` being the before). Its loose rows are members and its groups nest one level down. Its intents go to the machine (`SidebarIntent.resolvingHostGroup`: fold folds the section, + makes a workspace on the machine, a drop lands at the section's top level); rename, color, ungroup, pin, icon, close and reorder of the host group are dropped. This Mac never wraps. Tests: `SidebarHostGroupTests`, `AARemoteGroupGalleryTests.everyGroupLookDrawsTheMachineAsAGroupRow`.
+
+
+## Last workspace close keeps its group (2026-11-01)
+
+Leo: "also closing the last workspace in a group it's like the group isn't sure if it wants to close too or not but the animation gets weird. just leave it; we don't need to close the group automatically the last workspace in it gets closed too. just don't do a weird jitter indecisive animation"
+
+A workspace close removes only the workspace. The document reducer and immediate sidebar edit preserve every ancestor group's identity, order and fold, so the existing row close animation leaves its header in place. Explicit Close Group and move/reorder cleanup retain their behavior. Regression coverage: `SidebarCloseSelectionTests`, `SidebarDocReshowCloseTests`, and the reducer's nested group and pin tests. The empty-group presentation is a separate change.

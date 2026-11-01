@@ -50,7 +50,7 @@ import Testing
         } ?? false
 
         if remoteStillConnected {
-            #expect(!hasGroup, "closing the last member must remove its empty ancestor group")
+            #expect(hasGroup, "closing the last member must preserve its empty ancestor group")
             await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.applied.isEmpty }
             let data = try #require(remote.applied.first, "the connected remote close was never sent")
             let ops = try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
