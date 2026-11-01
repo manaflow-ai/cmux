@@ -395,7 +395,9 @@ fn chat_activity<B: Backend>(
     let command = super::chat::ChatCommand::State { target: target.to_owned() };
     let info = match backend.chat_in_session(session, &command, None, "agents") {
         Ok(info) => info,
-        Err(failure) if failure.error.get("code").and_then(Value::as_str) == Some("selector.not_found") => {
+        Err(failure)
+            if failure.error.get("code").and_then(Value::as_str) == Some("selector.not_found") =>
+        {
             return Ok(Activity::Missing);
         }
         Err(failure)

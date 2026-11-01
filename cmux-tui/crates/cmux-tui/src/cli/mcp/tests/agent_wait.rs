@@ -87,25 +87,35 @@ fn agents_wait_idle_targets_the_tab_and_the_agent_id_too() {
 #[test]
 fn agents_wait_uses_chat_state_for_a_tabless_session() {
     const CHAT: &str = "01234567-89ab-4cde-8f01-23456789abcd";
-    let daemon = |running: bool| json!({
-        "workspaces": [{"id": WORKSPACE}],
-        "chats": [{
-            "chat": CHAT, "running": running,
-            "status": if running { "running" } else { "ready" },
-            "queued": 0, "pending_permissions": 0
-        }],
-    });
+    let daemon = |running: bool| {
+        json!({
+            "workspaces": [{"id": WORKSPACE}],
+            "chats": [{
+                "chat": CHAT, "running": running,
+                "status": if running { "running" } else { "ready" },
+                "queued": 0, "pending_permissions": 0
+            }],
+        })
+    };
     let mut working = Server::new(Fake::live(Some(daemon(true)), None), None);
-    let result = call(&mut working, "agents_wait", json!({
-        "until": "idle", "target": CHAT, "timeout_seconds": 0.1
-    }));
+    let result = call(
+        &mut working,
+        "agents_wait",
+        json!({
+            "until": "idle", "target": CHAT, "timeout_seconds": 0.1
+        }),
+    );
     assert_eq!(result["isError"], false, "{result}");
     assert_eq!(result["structuredContent"]["matched"], false, "{result}");
 
     let mut ready = Server::new(Fake::live(Some(daemon(false)), None), None);
-    let result = call(&mut ready, "agents_wait", json!({
-        "until": "idle", "target": CHAT, "timeout_seconds": 1, "session": "another"
-    }));
+    let result = call(
+        &mut ready,
+        "agents_wait",
+        json!({
+            "until": "idle", "target": CHAT, "timeout_seconds": 1, "session": "another"
+        }),
+    );
     assert_eq!(result["isError"], false, "{result}");
     assert_eq!(result["structuredContent"]["matched"], true, "{result}");
     assert_eq!(result["structuredContent"]["match"]["state"], "idle", "{result}");
