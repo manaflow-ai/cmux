@@ -486,6 +486,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
     ".github/workflows/cloud-task-local-tests.yml",
+    ".github/workflows/app-platform.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
@@ -496,6 +497,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # feat-cmux-next only; its zsh git HEAD watcher job takes the side label on attempt 1.
     ".github/workflows/cmux-next-shell-integration.yml",
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
+    ".github/workflows/fast-checks.yml",  # feat-cmux-next only
     # feat-cmux-next only; uploads the owned-pool-watch marker on attempt 1.
     ".github/workflows/cmux-next.yml",
     # feat-cmux-next only; its portable placement (portable_job_placement.py) puts the guard group,

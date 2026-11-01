@@ -1,9 +1,4 @@
-"""Base-red evidence reads paginated GitHub lists with any gh, including one without --slurp.
-
-Ubuntu 24.04 ships gh 2.45, which has no `gh api --slurp` (added in 2.48). gh-merge-green
-already falls back for its own check reads, but main_fix_evidence.GitHub, which
-base_red_excuse.py uses, asked for --slurp and refused every base-red excuse on such hosts.
-"""
+"""Base-red evidence pages GitHub lists without gh's broker-refused --paginate flag."""
 import importlib.util
 import os
 import stat
@@ -17,26 +12,29 @@ spec = importlib.util.spec_from_file_location("main_fix_evidence", ROOT / "scrip
 evidence = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(evidence)
 
-# gh 2.45 behavior: --slurp is an unknown flag; --paginate prints one JSON document per page,
-# objects back to back, and joins array pages into one array.
 FAKE_GH = textwrap.dedent("""\
     #!/usr/bin/env python3
     import sys
+    from urllib.parse import parse_qs, urlsplit
     args = sys.argv[1:]
-    if "--slurp" in args:
-        sys.stderr.write("unknown flag: --slurp\\n")
+    if "--paginate" in args:
+        sys.stderr.write("the broker refuses --paginate\\n")
         sys.exit(1)
     if args[:2] == ["run", "view"]:
         sys.exit(0)  # gh 2.45 prints nothing for `run view --job --log` on today's log archives
     route = args[1]
+    page = int(parse_qs(urlsplit(route).query).get("page", ["1"])[0])
     if route.endswith("/logs"):
         sys.stdout.write("2026-10-20T03:14:40.1Z ##[group]Run check\\n"
                          "2026-10-20T03:14:44.0Z ##[error]red check: Type scale\\n")
-    elif "check-runs" in route:
-        sys.stdout.write('{"total_count":2,"check_runs":[{"id":1,"name":"lint","app":{"slug":"github-actions"}}]}')
+    elif "check-runs" in route and page == 1:
+        sys.stdout.write('{"total_count":2,"check_runs":[{"id":1,"name":"lint","app":{"slug":"github-actions"}}]}\\n')
+    elif "check-runs" in route and page == 2:
         sys.stdout.write('{"total_count":2,"check_runs":[{"id":2,"name":"swift test","app":{"slug":"github-actions"}}]}\\n')
+    elif "check-runs" in route:
+        sys.stdout.write('{"total_count":2,"check_runs":[]}\\n')
     elif "/files" in route:
-        sys.stdout.write('[{"filename":"a.py","patch":"+x"},{"filename":"b.py","patch":"+y"}]\\n')
+        sys.stdout.write('[{"filename":"a.py","patch":"+x"}]\\n' if page == 1 else '[{"filename":"b.py","patch":"+y"}]\\n' if page == 2 else '[]\\n')
     else:
         sys.stdout.write('{"sha":"abc","parents":[]}\\n')
 """)
@@ -55,7 +53,7 @@ class PaginateWithoutSlurp(unittest.TestCase):
         os.environ["PATH"] = self.path
         self.bin.cleanup()
 
-    def test_object_pages_back_to_back_are_each_a_page(self):
+    def test_object_pages_are_requested_until_empty(self):
         pages = evidence.GitHub().json("repos/o/r/commits/abc/check-runs?per_page=100", paginate=True)
         self.assertEqual([[c["name"] for c in p["check_runs"]] for p in pages], [["lint"], ["swift test"]])
 
