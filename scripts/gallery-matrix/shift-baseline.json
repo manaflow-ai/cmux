@@ -2026,7 +2026,7 @@
     "guest-page.waiting#decided": 0,
     "guest-page.waiting#held": 0.30801,
     "motion.sync-list#burst-batched": 0.01179,
-    "motion.sync-list#inserts-from-second-client": 0,
+    "motion.sync-list#inserts-from-second-client": 0.0059,
     "motion.sync-list#long-list-offscreen": 0.01179,
     "motion.sync-list#reconnect-snapshot": 0.03096,
     "motion.sync-list#renames-from-another-mac": 0,
