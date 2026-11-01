@@ -740,5 +740,27 @@ class ReportOrderTests(unittest.TestCase):
             b.LIVE["pending"], b.LIVE["findings"] = saved
 
 
+class OmnibarTypingTests(unittest.TestCase):
+    """Job 4509405d8be4, seed 368488420: debug.omnibar_type types one character at a time (AddressBarView.debugType), so
+    a 200,015-character URL was 200,015 keystrokes in one main-actor call and the socket gave no answer in 30 s. A
+    person pastes such a URL as one insert; the fuzz types at most OMNIBAR_TYPE_MAX characters."""
+
+    def test_typed_omnibar_text_is_capped_and_the_random_stream_is_unchanged(self):
+        for seed in range(200):
+            ops = model.generate(seed, 150, "http://localhost:1", f"fz{seed:x}")
+            for op in ops:
+                if op["op"] == "omnibar":
+                    self.assertLessEqual(len(op["url"]), model.OMNIBAR_TYPE_MAX, (seed, op["category"]))
+        # The cap changes no other op: the stream of ops (names, slots, other URLs) is the one it was.
+        capped = model.generate(368488420, 150, "{origin}", "fz15f6afe4")
+        self.assertEqual(capped[60]["op"], "omnibar")
+        self.assertEqual(capped[60]["category"], "huge")
+        self.assertTrue(capped[60]["url"].startswith("http://x.test/#fff"))
+        self.assertEqual(len(capped[60]["url"]), model.OMNIBAR_TYPE_MAX)
+        huge_navigations = [op for seed in range(40) for op in model.generate(seed, 150)
+                            if op["op"] in ("navigate", "open") and len(op.get("url") or "") > model.OMNIBAR_TYPE_MAX]
+        self.assertTrue(huge_navigations, "huge URLs must still reach navigate and open")
+
+
 if __name__ == "__main__":
     unittest.main()
