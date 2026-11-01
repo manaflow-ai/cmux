@@ -8,7 +8,9 @@ draws that flash only in an active app with the window on screen, so a unit test
 It launches a tagged bench or Debug `cmux DEV <tag>.app` ACTIVATED, then per round:
   * closeWindow: New Window (action.run), then Ctrl-Cmd-W through `debug.key` into the new window (origin user);
   * close key:   Open Debug Settings (action.run), then Cmd-W through `debug.key` with target debugSettings (the key
-                 window route, WindowKeyTable's .closeWindow). Debug Settings exists only where DevTools is on (a Debug
+                 window route, WindowKeyTable's .closeWindow). The bench pins Debug Settings to its own window
+                 (`settings.presentation` = window, CMUX_NEXT_DEBUG_TUNABLES_FILE) and counts a close only when that
+                 window was key, so a tab close never counts. Debug Settings exists only where DevTools is on (a Debug
                  compile or a nightly bundle), so a bench build measures `--kinds=closeWindow` and the close key runs
                  with `--config=debug`.
 After each close it reads `debug.action_budget` and keeps that close's run (id, entrypoint, commit_ms, outcome), and
@@ -48,6 +50,9 @@ class ActiveApp(AP.App):
     def launch(self):
         with open(self.config, "w") as f:
             json.dump({"appearance": {"backgroundOpacity": 1}}, f)
+        self.tunables = os.path.join(self.scratch, "debug-tunables.json")
+        with open(self.tunables, "w") as f:
+            json.dump({"version": 1, "values": {"settings.presentation": "window"}}, f)
         ghostty = os.path.join(self.scratch, "ghostty")
         open(ghostty, "w").close()
         if os.path.exists(self.socket):
@@ -57,7 +62,10 @@ class ActiveApp(AP.App):
                "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1440,900",
                "CMUX_NEXT_CONFIG_FILE": self.config, "CMUX_NEXT_GHOSTTY_CONFIG": ghostty,
                "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(self.scratch, "chief"),
-               "CMUX_NEXT_HANG_THRESHOLD_MS": str(self.hang_ms), "ACPMUX_AGENT_LAUNCH": "deny"}
+               "CMUX_NEXT_HANG_THRESHOLD_MS": str(self.hang_ms), "ACPMUX_AGENT_LAUNCH": "deny",
+               # Debug Settings opens as its own window (its default is a tab in the active pane, whose Cmd-W is a
+               # tab close with no close button): pinned here, so the host's debug-tunables.json never decides it.
+               "CMUX_NEXT_DEBUG_TUNABLES_FILE": self.tunables}
         try:
             from tag_teardown import TagTeardown
             self.teardown = TagTeardown(self.bundle)
@@ -170,7 +178,9 @@ def daemon_check(app_path):
     why = None
     if not daemons:
         why = "no daemon runs from the bundle"
-    elif want and got != {want}:
+    elif not want:
+        why = f"the bundle's cmux-tui gave no build identity ({expect.get('version_error') or 'none'})"
+    elif got != {want}:
         why = f"daemon build {sorted(map(str, got))} is not the bundle's {want}"
     return {"ok": why is None, "why": why, "daemons": daemons, "bundle": expect}
 
@@ -236,13 +246,16 @@ def close_window_round(app):
             "key_window": focus.get("key_window"), "key_reply": key, "run": runs[0] if runs else None,
             # Counted only when the app was active (the flash draws only then), the key went through the app's own
             # dispatch, the window closed and the close left its closeWindow run.
-            "valid": bool(closed and runs and focus.get("app_active") is True and key.get("handled_by") == "app")}
+            "valid": bool(closed and runs and focus.get("app_active") is True and key.get("handled_by") == "app"
+                          and key.get("action") == "closeWindow")}
 
 
 def close_key_round(app):
     app.rpc("action.run", {"action": "openDebugSettings", "args": {}, "focus": True, "origin": "script"}, timeout=60)
     if not AP.wait(lambda: debug_settings_open(app) is True, 10):
-        return {"error": "Debug Settings did not open (DevTools is off in a Release or bench build: use --config=debug)"}
+        # debug_settings_open is True only for Debug Settings in its own window (a tab answers like no window).
+        return {"error": "Debug Settings did not open in its own window (DevTools is off in a Release or bench build: "
+                         "use --config=debug; or the presentation pin in the tunables file did not apply)"}
     active = app.activate()
     time.sleep(0.4)  # test script: let the window settle before the close
     focus = app.rpc("debug.focus") or {}
@@ -263,7 +276,9 @@ def close_key_round(app):
     key = {k: reply.get(k) for k in ("handled_by", "action", "error")} if isinstance(reply, dict) else {"error": str(reply)}
     return {"closed": bool(closed), "activated": bool(active), "app_active": focus.get("app_active"),
             "key_window": focus.get("key_window"), "key_reply": key, "runs": runs, "run": runs[0] if runs else None,
-            "valid": bool(closed and runs and focus.get("app_active") is True)}
+            # Counted only when Debug Settings was the key window (its own window, so Cmd-W takes the key window route
+            # and closes the window, not a tab).
+            "valid": bool(closed and runs and focus.get("app_active") is True and focus.get("key_window") == "DebugSettingsWindow")}
 
 
 def stats(values):
@@ -323,7 +338,9 @@ def main(argv):
                         "not_closed": sum(1 for r in checked if not r.get("closed")),
                         "no_run": sum(1 for r in checked if not r.get("run")),
                         "not_app_dispatch": sum(1 for r in checked if kind == "closeWindow"
-                                                and (r.get("key_reply") or {}).get("handled_by") != "app")},
+                                                and ((r.get("key_reply") or {}).get("handled_by") != "app"
+                                                     or (r.get("key_reply") or {}).get("action") != "closeWindow")),
+                        "not_its_window": sum(1 for r in checked if kind == "closeKey" and r.get("key_window") != "DebugSettingsWindow")},
             "errors": sorted({r["error"] for r in rounds if r.get("error")})[:5]}
         if len(valid) < max(1, opts.close_rounds * 4 // 5):
             report["failures"].append(f"{kind}: only {len(valid)} of {len(rounds)} closes are valid (active app, closed, "
