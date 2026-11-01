@@ -735,3 +735,32 @@ struct HostCLIStopFixture: LocalizedError {
     let message: String
     var errorDescription: String? { message }
 }
+
+/// Setup reads as one progress line while it goes well, and opens the whole checklist only when a step needs the
+/// person (user 2026-10-31, Chief msg 19277: the ready sheet listed every step with skips and warnings).
+@Suite struct HostChecklistSummaryTests {
+    @Test func aRunGoingWellIsOneLine() {
+        var list = HostChecklist()
+        list.start(steps: [.reach, .install, .daemon])
+        #expect(list.summary == HostChecklist.Summary(done: 0, total: 3, current: .reach))
+        #expect(!list.needsPerson)
+        list.apply(HostStepResult(step: .reach, state: .ok, detail: "ssh ok"))
+        list.apply(HostStepResult(step: .install, state: .fixed, detail: "installed"))
+        #expect(list.summary == HostChecklist.Summary(done: 2, total: 3, current: .daemon))
+        list.apply(HostStepResult(step: .daemon, state: .skip, detail: "not asked"))
+        #expect(list.summary.done == 3 && list.summary.current == nil)
+        #expect(!list.needsPerson, "a skip is no reason to open the list")
+    }
+
+    @Test func aWarningOrAFailureOpensTheList() {
+        var warned = HostChecklist()
+        warned.start(steps: [.reach, .approvals])
+        warned.apply(HostStepResult(step: .reach, state: .ok, detail: ""))
+        warned.apply(HostStepResult(step: .approvals, state: .warn, detail: "not enrolled"))
+        #expect(warned.needsPerson)
+        var failed = HostChecklist()
+        failed.start(steps: [.reach])
+        failed.apply(HostStepResult(step: .reach, state: .fail, detail: "timeout"))
+        #expect(failed.needsPerson)
+    }
+}
