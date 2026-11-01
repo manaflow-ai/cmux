@@ -78,6 +78,7 @@ extension BrowserProfileService {
                 try? FileManager.default.removeItem(at: SiteSettingsRegistry.defaultFile(for: profile, bundleIdentifier: bundleID))
                 done.append(id)
             }
+            self?.cleanupInFlight.subtract(ready)
             try? self?.edit { $0.finishCleanup(done) }
         }
     }
