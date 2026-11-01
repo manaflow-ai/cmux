@@ -92,17 +92,23 @@ extension BrowserProfileService {
         // task-owner: one-shot migration of the import store at launch
         Task { [weak self] in
             let pending = await store.sourcesInDefaultProfile()
+            var awaitsDeletedData = false
             for record in pending where BrowserProfileRecord.isValidID(record.proposedProfileID) {
                 guard let self else { return }
                 do {
                     _ = try await createProfile(id: record.proposedProfileID, name: record.displayName, color: nil, icon: nil,
                                                 source: record.sourceFields)
                     try await store.retarget(record.sourceKey, to: record.proposedProfileID)
+                } catch BrowserProfileBookError.pendingCleanup {
+                    // A deleted profile may have the same deterministic import ID. Preserve its
+                    // migration ticket; the next launch can retry after engine cleanup finishes.
+                    awaitsDeletedData = true
+                    logger.error("migrate import \(record.sourceKey, privacy: .public): browser profile is pending deletion")
                 } catch {
                     logger.error("migrate import \(record.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
             }
-            try? self?.edit { $0.importsMigrated = true }
+            if !awaitsDeletedData { try? self?.edit { $0.importsMigrated = true } }
             self?.seedImportedHistory()
         }
     }
