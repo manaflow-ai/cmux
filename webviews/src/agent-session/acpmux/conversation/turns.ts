@@ -29,7 +29,7 @@ import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
-import { backgroundTurnRowId, foldBackgroundTurns, openBackgroundTurns } from "./backgroundTurns";
+import { backgroundTurnRowId, foldBackgroundTurns, foldedBackgroundIds, openBackgroundTurns } from "./backgroundTurns";
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -223,6 +223,11 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
+  // A subagent's done line may land after a *newer* prompt. Keep its original quiet
+  // background turn's ownership across prompt boundaries, even though each prompt is shaped
+  // independently below. One scan per changed transcript; the unchanged-view return above
+  // avoids the work altogether.
+  const foldedBackground = foldedBackgroundIds(rows, expanded);
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
   let reuse = 0;
@@ -335,6 +340,9 @@ export function turnViewFrom(
     // The boundary is this turn; unrelated rows and report/inbox kind changes end a batch.
     const drawn: AcpmuxRow[] = [];
     for (const row of shaped) {
+      // The local turn may contain a late done line whose background owner is in a prior
+      // prompt. Its original background line still controls disclosure of that completion.
+      if (row.inBackground !== undefined && foldedBackground.has(row.inBackground)) continue;
       if (last && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
