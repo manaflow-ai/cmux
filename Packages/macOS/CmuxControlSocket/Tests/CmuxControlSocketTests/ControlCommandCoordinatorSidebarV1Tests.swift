@@ -5,6 +5,64 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator sidebar v1 dispatch")
 struct ControlCommandCoordinatorSidebarV1Tests {
+    @Test(arguments: ["set_status", "report_meta"], ["url", "link"])
+    func metadataUpsertAcceptsURLSchemes(command: String, option: String) {
+        let urls = [
+            "obsidian://open?vault=Work&file=meeting.md",
+            "vscode://file/tmp/x.swift:10:5",
+            "slack://channel?team=T0&id=C0",
+            "linear://issue/CMUX-123",
+            "file:///tmp/cmux-3390.txt",
+            "mailto:hello@example.com",
+            "tel:+12025550123",
+            "cmux-dev-tool://open/project",
+            "https://github.com/manaflow-ai/cmux/issues/3390",
+            "http://localhost:3000/health",
+        ]
+
+        for url in urls {
+            let context = FakeSidebarV1ControlCommandContext()
+            let coordinator = ControlCommandCoordinator(context: context)
+            let workspaceID = UUID()
+            let response = coordinator.handleSidebarV1(
+                command: command,
+                args: "deeplink open --\(option)=\(url) --tab=\(workspaceID.uuidString)"
+            )
+
+            #expect(response == "OK", "\(command) --\(option)=\(url)")
+            #expect(context.statusUpsertCall?.target == .workspace(workspaceID))
+            #expect(context.statusUpsertCall?.url?.absoluteString == url)
+        }
+    }
+
+    @Test(arguments: ["set_status", "report_meta"], ["justrandomweird", "://example.com"])
+    func metadataUpsertRejectsMissingSchemeBeforeMutation(command: String, url: String) {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let response = coordinator.handleSidebarV1(
+            command: command,
+            args: "broken open --url=\(url) --tab=\(UUID().uuidString)"
+        )
+
+        #expect(response?.hasPrefix("ERROR:") == true)
+        #expect(context.statusUpsertCall == nil)
+    }
+
+    @Test(arguments: ["set_status", "report_meta"])
+    func metadataUpsertEmptyURLIsAbsent(command: String) throws {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let response = coordinator.handleSidebarV1(
+            command: command,
+            args: "emptyurl open --url= --tab=\(UUID().uuidString)"
+        )
+
+        #expect(response == "OK")
+        let call = try #require(context.statusUpsertCall)
+        #expect(call.url == nil)
+        #expect(call.value == "open")
+    }
+
     @Test func agentPIDClearForwardsOwnedKeyRequirement() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
