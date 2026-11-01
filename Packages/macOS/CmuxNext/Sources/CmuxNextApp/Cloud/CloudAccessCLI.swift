@@ -63,6 +63,8 @@ nonisolated struct CloudAccessCLI: Sendable {
     /// Upload replies contain paths/errors, never file bytes. Retain enough for the legacy
     /// multi-file reply as well as diagnostics, without reading all of a long transfer's heartbeats.
     static let uploadOutputTailBytes = 4 * 1024 * 1024
+    /// An upload's stdout may stay silent this long: longer than the CLI's 60 s socket deadline.
+    static let uploadIdle: Duration = .seconds(90)
 
     /// `triage`: answers what needs no person and lists the rest, for the chats `sessions` only.
     func triage(socket: String, machine: String, sessions: [String]) async throws -> Answer {
@@ -106,13 +108,15 @@ nonisolated struct CloudAccessCLI: Sendable {
 
     /// One file under a fresh upload id; a failed or cancelled transfer removes its partial file.
     private func uploadOne(socket: String, remoteRoot: String, file: String) async throws -> Answer {
-        // Upload emits a heartbeat after every remote chunk. Only a silent link times out;
-        // elapsed time while bytes keep moving never imposes a file-size ceiling.
+        // Upload emits a heartbeat as each slice of a part reaches the socket and as each part's
+        // answer comes. Only a silent link times out, and the idle window outlasts the CLI's own
+        // 60 s per-read/write socket deadline (sync_cli/remote.rs IO_DEADLINE), so a transfer the
+        // transport still allows is never cut short; elapsed time never imposes a file-size ceiling.
         let id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
         var answer: Answer
         do {
             answer = try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id, file],
-                                   progressIdle: .seconds(30), outputTailBytes: Self.uploadOutputTailBytes)
+                                   progressIdle: Self.uploadIdle, outputTailBytes: Self.uploadOutputTailBytes)
         } catch {
             try await removeUploads(socket: socket, remoteRoot: remoteRoot, ids: [id])
             throw error
