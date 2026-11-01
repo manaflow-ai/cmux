@@ -69,6 +69,16 @@ extension CloudService {
         return try await appServerFlow(team: team, run: appOps).approvedCall(op, args: args, confirm: confirm)
     }
 
+    /// A machine action a person started here (Kill, Pause, Resume, Rename, idle pause) on a Worker
+    /// machine: its app server op, never `/api/vm`, where the machine has no record. The action was
+    /// already confirmed where it needs it (the registry's sheet for Kill), so an approval the server
+    /// holds is answered with the person's own session.
+    func appServerMachineCall(_ op: String, _ machineID: String, _ fields: [String: JSONValue] = [:]) async throws {
+        var args = fields
+        args["machine"] = .string(machineID)
+        _ = try await appServerApprovedCall(op, args: .object(args), confirm: { true })
+    }
+
     /// The team's Cloud environments for the New Cloud Workspace dialog; none when the list fails
     /// (the dialog then offers only a new one).
     func appServerEnvironmentOptions() async -> [CloudWorkspaceSetupWizard.EnvironmentOption] {

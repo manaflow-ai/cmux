@@ -783,7 +783,7 @@ final class CloudService {
         // the request and the asynchronous provider deletion can still fail.
         try await changes.run(.deleting, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await api.deleteMachine(machineID)
+            if configuration.linkSource == .appServer { try await appServerMachineCall("cloud.machine.delete", machineID) } else { try await api.deleteMachine(machineID) }
         }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
@@ -795,7 +795,7 @@ final class CloudService {
     func pauseMachine(_ machineID: String) async throws {
         try await changes.run(.pausing, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await api.pauseMachine(machineID)
+            if configuration.linkSource == .appServer { try await appServerMachineCall("cloud.machine.pause", machineID) } else { try await api.pauseMachine(machineID) }
         }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
     }
@@ -803,15 +803,20 @@ final class CloudService {
     func resumeMachine(_ machineID: String) async throws {
         try await changes.run(.starting, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await api.resumeMachine(machineID)
+            if configuration.linkSource == .appServer { try await appServerMachineCall("cloud.machine.start", machineID) } else { try await api.resumeMachine(machineID) }
         }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
-    /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes
-    /// of idle before cmux Cloud pauses it; 0 is Off.
+    /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`, or
+    /// `cloud.machine.idle_policy.set` on the app server link): minutes of idle
+    /// before cmux Cloud pauses it; 0 is Off.
     func setIdlePause(_ machineID: String, minutes: Int) async throws {
-        try await api.setIdlePause(machineID, minutes: minutes)
+        if configuration.linkSource == .appServer {
+            try await appServerMachineCall("cloud.machine.idle_policy.set", machineID, ["idle_seconds": .number(Double(minutes * 60))])
+        } else {
+            try await api.setIdlePause(machineID, minutes: minutes)
+        }
         machines.session(machineID)?.machine.idlePauseMinutes = minutes
         logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
     }
@@ -830,7 +835,13 @@ final class CloudService {
     }
 
     func renameMachine(_ machineID: String, to name: String) async throws {
-        try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
+        if configuration.linkSource == .appServer {
+            // The app server keeps a name on every machine (1 to 80 characters): no clearing it there.
+            guard !name.isEmpty else { return }
+            try await appServerMachineCall("cloud.machine.rename", machineID, ["name": .string(name)])
+        } else {
+            try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
+        }
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
     }
 
