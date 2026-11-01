@@ -34,7 +34,7 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
-                         r"|needs\.[\w-]+\.outputs\.(?:owned|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
+                         r"|needs\.[\w-]+\.outputs\.(?:owned|early_linux_runner|early_mini_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
                          r"|matrix\.")
 # nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
@@ -42,10 +42,9 @@ FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE
 # blacksmith-32vcpu-ubuntu-2404 with no fleet route, and every other nightly job waits on it.
 BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
-    "resolve-nightly-ghostty-cli-helper", "build-nightly-inputs", "pick-nightly-build-runner",
-    "attest-nightly-remote-daemon", "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary",
-    "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
-    "find-nightly-next-recovery", "route-visual-gate-nightly", "visual-gate-nightly-verdict",
+    "attest-nightly-remote-daemon", "prepare-nightly-variant-primary",
+    "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-app", "signer-app-notary",
+    "signer-dmg", "route-visual-gate-nightly", "visual-gate-nightly-verdict",
     "report-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
     "publish-nightly-next-github-names", "keep-published-dsyms", "legacy-identity-target",
     "publish-nightly-identity-legacy", "nightly-identity-legacy-published", "republish-nightly-deltas",
@@ -201,7 +200,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertIn("strip -S -x nightly-helper/ghostty", helper)
 
 
-    def test_light_nightly_jobs_stay_on_linux_while_the_overflow_switch_is_on(self) -> None:
+    def test_light_nightly_overflow_stays_on_linux_without_a_fleet_pick(self) -> None:
         """A job keeps the label it was created with after the overflow switch clears.
 
         On 2026-10-28 the light nightly jobs, created while the overflow record was
@@ -219,12 +218,17 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 runs_on = jobs[name]["runs-on"]
                 # A member of the declared set: 16 vCPU when LINUX_RUNNER names it, else 32; a job
                 # holding a secret takes the literal (the signing-keychain guard).
+                # The sign pick takes GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run
+                # (tests/test_nightly_trusted_routing.py, the signer route).
                 self.assertTrue("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || " in runs_on
-                                or runs_on.endswith("|| 'blacksmith-32vcpu-ubuntu-2404' }}") and "LINUX_RUNNER" not in runs_on, runs_on)
+                                or runs_on.endswith("|| 'blacksmith-32vcpu-ubuntu-2404' }}") and "LINUX_RUNNER" not in runs_on
+                                or name == "pick-nightly-sign-runner"
+                                and runs_on.endswith("github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"),
+                                runs_on)
                 self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER \|\|")
                 self.assertNotIn("macos", runs_on)
                 labels = resolve_labels(runs_on, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD],
-                                                            "LINUX_RUNNER": sorted(linux)})
+                                                            "LINUX_RUNNER": sorted(linux)}, silent=("needs",))
                 self.assertTrue(labels)
                 for label in labels:
                     self.assertIsInstance(label, str, f"{name} can take an unread label {label!r}")
