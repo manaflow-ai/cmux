@@ -70,6 +70,23 @@ if [[ -n "$cache" && -f "$cache/$key/ok" ]]; then
   app="$out/app/cmux DEV $tag.app" cached=true
   echo "split-spring: the app of $sha from the app cache ($((SECONDS - build_start)) s)"
 fi
+# >>> follow-log (scripts/measure/tests/split-spring-follow-log.test.sh runs these two)
+# follow_log FILE: prints FILE's lines as they come, each prefixed "reload-log: ", from a `tail` this script starts
+# (its PID in follow_pid). FILE starts empty, so only this run's lines show.
+follow_log() {
+  : > "$1" 2>/dev/null || true
+  tail -n +1 -F "$1" 2>/dev/null > >(awk '{ print "reload-log: " $0; fflush() }') &
+  follow_pid=$!
+}
+# unfollow_log: ends the `tail` follow_log started, by its own PID; its awk ends with it.
+unfollow_log() {
+  if [[ -n "${follow_pid:-}" ]]; then
+    kill "$follow_pid" 2>/dev/null || true
+    wait "$follow_pid" 2>/dev/null || true
+  fi
+  follow_pid=""
+}
+# <<< follow-log
 if [[ -z "$app" ]]; then
   for sub in ghostty ghostty-next; do
     [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
@@ -84,7 +101,17 @@ if [[ -z "$app" ]]; then
   # Streamed, not `| tail -n 40`: the tail held back reload.sh's pre-build lines (the pin-cmux-tui.sh wait, the
   # cargo and web-bundle builds) until it exited, which read as a hang (cmux20-bench step 0b17cb3f). The
   # xcodebuild compile itself still prints nothing until reload.sh exits (it keeps that in its own log).
+  # reload.sh keeps its own log in /tmp/cmux-reload-<tag>.log and prints nothing while xcodebuild runs: follow that
+  # log into this step's output, so a hang or a long build names its step (FC-1: cmux-austin-mini-1 step 9e972777
+  # stopped after 45 min with no output after "reload starting").
+  follow_log "/tmp/cmux-reload-$tag.log"
+  trap 'unfollow_log' EXIT
+  trap 'unfollow_log; exit 143' TERM
+  trap 'unfollow_log; exit 130' INT
+  trap 'unfollow_log; exit 129' HUP
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
+  unfollow_log
+  trap - EXIT TERM INT HUP
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
@@ -141,6 +168,7 @@ stop_vdisplay() {
 # shellcheck disable=SC2329 # run by the traps below
 cleanup() {
   trap - EXIT TERM INT HUP
+  unfollow_log
   if [[ -n "$bench_pid" ]] && kill -0 "$bench_pid" 2>/dev/null; then
     kill -TERM "$bench_pid" 2>/dev/null || true  # the bench this script started, by its PID
     wait "$bench_pid" 2>/dev/null || true
