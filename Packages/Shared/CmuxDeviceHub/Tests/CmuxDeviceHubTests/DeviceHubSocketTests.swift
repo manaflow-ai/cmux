@@ -121,6 +121,53 @@ final class EventLog: @unchecked Sendable {
         #expect(connector.count.value == 1)
     }
 
+    @Test(.timeLimit(.minutes(1))) func aSignedOutDevicesSocketStopsReconnecting() async {
+        final class SignedOut: DeviceHubSocketConnection, @unchecked Sendable {
+            func receive() async throws -> String { throw DeviceHubSocket.Closed(code: 4003) }
+            func send(_ text: String) async throws {}
+            func close() {}
+        }
+        struct Once: DeviceHubSocketConnector {
+            let count = Locked(0)
+            func connect() async throws -> any DeviceHubSocketConnection {
+                count.set(count.value + 1)
+                return SignedOut()
+            }
+        }
+        let connector = Once()
+        let log = EventLog()
+        // A reconnect would loop forever on this connector (each socket closes 4003 again), so
+        // the run returning at all, after one connect and no `reconnecting`, is the check.
+        let socket = DeviceHubSocket(connector: connector, backoff: Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0))
+        let task = Task { await socket.run { log.append($0) } }
+        let outcome = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await task.value; return true }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(5))
+                // Still reconnecting: end the socket's run so the group (and the test) can finish.
+                task.cancel()
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        task.cancel()
+        await task.value
+        #expect(outcome, "the socket kept reconnecting after a 4003 close")
+        #expect(log.all == [.state(.connecting), .state(.connected), .state(.signedOut)])
+        #expect(!log.all.contains { if case .state(.reconnecting) = $0 { true } else { false } })
+        #expect(connector.count.value == 1)
+    }
+
+    @Test func onlyTheReplacedRemovedAndSignedOutCloseCodesAreTerminal() {
+        #expect(DeviceHubSocket.terminalState(closeCode: 4000) == .replaced)
+        #expect(DeviceHubSocket.terminalState(closeCode: 4001) == .removed)
+        #expect(DeviceHubSocket.terminalState(closeCode: 4003) == .signedOut)
+        #expect(DeviceHubSocket.terminalState(closeCode: 1006) == nil)
+        #expect(DeviceHubSocket.terminalState(closeCode: 4002) == nil)
+    }
+
     @Test(.timeLimit(.minutes(1))) func theSocketPings() async throws {
         let connection = FakeConnection([])
         final class Blocking: DeviceHubSocketConnection, @unchecked Sendable {

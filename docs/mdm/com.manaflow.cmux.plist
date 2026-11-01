@@ -344,6 +344,34 @@
 			<string>array</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>Text size of tab titles. Unset, tabs follow the interface size.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabFontSize</string>
+			<key>pfm_range_max</key>
+			<real>18</real>
+			<key>pfm_range_min</key>
+			<real>10</real>
+			<key>pfm_title</key>
+			<string>Tab Text Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Height of a pane's tab bar. Its tabs grow and shrink with it.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabStripHeight</string>
+			<key>pfm_range_max</key>
+			<real>44</real>
+			<key>pfm_range_min</key>
+			<real>22</real>
+			<key>pfm_title</key>
+			<string>Tab Bar Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<string>shrink</string>
 			<key>pfm_description</key>
@@ -981,6 +1009,35 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.</string>
+			<key>pfm_name</key>
+			<string>cloud.newWorkspacesInCloud</string>
+			<key>pfm_title</key>
+			<string>Run New Workspaces in Cloud</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>inherit</string>
+			<key>pfm_description</key>
+			<string>Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.</string>
+			<key>pfm_name</key>
+			<string>cloud.newWorkspaceFolder</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>inherit</string>
+				<string>empty</string>
+			</array>
+			<key>pfm_title</key>
+			<string>New Cloud Workspaces Start In</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.</string>
@@ -1005,7 +1062,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>50</integer>
+			<integer>1000</integer>
 			<key>pfm_description</key>
 			<string>The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.</string>
 			<key>pfm_name</key>
@@ -1021,7 +1078,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>16</integer>
+			<integer>1000</integer>
 			<key>pfm_description</key>
 			<string>The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.</string>
 			<key>pfm_name</key>
@@ -1800,6 +1857,22 @@
 			<real>5</real>
 			<key>pfm_title</key>
 			<string>Hibernate After</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>15</integer>
+			<key>pfm_description</key>
+			<string>When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.</string>
+			<key>pfm_name</key>
+			<string>workspaces.hibernation.hiddenSpaceMinutes</string>
+			<key>pfm_range_max</key>
+			<real>1440</real>
+			<key>pfm_range_min</key>
+			<real>5</real>
+			<key>pfm_title</key>
+			<string>Hibernate Hidden Spaces After</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -3846,6 +3919,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>normal</string>
+			<key>pfm_description</key>
+			<string>How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.transcriptView</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>normal</string>
+				<string>thinking</string>
+				<string>verbose</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Transcript View</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>left</string>
 			<key>pfm_description</key>
 			<string>The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.</string>
@@ -4709,6 +4800,54 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showNewWorkspaceChooser</string>
+			<key>pfm_title</key>
+			<string>Show New Workspace Menu Button</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspacesAsTabs</string>
+			<key>pfm_title</key>
+			<string>Workspaces as Tabs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups.</string>
+			<key>pfm_name</key>
+			<string>sidebar.chromeGroups</string>
+			<key>pfm_title</key>
+			<string>Chrome-Style Groups</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted.</string>
+			<key>pfm_name</key>
+			<string>sidebar.sideBySide</string>
+			<key>pfm_title</key>
+			<string>Workspaces Side by Side</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows.</string>
 			<key>pfm_name</key>
 			<string>sidebar.noFade</string>
@@ -4829,6 +4968,24 @@
 			<string>Show Workspace Colors</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>dot</string>
+			<key>pfm_description</key>
+			<string>How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.</string>
+			<key>pfm_name</key>
+			<string>workspaceColors.indicatorStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>dot</string>
+				<string>leftRail</string>
+				<string>fill</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Workspace Color Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5066,7 +5223,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>1300</integer>
+			<integer>400</integer>
 			<key>pfm_description</key>
 			<string>How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.</string>
 			<key>pfm_name</key>
@@ -7225,6 +7382,18 @@
 			<string>string</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.</string>
+			<key>pfm_name</key>
+			<string>home.feedInChief</string>
+			<key>pfm_title</key>
+			<string>Show the Feed in Chief</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.</string>
 			<key>pfm_name</key>
@@ -7307,16 +7476,20 @@
 			<string>home.chiefPetMascot</string>
 			<key>pfm_range_list</key>
 			<array>
-				<string>orb</string>
-				<string>orb-spark</string>
-				<string>orb-hood</string>
+				<string>fox</string>
 				<string>machine</string>
 				<string>machine-cyan</string>
 				<string>machine-blue</string>
 				<string>moon</string>
 				<string>moon-blue</string>
-				<string>fox</string>
 				<string>mochi</string>
+				<string>fox-arctic</string>
+				<string>machine-violet</string>
+				<string>machine-gold</string>
+				<string>moon-rose</string>
+				<string>orb</string>
+				<string>orb-spark</string>
+				<string>orb-hood</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Character</string>
@@ -7388,6 +7561,18 @@
 			<string>Reaction Classifier Instructions</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.</string>
+			<key>pfm_name</key>
+			<string>chief.autoRouteSubagents</string>
+			<key>pfm_title</key>
+			<string>Route Subagents to the Best Agent</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -8215,6 +8400,7 @@
 			<array>
 				<string>inline</string>
 				<string>strip</string>
+				<string>both</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Attachment View</string>
@@ -8244,6 +8430,23 @@
 			<string>Show Machine Load Warnings</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>local</string>
+			<key>pfm_description</key>
+			<string>Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.</string>
+			<key>pfm_name</key>
+			<string>agentPane.newChatsIn</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>local</string>
+				<string>cloud</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Start New Chats In</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

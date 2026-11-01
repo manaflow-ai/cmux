@@ -43,6 +43,15 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 keywords: ["close", "windows", "other", "others"], category: .window, symbol: "xmark.rectangle.portrait",
                 surfaces: [.palette, .menu], cliName: "app close-other-windows", mainMenu: .file
             ),
+            // Merge All Windows (Leo 2026-10-29, as in Safari and Finder): every other normal window's
+            // workspaces move into this one, each keeping its space, and those windows close.
+            // Incognito windows stay apart (spaces-overhaul-DESIGN.md rule 2).
+            ActionDescriptor(
+                id: "window.mergeAll",
+                title: String(localized: "action.window.mergeAll", defaultValue: "Merge All Windows", bundle: .module),
+                keywords: ["merge", "windows", "combine", "gather", "join", "spaces"], category: .window, symbol: "rectangle.stack",
+                surfaces: [.palette, .menu], cliName: "app merge-all-windows", mainMenu: .window
+            ),
             // Ghostty's close_all_windows, toggle_maximize and goto_window
             // route here (GHOSTTY-CONFIG item (c), coordinator A1, B1, E1).
             ActionDescriptor(

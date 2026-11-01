@@ -446,6 +446,76 @@ def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
         if f"needs.{placement}.outputs.gui_overflow" not in text:
             found.append(f"reads needs.{placement}'s gui route without its gui_overflow")
     return found
+# A pull request from a fork: its own fixed route, before any placement output is read.
+FORK_CLAUSE = "head.repo.full_name != github.repository"
+# A Blacksmith macOS label literal.
+BLACKSMITH_MAC_LITERAL = re.compile(r"'blacksmith-[0-9]+vcpu-macos-[0-9.]+'")
+
+
+def flat_alternatives(expression: str) -> list[str]:
+    """The `||` alternatives of `expression` in the order they are tried, with parenthesized groups of
+    alternatives flattened: `a || (b || c) || d` -> [a, b, c, d]."""
+    found = []
+    for part in split_top(unwrap(expression), "||"):
+        part = unwrap(part)
+        found += flat_alternatives(part) if len(split_top(part, "||")) > 1 else [part]
+    return found
+
+
+def separate_pr_cascade(alternative: str) -> bool:
+    """A complete non-display PR picker route, separate from the later push GUI route.
+
+    Require allocated overflow legs and fresh owned/retry outputs; an event-gated
+    fixed label alone is still a pin, not a separate picker route.
+    """
+    terms = conjuncts(alternative)
+    if len(terms) != 2 or terms[0] != "github.event_name == 'pull_request'":
+        return False
+    route = terms[1]
+    if "outputs.gui_overflow" in route or not unconditional(route):
+        return False
+    legs = flat_alternatives(route)
+    freshness = "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)"
+    for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "owned_jobs"):
+        matches = [leg for leg in legs if f"outputs.{output}" in leg]
+        if len(matches) != 1 or freshness not in conjuncts(matches[0]):
+            return False
+    if not any(freshness in conjuncts(leg) and conjuncts(leg)[-1] ==
+               "needs.macos-placement.outputs.retry_runner" for leg in legs):
+        return False
+    # Every literal before the terminal fallback must come from an allocation.
+    for leg in legs[:-1]:
+        if BLACKSMITH_MAC_LITERAL.search(leg) and not any(
+            f"outputs.blacksmith_{size}_jobs" in leg for size in (12, 6)
+        ):
+            return False
+    return True
+
+
+def overflow_preempted(text: str) -> list[str]:
+    """The alternatives that send a GUI job to a fixed Blacksmith macOS label before its placement's gui_overflow.
+
+    side_lane_placement.py writes gui_overflow as the Blacksmith size the GUI jobs take when no owned GUI runner
+    has room (next_macos_cascade.gui_overflow_label(): 12 vCPU while it moves, else 6 vCPU), on attempt 1 and
+    on the rescue's re-run. An alternative before it that names a Blacksmith literal decides the size instead:
+    run 41123927916 (cmux#28497, 2026-10-30) ran swift-test on 6 vCPU on both attempts through such legs
+    (`runner != '' && 'blacksmith-6vcpu-macos-26'`, `github.run_attempt != 1 && 'blacksmith-6vcpu-macos-26'`).
+    A fork clause or complete non-display PR picker route may come first; a literal after
+    the gui_overflow read is the last resort.
+    """
+    found = []
+    for expression in EXPRESSION.findall(text) or [text]:
+        if "outputs.gui_overflow" not in expression:
+            continue
+        for alternative in flat_alternatives(expression):
+            if "outputs.gui_overflow" in alternative:
+                break
+            if (BLACKSMITH_MAC_LITERAL.search(alternative) and FORK_CLAUSE not in alternative
+                    and not separate_pr_cascade(alternative)):
+                found.append(alternative)
+    return found
+
+
 # Side-workflow Mac jobs placed through cmux-next's cascade (scripts/ci/side_lane_placement.py and
 # next_macos_cascade.py): (workflow, job) -> (the placing job, the key the placement lists the job under).
 # Such a job takes an idle owned Mac, else a free Blacksmith macOS slot, and never waits on one busy side
@@ -575,6 +645,15 @@ class RunsOnFallbackTests(unittest.TestCase):
                     failures.append(f"{path.name} {job_id}: {match.group(0)}")
         self.assertEqual(failures, [], "a runs-on must name a pool, never one machine")
 
+    def test_the_nightly_only_builder_is_reached_only_through_its_idle_pick(self) -> None:
+        # One runner per dedicated Mac carries it, so a queue on it could wait a whole build. Only
+        # nightly_build_runner.nightly_only_builder_route() names it, and only while one is idle now;
+        # otherwise, and when unread, the build takes the plain ten-runner glaeda-nightly-only-m4pro.
+        failures = [f"{path.name} {job_id}" for path in workflows()
+                    for job_id, job in (load(path).get("jobs") or {}).items()
+                    if re.search(r"nightly-only-m4pro-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
+        self.assertEqual(failures, [], "the warm nightly builder label is a pick, never a runs-on literal")
+
     def test_a_single_host_variable_always_has_a_fallback(self) -> None:
         failures = []
         for path in workflows():
@@ -601,8 +680,29 @@ class RunsOnFallbackTests(unittest.TestCase):
                 alternate = match.group(1) + ("alternate" if match.group(2) == "runner" else "sign_alternate")
                 if f"|| github.run_attempt > 1 && {alternate} {match.group(0)}" not in text:
                     failures.append(f"nightly.yml {job_id}: {match.group(1)}{match.group(2)} has no re-run alternative")
-        self.assertTrue({"build-sign-notarize-nightly", "sign-nightly-identity-legacy"} <= seen, seen)
+        self.assertIn("build-sign-notarize-nightly", seen)
         self.assertEqual(failures, [], "a picked signing label needs `github.run_attempt > 1 && <alternate>` before it")
+
+    def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
+        # The owned-only form of the rule above. Nightlies never use Blacksmith (Lawrence, 2026-10-30, a7b6a61175c),
+        # so sign-nightly-identity-legacy and its verify read the picker's owned Mac, not a Blacksmith label with an
+        # alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
+        # ran the picker; a re-run then falls through to the owned slot or pool, never to the Mac that stalled.
+        jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
+        owned = re.compile(r"needs\.(pick-nightly-sign-runner)\.outputs\.(?:sign_owned|owned)\b")
+        failures, seen = [], set()
+        for job_id, job in jobs.items():
+            for expression in EXPRESSION.findall(runs_on_text(job)):
+                for alternative in split_top(unwrap(expression), "||"):
+                    match = owned.search(alternative)
+                    if not match:
+                        continue
+                    seen.add(job_id)
+                    guards = {f"needs.{match.group(1)}.outputs.attempt == github.run_attempt", "github.run_attempt == 1"}
+                    if not guards & {term.strip() for term in conjuncts(alternative)}:
+                        failures.append(f"nightly.yml {job_id}: {alternative.strip()}")
+        self.assertTrue({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy"} <= seen, seen)
+        self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:
         failures, seen = [], 0
@@ -715,6 +815,44 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(role_label_problems(here, placed, {here}))
         self.assertEqual(role_label_problems(here, placed.replace(
             "|| github.run_attempt == 1", "|| needs.p.outputs.gui_overflow || github.run_attempt == 1"), {here}), [])
+
+    def test_no_fixed_blacksmith_leg_comes_before_the_gui_overflow(self) -> None:
+        failures, seen = [], 0
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                labels = {"runs-on": runs_on_text(job)}
+                runner_copy = (job.get("env") or {}).get("CMUX_NEXT_RUNNER")
+                if isinstance(runner_copy, str):
+                    labels["CMUX_NEXT_RUNNER"] = runner_copy
+                for key, text in labels.items():
+                    seen += "outputs.gui_overflow" in text
+                    failures += [f"{path.name} {job_id} {key}: {alternative}" for alternative in overflow_preempted(text)]
+        self.assertEqual(failures, [], "a GUI job takes the Blacksmith size its placement names (gui_overflow); a fixed "
+                                       "Blacksmith leg may come only after it, as the last resort, or for a fork")
+        self.assertGreaterEqual(seen, 6, "cmux-next's swift-test, daemon-test and generated-files read gui_overflow")
+
+    def test_the_overflow_rule_catches_what_it_is_for(self) -> None:
+        overflow = "needs.p.outputs.gui_overflow != '' && needs.p.outputs.gui_overflow"
+        fork = "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26'"
+        small = "'blacksmith-6vcpu-macos-26'"
+        self.assertEqual(overflow_preempted(f"${{{{ {fork} || needs.p.outputs.gui_runner || {overflow} || {small} }}}}"), [])
+        # Run 41123927916's two legs, at the top level or inside a group.
+        self.assertTrue(overflow_preempted(f"${{{{ (needs.p.outputs.runner != '' && {small}) || {overflow} || {small} }}}}"))
+        self.assertTrue(overflow_preempted(f"${{{{ a || ({fork} || github.run_attempt != 1 && {small} || {overflow}) }}}}"))
+        self.assertTrue(overflow_preempted(f"${{{{ x && 'blacksmith-12vcpu-macos-26' || {overflow} || {small} }}}}"))
+        # No gui_overflow read: another rule's business.
+        self.assertEqual(overflow_preempted(f"${{{{ a && {small} || 'glaeda-side-std-xcode-26.6' }}}}"), [])
+
+    def test_separate_pr_cascade_does_not_preempt_push_gui_overflow(self) -> None:
+        jobs = load(WORKFLOWS / "cmux-next.yml")["jobs"]
+        route = runs_on_text(jobs["swift-test"])
+        self.assertEqual(overflow_preempted(route), [])
+        # Losing the allocation or its attempt freshness must not create an exemption.
+        self.assertTrue(overflow_preempted(route.replace("outputs.owned_jobs", "outputs.missing_jobs")))
+        self.assertTrue(overflow_preempted(route.replace("outputs.placed_attempt", "outputs.stale_attempt")))
+        for prefix in ("github.event_name == 'pull_request' && ", ""):
+            self.assertTrue(overflow_preempted(
+                "${{ " + prefix + "'blacksmith-6vcpu-macos-26' || needs.p.outputs.gui_overflow }}"))
 
     def test_compile_and_fallback_routes_never_evict_another_head(self) -> None:
         failures = []

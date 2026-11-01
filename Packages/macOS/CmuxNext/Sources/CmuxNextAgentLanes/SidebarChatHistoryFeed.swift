@@ -126,6 +126,7 @@ public final class SidebarChatHistoryFeed {
     /// A chat as the history lists it: its title, else its folder's name, else its harness.
     static func historyChat(_ chat: AcpmuxChat) -> SidebarHistoryChat {
         let folder = chat.cwd.map { ($0 as NSString).lastPathComponent }.flatMap { $0.isEmpty ? nil : $0 }
-        return SidebarHistoryChat(id: chat.id, title: chat.title ?? folder ?? chat.harness, updatedAt: chat.updatedAt)
+        return SidebarHistoryChat(id: chat.id, title: chat.title ?? folder ?? chat.harness, updatedAt: chat.updatedAt,
+                                  harness: chat.harness)
     }
 }

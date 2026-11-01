@@ -4,6 +4,7 @@ import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// sheet over the person's work: the card names the machine and that it counts against the
 /// Cloud plan, Create is the one yes, Cancel and the x say no, and the card shows over every
 /// other bottom-left card (a staged update too) so the agent never waits on a hidden question.
-@MainActor @Suite(.serialized) struct CloudMachineRequestCardTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CloudMachineRequestCardTests {
     static let machine = CloudMachineCreateFlow.Machine(name: "builder", cpu: 2, memoryMB: 4096, diskMB: 16384)
 
     func make() -> (AppServices, NSWindow) {

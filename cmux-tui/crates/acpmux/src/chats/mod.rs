@@ -15,6 +15,7 @@ mod activity;
 pub(crate) mod brand;
 mod open;
 mod query;
+pub mod search;
 mod settings;
 pub(crate) mod sources;
 mod watch;
@@ -140,6 +141,20 @@ impl ChatService {
         let more = start + held.len() < matching.len();
         let next = held.last().filter(|_| more).map(|last| ChatCursor::after(last).to_text());
         (page, next, seq)
+    }
+
+    /// Every chat the filter passes from its cursor on, newest first, copied out of the lock so
+    /// a caller can read their transcripts (`_acpmux/chats_search`); None while chats are off.
+    /// The filter's `limit` is the caller's to apply.
+    pub fn listed_from(&self, query: &ChatQuery) -> Option<Vec<IndexedChat>> {
+        let state = lock(&self.state);
+        if !state.settings.enabled {
+            return None;
+        }
+        let matching: Vec<&IndexedChat> =
+            state.index.chats().into_iter().filter(|chat| query.matches(chat)).collect();
+        let start = query.cursor.start(&matching);
+        Some(matching.get(start..).unwrap_or_default().iter().map(|c| (*c).clone()).collect())
     }
 
     /// The rows of a client's window (`_acpmux/chats_window`), read under the index lock: none

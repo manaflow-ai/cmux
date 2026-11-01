@@ -82,6 +82,16 @@ public final class AgentSessionParents {
         !identity.host.isEmpty && !(identity.session ?? "").isEmpty
     }
 
+    /// The workspace one of whose tabs is `session`'s chat, nil when none of `workspaces` has one (or no `session`).
+    public static func workspace(of session: Identity?, in workspaces: [WorkspaceModel]) -> String? {
+        guard let session else { return nil }
+        return workspaces.first { workspace in
+            workspace.screens.flatMap(\.panes).flatMap(\.tabs).contains { tab in
+                tab.agentSession.map { $0.host == session.host && $0.session == session.session } == true
+            }
+        }?.id
+    }
+
     private static func valid(_ parent: Identity, of child: Identity) -> Bool {
         parent != child
     }

@@ -6,12 +6,13 @@
 // The line is read as a shell reads it (`shellCommands`): quotes, `$'…'`, backslashes,
 // here-documents and here-strings, `$(…)` and backticks kept whole, comments, and the operators
 // between commands. A wrapper that runs the command it is given is looked through: `reach HOST '…'`
-// (the target then lives on HOST), `bash -c '…'`, `timeout N`, `env X=Y`, `perl -e 'alarm N; exec
-// @ARGV'`, `nohup`, `nice`, `command`, `exec`. Only a command in command position counts: `echo
-// "acpmux send x y"` prints words. A line that also does other work (`git push && acpmux send …`)
-// stays a command row, so that work stays in sight; `cd`, `export`, an echo and filters on the
-// send's output that read no file (`| tail -1`) do none. A redirect that writes a file is work, and
-// so is a command substitution (`$(…)`, backticks) unless it only reads (`"$(cat note.md)"`).
+// and `ssh [OPTIONS] [USER@]HOST '…'` (the target then lives on HOST), `bash -c '…'`, `timeout N`,
+// `env X=Y`, `perl -e 'alarm N; exec @ARGV'`, `nohup`, `nice`, `command`, `exec`. Only a command
+// in command position counts: `echo "acpmux send x y"` prints words. A line that also does other
+// work (`git push && acpmux send …`) stays a command row, so that work stays in sight; `cd`,
+// `export`, an echo and filters on the send's output that read no file (`| tail -1`) do none. A
+// redirect that writes a file is work, and so is a command substitution (`$(…)`, backticks) unless
+// it only reads (`"$(cat note.md)"`).
 //
 // Options are read per `acpmux send --help`; `--status ID` (a delivery's state) and `--help` send
 // nothing. The text is unknown when the prompt comes from stdin that is not in the line (`-`, or no
@@ -28,6 +29,9 @@ export type AcpmuxSend = {
   target: string;
   /// The message, when the command line holds it.
   text?: string;
+  /// The file the message is read from when the line does not hold its words (`"$(cat note.md)"`,
+  /// `"$(<note.md)"`, `- < note.md`), as the line names it: the row shows it in place of the text.
+  file?: string;
   /// `--no-wait`: it printed how the daemon took it (`queued`, `steered`) instead of the reply.
   noWait: boolean;
   /// How many other commands the line runs that do work of their own (`git push && acpmux send …`,
@@ -407,7 +411,7 @@ function recordedMessageBodyChange(command: ShellCommand): RecordedMessageBodyCh
       text: body.text,
     };
   }
-  if (command.writes || !name || MESSAGE_PATH_MUTATORS.has(name) || SHELLS.has(name) || name === "reach")
+  if (command.writes || !name || MESSAGE_PATH_MUTATORS.has(name) || SHELLS.has(name) || REMOTES.has(name))
     return { reset: true };
   // Unknown commands may write through libraries, scripts, xargs or shell APIs. Without a typed
   // recorded-write event, fail closed instead of preserving an older producer body.
@@ -645,6 +649,75 @@ const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
 /// `reach`'s options that take a value and still run the command (`reach --help`); any other
 /// option (`--help`, `--list`, `--why`, …) does something else.
 const REACH_VALUES = new Set(["--origin", "--registry", "--timeout"]);
+/// Wrappers that run their command line on another machine: `reach HOST '…'` and `ssh HOST '…'`.
+/// The session a send there names is on that host unless it names its own.
+const REMOTES = new Set(["reach", "ssh"]);
+/// `ssh`'s options that take a value (`ssh -p 22 -o X=Y host …`), and its flags that still run the
+/// command. -G, -N, -O, -Q, -V, -W and -s do something else (print, forward, control, a subsystem).
+const SSH_VALUES = "BbcDEeFIiJLlmoPpRSw";
+const SSH_FLAGS = "46AaCfgKkMnqTtvXxYy";
+/// ssh options that point its stdin at /dev/null (`-n`, `-f`): no stream reaches the remote send.
+const SSH_NO_STDIN = /^-[^-]*[nf]/;
+/// `-o` keys that change what ssh runs or where its stdin goes (SessionType=none is -N, StdinNull
+/// is -n, LocalCommand runs a local command): the line is not read as a plain remote send.
+const SSH_REFUSED_KEYS =
+  /^(?:sessiontype|stdinnull|forkafterauthentication|localcommand|permitlocalcommand|remotecommand)\b/i;
+
+/// The host and command line a remote wrapper runs, or nil when the words run no command there
+/// (an option that does something else, a missing value, no host or no command).
+function remoteRun(
+  name: string,
+  words: readonly ShellWord[],
+): { host: string; inner: ShellWord[]; stdin: boolean } | undefined {
+  let at = 1;
+  let stdin = true;
+  if (name === "reach") {
+    while (REACH_VALUES.has(words[at]?.text ?? "")) {
+      // A missing value, or one that looks like an option, is a line reach refuses.
+      if ((words[at + 1]?.text ?? "-").startsWith("-")) return undefined;
+      at += 2;
+    }
+  } else {
+    for (; at < words.length; at++) {
+      const word = words[at]!;
+      if (!word.literal) return undefined;
+      if (word.text === "--") {
+        at += 1;
+        break;
+      }
+      if (!word.text.startsWith("-") || word.text === "-") break;
+      // A cluster of flags, possibly ending in one option with its value (`-tt`, `-qp22`, `-i key`).
+      let place = 1;
+      for (; place < word.text.length; place++) {
+        const letter = word.text[place]!;
+        if (SSH_VALUES.includes(letter)) {
+          // -E writes a log file: work of its own.
+          if (letter === "E") return undefined;
+          let value = word.text.slice(place + 1);
+          if (!value) {
+            if (at + 1 >= words.length) return undefined;
+            at += 1;
+            value = words[at]!.text;
+          }
+          // An -o value must be read to know it runs the command (`-i ~/.ssh/key` need not be).
+          if (letter === "o" && (!words[at]!.literal || SSH_REFUSED_KEYS.test(value.trim()))) return undefined;
+          break;
+        }
+        if (!SSH_FLAGS.includes(letter)) return undefined;
+      }
+      if (SSH_NO_STDIN.test(word.text.slice(0, place + 1))) stdin = false;
+    }
+  }
+  const destination = words[at];
+  const inner = words.slice(at + 1);
+  if (!destination?.literal || destination.text.startsWith("-") || !inner.length) return undefined;
+  // `user@host`, `ssh://user@host:22`: the session lives on the host. ssh takes the user up to the
+  // last `@`; only the URI form carries a port.
+  const uri = destination.text.match(/^ssh:\/\/(.*?)(?::\d+)?$/);
+  const host = name === "ssh" ? (uri ? uri[1]! : destination.text).replace(/^.*@/, "") : destination.text;
+  if (!host) return undefined;
+  return { host, inner, stdin };
+}
 /// `acpmux send`'s options that take a value, and its flags (`acpmux send --help`).
 const SEND_VALUES = new Set(["--timeout", "--on-permission", "--stall", "--prompt-id", "--from", "--supersede"]);
 /// The values clap checks (`--timeout 30`, `--on-permission deny`).
@@ -790,7 +863,7 @@ function readAcpmuxSend(
         commandWords.some((word) => word.text === "send")) ||
       (commandName === "cmux" && commandWords[1]?.text === "acp" && commandWords[2]?.text === "send");
     if (
-      (isSendCommand || commandName === "reach" || SHELLS.has(commandName)) &&
+      (isSendCommand || REMOTES.has(commandName) || SHELLS.has(commandName)) &&
       (command.grouped ||
         command.writes ||
         command.runs?.length ||
@@ -804,28 +877,23 @@ function readAcpmuxSend(
     const words = unwrapped(command.words);
     const name = program(words[0]);
     let send: AcpmuxSend | undefined;
-    if (name === "reach") {
-      let at = 1;
-      while (REACH_VALUES.has(words[at]?.text ?? "")) {
-        // A missing value, or one that looks like an option, is a line reach refuses.
-        if ((words[at + 1]?.text ?? "-").startsWith("-")) break;
-        at += 2;
-      }
-      const rest = words.slice(at);
-      const inner = rest.slice(1);
-      if (rest[0]?.literal && !rest[0].text.startsWith("-") && inner.length && inner.every((word) => word.literal))
+    if (REMOTES.has(name)) {
+      const remote = remoteRun(name, words);
+      if (remote && remote.inner.every((word) => word.literal))
         send = readAcpmuxSend(
-          inner.map((word) => word.text).join(" "),
-          rest[0].text,
+          remote.inner.map((word) => word.text).join(" "),
+          remote.host,
           depth + 1,
           // Paths inside the remote script belong to that host. Only stdin already opened by
           // the local wrapper is a known stream; a remote redirect must resolve independently.
           undefined,
-          stdinOf(commands, index, recordedFiles, inheritedStdin),
+          remote.stdin ? stdinOf(commands, index, recordedFiles, inheritedStdin) : undefined,
           provenance,
           sendScan,
         );
-      else if (rest.length > 1) sendScan.opaque = true;
+      // A host or command that is not literal (`reach "$H" "$CMD"`) may hold a send of its own.
+      else if (remote || words.slice(1).some((word) => !word.literal || /\bacp/.test(word.text)))
+        sendScan.opaque = true;
     } else if (SHELLS.has(name)) {
       // `-c` among the options before the first operand (`bash script -c …` runs script).
       let flag = -1;
@@ -854,11 +922,16 @@ function readAcpmuxSend(
       while (ACPMUX_FLAGS.has(words[sub]?.text ?? "")) sub += 1;
       if (words[sub]?.text === "send") {
         sendScan.sends += 1;
-        send = sendArgs(words.slice(sub + 1), stdinOf(commands, index, recordedFiles, inheritedStdin), host);
+        send = sendArgs(
+          words.slice(sub + 1),
+          stdinOf(commands, index, recordedFiles, inheritedStdin),
+          host,
+          pathOf(command),
+        );
       }
     } else if (name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send") {
       sendScan.sends += 1;
-      send = sendArgs(words.slice(3), stdinOf(commands, index, recordedFiles, inheritedStdin), host);
+      send = sendArgs(words.slice(3), stdinOf(commands, index, recordedFiles, inheritedStdin), host, pathOf(command));
     }
     if (!uncertainControlFlow && !send) applyRecordedMessageBodyChange(command, recordedFiles);
     if (sendScan.sends > 1) return undefined;
@@ -866,7 +939,7 @@ function readAcpmuxSend(
       if (found) return undefined;
       found = send;
       at = index;
-      direct = name !== "reach" && !SHELLS.has(name);
+      direct = !REMOTES.has(name) && !SHELLS.has(name);
     }
   }
   if (!found) {
@@ -1004,9 +1077,18 @@ function stdinOf(
   }
 }
 
+/// The literal path a command's `< path` stdin names.
+const pathOf = (command: ShellCommand) => (command.stdinFile?.literal ? command.stdinFile.text : undefined);
+
 /// `acpmux send [OPTIONS] [SESSION] [PROMPT]...`, read as clap reads it: options anywhere until
 /// `--`, the first other word the session, the rest the prompt; none or `-` reads stdin.
-function sendArgs(args: readonly ShellWord[], stdin: ShellWord | "file" | undefined, host?: string) {
+function sendArgs(
+  args: readonly ShellWord[],
+  stdin: ShellWord | "file" | undefined,
+  host?: string,
+  /// The path of a `< path` stdin, when the line names it literally.
+  stdinPath?: string,
+) {
   const positional: ShellWord[] = [];
   let noWait = false;
   let steer: string | undefined;
@@ -1050,5 +1132,359 @@ function sendArgs(args: readonly ShellWord[], stdin: ShellWord | "file" | undefi
       : undefined;
   const name = session.text.trim();
   const target = host && !/[/:]/.test(name) ? `${host}/${name}` : name;
-  return { target, ...(text?.trim() && { text }), noWait } satisfies AcpmuxSend;
+  // The words are not known but where they come from is: `"$(cat note.md)"` or a `< note.md` stdin.
+  const file = text?.trim()
+    ? undefined
+    : fromStdin
+      ? stdin === "file"
+        ? stdinPath
+        : undefined
+      : words.length === 1
+        ? readFileOf(words[0]!.text)
+        : undefined;
+  return { target, ...(text?.trim() && { text }), ...(file && { file }), noWait } satisfies AcpmuxSend;
+}
+
+/// `$(cat PATH)`, `$(cat -- PATH)`, `$(<PATH)` or `$(< PATH)`, PATH one word with no expansion left
+/// in it (quotes allowed): the file a prompt word reads, else nil.
+const READ_FILE = /^\$\((?:\s*cat\s+(?:--\s+)?|\s*<\s*)(["']?)([^\s"'$`;&|<>()]+)\1\s*\)$/;
+function readFileOf(text: string): string | undefined {
+  return READ_FILE.exec(text)?.[2];
+}
+
+// Several messages from one shell call: a coordinator's batch, read so each message draws as its
+// own sent-message row (Leo 2026-10-30: "these should be properly rendered too/acpmux batch send
+// tools given to you rendered consistently with other stuff"). The shapes it reads:
+//   s(){ acpmux send --no-wait --from me "$1" "$(cat "$2")" 2>&1 | tail -1; }; s a a.md; s b b.md
+//   for lane in a b c; do acpmux send --no-wait "$lane" "$(cat "/tmp/briefs/$lane.md")"; done
+//   acpmux send a 'one' && acpmux send b 'two'
+// A shell function's `$1`…`$9` take each call's words, a `for NAME in WORDS` loop's `$NAME` takes
+// each word, and a send's prompt that only reads a file (`"$(cat "$2")"`) names that file. A send
+// whose target is still an expansion afterwards (`"$LANE"`, a glob, `while read`), a wrapper that
+// runs a script (`bash -c`, `reach`), a send inside a substitution, or more than `BATCH_CAP` sends
+// leave the call a command row: nothing is guessed. Other work is counted as a single send counts
+// it (`others`); its command, as always, stays behind Raw.
+
+/// One message of a batch, as its row names it.
+export type AcpmuxBatchSend = { target: string; text?: string; file?: string; noWait: boolean };
+export type AcpmuxSendBatch = { sends: AcpmuxBatchSend[]; others?: number };
+
+/// More sends than this from one call stay a command row: the transcript lists no unbounded fan-out.
+const BATCH_CAP = 64;
+const FUNCTION_HEAD = /(?:function[ \t]+)?([A-Za-z_][\w-]*)[ \t]*\([ \t]*\)[ \t\n]*\{/y;
+const FUNCTION_KEYWORD = /function[ \t]+([A-Za-z_][\w-]*)[ \t\n]*\{/y;
+const NAME = /^[A-Za-z_]\w*$/;
+/// Words that start or branch a construct whose body may not run: its sends are not known to go.
+const CONDITIONAL = new Set(["while", "until", "if", "then", "elif", "else", "fi", "case", "esac", "select"]);
+/// `$(<path)`: bash's way to read a file, which does nothing else.
+const READS_FILE = /^\s*<\s*[^\s;&|<>()]+\s*$/;
+
+/// The line with its function definitions taken out, and their bodies by name; nil for a
+/// definition that never closes. A line with a here-document keeps its text as is (its body may
+/// hold anything), so it defines no function.
+function splitFunctions(line: string): { rest: string; functions: Map<string, string> } | undefined {
+  const functions = new Map<string, string>();
+  if (line.includes("<<")) return { rest: line, functions };
+  let rest = "";
+  let index = 0;
+  let start = true;
+  while (index < line.length) {
+    const char = line[index]!;
+    if (char === " " || char === "\t" || char === "\r") {
+      rest += char;
+      index += 1;
+      continue;
+    }
+    if (start) {
+      FUNCTION_HEAD.lastIndex = index;
+      FUNCTION_KEYWORD.lastIndex = index;
+      const head = FUNCTION_HEAD.exec(line) ?? FUNCTION_KEYWORD.exec(line);
+      if (head) {
+        const open = index + head[0].length - 1;
+        const close = balancedEnd(line, open);
+        if (close < 0) return undefined;
+        functions.set(head[1]!, line.slice(open + 1, close - 1));
+        rest += ";";
+        index = close;
+        start = false;
+        continue;
+      }
+    }
+    if (char === "#" && start) {
+      while (index < line.length && line[index] !== "\n") index += 1;
+      continue;
+    }
+    if (";&|(){}\n".includes(char)) {
+      rest += char;
+      index += 1;
+      start = true;
+      continue;
+    }
+    if (char === "<" || char === ">") {
+      rest += char;
+      index += 1;
+      continue;
+    }
+    const [, next] = readWord(line, index);
+    const stop = Math.max(next, index + 1);
+    rest += line.slice(index, stop);
+    index = stop;
+    start = false;
+  }
+  return { rest, functions };
+}
+
+/// A word with the values the batch knows put in: a function's `$1`…`$9`, a loop's `$NAME` and
+/// `${NAME}`. It is literal again when no expansion is left in it.
+function bound(word: ShellWord, values: ReadonlyMap<string, string>): ShellWord {
+  if (word.literal || !values.size) return word;
+  const text = word.text.replace(/\$(?:\{(\w+)\}|(\d|[A-Za-z_]\w*))/g, (whole, braced, bare) => {
+    const value = values.get(braced ?? bare);
+    return value ?? whole;
+  });
+  return { text, literal: !/[$`]/.test(text) };
+}
+
+/// The messages a shell call sends, read as a batch; nil when it is not one this can name in full.
+export function acpmuxSendBatch(line: string): AcpmuxSendBatch | undefined {
+  if (!/acp/.test(line)) return undefined;
+  const split = splitFunctions(line);
+  if (!split) return undefined;
+  const sends: AcpmuxBatchSend[] = [];
+  let others = 0;
+  let refused = false;
+  const walk = (commands: readonly ShellCommand[], values: ReadonlyMap<string, string>, depth: number) => {
+    if (depth > 3) {
+      refused = true;
+      return;
+    }
+    let loop: { name: string; words: string[]; body: ShellCommand[]; nested: number } | undefined;
+    for (const [index, command] of commands.entries()) {
+      if (refused) return;
+      const head = command.words[0];
+      if (loop) {
+        const first = head?.literal ? head.text : "";
+        if (first === "for" || first === "while" || first === "until") loop.nested += 1;
+        if (first === "done" && command.words.length === 1 && loop.nested-- === 0) {
+          const { name, words, body } = loop;
+          loop = undefined;
+          for (const word of words) walk(body, new Map([...values, [name, word]]), depth + 1);
+          continue;
+        }
+        loop.body.push(command);
+        continue;
+      }
+      if (head?.literal && head.text === "for" && command.words[2]?.text === "in") {
+        const name = command.words[1];
+        const words = command.words.slice(3).map((word) => bound(word, values));
+        if (!name?.literal || !NAME.test(name.text) || !words.every((word) => word.literal)) {
+          refused = true;
+          return;
+        }
+        loop = { name: name.text, words: words.map((word) => word.text), body: [], nested: 0 };
+        continue;
+      }
+      // A `while` or `until` loop's targets come from what it reads: not known here. Whether a
+      // send after `exit` or a `||` runs is not known from the line either (the single reader
+      // refuses those too).
+      if ((head?.literal && CONDITIONAL.has(head.text)) || program(head) === "exit" || command.op === "||") {
+        refused = true;
+        return;
+      }
+      const words = unwrapped(command.words).map((word) => bound(word, values));
+      // Reserved words alone (`do`, `then` on a line of their own) do nothing.
+      if (!words.length && !command.writes && !command.runs?.length) continue;
+      const name = program(words[0]);
+      const runs = command.runs ?? [];
+      if (runs.includes(UNCLOSED)) {
+        refused = true;
+        return;
+      }
+      const body = split.functions.get(name);
+      if (body !== undefined) {
+        const args = new Map(values);
+        for (let at = 1; at <= 9; at++) {
+          const arg = words[at];
+          // An argument that is still an expansion leaves whatever uses it unknown.
+          if (arg?.literal) args.set(String(at), arg.text);
+          else args.delete(String(at));
+        }
+        walk(shellCommands(body), args, depth + 1);
+        continue;
+      }
+      let sub = 1;
+      while (ACPMUX_FLAGS.has(words[sub]?.text ?? "")) sub += 1;
+      const args =
+        (name === "acpmux" || name === "acpmux-debug-cli") && words[sub]?.text === "send"
+          ? words.slice(sub + 1)
+          : name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send"
+            ? words.slice(3)
+            : undefined;
+      // A substitution that does more than read is work of its own, and may itself send; a wrapper
+      // that runs a script with a send in it is not read as a batch.
+      const busy = runs.filter((script) => !onlyReads(script, depth) && !READS_FILE.test(script));
+      if (
+        busy.some((script) => /\bacp/.test(script)) ||
+        ((SHELLS.has(name) || REMOTES.has(name)) && command.words.some((word) => /\bacp/.test(word.text)))
+      ) {
+        refused = true;
+        return;
+      }
+      if (args) {
+        // A send that also writes a file or runs a substitution that does more than read does
+        // work of its own: counted, as a single send counts it.
+        if (command.writes || busy.length) others += 1;
+        const send = sendArgs(args, stdinOf(commands, index, new Map()), undefined, pathOf(command));
+        if (!send) {
+          // `--status`, `--help`, a malformed line, or a target still an expansion.
+          refused = true;
+          return;
+        }
+        if (sends.length >= BATCH_CAP) {
+          refused = true;
+          return;
+        }
+        sends.push(send);
+        continue;
+      }
+      if (command.writes || busy.length) others += 1;
+      else if (!words.length) continue;
+      else if (SETUP.has(name) || name === "done" || name === "sleep") continue;
+      else if (
+        commands[index - 1]?.op === "|" &&
+        !command.stdin &&
+        own(FILTERS, name) &&
+        onlyFilters(words.slice(1), FILTERS[name]!)
+      )
+        continue;
+      else if (name === "cat" && command.op === "|" && command.words.length === 1) continue;
+      else others += 1;
+    }
+    // A loop left open: the shell refuses the line.
+    if (loop) refused = true;
+  };
+  walk(shellCommands(split.rest), new Map(), 0);
+  if (refused || !sends.length) return undefined;
+  return { sends, ...(others && { others }) };
+}
+
+/// What each `--no-wait` send of a batch printed, in order, when every send's output is one line
+/// (`2>&1 | tail -1`): how the daemon took it or acpmux's error.
+const BATCH_LINE = /^(?:(queued|steered|delivered)\b|acpmux: [a-z_]+: )/;
+
+/// One message of a shell call with its state: a single send (`acpmuxSendCall`) or one of a
+/// batch's (`acpmuxSendBatch`); `index` and `count` place a batch's message among its others.
+export type AcpmuxSendCallPart = AcpmuxSendCall & {
+  index?: number;
+  count?: number;
+  /// How the daemon took this message, read from its own line of the batch's output.
+  delivery?: "queued" | "delivered";
+};
+
+/// The states of a batch's messages. A message whose line of output says how it went takes that;
+/// the others take the call's state: sending while it runs, sent once it ended well, and `ended`
+/// (not known whether it went) when it failed or printed an error no line can be matched to.
+function batchCalls(tool: Tool, batch: AcpmuxSendBatch): AcpmuxSendCallPart[] {
+  const background = tool.background?.state;
+  const running = tool.status === "pending" || tool.status === "in_progress" || background === "running";
+  const failed =
+    tool.status === "failed" ||
+    (tool.exitCode !== undefined && tool.exitCode !== 0) ||
+    background === "failed" ||
+    background === "stopped";
+  const output = tool.output ?? "";
+  const lines = output
+    .split("\n")
+    .map((text) => text.trim())
+    .filter((text) => text && !/^Exit code \d+$/.test(text));
+  const matched = lines.length <= batch.sends.length && lines.every((text) => BATCH_LINE.test(text));
+  const error = SEND_ERROR.test(output);
+  const count = batch.sends.length;
+  return batch.sends.map((send, index): AcpmuxSendCallPart => {
+    const said = matched ? BATCH_LINE.exec(lines[index] ?? "") : null;
+    const state: SendState = said
+      ? said[1]
+        ? "sent"
+        : "failed"
+      : running
+        ? "sending"
+        : failed || error
+          ? "ended"
+          : "sent";
+    const delivery = said?.[1] ? (said[1] === "queued" ? "queued" : "delivered") : undefined;
+    return {
+      ...send,
+      state,
+      index,
+      count,
+      ...(batch.others && { others: batch.others }),
+      ...(delivery && { delivery }),
+    };
+  });
+}
+
+// Every streamed update rebuilds the turn's groups (toolGroups.ts), but a call's snapshot only
+// changes when that call does: keep its reading by snapshot identity and revision, so a token
+// elsewhere in the turn never parses this call's command line again.
+type SendCallsMemo = {
+  command: string;
+  status: Tool["status"];
+  output: string | undefined;
+  exitCode: number | undefined;
+  background: string | undefined;
+  calls: readonly AcpmuxSendCallPart[] | undefined;
+};
+let sendCallsCache = new WeakMap<object, SendCallsMemo>();
+let sendCallsParseCount = 0;
+
+/// The messages a shell call sends, each with its state: one for a single `acpmux send`, several
+/// for a batch, nil for any other call. Memoized per call snapshot when no recorded message files
+/// are in play (those depend on the calls before it).
+export function acpmuxSendCalls(
+  tool: Tool,
+  priorFiles?: ReadonlyMap<string, string>,
+): readonly AcpmuxSendCallPart[] | undefined {
+  if (tool.kind !== "execute" || !tool.command) return undefined;
+  const memoizable = !priorFiles?.size;
+  if (memoizable) {
+    const memo = sendCallsCache.get(tool);
+    if (
+      memo &&
+      memo.command === tool.command &&
+      memo.status === tool.status &&
+      memo.output === tool.output &&
+      memo.exitCode === tool.exitCode &&
+      memo.background === tool.background?.state
+    )
+      return memo.calls;
+  }
+  sendCallsParseCount += 1;
+  const single = acpmuxSendCall(tool, priorFiles);
+  let calls: readonly AcpmuxSendCallPart[] | undefined;
+  if (single) calls = [single];
+  else {
+    const batch = acpmuxSendBatch(tool.command);
+    calls = batch ? batchCalls(tool, batch) : undefined;
+  }
+  if (memoizable)
+    sendCallsCache.set(tool, {
+      command: tool.command,
+      status: tool.status,
+      output: tool.output,
+      exitCode: tool.exitCode,
+      background: tool.background?.state,
+      calls,
+    });
+  return calls;
+}
+
+/** Test-only: how many times `acpmuxSendCalls` read a command line instead of its memo. */
+export function acpmuxSendCallsParseCountForTests(): number {
+  return sendCallsParseCount;
+}
+
+/** Test-only: forget every memoized reading. */
+export function resetAcpmuxSendCallsCacheForTests(): void {
+  sendCallsCache = new WeakMap();
+  sendCallsParseCount = 0;
 }

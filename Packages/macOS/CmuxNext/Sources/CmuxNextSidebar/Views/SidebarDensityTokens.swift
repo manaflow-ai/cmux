@@ -14,7 +14,7 @@ import CoreGraphics
 ///
 /// | token                  | compact | comfortable | step              |
 /// |------------------------|---------|-------------|-------------------|
-/// | row, tab row, group    | 24      | 28          | + `space2`        |
+/// | row, group             | 24      | 28          | + `space2`        |
 /// | machine/section header | 22      | 26          | + `space2`        |
 /// | row with a detail line | 37      | 41          | row + detail line |
 /// | horizontal inset       | 6       | 8           | `space3`→`space4` |
@@ -37,7 +37,7 @@ enum SidebarDensityTokens {
     /// The extra height of a comfortable row or header, plus the text size's.
     private static var extra: CGFloat { (isComfortable ? Metrics.space2 : 0) + textSize.rowStep }
 
-    /// A one-line workspace row, tab row, group header or band row.
+    /// A one-line workspace row, group header or band row.
     static var rowHeight: CGFloat { Metrics.sidebarRowHeight + extra }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
     /// text keeps the same room above and below with one line or more (Leo 2026-10-20). With
@@ -49,6 +49,10 @@ enum SidebarDensityTokens {
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
     /// Rows inset from the sidebar edge, and their content from the row edge.
     static var horizontalInset: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }
+    static var iconBox: CGFloat { isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
+    /// Compatibility name used by the existing session-tree layout. The tree's base indent is
+    /// independent of the sidebar's group nesting grid and remains the original space4.
+    static var depthIndent: CGFloat { Metrics.space4 }
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
     /// so their fills line up at each density.
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }

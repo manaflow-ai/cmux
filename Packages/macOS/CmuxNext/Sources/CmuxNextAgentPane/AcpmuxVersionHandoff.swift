@@ -95,7 +95,7 @@ nonisolated enum AcpmuxVersionHandoff {
     /// a replaced bundle's executable, and keeps its agents across a restart.
     /// Returns true when it stopped that daemon, so the caller starts the
     /// bundled one.
-    static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
+    static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, daemons: AcpmuxLocalDaemons) async -> Bool {
         let bundled = await bundledBuild(environment)
         let isReplaced = runsReplacedExecutable(status, environment: environment, log: true)
         guard decide(status.build, bundled, status.agentHosts, chatsOnDisk: status.chatsOnDisk, replaced: isReplaced) == .restart,
@@ -104,12 +104,12 @@ nonisolated enum AcpmuxVersionHandoff {
         }
         let key = handOffKey(environment, bundled: bundled, pid: pid)
         // The key is used up and Settings' daemon line marked restarting in one step, so a read
-        // that finds the key used finds the mark too (``AcpmuxDaemonSummary/current(_:)``). The
+        // that finds the key used finds the mark too (``AcpmuxDaemonSummary/current(_:daemons:)``). The
         // line says restarting until the lookup that starts the bundled one settles
         // (AgentPaneHost.findOrStart), or until this handoff fails.
         let inserted = handedOff.withLock { keys in
             let inserted = keys.insert(key).inserted
-            if inserted { AcpmuxDaemonSummary.mark(home: environment.home, restarting: true) }
+            if inserted { daemons.mark(home: environment.home, restarting: true) }
             return inserted
         }
         guard inserted else {
@@ -121,18 +121,18 @@ nonisolated enum AcpmuxVersionHandoff {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
             logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
-            AcpmuxDaemonSummary.mark(home: environment.home, restarting: false)
+            daemons.mark(home: environment.home, restarting: false)
             return false
         }
         // The old daemon holds its lock until it exits; the new one needs it.
         let exited = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
-        if !exited { AcpmuxDaemonSummary.mark(home: environment.home, restarting: false) }
+        if !exited { daemons.mark(home: environment.home, restarting: false) }
         return exited
     }
 
     /// What a lookup would do with the daemon `status` describes (Settings' daemon line,
     /// ``AcpmuxDaemonSummary``): whether it runs a replaced bundle's executable, and whether
-    /// ``handOffIfStale(_:environment:)`` would stop it now. An attached daemon is never
+    /// ``handOffIfStale(_:environment:daemons:)`` would stop it now. An attached daemon is never
     /// handed off (a lookup never starts or stops one), nor a socket this launch handed off once.
     static func handsOff(_ status: AcpmuxStatus, environment: AcpmuxEnvironment,
                          bundled: String?) -> (replaced: Bool, handsOff: Bool) {

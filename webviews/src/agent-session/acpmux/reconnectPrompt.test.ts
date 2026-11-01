@@ -46,7 +46,6 @@ test("a prompt lost with its connection shows once, settled, in the next connect
   class Silent extends MockAcpmuxSocket {
     constructor() {
       super(() => Promise.resolve());
-      first = this;
       const hooks = this as unknown as Hooks;
       const answer = hooks.answer.bind(this);
       hooks.answer = (method, params) => {
@@ -61,7 +60,7 @@ test("a prompt lost with its connection shows once, settled, in the next connect
     mockHost,
     (s) => (rows1 = s.rows as Row[]),
     undefined,
-    () => new Silent() as unknown as WebSocket,
+    () => (first = new Silent()) as unknown as WebSocket,
   );
   const outcome = one.send("ship it").then(
     () => "sent",

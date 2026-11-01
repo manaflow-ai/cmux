@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture commands and chat titles, not shipped UI.
-// Background work is visible (Leo: "where is the background showing?"). With the Inspector off
+// Background work is visible (Leo: "where is the background showing?"). With Session Info off
 // (Debug Settings `agent.inspector`), the summary card lists the chat's background commands live
-// (inspector/processes.ts `backgroundCommands`, whose merge chat-inspector-tasks.test.tsx covers),
+// (session-info/processes.ts `backgroundCommands`, whose merge session-info-tasks.test.tsx covers),
 // running ones first with their time and Stop, and finished work as compact status cards; the chats
 // the agent started sit under Subagents with their state; an empty card draws one quiet line instead
 // of "None" under every title. The running turn's line counts started chats. What still runs
@@ -11,6 +11,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
+import { pageClocks } from "../src/ui/pageClock";
 import {
   type WorkingCounts,
   WorkingCountsContext,
@@ -18,11 +19,12 @@ import {
 } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
-import { orderedSessions } from "../src/agent-session/acpmux/inspector/ChildSessionRows";
-import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/inspector/processes";
+import { orderedSessions } from "../src/agent-session/acpmux/session-info/ChildSessionRows";
+import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/session-info/processes";
 import type { SessionSummary, SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { SubagentStatusList } from "../src/agent-session/acpmux/summary/SubagentStatusList";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
+import { SummaryTasks } from "../src/agent-session/acpmux/summary/SummaryTasks";
 import { WorkflowSummaryRow } from "../src/agent-session/acpmux/summary/WorkflowSummary";
 
 let dom: JSDOM | undefined;
@@ -144,13 +146,57 @@ test("the card keeps mixed running, completed and failed task cards visible", as
     "failed",
   ]);
   // Stop only on running rows the registry lists.
-  const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-stop")];
+  const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-stop")];
   expect(stops.map((stop) => stop.getAttribute("aria-label"))).toEqual(["Stop bun run dev", "Stop tsc --watch"]);
   await act(async () => stops[0]!.click());
   expect(stopped).toEqual(["s1/a"]);
   // The time ticks: two seconds on, the row reads two seconds more.
   await act(async () => void jest.advanceTimersByTime(2_000));
   expect(rows()[0]).toEqual(["bun run dev", "1m 18s"]);
+});
+
+test("a running clock changes its elapsed label without refreshing 250 finished task rows", async () => {
+  jest.useFakeTimers();
+  setSystemTime(new Date(100_000));
+  const container = installDom();
+  const live = {
+    id: "live",
+    toolCallId: "live",
+    command: "bun run dev",
+    state: "running" as const,
+    startedAt: 99_000,
+  };
+  const finished = Array.from({ length: 250 }, (_, i) => ({
+    id: `done-${i}`,
+    toolCallId: `done-${i}`,
+    command: `completed command ${i}`,
+    state: "completed" as const,
+    startedAt: 1_000,
+    endedAt: 2_000,
+  }));
+  await render(container, <SummaryTasks commands={[live, ...finished]} />);
+  const rows = [...container.querySelectorAll<HTMLElement>(".acpmux-summary-task")];
+  expect(rows).toHaveLength(251);
+  const elapsed = rows[0]!.querySelector<HTMLElement>(".acpmux-summary-meta")!;
+  const completed = rows[1]!;
+  const finishedText = completed.textContent;
+  expect(elapsed.textContent).toBe("1s");
+  // One page clock is shared even though the card has hundreds of completed rows.
+  expect(pageClocks(dom!.window.document)).toMatchObject({ running: 1, subscribers: 1 });
+  const changes: MutationRecord[] = [];
+  const observer = new dom!.window.MutationObserver((records) => changes.push(...records));
+  observer.observe(completed, { attributes: true, characterData: true, childList: true, subtree: true });
+  await act(async () => void jest.advanceTimersByTime(3_000));
+  await Promise.resolve();
+  expect(elapsed.textContent).toBe("4s");
+  expect(completed.textContent).toBe(finishedText);
+  expect(changes).toHaveLength(0);
+  observer.disconnect();
+
+  // Ending the only running task stops the shared clock, and the row's identity survives.
+  await render(container, <SummaryTasks commands={[{ ...live, state: "completed" }, ...finished]} />);
+  expect(container.querySelectorAll(".acpmux-summary-task")).toHaveLength(251);
+  expect(pageClocks(dom!.window.document)).toMatchObject({ running: 0, subscribers: 0 });
 });
 
 test("a running card keeps its key and detail when the process completes", async () => {
@@ -304,4 +350,26 @@ test("the running turn's line counts the started chats that run", () => {
     </WorkingCountsContext.Provider>,
   );
   expect(text(html)).toBe("Working for 26s · 3 subagents · 2 commands");
+});
+
+test("workflow agent rows keep names and state without token counts", async () => {
+  const container = installDom();
+  await render(
+    container,
+    <WorkflowSummaryRow
+      workflow={{
+        id: "workflow",
+        title: "Review",
+        state: "completed",
+        phases: [],
+        agents: [{ id: "reviewer", name: "Reviewer", state: "completed", tokens: 107_500 }],
+      }}
+    />,
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-workflow__row")!.click());
+  const row = container.querySelector(".acpmux-workflow__agent")!;
+  expect(row.textContent).toContain("Reviewer");
+  expect(row.textContent).toContain("Done");
+  expect(row.textContent).not.toContain("107500");
+  expect(row.querySelectorAll(".acpmux-summary-meta")).toHaveLength(1);
 });

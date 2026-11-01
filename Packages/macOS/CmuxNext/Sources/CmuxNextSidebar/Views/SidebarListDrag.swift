@@ -5,6 +5,9 @@ import AppKit
 final class SidebarListDrag {
     let payload: DragPayload
     let grabbedKey: SidebarRowKey
+    /// The workspace of the group's one row this group drag was lifted from (`SidebarLayout+SoleMember`): in the
+    /// sidebar the row moves its group, out of it (a pane, another window) it is that workspace, as its member row was.
+    var standingWorkspace: WorkspaceID?
     /// Keys hidden while dragging (the lifted rows).
     let hiddenKeys: Set<SidebarRowKey>
     var grabOffsetY: CGFloat
@@ -14,7 +17,7 @@ final class SidebarListDrag {
     let gapHeight: CGFloat
     let lift: DragLiftView
     /// A workspace card's head row height (`head`, its first lifted row):
-    /// the card carries the tab rows below it, but drops resolve against the
+    /// the card may carry more rows below it, but drops resolve against the
     /// head alone, as for a one-row card, so its centre can still reach a
     /// row's onto band (cx-ikxz).
     var headHeight: CGFloat?
@@ -74,7 +77,7 @@ final class SidebarListDrag {
     var restFrame: CGRect = .zero
     /// The card is shaped as its list row; else as a block slot, and it follows the pointer on both axes.
     var restShaped = true
-    /// One card drags only: a group or a workspace with tab rows keeps its block shape.
+    /// One card drags only: a group keeps its block shape.
     var morphs = false
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.

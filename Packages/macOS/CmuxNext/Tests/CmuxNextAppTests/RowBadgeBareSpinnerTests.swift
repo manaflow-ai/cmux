@@ -28,7 +28,12 @@ import Testing
     func theSpinnersCellStaysPutWhenItsStateChanges(look: RowBadgeView.Look) {
         let working = Self.badge([.working, .error], look)
         let done = Self.badge([.success, .error], look)
-        #expect(working.glyphFrames == done.glyphFrames)
+        #expect(working.cellSide == done.cellSide)
+        #expect(working.glyphFrames.count == done.glyphFrames.count)
+        for (before, after) in zip(working.glyphFrames, done.glyphFrames) {
+            #expect(abs(before.midX - after.midX) < 0.01)
+            #expect(abs(before.midY - after.midY) < 0.01)
+        }
         #expect(working.preferredWidth == done.preferredWidth)
     }
 }

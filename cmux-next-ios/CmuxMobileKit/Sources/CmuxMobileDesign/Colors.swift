@@ -78,7 +78,8 @@ private func token(_ dark: String, _ light: String, darkAlpha: Double = 1, light
 }
 
 /// The semantic palette from SPEC section 2.1. Chrome is neutral (true black /
-/// white); the cmux-next accent is the foreground color, never blue.
+/// white). The accent is the user's choice (Settings > Appearance > Accent
+/// color, `CmuxMobileAccentTheme`); its Default is the foreground color.
 public struct CmuxMobileColors: Sendable {
     public var bg = token("#000000", "#FFFFFF")
     public var bgGrouped = token("#000000", "#F2F2F7")
@@ -107,8 +108,15 @@ public struct CmuxMobileColors: Sendable {
         dark: CmuxMobileRGBA(hex: "#EBEBF5", alpha: 0.6), light: CmuxMobileRGBA(hex: "#3C3C43", alpha: 0.78),
         darkHighContrast: CmuxMobileRGBA(hex: "#EBEBF5", alpha: 0.7), lightHighContrast: CmuxMobileRGBA(hex: "#3C3C43", alpha: 0.85)
     )
-    public var accent = token("#FFFFFF", "#000000")
-    public var onAccent = token("#000000", "#FFFFFF")
+    /// The user's accent (`CmuxMobileAccentTheme`); read in a body, the view
+    /// redraws when the choice changes.
+    public var accent: CmuxMobileColorToken { CmuxMobileAccentTheme.shared.accent.accent }
+    public var onAccent: CmuxMobileColorToken { CmuxMobileAccentTheme.shared.accent.onAccent }
+    /// Always the monochrome accent, whatever the user picked: only for marks
+    /// whose colour another party prescribes (Sign in with Apple is black or
+    /// white).
+    public var neutralAccent: CmuxMobileColorToken { CmuxMobileAccent.neutral.accent }
+    public var neutralOnAccent: CmuxMobileColorToken { CmuxMobileAccent.neutral.onAccent }
     public var success = token("#30D158", "#34C759")
     public var danger = token("#FF453A", "#FF3B30")
     /// Small error text: `danger` is 3.55:1 on white, so light mode uses the

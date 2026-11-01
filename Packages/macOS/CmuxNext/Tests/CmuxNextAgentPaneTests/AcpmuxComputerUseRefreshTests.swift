@@ -37,7 +37,7 @@ struct AcpmuxComputerUseRefreshTests {
     }
 
     private static func host(_ environment: AcpmuxEnvironment, _ box: Box) -> AcpmuxHost {
-        AcpmuxHost(resolve: { environment }, computerUse: { box.value },
+        AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment }, computerUse: { box.value },
                    enrollComputerUse: { box.record($0.computerUse) })
     }
 

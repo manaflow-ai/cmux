@@ -1,11 +1,12 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// A divider lights an accent band while hovered or dragged and shows nothing extra at rest
 /// (Leo, 2026-10-29: "having that themed color band would be quite nice for our app as well").
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct DividerGlowBandTests {
     private func handle(_ kind: DividerHandleView.Kind = .split(SplitID("split"))) -> DividerHandleView {
         let view = DividerHandleView(kind: kind, axis: .horizontal)
@@ -37,6 +38,7 @@ struct DividerGlowBandTests {
     @Test func dragLightsTheFullBandUntilRelease() throws {
         let view = handle()
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(view)
         let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 103, y: 100), modifierFlags: [], timestamp: 0,
                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
@@ -64,6 +66,7 @@ struct DividerGlowBandTests {
         view.setHovered(true)
         #expect(view.glow.state == .rest)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(view)
         let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 103, y: 100), modifierFlags: [], timestamp: 0,
                                                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))

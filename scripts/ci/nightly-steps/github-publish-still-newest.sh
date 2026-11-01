@@ -8,8 +8,8 @@ live="$(mktemp)"
 curl -fsSL --retry 5 --retry-all-errors -A "cmux-nightly-next-github/1" -H "Cache-Control: no-cache" \
   -o "$live" "${NIGHTLY_NEXT_FEED_BASE}/appcast-arm64.xml?github=${GITHUB_RUN_ID}"
 newest="$(python3 -I -c 'import re,sys; print(max([int(v) for v in re.findall(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", open(sys.argv[1]).read())] or [0]))' "$live")"
-if (( newest > NIGHTLY_BUILD )); then
-  echo "The feed serves build $newest, newer than $NIGHTLY_BUILD: the release's names stay as that run writes them."
+if (( newest != NIGHTLY_BUILD )); then
+  echo "The feed serves build $newest, not this run's build $NIGHTLY_BUILD: the release's names stay as that run writes them."
   echo "newest=false" >> "$GITHUB_OUTPUT"
 else
   echo "newest=true" >> "$GITHUB_OUTPUT"

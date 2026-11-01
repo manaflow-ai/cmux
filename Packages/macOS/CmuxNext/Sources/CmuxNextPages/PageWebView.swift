@@ -54,6 +54,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Called after the page's effective visibility changes. Owners use this to revoke native
     /// page proofs on hide/detach and rebind them after the Chromium document is visible again.
     public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
+    /// The Chromium host this page started in: told when its Chromium page attached
+    /// (``PageChromiumHosting/focusViewChanged(_:)``).
+    weak var chromiumFocusHost: (any PageChromiumHosting)?
     /// The Chromium execution context behind the isolated question-key channel was destroyed.
     /// Owners clear their cached binding and refresh it against the new document context.
     public var onQuestionKeyChannelInvalidated: (@MainActor () -> Void)?
@@ -124,6 +127,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// A document finished loading in the page (either engine): the page lives, so a host that
+    /// shows a crash notice for it takes the notice away (a host route, a retarget or a WebKit
+    /// fallback can load the page again without the notice's Reload).
+    public var onDocumentLoaded: (@MainActor () -> Void)?
     /// Why the last crash reported to ``onCrash`` ended the page's process (WebKit's reason and
     /// pid); nil before any crash.
     public internal(set) var lastTermination: PageTermination?
@@ -152,6 +159,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var onFilesDropped: (@MainActor ([URL]) -> Void)? {
         get { (webView as? PageWKWebView)?.onFilesDropped }
         set { (webView as? PageWKWebView)?.onFilesDropped = newValue }
+    }
+    /// Called with their file URLs when the person picks files in the page's file input
+    /// (``PageOpenPanel``), before the page gets them: a pick page script can't make.
+    public var onFilesChosen: (@MainActor ([URL]) -> Void)? {
+        get { fileChooser?.onChosen }
+        set { fileChooser?.onChosen = newValue }
     }
     /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before WebKit pastes.
     public var onPaste: (@MainActor () -> Void)? {
@@ -426,7 +439,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
@@ -629,7 +642,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// picture over an opaque theme painted the page solid, a black chat over the wallpaper (#28867).
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
         performWithTheme {
-            WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+            // The app's Reduce Transparency state (the system setting unless Debug or a test pins it),
+            // as the window, pane and terminal backdrops read it.
+            WebTheme(themeTokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
                      surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
         }
     }

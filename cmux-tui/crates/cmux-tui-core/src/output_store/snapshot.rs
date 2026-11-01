@@ -187,6 +187,20 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     let _pass = store.lock_pass();
     let full = policy.mode == PersistenceMode::Full;
     store.full.set_enabled(full);
+    if !full {
+        // Unflushed bytes belong to full mode only.
+        for log in store.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.pending = Vec::new();
+            state.pending_start = state.next_offset();
+            // The files miss this stretch: back in full mode, the first
+            // flush writes whatever the screen shows.
+            state.segment_digest = None;
+        }
+        // Segment files go once full mode is off: their stored ends must not
+        // place a terminal's stream later (Full -> other -> Full).
+        store.segment_resume.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    }
     let dirty = store.take_dirty();
     let prune_pending = store.prune_pending.swap(false, std::sync::atomic::Ordering::AcqRel);
     if !dirty.is_empty() {
@@ -254,8 +268,10 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         }
         digests.push((log, Some(digest)));
     }
-    if full {
-        super::segments::flush_logs(directory, &digests, policy, quitting);
+    // A failed segment write tries again at the next flush, output or not
+    // (a terminal gone idle still gets its bytes stored).
+    if full && super::segments::flush_logs(&store.full, directory, &digests, policy, quitting) {
+        store.writer.mark_dirty(super::FULL_FLUSH_INTERVAL);
     }
     if wrote {
         enforce_total(directory, SUFFIX, snapshot_total_cap(policy));

@@ -93,7 +93,7 @@ enum MainMenu {
         ],
         .server: ["server.addServer", "server.showPanel"],
         .window: [
-            "newWindow", "newIncognitoWindow", "toggleFullScreen", "commandPalette", "goToWorkspace",
+            "newWindow", "newIncognitoWindow", "window.mergeAll", "toggleFullScreen", "commandPalette", "goToWorkspace",
             "globalSearch", "showMainWindow",
         ],
         .help: ["help.documentation", "palette.searchShortcuts", "updates.whatsNew", "sendFeedback", "help.showCrashLogs"],

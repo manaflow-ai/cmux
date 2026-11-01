@@ -1,5 +1,5 @@
 /* A message between agents (AgentMessageRow.tsx): one line drawn as a tool row is, in its font,
-   26px height and icon column, at the transcript's left in either direction; the other agent's
+   line height and icon column, at the transcript's left in either direction; the other agent's
    name as a glass chip, the message's first line muted after it. Opened, the message sits under
    the line in a compact glass card at the row's text indent. Never an opaque or bordered box. */
 .cv-agentmsg {
@@ -14,11 +14,39 @@
   -webkit-font-smoothing: antialiased;
 }
 .cv-agentmsg__line {
-  /* The message line has extra inline words, a sender chip and actions; keep its bespoke
-     sentence layout while the shared tool rows place the disclosure after their label. */
-  display: flex;
+  /* The shared tool rows' grid (conversation.css `.cv-tool`): icon, sentence, trailing status,
+     chevron. The sentence's words, chip and preview flow inside column 2. */
   white-space: nowrap;
   user-select: none;
+}
+/* The sentence column, shared by every message row (this one, SentMessageLine.tsx): the verb,
+   the recipient chip, the muted first line cut with one ellipsis at the column's end, on the
+   row's own gap. */
+.cv-agentmsg__sentence {
+  grid-column: 2;
+  /* Where a host lays the line out as flex instead (Home's run ledger, ledger.css
+     `.lg-run-messages`), the sentence still takes the row's free width so the trailing column and
+     chevron stay at the row's end. */
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  gap: inherit;
+  min-width: 0;
+  overflow: hidden;
+  /* One line on every message row, the sent line (SentMessageLine.tsx, no .cv-agentmsg__line)
+     included: a multiword recipient never wraps inside its chip. */
+  white-space: nowrap;
+}
+.cv-agentmsg__sentence > :not(.cv-agentmsg__toggle, .cv-agentmsg__preview) {
+  flex: none;
+}
+/* A delivery word the call gives in lower case ("queued") reads as the status column's word does
+   ("Queued"). */
+.cv-row-status {
+  display: inline-block;
+}
+.cv-row-status::first-letter {
+  text-transform: uppercase;
 }
 .cv-agentmsg.is-failed .cv-agentmsg__icon {
   color: var(--agent-status-failure);
@@ -27,6 +55,8 @@
   flex: none;
   cursor: default;
 }
+/* The recipient: one look on every message row (design/chat-transcript.md "One row grammar"),
+   the chip. The gallery compares a link and plain text (`data-recipient-style`). */
 .cv-agentmsg__name {
   all: unset;
   flex: none;
@@ -45,37 +75,62 @@
   cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
+/* Opened, the line names its other chat whole: the panel under it never names it. */
+.cv-agentmsg[data-open] .cv-agentmsg__name {
+  flex: 0 1 auto;
+  max-width: 100%;
+  height: auto;
+  min-height: 20px;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
 button.cv-agentmsg__name:hover,
 button.cv-agentmsg__name:focus-visible {
   background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent) 55%, transparent);
 }
-/* The preview and its chevron: the rest of the line, cut with an ellipsis. */
+:root:is([data-recipient-style="link"], [data-recipient-style="plain"]) .cv-recipient {
+  padding: 0;
+  font-size: inherit;
+  letter-spacing: inherit;
+  background: none;
+  box-shadow: none;
+}
+:root[data-recipient-style="link"] .cv-recipient {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+:root[data-recipient-style="plain"] .cv-recipient {
+  font-weight: 500;
+}
+/* The preview: the rest of the sentence, cut with an ellipsis. */
 .cv-agentmsg__toggle {
   all: unset;
   display: flex;
-  flex: 1 1 auto;
+  flex: 1;
   align-items: center;
-  gap: 0;
   min-width: 0;
-  height: 26px;
+  /* The tool rows' line, so a message row is as tall as the rows around it (Leo, 2026-11-01:
+     "doesn't make sense for these to be spaced differently"). */
+  height: var(--cv-tool-row-height);
   cursor: default;
   border-radius: 4px;
 }
 .cv-agentmsg__preview {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--cv-text-dim);
 }
-.cv-agentmsg__toggle > .cv-tool__chevron {
-  margin-inline-start: var(--cv-disclosure-gap);
+.cv-agentmsg__chevron {
+  cursor: default;
 }
-.cv-agentmsg__toggle:hover > .cv-tool__chevron,
-.cv-agentmsg__toggle:focus-visible > .cv-tool__chevron,
-.cv-agentmsg__words:hover ~ .cv-agentmsg__toggle > .cv-tool__chevron {
+.cv-agentmsg__line:has(:is(.cv-agentmsg__toggle:hover, .cv-agentmsg__toggle:focus-visible, .cv-agentmsg__words:hover, .cv-agentmsg__chevron:hover))
+  > .cv-agentmsg__chevron {
   color: var(--cv-text);
 }
 .cv-agentmsg__toggle:focus-visible {
@@ -84,9 +139,6 @@ button.cv-agentmsg__name:focus-visible {
   outline-offset: -1.5px;
 }
 /* A finished send's check at the line's end shows on hover, as a tool row's does. */
-.cv-agentmsg__line > .cv-command__meta {
-  margin-inline-start: auto;
-}
 .cv-agentmsg__line:is(:hover, :focus-within) .cv-command__ok {
   opacity: 1;
 }
@@ -100,7 +152,7 @@ button.cv-agentmsg__name:focus-visible {
    -1.5px margin, plus the 8px gap). */
 .cv-agentmsg__card {
   box-sizing: border-box;
-  margin: 2px 0 4px 22.5px;
+  margin: 2px 0 4px var(--cv-message-indent);
   padding: 7px 11px;
   border-radius: 0;
   background: none;
@@ -131,7 +183,7 @@ button.cv-agentmsg__name:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  margin: 0 0 6px 22.5px;
+  margin: 0 0 6px var(--cv-message-indent);
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
   line-height: 18px;
@@ -141,5 +193,22 @@ button.cv-agentmsg__name:focus-visible {
   color: var(--agent-status-failure);
 }
 .cv-agentmsg__output.cv-tool-output {
-  margin: 0 0 6px 22.5px;
+  margin: 0 0 6px var(--cv-message-indent);
+}
+
+/* Opened, the line names its other chat whole: the panel under it never names it (Leo,
+   ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT
+   WAS SAID TO SEE"). */
+.cv-agentmsg[data-open] .cv-agentmsg__name {
+  flex: 0 1 auto;
+  max-width: 100%;
+  height: auto;
+  min-height: 20px;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+/* Pressing a message row keeps the same readable text treatment as hover. */
+.cv-agentmsg__line:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
+  color: var(--cv-text);
 }

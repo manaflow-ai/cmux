@@ -698,6 +698,19 @@ impl DeclaredModel {
     }
 }
 
+impl HarnessProfile {
+    /// The hex SHA-256 of what starts the harness: its argv and env, never its name, models,
+    /// defaults or kind (how acpmux speaks to it, which an adopted agent's host answers for
+    /// itself). A session keeps the digest its agent started from (`SessionMeta::launch_digest`),
+    /// and a profile reload that changes it respawns the agent at its turn end
+    /// (`hub/profile_respawn.rs`). A hash, so the env's values are not kept.
+    pub fn launch_digest(&self) -> String {
+        // A list and a BTreeMap of strings: the JSON is stable.
+        let launch = serde_json::json!({"argv": self.argv, "env": self.env});
+        crate::sha256::sha256_hex(launch.to_string().as_bytes())
+    }
+}
+
 /// Session defaults for a family or a single profile (`defaults` in
 /// config.json). Precedence at `session/new`: explicit request, then the
 /// profile's own entry, then its family's entry, then the daemon defaults.
@@ -1024,8 +1037,8 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
-    /// `cpuClass`: the CPU class a macOS session's harness starts at,
-    /// `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
+    /// `cpuClass`: the CPU class a macOS session's harness runs at once its
+    /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
     /// overrides it, a profile's env overrides both. Unset: `background`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
@@ -1149,10 +1162,24 @@ pub struct Config {
     /// gone or not busy. Default 21600000 (6 h); 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
+    /// `queueMaxPrompts`: the most prompts one chat holds waiting for their turn (`hub/queue.rs`).
+    /// One more is refused with `queue.full` before anything is copied or written, so a client
+    /// that sends faster than the agent runs cannot grow the queue, its log and every later
+    /// restore without bound (manaflow-ai/cmuxterm-hq#2930). Default 1000; 0 is no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_max_prompts: Option<u64>,
+    /// `queueMaxBytes`: the most bytes of prompt content one chat's waiting prompts hold
+    /// (`hub/queue.rs`); a prompt that would pass it is refused with `queue.bytes`. An uploaded
+    /// image small enough to go inline for the model counts with its bytes; any other uploaded
+    /// file goes by its path and counts only that (`prompt_uploads.rs`). Default 268435456
+    /// (256 MiB); 0 is no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_max_bytes: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt, so its
     /// length is how many attempts run, a chain of daemon restarts included. Default
-    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 12
+    /// twelve exponential waits from 10 s capped at 20 min (about two hours); `[]` turns it off.
+    /// A provider reset hint extends the wait when needed. Checked on load: at most 12
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
         default,
@@ -1523,21 +1550,12 @@ impl Config {
         Ok(cfg)
     }
 
-    /// Without a configured default, the first harness that runs an ACP
-    /// session (a terminal harness, an installed `muse` say, never does), and
-    /// never the Chief harness: a new chat is a coding agent unless the person
-    /// picks their Chief.
+    /// Without a configured default, prefer Claude, then Codex, then another coding ACP harness.
+    /// Terminal and Chief harnesses are chosen only explicitly.
     fn pick_auto_default(&mut self) {
         if self.default_harness.is_none() {
             self.auto_default = true;
-            self.default_harness = self
-                .harnesses
-                .iter()
-                .find(|(_, profile)| {
-                    profile.kind != HarnessKind::Terminal
-                        && profile.family.as_deref() != Some(CHIEF_FAMILY)
-                })
-                .map(|(name, _)| name.clone());
+            self.default_harness = crate::default_harness::auto_default_harness(&self.harnesses);
         }
     }
 

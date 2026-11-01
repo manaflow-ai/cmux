@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextFocusUI
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-29 (screenshot, NIGHTLY 6c1a5ab): "alignmnet here is generally pretty bad". Holding Cmd drew
@@ -13,7 +14,7 @@ import Testing
 /// Every sidebar chip now ends on the rows' one trailing content edge (the trailing mark column's right edge,
 /// `horizontalInset` inside the drawn fill) and centers on its row; titlebar chips keep the traffic lights' own gap
 /// between each other, twice that after the lights, and center on the lights' line.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct ShortcutHintChipAlignmentTests {
     static let home = LayoutItemID("itm_chip_home")
     static let pinned = [LayoutItemID("itm_chip_p1"), LayoutItemID("itm_chip_p2")]

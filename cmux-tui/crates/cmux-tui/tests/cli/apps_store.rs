@@ -25,6 +25,8 @@ struct Apps {
     session: String,
     /// The daemon's `XDG_RUNTIME_DIR`; `None` runs it with none.
     runtime: Option<PathBuf>,
+    /// The daemon's customization folder (`CMUX_CUSTOMIZE_DIR`).
+    customize: PathBuf,
 }
 
 impl Apps {
@@ -43,7 +45,13 @@ impl Apps {
             out = dir.join("resolved.jsonl").display(),
         );
         write_script(&dir.join("app-host"), &host);
-        Self { socket: dir.join("mux.sock"), session: format!("as-{name}"), dir, runtime: None }
+        Self {
+            socket: dir.join("mux.sock"),
+            session: format!("as-{name}"),
+            customize: dir.join("customize"),
+            dir,
+            runtime: None,
+        }
     }
 
     fn command(&self, action: &str) -> Command {
@@ -57,7 +65,7 @@ impl Apps {
             .env("CMUX_APP_SERVER_DIR", self.dir.join("servers"))
             .env("CMUX_APPS_FIRST_PARTY_DIR", self.dir.join("first-party"))
             .env("CMUX_APPS_DIRS", self.dir.join("bundled"))
-            .env("CMUX_CUSTOMIZE_DIR", self.dir.join("customize"));
+            .env("CMUX_CUSTOMIZE_DIR", &self.customize);
         // Fake remote tools (`ssh`, `docker`, ...) a test puts in `<dir>/bin` come first.
         if self.dir.join("bin").is_dir() {
             let path = std::env::var_os("PATH").unwrap_or_default();
@@ -1065,51 +1073,61 @@ fn the_apps_page_reads_panels_and_changes_apps_only_for_the_person() {
     assert_eq!(error_code(&refused), "origin.forbidden", "{refused}");
 }
 
+/// Writes the customization app at `version` into the folder `dir`.
+fn write_customize(dir: &Path, version: &str) {
+    let (Some(root), Some(name)) = (dir.parent(), dir.file_name()) else {
+        panic!("{} has no parent", dir.display())
+    };
+    write_app(
+        root,
+        "local",
+        &name.to_string_lossy(),
+        json!({
+            "id": "local/customize",
+            "version": version,
+            "runtime": { "main": "main.js" },
+            "implements": { "cmux.hovercard/1": { "export": "renderCard" } },
+            "scopes": { "agent:read": "Shows what the hovered row's agent does." },
+        }),
+    );
+    std::fs::write(
+        dir.join("main.js"),
+        "globalThis.__cmuxAppExports = { renderCard: () => Text('hi') }\n",
+    )
+    .unwrap();
+}
+
+/// Waits (at most 20 s) until `local/customize` is listed at `version`;
+/// returns its entry.
+fn customize_listed(client: &mut Client, version: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let list = client.rpc(json!({ "cmd": "apps-list" }));
+        let found = list["data"]["apps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|app| app["id"] == "local/customize" && app["version"] == version)
+            .cloned();
+        if let Some(found) = found {
+            return found;
+        }
+        assert!(Instant::now() < deadline, "local/customize {version} never listed: {list}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// The user's customization folder (cx-swovq.1): its `local/customize` app
 /// installs itself with its required scopes, and a changed file reloads it
 /// with no restart and no command.
 #[test]
 fn the_customize_folder_installs_itself_and_reloads_when_it_changes() {
     let apps = Apps::new("customize");
-    let customize = |version: &str| {
-        write_app(
-            &apps.dir,
-            "local",
-            "customize",
-            json!({
-                "version": version,
-                "runtime": { "main": "main.js" },
-                "implements": { "cmux.hovercard/1": { "export": "renderCard" } },
-                "scopes": { "agent:read": "Shows what the hovered row's agent does." },
-            }),
-        );
-        std::fs::write(
-            apps.dir.join("customize/main.js"),
-            "globalThis.__cmuxAppExports = { renderCard: () => Text('hi') }\n",
-        )
-        .unwrap();
-    };
-    customize("1.0.0");
+    let customize = apps.dir.join("customize");
+    write_customize(&customize, "1.0.0");
     apps.start();
     let mut client = apps.agent();
-    let mut entry_at = |version: &str| {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        loop {
-            let list = client.rpc(json!({ "cmd": "apps-list" }));
-            let found = list["data"]["apps"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|app| app["id"] == "local/customize" && app["version"] == version)
-                .cloned();
-            if let Some(found) = found {
-                return found;
-            }
-            assert!(Instant::now() < deadline, "local/customize {version} never listed: {list}");
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    };
-    let first = entry_at("1.0.0");
+    let first = customize_listed(&mut client, "1.0.0");
     assert_eq!(first["installed"], true, "{first}");
     assert_eq!(first["enabled"], true, "{first}");
     assert!(
@@ -1117,9 +1135,51 @@ fn the_customize_folder_installs_itself_and_reloads_when_it_changes() {
         "its read scope is granted: {first}"
     );
     assert_eq!(first["sandboxed"], true, "it runs sandboxed as any unverified app: {first}");
-    customize("1.0.1");
-    let reloaded = entry_at("1.0.1");
+    write_customize(&customize, "1.0.1");
+    let reloaded = customize_listed(&mut client, "1.0.1");
     assert_eq!(reloaded["installed"], true, "still installed after the reload: {reloaded}");
+}
+
+/// A customization folder deleted and made again (a `git checkout`, an
+/// editor that saves a folder by replacing it, `rm -rf` then a copy) is
+/// watched again: a later save in the new folder reloads with no restart.
+/// On Linux the inotify watch went away with the old folder, and nothing
+/// watched the new one until the daemon restarted.
+#[test]
+fn the_customize_folder_reloads_after_it_is_deleted_and_made_again() {
+    let apps = Apps::new("customize-remade");
+    let customize = apps.dir.join("customize");
+    write_customize(&customize, "1.0.0");
+    apps.start();
+    let mut client = apps.agent();
+    customize_listed(&mut client, "1.0.0");
+    // Deleted, then made again in one step: a full copy renamed into place.
+    std::fs::remove_dir_all(&customize).unwrap();
+    let staged = apps.dir.join("customize.new");
+    write_customize(&staged, "1.0.1");
+    std::fs::rename(&staged, &customize).unwrap();
+    customize_listed(&mut client, "1.0.1");
+    // A save in the new folder.
+    write_customize(&customize, "1.0.2");
+    let saved = customize_listed(&mut client, "1.0.2");
+    assert_eq!(saved["installed"], true, "{saved}");
+}
+
+/// A customization folder whose parent is missing too when the daemon
+/// starts (no `~/.config/cmux` yet) is picked up once the user makes it,
+/// and a later save in it reloads. The watch went no higher than the
+/// folder's parent, so nothing watched for it until the daemon restarted.
+#[test]
+fn the_customize_folder_installs_when_its_missing_parent_is_made_later() {
+    let mut apps = Apps::new("customize-parent");
+    apps.customize = apps.dir.join("config/cmux/customize");
+    apps.start();
+    let mut client = apps.agent();
+    write_customize(&apps.customize, "1.0.0");
+    let first = customize_listed(&mut client, "1.0.0");
+    assert_eq!(first["installed"], true, "{first}");
+    write_customize(&apps.customize, "1.0.1");
+    customize_listed(&mut client, "1.0.1");
 }
 
 /// The documented template (docs/cmux-next/sidebar-customization) is a valid

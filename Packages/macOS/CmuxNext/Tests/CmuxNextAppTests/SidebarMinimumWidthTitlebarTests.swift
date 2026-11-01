@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// At the sidebar's narrowest width the titlebar row still fits every control side by side: the
@@ -9,7 +10,7 @@ import Testing
 /// Workspace). Lawrence 2026-10-30 (messages 17576, 17584): at the old 160 pt minimum Forward drew
 /// over the +; "not remove glyph but just make min width of sidebar bigger". A width saved below
 /// the new minimum (an existing user's) comes back clamped.
-@MainActor @Suite(.serialized) struct SidebarMinimumWidthTitlebarTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarMinimumWidthTitlebarTests {
     /// A window root in a titled, full-size-content window, as the app shows it.
     func root() -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared

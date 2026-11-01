@@ -58,6 +58,8 @@ FAILED = (
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
 )
+# Swift Testing emits type suites without quotes and custom suite names in quotes.
+SUITE_FAILED = re.compile(r'✘ Suite ("[^"]+"|\S+) (?:recorded an issue|failed)\b')
 # A failed test case read from an xcresult bundle (`xcresulttool get test-results tests`, as the iOS kit job prints
 # it): `FAILED: <scheme> / <target> / <suite> / <test>()`, named `<suite>.<test>()` like xcodebuild's own
 # `Failing tests:` list (`\t<suite>.<test>()` lines under it, up to a blank line).
@@ -99,6 +101,13 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
 SHELL_SIGNAL = re.compile(r"^(?:\S+: line \d+: +)?\d+ +(Killed|Terminated|Hangup|Interrupt|Quit|User defined signal \d)"
                           r"(?::? \d+)? +\S")
 SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Interrupt": "2", "Quit": "3"}
+# Such a report is a signal someone sent (a test that kills its own children, `timeout`), not a fault. It is a crash
+# only in a step that failed or never finished: a step that printed no error and was followed by the next step passed,
+# so a kill inside it is that test's own doing, not the job's red (2026-10-31: cmuxterm-hq's
+# scripts/test-reload-cloud-terminate-app.sh kills the children it starts and passes, and every red in its Fleet
+# tests job read as "the test process crashed (signal 9)"). A fault (`Segmentation fault`, a signal code from SwiftPM,
+# an exit status of 128 + N) is a crash wherever it is.
+STEP_ERROR = re.compile(r"^(?:##\[error\]|::error)")
 # Actions may preserve only the shell status when a process dies after printing its test summary.
 # A 128 + signal status is still an abnormal end; a complete summary cannot excuse it as a base red.
 # Match the runner annotation, never a test name or an assertion quoting the diagnostic.
@@ -218,6 +227,18 @@ def echoed(lines: list[str]) -> set[int]:
     return found
 
 
+def passed_steps(lines: list[str], skip: set[int] | None = None) -> set[int]:
+    """The indexes of LINES (log_lines) inside a step that passed: from a step's echo (echoed) to the next step's, with
+    no error line between. The last step (no step after it) never passed: it may be the one that died."""
+    skip = echoed(lines) if skip is None else skip
+    starts = [n for n in sorted(skip) if ECHO_START.match(lines[n])]
+    found: set[int] = set()
+    for start, end in zip(starts, starts[1:]):
+        if not any(STEP_ERROR.match(lines[n]) for n in range(start, end) if n not in skip):
+            found.update(range(start, end))
+    return found
+
+
 def log_lines(log: str) -> list[str]:
     """Every line of a job log with its timestamp and colours removed, the runner's step echoes included."""
     return [STAMP.sub("", ANSI.sub("", line)).rstrip() for line in log.splitlines()]
@@ -247,6 +268,8 @@ def failed_names(lines: list[str]) -> set[str]:
         for pattern in FAILED:
             if match := pattern.search(text):
                 found.add(match.group(1))
+        if match := SUITE_FAILED.search(text):
+            found.add(match.group(1).strip('"'))
         if match := XCRESULT_FAILED.match(text):
             found.add(f"{match.group(1)}.{match.group(2)}")
     return found
@@ -483,13 +506,17 @@ def read(log: str | None, bun: bool = True) -> Result:
     if log is None or not log.strip():
         result.truncated.append("its log could not be read" if log is None else "its log is empty")
         return result
-    lines = lines_of(log)
+    every = log_lines(log)
+    skip = echoed(every)
+    passed = passed_steps(every, skip)
+    kept = [n for n in range(len(every)) if n not in skip]
+    lines = [every[n] for n in kept]
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
     stack: list[str] = []
     signals: list[str] = []
     named: list[str] = []
     crashed = False
-    for text in lines:
+    for at, text in enumerate(lines):
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
         if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
@@ -507,7 +534,8 @@ def read(log: str | None, bun: bool = True) -> Result:
         if 1 <= signal_exit <= 64:
             crashed = True
             signals.append(str(signal_exit))
-        runtime = HELPER_KILLED.search(text) or SHELL_SIGNAL.search(text) or (
+        killed = SHELL_SIGNAL.search(text) and kept[at] not in passed
+        runtime = HELPER_KILLED.search(text) or killed or (
             (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
         if runtime:
             crashed = True
@@ -602,6 +630,27 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
         reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(said)[:600]}")
     return Verdict(bool(reasons), reasons, sorted(head.failed & seen - set(differ)))
 
+
+
+def classify_any(head_log: str | None, bases: list, job: str = "") -> Verdict | None:
+    """classify against several base logs (BASES: [(label, log)], newest first): a head failing test is the base's
+    when it fails the same way on any one of them (base_red_excuse.py's window). A crash or a cut-short head run is
+    the head's whatever the bases show, judged as classify judges it against the newest. shared names, for each test,
+    the first base it failed on: `name (label)`."""
+    verdicts = [(label, classify(head_log, log, job, label)) for label, log in bases] or [("", classify(head_log, None, job))]
+    first = verdicts[0][1]
+    head = read(head_log)
+    if first is None or len(verdicts) == 1 or head_log is None or head.crashes or head.truncated:
+        return first
+    on: dict = {}
+    for label, verdict in verdicts:
+        for name in verdict.shared:
+            on.setdefault(name, label)
+    new = sorted(head.failed - on.keys())
+    labels = ", ".join(label for label, _ in verdicts)
+    reasons = [f"{len(new)} failing test(s) pass, do not run or fail differently on each of {labels}: "
+               f"{'; '.join(new)[:600]}"] if new else []
+    return Verdict(bool(new), reasons, [f"{name} ({on[name]})" for name in sorted(on)])
 
 # The webview tests (scripts/ci/run-webviews-tests.sh, bun), judged per test across jobs. One test file runs in
 # a head shard (`react-apps-check (N)`) and, when red, is replayed on the merge parent by `react-apps-base-check (N)`,
@@ -811,6 +860,8 @@ GALLERY_KEYS = ("fresh", "known", "slow")
 GALLERY_CRASH = re.compile(r"\bcrash|Target (?:page, context or browser )?(?:has been )?closed|"
                            r"browser has (?:been )?(?:disconnected|closed)|\bsignal\b|\bSIG[A-Z]+\b", re.I)
 GALLERY_SLOW = "over its ready-time budget"
+# A state past its layout-shift baseline (shift-baseline.ts); older checkers wrote no `shifted` list.
+GALLERY_SHIFT = "past its layout-shift baseline"
 
 
 def gallery_read(text: str | None, keep_known: bool = False) -> Result:
@@ -844,6 +895,11 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
         result.failed.add(f"{state}: {re.sub(r'[0-9]+', '#', reason)}")
     for item in found["slow"]:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
+    for item in found.get("shifted") or []:
+        result.failed.add(f"{item.get('state', '')}: {GALLERY_SHIFT}")
+    for item in found.get("geometry") or []:
+        for violation in item.get("violations") or []:
+            result.failed.add(f"{item.get('state', '')}: breaks {violation.get('key', '')}")
     return result
 
 
