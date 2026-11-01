@@ -127,6 +127,8 @@ extension CloudHandlers {
             guard let publicKey = invocation["publicKey"]?.stringValue, !publicKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw ActionFailure(message: CloudStrings.publicKeyRequired)
             }
+            // A Worker machine (the app server link) has no `/api/vm` scp endpoint.
+            guard cloud.configuration.linkSource != .appServer else { throw operationUnavailable }
             answer("prepare Cloud file transfer", invocation, context) {
                 let endpoint = try await cloud.api.prepareSCP(session.machineID, publicKey: publicKey)
                 let body = ["host: \(endpoint.host)", "port: \(endpoint.port)", "user: \(endpoint.username)",
@@ -246,7 +248,11 @@ extension CloudHandlers {
                registry.ask("cloudResizeMachine", invocation, ActionArgumentAsk(argument: "size")) { return }
             let request = try CloudResizeRequest(invocation), fields = machineFields(session.machineID, request.fields)
             result("resize machine", context, pendingAfter: machineAnswerWait, pending: fields) {
-                try await cloud.api.resize(session.machineID, cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
+                if cloud.configuration.linkSource == .appServer {
+                    try await cloud.appServerResize(session.machineID, cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
+                } else {
+                    try await cloud.api.resize(session.machineID, cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
+                }
                 return fields
             }
         }
@@ -319,7 +325,8 @@ extension CloudHandlers {
         bind("palette.cloud.handoff", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             answer("hand off machine", invocation, context) {
-                let live = try await cloud.api.machine(session.machineID)
+                let live = cloud.configuration.linkSource == .appServer
+                    ? try await cloud.appServerMachine(session.machineID) : try await cloud.api.machine(session.machineID)
                 return CloudAnswer(title: CloudStrings.handoffTitle, text: handoff(live),
                                    fields: ["machine_id": .string(live.id), "status": .string(live.status.rawValue)])
             }
@@ -327,9 +334,10 @@ extension CloudHandlers {
         bind("palette.cloud.snapshot", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.snapshot) else { throw operationUnavailable }
             answer("snapshot machine", invocation, context, pendingAfter: snapshotAnswerWait, pending: ["machine_id": .string(session.machineID)]) {
-                let snapshot = try await cloud.api.snapshot(session.machineID, name: nil)
-                return CloudAnswer(title: CloudStrings.snapshotTitle, text: CloudStrings.snapshotBody(snapshot.id),
-                                   fields: ["machine_id": .string(session.machineID), "snapshot_id": .string(snapshot.id)])
+                let snapshot = cloud.configuration.linkSource == .appServer
+                    ? try await cloud.appServerSnapshot(session.machineID, name: nil) : try await cloud.api.snapshot(session.machineID, name: nil).id
+                return CloudAnswer(title: CloudStrings.snapshotTitle, text: CloudStrings.snapshotBody(snapshot),
+                                   fields: ["machine_id": .string(session.machineID), "snapshot_id": .string(snapshot)])
             }
         }
         bind("palette.cloud.deleteSnapshot", registry, reason: reason) { invocation in
@@ -338,7 +346,11 @@ extension CloudHandlers {
                 throw ActionFailure(message: CloudStrings.snapshotRequired)
             }
             runTracked("delete snapshot", context) {
-                try await cloud.api.deleteSnapshot(session.machineID, snapshotID: snapshot)
+                if cloud.configuration.linkSource == .appServer {
+                    try await cloud.appServerDeleteSnapshot(snapshot)
+                } else {
+                    try await cloud.api.deleteSnapshot(session.machineID, snapshotID: snapshot)
+                }
                 await cloud.refresh()
             }
         }
@@ -347,17 +359,20 @@ extension CloudHandlers {
         bind("palette.cloud.promoteTemplate", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.snapshot) else { throw operationUnavailable }
             answer("promote machine to template", invocation, context, pendingAfter: snapshotAnswerWait, pending: ["machine_id": .string(session.machineID)]) {
-                let snapshot = try await cloud.api.snapshot(session.machineID, name: templateName(session.machineID, at: Date()))
-                return CloudAnswer(title: CloudStrings.templateTitle, text: CloudStrings.templateBody(snapshot.id),
-                                   fields: ["machine_id": .string(session.machineID), "snapshot_id": .string(snapshot.id)])
+                let name = templateName(session.machineID, at: Date())
+                let snapshot = cloud.configuration.linkSource == .appServer
+                    ? try await cloud.appServerSnapshot(session.machineID, name: name) : try await cloud.api.snapshot(session.machineID, name: name).id
+                return CloudAnswer(title: CloudStrings.templateTitle, text: CloudStrings.templateBody(snapshot),
+                                   fields: ["machine_id": .string(session.machineID), "snapshot_id": .string(snapshot)])
             }
         }
         bind("palette.cloud.restore", registry, reason: reason) { invocation in
             guard let snapshot = invocation["snapshot"]?.stringValue, !snapshot.isEmpty else { throw ActionFailure(message: CloudStrings.snapshotRequired) }
             result("restore machine", context, pendingAfter: machineAnswerWait, pending: ["snapshot_id": .string(snapshot)]) {
-                let restored = try await cloud.api.restore(snapshotID: snapshot)
+                let restored = cloud.configuration.linkSource == .appServer
+                    ? try await cloud.appServerRestore(snapshotID: snapshot) : try await cloud.api.restore(snapshotID: snapshot).id
                 await cloud.refresh()
-                return machineFields(restored.id, ["snapshot_id": .string(snapshot)])
+                return machineFields(restored, ["snapshot_id": .string(snapshot)])
             }
         }
         bind("palette.cloud.fork", registry, reason: reason) { invocation in
