@@ -37,7 +37,7 @@ import Testing
 
 @MainActor @Suite(.serialized, .closesItsWindows) struct CaptureBackdropSnapshotTests {
     /// Whether AppKit can put a window on screen here (a worker at the login window cannot).
-    static func hostShowsWindows() -> Bool {
+    static func hostShowsWindows() async -> Bool {
         _ = NSApplication.shared
         let requireDisplay = ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"]
             .contains { ProcessInfo.processInfo.environment[$0] == "1" }
@@ -46,11 +46,16 @@ import Testing
         probe.isReleasedWhenClosed = false
         defer { probe.close() }
         probe.orderFrontRegardless()
-        CATransaction.flush()
-        // A visible window is not enough on a worker without a composited window-server image.
-        // Display coverage is advisory on the default path, but an explicitly routed display
-        // run must still exercise the capture and report a real failure.
-        return requireDisplay || (probe.isVisible && probe.windowNumber > 0 && probe.compositedSnapshotWithOverlays() != nil)
+        guard probe.isVisible && probe.windowNumber > 0 else { return requireDisplay }
+        // The first window-server frame can arrive after orderFrontRegardless. Give a healthy
+        // display a short bounded settle before treating capture as unavailable.
+        for _ in 0..<10 {
+            CATransaction.flush()
+            if probe.compositedSnapshotWithOverlays() != nil { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        // Explicit display runs must still exercise the capture and report a real failure.
+        return requireDisplay
     }
 
     private static func translucent(_ frame: NSRect) -> NSWindow {
