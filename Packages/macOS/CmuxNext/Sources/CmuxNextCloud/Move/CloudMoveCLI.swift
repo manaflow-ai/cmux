@@ -62,10 +62,11 @@ public nonisolated struct CloudMoveCLI: Sendable {
         try await run(["link", "seed", "push", "--socket", socket, local, remote])
     }
 
-    /// `cmux link sync pull`: merges the machine's `remote` (what a push left there) back into
-    /// `local`; a conflict changes nothing here and lists its paths.
-    public func syncPull(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["link", "sync", "pull", "--socket", socket, local, remote])
+    /// `cmux link seed pull --or-copy` (Bring Back Local): brings the machine's `remote` back into
+    /// `local`, a seeded git project as the seed's diff and a copied folder as `link sync pull`
+    /// merges it (the CLI picks); a conflict changes nothing here and lists its paths.
+    public func bringBackPull(socket: String, local: String, remote: String) async throws -> Answer {
+        try await run(["link", "seed", "pull", "--socket", socket, local, remote, "--or-copy"])
     }
 
     /// The folder copy a move makes once the chat is frozen (`--sync`): what changed since the
