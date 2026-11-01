@@ -609,6 +609,9 @@ pub(super) fn setup_state(environment: &Value, snapshot: bool) -> Option<Value> 
         Some("failed") => {
             setup.insert("state".into(), json!("failed"));
             setup.insert("status".into(), json!("failed"));
+            if let Some(detail) = install.get("detail").and_then(Value::as_str) {
+                setup.insert("error".into(), json!(detail));
+            }
         }
         Some("skipped") | None => return None,
         Some(_) => return None,
@@ -617,9 +620,6 @@ pub(super) fn setup_state(environment: &Value, snapshot: bool) -> Option<Value> 
         if let Some(value) = install.get(source).filter(|value| value.is_number()) {
             setup.insert(target.into(), value.clone());
         }
-    }
-    if let Some(detail) = install.get("detail").and_then(Value::as_str) {
-        setup.insert("error".into(), json!(detail));
     }
     Some(Value::Object(setup))
 }
@@ -655,11 +655,15 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
                     if let Some(environment) = body.get("environment")
                         && let Some(environment_id) = environment.get("id").and_then(Value::as_str)
                     {
-                        line["environment_id"] = json!(environment_id);
+                        if let Some(object) = line.as_object_mut() {
+                            object.insert("environment_id".into(), json!(environment_id));
+                        }
                         if let Some(setup) = body.get("setup").cloned().or_else(|| {
                             setup_state(environment, has_snapshot(body.get("snapshot")))
                         }) {
-                            line["setup"] = setup;
+                            if let Some(object) = line.as_object_mut() {
+                                object.insert("setup".into(), setup);
+                            }
                         }
                     }
                     line
