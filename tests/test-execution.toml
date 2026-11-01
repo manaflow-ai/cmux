@@ -2260,6 +2260,10 @@ path = "tests/test_ci_blacksmith_linux_failover.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_blacksmith_linux_sizes.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_artifacts_linux_runner_set.py"
 lane = "linux-guard"
 
