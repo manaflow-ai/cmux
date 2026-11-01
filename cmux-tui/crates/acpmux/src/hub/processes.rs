@@ -653,10 +653,7 @@ mod process_list_snapshot_tests {
         let snapshot = table.lock().unwrap().snapshot();
         let rows = process_values(snapshot, |path| {
             assert_eq!(path, "/tmp/task-output");
-            assert!(
-                table.try_lock().is_ok(),
-                "filesystem metadata read under process-table lock"
-            );
+            assert!(table.try_lock().is_ok(), "filesystem metadata read under process-table lock");
             42
         });
         assert_eq!(rows.len(), 1);
