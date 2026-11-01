@@ -8462,6 +8462,12 @@ function AcpmuxPane() {
             restorePrompt(String(text ?? ""), []);
             composerHandle.current?.focus();
           },
+          // Quote in Reply appends the rendered quote after the existing draft and leaves the
+          // caret in the trailing paragraph, so native message-menu actions use the composer
+          // insertion path rather than restoring the prompt before the draft.
+          "chat.quoteReply": async ({ markdown }) => {
+            composerHandle.current?.quoteReply(String(markdown ?? ""));
+          },
           "chat.history": () => client.loadOlder(),
           // Find in Chat (the app's Find commands on an agent pane).
           "chat.find": async ({ text }) => findRef.current?.show(typeof text === "string" ? text : undefined),
