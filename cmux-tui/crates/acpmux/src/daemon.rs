@@ -432,8 +432,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The agent message runaway guard (`hub/agent_pairs.rs`): `ACPMUX_AGENT_PAIR_GUARD=0` turns
     // it off; `ACPMUX_AGENT_PAIR_{ALTERNATIONS,REPEATS,SIMILARITY,MAX_MESSAGES,WINDOW_SECS}` tune it.
     hub.set_agent_pair_guard(crate::hub::PairGuard::from_env(|k| std::env::var(k).ok()));
-    let agent_hosts = !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0");
-    if agent_hosts {
+    if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
     hub.begin_startup(login_env);
@@ -536,7 +535,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // read before the ready line.
     // A memory store without agent hosts loses every chat on a stop, so a NIGHTLY or Release
     // daemon then never stops for its app (as `AcpmuxVersionHandoff` never restarts one).
-    let app_orphan = app_orphan::watch(agent_hosts || !memory_store);
+    let app_orphan = app_orphan::watch(keeps_chats_across_stop(&hub, memory_store));
     // Before the ready line: a launcher may remove the home as soon as it reads it
     // (`daemon/home_watch.rs`). Its own task, so it keeps watching through a shutdown that began
     // on a signal: a home replaced while the agents drain is still marked lost before their last
@@ -1844,6 +1843,41 @@ pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
         Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
         _ if shared_home => SHARED,
         _ => ANY,
+    }
+}
+
+/// Whether a stop keeps this daemon's chats: agents under agent hosts (as the hub runs them,
+/// never for a memory store, whatever `ACPMUX_AGENT_HOSTS` says), or chats on disk. The
+/// app-orphan watch never stops a NIGHTLY or Release daemon without it.
+fn keeps_chats_across_stop(hub: &Hub, memory_store: bool) -> bool {
+    hub.agent_hosts_enabled() || !memory_store
+}
+
+#[cfg(test)]
+mod keeps_chats_tests {
+    use super::*;
+    use crate::config::StoreMode;
+
+    fn hub(mode: StoreMode, dir: &std::path::Path) -> std::sync::Arc<Hub> {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = mode;
+        let store = crate::store::open(&cfg.store, dir).unwrap();
+        let hub = Hub::new(cfg, store);
+        // What `run` does with the default environment (no `ACPMUX_AGENT_HOSTS=0`).
+        hub.enable_agent_hosts();
+        hub
+    }
+
+    #[test]
+    fn a_memory_daemon_with_the_default_env_keeps_no_chats_across_a_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        // `--memory`, default env: agent hosts asked for, but a memory store never runs them,
+        // so the app-orphan watch must never stop it (its chats would be lost).
+        let memory = hub(StoreMode::Memory, dir.path());
+        assert!(!memory.agent_hosts_enabled());
+        assert!(!keeps_chats_across_stop(&memory, true));
+        let local = hub(StoreMode::Local, dir.path());
+        assert!(keeps_chats_across_stop(&local, false));
     }
 }
 
