@@ -9,11 +9,12 @@ export interface SiteGroup {
 }
 
 /**
- * Lowercase for matching. `İ` lowercases to `i` plus a combining dot, which no plain `i` query
- * matches, so it folds to `i` first.
+ * Lowercase for matching. `İ` lowercases to `i` plus a combining dot above (U+0307), the same
+ * letters a decomposed `I` + U+0307 gives, and no plain `i` query matches either. Both forms fold
+ * to `i`.
  */
 function fold(text: string): string {
-  return text.replace(/\u0130/g, "i").toLowerCase();
+  return text.replace(/\u0130/g, "i").toLowerCase().replace(/i\u0307/g, "i");
 }
 
 /** Folded tokens of a query; every token must match. */

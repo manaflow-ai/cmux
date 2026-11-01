@@ -29,6 +29,15 @@ test("a plain i query finds a username or site written with İ, and İ finds i",
   expect(filterPasswords(rows, "bob").map((row) => row.id)).toEqual(["3"]);
 });
 
+test("a decomposed dotted i (i + U+0307, I + U+0307) matches in both directions", () => {
+  const rows = [password("1", "example.com", "I\u0307stanbul"), password("2", "example.com", "Ankara")];
+  expect(filterPasswords(rows, "İstanbul").map((row) => row.id)).toEqual(["1"]);
+  expect(filterPasswords(rows, "istanbul").map((row) => row.id)).toEqual(["1"]);
+  const precomposed = [password("3", "example.com", "İstanbul")];
+  expect(filterPasswords(precomposed, "i\u0307stanbul").map((row) => row.id)).toEqual(["3"]);
+  expect(filterPasswords(precomposed, "I\u0307STANBUL").map((row) => row.id)).toEqual(["3"]);
+});
+
 test("passkeys and exceptions fold İ the same way", () => {
   const passkeys: SavedPasskey[] = [{ id: "p", rp_id: "example.com", user_name: "İpek", user_display_name: "" }];
   const exceptions: PasswordException[] = [{ id: "e", site: "İstanbul.example" }];
