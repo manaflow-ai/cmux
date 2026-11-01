@@ -118,7 +118,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         type Debug = { loadSeed(turns: number): Promise<unknown> };
         const view = ctx.document.defaultView as unknown as { cmuxAcpmuxDebug?: Debug };
-        await ctx.waitFor(() => view.cmuxAcpmuxDebug);
+        await ctx.waitFor(() => view.cmuxAcpmuxDebug !== undefined);
         // The debug socket's load_seed: a long chat recorded in the mock daemon and opened through
         // the real client, so it pages in as a chat on acpmux does (mockPaging.test.ts). It
         // resolves once the open has settled; the wait is measured for shift with the open.
