@@ -9337,7 +9337,11 @@ an agent or an MCP server, and every unknown param is
 `agent_session.unavailable` (no acpmux), `agent_session.not_attached`,
 `agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
 flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
-(acpmux refused), `agent_session.unknown_permission`,
+(acpmux refused), `agent_session.bad_list` (acpmux's session list could not be
+read whole: a bad or repeated cursor, a page with no `sessions`, or a page after
+the first that failed; an attach whose watch list does so is refused, and
+attaches again),
+`agent_session.unknown_permission`,
 `agent_session.read_only` (a mutation sent to an observation attachment),
 `agent_session.mode_conflict` (an `agent-session-attach` or
 `agent-session-observe` for a surface this connection already has attached in
@@ -9543,9 +9547,11 @@ peer, preset or MCP server param; `model` is only accepted with the additive
 `agent_session.bad_request`. The machine kind decides first, read again at
 each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
 cmux-host writes at a team enroll, or the team files root `/srv/team`,
-root:`cmux-ssh`) answers `agent_session.team_vm_blocked`; Macs and SSH hosts
-go on; any other Cloud VM goes on only with `vm_kind: "owner"` and otherwise
-answers `agent_session.host_unverified`. `vm_kind`
+root:`cmux-ssh`) goes on only with `vm_kind: "owner"` (the Cloud API gives
+that answer to the machine's creator alone) and otherwise answers
+`agent_session.team_vm_blocked`; Macs and SSH hosts go on; any other Cloud VM
+goes on only with `vm_kind: "owner"` and otherwise answers
+`agent_session.host_unverified`. `vm_kind`
 (`agent-session-start-vm-kind-v1`) is the Cloud API's `vmKind` for the
 caller, as the caller read it on its link to this machine (attach-endpoint);
 only the exact string `owner` counts. Any other value says the caller knows
@@ -9928,7 +9934,8 @@ knows the method is used as it is, so an apply never moves acpmux to an
 older build. The update call waits 15 minutes per named id plus a margin,
 at most two hours. One apply runs at a time per daemon
 (`agent_update.busy`); `agent_update.timeout` and `agent_update.refused`
-report an acpmux that did not answer or refused.
+report an acpmux that did not answer or refused, and `agent_update.bad_list`
+one whose session list could not be read whole.
 
 ## Agent chat transfer
 
@@ -9979,8 +9986,9 @@ receives are kept, checked before acpmux makes one.
 Machine kind: receive and finish read this machine's kind at each call, as
 `agent-session-start` does, each with its own `vm_kind`
 (`agent-transfer-vm-kind-v1`, only `owner` counts), and answer
-`agent_session.team_vm_blocked` on a team VM and
-`agent_session.host_unverified` on a Cloud VM without the caller's
+`agent_session.team_vm_blocked` on a team VM without the caller's
+`vm_kind: "owner"` and
+`agent_session.host_unverified` on any other Cloud VM without the caller's
 `vm_kind: "owner"` (its own `owner` record never counts) or on a daemon never
 told its kind. `cmux link agent move --vm-kind KIND` (the caller says the
 target is a Cloud machine) sends it to a daemon that serves it; to an older

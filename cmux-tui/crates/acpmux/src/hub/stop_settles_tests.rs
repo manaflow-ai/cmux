@@ -18,6 +18,9 @@ async fn chat(fails_over: bool) -> (Arc<Hub>, Arc<Session>) {
     let mut cfg =
         json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
     if fails_over {
+        // A sign-in failure fails over; a usage limit waits for its reset (`auto_resume.rs`).
+        cfg["harnesses"]["fake"]["argv"] =
+            json!(["/usr/bin/env", "FAKE_AUTH_FAIL=1", "python3", fake]);
         cfg["harnesses"]["fake"]["fallback"] = json!("fake-fallback");
         let fallback = ["/usr/bin/env", "FAKE_FALLBACK=1", "python3", fake];
         cfg["harnesses"]["fake-fallback"] = json!({"argv": fallback});
@@ -112,7 +115,7 @@ async fn a_stop_during_a_failover_keeps_the_prompt_from_the_fallback() {
     let (hub, s) = chat(true).await;
     let run = prompt(&hub, &s, "slow-limit");
     record(&hub, &s, "out", "session/prompt", |_| true).await;
-    // The first agent answers its usage limit in a second; its fallback's start waits here.
+    // The first agent answers a sign-in failure in a second; its fallback's start waits here.
     let spawning = s.spawn_lock.lock().await;
     record(&hub, &s, "mux", "failover", |_| true).await;
     // The failover lets the first agent go and puts the turn back (`detach_child`).

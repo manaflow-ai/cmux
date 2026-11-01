@@ -31,6 +31,9 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     /// The daemon's launch snapshot file (`launch-snapshot-v1`), read by the
     /// next launch before it connects (`LaunchSnapshot`).
     public var launchSnapshotPath: String?
+    /// The absolute path of the binary that serves the socket (`daemon-build-v1`, cmux-tui
+    /// `server/daemon_build.rs`); nil on older daemons.
+    public var cliPath: String?
 
     public func supports(_ capability: String) -> Bool { capabilitySet.contains(capability) }
 
@@ -62,7 +65,8 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         machineName: String? = nil,
         generation: DaemonGeneration,
         workspaceRevision: UInt64 = 0,
-        lifecycleReady: Bool = true
+        lifecycleReady: Bool = true,
+        cliPath: String? = nil
     ) {
         self.app = app
         self.version = version
@@ -82,6 +86,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         self.generation = generation
         self.workspaceRevision = workspaceRevision
         self.lifecycleReady = lifecycleReady
+        self.cliPath = cliPath
     }
 
     enum CodingKeys: String, CodingKey {
@@ -98,6 +103,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         case workspaceRevision = "workspace_revision"
         case lifecycleReady = "lifecycle_ready"
         case launchSnapshotPath = "launch_snapshot_path"
+        case cliPath = "cli_path"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -123,6 +129,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         workspaceRevision = try c.decodeIfPresent(UInt64.self, forKey: .workspaceRevision) ?? 0
         lifecycleReady = try c.decodeIfPresent(Bool.self, forKey: .lifecycleReady) ?? true
         launchSnapshotPath = try? c.decodeIfPresent(String.self, forKey: .launchSnapshotPath)
+        cliPath = (try? c.decodeIfPresent(String.self, forKey: .cliPath)).flatMap { $0 }.flatMap { $0.hasPrefix("/") ? $0 : nil }
     }
 }
 
