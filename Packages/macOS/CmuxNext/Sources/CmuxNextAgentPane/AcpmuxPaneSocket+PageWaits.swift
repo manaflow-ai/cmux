@@ -14,6 +14,10 @@ extension AcpmuxPaneSocket {
     /// markers are enough for pacing decisions; the observer notifications are parsed before this
     /// path and use the object overload below. A false positive only wakes a hidden page sooner.
     nonisolated static func pageWaits(on text: String) -> Bool {
+        // A daemon request carries an id and must reach a hidden page promptly, just like a
+        // reply. Opaque stream notifications normally have no top-level id; a nested id can only
+        // cause an earlier wake, never a lost frame.
+        if text.contains("\"id\"") { return true }
         guard text.contains("\"method\"") else { return false }
         if text.contains("\"_acpmux/prompt_accepted\"") || text.contains("\"session/request_permission\"") {
             return true
