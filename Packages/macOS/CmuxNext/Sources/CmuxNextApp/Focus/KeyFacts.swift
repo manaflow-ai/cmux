@@ -8,6 +8,8 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     var hasMarkedText = false
     /// The focused terminal is in copy mode.
     var terminalCopyMode = false
+    /// The focused terminal is using Ghostty's alternate screen.
+    var terminalAlternateScreen = false
     /// The focused screen has a primary input and none of its text
     /// fields has the keyboard (`PrimaryInputTarget`).
     var primaryInputReady = false
