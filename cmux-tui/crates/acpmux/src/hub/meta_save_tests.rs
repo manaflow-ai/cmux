@@ -289,3 +289,102 @@ async fn a_move_commit_answers_only_once_moved_to_is_on_disk() {
     assert!(moved_at_answer, "transfer_commit answered committed before movedTo was on disk");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A request that changed nothing, retried after a failed commit, commits again instead of
+/// failing until some other change comes (a sticky barrier error). Review follow-up of #29311.
+#[test]
+fn a_no_op_after_a_failed_commit_commits_again() {
+    let writer = MetaWriter::default();
+    let disk = Disk::default();
+    disk.set(1);
+    assert!(writer.commit(Wait::Durable, &|| anyhow::bail!("disk full")).is_err());
+    writer.barrier(&|| disk.write()).expect("the retried no-op commits again");
+    assert_eq!(disk.written(), vec![1]);
+}
+
+/// A writer whose write panics still commits the changes nobody waits for that came during it,
+/// and the panic still reaches its own caller. Review follow-up of #29311.
+#[test]
+fn a_writer_that_panics_still_commits_a_newer_change() {
+    let writer = Arc::new(MetaWriter::default());
+    let disk = Arc::new(Disk::default());
+    let (copied_tx, copied) = mpsc::channel::<()>();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let a = {
+        let (writer, disk) = (writer.clone(), disk.clone());
+        std::thread::spawn(move || {
+            let first = AtomicBool::new(true);
+            disk.set(1);
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                writer.commit(Wait::Durable, &|| {
+                    if first.swap(false, Ordering::SeqCst) {
+                        copied_tx.send(()).unwrap();
+                        release_rx.recv().unwrap();
+                        panic!("write panics");
+                    }
+                    disk.write()
+                })
+            }))
+        })
+    };
+    copied.recv().unwrap();
+    disk.set(2);
+    // Returns at once: A is the writer.
+    writer.commit(Wait::No, &|| panic!("only the writer at work writes")).unwrap();
+    release.send(()).unwrap();
+    assert!(a.join().unwrap().is_err(), "the panic did not reach the writer's own caller");
+    assert_eq!(disk.written(), vec![2], "the change that came during the panic was never written");
+    assert!(!writer.state.lock().unwrap().writing);
+}
+
+/// The writer answers its own request after the first commit that holds it, and hands the
+/// next commit to a request that waits for one, so no request waits for more than the commit
+/// under way and its own. Review follow-up of #29311.
+#[test]
+fn the_writer_answers_its_own_request_after_its_first_commit() {
+    let writer = Arc::new(MetaWriter::default());
+    let log = Arc::new(Mutex::new(Vec::<(&str, u32)>::new()));
+    let value = Arc::new(Mutex::new(0u32));
+    let (copied_tx, copied) = mpsc::channel::<()>();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let a = {
+        let (writer, log, value) = (writer.clone(), log.clone(), value.clone());
+        std::thread::spawn(move || {
+            let first = AtomicBool::new(true);
+            *value.lock().unwrap() = 1;
+            writer.commit(Wait::Durable, &|| {
+                let copy = *value.lock().unwrap();
+                if first.swap(false, Ordering::SeqCst) {
+                    copied_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                }
+                log.lock().unwrap().push(("a", copy));
+                Ok(())
+            })
+        })
+    };
+    copied.recv().unwrap();
+    let b = {
+        let (writer, log, value) = (writer.clone(), log.clone(), value.clone());
+        std::thread::spawn(move || {
+            *value.lock().unwrap() = 2;
+            writer.commit(Wait::Durable, &|| {
+                let copy = *value.lock().unwrap();
+                log.lock().unwrap().push(("b", copy));
+                Ok(())
+            })
+        })
+    };
+    // B took its version and waits (both under one hold of the state lock).
+    while requested(&writer) < 2 {
+        std::thread::yield_now();
+    }
+    release.send(()).unwrap();
+    a.join().unwrap().unwrap();
+    b.join().unwrap().unwrap();
+    assert_eq!(
+        *log.lock().unwrap(),
+        vec![("a", 1), ("b", 2)],
+        "the writer served B's commit before it answered its own request"
+    );
+}

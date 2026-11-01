@@ -46,8 +46,6 @@ mod drafts;
 mod full_access_guards;
 #[path = "hub_integration/held_queue.rs"]
 mod held_queue;
-#[path = "hub_integration/queue_admission.rs"]
-mod queue_admission;
 #[path = "hub_integration/inbox_digest.rs"]
 mod inbox_digest;
 #[path = "hub_integration/lanes.rs"]
@@ -80,6 +78,8 @@ mod protocol_serve;
 mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/queue_admission.rs"]
+mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
 #[path = "hub_integration/run_parent.rs"]

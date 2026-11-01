@@ -203,7 +203,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Link a session to a tracker bead", "acpmux bead link fix-27310 cx-cus7j"),
             (
-                "Link a peer's session to two beads",
+                "Link another machine's session to two beads",
                 "acpmux bead link mini-3/review-27 cx-cus7j cx-ncc.112",
             ),
         ],

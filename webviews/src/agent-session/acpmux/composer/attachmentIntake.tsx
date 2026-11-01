@@ -31,6 +31,7 @@ import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb, keepThumb } from "./imagePool";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
+import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
 import { SourceBadge, useSourceLabel, withSourceLabel } from "./SourceBadge";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
@@ -654,7 +655,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
-      if (live.current.options.locked?.()) return;
+      if (live.current.options.locked?.() || pastesPlaced.has(event)) return;
       const owned = live.current.options.pasteTarget(event.target as Node);
       if (!owned) return;
       const pasted = filesFrom(event.clipboardData);
@@ -834,8 +835,11 @@ export function AttachmentStrip({
   onRetry,
   onReorder,
   originalFailures,
+  selected = false,
 }: {
   attachments: readonly ComposerAttachment[];
+  /// The prompt's whole draft is selected (Select All): the chips are in it, and show so.
+  selected?: boolean;
   /// Why a staged image's original failed to upload, by chip id (useAttachmentIntake): its chip
   /// shows Retry (`onRetry`) while its preview still sends.
   originalFailures?: Readonly<Record<string, string>>;
@@ -898,6 +902,7 @@ export function AttachmentStrip({
     <fieldset
       ref={stripRef}
       className="acpmux-attachments"
+      data-selected={selected ? "" : undefined}
       data-reorder={onReorder && attachments.length > 1 ? "" : undefined}
       aria-describedby={onReorder && attachments.length > 1 ? hint : undefined}
       aria-label={t(ATTACHMENT_LABELS.attachments)}

@@ -120,6 +120,9 @@ pub(crate) fn harness_command(
         &mut cmd,
         if remote_environment { None } else { family },
     );
+    if !remote_environment {
+        crate::login_env::restore_machine_tokio(&mut cmd);
+    }
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -139,6 +142,9 @@ pub(crate) fn harness_command(
     // Chief turn's shell) is not the agent's: a harness passes its env to
     // its MCP servers. A turn's preset puts its own value back (`envs`).
     cmd.env_remove(crate::agent_tools::MCP_TOOLS_ENV);
+    // The app the daemon follows is not the agent's: a daemon its commands start must not
+    // follow it too (`daemon/owner_exit.rs`).
+    cmd.env_remove(crate::daemon::owner_exit::OWNER_APP_PID_ENV);
     cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
@@ -317,7 +323,7 @@ fn resolved_profile_env(
     let resolve = |env: &mut std::collections::BTreeMap<String, String>| {
         crate::config::profiles::resolve_env_refs(
             env,
-            &|var| crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok()),
+            &crate::login_env::reference_var,
             &crate::config::profiles::keychain_lookup,
         )
     };
