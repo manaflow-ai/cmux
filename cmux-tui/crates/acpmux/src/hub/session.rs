@@ -20,6 +20,31 @@ pub(super) struct PreparedTurn {
     pub(super) abandoned: bool,
     pub(super) attempt_id: String,
     pub(super) generation: u64,
+    pub(super) connection_id: String,
+}
+
+/// Dropping a waiting prepare future (deadline, cancel, disconnect) releases only that attempt.
+/// Once ready is returned, the caller owns explicit abandonment; snapshot latency is unbounded.
+struct PreparationWait<'a> {
+    session: &'a Session,
+    prompt: &'a str,
+    generation: u64,
+    attempt: &'a str,
+    connection: &'a str,
+    ready: bool,
+}
+
+impl Drop for PreparationWait<'_> {
+    fn drop(&mut self) {
+        if !self.ready {
+            self.session.abandon_prepared(
+                self.prompt,
+                self.generation,
+                self.attempt,
+                self.connection,
+            );
+        }
+    }
 }
 
 pub struct Session {
@@ -303,26 +328,61 @@ impl Session {
         self.queue_moved.notified().await;
     }
 
-    pub(crate) async fn prepare_turn(&self, prompt_id: &str, generation: Option<u64>, attempt_id: &str) -> anyhow::Result<(String, bool, bool, u64, String)> {
-        let requested_generation = generation;
-        if let Some(generation) = generation {
+    /// Call only after backend preparation authorization for this exact scope succeeds.
+    /// `prepared` is also the generation lock; no cloud generation writer may bypass it.
+    pub(crate) async fn prepare_turn(
+        &self,
+        prompt_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: &str,
+    ) -> anyhow::Result<(String, bool, bool, u64, String)> {
+        anyhow::ensure!(
+            !prompt_id.is_empty() && !attempt_id.is_empty() && !connection_id.is_empty(),
+            "preparation identity is empty"
+        );
+        {
+            let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
             let current = self.cloud_generation.load(Ordering::SeqCst);
             anyhow::ensure!(generation >= current, "cloud generation is stale");
             if generation > current {
-                anyhow::ensure!(self.turn().is_none(), "cannot replace generation during active turn");
+                // A prompt can hold turn_lock before `turn` is populated. Refuse that handoff
+                // too; restoring a generation must never silently replace an active harness.
+                let _idle = self.turn_lock.try_lock().map_err(|_| {
+                    anyhow::anyhow!("cannot replace generation during prompt handoff")
+                })?;
+                anyhow::ensure!(
+                    self.turn().is_none() && !self.harness_turn.load(Ordering::SeqCst),
+                    "cannot replace generation during active turn"
+                );
                 self.cloud_generation.store(generation, Ordering::SeqCst);
-                self.prepared.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                pending.clear();
                 self.prepared_done.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                self.queue_moved.notify_waiters();
             }
         }
+        let mut wait = PreparationWait {
+            session: self,
+            prompt: prompt_id,
+            generation,
+            attempt: attempt_id,
+            connection: connection_id,
+            ready: false,
+        };
+        let mut registered = false;
         loop {
-            if let Some(expected) = requested_generation {
-                let current = self.cloud_generation.load(Ordering::SeqCst);
-                anyhow::ensure!(current == expected, "cloud generation changed while preparing turn");
-            }
             let notified = self.queue_moved.notified();
+            tokio::pin!(notified);
+            // Register before checking state so notify_waiters cannot be lost between the
+            // locked check and the await below.
+            notified.as_mut().enable();
+            let mut handoff_busy = false;
             {
                 let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+                anyhow::ensure!(
+                    self.cloud_generation.load(Ordering::SeqCst) == generation,
+                    "cloud generation changed while preparing turn"
+                );
                 if let Some(done) = self
                     .prepared_done
                     .lock()
@@ -331,51 +391,90 @@ impl Session {
                     .find(|p| p.prompt_id == prompt_id)
                     .cloned()
                 {
-                    return Ok((done.turn_id, done.queued, true, done.generation, attempt_id.to_owned()));
+                    anyhow::ensure!(
+                        done.generation == generation,
+                        "accepted preparation generation mismatch"
+                    );
+                    wait.ready = true;
+                    // Reauthorization has a fresh attempt; the accepted prompt is immutable.
+                    return Ok((
+                        done.turn_id,
+                        done.queued,
+                        true,
+                        generation,
+                        attempt_id.to_owned(),
+                    ));
                 }
-                if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
-                    if existing.abandoned
-                        && self.turn().is_none()
-                        && self.queue().iter().all(|q| q.held)
-                        && self.queued() == 0
-                    {
-                        return Ok((existing.turn_id.clone(), existing.queued, false, existing.generation, attempt_id.to_owned()));
-                    }
-                    if pending.iter().find(|p| !p.abandoned).is_some_and(|p| p.prompt_id == prompt_id)
-                        && self.turn().is_none()
-                        && self.queue().iter().all(|q| q.held)
-                        && self.queued() == 0
-                    {
-                        return Ok((existing.turn_id.clone(), existing.queued, false, existing.generation, attempt_id.to_owned()));
-                    }
+                if registered {
+                    anyhow::ensure!(
+                        pending.iter().any(|p| p.prompt_id == prompt_id
+                            && !p.abandoned
+                            && p.generation == generation
+                            && p.attempt_id == attempt_id
+                            && p.connection_id == connection_id),
+                        "preparation attempt was abandoned or replaced"
+                    );
                 } else {
-                    let queued = self.turn().is_some()
-                        || self.queued() != 0
-                        || self.queue().iter().any(|q| !q.held)
-                        || !pending.is_empty();
-                    pending.push_back(PreparedTurn {
-                        prompt_id: prompt_id.to_owned(),
-                        turn_id: uuid::Uuid::now_v7().to_string(),
-                        queued,
-                        abandoned: false,
-                        attempt_id: attempt_id.to_owned(),
-                        generation: generation.unwrap_or_else(|| self.cloud_generation.load(Ordering::SeqCst)),
-                    });
-                    let first = pending
-                        .iter()
-                        .find(|p| !p.abandoned)
-                        .expect("prepared reservation")
-                        .clone();
-                    if first.prompt_id == prompt_id
-                        && self.turn().is_none()
-                        && self.queue().iter().all(|q| q.held)
-                        && self.queued() == 0
-                    {
-                        return Ok((first.turn_id, first.queued, false, first.generation, first.attempt_id));
+                    // Turn identity is deterministic, so abandoned slots need no allocation.
+                    // A retry rejoins the tail instead of overtaking another live turn.
+                    pending.retain(|p| !p.abandoned);
+                    if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
+                        anyhow::ensure!(
+                            existing.generation == generation
+                                && existing.attempt_id == attempt_id
+                                && existing.connection_id == connection_id,
+                            "preparation is owned by another attempt"
+                        );
+                        registered = true;
+                    }
+                    if !registered {
+                        let queued = self.turn().is_some()
+                            || self.queued() != 0
+                            || self.queue().iter().any(|q| !q.held)
+                            || pending.iter().any(|p| !p.abandoned);
+                        pending.push_back(PreparedTurn {
+                            prompt_id: prompt_id.to_owned(),
+                            turn_id: prompt_id.to_owned(),
+                            queued,
+                            abandoned: false,
+                            attempt_id: attempt_id.to_owned(),
+                            generation,
+                            connection_id: connection_id.to_owned(),
+                        });
+                        registered = true;
+                    }
+                }
+                if let Some(first) = pending.iter().find(|p| !p.abandoned)
+                    && first.prompt_id == prompt_id
+                    && self.turn().is_none()
+                    && self.queue().iter().all(|q| q.held)
+                    && self.queued() == 0
+                {
+                    match self.turn_lock.try_lock() {
+                        Ok(_idle) => {
+                            wait.ready = true;
+                            return Ok((
+                                first.turn_id.clone(),
+                                first.queued,
+                                false,
+                                generation,
+                                attempt_id.to_owned(),
+                            ));
+                        }
+                        Err(_) => handoff_busy = true,
                     }
                 }
             }
-            notified.await;
+            if handoff_busy {
+                // Turn completion may notify just before releasing turn_lock. Also wake on
+                // the release itself, rather than losing the only completion notification.
+                tokio::select! {
+                    _ = &mut notified => {},
+                    _ = self.turn_lock.lock() => {},
+                }
+            } else {
+                notified.await;
+            }
         }
     }
 
@@ -384,30 +483,86 @@ impl Session {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
-            .find(|p| p.prompt_id == prompt_id)
+            .find(|p| p.prompt_id == prompt_id && !p.abandoned)
             .map(|p| p.turn_id.clone())
     }
 
-    pub(crate) fn abandon_prepared(&self, prompt_id: &str) -> bool {
+    /// Validate an execute envelope against a live or just-accepted reservation. The caller
+    /// still claims the external capability immediately before harness dispatch.
+    pub(crate) fn validate_prepared(
+        &self,
+        prompt_id: &str,
+        turn_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            self.cloud_generation.load(Ordering::SeqCst) == generation,
+            "cloud generation is stale"
+        );
+        let done = self.prepared_done.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            pending.iter().chain(done.iter()).any(|p| !p.abandoned
+                && p.prompt_id == prompt_id
+                && p.turn_id == turn_id
+                && p.generation == generation
+                && p.attempt_id == attempt_id
+                && connection_id.is_none_or(|connection| p.connection_id == connection)),
+            "execution does not match prepared attempt"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn abandon_prepared(
+        &self,
+        prompt_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: &str,
+    ) -> bool {
         let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(item) = pending.iter_mut().find(|p| p.prompt_id == prompt_id) else { return false };
+        if self.cloud_generation.load(Ordering::SeqCst) != generation {
+            return false;
+        }
+        let Some(item) = pending.iter_mut().find(|p| {
+            p.prompt_id == prompt_id
+                && !p.abandoned
+                && p.generation == generation
+                && p.attempt_id == attempt_id
+                && p.connection_id == connection_id
+        }) else {
+            return false;
+        };
         item.abandoned = true;
         self.queue_moved.notify_waiters();
         true
     }
 
+    pub(crate) fn abandon_prepared_connection(&self, connection_id: &str) {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        for item in pending.iter_mut().filter(|p| p.connection_id == connection_id) {
+            item.abandoned = true;
+        }
+        self.queue_moved.notify_waiters();
+    }
+
     pub(super) fn accept_prepared(&self, prompt_id: &str, turn_id: &str) {
         let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(pos) = pending.iter().position(|p| p.prompt_id == prompt_id) else { return };
-        let mut item = pending.remove(pos).expect("prepared position");
-        debug_assert_eq!(item.turn_id, turn_id);
-        item.turn_id = turn_id.to_owned();
-        self.prepared_done
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push_back(item);
-        while self.prepared_done.lock().unwrap_or_else(|e| e.into_inner()).len() > 64 {
-            self.prepared_done.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+        let Some(pos) = pending.iter().position(|p| {
+            p.prompt_id == prompt_id
+                && !p.abandoned
+                && p.turn_id == turn_id
+                && p.generation == self.cloud_generation.load(Ordering::SeqCst)
+        }) else {
+            return;
+        };
+        let item = pending.remove(pos).expect("prepared position");
+        let mut done = self.prepared_done.lock().unwrap_or_else(|e| e.into_inner());
+        done.push_back(item);
+        while done.len() > 64 {
+            done.pop_front();
         }
         self.queue_moved.notify_waiters();
     }
