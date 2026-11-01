@@ -121,7 +121,8 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
     };
     session.queued.fetch_add(1, Ordering::SeqCst);
     let limits = super::super::queue_admission::QueueLimits { prompts: None, bytes: None };
-    let _ = hub.enqueue(session, &slot, id, limits);
+    // As `session/prompt` does: a refusal counts the prompt back out of the session's total.
+    let _ = hub.enqueue_or_refuse(session, &slot, id, limits);
 }
 
 #[tokio::test]
