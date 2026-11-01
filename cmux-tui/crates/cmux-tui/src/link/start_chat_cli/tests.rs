@@ -408,7 +408,7 @@ fn copy_refuses_paths_that_could_escape() {
         .map(|s| s.to_string())
         .collect();
         args.extend(extra.iter().map(|s| s.to_string()));
-        super::Flags::parse(&args).unwrap()
+        Flags::parse(&args).unwrap()
     };
     assert!(StartCopy::of(&flags(&["--local", "/Users/me/src/paint"])).is_some());
     assert!(StartCopy::of(&flags(&["--local", "relative"])).is_none());
@@ -1043,10 +1043,30 @@ fn plan_answers_the_folders_repo_and_echoes_the_environment() {
     assert_eq!(answer["repo"], json!("manaflow-ai/cmux"), "{answer}");
     assert_eq!(answer["environment"], json!(ENV));
     assert_eq!(plan(&path, &request(json!("env_nope")))["error_code"], json!("bad_request"));
-    // A folder that is not there answers no repo.
-    let gone =
-        json!({"key": key(), "account": ACCOUNT, "local": "/nonexistent/cmux-test"}).to_string();
-    assert_eq!(plan(&path, &gone)["repo"], Value::Null);
+    // A subfolder of the repository, and a worktree whose `.git` file points at it, answer its repo.
+    let in_sub =
+        json!({"key": key(), "account": ACCOUNT, "local": sub.to_str().unwrap()}).to_string();
+    assert_eq!(plan(&path, &in_sub)["repo"], json!("manaflow-ai/cmux"));
+    let worktree = dir.path().join("wt");
+    std::fs::create_dir_all(folder.join(".git/worktrees/wt")).unwrap();
+    std::fs::create_dir_all(&worktree).unwrap();
+    std::fs::write(folder.join(".git/worktrees/wt/commondir"), "../..\n").unwrap();
+    std::fs::write(
+        worktree.join(".git"),
+        format!("gitdir: {}\n", folder.join(".git/worktrees/wt").display()),
+    )
+    .unwrap();
+    let in_worktree =
+        json!({"key": key(), "account": ACCOUNT, "local": worktree.to_str().unwrap()}).to_string();
+    assert_eq!(plan(&path, &in_worktree)["repo"], json!("manaflow-ai/cmux"));
+    // A folder that is not there, an empty one and a relative one answer no repo.
+    for local in ["/nonexistent/cmux-test", "", "project"] {
+        let request = json!({"key": key(), "account": ACCOUNT, "local": local}).to_string();
+        assert_eq!(plan(&path, &request)["repo"], Value::Null, "{local:?}");
+    }
+    let config = "[remote \"upstream\"]\n url = a\n[Remote \"origin\"]\n URL = \"b\"\n[branch \"main\"]\n url = c\n";
+    assert_eq!(origin_url(config), Some("b".into()));
+    assert_eq!(origin_url("[remote \"upstream\"]\n url = a\n"), None);
 }
 
 fn flags(args: &[&str]) -> Flags {
@@ -1131,6 +1151,10 @@ fn ensures_line_names_the_machine_or_the_platforms_code() {
     assert_eq!(not_found["error_code"], json!("cloud_environment.not_found"));
     assert_eq!(
         ensure_answer(Err(E::Status { status: 404, code: "" }))["error_code"],
+        json!("unavailable")
+    );
+    assert_eq!(
+        ensure_answer(Err(E::Status { status: 404, code: "not_found" }))["error_code"],
         json!("unavailable")
     );
     assert_eq!(
