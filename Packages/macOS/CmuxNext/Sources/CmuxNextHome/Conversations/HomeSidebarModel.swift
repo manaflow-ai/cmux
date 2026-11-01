@@ -155,10 +155,11 @@ public struct HomeSidebarModel: Hashable, Sendable {
             // a teammate with a second account (a work and a personal sign-in in one team) gets no row
             // beside the DM or the row of the first. New Message's search still finds each account.
             var listed = Set(dms.flatMap { $0.summary.participants.filter { $0.id != me }.map { Self.nameKey($0.displayName) } })
-            // The Worker's "Member" (a Stack member with no name) names nobody: each such row stays.
+            // The Worker's "Member" (a Stack member with no name) names nobody, so it gets no row: an empty
+            // row that nothing can clear. New Message's search still finds it.
             teammates = contacts.filter {
                 let key = Self.nameKey($0.name)
-                return $0.source == .team && $0.id != me && !dmPeers.contains($0.id) && (key == "member" || listed.insert(key).inserted)
+                return $0.source == .team && $0.id != me && !dmPeers.contains($0.id) && key != "member" && listed.insert(key).inserted
             }
             return
         }
