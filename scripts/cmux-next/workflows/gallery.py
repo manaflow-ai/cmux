@@ -77,11 +77,13 @@ def normalize(result: dict, step: dict, context: dict, output: Path, exit_code: 
     rows = []
     for index, row in enumerate(observed):
         assertions.append({"name": f"play step {index + 1}", "ok": row["status"] != "fail"})
-        rows.append({"index": index, "action": row.get("action"), "status": row["status"]})
+        rows.append({"index": index, "action": row.get("action"), "status": row["status"],
+                     "ax_sha256": captures["afterSteps"][index]["ax_digest"]["sha256"]})
     return {
         "status": "passed" if all(check["ok"] for check in assertions) else "failed",
         "state": {"entry": revision.get("entry"), "variant": revision.get("variant"),
-                  "ready": result.get("ready"), "play_status": play.get("status"), "steps": rows},
+                  "ready": result.get("ready"), "play_status": play.get("status"), "steps": rows,
+                  "ax_sha256": captures["final"]["ax_digest"]["sha256"]},
         "assertions": assertions,
         "evidence": captures,
         "metrics": {"ready_ms": result.get("readyMs"), "timing_includes_evidence_capture": False,

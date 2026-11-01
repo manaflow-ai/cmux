@@ -70,7 +70,11 @@ The matrix's existing `CMUX_GALLERY_IN_VM=1` admission is required and is never
 enabled by this tool. Gallery scale is the matrix's 2x capture scale, not UI zoom.
 The optional `engine` is `chromium` (default) or `webkit`.
 
-Timing and pixel/AX hashes are evidence, not semantic equality. Comparison uses
+Timing and pixel hashes are evidence, not semantic equality. Gallery comparisons
+include each after-step and final AX digest of the synthetic fixture, so changed
+accessible content cannot pass as equivalent merely because its actions succeeded.
+Fixtures must use fixed data and time; dynamic content would make those digests
+diverge. Native AX digests remain evidence only. Comparison also uses
 step identities, transitions, action outcomes, observed semantic state and
 assertions. It reports the first divergent field. Different manifests or rendering
 environments are incomparable; source commit, artifact and host may differ.

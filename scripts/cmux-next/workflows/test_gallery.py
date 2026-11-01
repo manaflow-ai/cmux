@@ -56,6 +56,21 @@ class GalleryReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["state"]["steps"][1]["status"], "fail")
         self.assertNotIn("problems", receipt["state"]["steps"][1])
 
+    def test_changed_accessible_state_changes_semantic_state(self):
+        before = self.receipt()["state"]
+        for frame in (self.result["workflowEvidence"]["afterSteps"][0],
+                      self.result["workflowEvidence"]["final"]):
+            with self.subTest(frame=frame):
+                frame["axDigest"]["sha256"] = "c" * 64
+                self.assertNotEqual(self.receipt()["state"], before)
+                frame["axDigest"]["sha256"] = "b" * 64
+
+    def test_changed_timing_does_not_change_semantic_state(self):
+        before = self.receipt()["state"]
+        self.result["readyMs"] = 900
+        self.result["play"]["steps"][0].update(settleMs=800, longFrames=[50], layoutShift=0.5)
+        self.assertEqual(self.receipt()["state"], before)
+
     def test_empty_play_does_not_pass_as_a_workflow(self):
         self.result["play"]["steps"] = []
         self.assertEqual(self.receipt()["status"], "unavailable")
