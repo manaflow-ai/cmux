@@ -16,6 +16,23 @@ private struct FixtureTransport: CloudChatTransport {
     }
 }
 
+private struct MultipleSessionTransport: CloudChatTransport {
+    let all: [CloudChatSession] = [
+        CloudChatSession(id: "first", title: "First", machineID: "vm-1"),
+        CloudChatSession(id: "attention", title: "Needs attention", machineID: "vm-2"),
+    ]
+
+    func sessions() async throws -> [CloudChatSession] { all }
+
+    func history(sessionID: String) async throws -> [CloudChatMessage] {
+        [CloudChatMessage(id: "m-\(sessionID)", role: .assistant, text: sessionID)]
+    }
+
+    func send(sessionID: String, text: String) async throws -> CloudChatMessage {
+        CloudChatMessage(id: "sent", role: .user, text: text)
+    }
+}
+
 @Test("Cloud chat model loads, selects and sends through its transport")
 @MainActor
 func cloudChatModelRoundTrip() async {
@@ -25,6 +42,15 @@ func cloudChatModelRoundTrip() async {
     #expect(model.messages.map(\.text) == ["Ready"])
     await model.send("  hello  ")
     #expect(model.messages.last?.text == "hello")
+}
+
+@Test("Cloud attention chooses its requested session")
+@MainActor
+func cloudChatPreferredSession() async {
+    let model = CloudChatViewModel(transport: MultipleSessionTransport(), preferredSessionID: "attention")
+    await model.load()
+    #expect(model.selectedSessionID == "attention")
+    #expect(model.messages.map(\.text) == ["attention"])
 }
 
 @Test("Cloud attention only accepts namespaced complete payloads")
