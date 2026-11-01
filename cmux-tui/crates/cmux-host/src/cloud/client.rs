@@ -213,6 +213,11 @@ pub fn bind_machine(
     if let Err(e) = store.write(BOUND_FILE, &format!("{saved}\n"), 0o600) {
         return BindResult::Retry(format!("bound.json write: {e}"));
     }
+    // The new identity IPC stays unavailable if the receipt cannot be saved.
+    // Do not retry a spent bind token or disturb the ordinary bound machine.
+    if crate::identity::record(store, &bound.machine, key).is_err() {
+        store.remove(crate::identity::RECEIPT);
+    }
     // Best effort: the token is spent, so a retry would be refused and lose
     // bind.json. The agent tries again (and logs a failure) once bound and at
     // every restart (role.rs); each try keeps a record that is already there.
