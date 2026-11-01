@@ -317,19 +317,20 @@ test("a copy failure that arrives after the selection moved or a newer copy bega
     throw new Error("page clipboard refused");
   });
   await store.start();
+  const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
   const denied = () => pageError("test.clipboard_denied", "Clipboard access was denied");
 
   const moved = store.copy("src/main.ts");
-  await Promise.resolve();
+  await tick();
   store.select("src/store.ts");
   writes[0]!.reject(denied());
   await moved;
   expect(store.getSnapshot().notice).toBeUndefined();
 
   const older = store.copy("src/main.ts");
-  await Promise.resolve();
+  await tick();
   const newer = store.copy("src/store.ts");
-  await Promise.resolve();
+  await tick();
   writes[2]!.resolve();
   writes[1]!.reject(denied());
   await Promise.all([older, newer]);
