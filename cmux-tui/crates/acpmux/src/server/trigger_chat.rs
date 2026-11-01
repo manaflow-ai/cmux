@@ -384,7 +384,8 @@ async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Valu
 
 fn status(hub: &Hub, scope: &TriggerScope) -> Result<Value, RpcError> {
     let session = bound_session(hub, scope)?;
-    let mut out = hub.trigger_delivery(&session, &scope.delivery);
+    let mut out =
+        validate_durable_receipt(&hub.trigger_delivery(&session, &scope.delivery), scope)?;
     out["machine"] = Value::String(scope.machine.clone());
     out["workspace"] = Value::String(scope.workspace.clone());
     out["session"] = Value::String(session.id.clone());
