@@ -15,7 +15,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
-    console.warn("transcript-fold-anchor-browser: skipping (run `bunx playwright install chromium`)");
+    console.warn(
+      "transcript-fold-anchor-browser: skipping (run `bunx playwright install chromium`)",
+    );
     describe.skip("transcript fold anchor", () => test("chromium", () => {}));
     return;
   }
@@ -39,9 +41,21 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await vite?.close();
   });
 
-  type Row = { id: string; kind: string; text?: string; version: number; at: number; [key: string]: unknown };
+  type Row = {
+    id: string;
+    kind: string;
+    text?: string;
+    version: number;
+    at: number;
+    [key: string]: unknown;
+  };
   let at = 0;
-  const row = (id: string, kind: string, text?: string, extra: Record<string, unknown> = {}): Row => ({
+  const row = (
+    id: string,
+    kind: string,
+    text?: string,
+    extra: Record<string, unknown> = {},
+  ): Row => ({
     id,
     kind,
     text,
@@ -50,11 +64,20 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     ...extra,
   });
   const output = (lines: number) =>
-    Array.from({ length: lines }, (_, index) => `line ${index + 1}: the keeper trimmed the wick`).join("\n");
+    Array.from(
+      { length: lines },
+      (_, index) => `line ${index + 1}: the keeper trimmed the wick`,
+    ).join("\n");
   const read = (id: string, lines = 30) => ({
     kind: "tool",
     text: "",
-    tool: { id, title: `Read src/${id}.ts`, kind: "read", status: "completed", output: output(lines) },
+    tool: {
+      id,
+      title: `Read src/${id}.ts`,
+      kind: "read",
+      status: "completed",
+      output: output(lines),
+    },
   });
   const paragraphs = (count: number) =>
     Array.from(
@@ -66,9 +89,15 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
   /// A finished turn that worked first: its "Worked for" line opens to the calls.
   const turn = (index: number): Row[] => [
     row(`t${index}-user`, "user", `Question ${index}`),
-    row(`t${index}-run`, "activity", undefined, { items: [read(`t${index}-a`), read(`t${index}-b`)] }),
+    row(`t${index}-run`, "activity", undefined, {
+      items: [read(`t${index}-a`), read(`t${index}-b`)],
+    }),
     row(`t${index}-answer`, "assistant", paragraphs(2)),
-    row(`t${index}-end`, "turnSummary", undefined, { status: "completed", durationMs: 9_000, toolCount: 2 }),
+    row(`t${index}-end`, "turnSummary", undefined, {
+      status: "completed",
+      durationMs: 9_000,
+      toolCount: 2,
+    }),
   ];
   const done = Array.from({ length: 8 }, (_, index) => turn(index)).flat();
   /// The turn still running: a call with output, then the reply streaming under it.
@@ -79,7 +108,10 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
   ];
 
   const show = (page: Page, rows: Row[]) =>
-    page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
+    page.evaluate(
+      (shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown),
+      rows,
+    );
   /// Resolves once the view is at rest: no glide or fold running, and three painted frames in a row
   /// show the transcript scrolled and sized as the frame before.
   const settle = (page: Page) =>
@@ -96,7 +128,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
               .getAnimations({ subtree: true })
               .some(
                 (animation) =>
-                  animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
+                  animation.playState === "running" &&
+                  animation.effect?.getTiming().iterations !== Infinity,
               );
             const now = `${Math.round(scroller.scrollTop)} ${scroller.scrollHeight} ${scroller.clientHeight}`;
             alike = !moving && now === last ? alike + 1 : 0;
@@ -165,7 +198,11 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
               );
             const thread = document.querySelector<HTMLElement>(".acpmux-thread");
             for (const animation of thread?.getAnimations() ?? []) {
-              if (animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity) continue;
+              if (
+                animation.playState !== "running" ||
+                animation.effect?.getTiming().iterations === Infinity
+              )
+                continue;
               threadAnimations.add(animation);
               if (scroller) animatedHeights.add(scroller.scrollHeight);
               const duration = animation.effect?.getTiming().duration;
@@ -175,7 +212,10 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
               if (fold.getAnimations().length > 0) folded = true;
             const each = new Map<unknown, number>();
             for (const animation of document.getAnimations())
-              if (animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity) {
+              if (
+                animation.playState === "running" &&
+                animation.effect?.getTiming().iterations !== Infinity
+              ) {
                 const target = (animation.effect as KeyframeEffect | null)?.target;
                 each.set(target, (each.get(target) ?? 0) + 1);
               }
@@ -199,7 +239,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     return { ...(await watching), top: point.top };
   };
   const probedTop = (page: Page) =>
-    page.evaluate(() => document.querySelector<HTMLElement>("[data-probe]")!.getBoundingClientRect().top);
+    page.evaluate(
+      () => document.querySelector<HTMLElement>("[data-probe]")!.getBoundingClientRect().top,
+    );
   const open = async (reducedMotion: "reduce" | "no-preference") => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 600 } });
@@ -305,7 +347,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await settle(page);
     expect(await atLatest(page)).toBe(false);
     expect(await page.locator("[data-bottom-fold]").count()).toBe(0);
-    expect(await page.locator(".acpmux-thread").evaluate((node) => node.getAnimations().length)).toBe(0);
+    expect(
+      await page.locator(".acpmux-thread").evaluate((node) => node.getAnimations().length),
+    ).toBe(0);
     await page.close();
   });
 
@@ -415,7 +459,11 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const pending = [
       ...Array.from({ length: 30 }, (_, index) => turn(index + 100)).flat(),
       row("completed-user", "user", "Collect the reports and summarize the result."),
-      row("completed-progress", "assistant", "I will collect each worker's result before the final answer."),
+      row(
+        "completed-progress",
+        "assistant",
+        "I will collect each worker's result before the final answer.",
+      ),
       ...reports,
       row("completed-answer", "assistant", "All 24 reports are in. The focused checks passed."),
     ];
@@ -428,7 +476,10 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     });
     const completed = [
       ...pending,
-      row("completed-summary", "turnSummary", undefined, { status: "completed", durationMs: 282_000 }),
+      row("completed-summary", "turnSummary", undefined, {
+        status: "completed",
+        durationMs: 282_000,
+      }),
     ];
     await show(page, completed);
     await settle(page);
@@ -495,7 +546,10 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
         new Promise<string | null>((resolve) => {
           document.addEventListener(
             "click",
-            () => resolve(document.querySelector(".acpmux-thread")?.getAttribute("data-turn-fold") ?? null),
+            () =>
+              resolve(
+                document.querySelector(".acpmux-thread")?.getAttribute("data-turn-fold") ?? null,
+              ),
             { once: true },
           );
         }),
@@ -515,7 +569,11 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     // Up the transcript, with turn 3's line about a third of the way down the view.
     await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      for (let step = 0; step < 40 && !document.querySelector('[data-row-id="worked-t3-user"]'); step += 1) {
+      for (
+        let step = 0;
+        step < 40 && !document.querySelector('[data-row-id="worked-t3-user"]');
+        step += 1
+      ) {
         scroller.scrollTop = Math.max(0, scroller.scrollTop - scroller.clientHeight / 2);
         scroller.dispatchEvent(new Event("scroll"));
       }
@@ -523,8 +581,11 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await settle(page);
     await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const line = document.querySelector<HTMLElement>('[data-row-id="worked-t3-user"] button.cv-worked')!;
-      scroller.scrollTop += line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+      const line = document.querySelector<HTMLElement>(
+        '[data-row-id="worked-t3-user"] button.cv-worked',
+      )!;
+      scroller.scrollTop +=
+        line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
     });
     await settle(page);
     expect(await atLatest(page)).toBe(false);
@@ -533,7 +594,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(worked.moved).toBeLessThanOrEqual(1);
     await settle(page);
-    await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
+    await page.evaluate(() =>
+      document.querySelector("[data-probe]")?.removeAttribute("data-probe"),
+    );
 
     await probe(page, `[data-row-id="worked-t3-user"] button.cv-worked`);
     const workedClosed = await clickAndWatch(page);
@@ -550,11 +613,22 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
   // its pixel (Show more holds the bubble's top: the text grows below it), and no element ever runs
   // two animations at once (Leo 2026-10-22: "a few animations that didnt quite work for collapsing
   // and expanding wrt tool calls and stufff").
-  const longPrompt = Array.from({ length: 24 }, (_, line) => `${line + 1}. The uploader retries on a 5xx.`).join("\n");
+  const longPrompt = Array.from(
+    { length: 24 },
+    (_, line) => `${line + 1}. The uploader retries on a 5xx.`,
+  ).join("\n");
   const execute = (id: string, command: string) => ({
     kind: "tool",
     text: "",
-    tool: { id, title: command, kind: "execute", status: "completed", command, output: "3 pass\n0 fail", exitCode: 0 },
+    tool: {
+      id,
+      title: command,
+      kind: "execute",
+      status: "completed",
+      command,
+      output: "3 pass\n0 fail",
+      exitCode: 0,
+    },
   });
   const kinds: Row[] = [
     row("k-user", "user", longPrompt),
@@ -595,7 +669,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       // Marks the toggle (`data-toggle`) and puts it 200 px down the view, away from either end.
       const mark = () =>
         page.evaluate(({ toggle, text, not }) => {
-          for (const node of document.querySelectorAll("[data-toggle]")) node.removeAttribute("data-toggle");
+          for (const node of document.querySelectorAll("[data-toggle]"))
+            node.removeAttribute("data-toggle");
           const found = [...document.querySelectorAll<HTMLElement>(toggle)].find(
             (node) =>
               node.hasAttribute("aria-expanded") &&
@@ -612,14 +687,17 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
         await page.evaluate(() => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
           const toggle = document.querySelector<HTMLElement>("[data-toggle]")!;
-          scroller.scrollTop += toggle.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+          scroller.scrollTop +=
+            toggle.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
         });
         await settle(page);
         const at = await page.evaluate(() => {
           const box = document.querySelector<HTMLElement>("[data-toggle]")!.getBoundingClientRect();
           return { x: box.left + Math.min(24, box.width / 2), y: box.top + box.height / 2 };
         });
-        await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
+        await page.evaluate(() =>
+          document.querySelector("[data-probe]")?.removeAttribute("data-probe"),
+        );
         // Show more holds the bubble's top while the text grows below it; Show less holds the button.
         await probe(page, opening && one.held ? one.held : "[data-toggle]");
         const watched = await clickAndWatch(page, 450, at);
@@ -627,14 +705,19 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
         expect({ opening, stacked: Math.min(watched.stacked, 2) }).toEqual({ opening, stacked: 1 });
         await settle(page);
         await mark();
-        expect(await page.locator("[data-toggle]").getAttribute("aria-expanded")).toBe(String(opening));
+        expect(await page.locator("[data-toggle]").getAttribute("aria-expanded")).toBe(
+          String(opening),
+        );
       }
       await page.close();
     });
 
   test("Show less on a prompt several screens tall, with motion off, keeps its button on its pixel", async () => {
     const page = await open("reduce");
-    const tall = Array.from({ length: 400 }, (_, line) => `${line + 1}. The uploader retries on a 5xx.`).join("\n");
+    const tall = Array.from(
+      { length: 400 },
+      (_, line) => `${line + 1}. The uploader retries on a 5xx.`,
+    ).join("\n");
     await show(page, [
       ...done,
       row("tall-user", "user", tall),
@@ -654,13 +737,16 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
             await window.cmuxPaintFrame();
           }
           const more = document.querySelector<HTMLElement>(query)!;
-          scroller.scrollTop += more.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+          scroller.scrollTop +=
+            more.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
         }, button);
         await settle(page);
         const off = await page.evaluate((query) => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
           const top = document.querySelector<HTMLElement>(query)?.getBoundingClientRect().top;
-          return top === undefined ? Infinity : Math.abs(top - scroller.getBoundingClientRect().top - 200);
+          return top === undefined
+            ? Infinity
+            : Math.abs(top - scroller.getBoundingClientRect().top - 200);
         }, button);
         if (off <= 1) return;
       }
@@ -670,7 +756,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await settle(page);
     expect(await page.locator(button).getAttribute("aria-expanded")).toBe("true");
     await place();
-    await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
+    await page.evaluate(() =>
+      document.querySelector("[data-probe]")?.removeAttribute("data-probe"),
+    );
     await probe(page, button);
     const closed = await clickAndWatch(page, 250);
     expect(closed.moved).toBeLessThanOrEqual(1);
