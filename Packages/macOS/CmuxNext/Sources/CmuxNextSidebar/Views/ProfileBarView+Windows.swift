@@ -92,10 +92,9 @@ extension ProfileBarView {
             let current = profile.id == model.activeProfileID
             let title = elsewhere == nil || current ? profile.name : Strings.spaceInAnotherWindow(profile.name)
             let opensChoices = elsewhere != nil && !current
-            let model = model
             let id = profile.id
-            let switchHere: (@MainActor @Sendable () -> Void)? = opensChoices ? nil : { model.send(.switchProfile(id)) }
-            let row = SwitcherMenuItem(title: title, handler: switchHere)
+            let row = opensChoices ? SwitcherMenuItem(title: title, handler: nil)
+                : SwitcherMenuItem(title: title) { [weak self] in self?.model.send(.switchProfile(id)) }
             row.state = current ? NSControl.StateValue.on : NSControl.StateValue.off
             if let elsewhere, opensChoices {
                 row.submenu = choiceMenu(profile.id, SpaceSwitcherLogic.choices(for: elsewhere, hereIsIncognito: model.windowIsIncognito))
