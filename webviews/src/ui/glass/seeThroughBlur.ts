@@ -11,7 +11,7 @@
 // already covers what is under it.
 //
 // Cost: nothing in WebKit (no listeners, no elements). In Chromium, while one surface is open: one
-// hidden <svg> with a filter per covered sibling, a ResizeObserver on the surface and its parent,
+// hidden <svg> with a filter per covered element, a ResizeObserver on the surface and its parent,
 // and a requestAnimationFrame loop that follows the surface while its rect or opacity changes
 // (its enter and exit, a resize) and stops after STABLE_FRAMES unchanged frames. Each frame reads
 // every rect first and writes only what changed. Closing the surface removes all of it.
@@ -142,9 +142,15 @@ export function drawsBackdropOver(view: Window): boolean {
 
 let nextId = 0;
 
-/** Blurs, in place, what `surface` covers among its siblings while it is attached. Returns the
- * detach. Does nothing (and returns a no-op) where the engine's backdrop already does it. */
-export function attachSeeThroughBlur(surface: HTMLElement): () => void {
+/** The elements a surface may cover: by default its siblings. */
+export type CoveredCandidates = (surface: HTMLElement) => Iterable<Element>;
+
+const siblings: CoveredCandidates = (surface) => surface.parentElement?.children ?? [];
+
+/** Blurs, in place, what `surface` covers among `candidates` (its siblings by default) while it is
+ * attached. Returns the detach. Does nothing (and returns a no-op) where the engine's backdrop
+ * already does it. */
+export function attachSeeThroughBlur(surface: HTMLElement, candidates: CoveredCandidates = siblings): () => void {
   const doc = surface.ownerDocument;
   const view = doc.defaultView;
   const parent = surface.parentElement;
@@ -181,8 +187,8 @@ export function attachSeeThroughBlur(surface: HTMLElement): () => void {
     };
     if (!Number.isFinite(look.opacity)) look.opacity = 1;
     const under: { target: HTMLElement; box: DOMRect; hole: BlurHole; key: string }[] = [];
-    for (const child of parent.children) {
-      if (child === surface || !(child instanceof view.HTMLElement)) continue;
+    for (const child of candidates(surface)) {
+      if (child === surface || child.contains(surface) || !(child instanceof view.HTMLElement)) continue;
       const box = child.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0 || !overlaps(rect, box)) continue;
       const hole = holeIn(rect, box, look);
@@ -241,11 +247,16 @@ export function attachSeeThroughBlur(surface: HTMLElement): () => void {
   };
 }
 
-/** attachSeeThroughBlur for a React surface: attached while `active` and mounted. */
-export function useSeeThroughBlur(surface: RefObject<HTMLElement | null>, active: boolean): void {
+/** attachSeeThroughBlur for a React surface: attached while `active` and mounted. `candidates` must be
+ * stable (a module-level function). */
+export function useSeeThroughBlur(
+  surface: RefObject<HTMLElement | null>,
+  active: boolean,
+  candidates?: CoveredCandidates,
+): void {
   useLayoutEffect(() => {
     const node = surface.current;
     if (!active || !node) return;
-    return attachSeeThroughBlur(node);
-  }, [surface, active]);
+    return attachSeeThroughBlur(node, candidates);
+  }, [surface, active, candidates]);
 }
