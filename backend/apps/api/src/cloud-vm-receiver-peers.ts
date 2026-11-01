@@ -16,13 +16,16 @@ export interface VmReceiverPeers { peers: Array<typeof CloudVmReceiverPeer.Type>
 /** TeamDO's bounded current authority join; a Native peer alone never grants a Cloud service. */
 export const vmReceiverPeers = async (d: Deps, target: VmReceiverPeerTarget): Promise<VmReceiverPeers | null> => {
   if (!Number.isSafeInteger(target.deadline) || d.now() >= target.deadline || target.deadline > d.now() + 15_000) return null
-  const policy = target.policy, tenant = await d.tenant(), all = networkHosts(d)
   const creator = () => {
     const state = d.state(), role = roleOf(state, d.rows, target.creator)
     return state.team?.id === d.team && state.team.deleted_at === undefined && role && can(state, d.rows, target.creator, "team.resources")
       ? teamAuthorityVersion(d.team, target.creator, role, state.team.kind, currentPolicy(state).version, d.rows) : null
   }
-  if (d.now() >= target.deadline || creator() === null || networkOrigin(d.origin()) !== target.origin || tenant?.team !== d.team || tenant.project !== d.project || tenant.tenant !== policy.tenantId || !all) return null
+  // The creator's membership baseline is taken before the first await; a change during the tenant read never becomes it.
+  const baseline = creator()
+  if (baseline === null) return null
+  const policy = target.policy, tenant = await d.tenant(), all = networkHosts(d)
+  if (d.now() >= target.deadline || creator() !== baseline || networkOrigin(d.origin()) !== target.origin || tenant?.team !== d.team || tenant.project !== d.project || tenant.tenant !== policy.tenantId || !all) return null
   const inMesh = (h: (typeof all)[number]) => h.network?.tenant === policy.tenantId && h.network?.mesh === policy.meshId
   const candidates = all.filter((h) => inMesh(h) && liveHost(d, h))
   const stamp = () => digest([creator(), d.origin(), d.allowed(), networkHosts(d)?.filter((h) => inMesh(h) && liveHost(d, h)).map((h) => hostStamp(d, h))])

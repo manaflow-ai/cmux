@@ -218,16 +218,21 @@ describe("TeamDO Native reads with live authority", () => {
     }
   }
 
-  const targetDeps = (w: Awaited<ReturnType<typeof world>>, during?: () => void) => ({
-    team: TEAM, project: "project", state: w.state, rows: w.rows, now: Date.now, revision: () => "7",
-    connection: () => ({ origin: ORIGIN, key: "service-key" }), tenant: async () => ({ team: TEAM, project: "project", tenant: TENANT }),
+  const clock = { now: Date.now() }
+  /** `during` runs inside the mesh read; `first` while the first tenant lookup is pending. */
+  const targetDeps = (w: Awaited<ReturnType<typeof world>>, during?: () => void, first?: () => void) => {
+    let tenants = 0
+    return {
+    team: TEAM, project: "project", state: w.state, rows: w.rows, now: () => clock.now, revision: () => "7",
+    connection: () => ({ origin: ORIGIN, key: "service-key" }),
+    tenant: async () => { if (tenants++ === 0) first?.(); return { team: TEAM, project: "project", tenant: TENANT } },
     identity: async () => w.identity(),
     http: async (request: Request) => {
       expect(request.url).toBe(`${ORIGIN}/v1/meshes`)
       during?.()
       return Response.json({ items: [{ id: MESH, ipv4Cidr: "10.128.0.0/20" }] })
     }
-  }) as never
+  } as never }
 
   it("returns the team network target after a successful read", async () => {
     const w = await world()
@@ -245,13 +250,37 @@ describe("TeamDO Native reads with live authority", () => {
     expect(await hostNetworkTarget(targetDeps(w), { ...p, install_authority: w.identity().authority_version }, {})).toMatchObject({ ok: true })
   })
 
+  it("refuses the target when the caller rejoins during the first tenant lookup", async () => {
+    clock.now = Date.now()
+    const w = await world()
+    expect(await hostNetworkTarget(targetDeps(w, undefined, w.rejoin), p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+  })
+
+  it("refuses the target when the grant expires while the tenant lookup is pending", async () => {
+    clock.now = Date.now()
+    const w = await world(), identity = w.identity
+    let expires = clock.now + 1_000
+    w.identity = () => ({ ...identity(), expires_at: expires })
+    expect(await hostNetworkTarget(targetDeps(w, () => { clock.now += 2_000 }), p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+    clock.now = Date.now(); expires = clock.now + 1_000
+    expect(await hostNetworkTarget(targetDeps(w, undefined, () => { clock.now += 2_000 }), p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+  })
+
+  it("refuses the target when the caller token expires during the reads", async () => {
+    clock.now = Date.now()
+    const w = await world(), expiring = { ...p, expires_at: clock.now + 1_000 }
+    expect(await hostNetworkTarget(targetDeps(w, () => { clock.now += 2_000 }), expiring, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+    clock.now = Date.now()
+    expect(await hostNetworkTarget(targetDeps(w), { ...p, expires_at: clock.now + 60_000 }, {})).toMatchObject({ ok: true })
+  })
+
   const peerTarget = (w: Awaited<ReturnType<typeof world>>) => ({ creator: USER, origin: ORIGIN, deadline: Date.now() + 10_000, policy: {
     schemaVersion: 1, tenantId: TENANT, vmId: "vm_" + "1".repeat(26), meshId: MESH, ipv4: "10.128.0.5", aclVersion: 1, checkedAt: Date.now(), expiresAt: Date.now() + 20_000,
     policyDigest: "a".repeat(64), peers: [{ deviceId: DEVICE, wgPublicKey: wg, installPublicKey: w.point, allow: [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }] }] } }) as never
-  const peerDeps = (w: Awaited<ReturnType<typeof world>>, second?: () => void) => {
-    let calls = 0
+  const peerDeps = (w: Awaited<ReturnType<typeof world>>, second?: () => void, first?: () => void) => {
+    let calls = 0, tenants = 0
     return { team: TEAM, project: "project", state: w.state, rows: w.rows, now: Date.now, origin: () => ORIGIN,
-      tenant: async () => ({ team: TEAM, project: "project", tenant: TENANT }), allowed: () => ["daemon", "ssh"],
+      tenant: async () => { if (tenants++ === 0) first?.(); return { team: TEAM, project: "project", tenant: TENANT } }, allowed: () => ["daemon", "ssh"],
       identity: async () => w.identity(),
       identities: async (_user: string, entries: ReadonlyArray<unknown>) => { if (calls++ === 1) second?.(); return entries.map(() => w.identity()) } }
   }
@@ -271,5 +300,10 @@ describe("TeamDO Native reads with live authority", () => {
   it.each(["rejoin", "leave"] as const)("answers nothing when the creator's %s happens during the identity snapshots", async (change) => {
     const w = await world()
     expect(await vmReceiverPeers(peerDeps(w, w[change]), peerTarget(w))).toBeNull()
+  })
+
+  it("answers nothing when the creator rejoins during the first tenant lookup", async () => {
+    const w = await world()
+    expect(await vmReceiverPeers(peerDeps(w, undefined, w.rejoin), peerTarget(w))).toBeNull()
   })
 })

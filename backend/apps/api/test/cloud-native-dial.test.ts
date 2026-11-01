@@ -145,3 +145,32 @@ describe("Native dial authority incarnations", () => {
     expect(await f.authorize()).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 })
+
+describe("Native dial changes during the first await", () => {
+  /** Runs `change` while the first tenant lookup is pending, before any identity or Native read answers. */
+  const duringFirstTenant = (f: Awaited<ReturnType<typeof fixture>>, change: () => void) => {
+    const tenant = f.deps.tenant
+    let calls = 0
+    Object.assign(f.deps, { tenant: async () => { if (calls++ === 0) change(); return tenant() } })
+  }
+
+  it("refuses a membership A to B to A during the first tenant lookup", async () => {
+    const f = await fixture(), m = memberRows()
+    Object.assign(f.deps, { rows: m.rows }); duringFirstTenant(f, m.rejoin)
+    expect(await f.authorize()).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(f.reads()).toBe(0)
+  })
+
+  it("refuses a caller token that expires during the first tenant lookup, and at recheck", async () => {
+    let now = Date.now()
+    const f = await fixture(); Object.assign(f.deps, { now: () => now })
+    const expiring = { ...principal, expires_at: now + 1_000 }
+    duringFirstTenant(f, () => { now += 2_000 })
+    expect(await authorizeNativeDial(f.deps, expiring, target, await f.proof(), ["ssh"])).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const second = await fixture(); let later = Date.now(); Object.assign(second.deps, { now: () => later })
+    const permitted = await authorizeNativeDial(second.deps, { ...principal, expires_at: later + 1_000 }, target, await second.proof(), ["ssh"])
+    if (!permitted.ok) throw new Error(permitted.code)
+    later += 2_000
+    expect(await recheckNativeDial(second.deps, { ...principal, expires_at: later - 1_000 }, permitted.permit)).toBe(false)
+  })
+})

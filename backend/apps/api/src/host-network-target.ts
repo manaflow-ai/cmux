@@ -21,12 +21,18 @@ type Deps = Omit<NetworkIdentityDeps, "origin" | "stream" | "submitSystem" | "ke
 /** The platform serves this read on its own route (no cloud catalog op); TeamDO keeps the owner checks. */
 const Params = Schema.Struct({ mesh: Schema.optionalKey(NativeMeshId) })
 const pointOf = (identity: NetworkIdentityView | null): string | null => { try { return identity ? installPublicPoint(identity.key) : null } catch { return null } }
-/** The caller's install incarnation plus its team membership incarnation: an A to B to A change in either never matches. */
-const authorityOf = (d: Deps, p: Principal, identity: NetworkIdentityView | null): string | null => {
+/** The caller's current team membership incarnation; a leave and rejoin with the same role never matches. */
+const memberAuthority = (d: Deps, p: Principal): string | null => {
   const state = d.state(), role = roleOf(state, d.rows, p.user)
-  if (!identity || !state.team || !role || !/^[0-9a-f]{64}$/.test(identity.authority_version) || !["mac", "ios", "cli"].includes(identity.kind)
+  return state.team && role ? teamAuthorityVersion(d.team, p.user!, role, state.team.kind, currentPolicy(state).version, d.rows) : null
+}
+/** The caller's install incarnation under a grant and token that are live now. */
+const installAuthority = (d: Deps, p: Principal, identity: NetworkIdentityView | null): string | null => {
+  const now = d.now()
+  if (!identity || !/^[0-9a-f]{64}$/.test(identity.authority_version) || !["mac", "ios", "cli"].includes(identity.kind)
+    || (identity.expires_at !== null && identity.expires_at <= now) || (p.expires_at !== undefined && p.expires_at <= now)
     || (p.install_authority !== undefined && p.install_authority !== identity.authority_version)) return null
-  return `${identity.authority_version}:${teamAuthorityVersion(d.team, p.user!, role, state.team.kind, currentPolicy(state).version, d.rows)}`
+  return identity.authority_version
 }
 const tenantMatches = (d: Deps, t: VmApiTenant | null): t is VmApiTenant => t?.team === d.team && t.project === d.project
 const clientMayRead = (d: Deps, p: Principal): boolean => {
@@ -47,17 +53,20 @@ export const hostNetworkTarget = async (d: Deps, p: Principal, params: unknown):
   if (!clientMayRead(d, p)) return fail("auth.forbidden", "only an active client may discover its team network")
   const connection = d.connection()
   if (!connection) return unavailable()
+  // The membership baseline is taken before the first await, so a change during any read never becomes it.
+  const member = memberAuthority(d, p)
+  if (!member) return fail("auth.forbidden", "only an active client may discover its team network")
   try {
     const [target, own] = await Promise.all([d.tenant(), d.identity(p.user!, p.install!, p.grant!)])
-    const point = pointOf(own), authority = authorityOf(d, p, own)
-    if (!tenantMatches(d, target) || !point || !authority) return fail("auth.forbidden", "the client network owner could not be verified")
+    const point = pointOf(own), authority = installAuthority(d, p, own)
+    if (!tenantMatches(d, target) || !point || !authority || memberAuthority(d, p) !== member || !clientMayRead(d, p)) return fail("auth.forbidden", "the client network owner could not be verified")
     const read = await readNetworkMesh(d.http, connection, target.tenant, decoded.value.mesh)
     const result: ReadResult = read.ok ? { ok: true, value: { team: d.team, tenant: target.tenant, project: target.project, origin: connection.origin, ...read.value }, revision: "" } : read
     const [currentTarget, currentOwn] = await Promise.all([d.tenant(), d.identity(p.user!, p.install!, p.grant!)])
     const currentConnection = d.connection()
     // No await between final live membership/authority/config checks and returning metadata.
-    if (!tenantMatches(d, currentTarget) || currentTarget.tenant !== target.tenant || pointOf(currentOwn) !== point || authorityOf(d, p, currentOwn) !== authority
-      || !clientMayRead(d, p) || currentConnection?.origin !== connection.origin || currentConnection.key !== connection.key) return fail("auth.forbidden", "the client network identity changed")
+    if (!tenantMatches(d, currentTarget) || currentTarget.tenant !== target.tenant || pointOf(currentOwn) !== point || installAuthority(d, p, currentOwn) !== authority
+      || memberAuthority(d, p) !== member || !clientMayRead(d, p) || currentConnection?.origin !== connection.origin || currentConnection.key !== connection.key) return fail("auth.forbidden", "the client network identity changed")
     return result.ok ? { ...result, revision: d.revision() } : result
   } catch { return unavailable() }
 }
