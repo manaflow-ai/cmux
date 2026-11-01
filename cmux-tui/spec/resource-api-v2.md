@@ -143,7 +143,11 @@ prompt start removes `working`, `blocked` and `idle` records, an exited
 terminal shows only `done` and `error`, at most 256 records; absent when
 there are none; `cmux terminal <selector> status` prints it; the strongest
 non-idle record is the tab's `program_status` in `list-workspaces` and the
-`program-status-changed` subscribe event). Other state resources travel as `state_upsert` and
+`program-status-changed` subscribe event). Every status change also emits the
+normal terminal upsert on `session.events`, so a socket client can update this
+field without polling. Journal hooks filter the corresponding
+`terminal.program_status` event; its explicit change envelope is documented in
+[`session-journal.md`](session-journal.md). Other state resources travel as `state_upsert` and
 `state_delete` changes whose `resource` is a `StateResourceKind`, and the
 session snapshot lists them under `extra.state`. Clients that predate them
 decode these changes as `Unknown`.

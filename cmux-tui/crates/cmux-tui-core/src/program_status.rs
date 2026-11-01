@@ -80,6 +80,13 @@ impl ProgramStatusRecord {
     }
 }
 
+#[derive(Clone, Debug)]
+enum ProgramStatusChange {
+    Report { id: String, record: ProgramStatusRecord },
+    Clear { id: String },
+    PromptStart,
+}
+
 /// Alerts kept between two takes; more in one output chunk drop the oldest.
 const MAX_PENDING_ALERTS: usize = 8;
 
@@ -109,6 +116,11 @@ pub(crate) struct ProgramStatusRecords {
     /// to the public graph.
     revision: u64,
     published: u64,
+    /// A publisher has claimed this revision and is committing it outside
+    /// this lock. Claiming under the records lock makes concurrent snapshot
+    /// and output publishers idempotent.
+    claimed: Option<u64>,
+    last_change: Option<ProgramStatusChange>,
     /// The `shown` value last handed to frontends.
     shown_published: Option<ShownProgramStatus>,
 }
@@ -134,6 +146,7 @@ impl ProgramStatusRecords {
             }
             self.withdraw_alerts_of_removed_records();
             if self.records.len() != before {
+                self.last_change = Some(ProgramStatusChange::Clear { id });
                 self.revision += 1;
             }
             return;
@@ -146,6 +159,7 @@ impl ProgramStatusRecords {
                 .map(|(key, _)| key.clone());
             if let Some(oldest) = oldest {
                 self.records.remove(&oldest);
+                self.withdraw_alerts_of_removed_records();
             }
         }
         self.next_seq += 1;
@@ -169,6 +183,11 @@ impl ProgramStatusRecords {
             since_ms,
         };
         let previous = self.records.insert(id.clone(), record);
+        self.last_change = self
+            .records
+            .get(&id)
+            .cloned()
+            .map(|record| ProgramStatusChange::Report { id: id.clone(), record });
         self.revision += 1;
         self.raise_alert(&id, previous.as_ref());
     }
@@ -238,6 +257,7 @@ impl ProgramStatusRecords {
         let before = self.records.len();
         self.records.retain(|_, record| !record.is_transient());
         if self.records.len() != before {
+            self.last_change = Some(ProgramStatusChange::PromptStart);
             self.revision += 1;
         }
         self.withdraw_alerts_of_removed_records();
@@ -256,6 +276,11 @@ impl ProgramStatusRecords {
     }
 
     #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.records.len()
     }
@@ -271,6 +296,56 @@ impl ProgramStatusRecords {
             .map(|(id, record)| record.to_json(id, self.app_of(id)))
             .collect::<Vec<_>>();
         (!records.is_empty()).then_some(Value::Array(records))
+    }
+
+    /// Claim the latest visible change for an external resource commit.
+    ///
+    /// The claim is made while holding the records lock. A second publisher
+    /// therefore observes the same revision as in flight and does not emit a
+    /// duplicate journal record or notification. A revision with no
+    /// explicit change (a daemon adopting a host's records) is still claimed,
+    /// so its terminal upsert publishes, but it carries no hook envelope.
+    pub(crate) fn claim_pending_change(&mut self, running: bool) -> Option<(u64, Option<Value>)> {
+        if self.revision == self.published || self.claimed.is_some() {
+            return None;
+        }
+        let change = self.last_change_json(running);
+        let revision = self.revision;
+        self.claimed = Some(revision);
+        Some((revision, change))
+    }
+
+    /// Finish a claimed publication. Failed commits release the claim so a
+    /// later snapshot/output pass can retry it. A newer change stays pending.
+    pub(crate) fn finish_change_publication(&mut self, revision: u64, committed: bool) {
+        if self.claimed != Some(revision) {
+            return;
+        }
+        self.claimed = None;
+        if committed && self.revision == revision {
+            self.published = revision;
+        }
+    }
+
+    /// The additive journal-hook payload for the last visible change. The
+    /// socket resource keeps its existing terminal snapshot shape; hooks need
+    /// an explicit record identity so a clear is not confused with a generic
+    /// empty snapshot.
+    pub(crate) fn last_change_json(&self, running: bool) -> Option<Value> {
+        let change = self.last_change.as_ref()?;
+        let (event, id, record) = match change {
+            ProgramStatusChange::Report { id, record } => {
+                ("report", Value::String(id.clone()), record.to_json(id, self.app_of(id)))
+            }
+            ProgramStatusChange::Clear { id } => ("clear", Value::String(id.clone()), Value::Null),
+            ProgramStatusChange::PromptStart => ("prompt_start", Value::Null, Value::Null),
+        };
+        Some(json!({
+            "event": event,
+            "id": id,
+            "record": record,
+            "records": self.to_json(running).unwrap_or_else(|| Value::Array(Vec::new())),
+        }))
     }
 
     /// What a tab shows for these records: the strongest one that is not
@@ -297,13 +372,6 @@ impl ProgramStatusRecords {
             self.shown_published = shown;
             shown
         })
-    }
-
-    /// True once per visible change, marking it published.
-    pub(crate) fn take_change(&mut self) -> bool {
-        let changed = self.revision != self.published;
-        self.published = self.revision;
-        changed
     }
 
     /// The records a terminal host hands to the daemon that attaches.
@@ -357,6 +425,9 @@ impl ProgramStatusRecords {
         self.alerts.clear();
         if records != self.records {
             self.records = records;
+            // An adoption is not a program's report: its upsert carries no
+            // hook change envelope, and an older change must not replay.
+            self.last_change = None;
             self.revision += 1;
         }
         // Clients read the restored status from the tree; a later change
