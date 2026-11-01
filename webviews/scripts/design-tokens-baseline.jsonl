@@ -147,7 +147,7 @@
 {"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding","values":{"6px 10px 0 14px":1,"8px 10px 10px":1,"4px 8px 6px":1,"0 2px":1,"5px 4px 5px 8px":1,"0 6px":1,"2px 4px 2px 8px":2,"8px 10px":1}}
 {"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-bottom","values":{"5px":1}}
 {"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-left","values":{"6px":1,"10px":1}}
-{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-right","values":{"6px":1,"10px":1}}
+{"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-right","values":{"10px":1}}
 {"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"spacing","property":"padding-top","values":{"34px":1,"5px":1}}
 {"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"height","property":"height","values":{"calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 6)":1}}
 {"file":"agent-session/acpmux/session-info/WorkflowTasks.css","kind":"height","property":"min-height","values":{"calc(var(--ds-control-row) + var(--ds-space-2) + var(--cmux-hairline, 0.5px) * 4)":1,"calc(var(--ds-control-row) + var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4)":1}}
