@@ -26,6 +26,7 @@ mod inbound;
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
+mod machine_pin;
 pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
@@ -121,7 +122,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     if args.first().map(String::as_str) == Some("seed") {
         if matches!(args.get(1).map(String::as_str), Some("push" | "clone")) {
-            return seed_cli::run(&args[1..]);
+            return seed_cli::run(args.get(1..).unwrap_or_default());
         }
         return seed::run(&args[1..]);
     }
@@ -133,6 +134,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return access_cli::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("machine") {
+        if args.get(1).map(String::as_str) == Some("pin") {
+            return machine_pin::run(args.get(2..).unwrap_or_default());
+        }
         return machine_update::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("start-chat") {

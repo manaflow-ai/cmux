@@ -1702,6 +1702,9 @@
   border-radius: 8px;
   background: var(--lg-fill);
 }
+.hc-att-meta.is-failed {
+  color: var(--lg-warn);
+}
 .hc-tray-item.failed .hc-att-meta {
   color: var(--lg-warn);
 }

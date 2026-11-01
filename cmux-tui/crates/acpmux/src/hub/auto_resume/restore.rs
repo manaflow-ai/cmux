@@ -55,6 +55,11 @@ impl Hub {
             return;
         }
         let Some(last) = last else { return };
+        // The durable trigger dispatcher owns retries; a generic continuation
+        // would lose the verified principal and become an ordinary human turn.
+        if last.msg.get("trigger") == Some(&Value::Bool(true)) {
+            return;
+        }
         let Some(turn_id) = last.msg.get("turnId").and_then(Value::as_str).map(str::to_owned)
         else {
             return;
