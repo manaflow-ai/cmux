@@ -1514,8 +1514,8 @@ function measuredRowHeight(
   // A task notification from another agent is a tool row's line under `.cv-tools`' 2px margin
   // (conversation/IncomingMessageCard.tsx), with the row's message gap.
   // The messages that wait, as one group (conversation/PendingMessagesCard.tsx): its 26px head in
-  // 2px margins and the message gap; opened, each sender's 22px head, then each of its messages as
-  // its own row draws it, 24px in, less the gap the row frame gives a row, which the group has once.
+  // 2px margins and the message gap; opened, each of its messages as its own row draws it (flat,
+  // no sender heads), 24px in, less the gap the row frame gives a row, which the group has once.
   if (row.kind === LANE_NOTICE_BATCH && row.laneNoticeBatch) {
     const head = finish(2 + 26 + 2 + MESSAGE_GAP);
     if (!messageOpened(sessionId, row.id)) return head;
@@ -1531,17 +1531,8 @@ function measuredRowHeight(
   if (row.kind === PENDING_MESSAGES && row.pendingMessages) {
     const head = finish(2 + 26 + 2 + MESSAGE_GAP);
     if (!messageOpened(sessionId, row.id)) return head;
-    const senders = new Set<string>();
     let height = head;
     for (const member of row.pendingMessages.displayRows ?? row.pendingMessages.rows) {
-      const from =
-        member.incoming?.kind === "message"
-          ? (member.incoming.message.sessionId ?? member.incoming.message.name)
-          : member.id;
-      if (member.kind !== LANE_NOTICE_BATCH && !senders.has(from)) {
-        senders.add(from);
-        height += 22;
-      }
       // A Stop-held queued message's lead note sits above its received line. Keep the
       // virtualized group estimate in sync with `.cv-received__queued-head`'s 18px line.
       const heldLead = member.queuedMessage?.lead && member.queuedMessage.heldByStop ? 18 : 0;

@@ -1634,15 +1634,14 @@ const QueuedMessageRow = memo(
 /// message draws in it as its own row draws alone.
 const PendingMessagesRow = memo(
   function PendingMessagesRow(props: RowProps) {
+    // Flat: a message's line, or the waiting inbox notices' threads as lines (pendingDisplayRows).
     const renderMessage = (message: AcpmuxRow) =>
-      message.kind === LANE_NOTICE_BATCH ? (
-        <LaneNoticeBatch row={message} renderMessage={renderMessage} />
-      ) : message.kind === QUEUED_MESSAGE ? (
+      message.kind === QUEUED_MESSAGE ? (
         <QueuedMessageRow {...props} row={message} />
       ) : (
         <MessageRow {...props} row={message} />
       );
-    return <PendingMessagesCard row={props.row} onOpen={openSenderChat} renderMessage={renderMessage} />;
+    return <PendingMessagesCard row={props.row} renderMessage={renderMessage} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );

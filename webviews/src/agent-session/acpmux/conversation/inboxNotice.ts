@@ -112,6 +112,67 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
   return threads.length ? { threads } : undefined;
 }
 
+/// Whether `text` is acpmux's inbox notice as the agent reads it (hub/inbox.rs `render`): a queue
+/// entry or a record that lost its provenance still starts with this head.
+export const isInboxNoticeText = (text: string): boolean =>
+  /^\s*(?:\[inbox\]\s*)?New messages from other agents\b/i.test(text);
+
+const THREAD_LINE = /^- (\[blocker\] )?(\d+) new in (.+?) from (.+?)(?:: (.*?))? \(thread ([^\s)]+)\)(:?)$/;
+
+/// The notice its text names (hub/inbox.rs `render`), for one read without its provenance: a thread
+/// per `- N new in LABEL from A, B: PREVIEW (thread KEY)` line, its quoted messages (`  > `) whole
+/// when the text holds them. Undefined when the text names no thread.
+export function inboxNoticeFromText(notice: string): InboxNotice | undefined {
+  const threads: InboxThread[] = [];
+  let quoted: InboxMessage[] | undefined;
+  let lead: { from: string[] } | undefined;
+  for (const line of notice.split("\n")) {
+    const head = THREAD_LINE.exec(line);
+    if (head) {
+      const [, blocker, count, label, from, preview, threadId, opens] = head;
+      const senders = from!.split(", ").filter(Boolean);
+      quoted = opens ? [] : undefined;
+      lead = { from: senders };
+      threads.push({
+        threadId: threadId!,
+        label: shownLabel(label!, threadId!),
+        from: senders,
+        count: Math.max(1, Number(count)),
+        preview: (preview ?? "").trim(),
+        blocker: Boolean(blocker),
+        promptIds: [],
+        ...(quoted && { messages: quoted }),
+      });
+      continue;
+    }
+    if (!quoted || !lead || !line.startsWith("  >")) continue;
+    // `  >` alone starts the thread's next message; several name their sender first.
+    if (line.trim() === ">") {
+      quoted.push({ from: "", text: "" });
+      continue;
+    }
+    let body = line.slice(4);
+    let message = quoted.at(-1);
+    if (!message) quoted.push((message = { from: "", text: "" }));
+    if (!message.text && !message.from && lead.from.length) {
+      const named = lead.from.find((name) => body.startsWith(`${name}: `));
+      if (named) {
+        message.from = named;
+        body = body.slice(named.length + 2);
+      }
+    }
+    message.text = message.text ? `${message.text}\n${body}` : body;
+  }
+  for (const thread of threads) {
+    if (!thread.messages) continue;
+    const single = thread.from.length === 1 ? thread.from[0]! : "";
+    for (const message of thread.messages) message.from ||= single;
+    if (!thread.messages.length) delete thread.messages;
+    thread.preview ||= firstLine(thread.messages?.at(-1)?.text ?? "");
+  }
+  return threads.length ? { threads } : undefined;
+}
+
 /// Whether the notice's text tags a thread a blocker (one logged before `blocker` was a part).
 const previewLineBlocks = (notice: string, threadId: string): boolean =>
   notice.split("\n").some((l) => l.startsWith("- [blocker] ") && l.includes(`(thread ${threadId})`));

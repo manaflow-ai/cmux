@@ -8,6 +8,7 @@
 // starts it, the queue drops it and the prompt's own row is its card, delivered. The composer's queue, its fold and its count, are the person's own
 // prompts alone (ComposerQueue.tsx).
 import type { ComposerAttachment } from "../attachments";
+import { inboxText } from "./inboxNotice";
 import { QUEUED_MESSAGE, type AcpmuxRow, type AcpmuxSnapshot, type QueuedPromptImage } from "../model";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
@@ -44,8 +45,9 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
         version: ++version,
         at: 0,
         kind: QUEUED_MESSAGE,
-        text: message.text,
-        incoming: { kind: "message", message },
+        // acpmux's inbox notice draws its threads, each another agent's line (inboxNotice.ts).
+        text: message.inbox ? inboxText(message.inbox) : message.text,
+        incoming: message.inbox ? { kind: "inbox", notice: message.inbox } : { kind: "message", message },
         queuedMessage: {
           promptId: entry.id,
           ...(entry.next ? { next: true } : {}),

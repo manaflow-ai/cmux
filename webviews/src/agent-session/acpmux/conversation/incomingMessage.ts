@@ -68,6 +68,9 @@ export type IncomingMessage = {
   report?: boolean;
   details?: unknown;
   noticeThreads?: readonly { id: string; sender: string }[];
+  /// acpmux's inbox notice waiting in the queue (direct.ts `queuedMessage`): its threads, which draw
+  /// as received lines (inboxNotice.ts), never its text for the agent.
+  inbox?: InboxNotice;
 };
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the

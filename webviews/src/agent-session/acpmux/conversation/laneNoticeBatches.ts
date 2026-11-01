@@ -94,7 +94,10 @@ function extendBatch(previous: AcpmuxRow, next: AcpmuxRow): AcpmuxRow {
 /// notice creates the fold, and later notices extend that fold without rescanning the transcript.
 export function appendLaneNotice(out: AcpmuxRow[], row: AcpmuxRow): void {
   const notice = noticeOf(row);
-  if (!notice || out.length === 0) {
+  // Only lane reports fold. An inbox notice is its threads' received lines (inboxNotice.ts), never
+  // a fold of deliveries (Leo, 2026-11-01, on "13 inbox threads" inside a group: "WTF IS THIS
+  // FUCKING RENDERING").
+  if (!notice || notice.kind === "inbox" || out.length === 0) {
     out.push(row);
     return;
   }

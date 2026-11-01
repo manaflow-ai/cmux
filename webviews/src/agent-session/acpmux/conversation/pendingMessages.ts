@@ -2,13 +2,17 @@
 // group at the transcript's end, "N messages from M sessions", never a loose list of rows (Leo,
 // 2026-10-29: "And these need to be fucking grouped up... How are there so fucking many
 // messages? ... why the fuck aren't they folded into the big, like 200-plus fucking messages?").
-// Two kinds of message wait, and both go in it:
+// Three kinds of message wait, and all go in it:
 // - a steer into the running turn the agent has not read yet (`steer === "waiting"`), which the
 //   running turn gives up as it is drawn (turns.ts `pending`);
-// - a message queued behind the running turn (queuedMessages.ts, kind `QUEUED_MESSAGE`).
+// - a message queued behind the running turn (queuedMessages.ts, kind `QUEUED_MESSAGE`);
+// - acpmux's inbox notice, steered or queued: its threads, never its text for the agent.
 // The group has one id while messages wait, so one that arrives after it was drawn joins it, and it
-// stays open or closed as the person left it. Opened, its messages are grouped by the session that
-// sent them, in the order each session first wrote; each is its own received line (its ⋯ menu kept).
+// stays open or closed as the person left it. Opened, it is one flat run of received lines, each the
+// sender and that message's own first line: no group inside it, no sender heads that repeat the
+// line's own name, and every inbox notice's threads as lines of one notice, a thread once, and none
+// whose messages already wait as their own lines (Leo, 2026-11-01, on a group holding "13 inbox
+// threads" holding a row per delivery: "WTF IS THIS FUCKING RENDERING").
 // Once the agent reads a message it leaves the group and draws where it was read.
 // The same delivery is shown once by its prompt id (or its row id when the prompt id is absent).
 // Preview text is not identity: after a reload the queue may hold only the first 200 characters,
@@ -16,15 +20,15 @@
 //
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
-import { batchLaneNotices } from "./laneNoticeBatches";
 import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
+import { inboxCounts, inboxText, joinNotices, type InboxNotice } from "./inboxNotice";
 
 /// The group's row id: one while any message waits.
 export const PENDING_MESSAGES_ROW_ID = "pending-messages";
 
 /// Whether `row` is another session's message the agent has not read yet in the running turn.
 export const isWaitingMessage = (row: AcpmuxRow) =>
-  row.kind === "user" && row.steer === "waiting" && row.incoming?.kind === "message";
+  row.kind === "user" && row.steer === "waiting" && (row.incoming?.kind === "message" || row.incoming?.kind === "inbox");
 
 /// A waiting message's prompt id: the queue entry's, or the steer's.
 const promptIdOf = (row: AcpmuxRow) => row.queuedMessage?.promptId ?? row.steerPromptId;
@@ -60,20 +64,58 @@ export function searchablePendingRows(
   return all.filter((row) => (row.kind !== QUEUED_MESSAGE && !isWaitingMessage(row)) || kept.has(row));
 }
 
-/// The key a message's sender is grouped under.
-export const senderKey = (row: AcpmuxRow) =>
-  row.incoming?.kind === "message" ? (row.incoming.message.sessionId ?? row.incoming.message.name) : row.id;
-
-/// The group's messages by sender, each sender once in the order it first wrote, its messages oldest first.
-export function bySender(rows: readonly AcpmuxRow[]): { key: string; rows: AcpmuxRow[] }[] {
-  const groups = new Map<string, AcpmuxRow[]>();
-  for (const row of rows) {
-    const key = senderKey(row);
-    const list = groups.get(key);
-    if (list) list.push(row);
-    else groups.set(key, [row]);
+/// The rows the group draws, flat and in order: each message as its own line, and every inbox
+/// notice's threads joined into one notice where the first notice was (a thread in two notices
+/// once), without a thread whose messages all wait as their own lines here.
+export function pendingDisplayRows(members: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+  const notices = members.filter((row) => row.incoming?.kind === "inbox");
+  if (notices.length === 0) return members;
+  const own = new Set(members.flatMap((row) => (row.incoming?.kind === "inbox" ? [] : [promptIdOf(row) ?? ""])));
+  let notice: InboxNotice | undefined;
+  for (const row of notices) {
+    const next = (row.incoming as { kind: "inbox"; notice: InboxNotice }).notice;
+    notice = notice ? joinNotices(notice, next) : next;
   }
-  return [...groups].map(([key, list]) => ({ key, rows: list }));
+  const threads = notice!.threads.filter(
+    (thread) => !(thread.promptIds.length > 0 && thread.promptIds.every((id) => own.has(id))),
+  );
+  const first = notices[0]!;
+  const joined: InboxNotice = { threads };
+  const merged: AcpmuxRow | undefined = threads.length
+    ? {
+        ...first,
+        id: `pending-inbox:${first.id}`,
+        version: notices.reduce((sum, row) => sum + row.version, 0),
+        kind: "user",
+        text: inboxText(joined),
+        incoming: { kind: "inbox", notice: joined },
+        joined: notices.map((row) => row.id),
+      }
+    : undefined;
+  const out: AcpmuxRow[] = [];
+  for (const row of members) {
+    if (row.incoming?.kind !== "inbox") out.push(row);
+    else if (row === first && merged) out.push(merged);
+  }
+  return out;
+}
+
+/// What the group's line says: how many messages, and every sender once in the order it first wrote.
+export function pendingCounts(rows: readonly AcpmuxRow[]): { messages: number; senders: string[] } {
+  const senders: string[] = [];
+  let messages = 0;
+  for (const row of rows) {
+    if (row.incoming?.kind === "inbox") {
+      const counts = inboxCounts(row.incoming.notice);
+      messages += counts.messages;
+      for (const name of counts.senders) if (!senders.includes(name)) senders.push(name);
+      continue;
+    }
+    messages += 1;
+    const name = row.incoming?.kind === "message" ? row.incoming.message.name : "";
+    if (name && !senders.includes(name)) senders.push(name);
+  }
+  return { messages, senders };
 }
 
 let version = 0;
@@ -101,6 +143,6 @@ export function pendingMessagesRow(
       .join("\n\n"),
     untyped: true,
     joined: members.map((row) => row.id),
-    pendingMessages: { rows: members, displayRows: batchLaneNotices(members) },
+    pendingMessages: { rows: members, displayRows: pendingDisplayRows(members) },
   };
 }
