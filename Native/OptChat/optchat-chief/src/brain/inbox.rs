@@ -47,6 +47,7 @@ impl Brain {
                         // Side conversations' replies stay.
                         self.state.outbox.retain(|e| e.conversation != old);
                         self.state.awaiting.clear();
+                        self.state.stopped_reply = None;
                     }
                     self.state.conversation = Some(conversation.id.clone());
                     self.save();
@@ -118,6 +119,16 @@ impl Brain {
     /// takes the edited text, or leaves the queue when retracted. The note's key
     /// names the change, so a replayed update is logged once.
     fn on_message_updated(&mut self, message: &Message) {
+        if message.retracted_at.is_some()
+            && let Some(stopped) = self.state.stopped_reply.as_mut()
+        {
+            let before = stopped.messages.len();
+            stopped.messages.retain(|a| a.id != message.id);
+            if before != stopped.messages.len() && stopped.messages.is_empty() {
+                self.state.stopped_reply = None;
+            }
+            self.save();
+        }
         let Some(main) = self.state.conversation.clone() else {
             return;
         };
@@ -311,6 +322,7 @@ impl Brain {
                 |id| self.mux_messages.contains(id),
             )
         {
+            self.state.stopped_reply = None;
             let remote = message
                 .origin
                 .as_ref()

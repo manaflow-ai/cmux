@@ -1310,6 +1310,22 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::Continue => {
+                let (reply, answer) = channel();
+                tx.send(Input::Continue { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::Retry(message) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Retry { message, reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::StopAll => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopAll { reply }).map_err(stopping)?;
@@ -1445,6 +1461,8 @@ fn start(
         .with_trace(trace.clone())
         .with_person(paths.person.clone())
         .with_pinned_harness(sub_set.is_some())
+        .with_engine_file(Some(crate::engine::path(home)))
+        .with_families(families.clone())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone())

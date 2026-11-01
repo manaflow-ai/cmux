@@ -13,6 +13,8 @@
 // session name are. The family is the executable's own (`codex`, `claude`) or, for acpmux, the
 // harness its `-m HARNESS[/MODEL]` names.
 
+import { sliceWhole } from "../../../ui/wholeChars";
+
 /// One agent a shell call starts.
 export type AgentRun = {
   /// Its harness family (`codex`, `claude`), or the harness acpmux was told to run (`claude-sr2`);
@@ -623,7 +625,7 @@ export function promptTitle(prompt: string | undefined): string | undefined {
     .map((text) => text.replace(/^\s*(?:#+|[-*>]|\d+\.)\s+/, "").trim())
     .find(Boolean);
   if (!line) return undefined;
-  return line.length > 120 ? `${line.slice(0, 119)}…` : line;
+  return line.length > 120 ? `${sliceWhole(line, 119)}…` : line;
 }
 
 /// "gpt-6-astra xhigh": the model and effort a run names, for its card's model.

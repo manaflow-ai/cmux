@@ -1,7 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "action.artifacts.show": {"comment": "Command palette: opens the Artifacts page", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Show Artifacts"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار العناصر المحفوظة"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži artefakte"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis artefakter"}}, "de": {"stringUnit": {"state": "translated", "value": "Artefakte anzeigen"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar artefactos"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher les artefacts"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra artefatti"}}, "ja": {"stringUnit": {"state": "translated", "value": "アーティファクトを表示"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញវត្ថុបុរាណ"}}, "ko": {"stringUnit": {"state": "translated", "value": "아티팩트 보기"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis artefakter"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż artefakty"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar artefatos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать артефакты"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงอาร์ติแฟกต์"}}, "tr": {"stringUnit": {"state": "translated", "value": "Yapıtları Göster"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати артефакти"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện tạo phẩm"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "显示制品"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "顯示成品"}}}},
+    "action.agent.jumpToNextNeedingInput": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Go to Next Agent Needing Input"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الانتقال إلى الوكيل التالي الذي ينتظر إدخالًا"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Idi na sljedećeg agenta koji čeka unos"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Gå til næste agent, der venter på input"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Zum nächsten Agenten, der auf Eingabe wartet"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Ir al siguiente agente que necesita respuesta"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Aller à l’agent suivant en attente de réponse"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Vai al prossimo agente in attesa di input"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "入力待ちの次のエージェントへ移動"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ទៅកាន់ភ្នាក់ងារបន្ទាប់ដែលត្រូវការការបញ្ចូល"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "입력이 필요한 다음 에이전트로 이동"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Gå til neste agent som venter på svar"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Przejdź do następnego agenta czekającego na odpowiedź"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ir para o próximo agente aguardando resposta"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Перейти к следующему агенту, ожидающему ввода"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ไปยังเอเจนต์ถัดไปที่รอการตอบ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Girdi bekleyen sonraki ajana git"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Перейти до наступного агента, що чекає на введення"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Đi tới tác tử tiếp theo cần phản hồi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "前往下一个等待输入的智能体"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "前往下一個等待輸入的代理程式"}}}},
     "action.cloudShareMachine": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Share Machine…"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "مشاركة الجهاز…"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Podijeli mašinu…"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Del maskine…"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Maschine teilen …"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Compartir máquina…"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Partager la machine…"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Condividi macchina…"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "マシンを共有…"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ចែករំលែកម៉ាស៊ីន…"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "기기 공유…"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Del maskin …"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Udostępnij maszynę…"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Compartilhar Máquina…"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Поделиться машиной…"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แชร์เครื่อง…"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi Paylaş…"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Поділитися машиною…"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chia sẻ máy…"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "共享机器…"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "共享機器…"}}}},
     "argument.teammate": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Teammate"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "زميل الفريق"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Član tima"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Teammedlem"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Teammitglied"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Compañero de equipo"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Coéquipier"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Membro del team"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "チームメイト"}}, "km": {"stringUnit": {"state": "needs_review", "value": "សមាជិកក្រុម"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "팀원"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Teammedlem"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Członek zespołu"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Colega de equipe"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Участник команды"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เพื่อนร่วมทีม"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Ekip arkadaşı"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Учасник команди"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Đồng đội"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "队友"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "隊友"}}}},
     "argument.revoke": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Revoke"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "إلغاء"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Opozovi"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Tilbagekald"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Widerrufen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Revocar"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Révoquer"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Revoca"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "取り消す"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ដកហូត"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "취소"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Tilbakekall"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Cofnij"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Revogar"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Отозвать"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เพิกถอน"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "İptal et"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Відкликати"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Thu hồi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "撤销"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "撤銷"}}}},
@@ -65113,6 +65113,137 @@
         }
       }
     },
+  "action.toggleFileEditorMinimap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Editor Minimap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エディタのミニマップを切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبديل الخريطة المصغرة للمحرر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prebaci minimapu uređivača"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå editorens minimap til/fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor-Minimap umschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar minimapa del editor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher/masquer la minimap de l’éditeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attiva/disattiva minimappa dell’editor"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ/បើកផែនទីតូចរបស់កម្មវិធីកែ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집기 미니맵 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå redigeringsprogrammets minikart av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przełącz minimapę edytora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar Minimapa do Editor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мини-карта редактора"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับมินิแมปของตัวแก้ไข"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenleyici Mini Haritasını Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемкнути мінімапу редактора"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bật/tắt bản đồ thu nhỏ của trình soạn thảo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切换编辑器缩略图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切換編輯器縮圖"
+          }
+        }
+      }
+    },
   "action.toggleFileEditorWordWrap": {
       "extractionState": "manual",
       "localizations": {
@@ -87639,6 +87770,636 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "複製聊天主機"
+          }
+        }
+      }
+    },
+    "action.agentChat.copySessionFilePaths": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Session File Paths"}},
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ مسارات ملفات الجلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj putanje datoteka sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér stier til sessionsfiler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pfade der Sitzungsdateien kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar rutas de archivos de la sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier les chemins des fichiers de session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia percorsi dei file di sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セッションファイルのパスをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងផ្លូវឯកសារសម័យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션 파일 경로 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier stier til øktfiler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj ścieżki plików sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar caminhos dos arquivos da sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копировать пути к файлам сеанса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกพาธไฟล์เซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturum dosyası yollarını kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювати шляхи до файлів сеансу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép đường dẫn tệp phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "复制会话文件路径"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "複製工作階段檔案路徑"
+          }
+        }
+      }
+    },
+    "action.agentChat.copyTranscriptFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Transcript File"}},
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ ملف النص الكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj datoteku transkripta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér transskriptionsfil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkriptdatei kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar archivo de transcripción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier le fichier de transcription"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia file della trascrizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "トランスクリプトファイルをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងឯកសារប្រតិចារិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화 기록 파일 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier transkripsjonsfil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj plik transkrypcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar arquivo de transcrição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копировать файл расшифровки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกไฟล์บันทึกการสนทนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Döküm dosyasını kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювати файл стенограми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép tệp bản ghi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "复制对话记录文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "複製對話記錄檔案"
+          }
+        }
+      }
+    },
+    "action.agentChat.copyHarnessConfigFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Harness Config File"}},
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ ملف إعدادات الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj konfiguracijsku datoteku agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér agentens konfigurationsfil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfigurationsdatei des Agenten kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar archivo de configuración del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier le fichier de configuration de l’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia file di configurazione dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの設定ファイルをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងឯកសារកំណត់រចនាសម្ព័ន្ធភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 구성 파일 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier agentens konfigurasjonsfil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj plik konfiguracji agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar arquivo de configuração do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копировать файл конфигурации агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกไฟล์การกำหนดค่าของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan yapılandırma dosyasını kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювати файл конфігурації агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép tệp cấu hình tác nhân"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "复制智能体配置文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "複製代理設定檔"
+          }
+        }
+      }
+    },
+    "action.agentChat.copyHarnessSettingsFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Harness Settings File"}},
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ ملف إعدادات تفضيلات الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj datoteku postavki agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér agentens indstillingsfil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einstellungsdatei des Agenten kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar archivo de ajustes del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier le fichier de réglages de l’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia file delle impostazioni dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの設定項目ファイルをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងឯកសារការកំណត់ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 설정 파일 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier agentens innstillingsfil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj plik ustawień agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar arquivo de ajustes do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копировать файл настроек агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกไฟล์การตั้งค่าของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan ayarlar dosyasını kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювати файл налаштувань агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép tệp cài đặt tác nhân"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "复制智能体设置文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "複製代理設定值檔案"
+          }
+        }
+      }
+    },
+    "action.agentChat.copyAcpmuxSessionFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy acpmux Session File"}},
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ ملف جلسة acpmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj acpmux datoteku sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér acpmux-sessionsfil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux-Sitzungsdatei kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar archivo de sesión de acpmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier le fichier de session acpmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia file di sessione acpmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmuxセッションファイルをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងឯកសារសម័យ acpmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 세션 파일 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier acpmux-øktfil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj plik sesji acpmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar arquivo de sessão do acpmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копировать файл сеанса acpmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกไฟล์เซสชัน acpmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux oturum dosyasını kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювати файл сеансу acpmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép tệp phiên acpmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "复制 acpmux 会话文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "複製 acpmux 工作階段檔案"
           }
         }
       }

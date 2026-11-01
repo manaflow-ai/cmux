@@ -69,6 +69,14 @@ const FF_OMNIBAR = {
   history: [],
 };
 
+/// The machine chip's machine list: Machines… on its right-click menu (its main list is This Mac
+/// and Cloud, #28999).
+const openMachineList = async (ctx: PlayContext) => {
+  await ctx.contextMenu({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+  await ctx.click({ role: "menuitem", name: "Machines…" });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-machines [role="option"]'));
+};
+
 /// What plays, as the host pushes it (`nowPlaying`): Spotify's track with its art.
 const nowPlayingTrack = (playing: boolean) => ({
   title: "Weightless",
@@ -373,7 +381,7 @@ export default agentPaneEntry({
       native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: "devbox: agent unavailable" } } },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
-        await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+        await openMachineList(ctx);
         await ctx.click({ role: "option", name: /devbox/ });
         await typePrompt(ctx, "Inspect the failed build and suggest a fix.");
         await ctx.press("Enter");
@@ -430,7 +438,7 @@ export default agentPaneEntry({
     // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page. On New
     // Tab More models shows its models in place, under its row (newTabComposer.ts), then Add harness….
     "computer-first-setup": {
-      note: "Fresh home with Labs off and only Studio Mac: the Computer menu exposes Add a computer and New Cloud Machine.",
+      note: "Fresh home with Labs off and only Studio Mac: the machine menu lists This Mac and Cloud (signed out, with Sign in for Cloud); Add Machine… and New Cloud Machine… are its right-click menu.",
       ready: { ...newTab(), machineName: "Studio Mac" },
       snapshot: noChat(),
       native: { "cloudMachine.list": { signedIn: false, loaded: true, machines: [] } },
@@ -441,13 +449,13 @@ export default agentPaneEntry({
       },
     },
     "machines-fleet": {
-      note: "The machine chip with 21 machines acpmux lists (`host ls`): every one, in This Mac, My machines and Cloud and VMs; in each the ones a chat can start on first, in number order, the rest greyed with their state and no pick.",
+      note: "Machines… (the machine chip's right-click menu) with 21 machines acpmux lists (`host ls`): every one, This Mac first; in each group the ones a chat can start on first, in number order, the rest greyed with their state and no pick.",
       ready: newTab(),
       snapshot: noChat([], { ...fleetPeers(), listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
-        await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
-        await ctx.waitFor(() => ctx.document.querySelector('[role="listbox"] [role="option"]') !== null);
+        await openMachineList(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
       },
     },
     "model-picker-open": {

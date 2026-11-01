@@ -30,7 +30,7 @@ import Observation
 final class WindowManager {
     unowned let services: AppServices
     let registry = WindowRegistryStore()
-    private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange() } } // none left: background mode (cx-ghagp)
+    private(set) var controllers: [WindowController] = [] { didSet { services.windowsDidChange() } } // none left: background mode (cx-ghagp)
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
     private weak var lastActive: WindowController?
@@ -74,9 +74,8 @@ final class WindowManager {
     private var restacking: Set<String> = [], keepsOrder = false
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
-    /// Sidebar slots for new workspaces, applied once the daemon reports
-    /// them (`applyPendingPlacements`).
-    var pendingPlacements: [String: PendingPlacement] = [:]
+    /// Sidebar slots for new workspaces, applied once the daemon reports them (`applyPendingPlacements`).
+    var pendingPlacements: [String: PendingPlacement] = [:] { didSet { PendingWorkspaceRows.shared.placements(from: oldValue.keys, to: pendingPlacements.keys) } }
     /// Registration order survives a daemon snapshot that reports several creates together.
     var pendingPlacementOrder: [String] = []
     /// Retries the placements whose wait for the window's current row ran out (`applyPendingPlacements`).
@@ -100,9 +99,8 @@ final class WindowManager {
     private(set) var restored = false
     /// The saved windows' read failed for good: no restore places the launch window's claims (``awaitsRestore(_:)``).
     private(set) var restoreGaveUp = false
-    /// Windows the person closed before `restore` finished (cx-ghagp): the restore puts back the
-    /// saved registry, where they are open, and must not open them again. Empty once it finished.
-    var closedDuringRestore: Set<String> = []
+    /// Windows the person closed before `restore` finished, which it must not open again (cx-ghagp).
+    var restoreClosed = RestoreClosedWindows()
     /// True while `restore` runs.
     private(set) var restoring = false
     /// The saved window records are not installed (yet, or the launch's read failed: `SavedWindowsRead`):
@@ -110,10 +108,7 @@ final class WindowManager {
     /// the launch's records are installed, so neither a window opened while it waits nor a quit before the
     /// restore started (its flush would write no windows) can replace them.
     private(set) var savedWindowsUnread = true
-    /// The launch window the person closed before `restore` finished: the restore registers the
-    /// workspaces it would have shown under this id, which is in `closedDuringRestore`, so they
-    /// stay in a closed window. Nil once it finished.
-    var closedLaunchWindowID: String?
+    var closedLaunchWindowID: String? { restoreClosed.launchWindowID }
     /// The windows the previous launch left open, captured at restore (Restore Previous App
     /// Launch reopens those closed since); nil before restore and when nothing was saved.
     var previousLaunch: PreviousLaunch?
@@ -141,8 +136,8 @@ final class WindowManager {
     var incognitoSession: BrowserProfileID?
     /// The incognito space each incognito window shows (window id to space), deleted with its window.
     var incognitoSpaces: [String: ProfileID] = [:]
-    /// Workspaces of open incognito windows, closed at the next launch when
-    /// this run ends without closing them.
+    let incognitoSpaceMarks = IncognitoSpaceMarks()
+    /// Workspaces of open incognito windows, closed at the next launch when this run ends without closing them.
     lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     /// Incognito windows waiting for the ephemeral workspace created for
     /// them (`WindowManager+Ephemeral`).
@@ -245,8 +240,7 @@ final class WindowManager {
         restoring = true
         defer {
             restoring = false
-            closedDuringRestore = []
-            closedLaunchWindowID = nil
+            restoreClosed.restoreEnded(in: registry.value, applied: services.daemon.store.appliedSequence) { self.services.workspace(id: $0) != nil }
         }
         registry.provisional = [:]
         DebugTimings.markLaunch("daemon_snapshot_loaded")
@@ -262,12 +256,14 @@ final class WindowManager {
             for space in await incognitoLedger.loadSpaces() { _ = try? await home.deleteProfile(ProfileID(rawValue: space), moveTo: nil) }
         }
         let leftover = await incognitoLedger.load()
-        if !leftover.isEmpty {
-            registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
-            discard(leftover)
-        }
+        IncognitoLeftovers.discard(leftover, self)
         await EphemeralWorkspaces.awaitFlags(self)
         let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
+        // Its create replied, but the store can list it after this restore ended.
+        if let first = firstWorkspace, services.daemon.store.workspace(id: first) == nil {
+            let barrier = await services.daemon.connection?.eventSequence() ?? 0
+            restoreClosed.awaiting([first], barrier: barrier)
+        }
         guard !Task.isCancelled, !isTerminating else { return }
         restored = true
         let restoredRegistry = WindowRegistry(records: document.windows)
@@ -278,20 +274,20 @@ final class WindowManager {
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
-        if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { closedDuringRestore.insert(front) }
+        if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
         rememberMachines(of: document)
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
                 registry = restoredRegistry
-                keepClosedDuringRestore(&registry)
+                restoreClosed.keepClosed(&registry)
                 return WindowRegistry.Changes()
             }
         }
         reconcileMembership()
         // Every remaining window closed (the open ones lost their workspaces while the app was
         // not running): the most recent one opens, so the app never starts with no window.
-        if closedDuringRestore.isEmpty, !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen),
+        if restoreClosed.windows.isEmpty, !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen),
            let front = registry.value.recency.first {
             registry.apply { $0.setRestored(front, open: true); return WindowRegistry.Changes() }
         }
@@ -320,7 +316,7 @@ final class WindowManager {
         enterRestoredFullScreens()
         // Its New Tab page or Home; not after the person closed a window meanwhile: revealing it
         // opens a window again (the Home workspace shows before the restore finished).
-        if closedDuringRestore.isEmpty { FirstWorkspaceLaunch(manager: self).land(firstWorkspace, leftover: leftover) }
+        if restoreClosed.windows.isEmpty { FirstWorkspaceLaunch(manager: self).land(firstWorkspace, leftover: leftover) }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
@@ -374,13 +370,6 @@ final class WindowManager {
         guard services.environment.testWindow == nil, let launch = launchWindowID.flatMap(controller(for:)),
               let frame = document.lastFrame?.rect else { return }
         launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: document.lastDisplay), display: true)
-    }
-
-    /// A window the person closed before the restore finished stays closed, even the last one: no
-    /// window open is the background mode, not a launch to recover. Applied in the registry step
-    /// itself, so no sync ever opens (and presents) it in between.
-    func keepClosedDuringRestore(_ registry: inout WindowRegistry) {
-        for id in closedDuringRestore where registry.window(id)?.isOpen == true { registry.setRestored(id, open: false) }
     }
 
     /// The frontmost saved window that can show a workspace now; one whose
@@ -495,10 +484,7 @@ final class WindowManager {
         if id == launchWindowID {
             // The unregistered launch window: nothing to hand over. It often wears the saved front
             // window's id, so the restore must not open that one again either.
-            if restoring || !restored {
-                closedDuringRestore.insert(id)
-                closedLaunchWindowID = id
-            }
+            if restoring || !restored { restoreClosed.closed(id, launch: true) }
             launchWindowID = nil
             states[id] = nil
             return
@@ -560,10 +546,10 @@ final class WindowManager {
     /// Every workspace this app holds memory for (mounted in a window, or a tab `holdsMemory` says
     /// holds a surface or page), with what keeps it awake.
     func hibernationResidents(in stores: [DaemonStore], holdsMemory: (String) -> Bool) -> [WorkspaceHibernationResident] {
-        let mounted = parkedWorkspaceIDs
+        let mounted = parkedWorkspaceIDs, hidden = hiddenSpaceTest()
         return WorkspaceActivityFacts.all(in: stores) { workspace, tabs in mounted.contains(workspace.id) || tabs.contains { holdsMemory($0.id) } }
             .map { WorkspaceHibernationResident(workspace: $0.workspace, lastActivity: $0.lastActivity, pinned: $0.pinned,
-                                                running: $0.running, needsAttention: $0.needsAttention) }
+                                                running: $0.running, needsAttention: $0.needsAttention, inHiddenSpace: hidden($0.workspace)) }
     }
 
     /// Workspace `id` hibernated: every window unmounts its parked content.

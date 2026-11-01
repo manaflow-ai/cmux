@@ -33,6 +33,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     "agent-session/acpmux/composerStates.css",
     "agent-session/acpmux/styles.css",
     "agent-session/acpmux/harnesses/harnesses.css",
+    "agent-session/acpmux/conversation/spinner.css",
     "agent-session/acpmux/conversation/conversation.css",
     "agent-session/acpmux/summary/summary.css",
   ]

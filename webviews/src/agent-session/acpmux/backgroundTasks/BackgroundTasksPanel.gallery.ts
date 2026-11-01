@@ -182,10 +182,14 @@ export default agentPaneEntry({
   },
   variants: {
     closed: {
-      note: "Before it opens: the tray above the composer lists the running agents; the chat's ⋯ menu has Background tasks.",
+      note: "Before it opens: the tray above the composer, opened from its folded header, lists the running agents; the chat's ⋯ menu has Background tasks.",
       snapshot: snapshot(false),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+        // A headed tray starts folded (cmux#28875): open it, as the person does.
+        if (ctx.document.querySelector('.acpmux-running-tray__head[aria-expanded="false"]'))
+          await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
       },
     },
     docked: {

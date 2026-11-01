@@ -1,6 +1,792 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sidebar.workspacesAsTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساحات العمل كعلامات تبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radni prostori kao kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbejdsområder som faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereiche als Tabs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces as Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espacios de trabajo como pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaces de travail en onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Workspace come schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブとしてのワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការជាផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭으로 쓰는 워크스페이스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeidsområder som faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszary robocze jako karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaços de trabalho como abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочие пространства как вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวิร์กสเปซเป็นแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme Olarak Çalışma Alanları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочі простори як вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc dạng thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区作为标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區作為標籤頁"
+          }
+        }
+      }
+    },
+    "settings.sidebar.workspacesAsTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كل مساحة عمل في سطر واحد، مثل الشريط الجانبي في Claude، وينتقل Command-Shift-[ و ] إلى مساحة العمل السابقة أو التالية بدلاً من علامة التبويب السابقة أو التالية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaki radni prostor je jedan red, kao Claudeov bočni panel, a Command-Shift-[ i ] idu na prethodni ili sljedeći radni prostor umjesto na prethodnu ili sljedeću karticu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvert arbejdsområde er én linje, som Claudes sidebjælke, og Command-Shift-[ og ] går til forrige eller næste arbejdsområde i stedet for forrige eller næste fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeder Arbeitsbereich belegt eine Zeile, wie die Seitenleiste von Claude, und Command-Umschalt-[ und ] wechseln zum vorherigen oder nächsten Arbeitsbereich statt zum vorherigen oder nächsten Tab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada espacio de trabajo ocupa una línea, como la barra lateral de Claude, y Command-Shift-[ y ] van al espacio de trabajo anterior o siguiente en lugar de la pestaña anterior o siguiente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chaque espace de travail tient sur une ligne, comme la barre latérale de Claude, et Command-Maj-[ et ] passent à l’espace de travail précédent ou suivant au lieu de l’onglet précédent ou suivant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ogni workspace occupa una riga, come la barra laterale di Claude, e Command-Maiusc-[ e ] passano al workspace precedente o successivo invece che alla scheda precedente o successiva."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claudeのサイドバーのように、各ワークスペースを1行で表示します。Command-Shift-[ と ] は、前後のタブではなく前後のワークスペースに移動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការនីមួយៗជាមួយបន្ទាត់ ដូចរបារចំហៀងរបស់ Claude ហើយ Command-Shift-[ និង ] ទៅកន្លែងធ្វើការមុន ឬបន្ទាប់ ជំនួសឱ្យផ្ទាំងមុន ឬបន្ទាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude의 사이드바처럼 워크스페이스마다 한 줄로 표시되며, Command-Shift-[ 와 ]는 이전/다음 탭 대신 이전/다음 워크스페이스로 이동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvert arbeidsområde er én linje, som sidepanelet i Claude, og Command-Shift-[ og ] går til forrige eller neste arbeidsområde i stedet for forrige eller neste fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Każdy obszar roboczy zajmuje jeden wiersz, jak na pasku bocznym Claude, a Command-Shift-[ i ] przechodzą do poprzedniego lub następnego obszaru roboczego zamiast do poprzedniej lub następnej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada espaço de trabalho ocupa uma linha, como a barra lateral do Claude, e Command-Shift-[ e ] vão para o espaço de trabalho anterior ou seguinte em vez da aba anterior ou seguinte."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Каждое рабочее пространство занимает одну строку, как на боковой панели Claude, а Command-Shift-[ и ] переходят к предыдущему или следующему рабочему пространству вместо предыдущей или следующей вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แต่ละเวิร์กสเปซเป็นหนึ่งบรรทัด เหมือนแถบข้างของ Claude และ Command-Shift-[ กับ ] จะไปยังเวิร์กสเปซก่อนหน้าหรือถัดไปแทนแท็บก่อนหน้าหรือถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her çalışma alanı Claude’un kenar çubuğundaki gibi tek satırdır; Command-Shift-[ ve ] önceki veya sonraki sekme yerine önceki veya sonraki çalışma alanına geçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кожен робочий простір займає один рядок, як на бічній панелі Claude, а Command-Shift-[ і ] переходять до попереднього або наступного робочого простору замість попередньої чи наступної вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mỗi không gian làm việc là một dòng, như thanh bên của Claude, và Command-Shift-[ và ] chuyển đến không gian làm việc trước hoặc sau thay vì thẻ trước hoặc sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个工作区占一行，就像 Claude 的侧边栏；Command-Shift-[ 和 ] 会切换到上一个或下一个工作区，而不是上一个或下一个标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個工作區佔一行，就像 Claude 的側邊欄；Command-Shift-[ 和 ] 會切換到上一個或下一個工作區，而不是上一個或下一個標籤頁。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.chromeGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مجموعات بنمط Chrome"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupe u stilu Chromea"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupper i Chrome-stil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppen im Chrome-Stil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome-Style Groups"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupos estilo Chrome"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Groupes façon Chrome"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppi in stile Chrome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome風グループ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមបែប Chrome"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome 스타일 그룹"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupper i Chrome-stil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupy w stylu Chrome"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupos no estilo Chrome"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группы в стиле Chrome"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่มแบบ Chrome"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome Tarzı Gruplar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Групи в стилі Chrome"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm kiểu Chrome"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome 风格分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome 風格群組"
+          }
+        }
+      }
+    },
+    "settings.sidebar.chromeGroups.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنضم شارة اسم المجموعة الملونة إلى شريط أسمك بزاوية مقصوصة، وينتهي الشريط بطرف مستدير، مثل مجموعات علامات التبويب في Chrome."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obojena oznaka imena grupe spaja se s debljom šinom s isječenim uglom, a šina završava zaobljenim krajem, kao grupe kartica u Chromeu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En gruppes farvede navnemærke går sammen med en tykkere skinne med et afskåret hjørne, og skinnen ender i en afrundet kant, som Chromes fanegrupper."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das farbige Namensschild einer Gruppe geht in eine dickere Leiste mit abgeschnittener Ecke über, die in einer abgerundeten Kappe endet, wie bei den Tab-Gruppen in Chrome."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La etiqueta de color con el nombre del grupo se une a un riel más grueso con una esquina recortada, y el riel termina en un extremo redondeado, como los grupos de pestañas de Chrome."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pastille colorée du nom d’un groupe rejoint un rail plus épais à coin coupé, et le rail se termine par un bout arrondi, comme les groupes d’onglets de Chrome."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’etichetta colorata con il nome del gruppo si unisce a una barra più spessa con un angolo tagliato, che termina con un’estremità arrotondata, come i gruppi di schede di Chrome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループの色付きの名前チップが、角を切り落とした太めのレールにつながり、レールの端は丸いキャップで終わります。Chromeのタブグループと同じ見た目です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្លាកឈ្មោះពណ៌របស់ក្រុមភ្ជាប់ទៅផ្លូវរថភ្លើងដែលក្រាស់ជាង មានជ្រុងកាត់ ហើយចុងផ្លូវមានមួករាងមូល ដូចក្រុមផ្ទាំងរបស់ Chrome។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹의 색상 이름 칩이 모서리가 잘린 더 두꺼운 레일과 이어지고, 레일 끝은 둥근 캡으로 마무리됩니다. Chrome의 탭 그룹과 같은 모양입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En gruppes fargede navnebrikke går over i en tykkere skinne med et avkuttet hjørne, og skinnen ender i en avrundet hette, som fanegruppene i Chrome."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolorowa plakietka z nazwą grupy łączy się z grubszą szyną z ściętym rogiem, a szyna kończy się zaokrąglonym zakończeniem, jak w grupach kart w Chrome."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A etiqueta colorida com o nome do grupo se junta a um trilho mais grosso com um canto cortado, e o trilho termina em uma ponta arredondada, como os grupos de abas do Chrome."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цветной ярлык с названием группы соединяется с более толстой направляющей со срезанным углом, а направляющая заканчивается скруглённым краем, как у групп вкладок в Chrome."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายชื่อสีของกลุ่มเชื่อมกับแถบที่หนากว่าซึ่งมีมุมตัด และปลายแถบมน เหมือนกลุ่มแท็บของ Chrome"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grubun renkli ad etiketi, köşesi kesik daha kalın bir rayla birleşir ve ray yuvarlak bir uçla biter; tıpkı Chrome’un sekme grupları gibi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кольоровий ярлик з назвою групи з’єднується з товщою напрямною зі зрізаним кутом, а напрямна закінчується заокругленим краєм, як у групах вкладок Chrome."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhãn tên có màu của nhóm nối với một thanh dày hơn có góc bị cắt, và thanh kết thúc bằng đầu bo tròn, giống nhóm thẻ của Chrome."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分组的彩色名称标签与带切角的较粗导轨相连，导轨末端为圆角，就像 Chrome 的标签页分组。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組的彩色名稱標籤與帶切角的較粗導軌相連，導軌末端為圓角，就像 Chrome 的標籤頁群組。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.sideBySide": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساحات العمل جنبًا إلى جنب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radni prostori jedan pored drugog"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbejdsområder side om side"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereiche nebeneinander"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces Side by Side"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espacios de trabajo en paralelo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaces de travail côte à côte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Workspace affiancati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペースを並べて表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការអមគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크스페이스 나란히 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeidsområder side om side"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszary robocze obok siebie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaços de trabalho lado a lado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочие пространства рядом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวิร์กสเปซเคียงข้างกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yan Yana Çalışma Alanları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочі простори поруч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc cạnh nhau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区并排显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區並排顯示"
+          }
+        }
+      }
+    },
+    "settings.sidebar.sideBySide.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يتم التبديل عند الضغط على صف مساحة العمل إلا عند تحريره، فيمكنك الضغط مع السحب وإسقاط الصف على حافة جزء لعرض مساحة العمل بجانب الحالية. تظهر مساحات العمل المعروضة على الشاشة بتمييز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pritisak na red radnog prostora mijenja prostor tek kad ga otpustite, pa možete držati i povući red na rub okna da se taj radni prostor prikaže pored trenutnog. Radni prostori na ekranu su istaknuti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et tryk på en arbejdsområderække skifter først, når du slipper, så du kan holde og trække rækken hen på kanten af et panel for at vise arbejdsområdet ved siden af det aktuelle. Arbejdsområder på skærmen fremhæves."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Klick auf eine Arbeitsbereich-Zeile wechselt erst beim Loslassen, sodass du die Zeile halten und an den Rand eines Bereichs ziehen kannst, um diesen Arbeitsbereich neben dem aktuellen anzuzeigen. Angezeigte Arbeitsbereiche sind hervorgehoben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al pulsar una fila de espacio de trabajo, solo se cambia al soltar, así que puedes mantenerla y arrastrarla al borde de un panel para mostrar ese espacio de trabajo junto al actual. Los espacios de trabajo en pantalla aparecen resaltados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un appui sur une ligne d’espace de travail ne change d’espace qu’au relâchement : vous pouvez maintenir et faire glisser la ligne sur le bord d’un volet pour afficher cet espace de travail à côté de l’actuel. Les espaces de travail à l’écran sont surlignés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premere una riga di workspace cambia workspace solo al rilascio, così puoi tenere premuto e trascinare la riga sul bordo di un riquadro per mostrare quel workspace accanto a quello attuale. I workspace sullo schermo sono evidenziati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペースの行を押しても、指を離すまで切り替わりません。押したまま行をペインの端にドラッグすると、そのワークスペースを現在のものの横に表示できます。画面に表示中のワークスペースはハイライトされます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចុចលើជួរកន្លែងធ្វើការនឹងប្តូរតែពេលអ្នកលែង ដូច្នេះអ្នកអាចសង្កត់ហើយអូសជួរទៅគែមផ្ទាំង ដើម្បីបង្ហាញកន្លែងធ្វើការនោះក្បែរកន្លែងបច្ចុប្បន្ន។ កន្លែងធ្វើការដែលនៅលើអេក្រង់ត្រូវបានគូសបញ្ជាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크스페이스 행을 눌러도 손을 뗄 때까지 전환되지 않으므로, 행을 누른 채 패널 가장자리로 드래그하면 현재 워크스페이스 옆에 해당 워크스페이스를 표시할 수 있습니다. 화면에 표시된 워크스페이스는 강조됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et trykk på en arbeidsområderad bytter først når du slipper, så du kan holde og dra raden til kanten av et panel for å vise arbeidsområdet ved siden av det gjeldende. Arbeidsområder på skjermen er uthevet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naciśnięcie wiersza obszaru roboczego przełącza go dopiero po zwolnieniu, więc możesz przytrzymać i przeciągnąć wiersz na krawędź panelu, aby pokazać ten obszar roboczy obok bieżącego. Obszary robocze widoczne na ekranie są wyróżnione."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pressionar uma linha de espaço de trabalho só troca ao soltar, então você pode segurar e arrastar a linha até a borda de um painel para mostrar esse espaço de trabalho ao lado do atual. Os espaços de trabalho na tela ficam destacados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нажатие на строку рабочего пространства переключает его только при отпускании, поэтому можно зажать строку и перетащить её к краю панели, чтобы показать это рабочее пространство рядом с текущим. Рабочие пространства на экране выделены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การกดแถวเวิร์กสเปซจะสลับเมื่อคุณปล่อยเท่านั้น คุณจึงกดค้างแล้วลากแถวไปที่ขอบของบานหน้าต่างเพื่อแสดงเวิร์กสเปซนั้นข้างเวิร์กสเปซปัจจุบันได้ เวิร์กสเปซที่แสดงบนหน้าจอจะถูกไฮไลต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir çalışma alanı satırına basmak yalnızca bıraktığınızda geçiş yapar; böylece satırı basılı tutup bir bölmenin kenarına sürükleyerek o çalışma alanını mevcut olanın yanında gösterebilirsiniz. Ekrandaki çalışma alanları vurgulanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Натискання рядка робочого простору перемикає його лише після відпускання, тож можна утримувати рядок і перетягнути його до краю панелі, щоб показати цей робочий простір поруч із поточним. Робочі простори на екрані виділено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhấn vào một dòng không gian làm việc chỉ chuyển khi bạn nhả ra, nên bạn có thể giữ và kéo dòng đó đến cạnh của một ngăn để hiện không gian làm việc đó bên cạnh không gian hiện tại. Các không gian làm việc trên màn hình được làm nổi bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按下工作区行时，松开后才会切换，因此你可以按住该行并拖到窗格边缘，在当前工作区旁边显示该工作区。屏幕上显示的工作区会高亮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按下工作區列時，放開後才會切換，因此你可以按住該列並拖到窗格邊緣，在目前工作區旁邊顯示該工作區。螢幕上顯示的工作區會醒目標示。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.transcriptView": {
       "comment": "Settings > Agent Chat > Transcript View: how much of each turn a chat shows",
       "extractionState": "manual",
@@ -2491,6 +3277,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "側邊欄工作區"
+          }
+        }
+      }
+    },
+    "settings.pageGroup.sidebarLayout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Layout"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخطيط الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raspored bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidepanelets layout"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seitenleisten-Layout"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diseño de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disposition de la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout della barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーのレイアウト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្លង់របារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 레이아웃"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidepaneloppsett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Układ paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Макет боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เค้าโครงแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar Çubuğu Düzeni"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Макет бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bố cục thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边栏布局"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄佈局"
           }
         }
       }
@@ -7188,6 +8105,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "釋放一段時間未使用的工作區的記憶體。終端機和代理會繼續執行；開啟工作區時，頁面和聊天會回到原來的位置。"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.hiddenSpaceMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إسبات المساحات المخفية بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiberniraj skrivene prostore nakon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sæt skjulte rum i dvale efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausgeblendete Spaces in Ruhezustand nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hibernate Hidden Spaces After"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hibernar espacios ocultos después de"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettre en veille les espaces masqués après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iberna gli spazi nascosti dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "非表示のスペースをハイバネートするまでの時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្អាកលំហដែលបានលាក់បន្ទាប់ពី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "숨겨진 스페이스 최대 절전까지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sett skjulte områder i dvale etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hibernuj ukryte przestrzenie po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hibernar espaços ocultos após"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Гибернация скрытых пространств через"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พักพื้นที่ที่ซ่อนอยู่หลังจาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizli alanları şu süreden sonra beklet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Гібернація прихованих просторів через"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ngủ đông không gian ẩn sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隐藏空间休眠前等待"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隱藏空間休眠前等待"
+          }
+        }
+      }
+    },
+    "settings.workspaceHibernation.hiddenSpaceMinutes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما لا تعرض أي نافذة مساحة ما، تدخل مساحات العمل فيها في الإسبات بعد هذا العدد من دقائق الخمول بدلاً من ذلك. لا تدخل مساحات العمل المثبتة والأوامر والوكلاء قيد التشغيل ومساحات العمل المبقاة مستيقظة في الإسبات أبداً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada nijedan prozor ne prikazuje prostor, njegovi radni prostori hiberniraju nakon ovoliko minuta neaktivnosti. Zakačeni radni prostori, pokrenute komande i agenti te radni prostori koji se drže budnim nikad ne hiberniraju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når intet vindue viser et rum, går dets arbejdsområder i dvale efter så mange inaktive minutter i stedet. Fastgjorte arbejdsområder, kørende kommandoer og agenter samt arbejdsområder, der holdes vågne, går aldrig i dvale."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn kein Fenster einen Space zeigt, gehen seine Workspaces stattdessen nach so vielen inaktiven Minuten in den Ruhezustand. Angeheftete Workspaces, laufende Befehle und Agents sowie wach gehaltene Workspaces gehen nie in den Ruhezustand."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando ninguna ventana muestra un espacio, sus espacios de trabajo hibernan tras estos minutos de inactividad. Los espacios de trabajo fijados, los comandos y agentes en ejecución y los espacios mantenidos activos nunca hibernan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand aucune fenêtre n’affiche un espace, ses espaces de travail se mettent en veille après ce nombre de minutes d’inactivité. Les espaces de travail épinglés, les commandes et agents en cours et les espaces maintenus éveillés ne se mettent jamais en veille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando nessuna finestra mostra uno spazio, i suoi workspace vanno in ibernazione dopo questi minuti di inattività. I workspace fissati, i comandi e gli agenti in esecuzione e i workspace tenuti attivi non vanno mai in ibernazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "どのウインドウにも表示されていないスペースでは、ワークスペースがこの分数アイドルになるとハイバネートします。ピン留めしたワークスペース、実行中のコマンドとエージェント、スリープさせないワークスペースはハイバネートしません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលគ្មានបង្អួចណាបង្ហាញលំហមួយ កន្លែងធ្វើការរបស់វានឹងផ្អាកបន្ទាប់ពីទំនេរប៉ុន្មាននាទីនេះ។ កន្លែងធ្វើការដែលបានខ្ទាស់ ពាក្យបញ្ជា និងភ្នាក់ងារដែលកំពុងដំណើរការ និងកន្លែងធ្វើការដែលរក្សាឱ្យភ្ញាក់ មិនដែលផ្អាកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "어떤 창에도 표시되지 않는 스페이스의 워크스페이스는 이 시간(분) 동안 유휴 상태이면 최대 절전 모드로 전환됩니다. 고정된 워크스페이스, 실행 중인 명령과 에이전트, 깨어 있도록 유지한 워크스페이스는 최대 절전 모드로 전환되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når ingen vinduer viser et område, går arbeidsområdene i det i dvale etter så mange inaktive minutter i stedet. Festede arbeidsområder, kjørende kommandoer og agenter og arbeidsområder som holdes våkne, går aldri i dvale."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy żadne okno nie pokazuje przestrzeni, jej obszary robocze hibernują po tylu minutach bezczynności. Przypięte obszary robocze, uruchomione polecenia i agenci oraz obszary utrzymywane w gotowości nigdy nie hibernują."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando nenhuma janela mostra um espaço, seus espaços de trabalho hibernam após estes minutos de inatividade. Espaços de trabalho fixados, comandos e agentes em execução e espaços mantidos ativos nunca hibernam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда ни одно окно не показывает пространство, его рабочие области уходят в гибернацию после стольких минут бездействия. Закреплённые рабочие области, выполняющиеся команды и агенты, а также рабочие области, которые не усыпляются, никогда не уходят в гибернацию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อไม่มีหน้าต่างใดแสดงพื้นที่หนึ่ง เวิร์กสเปซในพื้นที่นั้นจะพักหลังจากไม่ได้ใช้งานตามจำนวนนาทีนี้แทน เวิร์กสเปซที่ปักหมุด คำสั่งและเอเจนต์ที่กำลังทำงาน และเวิร์กสเปซที่ตั้งให้ตื่นอยู่จะไม่พักเลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiçbir pencere bir alanı göstermediğinde, alanın çalışma alanları bunun yerine bu kadar dakika boşta kaldıktan sonra bekletilir. Sabitlenmiş çalışma alanları, çalışan komutlar ve ajanlar ile uyanık tutulan çalışma alanları asla bekletilmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли жодне вікно не показує простір, його робочі області переходять у гібернацію після стількох хвилин бездіяльності. Закріплені робочі області, запущені команди й агенти та робочі області, які не присипляються, ніколи не переходять у гібернацію."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi không cửa sổ nào hiển thị một không gian, các workspace của nó sẽ ngủ đông sau từng này phút nhàn rỗi. Workspace đã ghim, lệnh và agent đang chạy, và workspace được giữ thức không bao giờ ngủ đông."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当没有窗口显示某个空间时，其工作区闲置这么多分钟后即休眠。已置顶的工作区、正在运行的命令和代理以及保持唤醒的工作区不会休眠。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "當沒有視窗顯示某個空間時，其工作區閒置這麼多分鐘後即休眠。已釘選的工作區、正在執行的命令和代理，以及保持喚醒的工作區不會休眠。"
           }
         }
       }
@@ -78614,6 +79793,270 @@
         }
       }
     },
+    "settings.home.feedInChief": {
+      "comment": "Settings toggle (home.feedInChief): the main Chief's conversation shows the Feed's notices as lines only the person sees.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the Feed in Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الموجز في Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži feed u Chiefu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis feedet i Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed im Chief anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar el feed en Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le flux dans Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il feed in Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief にフィードを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ Feed ក្នុង Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief에 피드 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis feeden i Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż kanał w Chiefie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar o feed no Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать ленту в Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงฟีดใน Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akışı Chief içinde göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати стрічку в Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện Feed trong Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Chief 中显示动态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Chief 中顯示動態"
+          }
+        }
+      }
+    },
+    "settings.home.feedInChief.help": {
+      "comment": "Help for the Show the Feed in Chief toggle (home.feedInChief).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظهر إشعارات الموجز، مثل التحديثات وطلبات السحب، بين رسائل Chief الرئيسي. أنت وحدك تراها، ولا يقرأها Chief."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavijesti iz feeda, poput ažuriranja i pull requestova, pojavljuju se među porukama vašeg glavnog Chiefa. Vidite ih samo vi; Chief ih ne čita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifikationer fra feedet, f.eks. opdateringer og pull requests, vises blandt din primære Chiefs beskeder. Kun du ser dem; Chief læser dem ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinweise aus dem Feed, etwa Updates und Pull Requests, erscheinen zwischen den Nachrichten deines Haupt-Chiefs. Nur du siehst sie; der Chief liest sie nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los avisos del feed, como actualizaciones y pull requests, aparecen entre los mensajes de tu Chief principal. Solo tú los ves; el Chief no los lee."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notifications du flux, comme les mises à jour et les pull requests, apparaissent parmi les messages de votre Chief principal. Vous seul les voyez ; le Chief ne les lit pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli avvisi del feed, come aggiornamenti e pull request, compaiono tra i messaggi del tuo Chief principale. Li vedi solo tu; il Chief non li legge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートやプルリクエストなどのフィードの通知が、メインの Chief のメッセージの間に表示されます。表示されるのはあなただけで、Chief は読みません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជូនដំណឹងពី Feed ដូចជាការអាប់ដេត និង pull request បង្ហាញក្នុងចំណោមសាររបស់ Chief មេរបស់អ្នក។ មានតែអ្នកទេដែលឃើញវា ហើយ Chief មិនអានវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트나 풀 리퀘스트 같은 피드 알림이 메인 Chief의 메시지 사이에 표시됩니다. 나만 볼 수 있으며 Chief는 읽지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsler fra feeden, som oppdateringer og pull requests, vises blant meldingene til hoved-Chiefen din. Bare du ser dem; Chief leser dem ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia z kanału, takie jak aktualizacje i pull requesty, pojawiają się wśród wiadomości Twojego głównego Chiefa. Widzisz je tylko Ty; Chief ich nie czyta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisos do feed, como atualizações e pull requests, aparecem entre as mensagens do seu Chief principal. Só você os vê; o Chief não os lê."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления ленты, например об обновлениях и pull request, появляются среди сообщений вашего основного Chief. Их видите только вы; Chief их не читает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนจากฟีด เช่น อัปเดตและ pull request จะแสดงระหว่างข้อความของ Chief หลักของคุณ มีเพียงคุณที่เห็น และ Chief จะไม่อ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemeler ve pull request’ler gibi akış bildirimleri ana Chief’inizin mesajları arasında görünür. Onları yalnızca siz görürsünüz; Chief okumaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення стрічки, як-от оновлення та pull request, з’являються серед повідомлень вашого основного Chief. Їх бачите лише ви; Chief їх не читає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thông báo từ Feed, như bản cập nhật và pull request, xuất hiện giữa các tin nhắn của Chief chính. Chỉ bạn thấy chúng; Chief không đọc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新和拉取请求等动态通知会显示在你的主 Chief 的消息之间。只有你能看到，Chief 不会读取。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新和提取要求等動態通知會顯示在你的主要 Chief 的訊息之間。只有你看得到，Chief 不會讀取。"
+          }
+        }
+      }
+    },
     "settings.home.keepLocation": {
       "comment": "Settings toggle (home.attachments.keepLocation): attached photos and videos keep their location metadata.",
       "extractionState": "manual",
@@ -93782,6 +95225,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "圖片和檔案在輸入框及已傳送訊息中的顯示方式。「內嵌」會將每個附件放在你加入它的文字位置；「橫條」會將它們排成一列顯示。訊息及其順序保持不變。"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatAttachmentBoth": {
+      "comment": "Settings > Agent Chat > Attachment View choice: attachments show in the text where they were added and also together in one row",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضمن النص وشريط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U tekstu i traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I teksten og bånd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Text und Leiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline and Strip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el texto y tira"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans le texte et bandeau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nel testo e striscia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インラインとストリップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្នុងអត្ថបទ និងឆ្នូត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인라인 및 스트립"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I teksten og stripe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tekście i pasek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No texto e faixa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В тексте и лента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในบรรทัดและแถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satır İçi ve Şerit"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У тексті й стрічка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nội dòng và dải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内嵌和横条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內嵌和橫條"
           }
         }
       }
@@ -120697,6 +122272,534 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "麻糬"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.fox-arctic": {
+      "comment": "Chief pet character: the fox in arctic silver-blue (Arctic Fox), Series 2.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arctic Fox"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ثعلب قطبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arktička lisica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polarræv"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polarfuchs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zorro ártico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renard polaire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volpe artica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホッキョクギツネ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កញ្ជ្រោងតំបន់ប៉ូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "북극여우"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjellrev"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lis polarny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raposa-do-ártico"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песец"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จิ้งจอกอาร์กติก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kutup tilkisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песець"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cáo Bắc Cực"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "北极狐"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "北極狐"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.machine-violet": {
+      "comment": "Chief pet character: the leaf-eared robot in violet (Violet Machine), Series 2.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Violet Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آلة بنفسجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ljubičasta mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Violet maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Violette Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina violeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine violette"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina viola"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バイオレットマシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនពណ៌ស្វាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "바이올렛 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fiolett maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fioletowa maszyna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina violeta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фиолетовая машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องจักรสีม่วง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mor makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фіолетова машина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy tím"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "紫罗兰机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "紫羅蘭機器"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.machine-gold": {
+      "comment": "Chief pet character: the leaf-eared robot in gold (Gold Machine), Series 2.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gold Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آلة ذهبية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zlatna mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Guldmaskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Goldene Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina dorada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine dorée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina dorata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ゴールドマシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនពណ៌មាស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "골드 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gullmaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Złota maszyna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina dourada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Золотая машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องจักรสีทอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altın makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Золота машина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy vàng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "金色机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "金色機器"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.moon-rose": {
+      "comment": "Chief pet character: the moon moth with rose wings (Rose Moon), Series 2.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rose Moon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قمر وردي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ružičasti mjesec"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rosamåne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rosenmond"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luna rosa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lune rose"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luna rosa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ローズムーン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ព្រះចន្ទពណ៌ផ្កាឈូក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로즈 문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rosemåne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Różany księżyc"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lua rosa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розовая луна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พระจันทร์สีชมพู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pembe ay"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рожевий місяць"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trăng hồng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玫瑰月亮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玫瑰月亮"
           }
         }
       }
@@ -180693,6 +182796,402 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "回應"
+          }
+        }
+      }
+    },
+    "settings.group.chiefSubagents": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء الفرعيون"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-agents"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子代理"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podagenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Underagenter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Subagenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងាររង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Underagenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podagenci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Subagentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Субагенты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์ย่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alt Ajanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Субагенти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử phụ"
+          }
+        }
+      }
+    },
+    "settings.chief.autoRouteSubagents": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route Subagents to the Best Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントを最適なエージェントに振り分ける"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توجيه الوكلاء الفرعيين إلى أفضل وكيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten an den besten Agenten leiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar los subagentes al mejor agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confier les sous-agents au meilleur agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트를 가장 알맞은 에이전트로 보내기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将子代理分派给最合适的代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將子代理分派給最合適的代理"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usmjeri podagente na najboljeg agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send underagenter til den bedste agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Assegna i subagenti all’agente migliore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ជូនភ្នាក់ងាររងទៅភ្នាក់ងារល្អបំផុត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send underagenter til den beste agenten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kieruj podagentów do najlepszego agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encaminhar subagentes ao melhor agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Направлять субагентов к лучшему агенту"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งเอเจนต์ย่อยไปยังเอเจนต์ที่ดีที่สุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alt Ajanları En İyi Ajana Yönlendir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спрямовувати субагентів до найкращого агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Định tuyến tác tử phụ đến tác tử phù hợp nhất"
+          }
+        }
+      }
+    },
+    "settings.chief.autoRouteSubagents.help": {
+      "comment": "Chief subagent routing (Leo 2026-11-01).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief が各サブエージェントの実行先を選びます。たとえば長いコーディング作業には Codex、文章や UI には Claude を使います。Chief 自身が別のエージェントで動いていても同様です。オフにすると、サブエージェントは Chief と同じエージェントで動きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يختار Chief الوكيل الذي يعمل عليه كل وكيل فرعي، مثل Codex للبرمجة الطويلة وClaude للكتابة والواجهة، حتى عندما يعمل Chief نفسه على وكيل آخر. عند الإيقاف، يعمل الوكلاء الفرعيون على وكيل Chief نفسه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chief wählt für jeden Subagenten den Agenten, auf dem er läuft, etwa Codex für lange Programmierarbeit und Claude für Texte und UI, auch wenn der Chief selbst auf einem anderen läuft. Aus: Subagenten laufen auf dem Agenten des Chiefs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Chief elige el agente de cada subagente, como Codex para trabajos largos de código y Claude para redacción e interfaz, aunque el Chief use otro. Desactivado, los subagentes usan el agente del Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le Chief choisit l'agent de chaque sous-agent, par exemple Codex pour les longs travaux de code et Claude pour la rédaction et l'interface, même s'il tourne lui-même sur un autre. Désactivé, les sous-agents tournent sur l'agent du Chief."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 각 하위 에이전트가 실행될 에이전트를 고릅니다. 예를 들어 긴 코딩 작업에는 Codex, 글쓰기와 UI에는 Claude를 씁니다. Chief 자신이 다른 에이전트에서 실행될 때도 마찬가지입니다. 끄면 하위 에이전트는 Chief의 에이전트에서 실행됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 会为每个子代理挑选运行的代理，例如长时间的编程工作用 Codex，写作和界面用 Claude，即使 Chief 本身使用其他代理。关闭时，子代理使用 Chief 自己的代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 會為每個子代理挑選執行的代理，例如長時間的程式工作用 Codex，寫作與介面用 Claude，即使 Chief 本身使用其他代理。關閉時，子代理使用 Chief 自己的代理。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief bira agenta na kojem radi svaki podagent, npr. Codex za dug rad na kodu i Claude za pisanje i UI, čak i kada sam Chief radi na drugom. Kada je isključeno, podagenti rade na Chiefovom agentu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief vælger den agent, hver underagent kører på, f.eks. Codex til langt kodearbejde og Claude til tekst og UI, også når Chief selv kører på en anden. Fra: underagenter kører på Chiefs egen agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il Chief sceglie l’agente su cui gira ogni subagente, ad esempio Codex per i lunghi lavori di codice e Claude per la scrittura e l’interfaccia, anche quando il Chief stesso usa un altro agente. Disattivato, i subagenti girano sull’agente del Chief."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ជ្រើសរើសភ្នាក់ងារដែលភ្នាក់ងាររងនីមួយៗដំណើរការ ដូចជា Codex សម្រាប់ការសរសេរកូដយូរ និង Claude សម្រាប់ការសរសេរ និង UI ទោះបីជា Chief ខ្លួនឯងដំណើរការលើភ្នាក់ងារផ្សេងក៏ដោយ។ ពេលបិទ ភ្នាក់ងាររងដំណើរការលើភ្នាក់ងាររបស់ Chief ផ្ទាល់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief velger agenten hver underagent kjører på, for eksempel Codex for langt kodearbeid og Claude for tekst og UI, også når Chief selv kjører på en annen. Av: underagenter kjører på Chiefs egen agent."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief wybiera agenta, na którym działa każdy podagent, np. Codex do długiej pracy z kodem i Claude do pisania i UI, nawet gdy sam Chief działa na innym. Wyłączone: podagenci działają na agencie Chiefa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chief escolhe o agente em que cada subagente roda, como o Codex para trabalhos longos de código e o Claude para escrita e interface, mesmo quando o próprio Chief roda em outro. Desativado, os subagentes rodam no agente do próprio Chief."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief выбирает агента для каждого субагента, например Codex для долгой работы с кодом и Claude для текстов и интерфейса, даже если сам Chief работает на другом. Если выключено, субагенты работают на агенте самого Chief."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief เลือกเอเจนต์ที่เอเจนต์ย่อยแต่ละตัวทำงาน เช่น Codex สำหรับงานเขียนโค้ดที่ยาว และ Claude สำหรับงานเขียนและ UI แม้ว่า Chief เองจะทำงานบนเอเจนต์อื่น เมื่อปิด เอเจนต์ย่อยจะทำงานบนเอเจนต์ของ Chief เอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief, her alt ajanın çalışacağı ajanı seçer; örneğin uzun kodlama işleri için Codex, yazı ve arayüz için Claude, Chief'in kendisi başka bir ajanda çalışsa bile. Kapalıyken alt ajanlar Chief'in kendi ajanında çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief обирає агента для кожного субагента, наприклад Codex для довгої роботи з кодом і Claude для текстів та інтерфейсу, навіть коли сам Chief працює на іншому. Якщо вимкнено, субагенти працюють на агенті самого Chief."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief chọn tác tử mà mỗi tác tử phụ chạy trên đó, chẳng hạn Codex cho việc viết mã dài và Claude cho viết lách và giao diện, kể cả khi chính Chief chạy trên tác tử khác. Khi tắt, tác tử phụ chạy trên tác tử của chính Chief."
           }
         }
       }

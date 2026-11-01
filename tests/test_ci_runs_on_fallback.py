@@ -645,6 +645,15 @@ class RunsOnFallbackTests(unittest.TestCase):
                     failures.append(f"{path.name} {job_id}: {match.group(0)}")
         self.assertEqual(failures, [], "a runs-on must name a pool, never one machine")
 
+    def test_the_nightly_only_builder_is_reached_only_through_its_idle_pick(self) -> None:
+        # One runner per dedicated Mac carries it, so a queue on it could wait a whole build. Only
+        # nightly_build_runner.nightly_only_builder_route() names it, and only while one is idle now;
+        # otherwise, and when unread, the build takes the plain ten-runner glaeda-nightly-only-m4pro.
+        failures = [f"{path.name} {job_id}" for path in workflows()
+                    for job_id, job in (load(path).get("jobs") or {}).items()
+                    if re.search(r"nightly-only-m4pro-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
+        self.assertEqual(failures, [], "the warm nightly builder label is a pick, never a runs-on literal")
+
     def test_a_single_host_variable_always_has_a_fallback(self) -> None:
         failures = []
         for path in workflows():

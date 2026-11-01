@@ -21,6 +21,41 @@ pub(super) struct SteerNow {
     pub(super) successors: std::collections::VecDeque<(String, String)>,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct PreparedTurn {
+    pub(super) prompt_id: String,
+    pub(super) turn_id: String,
+    pub(super) queued: bool,
+    pub(super) abandoned: bool,
+    pub(super) attempt_id: String,
+    pub(super) generation: u64,
+    pub(super) connection_id: String,
+}
+
+/// Dropping a waiting prepare future (deadline, cancel, disconnect) releases only that attempt.
+/// Once ready is returned, the caller owns explicit abandonment; snapshot latency is unbounded.
+struct PreparationWait<'a> {
+    session: &'a Session,
+    prompt: &'a str,
+    generation: u64,
+    attempt: &'a str,
+    connection: &'a str,
+    ready: bool,
+}
+
+impl Drop for PreparationWait<'_> {
+    fn drop(&mut self) {
+        if !self.ready {
+            self.session.abandon_prepared(
+                self.prompt,
+                self.generation,
+                self.attempt,
+                self.connection,
+            );
+        }
+    }
+}
+
 pub struct Session {
     pub id: String,
     pub(super) meta: StdMutex<SessionMeta>,
@@ -28,6 +63,8 @@ pub struct Session {
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
     pub(super) spawn_lock: Mutex<()>,
+    /// Serializes close/purge with transfer retirement before an ID can be reused.
+    pub(super) close_lock: Mutex<()>,
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
     /// change); the idle pass takes it exclusively while it lists and ends the harness.
     pub(super) harness_use: tokio::sync::RwLock<()>,
@@ -97,6 +134,11 @@ pub struct Session {
     pub(super) detaching: AtomicBool,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Cloud owner capture reservations. Pending reservations serialize prepare calls; accepted
+    /// reservations are retained briefly so a retried prepare can replay its stable turn id.
+    pub(super) prepared: StdMutex<std::collections::VecDeque<PreparedTurn>>,
+    pub(super) prepared_done: StdMutex<std::collections::VecDeque<PreparedTurn>>,
+    pub(super) cloud_generation: AtomicU64,
     /// Durable team notices, indexed once per session; receiving one never queues a turn.
     pub(super) team_information: StdMutex<Option<super::team_information::State>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
@@ -270,6 +312,11 @@ pub struct Session {
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
+    /// The message each recent prompt id's acceptance named (`message_events.rs` `name_message`):
+    /// prompt id, message id, sender session, newest last, at most [`KEPT_MESSAGES`]. A later send
+    /// of the same prompt id is answered as a duplicate, and that answer names the same kept
+    /// message, so every send of one prompt id hears the one acceptance (`turns.rs`).
+    pub(super) kept_messages: StdMutex<std::collections::VecDeque<(String, String, String)>>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
@@ -385,6 +432,11 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Read only the needed fields without copying large metadata payloads. The
+    /// callback must not acquire other session/hub locks or call back into this session.
+    pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
+        read(&self.meta.lock().unwrap_or_else(|e| e.into_inner()))
+    }
     pub fn turn(&self) -> Option<TurnInfo> {
         self.turn.lock().unwrap().clone()
     }
@@ -397,6 +449,250 @@ impl Session {
     }
     pub fn queue(&self) -> Vec<QueuedPrompt> {
         self.queue.lock().unwrap().clone()
+    }
+    pub async fn wait_queue_moved(&self) {
+        self.queue_moved.notified().await;
+    }
+
+    /// Call only after backend preparation authorization for this exact scope succeeds.
+    /// `prepared` is also the generation lock; no cloud generation writer may bypass it.
+    pub(crate) async fn prepare_turn(
+        &self,
+        prompt_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: &str,
+    ) -> anyhow::Result<(String, bool, bool, u64, String)> {
+        anyhow::ensure!(
+            !prompt_id.is_empty() && !attempt_id.is_empty() && !connection_id.is_empty(),
+            "preparation identity is empty"
+        );
+        {
+            let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+            let current = self.cloud_generation.load(Ordering::SeqCst);
+            anyhow::ensure!(generation >= current, "cloud generation is stale");
+            if generation > current {
+                // A prompt can hold turn_lock before `turn` is populated. Refuse that handoff
+                // too; restoring a generation must never silently replace an active harness.
+                let _idle = self.turn_lock.try_lock().map_err(|_| {
+                    anyhow::anyhow!("cannot replace generation during prompt handoff")
+                })?;
+                anyhow::ensure!(
+                    self.turn().is_none() && !self.harness_turn.load(Ordering::SeqCst),
+                    "cannot replace generation during active turn"
+                );
+                self.cloud_generation.store(generation, Ordering::SeqCst);
+                pending.clear();
+                self.prepared_done.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                self.queue_moved.notify_waiters();
+            }
+        }
+        let mut wait = PreparationWait {
+            session: self,
+            prompt: prompt_id,
+            generation,
+            attempt: attempt_id,
+            connection: connection_id,
+            ready: false,
+        };
+        let mut registered = false;
+        loop {
+            let notified = self.queue_moved.notified();
+            tokio::pin!(notified);
+            // Register before checking state so notify_waiters cannot be lost between the
+            // locked check and the await below.
+            notified.as_mut().enable();
+            let mut handoff_busy = false;
+            {
+                let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+                anyhow::ensure!(
+                    self.cloud_generation.load(Ordering::SeqCst) == generation,
+                    "cloud generation changed while preparing turn"
+                );
+                if let Some(done) = self
+                    .prepared_done
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .find(|p| p.prompt_id == prompt_id)
+                    .cloned()
+                {
+                    anyhow::ensure!(
+                        done.generation == generation,
+                        "accepted preparation generation mismatch"
+                    );
+                    wait.ready = true;
+                    // Reauthorization has a fresh attempt; the accepted prompt is immutable.
+                    return Ok((
+                        done.turn_id,
+                        done.queued,
+                        true,
+                        generation,
+                        attempt_id.to_owned(),
+                    ));
+                }
+                if registered {
+                    anyhow::ensure!(
+                        pending.iter().any(|p| p.prompt_id == prompt_id
+                            && !p.abandoned
+                            && p.generation == generation
+                            && p.attempt_id == attempt_id
+                            && p.connection_id == connection_id),
+                        "preparation attempt was abandoned or replaced"
+                    );
+                } else {
+                    // Turn identity is deterministic, so abandoned slots need no allocation.
+                    // A retry rejoins the tail instead of overtaking another live turn.
+                    pending.retain(|p| !p.abandoned);
+                    if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
+                        anyhow::ensure!(
+                            existing.generation == generation
+                                && existing.attempt_id == attempt_id
+                                && existing.connection_id == connection_id,
+                            "preparation is owned by another attempt"
+                        );
+                        registered = true;
+                    }
+                    if !registered {
+                        let queued = self.turn().is_some()
+                            || self.queued() != 0
+                            || self.queue().iter().any(|q| !q.held)
+                            || pending.iter().any(|p| !p.abandoned);
+                        pending.push_back(PreparedTurn {
+                            prompt_id: prompt_id.to_owned(),
+                            turn_id: prompt_id.to_owned(),
+                            queued,
+                            abandoned: false,
+                            attempt_id: attempt_id.to_owned(),
+                            generation,
+                            connection_id: connection_id.to_owned(),
+                        });
+                        registered = true;
+                    }
+                }
+                if let Some(first) = pending.iter().find(|p| !p.abandoned)
+                    && first.prompt_id == prompt_id
+                    && self.turn().is_none()
+                    && self.queue().iter().all(|q| q.held)
+                    && self.queued() == 0
+                {
+                    match self.turn_lock.try_lock() {
+                        Ok(_idle) => {
+                            wait.ready = true;
+                            return Ok((
+                                first.turn_id.clone(),
+                                first.queued,
+                                false,
+                                generation,
+                                attempt_id.to_owned(),
+                            ));
+                        }
+                        Err(_) => handoff_busy = true,
+                    }
+                }
+            }
+            if handoff_busy {
+                // Turn completion may notify just before releasing turn_lock. Also wake on
+                // the release itself, rather than losing the only completion notification.
+                tokio::select! {
+                    _ = &mut notified => {},
+                    _ = self.turn_lock.lock() => {},
+                }
+            } else {
+                notified.await;
+            }
+        }
+    }
+
+    pub(super) fn prepared_turn_id(&self, prompt_id: &str) -> Option<String> {
+        self.prepared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|p| p.prompt_id == prompt_id && !p.abandoned)
+            .map(|p| p.turn_id.clone())
+    }
+
+    /// Validate an execute envelope against a live or just-accepted reservation. The caller
+    /// still claims the external capability immediately before harness dispatch.
+    pub(crate) fn validate_prepared(
+        &self,
+        prompt_id: &str,
+        turn_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            self.cloud_generation.load(Ordering::SeqCst) == generation,
+            "cloud generation is stale"
+        );
+        let done = self.prepared_done.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            pending.iter().chain(done.iter()).any(|p| !p.abandoned
+                && p.prompt_id == prompt_id
+                && p.turn_id == turn_id
+                && p.generation == generation
+                && p.attempt_id == attempt_id
+                && connection_id.is_none_or(|connection| p.connection_id == connection)),
+            "execution does not match prepared attempt"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn abandon_prepared(
+        &self,
+        prompt_id: &str,
+        generation: u64,
+        attempt_id: &str,
+        connection_id: &str,
+    ) -> bool {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        if self.cloud_generation.load(Ordering::SeqCst) != generation {
+            return false;
+        }
+        let Some(item) = pending.iter_mut().find(|p| {
+            p.prompt_id == prompt_id
+                && !p.abandoned
+                && p.generation == generation
+                && p.attempt_id == attempt_id
+                && p.connection_id == connection_id
+        }) else {
+            return false;
+        };
+        item.abandoned = true;
+        self.queue_moved.notify_waiters();
+        true
+    }
+
+    pub(crate) fn abandon_prepared_connection(&self, connection_id: &str) {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        for item in pending.iter_mut().filter(|p| p.connection_id == connection_id) {
+            item.abandoned = true;
+        }
+        self.queue_moved.notify_waiters();
+    }
+
+    pub(super) fn accept_prepared(&self, prompt_id: &str, turn_id: &str) {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(pos) = pending.iter().position(|p| {
+            p.prompt_id == prompt_id
+                && !p.abandoned
+                && p.turn_id == turn_id
+                && p.generation == self.cloud_generation.load(Ordering::SeqCst)
+        }) else {
+            return;
+        };
+        let Some(item) = pending.remove(pos) else {
+            return;
+        };
+        let mut done = self.prepared_done.lock().unwrap_or_else(|e| e.into_inner());
+        done.push_back(item);
+        while done.len() > 64 {
+            done.pop_front();
+        }
+        self.queue_moved.notify_waiters();
     }
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -414,10 +710,16 @@ impl Session {
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
     }
+    pub(crate) fn has_pending_permissions(&self) -> bool {
+        !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
+    }
     pub(super) fn status(&self) -> SessionStatus {
         self.meta.lock().unwrap().status
     }
 }
+/// How many prompt ids' kept messages a session remembers (`Session::kept_messages`).
+pub(super) const KEPT_MESSAGES: usize = 256;
+
 /// Tags that have not expired, as a flat map.
 pub fn live_tags(m: &SessionMeta) -> Value {
     let now = now_ms();
