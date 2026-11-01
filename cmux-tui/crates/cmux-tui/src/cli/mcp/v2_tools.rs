@@ -18,7 +18,7 @@ use super::Exclusion;
 use super::schema::{self, Generator};
 use super::transport::{self, Prefix};
 
-const CATALOG_JSON: &str =
+pub(super) const CATALOG_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
 
 /// A read with an array result and no `limit` of its own answers one page:
@@ -291,15 +291,11 @@ pub(super) fn catalog() -> &'static Catalog {
     })
 }
 
-/// The parsed descriptor of an operation.
-fn parse(raw: &RawValue) -> Value {
-    serde_json::from_str(raw.get()).expect("the checked-in catalog")
-}
-
-/// The whole catalog parsed, for tests that walk it.
-#[cfg(test)]
-pub(super) fn parsed_catalog() -> Value {
-    serde_json::from_str(CATALOG_JSON).expect("the checked-in catalog")
+/// The parsed descriptor of an operation. The index already checked that the
+/// slice is valid JSON, so this fails only past serde_json's nesting limit:
+/// `build` then offers no tool for it and `exclusions` lists it.
+fn parse(raw: &RawValue) -> Result<Value, serde_json::Error> {
+    serde_json::from_str(raw.get())
 }
 
 pub(super) struct V2Tool {
@@ -344,7 +340,9 @@ fn build() -> Vec<V2Tool> {
         if excluded_reason(wire).is_some() {
             continue;
         }
-        let descriptor = parse(raw);
+        let Ok(descriptor) = parse(raw) else {
+            continue;
+        };
         let class = descriptor["class"].as_str().unwrap_or_default();
         if !matches!(class, "read" | "mutation") {
             continue;
@@ -384,7 +382,15 @@ fn excluded_reason(wire: &str) -> Option<&'static str> {
 pub(super) fn exclusions() -> Vec<Exclusion> {
     let mut excluded = Vec::new();
     for (&wire, &raw) in &catalog().operations {
-        let reason = match parse(raw)["class"].as_str().unwrap_or_default() {
+        let Ok(descriptor) = parse(raw) else {
+            excluded.push(Exclusion {
+                kind: "operation",
+                name: wire.to_owned(),
+                reason: "Its catalog descriptor does not parse.".to_owned(),
+            });
+            continue;
+        };
+        let reason = match descriptor["class"].as_str().unwrap_or_default() {
             "stream_open" => Some(STREAM_REASON),
             "connection_control" => Some(CONNECTION_REASON),
             _ if serde_json::from_value::<ResourceOperation>(Value::String(wire.into()))
@@ -406,8 +412,14 @@ pub(super) fn exclusions() -> Vec<Exclusion> {
 }
 
 impl V2Tool {
+    /// The tool's parsed descriptor. `build` made this tool only after the same
+    /// immutable slice parsed, so the `Null` fallback is never taken.
+    fn descriptor(&self) -> Value {
+        parse(self.raw).unwrap_or_default()
+    }
+
     pub(super) fn descriptor_json(&self) -> Value {
-        let descriptor = parse(self.raw);
+        let descriptor = self.descriptor();
         let verb = self.wire.rsplit('.').next().unwrap_or_default();
         let destructive = self.mutation
             // `layout.bulk` closes tabs, panes, screens or workspaces.
@@ -466,7 +478,7 @@ impl V2Tool {
     /// The input schema alone (tests); `descriptor_json` parses the descriptor once for both.
     #[cfg(test)]
     pub(super) fn input_schema(&self) -> Value {
-        self.schema(&parse(self.raw))
+        self.schema(&self.descriptor())
     }
 
     fn schema(&self, descriptor: &Value) -> Value {
@@ -547,7 +559,7 @@ impl V2Tool {
         if self.operation == ResourceOperation::MachineGet {
             text("machine", arguments.get("machine").unwrap_or(&Value::Null))?;
         }
-        let descriptor = parse(self.raw);
+        let descriptor = self.descriptor();
         let selectors = descriptor["params"]["selectors"].as_object();
         let fields = descriptor["params"]["fields"].as_object();
         let mut params = Map::new();
