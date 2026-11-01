@@ -9530,7 +9530,7 @@ function AcpmuxPane() {
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
           const switchPromptId = promptId ?? crypto.randomUUID();
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), switchPromptId);
+          const held = harnessSwitch.send(text, attachments, undefined, switchPromptId);
           if (held) {
             accepted?.();
             return held.then(
@@ -9548,8 +9548,12 @@ function AcpmuxPane() {
               },
             );
           }
-          // A prompt acpmux held goes with the gesture its first send kept.
-          const kept = heldPrompt.take();
+          // A prompt acpmux held goes with the gesture its first send kept. Otherwise bind this
+          // send before waiting for chat creation and persistence; rapid Enters each get its own
+          // host ticket instead of sharing the one checked when the relay finally drains.
+          const sendPromptId = promptId ?? switchPromptId;
+          const heldForTrust = heldPrompt.take();
+          const kept = heldForTrust ?? (client.selectedSession ? client.bindSendGesture(sendPromptId) : undefined);
           const sessionId = await client.ensureSession().catch((error: unknown) => {
             // A folder harness that waits for Enable or Trust says so on its own card.
             setBlockedHarness(harnessBlock(error));
@@ -9576,13 +9580,19 @@ function AcpmuxPane() {
             throw new Error("agent_session.changed_during_send");
           }
 
+          // A New Tab's session/new consumes the gesture into the transport's start credit. Reserve
+          // the prompt ticket only after that start has succeeded; an existing chat reserved above.
+          const sendTicket = kept !== undefined ? kept.ticket : client.bindSendGesture(sendPromptId)?.ticket;
+
+          // A Quick Composer handoff can close this page only after acpmux takes the prompt.
+          // Releasing a local queued row happens earlier, while its gesture may still be pending.
           const turn = client
-            .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
+            .send(text, attachments, kept?.promptId ?? sendPromptId, accepted, sendTicket, steer, () =>
+              promptLanded.current(),
+            )
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The client counts it from here (it registers the send before its first wait).
           handedOn();
-          // The prompt is written; a Quick Composer hand-off can close this page now.
-          promptLanded.current();
           return turn;
         };
         window.cmuxAcpmuxActions = {
@@ -10132,6 +10142,9 @@ function AcpmuxPane() {
           // A prompt held behind the trust question goes with the gesture its send kept.
           send: (text, attachments, promptId) => {
             const kept = heldPrompt.take();
+            // session/new has completed by the time HarnessSwitch hands the prompt back. The
+            // transport's start credit now pays for this prompt ticket, including remote starts.
+            const switchTicket = kept?.promptId === promptId ? kept.ticket : client.bindSendGesture(promptId)?.ticket;
             switchSendOwners.set(promptId, {
               client,
               generation: client.trustGeneration,
@@ -10143,7 +10156,9 @@ function AcpmuxPane() {
               attachments,
               promptId,
               undefined,
-              kept?.promptId === promptId ? kept.ticket : undefined,
+              kept?.promptId === promptId ? kept.ticket : switchTicket,
+              false,
+              () => promptLanded.current(),
             );
           },
           setModel: (modelId) => client.setModel(modelId),
