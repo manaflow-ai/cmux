@@ -273,8 +273,41 @@ test("the person's own words that only read like a frame's label or note stay, i
     `look\n${own}`,
     own.replace("demo.mp4", "other.mp4"),
   ]);
-  const restored = await restoreInline(row, row.text!, async () => undefined);
+  const restored = await restoreInline(row, row.text!, async () => ({ mimeType: "image/jpeg", data: "eA==" }));
   expect(restored.input).toContain(own);
   expect(restored.input).toContain(own.replace("demo.mp4", "other.mp4"));
   expect(restored.input).not.toContain("Frames from the video");
+});
+
+test("after a reload, two videos of one name each get back their own frames, and an unreadable frame fails the restore", async () => {
+  const noteOf = (seconds: number) =>
+    `Frames from the video demo.mp4 (0:0${seconds}, 640×360), in order, at: 0:01.0.`;
+  const frame = (id: string) =>
+    ({ kind: "image", id: id.repeat(64), mimeType: "image/jpeg", name: "demo.mp4 frame at 0:01.0" }) as const;
+  const row = {
+    id: "user-5",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "compare",
+    inlineParts: [
+      { kind: "text", text: "compare " },
+      { kind: "file", name: "demo.mp4", uri: "file:///before/demo.mp4", placed: true },
+      { kind: "text", text: noteOf(4) },
+      { kind: "text", text: "demo.mp4 frame at 0:01.0" },
+      frame("1"),
+      { kind: "text", text: " with " },
+      { kind: "file", name: "demo.mp4", uri: "file:///after/demo.mp4", placed: true },
+      { kind: "text", text: noteOf(8) },
+      { kind: "text", text: "demo.mp4 frame at 0:01.0" },
+      frame("2"),
+    ],
+  } as AcpmuxRow;
+  const bytes = new Map([["1".repeat(64), "b25l"], ["2".repeat(64), "dHdv"]]);
+  const restored = await restoreInline(row, "compare", async (id) => ({ mimeType: "image/jpeg", data: bytes.get(id)! }));
+  expect(restored.attachments.map((chip) => [chip.path, chip.video?.durationMs, chip.video?.frames.map((f) => f.data)])).toEqual([
+    ["/before/demo.mp4", 4000, ["b25l"]],
+    ["/after/demo.mp4", 8000, ["dHdv"]],
+  ]);
+  await expect(restoreInline(row, "compare", async () => undefined)).rejects.toThrow();
 });

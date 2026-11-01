@@ -230,20 +230,31 @@ export async function restoreInline(
   let input = "";
   const isFrame = frameTextOf(rowImageNames(row));
   // A video's frames, note and labels go back on its chip, not in the draft (composer/videoPrompt.ts):
-  // each video's note and its frames as read back, by the video's name.
-  const saved = new Map<string, { note?: string; frames: { name: string; data: string; scene: boolean }[] }>();
-  const of = (video: string) => saved.get(video) ?? saved.set(video, { frames: [] }).get(video)!;
+  // each video's note and its frames as read back, on the chip they follow (the nearest one before
+  // them of that video's name: two videos of one name keep their own).
+  const saved = new Map<ComposerAttachment, { note?: string; frames: { name: string; data: string; scene: boolean }[] }>();
+  const of = (video: string) => {
+    let chip: ComposerAttachment | undefined;
+    for (let at = attachments.length - 1; at >= 0 && !chip; at--)
+      if (attachments[at]!.kind === "link" && attachments[at]!.name === video) chip = attachments[at];
+    if (!chip) return undefined;
+    return saved.get(chip) ?? saved.set(chip, { frames: [] }).get(chip)!;
+  };
   let scene = false;
   for (const [index, part] of (row.inlineParts ?? []).entries()) {
     if (part.kind === "text" && isFrame(part.text)) {
       const note = isFramesNote(part.text) ? part.text.match(/^Frames from the video (.+) \(\d[\d:]*, \d+×\d+\)/) : null;
-      if (note) of(note[1]!).note = part.text;
+      const own = note ? of(note[1]!) : undefined;
+      if (own) own.note = part.text;
       scene = part.text.endsWith(" (new scene)");
       continue;
     }
     if (part.kind === "image" && isVideoFrameName(part.name)) {
-      const data = await read(part.id).catch(() => undefined);
-      if (data) of(part.name!.replace(/ frame at [\d:.]+$/, "")).frames.push({ name: part.name!, data: data.data, scene });
+      // A frame that cannot be read back fails the restore, as any other image does: a resend never
+      // goes without it.
+      const data = await read(part.id);
+      if (!data) throw new Error(translate("attachment.unavailable", { name: part.name ?? part.id }));
+      of(part.name!.replace(/ frame at [\d:.]+$/, ""))?.frames.push({ name: part.name!, data: data.data, scene });
       scene = false;
       continue;
     }
@@ -307,7 +318,7 @@ export async function restoreInline(
     input += inlineToken(id);
   }
   for (const [index, chip] of attachments.entries()) {
-    const frames = chip.kind === "link" && !chip.video ? saved.get(chip.name) : undefined;
+    const frames = chip.kind === "link" && !chip.video ? saved.get(chip) : undefined;
     const video = frames && videoFromFrames(frames.note, frames.frames);
     if (video) attachments[index] = { ...chip, video };
   }
