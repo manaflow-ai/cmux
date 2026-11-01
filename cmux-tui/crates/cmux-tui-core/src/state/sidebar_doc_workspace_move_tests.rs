@@ -138,28 +138,28 @@ fn a_move_reorders_a_nested_group_member() {
     let (b_item, section, outer) = item_of(&mux, &b);
     let (c_item, _, _) = item_of(&mux, &c);
     let outer = outer.expect("b is in Work");
+    // Inner holds c before b, the reverse of the session order, so only a
+    // walk of the nested group lists them as the sidebar shows them.
     send(
         &mux,
         "sidebar.group.create",
-        json!({"name": "Inner", "items": [b_item, c_item],
+        json!({"name": "Inner", "items": [c_item, b_item],
                "to": {"section": section, "parent": outer}}),
         Some("inner"),
     )
     .unwrap();
     let inner = item_of(&mux, &c).2.expect("c is in Inner");
     assert_ne!(inner, outer, "c is not in the nested group");
-    // Made last at the bottom: it lists after the group, not before its members.
-    let d = empty_workspace(&mux, "d");
-    let ids = [a.as_str(), b.as_str(), c.as_str(), d.as_str()];
-    assert_eq!(shown(&mux, &ids), ids, "the nested members list at their group's place");
-
-    mutate(&mux, "workspace.move", json!({"workspace": c, "index": 0}), "c-top");
+    let ids = [a.as_str(), b.as_str(), c.as_str()];
     assert_eq!(
         shown(&mux, &ids),
-        [a.as_str(), c.as_str(), b.as_str(), d.as_str()],
-        "c is not first in its nested group"
+        [a.as_str(), c.as_str(), b.as_str()],
+        "the nested members list in their group's order"
     );
-    assert_eq!(item_of(&mux, &c).2, Some(inner), "the move took c out of its nested group");
+
+    mutate(&mux, "workspace.move", json!({"workspace": b, "index": 0}), "b-top");
+    assert_eq!(shown(&mux, &ids), ids, "b is not first in its nested group");
+    assert_eq!(item_of(&mux, &b).2, Some(inner), "the move took b out of its nested group");
     mux.shutdown();
 }
 
