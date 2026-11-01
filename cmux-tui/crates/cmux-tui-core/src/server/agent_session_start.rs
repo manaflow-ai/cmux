@@ -495,12 +495,12 @@ pub(in crate::server) fn restart_with(
 pub(super) fn reconcile_cloud_scope(
     mux: &Mux,
     socket: &std::path::Path,
-) -> Result<(), super::Refusal> {
+) -> Result<(), Refusal> {
     let Some(handoff) = mux.acpmux_handoff() else { return Ok(()) };
     let sessions = &mux.control_clients.agent_sessions;
     let _one_start = sessions.starts.start_lock.lock().unwrap_or_else(|e| e.into_inner());
     let supported = || {
-        let link = AcpmuxLink::connect(socket, |_| {}).map_err(|_| super::Refusal::Unavailable)?;
+        let link = AcpmuxLink::connect(socket, |_| {}).map_err(|_| Refusal::Unavailable)?;
         let result = super::turn::support(&link);
         link.close();
         result
@@ -510,10 +510,10 @@ pub(super) fn reconcile_cloud_scope(
     }
     // An old installed build or a failed handoff must not create a restart loop.
     if sessions.cloud_scope_handoff_attempted.swap(true, Ordering::AcqRel) {
-        return Err(super::Refusal::Unavailable);
+        return Err(Refusal::Unavailable);
     }
-    handoff().map_err(|_| super::Refusal::Unavailable)?;
-    if supported()? { Ok(()) } else { Err(super::Refusal::Unavailable) }
+    handoff().map_err(|_| Refusal::Unavailable)?;
+    if supported()? { Ok(()) } else { Err(Refusal::Unavailable) }
 }
 
 fn start_and_bind(
