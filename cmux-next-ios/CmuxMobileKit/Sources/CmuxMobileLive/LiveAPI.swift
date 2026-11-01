@@ -210,11 +210,16 @@ public struct LiveAPI: Sendable {
         try JSONDecoder().decode(MailboxState.self, from: try await call("GET", "v1/devices/\(macID)/mailbox/\(id)"))
     }
 
-    /// This API with the current bearer fixed, for a request that must
-    /// outlive sign-out clearing the session it reads tokens from.
+    /// This API with the current bearer read now, for a request that must
+    /// outlive sign-out clearing the session it reads tokens from. A 401 still
+    /// refreshes through the provider, as `call` does for every request.
     func pinningToken() async throws -> LiveAPI {
         let token = try await accessToken(false)
-        return LiveAPI(baseURL: baseURL, session: session, accessToken: { _ in token })
+        let provider = accessToken
+        return LiveAPI(baseURL: baseURL, session: session, accessToken: { forceRefresh in
+            if forceRefresh { return try await provider(true) }
+            return token
+        })
     }
 
     /// `DELETE /v1/devices/:id/push`: stop pushing to this phone.

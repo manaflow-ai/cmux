@@ -215,6 +215,19 @@ struct PushRegistrationTests {
         #expect(server.preferences == nil)
     }
 
+    /// The pinned bearer keeps `call`'s 401 recovery: a refresh asks the provider.
+    @Test func aPinnedBearerStillRefreshesAfterA401() async throws {
+        let calls = RefreshCalls()
+        let api = LiveAPI(baseURL: URL(fileURLWithPath: "/unused"), accessToken: { force in
+            await calls.record(force)
+            return force ? "fresh" : "cached"
+        })
+        let pinned = try await api.pinningToken()
+        #expect(try await pinned.accessToken(false) == "cached")
+        #expect(try await pinned.accessToken(true) == "fresh")
+        #expect(await calls.seen == [false, true])
+    }
+
     private func makeRegistration(_ server: RegistrationServer) -> PushRegistration {
         let registration = PushRegistration(topic: "test.cmux.push",
                                             register: { try await server.put($0.preferences) },
@@ -223,6 +236,11 @@ struct PushRegistrationTests {
         registration.attach(api: api, deviceID: "phone")
         return registration
     }
+}
+
+private actor RefreshCalls {
+    private(set) var seen: [Bool] = []
+    func record(_ force: Bool) { seen.append(force) }
 }
 
 @MainActor

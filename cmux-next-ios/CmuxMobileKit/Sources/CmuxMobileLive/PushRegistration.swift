@@ -126,8 +126,9 @@ public final class PushRegistration {
         // sign-in's writer always finds it as `cleanup` and goes after it.
         let work = Task {
             // The bearer is read first, while the session is still valid: sign-out
-            // clears it after that bound, and a later sign-in's token must never
-            // carry this device's DELETE. No bearer, no DELETE (fail closed).
+            // clears it after that bound. No bearer, no DELETE (fail closed). A 401
+            // refresh still asks the provider; whatever answers it, a quick
+            // sign-in's PUT waits for this DELETE, so it cannot remove that row.
             let pinned: LiveAPI
             do {
                 pinned = try await oldAPI.pinningToken()
