@@ -774,7 +774,7 @@ export type AcpmuxSnapshot = {
   /// another person's computer or a remote browser.
   ownerCloud?: boolean;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
-  /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so the Inspector's Connectors offer
+  /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so Session Info's Connectors offer
   /// Reconnect.
   reconnectsMcp?: boolean;
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty

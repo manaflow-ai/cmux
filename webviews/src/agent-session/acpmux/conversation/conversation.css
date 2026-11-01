@@ -49,7 +49,7 @@
   --cv-mono-default: var(--cmux-diff-code-font-family, ui-monospace, "SF Mono", Menlo, monospace);
   --cv-mono: var(--cv-mono-default);
   /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
-     Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
+     Session Info) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
   --font-mono: var(--cv-mono);
   /* The transcript's vertical rhythm, as Claude Code desktop sets it (Leo 2026-10-20: no empty
      bands). A message's meta row (a prompt's age, ticks and actions; a reply's footer) is one

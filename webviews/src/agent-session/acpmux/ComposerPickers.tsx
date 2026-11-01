@@ -50,7 +50,7 @@ import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
-import { contextBreakdown } from "./inspector/ContextSection";
+import { contextBreakdown } from "./session-info/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -1384,7 +1384,7 @@ const TABBABLE =
 /// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
-/// Details ›, which opens the Inspector's Context section. A click pins the card until a press
+/// Details ›, which opens Session Info's Context section. A click pins the card until a press
 /// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
 /// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
 /// (contextCard.css).
@@ -1401,7 +1401,7 @@ export function ContextRing({
   setup?: number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
-  /// Opens the Inspector at its Context section; the card shows Details › only with it.
+  /// Opens Session Info at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
 }) {
   const t = useT();

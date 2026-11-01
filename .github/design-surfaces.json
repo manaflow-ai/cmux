@@ -107,7 +107,7 @@
         "session panel"
       ],
       "paths": [
-        "webviews/src/agent-session/acpmux/inspector"
+        "webviews/src/agent-session/acpmux/session-info"
       ]
     }
   }

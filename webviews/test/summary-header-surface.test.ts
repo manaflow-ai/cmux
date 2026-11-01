@@ -122,8 +122,8 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
             await page.locator(".acpmux-shell").evaluate((node, pixels) => {
               const shell = node as HTMLElement;
               shell.style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
-              if (shell.dataset.inspectorChatPlacement === "push")
-                shell.style.setProperty("--acpmux-inspector-top", pixels > 0 ? `${pixels}px` : "28px");
+              if (shell.dataset.sessionInfoChatPlacement === "push")
+                shell.style.setProperty("--acpmux-session-info-top", pixels > 0 ? `${pixels}px` : "28px");
             }, height);
             await page.locator(".acpmux-artifact").waitFor();
             if (process.env.CMUX_SUMMARY_CAPTURE_DIR) {
@@ -164,9 +164,9 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
     "preview-tab-row",
     "preview-pushed-inspector-tab-row",
     "inspector-pushed-tab-row",
-    "inspector-pushed-no-tab-row",
+    "session-info-pushed-no-tab-row",
   ] as const) {
-    for (const height of variant === "inspector-pushed-no-tab-row" ? [0] : [28, 40]) {
+    for (const height of variant === "session-info-pushed-no-tab-row" ? [0] : [28, 40]) {
       for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
         test(`${variant} keeps tools at the shell edge at ${height}px (${theme})`, async () => {
           const page = await browser.newPage({
@@ -180,12 +180,12 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
             await page.locator(".acpmux-shell").evaluate((node, pixels) => {
               const shell = node as HTMLElement;
               shell.style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
-              if (shell.dataset.inspectorChatPlacement === "push")
-                shell.style.setProperty("--acpmux-inspector-top", `${pixels}px`);
+              if (shell.dataset.sessionInfoChatPlacement === "push")
+                shell.style.setProperty("--acpmux-session-info-top", `${pixels}px`);
             }, height);
             await page.evaluate((pixels) => {
-              const inspector = document.querySelector<HTMLElement>(".acpmux-chat-inspector[data-placement=push]");
-              inspector?.style.setProperty("--acpmux-inspector-top", pixels > 0 ? `${pixels}px` : "28px");
+              const inspector = document.querySelector<HTMLElement>(".acpmux-session-info[data-placement=push]");
+              inspector?.style.setProperty("--acpmux-session-info-top", pixels > 0 ? `${pixels}px` : "28px");
             }, height);
             if (
               process.env.CMUX_SUMMARY_CAPTURE_DIR &&
@@ -206,7 +206,7 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
               const tools = document.querySelector<HTMLElement>(".acpmux-header-tools")!.getBoundingClientRect();
               const panels = [
                 ...document.querySelectorAll<HTMLElement>(
-                  ".acpmux-artifact, .acpmux-chat-inspector[data-placement=push]",
+                  ".acpmux-artifact, .acpmux-session-info[data-placement=push]",
                 ),
               ].map((panel) => {
                 const rect = panel.getBoundingClientRect();
@@ -227,9 +227,9 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
               };
             });
             expect(actual.toolsWidth).toBeGreaterThan(0);
-            if (variant === "inspector-pushed-no-tab-row") {
+            if (variant === "session-info-pushed-no-tab-row") {
               // Ordinary headers keep their existing 8px trailing inset; the regression is the
-              // Inspector narrowing the header, which would move this edge left by the panel width.
+              // Session Info narrowing the header, which would move this edge left by the panel width.
               expect(actual.toolsRight).toBe(actual.shellRight - 8);
               await page.locator(".acpmux-header-tools button").evaluate((button) => {
                 button.addEventListener("click", () => button.setAttribute("data-test-clicked", "true"), {
@@ -311,7 +311,7 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
         `http://127.0.0.1:${port}${galleryFrame("agent-pane.summary-card", { variant: "popover-environment" })}`,
       );
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      const stops = page.locator(".acpmux-summary-task > .acpmux-chat-inspector-stop");
+      const stops = page.locator(".acpmux-summary-task > .acpmux-session-info-stop");
       expect(await stops.count()).toBeGreaterThan(1);
       const opacities = () => stops.evaluateAll((all) => all.map((stop) => getComputedStyle(stop).opacity));
       await page.mouse.move(0, 0);
