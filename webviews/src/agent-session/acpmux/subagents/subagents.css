@@ -495,6 +495,7 @@ button.cv-subagent > :last-child {
    the stack never scrolls the transcript. */
 .acpmux-running-tray__list {
   --acpmux-tray-lines: 5;
+  scroll-padding-block: 2px;
   flex: 0 1 auto;
   min-height: 0;
   max-height: calc(var(--acpmux-tray-lines) * var(--ui-row-height, 28px));
