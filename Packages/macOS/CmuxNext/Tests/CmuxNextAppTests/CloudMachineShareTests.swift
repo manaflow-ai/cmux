@@ -55,13 +55,13 @@ struct CloudMachineShareTests {
 
     @Test func currentChatStartAccessReadsOnlyTheCurrentRoleWithoutAnAttach() async throws {
         GrantsAPI.seen = []
-        GrantsAPI.answer = (200, #"{\"chatStart\":\"granted\"}"#)
+        GrantsAPI.answer = (200, #"{"chatStart":"granted"}"#)
         #expect(try await api().chatStartAccess("vm 1") == .granted)
-        #expect(GrantsAPI.seen.map(\\.method) == ["GET"])
-        #expect(GrantsAPI.seen.map(\\.path) == ["/api/vm/vm%201/chat-start-access"])
+        #expect(GrantsAPI.seen.map(\.method) == ["GET"])
+        #expect(GrantsAPI.seen.map(\.path) == ["/api/vm/vm%201/chat-start-access"])
 
         // A revoked grant on the same machine immediately reads as no app-start authority.
-        GrantsAPI.answer = (200, #"{\"chatStart\":\"none\"}"#)
+        GrantsAPI.answer = (200, #"{"chatStart":"none"}"#)
         #expect(try await api().chatStartAccess("vm 1") == .none)
     }
 
