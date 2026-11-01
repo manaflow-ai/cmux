@@ -587,25 +587,25 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
     }
-    if crate::cloud_repo_mcp::is_cloud_machine() {
-        if let Some(acpmux) = &inputs.acpmux {
-            // Cloud repository tools run on Cloud machines only. They forward
-            // the session caller token to the daemon action bridge.
-            servers.push(McpServer {
-                name: crate::cloud_repo_mcp::SERVER_NAME.into(),
-                command: acpmux.exe.clone(),
-                args: acpmux.args_lossy(&["repo-mcp"]),
-                env: executable("cmux")
-                    .map(|path| ("CMUX_BIN".into(), path.to_string_lossy().into_owned()))
-                    .into_iter()
-                    .chain(
-                        std::env::var("CMUX_SOCKET_PATH")
-                            .ok()
-                            .map(|path| ("CMUX_SOCKET_PATH".into(), path)),
-                    )
-                    .collect(),
-            });
-        }
+    if crate::cloud_repo_mcp::is_cloud_machine()
+        && let Some(acpmux) = &inputs.acpmux
+    {
+        // Cloud repository tools run on Cloud machines only. They forward
+        // the session caller token to the daemon action bridge.
+        servers.push(McpServer {
+            name: crate::cloud_repo_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["repo-mcp"]),
+            env: executable("cmux")
+                .map(|path| ("CMUX_BIN".into(), path.to_string_lossy().into_owned()))
+                .into_iter()
+                .chain(
+                    std::env::var("CMUX_SOCKET_PATH")
+                        .ok()
+                        .map(|path| ("CMUX_SOCKET_PATH".into(), path)),
+                )
+                .collect(),
+        });
     }
     if let Some(acpmux) = &inputs.acpmux {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the

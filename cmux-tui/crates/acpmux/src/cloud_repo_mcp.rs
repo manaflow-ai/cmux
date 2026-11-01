@@ -63,7 +63,10 @@ pub async fn run() -> Result<()> {
 
 fn ok(result: Value) -> Value {
     let text = result_text(&result);
-    let code = result["code"].as_str().or(result["error"]["code"].as_str());
+    let code = result
+        .get("code")
+        .and_then(Value::as_str)
+        .or_else(|| result.pointer("/error/code").and_then(Value::as_str));
     let is_error = code.is_some_and(|code| !matches!(code, "repo.needs_github" | "repo.ambiguous"));
     json!({"content":[{"type":"text","text":text}],"structuredContent":result,"isError":is_error})
 }
@@ -75,15 +78,19 @@ fn result_text(result: &Value) -> String {
         result.get("error").filter(|v| v.is_object()).unwrap_or(&Value::Null)
     };
     if error.get("code").and_then(Value::as_str).is_some() {
-        let mut text = error["message"].as_str().unwrap_or("Repository action failed").to_owned();
-        if error["code"].as_str() == Some("repo.needs_github") {
+        let mut text = error
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("Repository action failed")
+            .to_owned();
+        if error.get("code").and_then(Value::as_str) == Some("repo.needs_github") {
             text.push_str(
                 " Connect GitHub; this add will be retried automatically when it finishes.",
             );
         }
         return text;
     }
-    if let Some(repos) = result["repos"].as_array() {
+    if let Some(repos) = result.get("repos").and_then(Value::as_array) {
         return if repos.is_empty() {
             "No repositories match. Connect GitHub or use a local project and try again.".to_owned()
         } else {
@@ -94,11 +101,11 @@ fn result_text(result: &Value) -> String {
             )
         };
     }
-    if result["state"].as_str() == Some("done") {
+    if result.get("state").and_then(Value::as_str) == Some("done") {
         return format!(
             "Attached {} at {}.",
-            result["repo"].as_str().unwrap_or("the repository"),
-            result["folder"].as_str().unwrap_or("the chat folder")
+            result.get("repo").and_then(Value::as_str).unwrap_or("the repository"),
+            result.get("folder").and_then(Value::as_str).unwrap_or("the chat folder")
         );
     }
     serde_json::to_string(result).unwrap_or_else(|_| "Repository action completed.".to_owned())
@@ -130,15 +137,15 @@ async fn run_cli_with(
         if action == REPO_LIST_ACTION { "list" } else { "add" },
         "--session",
     ]);
-    let session = request["session"].as_str().unwrap_or_default();
+    let session = request.get("session").and_then(Value::as_str).unwrap_or_default();
     command.arg(session);
     if action == REPO_LIST_ACTION {
-        if let Some(query) = request["query"].as_str() {
+        if let Some(query) = request.get("query").and_then(Value::as_str) {
             command.args(["--query", query]);
         }
     } else {
-        command.args(["--repo", request["repo"].as_str().unwrap_or_default()]);
-        if let Some(reference) = request["ref"].as_str() {
+        command.args(["--repo", request.get("repo").and_then(Value::as_str).unwrap_or_default()]);
+        if let Some(reference) = request.get("ref").and_then(Value::as_str) {
             command.args(["--ref", reference]);
         }
     }
@@ -152,25 +159,25 @@ async fn run_cli_with(
     })?
     .map_err(|e| format!("Could not reach the Cloud machine; reconnect and retry ({e})."))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    if let Some(line) = stdout.lines().rev().find(|line| line.trim_start().starts_with('{')) {
-        if let Ok(value) = serde_json::from_str::<Value>(line) {
-            if value.get("code").is_some()
-                || value.get("repos").is_some()
-                || value.get("state").is_some()
-            {
-                return Ok(value);
-            }
-            if let Some(data) = value.get("data") {
-                return Ok(data.clone());
-            }
-            // `cmux --json` wraps a rejected machine reply as error_code/error;
-            // restore the shared flat typed action result for the agent.
-            if value.get("error_code").is_some() {
-                return Ok(json!({
-                    "code": value["error_code"].as_str().unwrap_or("repo.unavailable"),
-                    "message": value["error"].as_str().unwrap_or("Reconnect to the Cloud machine and retry.")
-                }));
-            }
+    if let Some(line) = stdout.lines().rev().find(|line| line.trim_start().starts_with('{'))
+        && let Ok(value) = serde_json::from_str::<Value>(line)
+    {
+        if value.get("code").is_some()
+            || value.get("repos").is_some()
+            || value.get("state").is_some()
+        {
+            return Ok(value);
+        }
+        if let Some(data) = value.get("data") {
+            return Ok(data.clone());
+        }
+        // `cmux --json` wraps a rejected machine reply as error_code/error;
+        // restore the shared flat typed action result for the agent.
+        if value.get("error_code").is_some() {
+            return Ok(json!({
+                "code": value.get("error_code").and_then(Value::as_str).unwrap_or("repo.unavailable"),
+                "message": value.get("error").and_then(Value::as_str).unwrap_or("Reconnect to the Cloud machine and retry.")
+            }));
         }
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -195,7 +202,7 @@ pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value
         Ok(v) => v,
         Err(v) => return v,
     };
-    let name = params["name"].as_str().unwrap_or_default();
+    let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
     match name {
         "list_repos" => {
             let mut req = json!({"session": session});
@@ -240,12 +247,12 @@ pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value
 fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option<&Value>) {
     let error = if result.get("code").and_then(Value::as_str).is_some() {
         result
-    } else if result["error"].is_object() {
-        &mut result["error"]
+    } else if let Some(error) = result.get_mut("error").filter(|error| error.is_object()) {
+        error
     } else {
         return;
     };
-    if error["code"].as_str() != Some("repo.needs_github") {
+    if error.get("code").and_then(Value::as_str) != Some("repo.needs_github") {
         return;
     }
     let mut args = json!({"session": session, "repo": repo});

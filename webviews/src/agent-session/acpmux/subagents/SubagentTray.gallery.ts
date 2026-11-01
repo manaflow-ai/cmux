@@ -428,6 +428,33 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "row-menu": {
+      note: "A running subagent's Stop is in its line's context menu, never a button on every line (#28533's review: a control repeated down the rows). A right-click opens the menu on the click, and the line stays lit under it.",
+      play: async (ctx) => {
+        await trayLines(2)(ctx);
+        if (ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__stop-slot > button"))
+          throw new Error("no tray line carries a Stop at rest: it is in the line's menu");
+        await ctx.contextMenu({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll('[role="menu"] [role="menuitem"]')].some((item) =>
+            item.textContent?.startsWith("Stop "),
+          ),
+        );
+      },
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          group(
+            [
+              agent("Explain daemon update mechanism", 1.8, "running", { kind: "Explore", action: "Bash" }),
+              agent("Review the fold", 1.6, "running", { kind: "general-purpose", action: "Read fold.ts" }),
+            ],
+            1.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
     "duration-columns": {
       note: "Duration-column stress fixture: running work spans 9s, 2h 20m and 12h 59m 59s so every time stays on one line in the shared trailing track.",
       play: async (ctx) => {

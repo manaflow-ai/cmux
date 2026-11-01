@@ -23,6 +23,7 @@ import { questionPreviewLayout } from "../agent-session/acpmux/question/previewL
 import { trayPanelLook, trayRowLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
+import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -50,6 +51,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayRowLook,
   trayMotionLook,
   trayHeadLook,
+  composerPlusCommands,
 ];
 
 export function experimentById(id: string): Experiment | undefined {
