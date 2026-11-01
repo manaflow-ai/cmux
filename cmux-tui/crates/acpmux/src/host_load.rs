@@ -12,6 +12,7 @@ use serde::Serialize;
 use std::time::Duration;
 
 /// How long the two `/proc/stat` reads are apart.
+#[cfg(target_os = "linux")]
 const CPU_WINDOW: Duration = Duration::from_secs(1);
 /// How long the daemon has to say whether a turn runs.
 const DAEMON_WAIT: Duration = Duration::from_millis(1500);

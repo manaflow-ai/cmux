@@ -5168,8 +5168,8 @@ export class AcpmuxDirectClient {
         // A line from outside the chat, such as cmux Cloud's after it resized the machine
         // (acpmux `server/host_notice.rs`): one muted notice where it happened.
         if (typeof msg.text === "string" && msg.text.trim()) {
-          // Text the agent writes after the notice goes below it, not into the row above.
-          this.endAssistantSegment();
+          // What the agent writes or does after the notice goes below it, not into the row above.
+          this.closeSegment();
           const id = `host-notice-${event.seq}`;
           this.rows.set(id, { id, version: 1, at: event.at, kind: "notice", text: msg.text });
         }
