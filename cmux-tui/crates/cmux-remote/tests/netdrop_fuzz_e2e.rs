@@ -807,7 +807,7 @@ async fn connect_client(
     proxy: SocketAddr,
     session: SessionId,
     accepted: &mut mpsc::Receiver<Arc<ServerConnection>>,
-    services: &DaemonServices,
+    services: &Arc<DaemonServices>,
     device_name: &str,
 ) -> Result<ClientSide, String> {
     let endpoint = Url::parse(&format!("ws://{proxy}/v1/link")).map_err(fail("endpoint"))?;
@@ -879,7 +879,7 @@ struct Session {
     server: DirectWebSocketServer,
     proxy: FaultProxy,
     accepted: mpsc::Receiver<Arc<ServerConnection>>,
-    services: DaemonServices,
+    services: Arc<DaemonServices>,
     side: ClientSide,
     _echo: EchoTarget,
     route: RouteId,
