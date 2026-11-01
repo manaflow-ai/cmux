@@ -89,11 +89,146 @@ fn workspace_new_points_at_the_app_action() {
     assert!(error.0.contains("cmux cloud new-workspace"), "{}", error.0);
 }
 
+#[test]
+fn run_and_token_pass_through_to_cmux_vm() {
+    assert_eq!(
+        planned(&["vm", "run", "--sync", "--", "bun", "--version"]).unwrap(),
+        args(&["run", "--sync", "--", "bun", "--version"])
+    );
+    assert_eq!(planned(&["vm", "token", "status"]).unwrap(), args(&["token", "status"]));
+}
+
+#[test]
+fn token_create_is_recognized_with_or_without_json() {
+    assert!(is_token_create(&args(&["token", "create", "--ttl", "8h"])));
+    assert!(is_token_create(&args(&["--json", "token", "create"])));
+    assert!(!is_token_create(&args(&["token", "status"])));
+    assert!(!is_token_create(&args(&["run", "--", "token", "create"])));
+}
+
+#[test]
+fn json_after_vm_is_the_output_mode_wherever_it_sits() {
+    for words in [&["--json", "ls"][..], &["ls", "--json"][..]] {
+        let (rest, json) = without_json(&args(words));
+        assert!(json);
+        assert_eq!(rest, args(&["ls"]));
+        assert_eq!(plan(&rest, OutputMode::Json).unwrap(), args(&["--json", "list"]));
+    }
+    // After `--` it belongs to the remote command.
+    let (rest, json) = without_json(&args(&["exec", "vm_1", "--", "tool", "--json"]));
+    assert!(!json);
+    assert_eq!(rest, args(&["exec", "vm_1", "--", "tool", "--json"]));
+}
+
+#[test]
+fn token_create_with_an_explicit_issuer_or_help_runs_in_process() {
+    assert!(!is_token_create(&args(&["token", "create", "--config", "/tmp/issuer.json"])));
+    assert!(!is_token_create(&args(&["token", "create", "--config=/tmp/issuer.json"])));
+    assert!(!is_token_create(&args(&["token", "create", "--help"])));
+    assert!(!is_token_create(&args(&["token", "create", "-h"])));
+    // An explicit issuer or team is cmux-vm's: the app mints only at
+    // its own signed-in issuer and team, so it must not take these.
+    for words in [
+        &["token", "create", "--base-url", "https://vm-staging.cmux.dev"][..],
+        &["token", "create", "--base-url=https://vm-staging.cmux.dev"],
+        &["token", "create", "--team", "team_1"],
+        &["token", "create", "--team=team_1"],
+    ] {
+        assert!(!is_token_create(&args(words)), "{words:?}");
+    }
+}
+
+#[test]
+fn an_environment_key_or_config_mints_without_the_app() {
+    let none = |_: &str| None;
+    assert!(!has_own_credential(&none));
+    let key = |name: &str| (name == "CMUX_VM_API_KEY").then(|| "cmuxvm_sk_x".to_owned());
+    assert!(has_own_credential(&key));
+    let empty = |name: &str| (name == "CMUX_VM_API_KEY").then(String::new);
+    assert!(!has_own_credential(&empty));
+}
+
+#[test]
+fn a_default_config_counts_only_with_an_api_key() {
+    let base = std::env::temp_dir().join(format!("cmux-vm-own-credential-{}", std::process::id()));
+    std::fs::create_dir_all(base.join("cmux")).unwrap();
+    let xdg = base.to_string_lossy().into_owned();
+    let env = |name: &str| (name == "XDG_CONFIG_HOME").then(|| xdg.clone());
+    let file = base.join("cmux").join("vm.json");
+    assert!(!has_own_credential(&env));
+    std::fs::write(&file, r#"{"baseUrl":"https://vm.example.test","teamId":"team_x"}"#).unwrap();
+    assert!(!has_own_credential(&env), "no apiKey: the app mints");
+    std::fs::write(&file, r#"{"apiKey":"cmuxvm_sk_x"}"#).unwrap();
+    assert!(has_own_credential(&env));
+    std::fs::write(&file, "not json").unwrap();
+    assert!(has_own_credential(&env), "a broken file is cmux-vm's to report");
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn mint_params_hold_the_budget_and_never_scopes() {
+    let params = mint_params(&args(&["token", "create", "--ttl", "2h", "--max-vms=2"])).unwrap();
+    assert_eq!(params["ttlSeconds"], serde_json::json!(7200));
+    assert_eq!(params["maxVms"], serde_json::json!(2));
+    assert_eq!(
+        params["maxUsdPerHour"],
+        serde_json::json!(cmux_vm::token::DEFAULT_MAX_USD_PER_HOUR)
+    );
+    assert!(!params.contains_key("scopes"));
+    assert!(mint_params(&args(&["token", "create", "--scope", "admin"])).is_err());
+    assert!(mint_params(&args(&["token", "create", "--ttl", "48h"])).is_err());
+}
+
+/// The bundle once shipped `cmux vm` with no `cmux-vm` binary beside it
+/// ("cmux-vm not found in PATH"). In process, help works with no PATH at all.
+#[test]
+fn vm_help_runs_in_process_without_a_cmux_vm_binary() {
+    let env = |_: &str| None;
+    assert_eq!(run_in_process(args(&["--help"]), &env), 0);
+    assert_eq!(run_in_process(args(&["run", "--help"]), &env), 0);
+    assert_eq!(run_in_process(args(&["token", "--help"]), &env), 0);
+}
+
+#[test]
+fn words_after_vm_reach_cmux_vm_verbatim_through_the_global_scanner() {
+    let all = args(&["vm", "run", "--sync", "--keep", "--", "echo", "--json", "--sync"]);
+    let (global, rest) = split_raw(&all).expect("a vm command");
+    assert!(global.output == OutputMode::Human);
+    assert_eq!(rest, &all[1..]);
+    let plan = plan(rest, global.output).unwrap();
+    assert_eq!(plan, args(&["run", "--sync", "--keep", "--", "echo", "--json", "--sync"]));
+}
+
+#[test]
+fn globals_before_vm_still_apply() {
+    let all = args(&["--json", "vm", "ls"]);
+    let (global, rest) = split_raw(&all).expect("a vm command");
+    assert!(global.output == OutputMode::Json);
+    assert_eq!(plan(rest, global.output).unwrap(), args(&["--json", "list"]));
+    assert!(split_raw(&args(&["workspace", "vm"])).is_none());
+    assert!(split_raw(&args(&["--", "vm", "ls"])).is_none());
+}
+
+#[test]
+fn app_mint_errors_keep_the_vm_cli_exit_codes() {
+    assert_eq!(mint_exit("not_signed_in", None), cmux_vm::exit::UNAUTHENTICATED);
+    assert_eq!(mint_exit("plan_required", None), cmux_vm::exit::PAYMENT_REQUIRED);
+    assert_eq!(mint_exit("forbidden", None), cmux_vm::exit::FORBIDDEN);
+    assert_eq!(mint_exit("rate_limited", None), cmux_vm::exit::QUOTA_EXCEEDED);
+    assert_eq!(mint_exit("invalid_params", None), cmux_vm::exit::USAGE);
+    assert_eq!(mint_exit("unavailable", None), cmux_vm::exit::NETWORK);
+    assert_eq!(mint_exit("unavailable", Some(0)), cmux_vm::exit::NETWORK);
+    assert_eq!(mint_exit("unavailable", Some(502)), cmux_vm::exit::SERVICE_UNAVAILABLE);
+    assert_eq!(mint_exit("unavailable", Some(404)), cmux_vm::exit::NOT_FOUND);
+    assert_eq!(mint_exit("labs_off", None), 3);
+    assert_eq!(mint_exit("method_not_found", None), 5);
+    assert_eq!(mint_exit("internal", None), cmux_vm::exit::UNEXPECTED);
+}
+
 /// The words `run_if_requested` hands `cmux-vm` for a whole `cmux …` command line.
 fn forwarded(words: &[&str]) -> Vec<String> {
-    let (global, command) = super::super::parse_globals(&args(words))
-        .unwrap_or_else(|(error, _)| panic!("globals parse: {}", error.0));
-    plan_with_globals(split(&command).expect("a vm command"), &global).expect("a plan")
+    let (global, rest) = prepared(&args(words)).expect("a vm command");
+    plan_with_globals(&rest, &global).expect("a plan")
 }
 
 #[test]
@@ -106,6 +241,12 @@ fn an_idempotency_key_reaches_cmux_vm_wherever_it_was_typed() {
         forwarded(&["vm", "snapshot", "create", "vm_1", "--idempotency-key", "k-2"]),
         args(&["snapshot", "create", "vm_1", "--idempotency-key", "k-2"])
     );
+    for verb in ["get", "reconcile", "cancel"] {
+        assert_eq!(
+            forwarded(&["vm", "creation", verb, "--idempotency-key", "k-3"]),
+            args(&["creation", verb, "--idempotency-key", "k-3"])
+        );
+    }
 }
 
 #[test]
@@ -126,5 +267,105 @@ fn a_key_on_a_verb_that_takes_none_is_dropped_as_before() {
     assert_eq!(
         forwarded(&["vm", "fork", "vm_1", "--idempotency-key", "k"]),
         args(&["fork", "vm_1", "--idempotency-key", "k"])
+    );
+}
+
+#[test]
+fn creation_list_takes_no_key() {
+    assert_eq!(
+        forwarded(&["vm", "creation", "list", "--idempotency-key", "k"]),
+        args(&["creation", "list"])
+    );
+    assert_eq!(
+        forwarded(&["--idempotency-key", "k", "vm", "creation", "list", "--pending"]),
+        args(&["creation", "list", "--pending"])
+    );
+}
+
+#[test]
+fn a_key_without_a_value_never_takes_the_double_dash() {
+    assert_eq!(
+        forwarded(&["vm", "run", "--idempotency-key", "--", "echo", "hi"]),
+        args(&["run", "--idempotency-key", "--", "echo", "hi"])
+    );
+}
+
+/// cmux-vm takes its global options (`--team`, `--base-url`, `--config`, their
+/// `=` forms, `--json`) between nested verbs, so the key still reaches
+/// `snapshot … create` and `creation … get|reconcile|cancel` (#29709).
+#[test]
+fn a_key_reaches_a_nested_verb_across_cmux_vm_global_options() {
+    assert_eq!(
+        forwarded(&["vm", "creation", "--team", "T", "get", "--idempotency-key", "K"]),
+        args(&["creation", "--team", "T", "get", "--idempotency-key", "K"])
+    );
+    assert_eq!(
+        forwarded(&["vm", "snapshot", "--team", "T", "create", "vm_1", "--idempotency-key", "K"]),
+        args(&["snapshot", "--team", "T", "create", "vm_1", "--idempotency-key", "K"])
+    );
+    assert_eq!(
+        forwarded(&[
+            "--idempotency-key",
+            "K",
+            "vm",
+            "creation",
+            "--base-url",
+            "https://vm.example",
+            "--config=/c.toml",
+            "--team=T",
+            "--config",
+            "/c.toml",
+            "reconcile",
+        ]),
+        args(&[
+            "creation",
+            "--base-url",
+            "https://vm.example",
+            "--config=/c.toml",
+            "--team=T",
+            "--config",
+            "/c.toml",
+            "reconcile",
+            "--idempotency-key",
+            "K",
+        ])
+    );
+    assert_eq!(
+        forwarded(&[
+            "vm",
+            "snapshot",
+            "--base-url=https://vm.example",
+            "--json",
+            "create",
+            "vm_1",
+            "--idempotency-key=K"
+        ]),
+        args(&[
+            "--json",
+            "snapshot",
+            "--base-url=https://vm.example",
+            "create",
+            "vm_1",
+            "--idempotency-key",
+            "K"
+        ])
+    );
+}
+
+#[test]
+fn a_key_on_a_nested_verb_that_takes_none_is_dropped_across_global_options() {
+    assert_eq!(
+        forwarded(&["vm", "creation", "--team", "T", "list", "--idempotency-key", "K"]),
+        args(&["creation", "--team", "T", "list"])
+    );
+    // A global option's value is never read as the nested verb.
+    assert_eq!(
+        forwarded(&["vm", "snapshot", "--team", "create", "list", "--idempotency-key", "K"]),
+        args(&["snapshot", "--team", "create", "list"])
+    );
+    // Words after `--` are the guest command, never verbs.
+    assert_eq!(
+        forwarded(&["vm", "snapshot", "--", "create", "--idempotency-key", "K"]),
+        args(&["snapshot", "--", "create", "--idempotency-key", "K"])
     );
 }

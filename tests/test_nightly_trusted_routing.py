@@ -110,6 +110,32 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select(**{**picked, 'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(select(**{**picked, 'github.repository_owner': 'someone'}), 'macos-26')
 
+    def test_decide_takes_the_owned_nightly_slot_then_blacksmith_linux(self):
+        # decide is the run's first job, so no picker runs before it and every other job waits on it. Attempt 1
+        # of a nightly-next push asks for glaeda's nightly slot, which only nightly jobs take; the owned-pool
+        # rescue watches that attempt (owned_pool_rescue.nightly_target()) and moves a decide no slot takes,
+        # and that re-run (attempt 2) takes the Blacksmith Linux set. Run 41234993713 queued decide on
+        # blacksmith-32vcpu-ubuntu-2404 with no fleet route. Leo, 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END
+        # TO END ON OUR FLEET? WE CAN'T BE RELYING ON BLACKSMITH THAT CUTS OUT".
+        source = DOC['jobs']['decide']['runs-on'].removeprefix('${{').removesuffix('}}')
+        slot = 'glaeda-nightly-std-xcode-26.6'
+        base = {'github.repository_owner': 'manaflow-ai', 'github.ref': 'refs/heads/nightly-next',
+                'github.event_name': 'push', 'github.run_attempt': 1, 'vars.CI_PR_POOL_OWNED': '1',
+                'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': slot, 'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404'}
+
+        def decide(**changes):
+            return evaluate(parse_expression(source), {**base, **changes})
+
+        self.assertEqual(decide(), slot)
+        for change in ({'github.run_attempt': 2}, {'github.event_name': 'workflow_dispatch'},
+                       {'github.event_name': 'schedule', 'github.ref': 'refs/heads/main'},
+                       {'vars.CI_PR_POOL_OWNED': '0'}, {'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': ''}):
+            with self.subTest(change=change):
+                self.assertEqual(decide(**change), 'blacksmith-32vcpu-ubuntu-2404')
+        self.assertEqual(decide(**{'github.run_attempt': 2, 'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404'}),
+                         'blacksmith-16vcpu-ubuntu-2404')
+        self.assertEqual(decide(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
+
     def test_only_the_nightly_pickers_read_the_next_build_runner(self):
         readers = sorted(path.name for path in (ROOT / '.github/workflows').glob('*.y*ml')
                          if 'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER' in path.read_text()
@@ -118,7 +144,9 @@ class NightlyTrustedRouting(unittest.TestCase):
         uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
         # Nightlies never use Blacksmith (Lawrence, 2026-10-30): these jobs' last fallback is the owned nightly
         # slot (then the owned side lane), never a Blacksmith label.
-        self.assertEqual(uses, ['generate-nightly-deltas', 'sign-nightly-identity-legacy', 'verify-nightly-identity-legacy'])
+        # decide's attempt 1 asks for the nightly slot first, then Blacksmith Linux (test_decide_*).
+        self.assertEqual(uses, ['decide', 'generate-nightly-deltas', 'sign-nightly-identity-legacy',
+                                'verify-nightly-identity-legacy'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's.
         self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
@@ -261,11 +289,18 @@ class NightlyTrustedRouting(unittest.TestCase):
             'needs.decide.outputs.track': 'nightly-next',
             'needs.decide.outputs.cold_cache': 'false',
             'steps.compilation-cache-bound.outputs.save': 'true',
+            'steps.compilation-cache-restore.outputs.cache-hit': 'false',
+            'steps.swift-packages-restore.outputs.cache-hit': 'false',
         }
+        # The dedicated builder keeps DerivedData and its cache on its own
+        # runner. A normal owned Mac starts clean but must use the shared cache.
         for name in ('Restore Xcode compilation cache', 'Cache Swift packages',
                      'Save Xcode compilation cache', 'Save Swift packages'):
             with self.subTest(step=name):
-                self.assertFalse(evaluate(parse_expression(steps[name]['if']), context))
+                self.assertFalse(evaluate(parse_expression(steps[name]['if']),
+                                          {**context, 'steps.release-derived-data.outputs.mode': 'incremental'}))
+                self.assertTrue(evaluate(parse_expression(steps[name]['if']),
+                                         {**context, 'steps.release-derived-data.outputs.mode': ''}))
 
     def test_next_runs_do_not_hold_the_workflow_lock_for_post_publication_checks(self):
         group = DOC["concurrency"]["group"]

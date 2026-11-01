@@ -176,7 +176,7 @@ export function ComposerContext({
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
-  /// alone names where the chat starts: the folder and New Worktree controls step aside.
+  /// alone names where the chat starts: the folder control steps aside.
   saved?: SavedEnvironmentRows;
   /// The machine list opened, and every few seconds while it stays open: read the machines and
   /// their status again.
@@ -361,6 +361,7 @@ export function ComposerContext({
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
   const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
+  const cloudPicked = runMode?.mode === "cloud" && !started && !readOnly;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
   // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
@@ -448,12 +449,6 @@ export function ComposerContext({
     if (savedRows?.current !== undefined) savedRows.onClear();
     pickComputer(id);
   };
-  // Preview: New Worktree is a control of its own beside the folder, as Codex's Worktree and
-  // Claude's chips are (hq#2569 #9), for a new chat on this computer in a folder.
-  const worktree =
-    environmentsShown && !readOnly && !savedPick && selectedComputer === "local" && currentFolder && onNewWorktree
-      ? () => onNewWorktree(currentFolder)
-      : undefined;
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   return (
     <div className="acpmux-composer-strip">
@@ -491,9 +486,7 @@ export function ComposerContext({
               onBrowse={onBrowseProject}
               onNoProject={onNoProject}
               noProject={noProject && !currentFolder}
-              onNewWorktree={
-                !worktree && currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined
-              }
+              onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               localName={localName}
               peers={peers}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
@@ -533,13 +526,6 @@ export function ComposerContext({
               }}
             />
           )}
-          {worktree && (
-            <span className="acpmux-location-picker">
-              <button type="button" className="acpmux-location-button ui-ghost ui-ghost-sm" onClick={worktree}>
-                <LocationFace icon={<BranchIcon />} value={t("worktree.new")} chevron={false} />
-              </button>
-            </span>
-          )}
           {environmentsShown ? (
             <EnvironmentPicker
               label={t(CONTEXT_LABELS.environment)}
@@ -547,12 +533,18 @@ export function ComposerContext({
               value={
                 sandboxPicked
                   ? t("composer.sandboxed")
-                  : (waitingName ?? savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
+                  : cloudPicked
+                    ? t("composer.cloud")
+                    : (waitingName ?? savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
               }
               face={
-                // Sandboxed picked (hq#3367): the control names it where the machine was.
-                sandboxPicked ? (
-                  <LocationFace icon={<EnvironmentIcon kind="cloud" />} value={t("composer.sandboxed")} chevron />
+                // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
+                sandboxPicked || cloudPicked ? (
+                  <LocationFace
+                    icon={<EnvironmentIcon kind="cloud" />}
+                    value={t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")}
+                    chevron
+                  />
                 ) : waiting && waitingName ? (
                   <LocationFace
                     icon={<EnvironmentIcon kind="cloud" name={waiting.name} />}

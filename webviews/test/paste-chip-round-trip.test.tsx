@@ -313,7 +313,7 @@ async function roundTrip(composed: Sent) {
     const before = drawn(pending);
     const record = daemon.echo(1);
     await sending;
-    await until(() => users().length === 1 && users()[0]!.id === "user-1", "acpmux's echo in the transcript");
+    await until(() => users().length === 1 && users()[0]!.promptId === "p-paste", "acpmux's echo in the transcript");
     const echoed = users()[0]!;
     expect(echoed.pending).toBeFalsy();
     const after = drawn(echoed);

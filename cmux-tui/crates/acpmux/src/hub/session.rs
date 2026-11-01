@@ -154,6 +154,10 @@ pub struct Session {
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
+    /// Its harness profile's launch changed since its agent started: the agent restarts on the
+    /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
+    /// changed` until a start runs the new profile.
+    pub(super) profile_respawn: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
@@ -404,7 +408,7 @@ pub fn live_tags(m: &SessionMeta) -> Value {
 
 /// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
 /// secret across the cut leaves no head: the sub-session tools' prompt
-/// preview (`TurnInfo::masked_preview`); the owner's views keep it raw.
+/// preview and every summary's running turn (`TurnInfo::masked_preview`).
 pub(crate) fn masked_preview(s: &str, max: usize) -> String {
     short_text(&crate::secret_scan::mask(s), max)
 }

@@ -34,15 +34,20 @@ nonisolated enum ContextMenuEssentials {
         // Send Message… (u5402: "send messages in the iMessage UI via right clicking") opens the
         // Chief's chat about this workspace.
         // Rename and the color row open the menu as its name field and swatches (MenuIdentityHeader,
-        // Leo 2026-10-20: "like Chrome"). Duplicate joins the top level from More's New.
+        // Leo 2026-10-20: "like Chrome"). Duplicate remains in More so the workspace menu stays
+        // within its twelve-row cap after the top-level Copy folder.
         .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
-                                  .action("workspace.newBelow"), .action("workspace.duplicate"), .action("home.messageAbout"), .folder(.move, [])],
+                                  .action("workspace.newBelow"), .action("home.messageAbout"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
                             close: ["closeWorkspace"], beforeMore: copyFolder),
-        // Eight frequent tab actions stay prominent (Leo 2026-10-23: keep the obviously useful
-        // rows), then Copy ▸ and More. Groups, moves, Rename and Restart remain in More; specialist
-        // commands stay in the palette. Target-aware filtering still hides page-only rows for terminal tabs.
-        .tab: Rows(top: [.action("newTab.toRight"), .action("reloadTab"), .action("duplicateTab"),
+        // New Tab to the Right and the group rows stay at the top (Lawrence 2026-10-14, "my groups
+        // UI is lost"; scripts/cmux-next/check-group-menus.py), then the frequent tab actions (Leo
+        // 2026-10-23: keep the obviously useful rows), then Copy ▸ and More. Moves, Rename and
+        // Restart remain in More; specialist commands stay in the palette. Target-aware filtering
+        // still hides page-only rows for terminal tabs.
+        .tab: Rows(top: [.action("newTab.toRight"), .action("tabGroup.create"), .action("tabGroup.addTab"), .action("tabGroup.removeTab"),
+                         .separator,
+                         .action("reloadTab"), .action("duplicateTab"),
                          .action("palette.toggleTabPin"), .action("toggleTabAudioMute"),
                          .action("closeTab"), .action("closeOtherTabsInPane"), .action("closeTabsToRight")],
                    close: [], beforeMore: copyFolder),

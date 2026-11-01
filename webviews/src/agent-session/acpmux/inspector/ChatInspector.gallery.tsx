@@ -880,8 +880,8 @@ export default componentEntry<Props>({
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
     },
     "context-compact-working": {
-      note: "Shipped (Leo, 2026-10-28: \"You don't have the compact session\"): Context open while a turn runs. Compact, the quiet text action under the rows (as Environment's Save), is off until the turn ends, as the composer ring's card has it.",
-      props: { ...full, working: true, sections: { ...DEFAULT_SECTIONS, context: true } },
+      note: "Shipped (Leo, 2026-10-28: \"You don't have the compact session\"; 2026-10-31: \"COMPACT BUTTON LITERALLY DOESN'T EVEN F***IN WORK\"): Context open while a turn runs. Compact session is a real button at the rows' trailing edge and stays live: its /compact queues behind the turn. A Claude chat's /context adds the tokens until auto-compact beside it (context-breakdown).",
+      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true } },
     },
     "context-breakdown": {
       note: "Shipped: a Claude Code chat's /context in Context, open: 43% used with 171.4k / 400k, the bar split by category in steps of the theme accent (largest first; the autocompact buffer grey; free space the track), a row per category with its tokens and share, the deferred ones dimmed with no share, then the MCP tools, Memory files and Skills folds, MCP tools open.",
