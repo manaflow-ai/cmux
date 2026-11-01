@@ -28,10 +28,11 @@ public struct CloudMachineIO: Sendable {
         self.probes = probes
     }
 
-    /// The app's: `binary` is the bundled cmux (nil when this build has none, so no machine IO) and its
-    /// client sessions go in `cloudRoot/client-sessions`.
-    public init?(binary: URL?, cloudRoot: URL) {
-        guard let binary else { return nil }
+    /// The app's: the bundled cmux at `bundleResources/bin/cmux` (nil when this build has none, so no machine IO)
+    /// and its client sessions in `cloudRoot/client-sessions`.
+    public init?(bundleResources: URL?, cloudRoot: URL) {
+        guard let binary = bundleResources?.appendingPathComponent("bin/cmux"),
+              FileManager.checked.isExecutableFile(atPath: binary.path) else { return nil }
         self.init(binary: binary, cacheDirectory: cloudRoot.appendingPathComponent("client-sessions", isDirectory: true))
     }
 

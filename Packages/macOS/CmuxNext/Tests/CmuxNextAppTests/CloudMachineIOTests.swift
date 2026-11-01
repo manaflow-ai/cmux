@@ -154,4 +154,39 @@ struct CloudMachineIOTests {
         #expect(BlockingDetector(table: table).sites.isEmpty)
     }
     #endif
+
+    #if DEBUG
+    /// The Cloud service makes its machine IO on the main thread at start: that makes no file system call. Whether
+    /// the bundled cmux is there is asked by the first call, off the main thread.
+    @MainActor @Test func makingTheAppsMachineIOTouchesNoFileOnTheMainThread() async throws {
+        let (binary, folder) = try fakeCLI(printing: "unused")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let resources = folder.appendingPathComponent("Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resources.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: binary, to: resources.appendingPathComponent("bin/cmux"))
+        let table = BlockingViolationTable(mode: .record)
+        let machineIO = BlockingViolationTable.$scoped.withValue(table) {
+            CloudMachineIO(bundleResources: resources, cloudRoot: folder)
+        }
+        await table.flush()
+        #expect(BlockingDetector(table: table).sites.isEmpty)
+        #expect(machineIO?.binary.path == resources.appendingPathComponent("bin/cmux").path)
+    }
+    #endif
+
+    /// A build without a bundled cmux sends every call over HTTP, as it did when the app made no machine IO for it.
+    @Test func aBuildWithoutTheBundledCmuxSendsEveryCallOverHTTP() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("machine-io-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        Route.paths = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [Route.self]
+        let api = CloudAPIClient.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? folder,
+                                                accessToken: { "session-access" }, teamID: { "team_cmux" },
+                                                session: URLSession(configuration: configuration),
+                                                machineIO: CloudMachineIO(bundleResources: folder, cloudRoot: folder))
+        try await api.makeDirectory("vm_abcdefghij0123456789", path: "/a")
+        #expect(Route.paths == ["/v1/cloud/machines/vm_abcdefghij0123456789/fs/mkdir"])
+    }
 }
