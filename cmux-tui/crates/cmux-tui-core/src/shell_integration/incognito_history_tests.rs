@@ -541,3 +541,31 @@ fn an_incognito_shell_is_integrated_as_itself_under_a_forced_mode() {
         );
     }
 }
+
+/// Apple's `/bin/bash` takes no integration (it ignores `ENV` in POSIX
+/// startup): an incognito one starts without the startup files that could
+/// turn its history back on.
+#[test]
+fn an_incognito_apple_bash_reads_no_startup_files() {
+    let command = |args: &[&str]| args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        unintegrable_incognito(&command(&["/bin/bash", "-l"]), true),
+        Some(command(&["/bin/bash", "--noprofile", "--norc", "-l"]))
+    );
+    // Any other bash, or /bin/bash off macOS, is integrated.
+    assert_eq!(unintegrable_incognito(&command(&["/bin/bash"]), false), None);
+    assert_eq!(unintegrable_incognito(&command(&["/opt/homebrew/bin/bash"]), true), None);
+}
+
+/// On macOS the launch of an incognito `/bin/bash` itself reads no startup
+/// files, as an explicit command and as the default shell.
+#[cfg(target_os = "macos")]
+#[test]
+fn an_incognito_apple_bash_launch_reads_no_startup_files() {
+    let mut env = vec![("HOME".to_string(), "/Users/user".to_string())];
+    keep_no_history(&mut env);
+    let launched = shell_launch(Some(vec!["/bin/bash".to_string()]), env.clone());
+    assert_eq!(launched.command, ["/bin/bash", "--noprofile", "--norc"]);
+    let launched = integrate_with(vec!["/bin/bash".to_string()], env, &|_: &str| None);
+    assert_eq!(launched.command, ["/bin/bash", "--noprofile", "--norc"]);
+}
