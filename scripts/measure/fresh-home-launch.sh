@@ -66,6 +66,12 @@ account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | a
 for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin" "$account_home/.cargo/bin"; do
   [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
 done
+# Rust's toolchains are the account's too: with the step's HOME, rustup finds no default toolchain
+# (the build's cmux-cua and the cmux-tui client set both need it).
+if [ -n "$account_home" ]; then
+  [ -z "${RUSTUP_HOME:-}" ] && [ -d "$account_home/.rustup" ] && export RUSTUP_HOME="$account_home/.rustup"
+  [ -z "${CARGO_HOME:-}" ] && [ -d "$account_home/.cargo" ] && export CARGO_HOME="$account_home/.cargo"
+fi
 RUNNER_TEMP="$work" GITHUB_PATH="$work/bun-path" ./scripts/cmux-next/private-bun.sh || exit 3
 PATH="$(tail -n 1 "$work/bun-path"):$PATH"
 export PATH
@@ -79,7 +85,8 @@ if [[ -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]] && ! ./scripts/cmux-next/pin-cmux-tui.s
   export CMUX_TUI_CLIENT_TARGET_DIR="${CMUX_TUI_CLIENT_TARGET_DIR:-${CI_SHARED_CACHE_DIR:-/Users/Shared/cmux-build-fleet/cache}/fresh-home-launch/cmux-tui-target}"
   mkdir -p "$CMUX_TUI_CLIENT_TARGET_DIR" cmux-tui/target
   # CI=1: this is a fleet step, where the builder may run Cargo (never on a developer Mac).
-  CMUX_TUI_CLIENT_LOCAL="$(CI=1 ./scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$out/cmux-tui-build.log")" || {
+  # Its progress also goes to the step's log: a silent step looks hung and the controller stops it.
+  CMUX_TUI_CLIENT_LOCAL="$(CI=1 ./scripts/cmux-next/build-cmux-tui-client.sh --print-path 2> >(tee "$out/cmux-tui-build.log" >&2))" || {
     echo "FRESH-HOME cannot run: building cmux-tui failed" >&2
     tail -n 40 "$out/cmux-tui-build.log" >&2
     tar -czf "$out/report.tgz" -C "$out" cmux-tui-build.log

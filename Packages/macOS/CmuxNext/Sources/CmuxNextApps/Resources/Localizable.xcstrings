@@ -15141,6 +15141,12 @@
         "ja" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld件のアップデートがあります"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
@@ -15153,6 +15159,12 @@
         "km" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "មានបច្ចុប្បន្នភាព %lld"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
@@ -15165,6 +15177,12 @@
         "ko" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld개 업데이트 가능"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
@@ -15279,6 +15297,12 @@
         "th" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "มีการอัปเดต %lld รายการ"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
@@ -15339,6 +15363,12 @@
         "vi" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Có %lld bản cập nhật"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
@@ -15351,6 +15381,12 @@
         "zh-Hans" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "有 %lld 项更新"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",
@@ -15363,6 +15399,12 @@
         "zh-Hant" : {
           "variations" : {
             "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "有 %lld 項更新"
+                }
+              },
               "other" : {
                 "stringUnit" : {
                   "state" : "needs_review",

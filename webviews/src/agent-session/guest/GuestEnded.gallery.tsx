@@ -2,11 +2,13 @@
 // The guest page once the share is over (design/chat-multiplayer.md section 3): the link expired,
 // the owner ended sharing, the owner removed this guest, or the one-use link was spent. No retry.
 import { componentEntry } from "../../gallery/format";
+import { memoryStorage } from "./fixtures/liveChat";
 import type { GuestEnded, GuestPageProps } from "./GuestPage";
 
 const ended = (reason: GuestEnded): { props: GuestPageProps } => ({
   props: {
     shareId: "c2hhcmUtZ2FsbGVyeQ",
+    storage: memoryStorage(),
     redeem: () => new Promise(() => undefined),
     attempt: () => "0".repeat(32),
     socketUrl: "",
