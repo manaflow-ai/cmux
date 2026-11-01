@@ -7,7 +7,7 @@
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
 import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT, usePaneLanguage } from "../i18n";
-import { FindReveal } from "./chatFind";
+import { FindReveal, foldFind } from "./chatFind";
 import {
   COLLAPSED_PROMPT_LINES,
   type PasteRange,
@@ -151,7 +151,7 @@ export function PromptText({
   // needs it open to draw.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === rowId ? reveal.needle : "";
-  const hit = Boolean(needle && text.toLocaleLowerCase().includes(needle));
+  const hit = Boolean(needle && foldFind(text).includes(needle));
   useLayoutEffect(() => {
     if (!hit || !collapsed) return;
     setOpen(true);
@@ -253,7 +253,7 @@ export function PasteChip({
   const language = usePaneLanguage();
   const id = useId();
   const [open, setOpen] = useTranscriptDisclosure(`prompt:${rowId}:paste:${index}`);
-  const hit = Boolean(needle && text.toLocaleLowerCase().includes(needle));
+  const hit = Boolean(needle && foldFind(text).includes(needle));
   const reveal = useContext(FindReveal);
   useLayoutEffect(() => {
     if (!hit || open) return;

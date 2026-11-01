@@ -398,6 +398,7 @@ import {
   clearFindHighlights,
   FIND_ACTIVE_HIGHLIGHT,
   FindReveal,
+  foldFind,
   findRowIndex,
   findMemberRowId,
   isFindRow,
@@ -4121,7 +4122,7 @@ export function VirtualTranscript({
         ? {
             rowId: drawnId,
             card: drawnCard,
-            needle: findQuery.toLocaleLowerCase(),
+            needle: foldFind(findQuery),
             repaint: () => setRevealed((count) => count + 1),
             ...(matchRowId !== undefined ? { matchRowId } : {}),
           }
