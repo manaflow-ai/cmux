@@ -550,7 +550,7 @@ final class AppServices {
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
         // The automatic restart's toggle, and Restart cmux-tui over content while the daemon is gone (restore fuzz h2).
-        DaemonRecoveryWiring.install(daemon)
+        daemon.installRecovery()
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

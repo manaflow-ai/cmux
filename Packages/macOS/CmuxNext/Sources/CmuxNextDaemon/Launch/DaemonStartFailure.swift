@@ -4,7 +4,7 @@ import Foundation
 /// Why the launcher's last `server ensure` failed: what the person reads beside "Restart cmux-tui"
 /// while no daemon runs (restore fuzz h2). A full disk is told apart, because only freeing space
 /// fixes it and the app then starts the daemon again by itself.
-public nonisolated struct DaemonStartFailure: Sendable, Equatable {
+public struct DaemonStartFailure: Sendable, Equatable {
     public enum Kind: String, Sendable, Equatable {
         /// The volume under the daemon's state has no space left, or the start said so.
         case diskFull = "disk_full"
