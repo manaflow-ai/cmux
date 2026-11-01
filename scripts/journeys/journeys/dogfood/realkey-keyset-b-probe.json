@@ -1,0 +1,322 @@
+{
+  "id": "realkey-keyset-b-probe",
+  "priority": "P1",
+  "title": "Proof per key: each new default key of Set B (PR #29867, head e2c792659f48) reaches cmux's key router and runs its action with default macOS settings (real HID keys; Ctrl-Cmd-D as the control)",
+  "why": "Lawrence asked for one cohesive key set for New Column, New Row and Split Browser (New Column key lead aef4f4e6f83f36107); cmux-ad: every new key needs a real-key check on a fleet screen mini. Each probe starts in a new workspace whose terminal has the keyboard, sends one real HID key (CuaDriver, cmux frontmost, com.apple.symbolichotkeys unchanged), and records the key router's count before and after, its last action and ran, the app's action log, all apps' on-screen windows and a full-display screenshot. Pass for a key: the router count rose, its last action is the key's action with ran true, and no other app's window appeared. Records only; the journey judges the set-up and the typed-line control. Needs a whole-host lease on a CuaDriver-granted mini.",
+  "source": "journeys/dogfood/realkey-ctrl-cmd-d-probe.json (STATUS 1712, 1724, 1824)",
+  "budget_seconds": 250,
+  "options": {
+    "key_path": "real"
+  },
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "wsa"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "terma"
+    },
+    {
+      "do": "expect",
+      "title": "set-up a: a new workspace's terminal has the keyboard (real Cmd-N, Ctrl-`)",
+      "since": "terma",
+      "timeout": 20,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved",
+            "equals": "terminal"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        }
+      ]
+    },
+    {
+      "do": "real_key_probe",
+      "name": "keya",
+      "key": "d",
+      "modifiers": [
+        "ctrl",
+        "cmd"
+      ],
+      "expect": "newColumn",
+      "title": "control: a real Ctrl-Cmd-D (macOS Look Up; expected never to reach the router)"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "wsb"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "termb"
+    },
+    {
+      "do": "expect",
+      "title": "set-up b: a new workspace's terminal has the keyboard (real Cmd-N, Ctrl-`)",
+      "since": "termb",
+      "timeout": 20,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved",
+            "equals": "terminal"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        }
+      ]
+    },
+    {
+      "do": "real_key_probe",
+      "name": "keyb",
+      "key": "l",
+      "modifiers": [
+        "ctrl",
+        "shift",
+        "cmd"
+      ],
+      "expect": "newColumn",
+      "title": "a real Ctrl-Shift-Cmd-L (newColumn)"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "wsc"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "termc"
+    },
+    {
+      "do": "expect",
+      "title": "set-up c: a new workspace's terminal has the keyboard (real Cmd-N, Ctrl-`)",
+      "since": "termc",
+      "timeout": 20,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved",
+            "equals": "terminal"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        }
+      ]
+    },
+    {
+      "do": "real_key_probe",
+      "name": "keyc",
+      "key": "j",
+      "modifiers": [
+        "ctrl",
+        "shift",
+        "cmd"
+      ],
+      "expect": "newRow",
+      "title": "a real Ctrl-Shift-Cmd-J (newRow)"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "wsd"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "termd"
+    },
+    {
+      "do": "expect",
+      "title": "set-up d: a new workspace's terminal has the keyboard (real Cmd-N, Ctrl-`)",
+      "since": "termd",
+      "timeout": 20,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved",
+            "equals": "terminal"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        }
+      ]
+    },
+    {
+      "do": "real_key_probe",
+      "name": "keyd",
+      "key": "l",
+      "modifiers": [
+        "option",
+        "cmd"
+      ],
+      "expect": "splitBrowserRight",
+      "title": "a real Option-Cmd-L (splitBrowserRight)"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "wse"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "terme"
+    },
+    {
+      "do": "expect",
+      "title": "set-up e: a new workspace's terminal has the keyboard (real Cmd-N, Ctrl-`)",
+      "since": "terme",
+      "timeout": 20,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved",
+            "equals": "terminal"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        }
+      ]
+    },
+    {
+      "do": "real_key_probe",
+      "name": "keye",
+      "key": "d",
+      "modifiers": [
+        "shift",
+        "option",
+        "cmd"
+      ],
+      "expect": "splitBrowserDown",
+      "title": "a real Shift-Option-Cmd-D (splitBrowserDown)"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "wsz"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "termz"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo k1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "control: a line typed with real keys runs in a new terminal",
+      "since": "termz",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "k1-${nonce}-42"
+            ]
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "k1-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "do": "smoke_close_all"
+    }
+  ]
+}
