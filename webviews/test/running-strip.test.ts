@@ -17,7 +17,6 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
-import { openRunningTray } from "./support/openRunningTray";
 
 await requireBrowserLane("running-strip.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -97,7 +96,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       const geometry = await page.evaluate(() => {
         const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
         const line = document.querySelector<HTMLElement>(".acpmux-agent-line")!;
-        const stop = line.querySelector<HTMLElement>(".acpmux-chat-inspector-stop")!;
+        const stop = line.querySelector<HTMLElement>(".acpmux-session-info-stop")!;
         const box = tray.getBoundingClientRect();
         const inner = {
           left: box.left + tray.clientLeft,
@@ -117,7 +116,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       expect(geometry.stopInside).toBe(true);
       expect(geometry.cursor).toBe("default");
       // On the stop button the line keeps its one fill; the button only brightens.
-      await page.hover(".acpmux-chat-inspector-stop");
+      await page.hover(".acpmux-session-info-stop");
       expect(await filled(page)).toEqual(["acpmux-agent-line"]);
     } finally {
       await page.close();
@@ -139,7 +138,6 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           height,
         );
         await page.waitForSelector(".acpmux-running-tray__head");
-        await openRunningTray(page);
         // Settle the entrances; a working Spinner's turn never ends (spinner.css), so only finite ones.
         await page.evaluate(() => {
           for (const animation of document.getAnimations()) {
@@ -194,8 +192,6 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
       await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
       await page.evaluate(() => (window as unknown as { __showPanel: (h: number) => void }).__showPanel(34));
-      await page.waitForSelector(".acpmux-running-tray__head");
-      await openRunningTray(page);
       await page.waitForSelector(".acpmux-running-tray__finished");
       await page.evaluate(() => {
         for (const animation of document.getAnimations())
