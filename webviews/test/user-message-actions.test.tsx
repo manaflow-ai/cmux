@@ -34,7 +34,7 @@ afterAll(() => {
 const HOUR = 3_600_000;
 // Each item of the row by its name: a control's label (Retry's wrapper by its button's), else its text.
 const labels = () =>
-  [...host.querySelectorAll(".cv-user__actions > *")].map(
+  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > *")].map(
     (node) =>
       node.getAttribute("aria-label") ??
       node.querySelector("button")?.getAttribute("aria-label") ??
@@ -357,4 +357,26 @@ test("the time under a prompt names its exact time, shown above it", async () =>
   const time = host.querySelector("time.cv-user__time")!;
   expect(time.getAttribute("title")?.replace(/\s/g, " ")).toBe("Oct 20, 2026, 10:16 PM");
   expect(time.getAttribute("data-tooltip-side")).toBe("top");
+});
+
+test("Option-click Fork offers destinations without starting a fork", async () => {
+  const { installMessageMenuReporter } = await import("../src/agent-session/acpmux/conversation/messageMenu");
+  const reports: unknown[] = [];
+  const remove = installMessageMenuReporter(document, () => ({ postMessage: (report) => reports.push(report) }));
+  const forked: number[] = [];
+  try {
+    const row: AcpmuxRow = { id: "option-fork", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Fork this" };
+    await draw(row, { fork: (seq: number) => forked.push(seq), forkAny: true, promptTurns: new Map([[row.id, 5]]) });
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
+    act(() => {
+      button.dispatchEvent(new window.MouseEvent("click", { bubbles: true, altKey: true }));
+    });
+    expect(reports).toEqual([expect.objectContaining({ forkDestinations: 5 })]);
+    expect(forked).toEqual([]);
+    expect(button.dataset.forkState).toBe("idle");
+    act(() => button.click());
+    expect(forked).toEqual([5]);
+  } finally {
+    remove();
+  }
 });

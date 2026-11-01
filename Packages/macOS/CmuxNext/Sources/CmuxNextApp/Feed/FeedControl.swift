@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextFeed
 import CmuxNextSettings
@@ -61,14 +62,7 @@ enum FeedControl {
             return await AcpmuxPersonLine.open(environment)
         }, tab: { [weak services] session in
             guard let services else { return nil }
-            let local = services.agentTabs.localHost
-            for workspace in services.daemon.store.workspaces {
-                for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-                where tab.agentSession?.session == session && (local == nil || tab.agentSession?.host == local) {
-                    return tab.id
-                }
-            }
-            return nil
+            return services.daemon.store.tab(agentSession: session, host: services.agentTabs.localHost)?.id
         })
     }
 

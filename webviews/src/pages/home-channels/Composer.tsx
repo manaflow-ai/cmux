@@ -20,7 +20,7 @@ import type { Strings } from "../shared/i18n";
 import { AttachmentTray, type PendingAttachment } from "./AttachmentViews";
 import { ComposerEdit, type ComposerEditCommand } from "./composerEdit";
 import { QUOTE_EVENT, quoteMarkdown } from "./quoteSelection";
-import { MAX_ATTACHMENTS, attachmentClass, attachmentType, refusal, type AttachmentService } from "./attachmentService";
+import { attachmentClass, attachmentType, refusal, type AttachmentService } from "./attachmentService";
 import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon, type HomeIconName } from "./icons";
@@ -118,7 +118,6 @@ export function Composer({
     if (!attachments || disabled) return;
     const added: PendingAttachment[] = [];
     for (const file of list) {
-      if (files.length + added.length >= MAX_ATTACHMENTS) break;
       const id = `f${nextFile.current++}`;
       const refused = refusal(file);
       const item: PendingAttachment = { id, file, progress: { sent: 0, total: file.size } };
@@ -282,7 +281,7 @@ export function Composer({
             id: "attach",
             label: t("composer.menu.attachFiles"),
             separatorBefore: true,
-            disabled: disabled || files.length >= MAX_ATTACHMENTS,
+            disabled,
             onSelect: () => picker.current?.click(),
           },
         ]
@@ -410,7 +409,7 @@ export function Composer({
             label={t("attach.add")}
             tooltip={false}
             className="hc-tool"
-            disabled={disabled || files.length >= MAX_ATTACHMENTS}
+            disabled={disabled}
             onPress={() => picker.current?.click()}
           >
             <HomeIcon name="attach" />

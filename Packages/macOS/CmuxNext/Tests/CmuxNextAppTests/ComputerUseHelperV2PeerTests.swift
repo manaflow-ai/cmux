@@ -4,6 +4,16 @@ import Testing
 @testable import CmuxNextComputerUse
 
 struct ComputerUseHelperV2PeerTests {
+    @Test func helperLaunchScopeContainsOnlyItsOwnTaggedDevBundle() {
+        let own = "com.cmuxterm.app.debug.guard-test"
+        let environment = ComputerUseHelperV2.environment(bundleID: own)
+        #expect(environment["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] == own)
+        for bundleID in [nil, "com.cmuxterm.app", "com.cmuxterm.app.nightly",
+                         "com.cmuxterm.app.debug", "com.cmuxterm.app.debug.", "com.apple.Terminal"] {
+            #expect(ComputerUseHelperV2.environment(bundleID: bundleID)["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] == "")
+        }
+    }
+
     @Test func signedAdmissionUsesALiveTeamRequirementInsteadOfAPathHash() {
         let executable = URL(fileURLWithPath: "/mutable/acpmux")
         let signed = ComputerUseHelperV2.acpmuxAdmission(
@@ -18,6 +28,63 @@ struct ComputerUseHelperV2PeerTests {
         )
         #expect(development.hashes == ["010203"])
         #expect(development.requirement == nil)
+    }
+
+    @Test func configureLineGivesTheHelperTheAcpmuxAdmissionOfThisAppsAcpmux() throws {
+        let object = { (line: Data) throws -> [String: Any] in
+            #expect(line.last == UInt8(ascii: "\n"))
+            return try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
+        }
+        let acpmux = URL(fileURLWithPath: "/app/acpmux")
+        var asked: [URL] = []
+        let signed = try object(ComputerUseHelperV2.configureLine(
+            socket: "/run/helper.sock", hostSocket: "/run/host.sock", hostSecret: Data([0xab, 0x01]),
+            secret: Data([0x0f]), acpmuxExecutable: acpmux,
+            admit: { asked.append($0); return ([], "identifier \"cmux\" and anchor apple generic") }
+        ))
+        #expect(asked == [acpmux])
+        #expect(signed["type"] as? String == "configure")
+        #expect(signed["socket"] as? String == "/run/helper.sock")
+        #expect(signed["host_socket"] as? String == "/run/host.sock")
+        #expect(signed["host_secret"] as? String == "ab01")
+        #expect(signed["secret"] as? String == "0f")
+        #expect(signed["acpmux_cdhashes"] as? [String] == [])
+        #expect(signed["acpmux_requirement"] as? String == "identifier \"cmux\" and anchor apple generic")
+
+        let development = try object(ComputerUseHelperV2.configureLine(
+            socket: "/s", hostSocket: "/h", hostSecret: Data(), secret: Data(), acpmuxExecutable: acpmux,
+            admit: { _ in (["0102"], nil) }
+        ))
+        #expect(development["acpmux_cdhashes"] as? [String] == ["0102"])
+        #expect(development["acpmux_requirement"] is NSNull)
+
+        // No acpmux: no bridge is admitted by code identity, and nothing is asked.
+        asked = []
+        let none = try object(ComputerUseHelperV2.configureLine(
+            socket: "/s", hostSocket: "/h", hostSecret: Data(), secret: Data(), acpmuxExecutable: nil,
+            admit: { asked.append($0); return (["ff"], "x") }
+        ))
+        #expect(asked.isEmpty)
+        #expect(none["acpmux_cdhashes"] as? [String] == [])
+        #expect(none["acpmux_requirement"] is NSNull)
+
+        // By default the admission is acpmuxAdmission's, with this app's team.
+        let me = URL(fileURLWithPath: CommandLine.arguments[0])
+        let byDefault = try object(ComputerUseHelperV2.configureLine(
+            socket: "/s", hostSocket: "/h", hostSecret: Data(), secret: Data(), acpmuxExecutable: me
+        ))
+        let expected = ComputerUseHelperV2.acpmuxAdmission(executable: me)
+        #expect(byDefault["acpmux_cdhashes"] as? [String] == expected.hashes)
+        #expect(byDefault["acpmux_requirement"] as? String == expected.requirement)
+    }
+
+    @Test func registerLineNamesTheDaemonByPidAndStartTime() throws {
+        let line = ComputerUseHelperV2.registerLine((pid: 4242, startSeconds: 1_700_000_000, startMicroseconds: 17))
+        let object = try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
+        #expect(object["type"] as? String == "register_acpmux")
+        #expect(object["pid"] as? Int == 4242)
+        #expect(object["start_sec"] as? Int == 1_700_000_000)
+        #expect(object["start_usec"] as? Int == 17)
     }
 
     @Test func daemonRegistrationTakesASameUserPeerAtTheAcpmuxPathOnly() async throws {

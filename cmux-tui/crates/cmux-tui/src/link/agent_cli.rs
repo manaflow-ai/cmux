@@ -71,6 +71,8 @@
 //! "retry_after_seconds"?:N,"side"?:"source"|"target"}` (exit 1); bad usage
 //! exits 64. `side` names the daemon a `machine_outdated` is about.
 
+use cmux_json::JsonSet as _;
+
 mod daemon;
 mod record;
 
@@ -185,13 +187,13 @@ pub(super) fn run(args: &[String]) -> i32 {
         Err(failed) => {
             let mut line = json!({"ok": false, "error": failed.error, "error_code": failed.code});
             if let Some(transfer_id) = failed.transfer_id {
-                line["transfer_id"] = json!(transfer_id);
+                line.set("transfer_id", json!(transfer_id));
             }
             if let Some(seconds) = failed.retry_after_seconds {
-                line["retry_after_seconds"] = json!(seconds);
+                line.set("retry_after_seconds", json!(seconds));
             }
             if let Some(side) = failed.side {
-                line["side"] = json!(side);
+                line.set("side", json!(side));
             }
             println!("{line}");
             1
@@ -308,7 +310,7 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
     let mut params = json!({"surface": args.surface, "interrupt": args.interrupt});
     if args.ask_first {
-        params["ask_first"] = json!(true);
+        params.set("ask_first", json!(true));
     }
     let begun = match source.call("agent-transfer-begin", params, BEGIN_TIMEOUT) {
         Ok(begun) => begun,
@@ -358,7 +360,7 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     let receive_id = record.receive_id.clone().unwrap_or_default();
     let mut finish = json!({"receive_id": receive_id});
     if let Some(kind) = &vm_kind {
-        finish["vm_kind"] = json!(kind);
+        finish.set("vm_kind", json!(kind));
     }
     let finished = target.call("agent-transfer-finish", finish, FINISH_TIMEOUT);
     let (landed, finish_error) = match finished {
@@ -435,7 +437,7 @@ fn up_to_finish(
     }
     let mut params = json!({"manifest": manifest, "cwd": args.cwd});
     if let Some(kind) = vm_kind {
-        params["vm_kind"] = json!(kind);
+        params.set("vm_kind", json!(kind));
     }
     let received =
         target.call("agent-transfer-receive", params, CALL_TIMEOUT).map_err(target_failed)?;

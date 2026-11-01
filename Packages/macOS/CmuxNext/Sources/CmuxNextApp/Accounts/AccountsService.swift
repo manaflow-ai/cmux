@@ -22,6 +22,8 @@ final class AccountsService: AccountsServices {
     /// Test launches: detect in this fixture home, with the app's own
     /// environment and no Keychain probe, so no real sign-in is read.
     let fixtureHome: URL?
+    /// The DEBUG auth capture fixture's provider side (`authCaptureFixture`); nil otherwise.
+    private let capture: ProviderCaptureFixture?
     /// The showcase profile uses the package's deterministic account fixture;
     /// it must never read or mutate a user's real credentials.
     private let showcaseMock: MockAccountsServices?
@@ -42,11 +44,12 @@ final class AccountsService: AccountsServices {
         #else
         showcaseMock = nil
         #endif
-        fixtureHome = environment[Self.fixtureHomeKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+        capture = services.environment.authCaptureFixture ? ProviderCaptureFixture() : nil // the flag is DEBUG-only
+        fixtureHome = capture?.home ?? environment[Self.fixtureHomeKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
         let bundleID = services.environment.launch.bundleID
         let storeID = fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"
-        keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
-        labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
+        keys = capture?.keys() ?? KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID), loginKeychain: services.loginKeychain)
+        labels = AccountLabelerStore(provider: capture?.labelSalt ?? KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID), loginKeychain: services.loginKeychain))
         activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
             self?.model.appDidBecomeActive()
         }
@@ -55,6 +58,7 @@ final class AccountsService: AccountsServices {
     /// The detection inputs. The login env is captured once per launch
     /// (keys exported in shell rc files count); only presence is used.
     func detectionEnvironment() async -> DetectionEnvironment {
+        if let capture { return capture.detectionEnvironment(labeler: await labeler()) }
         let keys = keys
         let saved = await Task.detached { keys.savedProviders() }.value
         let labeler = await labeler()
@@ -70,6 +74,7 @@ final class AccountsService: AccountsServices {
 
     /// The account labeler; the first call reads or creates the Keychain salt.
     func labeler() async -> AccountLabeler {
+        if let capture { return capture.labeler }
         let labeler = await labels.labeler()
         if handlesStable, let failure = await labels.saltFailure {
             handlesStable = false
@@ -102,6 +107,8 @@ final class AccountsService: AccountsServices {
     }
 
     var activeTeam: ActiveTeam? { showcaseMock != nil ? showcaseMock?.activeTeam : services.cloud.isSignedIn ? services.cloud.auth.activeTeam : nil }
+
+    var teamBackend: (any AccountsTeamBackend)? { showcaseMock.map { $0 as any AccountsTeamBackend } ?? services.cloud.auth }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
         if let showcaseMock { return try await showcaseMock.linkedAccounts() }
@@ -153,6 +160,7 @@ final class AccountsService: AccountsServices {
     /// so the provider's own login runs where the user can see and answer it.
     @discardableResult
     private func runInTerminal(_ line: String) -> Bool {
+        let line = capture?.terminalLine ?? line
         let opened = services.inFrontPane { $0.newTerminalTab(typing: line + "\r") }
         if !opened { logger.info("no local pane for a terminal tab") }
         return opened
@@ -161,6 +169,7 @@ final class AccountsService: AccountsServices {
     /// Opens `url` in a new browser tab of the main window's local pane.
     @discardableResult
     private func openPage(_ url: URL) -> Bool {
+        let url = capture?.pageURL ?? url
         let opened = services.inFrontPane { $0.newBrowserTab(url: url) }
         if !opened { logger.info("no local pane for a browser tab") }
         return opened

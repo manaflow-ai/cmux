@@ -54,7 +54,7 @@ import Testing
         #expect(Self.target(top: 61, up: false, gapY: 40) == .some(Self.t(after: "b")))
     }
 
-    /// A tall card (a workspace with tab rows, 60 pt) swaps with a short row as soon as its bottom passes that
+    /// A tall card (a workspace with a status block, 60 pt) swaps with a short row as soon as its bottom passes that
     /// row's middle, while its centre is still far above the row.
     @Test func aTallCardMovesDownByItsBottomEdge() {
         // The gap at 80 (between b and c): c is drawn at 140..160, its middle at 150.

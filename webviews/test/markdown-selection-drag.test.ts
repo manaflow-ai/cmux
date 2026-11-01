@@ -197,12 +197,18 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
         await page.context().close();
       });
 
-      test("a drag inside a table still selects whole cells", async () => {
+      // User 2026-10-28: snapping a drag to whole cells was "extremely unintuitive". A drag inside a
+      // table selects text, as anywhere else (whole cells come from Cmd-A, markdown-table-obsidian).
+      test("a drag inside a table selects text, not whole cells", async () => {
         const page = await open(engine);
         await park(page);
         await press(page, await at(page, "Name", 1), await at(page, "Engineer", 3));
         await page.mouse.up();
-        expect(await page.locator(".md-prose .selectedCell").count()).toBe(4);
+        await rest(page);
+        expect(await page.locator(".md-prose .selectedCell").count()).toBe(0);
+        const text = await selected(page);
+        expect(text).toContain("ame");
+        expect(text).toContain("Eng");
         await page.context().close();
       });
 

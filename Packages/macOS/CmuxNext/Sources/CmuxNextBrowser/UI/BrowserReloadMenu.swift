@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 
 /// The Reload button's right-click and long-press menu (cx-2lm4): Reload
-/// Page, and Hard Reload Page for a WebKit tab (the engine that reloads from
-/// origin, as `browserHardReload` does). Each item keeps its target alive
+/// Page, and Hard Reload Page for a tab that can reload past its caches
+/// (``BrowserCacheBypassingReload``, as `browserHardReload` does). Each item keeps its target alive
 /// (menu item targets are weak). Rows carry their actions' symbols
 /// (`browserReload`, `browserHardReload`) and open as a standard macOS menu
 /// in the toolbar's light or dark look (`NSMenu.themeRows(in:)`).
@@ -19,7 +19,7 @@ final class BrowserReloadMenu: NSObject {
 
     static func make(for tab: any BrowserTab, in scope: ThemeScope) -> NSMenu {
         var hardReload: (@MainActor () -> Void)?
-        if let webKit = tab as? WebKitTab { hardReload = { webKit.webView.reloadFromOrigin() } }
+        if let bypassing = tab as? any BrowserCacheBypassingReload { hardReload = { bypassing.reloadBypassingCache() } }
         return make(reload: { tab.reload() }, hardReload: hardReload, in: scope)
     }
 

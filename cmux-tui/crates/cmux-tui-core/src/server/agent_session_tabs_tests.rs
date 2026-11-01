@@ -5,6 +5,8 @@
 //! record in the closed history is what reopen uses).
 
 use super::super::*;
+use crate::state::conversation_tabs::ConversationTabTarget;
+use crate::state::conversation_tabs_store::ConversationTabRecord;
 
 fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     let command: Command = serde_json::from_value(request)?;
@@ -162,6 +164,68 @@ fn agent_session_is_bound_from_null() {
     )
     .unwrap_err();
     assert!(refused.to_string().contains("bad request"), "{refused}");
+    mux.shutdown();
+}
+
+/// Reopening a root session is accepted only while this daemon has a live tab
+/// for that same registry host/session; closing it removes the proof, and a
+/// different registry host never qualifies.
+#[cfg(unix)]
+#[test]
+fn a_live_registry_root_session_may_reopen_on_its_daemon_only() {
+    let fake = agent_session_attach_tests::FakeAcpmux::start("registry-root");
+    let mux = test_mux("agent-tabs-registry-root-reopen");
+    mux.set_acpmux_socket(Some(fake.socket.clone()));
+    let (_, pane) = terminal_pane(&mux);
+    let host = format!("registry:{}", mux.registry_identity().0);
+    let seeded = mux
+        .new_conversation_tab(
+            ConversationTabTarget::Pane(Some(pane)),
+            ConversationTabRecord::AgentSession {
+                host: host.clone(),
+                session: Some("root-live".into()),
+                harness: Some("claude".into()),
+                host_name: None,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+
+    let reopened = run(
+        &mux,
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":host,"session":"root-live","harness":"claude"}}),
+    )
+    .unwrap();
+    assert_ne!(reopened["surface"].as_u64(), Some(seeded.surface.id));
+    let reopened_surface = reopened["surface"].as_u64().unwrap();
+
+    let other_host = run(
+        &mux,
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":"registry:other-store","session":"root-live","harness":"claude"}}),
+    )
+    .unwrap_err();
+    assert_eq!(
+        super::error_code(&other_host).as_deref(),
+        Some("conversation_tab.machine_mismatch"),
+        "{other_host}"
+    );
+
+    run(&mux, json!({"cmd":"close-surface","surface":seeded.surface.id})).unwrap();
+    run(&mux, json!({"cmd":"close-surface","surface":reopened_surface})).unwrap();
+    let closed = run(
+        &mux,
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":format!("registry:{}", mux.registry_identity().0),"session":"root-live","harness":"claude"}}),
+    )
+    .unwrap_err();
+    assert_eq!(
+        super::error_code(&closed).as_deref(),
+        Some("conversation_tab.machine_mismatch"),
+        "{closed}"
+    );
     mux.shutdown();
 }
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ledgerClones, promote, readSmokeOutcome, readVar, setVar, type SmokeOutcome } from "../promote-lib.ts"
+import { ledgerClones, promote, readSmokeOutcome, readVar, setVar, smokeEnv, type SmokeOutcome } from "../promote-lib.ts"
 import { readReceipts } from "../receipts.ts"
 import { REAL } from "./helpers.ts"
 
@@ -209,5 +209,13 @@ describe("promote and roll back", () => {
     t.resolved["cmuxnp-prod-vmimg-hostrun9"] = "sh-x"
     expect(await t.run("--channel", "production", "--snapshot", noId.snapshot_id)).toBe(1)
     expect(t.errors.at(-1)).toContain("has no snapshot id")
+  })
+})
+
+describe("smokeEnv", () => {
+  it("drops the compat gate's test profile and GitHub token; keeps the key file and the rest", () => {
+    const env = { PATH: "/bin", FREESTYLE_API_KEY_FILE: "/tmp/k", CMUX_UITEST_STACK_EMAIL: "e", CMUX_UITEST_STACK_PASSWORD: "p", GH_TOKEN: "t", GITHUB_TOKEN: "t2" }
+    expect(smokeEnv(env)).toEqual({ PATH: "/bin", FREESTYLE_API_KEY_FILE: "/tmp/k" })
+    expect(env.GH_TOKEN).toBe("t")
   })
 })

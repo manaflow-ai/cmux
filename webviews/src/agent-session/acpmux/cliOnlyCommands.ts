@@ -28,8 +28,9 @@ const ALWAYS: Record<string, CliOnlyUse> = {
   quit: "terminal",
 };
 
-/// Only bare: `/model <name>` and `/config key=value` run without the terminal.
-const BARE: Record<string, CliOnlyUse> = { model: "model", config: "terminal" };
+/// `/config key=value` still needs the terminal. `/model` is a cmux GUI command and is handled by
+/// the composer before this guard can reject it.
+const BARE: Record<string, CliOnlyUse> = { config: "terminal" };
 
 /// The terminal-only command `prompt` is, for a Claude chat; undefined otherwise.
 export function cliOnlyCommand(
@@ -47,4 +48,30 @@ export function cliOnlyCommand(
       ? BARE[name]
       : undefined;
   return use ? { name, use } : undefined;
+}
+
+/// Whether `prompt` is one of the agent's own slash commands (`commands`, its
+/// `available_commands_update`: built-ins, skills and plugin commands such as `/loop`), for a
+/// Claude chat. Claude Code never reads a command into a running turn: it holds the line until the
+/// command it is running ends (its `command_lifecycle` stays `queued`), so a `/loop` steered into
+/// a busy turn sat under it as an unread steer with Send now until that work was done (Leo,
+/// 2026-10-31: "the commands don't work!"). Such a prompt queues instead, and runs as its own turn
+/// with its own reply when this one ends. Text that only starts with a slash (a path, a word the
+/// agent does not list) is the agent's to read, and steers as before.
+export function commandWaitsForTurn(
+  prompt: string,
+  harness: string | undefined,
+  commands: readonly { name: string; source?: string }[] | undefined,
+): boolean {
+  if (agentKey(harness) !== "claude" || !commands?.length) return false;
+  // The composer's text is Markdown with typed characters escaped (`/mcp\_\_github\_\_list`).
+  const name = /^\/(\S+)(?:\s|$)/
+    .exec(prompt.trim())?.[1]
+    ?.replace(/\\([!-/:-@[-`{-~])/g, "$1")
+    .toLowerCase();
+  // cmux's own commands (cmuxCommands.ts) share the menu's list; their passthrough forms
+  // (`/model opus`, `/plan explain`) keep the send they had.
+  return (
+    name !== undefined && commands.some((command) => command.source !== "cmux" && command.name.toLowerCase() === name)
+  );
 }

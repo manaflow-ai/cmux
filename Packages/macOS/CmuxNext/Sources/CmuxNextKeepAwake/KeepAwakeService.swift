@@ -44,6 +44,11 @@ public final class KeepAwakeService {
         policy.phoneServing = serving
     }
 
+    /// NEXT phones can reach this Mac; turning either host off preserves the other hold.
+    public func setIPhoneServing(_ serving: Bool) {
+        policy.iPhoneServing = serving
+    }
+
     /// The Keep Mac Awake action: a second run turns it off.
     public func toggleManual() {
         policy.manual.toggle()

@@ -1,0 +1,56 @@
+{
+  "id": "app-life-many-tabs",
+  "priority": "P0",
+  "title": "20 terminal tabs in one pane: each gets a shell, switching and typing stay instant",
+  "why": "People keep many tabs open. Opening 20 quickly must give 20 working shells, and switching tabs (Ctrl-Tab) and typing must stay within a second, with no blank pane.",
+  "source": "window life (holistic-quality.md 1): many tabs",
+  "budget_seconds": 90,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-many", "as": "first"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo first-${nonce}-$((6*7))", "enter": true, "mark": "first"},
+    {"do": "expect", "title": "the first tab answers", "since": "first", "timeout": 10,
+     "all": [{"daemon_line": "first-${nonce}-42"}]},
+
+    {"do": "key", "key": "`", "modifiers": ["control"], "repeat": 19, "gap": 0.15, "mark": "open-19"},
+    {"do": "expect", "title": "20 tabs in the pane, every one with a shell prompt in the daemon", "since": "open-19", "timeout": 30,
+     "all": [
+       {"app_layout": {"workspace": "jr-many", "panes": 1, "tabs": 20, "pane_tabs": 20}},
+       {"daemon_pane_ready": {"tabs": 20}},
+       {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}}
+     ]},
+    {"do": "focused_terminal", "as": "last", "timeout": 10},
+    {"do": "expect", "title": "the last opened tab is the selected and focused one", "timeout": 10,
+     "all": [
+       {"app_layout": {"pane_tabs": 20, "selected": true}},
+       {"app_pane": {"focused": true, "link": "connected"}}
+     ]},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo last-${nonce}-$((6*7))", "enter": true, "mark": "last"},
+    {"do": "expect", "title": "the 20th tab echoes within a second", "since": "last", "within": 1.0, "timeout": 10,
+     "all": [
+       {"daemon_line": "last-${nonce}-42"},
+       {"app_text_line": "last-${nonce}-42"},
+       {"frame_text": "last-${nonce}-42"}
+     ]},
+
+    {"do": "key", "key": "tab", "modifiers": ["control"], "mark": "wrap"},
+    {"do": "use", "name": "first"},
+    {"do": "expect", "title": "Ctrl-Tab from the 20th tab wraps to the first within a second, its text shown", "since": "wrap", "within": 1.0, "timeout": 10,
+     "all": [
+       {"app_layout": {"pane_tabs": 20, "selected": true}},
+       {"app_text_line": "first-${nonce}-42"},
+       {"app_pane": {"focused": true}},
+       {"daemon_line": "first-${nonce}-42"},
+       {"frame_text": "first-${nonce}-42"}
+     ]},
+    {"do": "outwait_hold"},
+    {"do": "type", "text": "echo again-${nonce}-$((6*7))", "enter": true, "mark": "again"},
+    {"do": "expect", "title": "the first tab takes input with 20 tabs open", "since": "again", "within": 1.0, "timeout": 10,
+     "all": [
+       {"daemon_line": "again-${nonce}-42"},
+       {"app_text_line": "again-${nonce}-42"},
+       {"frame_text": "again-${nonce}-42"}
+     ]}
+  ]
+}

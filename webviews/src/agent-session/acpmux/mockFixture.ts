@@ -83,7 +83,7 @@ const claudeModes = {
     { id: "default", name: "Ask before edits" },
     { id: "acceptEdits", name: "Accept edits" },
     { id: "plan", name: "Plan" },
-    { id: "bypassPermissions", name: "Full access" },
+    { id: "bypassPermissions", name: "Bypass permissions" },
   ],
   currentModeId: "bypassPermissions",
 };

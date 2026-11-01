@@ -27,11 +27,10 @@ public struct TerminalScreen: View {
             .background(Color.black)
             .overlay {
                 if !model.connectionState.isAttached {
-                    TerminalConnectingView(state: model.connectionState).transition(.opacity)
+                    TerminalConnectingView(state: model.connectionState, retry: model.reconnect).transition(.opacity)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .tabBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) { titleMenu }

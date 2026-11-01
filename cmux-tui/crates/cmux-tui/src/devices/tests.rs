@@ -100,6 +100,12 @@ fn sources() -> Sources {
             ]
         }),
         ssh_hosts: Vec::new(),
+        joined: json!([
+            {"kind": "joined", "id": "m_lane3", "name": "lane-vm-3", "state": "online",
+             "platform": "linux", "createdAt": "2026-10-29T03:00:00Z"},
+            {"kind": "joined", "id": "m_quiet", "name": "quiet-box", "state": "offline"},
+            {"kind": "joined", "id": "m_gone", "name": "gone-box", "state": "revoked"}
+        ]),
     }
 }
 
@@ -306,12 +312,14 @@ fn devices_sort_by_state_then_name() {
         vec![
             "grant:new@manaflow.ai",
             "peer:vm-1",
+            "joined:m_lane3",
             "peer:mini-7",
             "peer:sandbox",
             "paired:dv_watch",
             "allow:austin@manaflow.ai",
             "grant:lawrence@manaflow.ai",
             "paired:dv_leo",
+            "joined:m_quiet",
         ],
         "pending, then errors, then connected, then offline; by name inside each"
     );
@@ -408,4 +416,83 @@ fn the_add_command_quotes_an_alias_a_shell_would_read() {
     assert_eq!(super::shell_word("foo$(touch /tmp/x)"), "'foo$(touch /tmp/x)'");
     assert_eq!(super::shell_word("a;b"), "'a;b'");
     assert_eq!(super::shell_word("it's"), "'it'\\''s'");
+}
+
+#[test]
+fn a_joined_machine_is_a_computer_that_runs_agents_and_its_remove_revokes_it() {
+    let listing = listing();
+    let lane = device(&listing, "joined:m_lane3");
+    assert_eq!(lane.name, "lane-vm-3");
+    assert_eq!(lane.kind, Kind::Computer);
+    assert_eq!(lane.roles, vec![Role::RunsAgents]);
+    assert_eq!(lane.state, State::Connected);
+    assert_eq!(lane.os.as_deref(), Some("linux"));
+    assert_eq!(lane.added_at.as_deref(), Some("2026-10-29T03:00:00Z"));
+    assert_eq!(lane.via, vec![Via::Joined { machine_id: "m_lane3".into() }]);
+    assert_eq!(device(&listing, "joined:m_quiet").state, State::Offline);
+    assert!(
+        listing.devices.iter().all(|d| d.id != "joined:m_gone"),
+        "a revoked machine is not a device"
+    );
+    assert_eq!(model::find(&listing, "lane-vm-3").map(|d| d.id.as_str()), Some("joined:m_lane3"));
+    let steps = removal::plan(lane);
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].args, vec!["machine", "revoke", "m_lane3", "--yes", "--json"]);
+    assert!(steps[0].what.contains("lane-vm-3"), "{:?}", steps[0].what);
+}
+
+#[test]
+fn no_joined_source_adds_no_rows() {
+    let mut sources = sources();
+    sources.joined = serde_json::Value::Null;
+    let listing = model::merge(&sources, tailscale_up(), &nodes());
+    assert!(listing.devices.iter().all(|d| !d.id.starts_with("joined:")));
+}
+
+#[test]
+fn jsonl_reads_as_json_and_quiet_is_taken_out() {
+    let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    assert_eq!(
+        super::output_flags(&words(&["--jsonl", "x", "--quiet"])),
+        (words(&["--json", "x"]), true)
+    );
+    assert_eq!(
+        super::output_flags(&words(&["-q", "--", "--quiet"])),
+        (words(&["--", "--quiet"]), true)
+    );
+    assert_eq!(super::output_flags(&words(&["--json"])), (words(&["--json"]), false));
+}
+
+#[test]
+fn output_flags_may_come_before_device_or_the_verb() {
+    let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    let args = |w: &[&str]| super::device_args(&words(w));
+    assert_eq!(args(&["--json", "device", "list"]), Some(words(&["--json", "list"])));
+    assert_eq!(args(&["device", "--jsonl", "-q", "ls"]), Some(words(&["--jsonl", "-q", "ls"])));
+    assert_eq!(
+        args(&["-q", "device", "remove", "x", "--yes"]),
+        Some(words(&["-q", "remove", "x", "--yes"]))
+    );
+    assert_eq!(args(&["device"]), Some(vec![]));
+    assert_eq!(
+        args(&["device", "--json", "add", "h", "--yes"]),
+        Some(words(&["--json", "add", "h", "--yes"]))
+    );
+    assert_eq!(
+        args(&["device", "--json", "add", "h"]),
+        None,
+        "add without --yes is the app's card"
+    );
+    assert_eq!(args(&["--json", "machine", "list"]), None);
+    assert_eq!(args(&["--socket", "s", "device", "list"]), None);
+    assert_eq!(args(&["device", "--json", "nope"]), None);
+    let split = |w: &[&str]| super::verb_and_args(&words(w));
+    let (rest, quiet) = super::output_flags(&words(&["--jsonl", "-q", "ls", "--network", "weft"]));
+    assert!(quiet);
+    assert_eq!(
+        super::verb_and_args(&rest),
+        ("ls".to_owned(), words(&["--json", "--network", "weft"]))
+    );
+    assert_eq!(split(&["--json"]), ("help".to_owned(), words(&["--json"])));
+    assert_eq!(split(&["remove", "x"]), ("remove".to_owned(), words(&["x"])));
 }

@@ -169,7 +169,18 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     image_promote = workflow("cloud-vm-image-promote.yml")
     assert set(image_promote["on"]) == {"workflow_dispatch"}
     assert image_promote.get("permissions") == {"contents": "read", "actions": "read"}
-    assert image_promote["jobs"]["promote"].get("environment") == "cmux-next-vm-image-dev"
+    # production promotes in its own environment; dev keeps the dev one. The gate job that runs
+    # first for production names no environment (a job naming a missing one would create it).
+    assert image_promote["jobs"]["promote"].get("environment") == (
+        "${{ inputs.channel == 'production' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}"
+    )
+    assert "environment" not in image_promote["jobs"]["prod-gate"]
+    image_bake = workflow("cloud-vm-image-bake.yml")
+    assert image_bake.get("permissions") == {"contents": "read"}
+    assert image_bake["jobs"]["bake"].get("environment") == (
+        "${{ inputs.mode == 'prod-copy' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}"
+    )
+    assert "environment" not in image_bake["jobs"]["prod-gate"]
 
     backend_jobs = workflow("backend.yml")["jobs"]
     for job_name in ("migrations-development", "preview", "preview-cleanup"):

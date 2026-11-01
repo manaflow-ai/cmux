@@ -56,7 +56,7 @@ pub(super) async fn steer(
         .ok_or_else(|| RpcError::invalid_params("steer text is required"))?;
     let mut p = json!({"sessionId":sid,"text":text,"steer":true,"_meta":{"acpmux":{"briefId":id,"steer":true}}});
     if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
-        p["_meta"]["acpmux"]["via"] = via;
+        p.set_path(&["_meta", "acpmux", "via"], via);
     }
     Box::pin(super::handle_request(hub, conn, method::SESSION_PROMPT, p)).await?;
     let row = hub
@@ -101,6 +101,10 @@ fn brief_for(hub: &Hub, conn: &Conn, id: &str) -> Result<Value, RpcError> {
         .ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))
 }
 
+/// How long the peers together may take to list their briefs (they are asked at once); one
+/// that has not answered by then is left out and named in `peersFailed`.
+const PEERS_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub(super) async fn list(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -126,9 +130,27 @@ pub(super) async fn list(
         return Ok(json!({ "briefs": rows }));
     }
     let mut rows = hub.briefs.list(status, limit);
-    for peer in hub.connected_peers() {
-        let Ok(remote) = peer.request(method::MUX_BRIEFS, json!({"limit": 500})).await else {
-            continue;
+    // The peers at once, under one deadline: one by one, each with the request budget (600 s),
+    // a stalled peer held the list for ten minutes. A peer left out is named, with why.
+    let deadline = tokio::time::Instant::now() + PEERS_BUDGET;
+    let peers = hub.connected_peers();
+    let replies = futures::future::join_all(peers.iter().map(|peer| {
+        tokio::time::timeout_at(deadline, peer.request(method::MUX_BRIEFS, json!({"limit": 500})))
+    }))
+    .await;
+    let mut failed = Vec::new();
+    for (peer, reply) in peers.iter().zip(replies) {
+        let remote = match reply {
+            Ok(Ok(remote)) => remote,
+            Ok(Err(e)) => {
+                failed.push(json!({"peer": peer.name, "error": e.message}));
+                continue;
+            }
+            Err(_) => {
+                let error = format!("no answer within {}s", PEERS_BUDGET.as_secs());
+                failed.push(json!({"peer": peer.name, "error": error}));
+                continue;
+            }
         };
         for row in remote.get("briefs").and_then(Value::as_array).into_iter().flatten() {
             let Some(id) = row.get("briefId").and_then(Value::as_str) else { continue };
@@ -146,7 +168,13 @@ pub(super) async fn list(
     if status.is_some() {
         rows.retain(wanted);
     }
-    Ok(json!({"briefs":rows.into_iter().take(limit.clamp(1, 500)).collect::<Vec<_>>() }))
+    let mut reply =
+        json!({"briefs":rows.into_iter().take(limit.clamp(1, 500)).collect::<Vec<_>>() });
+    if !failed.is_empty() {
+        tracing::warn!(peers = ?failed, "briefs left out the peers that did not answer");
+        reply.set("peersFailed", Value::Array(failed));
+    }
+    Ok(reply)
 }
 
 pub(super) async fn report(
@@ -304,7 +332,8 @@ pub(super) async fn task_new(
         .ok_or_else(|| RpcError::invalid_params("a task has a one-line title"))?;
     let idempotency = text("idempotencyKey");
     let id = loop {
-        let id = format!("t-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let uuid = uuid::Uuid::new_v4().simple().to_string();
+        let id = format!("t-{}", uuid.get(..8).unwrap_or(&uuid));
         if hub.briefs.get(&id).is_none() {
             break id;
         }
@@ -327,10 +356,10 @@ pub(super) async fn task_new(
         "harness": meta.harness, "model": meta.model_request,
     });
     if let Some(caller) = caller {
-        record["fromSession"] = json!(caller);
+        record.set("fromSession", json!(caller));
     }
     if let Some(key) = idempotency {
-        record["idempotencyKey"] = json!(key);
+        record.set("idempotencyKey", json!(key));
     }
     let row = hub.briefs.put(record);
     // The giver's message, as `acpmux send` from it would be (`requests.rs` session/prompt).

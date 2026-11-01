@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// The one place app overlays draw above Chromium pages.
 ///
@@ -42,6 +43,10 @@ public final class WindowOverlayHost {
     /// The text selection of a restored text field (making it first responder again selects everything).
     var restoreSelection: [NSValue]?
     var isReordering = false
+    /// A detach waiting for its empty frame to be drawn before the panel orders out
+    /// (``detachAfterEmptyFrame()``); a re-attach meanwhile cancels it.
+    var detachGeneration = 0
+    var detachPending = false
     /// The window is closing: nothing takes key status back.
     var isTearingDown = false
     /// Where the app host centers its panel (tests pass an off-screen rect).
@@ -97,10 +102,14 @@ public final class WindowOverlayHost {
         }
     }
 
-    /// The host of `window`, made on first use; it goes away with the window.
+    /// The host of `window`, made on first use; it goes away with the window. A closed window keeps
+    /// its torn-down host (whose panel is closed and never attaches again) until it shows again:
+    /// work that reaches a closed window late (its controller's teardown, a task) makes no new
+    /// panel that nothing would close.
     public static func host(for window: NSWindow) -> WindowOverlayHost {
         let key = ObjectIdentifier(window)
-        if let host = hosts[key], host.window === window { return host }
+        if let host = hosts[key], host.window === window, !host.isTearingDown || !window.isVisible { return host }
+        hosts = hosts.filter { $0.value.window != nil }
         let host = WindowOverlayHost(window: window)
         hosts[key] = host
         host.observers.append(NotificationCenter.default.addObserver(
@@ -112,9 +121,17 @@ public final class WindowOverlayHost {
         return host
     }
 
+    /// `window` is closing (its controller tears down): its host tears down, also a host made
+    /// during the close (by that teardown), which came after the close notification and never
+    /// heard it, or for a window that never had a host before its close.
+    public static func windowIsClosing(_ window: NSWindow) {
+        guard let host = hosts[ObjectIdentifier(window)], host.window === window, !host.isTearingDown else { return }
+        host.tearDown()
+    }
+
     /// The host of `window` if one exists (never makes one).
     public static func existingHost(for window: NSWindow) -> WindowOverlayHost? {
-        hosts[ObjectIdentifier(window)].flatMap { $0.window === window ? $0 : nil }
+        hosts[ObjectIdentifier(window)].flatMap { $0.window === window && !$0.isTearingDown ? $0 : nil }
     }
 
     /// The host for overlays with no window (its own small panel, centered on the main screen).
@@ -162,10 +179,15 @@ public final class WindowOverlayHost {
     }
 
     /// Whether the panel is attached to the window now.
-    public var isPanelAttached: Bool { isAppHost ? panel.isVisible : panel.parent === window && window != nil }
+    /// A panel leaving (``detachAfterEmptyFrame()``) is no longer attached: nothing new goes on it
+    /// (planes, the agent cursor) while it waits for its empty frame.
+    public var isPanelAttached: Bool { isAppHost ? panel.isVisible : panel.parent === window && window != nil && !detachPending }
 
     func tearDown() {
         isTearingDown = true
+        // A detach still waiting for its empty frame is moot: the panel closes below.
+        detachGeneration += 1
+        detachPending = false
         for handle in handles { handle.dismiss() }
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
@@ -175,11 +197,11 @@ public final class WindowOverlayHost {
         keyObserver = nil
         stopObservingWindow()
         removeAgentCursor()
-        if let window {
-            if panel.parent === window { window.removeChildWindow(panel) }
-            Self.hosts[ObjectIdentifier(window)] = nil
-        }
-        panel.orderOut(nil)
+        // The host stays in `hosts` for the closed window (`host(for:)`) until the window is gone.
+        if let window, panel.parent === window { window.removeChildWindow(panel) }
+        // The window closed and the host goes with it: nothing orders this panel in again, so it
+        // closes (ordered out only, it stayed in the app's window list, open, for good).
+        panel.close()
     }
 
     // MARK: Attach and order
@@ -187,22 +209,26 @@ public final class WindowOverlayHost {
     /// Attaches the panel while something needs it, detaches it otherwise.
     func syncPanel() {
         if isAppHost { return syncAppPanel() }
-        guard let window else { return }
+        guard let window, !isTearingDown else { return }
         let wanted = planesWantPanel || !handles.isEmpty || fadingOut > 0
         if wanted {
             if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
+            // A detach still waiting for its empty frame: the panel stays (it never left).
+            detachGeneration += 1
+            detachPending = false
             if panel.parent !== window {
                 window.themeScope.adopt(panel)
                 window.addChildWindow(panel, ordered: .above)
                 observeWindow(window)
             }
             reassertOrder()
-        } else if panel.parent === window {
-            window.removeChildWindow(panel)
-            panel.orderOut(nil)
-            stopObservingWindow()
+        } else if panel.parent === window, !detachPending {
+            detachAfterEmptyFrame()
         }
         placeAgentCursor()
+        // The cursor may just have left a panel that is leaving: route the mouse again, or the empty
+        // panel keeps catching clicks (and its mouse monitor runs) until it orders out.
+        updateMouseRouting()
         onPanelChange?()
     }
 
@@ -293,6 +319,8 @@ public final class WindowOverlayHost {
         handles.forEach(layout)
         updateMouseRouting()
         placeAgentCursor()
+        // A copy: a callback may resize, move or end its overlay.
+        for handle in handles { handle.onWindowGeometryChange?() }
     }
 
     private func syncAppPanel() {
@@ -304,5 +332,32 @@ public final class WindowOverlayHost {
         }
         placeAgentCursor()
         onPanelChange?()
+    }
+}
+
+extension WindowOverlayHost {
+    /// Takes the panel off its window once nothing on it needs it, but only after the frame that
+    /// draws it empty: its content left it this turn, and a panel ordered out before that commit
+    /// keeps its last drawn surface (a dialog at full opacity, its scrim). The next attach then
+    /// showed that surface for a frame before its own content drew: an old dialog, then the new one
+    /// fading in from zero (debug.dialog_strip: 2 opens in 10 with a fresh attach, 0 in 20 while
+    /// the panel stayed attached). Ordered out with an empty surface, any later attach shows at
+    /// once. A re-attach in between cancels the detach; the panel never left.
+    ///
+    /// The host stops using the panel at once (``isPanelAttached`` is false): the agent cursor and
+    /// the window's planes go back to the window this turn; only the order-out waits.
+    func detachAfterEmptyFrame() {
+        detachGeneration += 1
+        detachPending = true
+        let generation = detachGeneration
+        AfterFrameCommit().run { [weak self] in
+            guard let self, generation == detachGeneration, detachPending else { return }
+            detachPending = false
+            guard let window, panel.parent === window else { return }
+            window.removeChildWindow(panel)
+            panel.orderOut(nil)
+            stopObservingWindow()
+            onPanelChange?()
+        }
     }
 }

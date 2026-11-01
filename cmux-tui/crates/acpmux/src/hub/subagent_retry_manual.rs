@@ -33,6 +33,7 @@ use crate::hub::auto_resume::retry_turn::{RetryBy, busy};
 use crate::hub::{Hub, PromptOptions, Session};
 use crate::protocol::session::{RetryKind, RetryResult};
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -92,7 +93,7 @@ impl Hub {
         let mut provenance = json!({"kind": PROVENANCE_KIND, "subagentId": claim.id,
             "agentId": claim.failure.agent_id, "attempt": claim.wait.attempt, "manual": true});
         if let Some(from) = by.from {
-            provenance["from"] = json!(from);
+            provenance.set("from", json!(from));
         }
         let opts = PromptOptions {
             control: by.control,

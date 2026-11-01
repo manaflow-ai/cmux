@@ -26,6 +26,22 @@ NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 # the rate limit while REFUSALS has calls left, then prints its arguments and stdin.
 FAKE_GH = r"""#!/bin/bash
 state="$FAKE_STATE"
+# `api -i PROBE`: the next planned answer in $state/probes, one per line as STATUS|HEADER;HEADER|BODY,
+# printed as gh prints a response with its headers (and failing for a status that is not 2xx);
+# a 404 once the plan is spent.
+if [ "$1 $2" = "api -i" ]; then
+  echo "probe $3" >> "$state/log"
+  answer="$(head -n 1 "$state/probes" 2>/dev/null)"
+  [ -n "$answer" ] && sed -i.bak 1d "$state/probes"
+  [ -n "$answer" ] || answer='404||{"message":"Not Found"}'
+  status="${answer%%|*}"; rest="${answer#*|}"; headers="${rest%%|*}"; body="${rest#*|}"
+  printf 'HTTP/2.0 %s\r\n' "$status"
+  [ -z "$headers" ] || printf '%s\r\n' "$headers" | tr ';' '\n'
+  printf '\r\n%s\n' "$body"
+  case "$status" in 2??) exit 0 ;; esac
+  echo "gh: $(printf '%s' "$body" | sed 's/.*"message": *"\([^"]*\)".*/\1/') (HTTP $status)" >&2
+  exit 1
+fi
 if [ "$1 $2" = "api rate_limit" ]; then
   echo "rate_limit" >> "$state/log"
   if [ "${4:-}" = ".resources.core.remaining" ]; then echo "${CORE_LEFT:-5000}"; else echo 0; fi
@@ -238,6 +254,87 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result)
         self.assertEqual(h.waited(), 500)
 
+    # --backoff-probe: the attestation's own response is hidden inside the action, so a read of the
+    # attestations API with the same token stands in for it. Owner run 41017791425 (2026-10-30) was
+    # refused at 07:14, 07:15, 07:17 and 07:21 while --backoff waited a fixed 60, 120 and 240 s, and
+    # its tree was never published.
+    NOW = 1700000000
+    PROBE = "repos/o/r/attestations/sha256:" + "0" * 64
+    PRIMARY = '{"message": "API rate limit exceeded for installation ID 1."}'
+
+    def probing(self, probes: list[str], total: str = "3000") -> Harness:
+        h = self.harness(GH_BUDGET_WAIT_MAX_SECONDS=total)
+        fake_bin = Path(h.env["PATH"].split(":")[0])
+        (fake_bin / "sleep").write_text('#!/bin/bash\necho "$1" >> "$FAKE_STATE/slept"\n')
+        # A fixed clock, so a wait read from x-ratelimit-reset is exact.
+        (fake_bin / "date").write_text(f'#!/bin/bash\nif [ "$*" = "+%s" ]; then echo {self.NOW}; else exec /bin/date "$@"; fi\n')
+        for name in ("sleep", "date"):
+            (fake_bin / name).chmod(0o755)
+        (h.state / "probes").write_text("".join(f"{line}\n" for line in probes))
+        return h
+
+    def backoff_probe(self, h: Harness, try_number: str = "1") -> subprocess.CompletedProcess[str]:
+        result = subprocess.run([str(h.shim), "--backoff-probe", try_number, self.PROBE, "the attestation"],
+                                env=h.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result)
+        return result
+
+    def slept(self, h: Harness) -> list[str]:
+        path = h.state / "slept"
+        return path.read_text().split() if path.exists() else []
+
+    def test_backoff_probe_waits_for_the_reset_the_refusal_names(self) -> None:
+        h = self.probing([f"403|X-RateLimit-Limit: 1000;X-RateLimit-Remaining: 0;X-RateLimit-Reset: {self.NOW + 640}|{self.PRIMARY}"])
+        result = self.backoff_probe(h)
+        self.assertEqual(self.slept(h), ["645"], "until the reset GitHub named, not a fixed 60 s")
+        self.assertEqual(h.calls(), [f"probe {self.PROBE}", f"probe {self.PROBE}"])
+        self.assertIn("the attestation failed (try 1), and GitHub refuses", result.stderr)
+        self.assertIn("GitHub answers", result.stderr)
+
+    def test_backoff_probe_keeps_waiting_while_the_limit_holds(self) -> None:
+        # The 2026-10-30 replay: refused at every look for 11 minutes; the next try runs only once it answers.
+        refused = f"403|X-RateLimit-Remaining: 0;X-RateLimit-Reset: {self.NOW + 300}|{self.PRIMARY}"
+        h = self.probing([refused, refused, refused, '200||[]'])
+        self.backoff_probe(h)
+        self.assertEqual(self.slept(h), ["305", "305", "305"])
+        self.assertEqual(h.calls().count(f"probe {self.PROBE}"), 4)
+        self.assertEqual(h.waited(), 915, "past the old 15 minute total")
+
+    def test_backoff_probe_takes_retry_after_and_a_429(self) -> None:
+        h = self.probing(['429|Retry-After: 7|{"message": "Too Many Requests"}'])
+        self.backoff_probe(h)
+        self.assertEqual(self.slept(h), ["7"])
+        h = self.probing(['403|Retry-After: 0|{"message": "You have exceeded a secondary rate limit"}'])
+        self.backoff_probe(h)
+        self.assertEqual(self.slept(h), ["5"], "a refusal that names no time is not read again at once")
+
+    def test_backoff_probe_backs_off_by_round_for_a_secondary_limit(self) -> None:
+        secondary = '403||{"message": "You have exceeded a secondary rate limit. Please wait a few minutes."}'
+        h = self.probing([secondary, secondary])
+        self.backoff_probe(h, "2")
+        self.assertEqual(self.slept(h), ["120", "240"])
+
+    def test_backoff_probe_answered_at_once_waits_as_backoff(self) -> None:
+        # The read does not share the limit (or there is none): nothing names a reset, so --backoff's schedule.
+        for answer in ('404||{"message": "Not Found"}', '200||[]',
+                       '403||{"message": "Resource not accessible by integration"}', '500||{"message": "Server Error"}'):
+            with self.subTest(answer=answer):
+                h = self.probing([answer])
+                result = self.backoff_probe(h, "2")
+                self.assertEqual(self.slept(h), ["120"])
+                self.assertEqual(h.calls(), [f"probe {self.PROBE}", "rate_limit"])
+                self.assertIn("the attestation failed (try 2), likely the API rate limit", result.stderr)
+
+    def test_backoff_probe_is_bounded_by_the_job_total_and_never_fails(self) -> None:
+        held = f"403|X-RateLimit-Remaining: 0;X-RateLimit-Reset: {self.NOW + 3000}|{self.PRIMARY}"
+        h = self.probing([held] * 5, total="100")
+        self.backoff_probe(h)
+        self.assertEqual(self.slept(h), ["100"])
+        self.assertEqual(h.waited(), 100)
+        # A later backoff in the same job has nothing left to wait, and still exits 0.
+        self.backoff_probe(h, "2")
+        self.assertEqual(self.slept(h), ["100"])
+
     def test_install_without_gh_is_a_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = {"PATH": "/nonexistent", "RUNNER_TEMP": tmp, "GITHUB_PATH": f"{tmp}/p"}
@@ -249,7 +346,7 @@ class WrapperTests(unittest.TestCase):
 
 # Jobs on the nightly publish path whose gh calls go through the wrapper.
 PUBLISH_PATH = (
-    "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant-fallback",
+    "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
     "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names", "keep-published-dsyms",
     "legacy-identity-target", "sign-nightly-identity-legacy", "publish-nightly-identity-legacy",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
@@ -303,7 +400,21 @@ class WorkflowTests(unittest.TestCase):
                     self.assertGreaterEqual(int(step["timeout-minutes"]), 65, (name, step.get("name")))
 
     def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
-        steps = self.jobs["build-nightly-app"]["steps"]
+        job = self.jobs["attest-nightly-remote-daemon"]
+        # A quota wait never holds a Mac: the Linux runner set, as every Linux nightly job
+        # (test_nightly_trusted_routing).
+        self.assertNotIn("macos", job["runs-on"])
+        self.assertIn("blacksmith-32vcpu-ubuntu-2404", job["runs-on"])
+        self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
+        self.assertGreaterEqual(int(job["timeout-minutes"]), 65)
+        # No consumer can put this advisory job back on the publication path,
+        # directly or transitively. A budget wait must not delay the feed.
+        for name, consumer in self.jobs.items():
+            needs = consumer.get("needs", [])
+            if isinstance(needs, str):
+                needs = [needs]
+            self.assertNotIn("attest-nightly-remote-daemon", needs, name)
+        steps = job["steps"]
         names = [s.get("name") for s in steps]
         attest = names.index("Attest immutable SSH daemon assets")
         self.assertIn("gh_budget_wait.sh --reserve 200", steps[attest - 1]["run"])
@@ -311,13 +422,18 @@ class WorkflowTests(unittest.TestCase):
         wait = steps[names.index("Wait for the API budget before retrying the daemon attestation")]["run"]
         self.assertIn("gh_budget_wait.sh --reserve 200", wait)
         self.assertNotIn("sleep", wait)
+
+    def test_the_app_engine_fetch_keeps_its_budget_wrapper(self) -> None:
+        steps = self.jobs["build-nightly-app"]["steps"]
+        names = [s.get("name") for s in steps]
+        self.assertNotIn("Attest immutable SSH daemon assets", names)
         # The engine fetch's gh release fallback comes after the install too.
         self.assertLess(next(i for i, s in enumerate(steps) if INSTALL.search(str(s.get("run", "")))),
                         names.index("Fetch the Chromium engine"))
         self.assertGreaterEqual(int(self.jobs["build-nightly-app"]["timeout-minutes"]), 90 + 60)
 
     def test_prepare_builds_when_its_reuse_probe_is_refused(self) -> None:
-        for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+        for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
             probe = next(s for s in self.jobs[name]["steps"] if s.get("id") == "reuse")["run"]
             self.assertIn('if ! count="$(gh api', probe, name)
             self.assertIn("count=0", probe, name)

@@ -137,6 +137,22 @@ fn effort_value(effort: &str) -> &str {
     }
 }
 
+/// The model id Claude Code accepts for `value`. A versioned family name
+/// without the `claude-` prefix (`opus-5-5`, `sonnet-5-5[1m]`) is not a
+/// Claude Code alias: Claude Code sends it to the API as typed and every turn
+/// fails with "There's an issue with the selected model (opus-5-5)". It takes
+/// the prefix, as the live list's `launch_id` does. Bare aliases (`opus`,
+/// `opusplan`), full ids and other providers' names pass unchanged.
+pub fn model_id(value: &str) -> String {
+    let value = value.trim();
+    let versioned = ["opus-", "sonnet-", "haiku-"].iter().any(|family| {
+        value
+            .strip_prefix(family)
+            .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+    });
+    if versioned { format!("claude-{value}") } else { value.to_owned() }
+}
+
 /// The Reasoning select's value for a session effort: Ultracode runs at xhigh.
 fn shown_level(effort: &str) -> &str {
     match effort_value(effort) {
@@ -191,25 +207,40 @@ const LOGGED_SNAPSHOT_ITEMS: usize = 16;
 /// (`_acpmux.workflowProgressItems`); the translated `subagent_progress`
 /// keeps what changed (`workflows.rs`).
 pub fn logged_line(raw: &Value) -> Message {
-    let kind = format!(
+    let line = trimmed_snapshot(raw).unwrap_or_else(|| raw.clone());
+    Message::notification(&logged_kind(raw), line)
+}
+
+/// [`logged_line`] that moves the line into its record instead of copying it
+/// (the agent host logs every streamed line this way).
+pub fn logged_line_owned(raw: Value) -> Message {
+    let kind = logged_kind(&raw);
+    let line = trimmed_snapshot(&raw).unwrap_or(raw);
+    Message::notification(&kind, line)
+}
+
+fn logged_kind(raw: &Value) -> String {
+    format!(
         "claude.{}{}",
         raw.get("type").and_then(Value::as_str).unwrap_or("?"),
         raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
-    );
-    let snapshot = raw.get("workflow_progress").and_then(Value::as_array);
-    let line = match (raw.as_object(), snapshot) {
-        (Some(fields), Some(items)) if items.len() > LOGGED_SNAPSHOT_ITEMS => {
-            let mut kept: serde_json::Map<String, Value> = fields
-                .iter()
-                .filter(|(key, _)| *key != "workflow_progress")
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect();
-            kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
-            Value::Object(kept)
-        }
-        _ => raw.clone(),
-    };
-    Message::notification(&kind, line)
+    )
+}
+
+/// The line without its workflow snapshot, when the snapshot is too long to log whole.
+fn trimmed_snapshot(raw: &Value) -> Option<Value> {
+    let fields = raw.as_object()?;
+    let items = raw.get("workflow_progress").and_then(Value::as_array)?;
+    if items.len() <= LOGGED_SNAPSHOT_ITEMS {
+        return None;
+    }
+    let mut kept: serde_json::Map<String, Value> = fields
+        .iter()
+        .filter(|(key, _)| *key != "workflow_progress")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
+    Some(Value::Object(kept))
 }
 
 /// The model choices offered in pickers before Claude Code's own list answers.
@@ -222,6 +253,11 @@ pub(crate) mod agent_transcript;
 mod agent_transcript_tests;
 #[cfg(test)]
 mod background_output_tests;
+// A turn ends when Claude Code ends it; a steer it reads after is the next turn's (`carry.rs`).
+mod carry;
+pub use carry::HOLD_MAX as CARRY_HOLD_MAX;
+#[cfg(test)]
+mod carry_tests;
 #[cfg(test)]
 mod context_usage_tests;
 mod early_calls;
@@ -232,8 +268,19 @@ mod edit_diff_tests;
 mod elicitation;
 #[cfg(test)]
 mod elicitation_tests;
+mod hook_callback;
+#[cfg(test)]
+mod hook_callback_tests;
 mod inbound;
+// What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
+mod logged_bodies;
+pub use logged_bodies::leave_out_bodies;
 mod outbound;
+// A tool result's images as ACP image blocks (`result_images.rs`).
+mod result_images;
+pub(crate) use result_images::result_images;
+#[cfg(test)]
+mod result_images_tests;
 #[cfg(test)]
 mod steer_now_tests;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
@@ -243,6 +290,8 @@ mod steer_batch_tests;
 mod steer_withdraw;
 #[cfg(test)]
 mod steer_withdraw_tests;
+#[cfg(test)]
+mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
@@ -288,6 +337,11 @@ pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
 /// names (`context_breakdown`; the lists the largest first, categories in Claude Code's order): a chat with hundreds of MCP
 /// tools would otherwise log every one at each turn's end.
 const BREAKDOWN_ROWS: usize = 50;
+
+/// The internal ACP request for Claude Code's native, transcript-free `/btw`
+/// control request. The translator turns this into a `side_question`
+/// `control_request` on Claude's running stream-json process.
+pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
 
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
@@ -362,7 +416,7 @@ pub fn spawn_plan(
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
         args.push("--model".into());
-        args.push(m.into());
+        args.push(model_id(m));
     }
     // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
@@ -431,6 +485,12 @@ pub struct Translator {
     /// The waiting lines of other sessions' messages, and those being written again with more
     /// (`steer_batch.rs`). Taken before `steers`.
     batches: Mutex<steer_batch::Batches>,
+    /// Turns Claude Code runs on steers it read after its turn ended (`carry.rs`). Taken before
+    /// `pending`, and after `batches`, `steers` and `steer_lines`.
+    carry: Mutex<carry::Carry>,
+    /// Carried turns whose prompt has not come yet, and the newest carry's number (`carry.rs`
+    /// `holding`).
+    carry_owed: tokio::sync::watch::Sender<(usize, u64)>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -464,9 +524,27 @@ pub struct Translator {
     /// The tokens the chat's context last held (its last `message_delta`; a
     /// compaction resets it).
     context_used: AtomicU64,
+    /// The cached context count came from an untagged compaction boundary rather
+    /// than a model message. The controller can fence its later result resend.
+    context_from_compaction: AtomicBool,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
+    /// Claude Code is compacting the active turn. Compaction can ignore the
+    /// interrupt control request, so the hub ends that turn without waiting
+    /// for the normal cancel grace period.
+    compacting: AtomicBool,
+    /// The cancelled compaction still owes its result. Its boundary/summary
+    /// can follow the next prompt's echo, so that output cannot identify the
+    /// result as belonging to the new prompt (`abandoned` holds the old IDs).
+    cancelled_compaction: AtomicBool,
+    /// A cancelled compaction produced its terminal output (boundary or failure status)
+    /// after a later prompt began; its following result belongs to the abandoned compaction.
+    cancelled_compaction_boundary: AtomicBool,
+    /// Untagged compaction boundaries/summaries cannot be attributed after a cancelled
+    /// compaction overlaps later work. Fence them until this translator is replaced;
+    /// clearing on a new status or result would guess which compaction produced them.
+    compaction_metadata_fenced: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
@@ -524,6 +602,9 @@ enum Pending {
     Control(Setting, String),
     /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
     StopTask,
+    /// Claude Code's native `side_question`, answered once its callback
+    /// returns `{response, synthetic}` (or another response payload).
+    SideQuestion,
     /// A `background_tasks` (`BACKGROUND_TASKS`), with the shells it marked
     /// `asked` and when the hub stops waiting for it (its `timeoutMs`):
     /// `end_background_asks` unmarks them when nothing moved, at that
@@ -553,7 +634,7 @@ impl Translator {
             session_id: Mutex::new(None),
             acp_session_id,
             mode: Mutex::new(mode.to_owned()),
-            model: Mutex::new(model.to_owned()),
+            model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
             in_turn: AtomicBool::new(false),
@@ -563,6 +644,8 @@ impl Translator {
             steers: Mutex::new(std::collections::VecDeque::new()),
             steer_lines: Mutex::new(HashMap::new()),
             batches: Mutex::new(Default::default()),
+            carry: Mutex::new(carry::Carry::new()),
+            carry_owed: tokio::sync::watch::channel((0, 0)).0,
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -576,7 +659,12 @@ impl Translator {
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
+            context_from_compaction: AtomicBool::new(false),
             awaiting_summary: AtomicBool::new(false),
+            compacting: AtomicBool::new(false),
+            cancelled_compaction: AtomicBool::new(false),
+            cancelled_compaction_boundary: AtomicBool::new(false),
+            compaction_metadata_fenced: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             streamed_subagents: Mutex::new(HashSet::new()),
@@ -584,6 +672,18 @@ impl Translator {
             announced: Mutex::new(HashMap::new()),
             usage_limits: Mutex::new(Default::default()),
         })
+    }
+
+    /// Whether Claude Code has reported that it is currently compacting.
+    pub fn is_compacting(&self) -> bool {
+        self.compacting.load(Ordering::SeqCst)
+    }
+
+    /// Called when Stop is accepted, before waiting for the cancellation writer.
+    /// Untagged compaction metadata remains fenced for this translator instance.
+    pub fn fence_compaction_metadata(&self) {
+        self.compaction_metadata_fenced.store(true, Ordering::SeqCst);
+        self.awaiting_summary.store(false, Ordering::SeqCst);
     }
 
     /// Take the lines `inbound` queued for claude's stdin.
@@ -605,6 +705,8 @@ impl Translator {
         self.steer_lines.lock().await.clear();
         drop(steers);
         drop(batches);
+        // A carried turn whose prompt has not come yet lost its answer too (`carry.rs`).
+        self.carry.lock().await.fail_owed(message);
         held.extend(ids.into_iter().map(|id| {
             let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
             Message::err(id, RpcError::internal(message))
@@ -621,6 +723,8 @@ impl Translator {
         let held = Self::end_batches(&mut batches, STEER_NO_TURN);
         let failed: Vec<_> = steers.drain(..).collect();
         self.steer_lines.lock().await.clear();
+        // None of them is read after a carry now.
+        self.carry.lock().await.steers.clear();
         drop(steers);
         drop(batches);
         let failed = failed.into_iter().map(|(_, id)| {
@@ -670,6 +774,12 @@ impl Translator {
                 shell.asked = false;
             }
         }
+    }
+
+    /// Whether Claude Code runs a subagent or a background shell: work an agent host whose
+    /// daemon is gone keeps its harness for (`agent_host::OrphanExit`).
+    pub async fn runs_background_work(&self) -> bool {
+        self.interrupt_ends_work().await
     }
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
@@ -927,7 +1037,7 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
             let mut kept =
                 json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});
             if let Some(id) = c.get("id").filter(|id| id.is_string()) {
-                kept["id"] = id.clone();
+                kept.set("id", id.clone());
             }
             kept
         })
@@ -941,7 +1051,7 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
     });
     // Claude Code names its skills only when they take context.
     if let Some(skills) = usage.pointer("/skills/skillFrontmatter").filter(|s| s.is_array()) {
-        breakdown["skills"] = json!(rows(Some(skills), &["name"]));
+        breakdown.set("skills", json!(rows(Some(skills), &["name"])));
     }
     Some(breakdown)
 }
