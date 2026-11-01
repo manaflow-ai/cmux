@@ -714,6 +714,8 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (key === "hideWhitespace" || key === "hideImports") refresh();
   };
   const refresh = () => {
+    // A folder found outside a repository is checked again, so a `git init` brings Commit and Push back.
+    git.recheck();
     // Pages with nothing to re-stream (baked status messages, or a pending
     // replacement without a typed session) still need the full reload so a
     // native replacement page can resolve.

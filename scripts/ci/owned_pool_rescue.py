@@ -471,6 +471,18 @@ def job_pool(job: Mapping[str, Any]) -> str | None:
     return None
 
 
+def nightly_control_label(label: object) -> bool:
+    """Whether a nightly decide label is a fleet control runner.
+
+    Control labels are configured repository variables, so the rescue cannot
+    enumerate them. Treat only non-hosted, non-Blacksmith labels as fleet
+    control labels; the nightly slot and trusted pools remain covered by their
+    explicit matchers above.
+    """
+    value = str(label or "")
+    return bool(value) and not value.startswith(("blacksmith-", "ubuntu-", "macos-", "windows-"))
+
+
 def nightly_watched(job: Mapping[str, Any]) -> bool:
     """A job of a nightly run the watch judges: build-nightly-app, or any job on the trusted pool.
 
@@ -483,8 +495,9 @@ def nightly_watched(job: Mapping[str, Any]) -> bool:
     """
     return job.get("name") == NIGHTLY_APP_JOB or any(TRUSTED_LABEL.fullmatch(str(label))
                                                      for label in job.get("labels") or []) \
-        or job.get("name") == NIGHTLY_DECIDE_JOB and any(NIGHTLY_SLOT_LABEL.fullmatch(str(label))
-                                                         for label in job.get("labels") or [])
+        or job.get("name") == NIGHTLY_DECIDE_JOB and any(
+            NIGHTLY_SLOT_LABEL.fullmatch(str(label)) or nightly_control_label(label)
+            for label in job.get("labels") or [])
 
 
 def queued_pool(job: Mapping[str, Any], *, include_blacksmith_macos: bool = False) -> str | None:
@@ -499,6 +512,10 @@ def queued_pool(job: Mapping[str, Any], *, include_blacksmith_macos: bool = Fals
     owned = job_pool(job)
     if owned:
         return owned
+    if job.get("name") == NIGHTLY_DECIDE_JOB:
+        for label in job.get("labels") or ():
+            if nightly_control_label(label):
+                return str(label)
     if include_blacksmith_macos:
         for label in job.get("labels") or ():
             label = str(label)
@@ -960,6 +977,15 @@ class Target:
         return E2E_WATCH_LIMIT_SECONDS if self.e2e else WATCH_LIMIT_SECONDS
 
 
+def is_delivery_target(target: Target) -> bool:
+    """Runs that build or publish a feed must not lose started work to queue rescue."""
+    if target.nightly:
+        return True
+    if target.path in (NIGHTLY_WORKFLOW_PATH, CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH):
+        return not target.event or target.event not in {"pull_request", "pull_request_target", "merge_group"}
+    return target.e2e and target.path == CMUX_NEXT_WORKFLOW_PATH and target.event in TRUSTED_SIDE_EVENTS
+
+
 def never_fails_over(path: str, event: str | None) -> bool:
     """Delivery-triggered runs never fail over; an absent event is delivery."""
     return not event or event in {"delivery", "repository_dispatch", "workflow_run", "workflow_call"}
@@ -1258,6 +1284,34 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
     return ""
 
 
+_DELIVERY_CONTROL_JOBS = frozenset({
+    "changes", "decide", "runner", "pick-nightly-app-runner", "pick-nightly-build-runner",
+    "pick-nightly-sign-runner", "find-nightly-next-recovery", "resolve-nightly-cmux-tui-client",
+    "route-visual-gate-nightly",
+})
+
+
+def started_delivery_work(api: GitHub, target: Target, sleep: Callable[[float], None],
+                          log: Callable[[str], None]) -> str:
+    """Return started delivery jobs; queued/unassigned jobs remain eligible for capacity rescue."""
+    if not is_delivery_target(target):
+        return ""
+    jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+    started: list[str] = []
+    for job in jobs:
+        name = str(job.get("name") or job.get("id") or "").split("(", 1)[0].strip()
+        if name in _DELIVERY_CONTROL_JOBS:
+            continue
+        status = job.get("status")
+        assigned = bool(job.get("runner_name") or job.get("runner_id"))
+        if status in {"queued", "waiting", "pending", "requested"} and not assigned:
+            continue
+        if status == "completed" and not assigned and job.get("conclusion") in {"skipped", "cancelled", "action_required"}:
+            continue
+        started.append(str(job.get("name") or job.get("id")))
+    return ", ".join(sorted(started))
+
+
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
            log: Callable[[str], None], failed_only: bool = False,
            deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False) -> str:
@@ -1295,6 +1349,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
         if any(job.get("status") == "in_progress" for job in jobs):
             return f"not rescued: {moved}; a sibling already started"
+        busy = "" if refusal else started_delivery_work(api, target, sleep, log)
+        if busy:
+            return f"not rescued: {moved}; started delivery work ({busy}) is never cancelled"
         api.cancel(target.run_id)
         return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved and (target.main or target.nightly or target.push_branch):
@@ -1308,6 +1365,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             return "not rescued: someone else already re-ran the run"
         if run.get("status") == "completed":
             return f"not rescued: {moved}"
+        busy = "" if refusal else started_delivery_work(api, target, sleep, log)
+        if busy:
+            return f"not rescued: {moved}; started delivery work ({busy}) is never cancelled"
         api.cancel(target.run_id)
         return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved:
@@ -1331,6 +1391,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # Never cancel an open PR at its current head to obtain a new attempt.
         return ("not rescued: the current pull-request run is active; Actions requires "
                 "it to finish before re-running with fresh placement")
+    busy = "" if refusal else started_delivery_work(api, target, sleep, log)
+    if busy:
+        return f"not rescued: started delivery work ({busy}) is never cancelled"
     api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()

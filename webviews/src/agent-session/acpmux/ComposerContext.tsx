@@ -127,6 +127,7 @@ export function ComposerContext({
   runMode,
   closeOnTrustAsk = false,
   showMachineLoadWarnings,
+  cloudSignedIn: cloudSignedInSeam,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -176,7 +177,7 @@ export function ComposerContext({
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
-  /// alone names where the chat starts: the folder and New Worktree controls step aside.
+  /// alone names where the chat starts: the folder control steps aside.
   saved?: SavedEnvironmentRows;
   /// The machine list opened, and every few seconds while it stays open: read the machines and
   /// their status again.
@@ -198,12 +199,15 @@ export function ComposerContext({
   closeOnTrustAsk?: boolean;
   /// Gallery seam; the persisted composer setting is used when omitted.
   showMachineLoadWarnings?: boolean;
+  /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
+  cloudSignedIn?: boolean;
 }) {
   const t = useT();
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
-  const cloudSignedIn = useCloudSignedIn();
+  const accountSignedIn = useCloudSignedIn();
+  const cloudSignedIn = cloudSignedInSeam ?? accountSignedIn;
   const shownMachines = cloudMachines ?? accountMachines;
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
@@ -238,14 +242,16 @@ export function ComposerContext({
     t,
   ]);
   // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
-  // the app's Cloud machines are read again.
-  const onRefreshMachines =
-    newChat && !cloudMachines
-      ? () => {
-          onRefreshPeers?.();
-          void refreshCloudMachines();
-        }
-      : onRefreshPeers;
+  // the app's Cloud machines are read again. A menu with connect rows reads the Cloud account too,
+  // so Sign in for Cloud goes away once the app says the person is signed in (an older chat's
+  // menu otherwise never asks, and keeps offering sign-in to someone already signed in).
+  const readsCloudAccount = !cloudMachines && (newChat || onConnect !== undefined);
+  const onRefreshMachines = readsCloudAccount
+    ? () => {
+        onRefreshPeers?.();
+        void refreshCloudMachines();
+      }
+    : onRefreshPeers;
   // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
   // line each; a machine a chat cannot start on yet says its state on a second line.
   const loadWarnings = showMachineLoadWarnings ?? composerSettings.showMachineLoadWarnings;
@@ -449,12 +455,6 @@ export function ComposerContext({
     if (savedRows?.current !== undefined) savedRows.onClear();
     pickComputer(id);
   };
-  // Preview: New Worktree is a control of its own beside the folder, as Codex's Worktree and
-  // Claude's chips are (hq#2569 #9), for a new chat on this computer in a folder.
-  const worktree =
-    environmentsShown && !readOnly && !savedPick && selectedComputer === "local" && currentFolder && onNewWorktree
-      ? () => onNewWorktree(currentFolder)
-      : undefined;
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   return (
     <div className="acpmux-composer-strip">
@@ -492,9 +492,7 @@ export function ComposerContext({
               onBrowse={onBrowseProject}
               onNoProject={onNoProject}
               noProject={noProject && !currentFolder}
-              onNewWorktree={
-                !worktree && currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined
-              }
+              onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               localName={localName}
               peers={peers}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
@@ -533,13 +531,6 @@ export function ComposerContext({
                   onProject?.(cwd, selectedComputer === "local" || ownMachine ? undefined : selectedComputer);
               }}
             />
-          )}
-          {worktree && (
-            <span className="acpmux-location-picker">
-              <button type="button" className="acpmux-location-button ui-ghost ui-ghost-sm" onClick={worktree}>
-                <LocationFace icon={<BranchIcon />} value={t("worktree.new")} chevron={false} />
-              </button>
-            </span>
           )}
           {environmentsShown ? (
             <EnvironmentPicker

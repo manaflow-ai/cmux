@@ -57,14 +57,73 @@ struct AttachmentSourceTests {
         #expect(AttachmentSource.source(bundleId: "com.gone.App", apps: Self.apps) == nil)
     }
 
-    @Test func cmuxClaimsWhatItCopies() {
+    /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there
+    /// every write fails and every read returns nil (aws-m4pro-1 and -7, 2026-10-31).
+    nonisolated private static let hasPasteboard: Bool = {
+        let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-probe-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        return board.setString("probe", forType: .string) && board.string(forType: .string) == "probe"
+    }()
+
+    /// A 4 x 4 red picture, as Screenshot Tab copies one.
+    private static func picture() throws -> NSImage {
+        let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+                                              space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        return NSImage(cgImage: try #require(context.makeImage()), size: .zero)
+    }
+
+    /// The item cmux writes carries the picture's own types and the source together, so the source is
+    /// on the item a paste reads. Needs no pasteboard server.
+    @Test func theCopiedItemCarriesThePictureAndItsSource() throws {
+        let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        let image = try Self.picture()
+        let item = AttachmentSource.item(for: image, on: board, source: Self.own)
+        let imageTypes = image.writableTypes(for: board)
+        #expect(imageTypes.contains(.tiff))
+        #expect(Set(item.types).isSubset(of: Set(imageTypes + [AttachmentSource.pasteboardSourceType])))
+        #expect(item.types.contains(.tiff) && item.types.contains(AttachmentSource.pasteboardSourceType))
+        #expect(item.string(forType: AttachmentSource.pasteboardSourceType) == Self.own)
+        let tiff = try #require(item.data(forType: .tiff))
+        #expect(NSImage(data: tiff)?.size == NSSize(width: 4, height: 4))
+        // No source: only the picture's types.
+        #expect(!AttachmentSource.item(for: image, on: board, source: nil).types.contains(AttachmentSource.pasteboardSourceType))
+    }
+
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server")) func cmuxClaimsWhatItCopies() {
         let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-\(UUID().uuidString)"))
         defer { board.releaseGlobally() }
         board.clearContents()
         board.setString("x", forType: .string)
         #expect(AttachmentSource.claimed(on: board) == nil)
-        AttachmentSource.claim(board, bundleId: Self.own)
+        #expect(AttachmentSource.write(["y" as NSString], to: board, bundleId: Self.own))
+        #expect(board.string(forType: .string) == "y")
         #expect(board.string(forType: AttachmentSource.pasteboardSourceType) == Self.own)
+        #expect(AttachmentSource.claimed(on: board) == Self.own)
+        // The source is on the item the contents are on, the one a paste reads.
+        #expect(board.pasteboardItems?.count == 1)
+        #expect(board.pasteboardItems?.first?.string(forType: AttachmentSource.pasteboardSourceType) == Self.own)
+        // An id that is no bundle id is never written as a source.
+        #expect(AttachmentSource.write(["z" as NSString], to: board, bundleId: "not an id"))
+        #expect(board.string(forType: .string) == "z")
+        #expect(AttachmentSource.claimed(on: board) == nil)
+    }
+
+    /// Screenshot Tab's copy: a picture, written with cmux as its source, pastes as a picture and
+    /// says cmux wrote it.
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    func aCopiedPictureStillPastesAsAPictureAndSaysItIsCmuxs() throws {
+        let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        #expect(AttachmentSource.write([try Self.picture()], to: board, bundleId: Self.own))
+        #expect(board.pasteboardItems?.count == 1)
+        #expect(board.canReadObject(forClasses: [NSImage.self], options: nil))
+        let pasted = board.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage]
+        #expect(pasted?.first?.size == NSSize(width: 4, height: 4))
         #expect(AttachmentSource.claimed(on: board) == Self.own)
     }
 
@@ -113,6 +172,52 @@ struct AttachmentSourceTests {
         record.stashSource([], items: 1, claimed: "com.apple.finder", kind: .drop)
         clock.now += AgentPaneDroppedPaths.lifetime + 1
         #expect(record.source(.drop, names: ["image.png"]) == nil)
+    }
+
+    /// An ask that reaches the host late, for a gesture taken before the record it finds, answers
+    /// nothing and leaves that newer gesture its own record (two quick pastes of a file of one name).
+    @Test func aLateAskForAnOlderGestureNeverTakesTheNewerRecord() {
+        final class Clocks { var uptime: TimeInterval = 100; var wall: TimeInterval = 1_793_000_000 }
+        let clocks = Clocks()
+        let record = AgentPaneDroppedPaths(now: { clocks.uptime }, wall: { clocks.wall })
+        let first = clocks.wall
+        record.stashSource([URL(fileURLWithPath: "/tmp/one/shot.png")], items: 1, claimed: nil, kind: .paste)
+        // The page took the first paste, and its ask is held up. A second paste of a file of the same
+        // name replaces the record a second later.
+        clocks.uptime += 1
+        clocks.wall += 1
+        let second = clocks.wall
+        record.stashSource([URL(fileURLWithPath: "/tmp/two/shot.png")], items: 1, claimed: "com.apple.finder", kind: .paste)
+        // The first paste's ask arrives now: it is older than the record, so it gets nothing.
+        #expect(record.source(.paste, names: ["shot.png"], gestureAt: first) == nil)
+        // The second paste's own ask still finds its record.
+        let taken = record.source(.paste, names: ["shot.png"], gestureAt: second)
+        #expect(taken?.urls == [URL(fileURLWithPath: "/tmp/two/shot.png")] && taken?.claimed == "com.apple.finder")
+        // The page reads its clock in whole milliseconds after the record was made: that answers.
+        record.stashSource([URL(fileURLWithPath: "/tmp/three.png")], items: 1, claimed: nil, kind: .drop)
+        #expect(record.source(.drop, names: ["three.png"], gestureAt: clocks.wall - 0.0009) != nil)
+    }
+
+    /// Two gestures of one kind a few milliseconds apart: the older one's late ask is older than the
+    /// newer record by more than the page clock's rounding, so it never takes that record.
+    @Test func anAskAFewMillisecondsOlderThanTheRecordAnswersNothing() {
+        final class Clocks { var uptime: TimeInterval = 100; var wall: TimeInterval = 1_793_000_000 }
+        let clocks = Clocks()
+        let record = AgentPaneDroppedPaths(now: { clocks.uptime }, wall: { clocks.wall })
+        let older = clocks.wall
+        clocks.uptime += 0.01
+        clocks.wall += 0.01
+        record.stashSource([URL(fileURLWithPath: "/tmp/newer/shot.png")], items: 1, claimed: nil, kind: .paste)
+        #expect(record.source(.paste, names: ["shot.png"], gestureAt: older) == nil)
+        // The newer paste's own ask, its clock read in whole milliseconds, still finds it.
+        let own = (clocks.wall * 1000).rounded(.down) / 1000
+        #expect(record.source(.paste, names: ["shot.png"], gestureAt: own) != nil)
+    }
+
+    @Test func theAskCarriesTheGesturesTime() {
+        let request = AgentPaneRequest(body: ["method": "chat.attach.source",
+                                              "params": ["kind": "paste", "names": ["a.png"], "gestureAt": 1_793_000_000_500]])
+        #expect(request == .attachSource(.paste, names: ["a.png"], gestureAt: 1_793_000_000.5))
     }
 
     @Test func onlyAnAppThisMacNamedAsASourceHasAnIcon() throws {
@@ -197,11 +302,12 @@ struct AttachmentSourceTests {
         #expect(AgentPageOps.methods["attachment.sourceIcon"] == "attachment.sourceIcon")
         #expect(AgentPaneRequest(body: ["method": "attachment.sourceIcon", "params": ["bundleId": "com.apple.finder"]])
             == .attachmentSourceIcon("com.apple.finder"))
-        // The file input's pick asks for its source; it never asks where its files are.
+        // The file input's pick asks for its source, and where its files are (a chat on this Mac
+        // links them in place instead of streaming a copy).
         #expect(AgentPaneRequest(body: ["method": "chat.attach.source", "params": ["kind": "choose", "names": ["a.png"]]])
             == .attachSource(.choose, names: ["a.png"]))
         #expect(AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": ["kind": "choose", "names": ["a.png"]]])
-            == .unsupported("chat.attach.dropped"))
+            == .attachDropped(.choose, names: ["a.png"]))
         for params: [String: Any] in [["kind": "pick", "names": ["a"]], ["kind": "drop", "names": [String]()], ["kind": "drop"]] {
             #expect(AgentPaneRequest(body: ["method": "chat.attach.source", "params": params]) == .unsupported("chat.attach.source"))
         }

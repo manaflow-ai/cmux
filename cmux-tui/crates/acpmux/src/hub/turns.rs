@@ -876,8 +876,19 @@ impl Hub {
             // moves the session too, not only a usage or auth limit.
             // A stopped session's agent closed because of the stop: no failover starts it again.
             // Nor does one MDM's off ended (review 3 of #26034).
-            let mut target = if (is_limit_error(&e.message)
-                || e.message.starts_with("agent process closed"))
+            // The process exit and its stderr arrive on separate inbound messages; drain them
+            // before deciding whether this is the supported authentication failover case.
+            Self::drain_inbound(session).await;
+            let stderr =
+                session.stderr_tail.lock().unwrap().iter().cloned().collect::<Vec<_>>().join("\n");
+            let dead_limit = e.message.starts_with("agent process closed")
+                && is_limit_error(&stderr)
+                && !super::turn_errors::is_usage_limit_error(&stderr)
+                && !super::turn_errors::is_gateway_error(&stderr);
+            let mut target = if ((is_limit_error(&e.message)
+                && !super::turn_errors::is_usage_limit_error(&e.message)
+                && !super::turn_errors::is_gateway_error(&e.message))
+                || dead_limit)
                 && session.stops.load(Ordering::SeqCst) == stops
                 && !child.ended_on_purpose()
             {
@@ -1091,6 +1102,10 @@ impl Hub {
                 control,
                 trust_gate,
                 error: super::turn_errors::continuation_error(agent_error.as_deref(), &e.message),
+                not_before: super::auto_resume::reset_hint::error_reset_at(
+                    e.data.as_ref(),
+                    now_ms(),
+                ),
             }),
             _ => None,
         };
@@ -1683,10 +1698,10 @@ impl Hub {
                 }
                 // A mode picked through its option is cmux's as a `set_mode` one is, once the
                 // harness runs it (`trust_wait.rs` `full_access_by_cmux`).
-                if let Some(mode) = asked_option_mode {
+                if let Some(mode) = &asked_option_mode {
                     let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                     if crate::web_modes::mode_of(&meta).as_deref() == Some(mode.as_str()) {
-                        meta.mode_set_by_cmux = Some(mode);
+                        meta.mode_set_by_cmux = Some(mode.clone());
                     }
                 }
             }
@@ -1706,6 +1721,11 @@ impl Hub {
             let _spawning = session.spawn_lock.lock().await;
             self.end_if_runs_full_access(session, true).await;
             return Err(super::start_mode::full_access_off());
+        }
+        if m == method::SESSION_SET_MODE
+            || (m == method::SESSION_SET_CONFIG_OPTION && asked_option_mode.is_some())
+        {
+            self.approve_pending_tools(session).await;
         }
         Ok(res)
     }
@@ -1730,7 +1750,7 @@ impl Hub {
             .await?;
         self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode_id))]);
         self.append(session, "mux", "mode", json!({"modeId": mode_id}));
-        self.save_meta(session);
+        self.save_meta_answered(session)?;
         Ok(r)
     }
 
@@ -1803,7 +1823,7 @@ impl Hub {
         };
         if at_spawn {
             session.meta.lock().unwrap().model_request = Some(model_id.to_owned());
-            self.save_meta(session);
+            self.save_meta_answered(session)?;
             self.detach_child(session).await;
             self.append(session, "mux", "model", json!({"modelId": model_id, "atSpawn": true}));
             super::start_defaults::model_applied(session, model_id);
@@ -1846,7 +1866,7 @@ impl Hub {
             _ => false,
         };
         if reported {
-            self.save_meta(session);
+            self.save_meta_answered(session)?;
         }
         Ok(r)
     }
@@ -1869,7 +1889,7 @@ impl Hub {
             std::mem::replace(&mut m.name, name.clone())
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
-        self.save_meta(session);
+        self.save_meta_answered(session)?;
         Ok(())
     }
 
@@ -2000,6 +2020,8 @@ impl Hub {
         }
         session.detaching.store(false, Ordering::SeqCst);
         drop(slot);
+        // Its next start runs the profile as it is now (`profile_respawn.rs`).
+        self.settle_profile_respawn(session);
         *session.turn.lock().unwrap() = None;
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);

@@ -73,6 +73,7 @@ enum AgentBesidePlacement {
         let lone = caller.flatMap { pendingChat != nil || ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
         let chatID = pendingChat ?? lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }?.id
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
+        let machineID = services.daemon(for: anchor).machineID
         // The chat's strip never lists the tab on its way out: it first shows on the right (OutboundTab).
         let outbound = (invocation.newColumnBeside ? controller : nil).flatMap { $0.pane === anchor ? OutboundTab.begin(in: $0) : nil }
         if let chatID { outbound?.hidden(whileHolding: chatID) }
@@ -146,22 +147,20 @@ enum AgentBesidePlacement {
                 // Not when the person acted since the run began: their focus stays where they put it.
                 if (chatHadFocus || content.focusedPane?.pane === anchor) && !personActed() {
                     let listed = Task { @MainActor () -> Bool in
-                        // The store lists the chat in its new dock pane (the window's controller may come later;
-                        // focus goes by the pane's id, which the window applies when it shows the pane).
-                        for await moved in ObservationStream({ services.locateTab(chatID, onMachine: machineID).map { $0.1 !== anchor } ?? false }) where moved {
+                        // The store lists the chat in its new dock pane, found by id on its machine: that pane's tabs are new
+                        // TabModels, never `chat` (`locateTab(model:)`). Focus goes by the pane's id, which the window applies.
+                        for await moved in ObservationStream({ services.locateTab(chat.id, onMachine: machineID).map { $0.1 !== anchor } ?? false }) where moved {
                             return true
                         }
                         return false
                     }
                     let bound = DemandTimer(owner: "AgentBesidePlacement.chatDock")
-                    bound.schedule(after: openLimit) { @MainActor in
-                        listed.cancel()
-                    }
+                    bound.schedule(after: openLimit) { @MainActor in listed.cancel() }
                     let moved = await listed.value
                     bound.cancel()
-                    if moved, let pane = services.locateTab(chatID, onMachine: machineID)?.1, let clicked {
+                    if moved, let pane = services.locateTab(chat.id, onMachine: machineID)?.1, let clicked {
                         focus(surface, returningTo: LayoutPaneID(pane.id), in: clicked, generation: intent, services: services)
-                    } else if moved, let pane = services.locateTab(chatID, onMachine: machineID)?.1 {
+                    } else if moved, let pane = services.locateTab(chat.id, onMachine: machineID)?.1 {
                         // Not a view change of the run: the run moved the focused chat out of its
                         // pane, and focus follows the chat back to where the person had it (as
                         // FocusCoordinator.followMovedTab does for a person's move). Programmatic, so

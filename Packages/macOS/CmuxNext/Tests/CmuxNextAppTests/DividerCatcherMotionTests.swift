@@ -79,4 +79,43 @@ import Testing
         #expect(layout.catcherAreas == layout.dividerAreas, "at rest the catchers cover the dividers: \(layout.catcherAreas) vs \(layout.dividerAreas)")
         #expect(layout.catcherAreas.count == before.count + 1, "the new split's divider has its area at rest: \(before) -> \(layout.catcherAreas)")
     }
+
+    /// What one divider drag event costs the layout and the window (`LayoutWorkProbe`), for a split divider and a
+    /// column edge in a strip beside a right dock: each event's model writes and syncs, geometry computes
+    /// (reconciles), presentation passes, pane chrome updates, host frames, strip clips and ring masks, catcher
+    /// area changes, page update requests and display link starts. A drag moves its panes in the event's own
+    /// turn through the model's observation, and leaves the catcher panels where they are until it lands.
+    @Test func dividerDragWorkPerEvent() async throws {
+        let layout = ScreenLayout.columns([
+            LayoutColumn(id: "c0", width: 0.4, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))),
+            LayoutColumn(id: "c1", width: 0.4, root: .split("y", axis: .vertical, ratio: 0.5, a: .leaf("p3"), b: .leaf("p4"))),
+            LayoutColumn(id: "c2", width: 0.4, root: .leaf("p5")),
+            LayoutColumn(id: "dock", width: 0.25, root: .leaf("chat"), dock: DockColumn(edge: .right, mode: .docked)),
+        ])
+        for kind in [DividerHandleView.Kind.split("x"), .columnEdge("c0")] {
+            let probe = LayoutWorkProbe(layout, focused: "p1")
+            defer { probe.close() }
+            let handle = try #require(probe.screen.dividerViews[kind], "no handle \(kind)")
+            let start = probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
+            _ = await probe.measure { handle.mouseDown(with: probe.event(.leftMouseDown, start)) }
+            var moves = LayoutWorkProbe.Counts()
+            let steps = 60
+            var point = start
+            for step in 1...steps {
+                point = CGPoint(x: start.x + 80 * CGFloat(sin(Double(step) / Double(steps) * 2 * .pi)), y: start.y)
+                moves = moves + (await probe.measure { handle.mouseDragged(with: probe.event(.leftMouseDragged, point)) })
+            }
+            let release = await probe.measure { handle.mouseUp(with: probe.event(.leftMouseUp, point)) }
+            probe.settle()
+            let name = if case .split = kind { "split" } else { "column" }
+            print(moves.line("drag-\(name)-move", steps: steps))
+            print(release.line("drag-\(name)-release", steps: 1))
+            #expect(moves.presentations <= steps, "\(name): \(moves.presentations) presentation passes over \(steps) moves")
+            #expect(moves.catcherChanges == 0, "\(name): the catcher areas moved on \(moves.catcherChanges) of \(steps) moves")
+            // A column edge may spring the camera to its anchor; a split divider's drag moves nothing on a spring.
+            if case .split = kind { #expect(moves.ticks == 0, "\(name): \(moves.ticks) frame ticks for \(steps) moves with nothing on a spring") }
+            #expect(probe.window.overlayLayer.catcherAreas == probe.window.overlayLayer.dividerAreas,
+                    "\(name): at rest the catchers cover the dividers")
+        }
+    }
 }

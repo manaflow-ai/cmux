@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 784,
-    "mcp": 700
+    "verbs": 786,
+    "mcp": 702
   },
   "nouns": [
     {
@@ -521,6 +521,13 @@
           "id": "app.command.run",
           "mcp": true,
           "mcpTool": "app_run_command"
+        },
+        {
+          "command": "cmux app settings",
+          "title": "Settings…",
+          "id": "openSettings",
+          "mcp": true,
+          "mcpTool": "app_settings"
         },
         {
           "command": "cmux app show-pane",
@@ -1546,6 +1553,13 @@
           "id": "cloudSetupGitHub",
           "mcp": true,
           "mcpTool": "app_cloud_setup_github"
+        },
+        {
+          "command": "cmux cloud share-machine",
+          "title": "Share Machine…",
+          "id": "cloudShareMachine",
+          "mcp": true,
+          "mcpTool": "app_cloud_share_machine"
         },
         {
           "command": "cmux cloud sign-in",
