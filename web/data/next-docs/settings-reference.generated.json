@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 535,
+  "count": 537,
   "sections": [
     {
       "id": "general",
@@ -1613,6 +1613,18 @@
           ]
         },
         {
+          "key": "agentPane.display.presentation",
+          "title": "Chat Presentation",
+          "help": "",
+          "kind": "choice",
+          "default": "transcript",
+          "group": "Agent Chat",
+          "values": [
+            "transcript",
+            "messages"
+          ]
+        },
+        {
           "key": "agentPane.display.rail.side",
           "title": "Prompt Rail Side",
           "help": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
@@ -1622,6 +1634,19 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptView",
+          "title": "Transcript View",
+          "help": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
+          "kind": "choice",
+          "default": "normal",
+          "group": "Agent Chat",
+          "values": [
+            "normal",
+            "thinking",
+            "verbose"
           ]
         },
         {

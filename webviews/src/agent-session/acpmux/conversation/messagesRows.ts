@@ -34,7 +34,7 @@ function keeps(row: AcpmuxRow): boolean {
   return true;
 }
 
-const cached = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
+const cached = new WeakMap<readonly AcpmuxRow[], AcpmuxRow[]>();
 
 /**
  * Select the rows shown by the Messages presentation.
@@ -43,7 +43,7 @@ const cached = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
  * handlers remain valid. The WeakMap cache means a streamed snapshot that reuses its source array
  * does not scan the whole transcript again.
  */
-export function messagesRows(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+export function messagesRows(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
   const previous = cached.get(rows);
   if (previous) return previous;
 
