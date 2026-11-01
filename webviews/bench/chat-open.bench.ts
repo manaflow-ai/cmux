@@ -184,6 +184,7 @@ try {
     watch: number;
     dcl: number;
     scriptKiB: number;
+    scripts: string[];
   };
   const open = async (): Promise<Round> => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
@@ -242,6 +243,9 @@ try {
         origin: performance.timeOrigin,
         dcl: nav.domContentLoadedEventEnd,
         scriptKiB: scripts.reduce((sum, r) => sum + r.decodedBodySize, 0) / 1024,
+        scripts: scripts
+          .map((r) => `${r.name.split("/").pop()} ${(r.decodedBodySize / 1024).toFixed(0)} KiB`)
+          .sort((a, b) => Number(b.split(" ").at(-2)) - Number(a.split(" ").at(-2))),
       };
     });
     await page.close();
@@ -262,6 +266,7 @@ try {
       watch: at(arrivals.get("_acpmux/watch")),
       dcl: got.dcl!,
       scriptKiB: got.scriptKiB!,
+      scripts: got.scripts as unknown as string[],
     };
   };
 
@@ -313,6 +318,7 @@ try {
       median((r) => r.scriptKiB).toFixed(0),
     ].join(" | "),
   );
+  console.log(`scripts loaded (${rounds[0]!.scripts.length}): ${rounds[0]!.scripts.slice(0, 12).join(", ")}`);
   console.log("attach ms | firstRow ms | latest ms | settled ms | long tasks | long ms | layout shift | scroll moves after latest");
   console.log(
     [
