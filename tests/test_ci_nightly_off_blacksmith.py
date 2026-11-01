@@ -35,7 +35,6 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
                          r"|needs\.[\w-]+\.outputs\.(?:owned|owned_pool|sign_owned|sign_owned_pool|early_[a-z_]+_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
-                         r"|!startsWith\(vars\.LINUX_RUNNER\b"
                          r"|matrix\.")
 # nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
@@ -293,21 +292,28 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 restore = steps["Restore unsigned nightly products"]["run"]
                 self.assertIn('if [ "$RUNNER_OS" = Linux ]; then', restore)
 
-    def test_legacy_identity_target_uses_fleet_first_linux_with_overflow(self) -> None:
-        """The short compatibility check must not pin a nightly to Blacksmith."""
+    def test_legacy_identity_target_uses_fresh_linux_placement(self) -> None:
         import yaml
-        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
-        runs_on = jobs["legacy-identity-target"]["runs-on"]
-        self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && !startsWith(vars.LINUX_RUNNER, 'ubuntu-') && vars.LINUX_RUNNER", runs_on)
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404'", runs_on)
-        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on)
-        self.assertNotIn("macos", runs_on)
-        linux = linux_runner_values()
-        labels = resolve_labels(runs_on, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD],
-                                                     "LINUX_RUNNER": sorted(linux)})
-        self.assertTrue(labels)
-        self.assertTrue(all(isinstance(label, str) and (label in linux or LINUX_LABEL.fullmatch(label))
-                            for label in labels))
+        from test_nightly_trusted_routing import evaluate, parse_expression
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
+        job = jobs["legacy-identity-target"]
+        picker = jobs["pick-legacy-identity-runner"]
+        self.assertEqual(set(picker["needs"]), set(job["needs"]) - {"pick-legacy-identity-runner"})
+        self.assertEqual(picker["if"], job["if"])
+        source = parse_expression(job["runs-on"].removeprefix("${{").removesuffix("}}"))
+        prefix = "needs.pick-legacy-identity-runner.outputs."
+        context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1, prefix + "attempt": "1",
+                   prefix + "runs_on": "cmux-fleet-linux-x64", prefix + "overflow": "blacksmith-4vcpu-ubuntu-2404",
+                   prefix + "alternate": "blacksmith-16vcpu-ubuntu-2404"}
+        self.assertEqual(evaluate(source, context), "cmux-fleet-linux-x64")
+        self.assertEqual(evaluate(source, {**context, prefix + "runs_on": ""}), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(evaluate(source, {**context, "github.run_attempt": 2}), "blacksmith-16vcpu-ubuntu-2404")
+        self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1, "vars.LINUX_RUNNER": "macos-26"}), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 2}), "blacksmith-8vcpu-ubuntu-2404")
+        placement = next(step for step in picker["steps"] if step.get("id") == "place")
+        self.assertEqual(placement["env"]["LINUX_ONLY"], "legacy-identity-target")
+        self.assertEqual(placement["env"]["REQUIRE_LIVE_CAPACITY"], "1")
+        self.assertEqual(placement["env"]["NIGHTLY_WAIT_FOR_FLEET"], "1")
 
     def test_nightly_never_queues_on_unverified_generic_fleet_label(self) -> None:
         """Fleet admission supplies unique reservations, never an unserved pool label."""
