@@ -1023,7 +1023,12 @@ const USER_STATUS_HEIGHT = 20;
 /// in conversation/conversation.css): a meta row 4px under its message on a 24px line, 8px between
 /// messages, 16px between turns (the paragraph gap plus a small separator).
 const META_GAP = 0;
-const META_ROW = gridLength("transcript-action-control");
+/// Grid lengths scale with the Interface Size as their CSS tokens do (desktop.css `calc(Npx *
+/// var(--cmux-interface-scale, 1))`). layoutConversation sets the factor once per pass, so the row
+/// estimates match the drawn rows at any size.
+let chromeScale = 1;
+const META_ROW_PT = gridLength("transcript-action-control");
+const metaRow = () => META_ROW_PT * chromeScale;
 const MESSAGE_GAP = 0;
 /// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
@@ -1038,7 +1043,8 @@ function replyHeight(reply: string): number {
 
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 0;
-const TOOL_ROW_HEIGHT = gridLength("row");
+const TOOL_ROW_PT = gridLength("row");
+const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 
 /// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
@@ -1060,14 +1066,14 @@ function activityStepHeight(item: AcpmuxActivity): number {
             cardHeight(session.state) +
             (session.reply && session.state !== "working" ? replyHeight(session.reply) : 0),
           0,
-        ) + TOOL_ROW_HEIGHT,
+        ) + toolRowHeight(),
       );
     // A start's card, its doing line while it starts, and its prompt (cut like a reply).
     if (subsession.tool === "start" && subsession.prompt)
-      return cardHeight("working") + replyHeight(subsession.prompt) + TOOL_ROW_HEIGHT;
+      return cardHeight("working") + replyHeight(subsession.prompt) + toolRowHeight();
     // A message sent to a sub-session is the sent-message row a shell `acpmux send` draws
     // (SubsessionCallCard.tsx SentLine, SentMessageLine.tsx): one tool row.
-    if (subsession.tool === "send") return TOOL_ROW_HEIGHT;
+    if (subsession.tool === "send") return toolRowHeight();
     return 40;
   }
   switch (tool.kind) {
@@ -1079,7 +1085,7 @@ function activityStepHeight(item: AcpmuxActivity): number {
     case "fileChange":
     case "search":
     case "fetch":
-      return TOOL_ROW_HEIGHT;
+      return toolRowHeight();
     default:
       return 26;
   }
@@ -1095,7 +1101,7 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
   return runStretches(row, groups).reduce(
     (height, stretch) =>
       height +
-      (stretch.fold ? TOOL_ROW_HEIGHT : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group), 0)),
+      (stretch.fold ? toolRowHeight() : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group), 0)),
     0,
   );
 }
@@ -1103,7 +1109,7 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
 function foldedGroupHeight(group: ToolGroup): number {
-  if (group.type === "group" || group.type === "send") return TOOL_ROW_HEIGHT;
+  if (group.type === "group" || group.type === "send") return toolRowHeight();
   return ("items" in group ? group.items : [group.item]).reduce((sum, item) => sum + activityStepHeight(item), 0);
 }
 
@@ -1131,8 +1137,8 @@ export function restRoom(): number {
 const userMetaHeight = (row: AcpmuxRow) => {
   const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
   return (
-    (row.text && row.steer === "waiting" && !row.failed && !row.queued && !chief ? META_ROW : 0) +
-    (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
+    (row.text && row.steer === "waiting" && !row.failed && !row.queued && !chief ? metaRow() : 0) +
+    (row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0)
   );
 };
 /// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
@@ -1167,7 +1173,7 @@ const FALLBACK_CHAR_WIDTH = 8;
 const PAGE_EDGE = gridLength("icon-box");
 export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn(), endReserve = 0) {
   const column = Math.min(max, Math.max(min, paneWidth * share));
-  const inset = Math.max(PAGE_EDGE, Math.round((paneWidth - column) / 2));
+  const inset = Math.max(PAGE_EDGE * gridScale(), Math.round((paneWidth - column) / 2));
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
@@ -1429,13 +1435,13 @@ function fallbackRowHeight(
     if (row.foldRun && row.items?.length) {
       const groups = toolGroups(row.items);
       if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups));
-      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + TOOL_ROW_HEIGHT + TOOL_RUN_BOTTOM);
+      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     const items = row.items ?? [];
     const steps = items.length
       ? items.reduce((height, item) => height + activityStepHeight(item), 0) +
         Math.max(0, items.length - 1) * TRANSCRIPT_BLOCK_GAP
-      : TOOL_ROW_HEIGHT;
+      : toolRowHeight();
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
@@ -1445,7 +1451,7 @@ function fallbackRowHeight(
   if (isRunGroup(row)) {
     const agent = row.subagents![0]!;
     const reply = agent.result && agent.state !== "running" ? replyHeight(agent.result) : 0;
-    return finish(cardHeight("working") + reply + TOOL_ROW_HEIGHT);
+    return finish(cardHeight("working") + reply + toolRowHeight());
   }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
@@ -1457,13 +1463,13 @@ function fallbackRowHeight(
   // Empty child copy is measured on mount; start with two body lines.
   if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
-  // The running turn's line as its last row is the footer's height (META_ROW, conversation.css
+  // The running turn's line as its last row is the footer's height (metaRow(), conversation.css
   // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.
-  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(META_ROW + TURN_GAP);
-  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(META_ROW);
+  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(metaRow() + TURN_GAP);
+  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
-  if (row.kind === ACTIVITY_LINE) return finish(META_ROW);
+  if (row.kind === ACTIVITY_LINE) return finish(metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
   // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
@@ -1496,7 +1502,7 @@ function fallbackRowHeight(
   // A turn's footer: its meta line, then the normal turn gap. An empty footer (only hover controls,
   // conversation/turns.ts isEmptyFooter) takes no extra line; its gap still fits the hover controls.
   if (row.kind === "turnSummary")
-    return finish(isEmptyFooter(row) ? Math.max(META_ROW, TURN_GAP) : META_ROW + TURN_GAP);
+    return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : metaRow() + TURN_GAP);
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
@@ -1709,12 +1715,12 @@ function measuredRowHeight(
   const finish = (height: number) =>
     height === 0 || !lastTurn ? height : height + TURN_GAP - (row.kind === "activity" ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
-  if (row.received) return finish(META_ROW);
+  if (row.received) return finish(metaRow());
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
   if (row.kind === "turnSummary") {
     if (isOverlayFooter(row)) return 0;
     const gap = continuation ? MESSAGE_GAP : TURN_GAP;
-    return isEmptyFooter(row) ? Math.max(META_ROW, gap) : META_ROW + gap;
+    return isEmptyFooter(row) ? Math.max(metaRow(), gap) : metaRow() + gap;
   }
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
   if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
@@ -1762,7 +1768,7 @@ function measuredRowHeight(
     // (incomingOpened.ts) adds its panel (2px above, 4px below, 8px padding each side, 24px in
     // from the icon column and 10px padding across): the whole text
     // (conversation/IncomingMessageCard.tsx), its images' 128px, and Details' 24px line.
-    const line = gridLength("row") + MESSAGE_GAP;
+    const line = toolRowHeight() + MESSAGE_GAP;
     if (!messageOpened(sessionId, row.id)) return finish(line);
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
@@ -1915,6 +1921,7 @@ export function layoutConversation(
   const heights = new Float64Array(rows.length);
   const messages = new MessagePlacement(rows, previous?.layout);
   const scale = gridScale();
+  chromeScale = scale;
   let start = 0;
   // Kept rows keep their gaps only at the scale they were placed at.
   if (previous && (previous.layout.scale ?? 1) === scale) {

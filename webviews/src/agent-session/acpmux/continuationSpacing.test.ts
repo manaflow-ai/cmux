@@ -87,3 +87,24 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
     g.getComputedStyle = saved.getComputedStyle;
   }
 });
+
+// Review at b1de39a: row estimates built from grid lengths (the action row, a tool row) scale with
+// the Interface Size like the CSS tokens, so first placement does not jump when rows are measured.
+test("estimated grid rows follow the Interface Size", () => {
+  const g = globalThis as { document?: unknown; getComputedStyle?: unknown };
+  const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
+  let scale = "1";
+  g.document ??= { documentElement: {} };
+  g.getComputedStyle = () => ({ getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : "") });
+  try {
+    const rows = [{ id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} }] as unknown as AcpmuxRow[];
+    const atOne = layoutConversation(rows, 720).heights[0]!;
+    scale = "1.25";
+    const atLarger = layoutConversation(rows, 720).heights[0]!;
+    expect(atOne).toBeGreaterThan(0);
+    expect(atLarger).toBeCloseTo(atOne * 1.25, 5);
+  } finally {
+    g.document = saved.document;
+    g.getComputedStyle = saved.getComputedStyle;
+  }
+});
