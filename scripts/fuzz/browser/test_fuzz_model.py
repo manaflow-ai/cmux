@@ -624,5 +624,77 @@ class DownloadCleanupNoteTests(unittest.TestCase):
         self.assertEqual(session.download_paths, {"/Users/x/Downloads/fz5-12-a.bin"})
 
 
+class ReviewGapTests(unittest.TestCase):
+    """Non-blocking findings of the #29662 and #29769 reviews: a failure that waits for report() must never be lost by
+    a hang or a stop, and a download op must read its own row."""
+
+    def run_standin(self, body):
+        script = (EndPhaseFindingTests.STANDIN % HERE) + body
+        return subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+
+    def found(self, out):
+        return [l for l in out.stdout.splitlines() if l.startswith("BROWSER-FUZZ-FINDING ")]
+
+    def test_a_download_op_reads_its_own_row(self):
+        rows = [{"filename": "fz5-12-a.bin", "status": "finished"}, {"filename": "fz5-123456-b.bin", "status": "finished"}]
+        self.assertEqual(model.download_row(rows, "fz5-12")["filename"], "fz5-12-a.bin")
+        self.assertEqual(model.download_row(rows, "fz5-123456")["filename"], "fz5-123456-b.bin")
+        self.assertIsNone(model.download_row(rows, "fz5-1"))
+        # The app may report only the destination (a sanitized or suffixed name keeps the token at its start).
+        self.assertEqual(model.download_row([{"destination": "/d/fz5-12-x (1).bin"}], "fz5-12")["destination"], "/d/fz5-12-x (1).bin")
+
+    def test_a_hang_during_a_shrink_keeps_the_seeds_waiting_stalls(self):
+        out = self.run_standin(
+            "b.LIVE['pending'] = {'target': 'browser', 'oracle': 'app_crash', 'detail': 'the app process 1 ended', 'extra': {}, 'seed': 4}\n"
+            "b.LIVE['seen'].add(b.finding_key(b.LIVE['pending']))\n"
+            "b.LIVE['queued'] = [{'target': 'browser', 'oracle': 'stall', 'detail': 'a stall', 'extra': {'signature': 'cmux.A'}, 'seed': 4}]\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.LIVE['watch'].start(4, 1, {'op': 'back'}, 'shrink 4', limit_s=0.2)\n"
+            "time.sleep(30)\n")
+        oracles = sorted(json.loads(l.split(' ', 1)[1])["oracle"] for l in self.found(out))
+        self.assertEqual(oracles, ["app_crash", "stall"], out.stdout + out.stderr)
+
+    def test_a_hang_during_an_op_of_a_bench_seed_prints_its_stalls(self):
+        out = self.run_standin(
+            "O.build_config = 'bench'\n"
+            "def op(self, op, index):\n"
+            "    self.stalls['cmux.B'] = b.Failure('stall', 'a stall over 100 ms', index, {'signature': 'cmux.B'})\n"
+            "    time.sleep(60)\n"
+            "S.run_op = op\n"
+            "b.Session = S\n"
+            "O.op_deadline = 0.3\n"
+            "b.LIVE['watch'] = m.OpWatch(0.3)\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.run_ops(O, None, [{'op': 'open'}], 'fz', lambda l: None, 'seed 5', seed=5)\n")
+        oracles = [json.loads(l.split(' ', 1)[1])["oracle"] for l in self.found(out)]
+        self.assertIn("stall", oracles, out.stdout + out.stderr)
+
+    def test_a_stop_right_after_the_end_steps_keeps_the_seeds_failure(self):
+        out = self.run_standin(
+            "def crash(self, op, index): raise b.Failure('app_crash', 'the app process 1 ended', index)\n"
+            "S.run_op = crash\n"
+            "b.Session = S\n"
+            "b.run_ops(O, None, [{'op': 'open'}], 'fz', lambda l: None, 'seed 6', seed=6)\n"
+            "b.stopped(15, None)\n")
+        self.assertEqual([json.loads(l.split(' ', 1)[1])["oracle"] for l in self.found(out)], ["app_crash"],
+                         out.stdout + out.stderr)
+        verdicts = [l for l in out.stdout.splitlines() if l.startswith("BROWSER-FUZZ-VERDICT ")]
+        self.assertTrue(verdicts and verdicts[0].startswith("BROWSER-FUZZ-VERDICT FAIL 1 finding(s) before the run was stopped"),
+                        out.stdout + out.stderr)
+
+    def test_queued_failures_are_reported_in_order_and_taken_once(self):
+        import browser_fuzz
+        taken = []
+        browser_fuzz.LIVE["queued"] = [{"oracle": "app_crash", "detail": "x", "op_index": 2, "extra": {}},
+                                       {"oracle": "stall", "detail": "y", "op_index": 3, "extra": {"signature": "s"}}]
+        try:
+            browser_fuzz.drain_queued(lambda failure, seed, ops, queued=None: taken.append((failure.oracle, failure.op_index)),
+                                      7, [{"op": "open"}] * 4)
+            self.assertEqual(taken, [("app_crash", 2), ("stall", 3)])
+            self.assertEqual(browser_fuzz.LIVE["queued"], [])
+        finally:
+            browser_fuzz.LIVE["queued"] = []
+
+
 if __name__ == "__main__":
     unittest.main()
