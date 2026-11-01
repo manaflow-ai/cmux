@@ -131,6 +131,21 @@
       "paths": [
         "webviews/src/agent-session/acpmux/session-info"
       ]
+    },
+    "artifacts": {
+      "spec": "leo-workspace design/artifacts.md",
+      "aliases": ["artifact", "artifacts", "inline preview", "html preview", "svg preview", "render card"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/conversation/InlinePreview.tsx",
+        "webviews/src/agent-session/acpmux/conversation/previewDocument.ts",
+        "webviews/src/agent-session/acpmux/conversation/ArtifactPanel.tsx",
+        "webviews/src/agent-session/acpmux/conversation/OpenPreview.tsx",
+        "webviews/src/agent-session/acpmux/conversation/artifactPreview.ts",
+        "webviews/src/agent-session/acpmux/conversation/artifactSandbox.ts",
+        "webviews/src/agent-session/acpmux/conversation/artifactVersions.ts",
+        "webviews/src/agent-session/acpmux/conversation/RenderCard.tsx",
+        "webviews/src/agent-session/acpmux/conversation/renderCall.ts"
+      ]
     }
   }
 }

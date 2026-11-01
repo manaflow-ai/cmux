@@ -11,6 +11,8 @@ import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
 import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
 import { CodeBlock } from "./CodeBlock";
+import { InlinePreview } from "./InlinePreview";
+import { inlinePreviewKind } from "./previewDocument";
 import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
@@ -979,6 +981,11 @@ function Block({
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
       if (render) return <RenderCard call={render} actions={trailing} />;
+      // A closed ```html or ```svg fence draws as its document in a sandboxed frame (InlinePreview.tsx);
+      // an open one stayed plain code above, so nothing renders mid-stream.
+      const preview = block.open ? undefined : inlinePreviewKind(block.lang, block.code);
+      if (preview)
+        return <InlinePreview key={block.code} kind={preview} code={block.code} lang={block.lang} actions={trailing} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} actions={trailing} />;
       return <CodeBlock code={block.code} lang={block.lang} actions={trailing} />;
     }
