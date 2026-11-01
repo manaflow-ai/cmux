@@ -41,6 +41,24 @@ import Testing
         #expect(content.machineLabel == "build-vm")
     }
 
+    /// Outside its machine's header (Pinned, a custom section) nothing else names the machine: the row keeps its mark,
+    /// and VoiceOver says the machine (review of #28051 at 28c330e6).
+    @Test func aPinnedCloudRowKeepsItsMark() throws {
+        let pinned = SidebarRowSection(kind: .custom(SidebarCustomSection(id: "pinned", title: "Pinned", showsTitle: true)),
+                                       nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("pinned-vm-ws"), machineID: cloud.id,
+                                                                           title: "deploy", directory: "~"))])
+        let model = SidebarModel(sections: [pinned] + [mac, cloud].map(section))
+        let layout = SidebarLayout.make(sections: model.sections, metrics: .standard, options: model.listOptions())
+        let row = try #require(layout.rows.first { $0.key == .workspace(WorkspaceID("pinned-vm-ws")) })
+        let content = try #require(row.content)
+        #expect(content.machine?.name == "build-vm")
+        let label = WorkspaceRowView.accessibilityText(SidebarWorkspace(id: WorkspaceID("pinned-vm-ws"), machineID: cloud.id, title: "deploy"),
+                                                       content: content, tabCount: nil, presence: [])
+        #expect(label.contains("build-vm"))
+        // Under its own header the same machine's row still draws none.
+        #expect(rows([mac, cloud])[WorkspaceID("build-vm-ws")]?.content?.machine == nil)
+    }
+
     @Test func anSSHRowKeepsItsMark() throws {
         let row = try #require(rows([mac, ssh])[WorkspaceID("mini-ws")])
         #expect(row.content?.machine?.name == "mini")
@@ -67,9 +85,9 @@ import Testing
     // MARK: Title
 
     /// A workspace with the daemon's default name and one idle shell in `cwd`.
-    private static func store(cwd: String, name: String = "workspace-1", tabName: String? = nil) -> DaemonStore {
+    private static func store(cwd: String, name: String = "workspace-1", tabName: String? = nil, tabTitle: String = "") -> DaemonStore {
         let store = DaemonStore()
-        let pane = PaneSnapshot(id: 1, focusedAt: 1, tabs: [TabSnapshot(surface: 1, name: tabName, title: "", cwd: cwd)])
+        let pane = PaneSnapshot(id: 1, focusedAt: 1, tabs: [TabSnapshot(surface: 1, name: tabName, title: tabTitle, cwd: cwd)])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: name, screens: [screen])]))
         return store
@@ -82,8 +100,9 @@ import Testing
         return .init(title: workspace.isUnnamed ? own ?? tab.cwd.map { String($0.split(separator: "/").last ?? "") } : nil, favicon: nil)
     }
 
-    private static func title(cwd: String, machine: SidebarMachine, name: String = "workspace-1", tabName: String? = nil) throws -> String {
-        let section = try #require(SidebarMapping.shared.sections(store(cwd: cwd, name: name, tabName: tabName).sidebarSections,
+    private static func title(cwd: String, machine: SidebarMachine, name: String = "workspace-1", tabName: String? = nil,
+                              tabTitle: String = "") throws -> String {
+        let section = try #require(SidebarMapping.shared.sections(store(cwd: cwd, name: name, tabName: tabName, tabTitle: tabTitle).sidebarSections,
                                                                    machine: machine, pageFace: folderLabel,
                                                                    terminalTitle: "Terminal").first)
         return try #require(section.workspaces.first).title
@@ -98,6 +117,13 @@ import Testing
         #expect(try Self.title(cwd: "/home/cmux/app", machine: cloud) == "app")
         #expect(try Self.title(cwd: "/home/cmux", machine: cloud, name: "deploy") == "deploy")
         #expect(try Self.title(cwd: "/home/cmux", machine: cloud, tabName: "cmux") == "cmux", "a tab the person named")
+    }
+
+    /// A title the shell or a program set (OSC 0/2) is the tab's own word, even when it reads like the home folder; a
+    /// title that is only the folder's path is the shell saying where it is (review of #28051 at 28c330e6).
+    @Test func aCloudShellWithItsOwnTitleIsNotTerminal() throws {
+        #expect(try Self.title(cwd: "/home/cmux", machine: cloud, tabTitle: "cmux") != "Terminal")
+        #expect(try Self.title(cwd: "/home/cmux", machine: cloud, tabTitle: "/home/cmux") == "Terminal")
     }
 
     @Test func anSSHOrLocalShellAtHomeIsUnchanged() throws {
