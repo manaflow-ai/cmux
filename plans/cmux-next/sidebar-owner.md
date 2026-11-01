@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: Leo: "did we get the \"bigger blue dot\" thing in? i also think we ought to have a bigger red warn symbol";
+  "like look at this in chatgpt". The row badge's error glyph grows from a 10 pt box (~9 pt visible ring)
+  to 14 pt (~13 pt visible ring), centered within the same trailing cell. Blue dots, working spinners,
+  other status glyphs, row spacing and the shared trailing column stay unchanged. The row-badge regression
+  measures the error frame and its unchanged cell center (`SidebarRowCornerBadgeTests`).
+
 - 2026-10-31: one Archive section at the bottom replaces the per-list "Archived (N)" rows. Lawrence 19197 (a NIGHTLY
   shot with ten groups each ending in "Archived (N)", seven dimmed archived groups and "Archived (29)"): "i see a ton
   of archived ... this doesnt look very clean ... maybe we can move completely archived groups into archive as well".
