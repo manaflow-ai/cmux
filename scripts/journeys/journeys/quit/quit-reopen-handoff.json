@@ -118,10 +118,15 @@
   },
   {
    "do": "expect",
-   "title": "the holder and every host still run (the new daemon adopted them); every workspace and terminal is back and live",
+   "title": "the reopen handed the daemon off; the holder and every host still run; every workspace and terminal is back and live",
    "since": "reopened",
    "timeout": 45,
    "all": [
+    {
+     "daemon_handed_off": {
+      "before": "before"
+     }
+    },
     {
      "helpers_kept": {
       "before": "before"
@@ -224,13 +229,13 @@
      }
     }
    ]
-  },
-  {
-   "do": "quit_why",
-   "title": "evidence: the app's quit and daemon log lines, the handoff mark, the daemon pid"
   }
  ],
  "finally": [
+  {
+   "do": "quit_why",
+   "title": "evidence (also after a failed check): the app's quit and daemon log lines, the handoff mark, the daemon pid"
+  },
   {
    "do": "close_seeded",
    "prefix": "jq-${nonce}-ws"

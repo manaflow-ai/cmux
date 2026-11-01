@@ -36,6 +36,8 @@ Conditions (inside `expect.all`):
   helpers_kept   {before}                process: every holder and terminal host of BEFORE still runs (the daemon may be
                                          new: a handoff)
   daemon_is_prior {}                     process: the app's daemon runs ${prior_tui} (run.py --prior-build)
+  daemon_handed_off {before}             process: the daemon is a new one running this build's bundled cmux-tui (a
+                                         reopen that kept the prior daemon for a set-up reason is `not run`)
 Set-up steps: require_prior {} (`not run` without --prior-build), require_daemon_prior {timeout?} (`not run` unless the
 daemon runs ${prior_tui})
   scrollback_whole {prefix, last}        daemon: the current terminal's rows above the screen (history, oldest first)
@@ -271,6 +273,32 @@ def cond_daemon_is_prior(j, want, cache):
     return command.startswith(prior), {"daemon": pid, "command": command[:200], "prior": prior}
 
 
+def cond_daemon_handed_off(j, want, cache):
+    """The reopen handed the daemon off: the app's daemon is not BEFORE's (another pid) and runs this build's bundled
+    cmux-tui. When the reopen kept the prior daemon for a set-up reason (the same build commit, or a build the app
+    cannot read), the journey is `not run`: the handoff under test never ran."""
+    before = _before(j, want)
+    pid = _daemon_pid(j)
+    bundled = j.app.bundle.rstrip("/") + "/Contents/Resources/bin/cmux-tui"
+    command = D.subprocess.run(["ps", "-o", "command=", "-p", str(pid or 0)], capture_output=True, text=True).stdout.strip()
+    detail = {"daemon_before": before["daemon_pid"], "daemon_now": pid, "command": command[:200], "bundled": bundled}
+    if pid and pid != before["daemon_pid"] and command.startswith(bundled):
+        return True, detail
+    prior = j.sub("${prior_tui}")
+    if pid == before["daemon_pid"]:
+        versions = {}
+        for name, path in (("prior", prior), ("bundled", bundled)):
+            out = D.subprocess.run([path, "--version"], capture_output=True, text=True, timeout=10).stdout.strip()
+            versions[name] = out[:120]
+        detail["versions"] = versions
+        same = versions["prior"] and versions["prior"] == versions["bundled"]
+        unknown = any("(" not in v for v in versions.values())
+        if same or unknown:
+            raise D.NotRun(f"set-up: no handoff can run (prior and bundled builds: {json.dumps(versions)})")
+        return False, dict(detail, why="the reopened app kept the prior build's daemon: no handoff ran")
+    return False, dict(detail, why="the app's daemon is neither the prior one nor this build's bundled cmux-tui")
+
+
 def cond_workspaces_back(j, want, cache):
     before = _before(j, want)
     workspaces, terminals = _daemon_lists(j)
@@ -322,4 +350,5 @@ STEPS = {"quit_state": step_quit_state, "real_quit": step_real_quit, "require_wh
          "quit_why": step_quit_why, "require_prior": step_require_prior, "require_daemon_prior": step_require_daemon_prior}
 CONDITIONS = {"quit_asked": ("app", cond_quit_asked), "daemon_kept": ("process", cond_daemon_kept),
               "workspaces_back": ("app", cond_workspaces_back), "scrollback_whole": ("daemon", cond_scrollback_whole),
-              "helpers_kept": ("process", cond_helpers_kept), "daemon_is_prior": ("process", cond_daemon_is_prior)}
+              "helpers_kept": ("process", cond_helpers_kept), "daemon_is_prior": ("process", cond_daemon_is_prior),
+              "daemon_handed_off": ("process", cond_daemon_handed_off)}
