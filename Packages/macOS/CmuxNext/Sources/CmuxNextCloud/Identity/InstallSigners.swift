@@ -32,6 +32,8 @@ struct EnclaveInstallSigner: InstallSigner {
 
     let service: String
     let account: String
+    /// The app's one guard of the Keychain UI switch.
+    let loginKeychain: LoginKeychain
 
     func publicKeyX963() async throws -> Data { try key().publicKey.x963Representation }
 
@@ -65,7 +67,7 @@ struct EnclaveInstallSigner: InstallSigner {
         query[kSecReturnData as String] = true
         var out: CFTypeRef?
         // No UI: an item another signature of this bundle id made is refused, never prompted for.
-        let status = LoginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &out) }
+        let status = loginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &out) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw Failure.keychain(status) }
         return out as? Data

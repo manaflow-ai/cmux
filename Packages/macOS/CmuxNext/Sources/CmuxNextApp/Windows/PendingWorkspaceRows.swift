@@ -16,7 +16,7 @@ final class PendingWorkspaceRows {
     struct Row: Equatable {
         /// The workspace's key, fixed at the press.
         let id: String
-        let window: String
+        var window: String
         let machine: MachineID
         /// The row as the window lists it once the daemon has created it.
         let face: SidebarWorkspace
@@ -49,6 +49,13 @@ final class PendingWorkspaceRows {
         rows.removeAll { $0.id == id }
         names[id] = nil
         takenOver.remove(id)
+        redraws.run()
+    }
+
+    /// Window `old` is now window `new` (`WindowManager.launchWindowAdopted`): its rows list there.
+    func move(window old: String, to new: String) {
+        guard rows.contains(where: { $0.window == old }) else { return }
+        for index in rows.indices where rows[index].window == old { rows[index].window = new }
         redraws.run()
     }
 
