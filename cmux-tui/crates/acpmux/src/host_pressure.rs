@@ -322,8 +322,9 @@ pub use meter::{Meter, SAMPLE_WAIT};
 #[path = "host_pressure_probe.rs"]
 mod probe;
 pub use probe::{
-    HostProbe, parse_loadavg, parse_meminfo_available, parse_psi_some_avg10, parse_vmstat_pswpout,
-    performance_cores,
+    HostProbe, cpu_busy, parse_loadavg, parse_meminfo_available, parse_meminfo_swap_used,
+    parse_proc_stat_cpu, parse_psi_avg60, parse_psi_some_avg10, parse_vmstat_oom_kill,
+    parse_vmstat_pswpout, performance_cores,
 };
 
 #[cfg(test)]

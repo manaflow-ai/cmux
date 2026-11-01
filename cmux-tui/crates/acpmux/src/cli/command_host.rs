@@ -50,6 +50,18 @@ pub enum PeerCmd {
         #[arg(value_parser = ["on", "off"])]
         state: Option<String>,
     },
+    /// This machine's load now, as one JSON object: CPU busy share, CPU and
+    /// memory pressure (avg60), available memory, swap, OOM kills, free disk,
+    /// whether a turn runs here, and a build or test that is running. Reads
+    /// only; never starts a daemon. Fields it cannot read are left out.
+    Load,
+    /// Add one muted line to every live chat on this machine's daemon, such
+    /// as the note cmux Cloud adds after it resizes the machine.
+    Notice {
+        /// The line, one line of at most 300 characters.
+        #[arg(long)]
+        text: String,
+    },
     /// Remove a machine you added.
     Rm { name: String },
     /// Pairing tickets for adding a machine with one pasted line: `new`
