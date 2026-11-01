@@ -77,6 +77,13 @@ class RescueTests(unittest.TestCase):
         api.request.return_value = {"content": base64.b64encode(source.encode()).decode()}
         self.assertFalse(r.workflow_supports_reroute(api, run()))
 
+    def test_unreachable_labels_do_not_enable_reroute(self):
+        api = mock.Mock()
+        source = ("jobs:\n  watch:\n    runs-on: ${{ github.run_attempt == 1 && '" + r.WATCH_LABELS[0]
+                  + "' || '" + r.WATCH_LABELS[1] + "' || '" + r.WATCH_LABELS[2] + "' }}")
+        api.request.return_value = {"content": base64.b64encode(source.encode()).decode()}
+        self.assertFalse(r.workflow_supports_reroute(api, run()))
+
     def test_cancel_settle_reruns_and_returns_next_label(self):
         api = mock.Mock()
         self.mark(api)
