@@ -5,11 +5,15 @@ import CmuxNextCompat
 /// an id the relay owns (a counter per connection), so a page cannot make two requests share an
 /// id at the daemon. The reply's id is mapped back to the page's, and a reply to a filtered method
 /// (``AcpmuxPaneMethods/replyShapes``) is cut to its shape. A page id (JSON value and type) is used
-/// by one request at a time. A daemon reply with an id the relay did not send is dropped. Every
-/// Replies pass the duplicate-key check and reach the page as a fresh serialization. Notifications
+/// by one request at a time. A daemon reply with an id the relay did not send is dropped. Replies
+/// pass the duplicate-key check and reach the page as a fresh serialization. Notifications
 /// have no id to rewrite, so the original text is forwarded after the duplicate-key check; only
 /// notifications that feed a host-side observer are parsed.
 nonisolated final class AcpmuxRequestIds: Sendable {
+    private static let observedNotificationMarkers = [
+        "\"_acpmux/prompt_accepted\"", "\"_acpmux/event\"", "\"_acpmux/permission_pending\"",
+    ]
+
     private nonisolated struct Entry {
         var pageID: String
         var method: String
@@ -110,14 +114,14 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         // Stream notifications have no id to rewrite. The marker check avoids Foundation's full
         // parse for the usual `session/update` payloads while retaining the parsed object for the
         // three notifications read by host observers.
-        let observedMarkers = ["\"_acpmux/prompt_accepted\"", "\"_acpmux/event\"", "\"_acpmux/permission_pending\""]
         let methodAt = text.range(of: "\"method\"")?.lowerBound
         let resultBeforeMethod = methodAt.map { methodAt in
-            [text.range(of: "\"result\"")?.lowerBound, text.range(of: "\"error\"")?.lowerBound]
-                .compactMap { $0 }.contains { $0 < methodAt }
+            if let resultAt = text.range(of: "\"result\"")?.lowerBound, resultAt < methodAt { return true }
+            if let errorAt = text.range(of: "\"error\"")?.lowerBound, errorAt < methodAt { return true }
+            return false
         } ?? false
         if methodAt != nil, !resultBeforeMethod {
-            guard observedMarkers.contains(where: text.contains),
+            guard Self.observedNotificationMarkers.contains(where: text.contains),
                   let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
             else { return .page(text, object: nil, replyTo: nil) }
             let method = object["method"] as? String
@@ -125,7 +129,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
                let promptId = (object["params"] as? [String: Any])?["promptId"] as? String {
                 promptAccepted(promptId)
             }
-            return .page(text, object: observedMarkers.contains(where: { text.contains($0) }) ? object : nil,
+            return .page(text, object: Self.observedNotificationMarkers.contains(where: { text.contains($0) }) ? object : nil,
                          replyTo: method)
         }
         guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
