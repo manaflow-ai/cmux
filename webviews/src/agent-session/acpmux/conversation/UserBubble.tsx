@@ -25,6 +25,7 @@ import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
 import { recordedPromptParts } from "../inlinePrompt";
+import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import {
@@ -38,16 +39,36 @@ import {
 } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
+/// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
+/// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
+/// original path is drawn by that image instead.
+export function recordedFiles(
+  parts: AcpmuxRow["inlineParts"],
+  originals: ReadonlySet<string> = new Set(),
+): FileAttachmentInfo[] | undefined {
+  return parts?.flatMap((part): FileAttachmentInfo[] =>
+    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
+      ? [{ ...part, path: attachmentPath(part.uri) }]
+      : [],
+  );
+}
+
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
-  row,
-  text,
+  row: given,
+  text: givenText,
   pending,
 }: {
   row: AcpmuxRow;
   text: string;
   pending?: (actions: ReactNode) => ReactNode;
 }) {
+  // A video's frames and their note went to the agent only; the bubble draws the video's tile.
+  const row = useMemo(() => withoutVideoFrames(given), [given]);
+  const text = useMemo(
+    () => withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+    [givenText, given],
+  );
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
@@ -61,11 +82,7 @@ export function UserBubble({
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
   // The ordered bubble below skips them by the same rule.
   const originals = imageOriginals(row);
-  const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
-      ? [{ ...part, path: attachmentPath(part.uri) }]
-      : [],
-  );
+  const recorded = recordedFiles(row.inlineParts, originals);
   const files = recorded?.length
     ? recorded
     : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>

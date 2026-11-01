@@ -36,6 +36,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSessionAuth?: MockSessionAuth;
   /** Capability ids `initialize` names (`_meta.acpmux.capabilities`); absent names none, as an older daemon. */
   cmuxAcpmuxMockCapabilities?: string[];
+  /** Gallery only: `session/new` refuses with `trust.pending` until `acp.trust.set` trusts a folder. */
+  cmuxAcpmuxMockTrustPending?: boolean;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -202,6 +204,8 @@ export class MockAcpmuxSocket {
   ]);
   /// acpmux's own record, which `acp.trust.set` writes; the agents' files never change.
   private trust = new Map<string, TrustLevel>([["~/code/atlas-web", "trusted"]]);
+  /// `cmuxAcpmuxMockTrustPending`: whether a folder has been trusted since the page loaded.
+  private trustGranted = false;
   /// Folder profiles the user enabled (`_acpmux/harness_enable`), by id.
   private enabledProfiles = new Set<string>();
   private bookmarks = new Map<string, Set<number>>();
@@ -402,6 +406,7 @@ export class MockAcpmuxSocket {
             acpmux: {
               origin: "local",
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
+              features: ["queueApproval", "queueGet"],
               handoff: { maxCapsuleBytes: 65536 },
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities
@@ -554,10 +559,36 @@ export class MockAcpmuxSocket {
         if (!image) throw Object.assign(new Error(`no image ${id} in this chat`), { code: -32001 });
         return image;
       }
+      // A guest's held prompt: acpmux records the owner's answer (design/chat-multiplayer.md 4.1).
+      case "_acpmux/queue_approve":
+      case "_acpmux/queue_decline":
+        this.emit(target, {
+          mux: method === "_acpmux/queue_approve" ? "queue_approved" : "queue_declined",
+          msg: { promptId: params.promptId, revision: params.revision ?? 0 },
+        });
+        if (method === "_acpmux/queue_decline")
+          this.emit(target, { mux: "queue_removed", msg: { promptId: params.promptId, reason: "declined" } });
+        return {};
+      // A queued prompt read whole for the owner (acpmux hub/queue_get.rs): its newest record.
+      case "_acpmux/queue_get": {
+        for (let index = this.events.length - 1; index >= 0; index -= 1) {
+          const event = this.events[index]!;
+          if (event.sessionId !== target || (event.kind !== "queued" && event.kind !== "queue_updated")) continue;
+          const msg = event.msg as Record<string, unknown>;
+          if (msg.promptId !== params.promptId) continue;
+          return { sessionId: target, promptId: params.promptId, revision: 0, ...msg };
+        }
+        throw Object.assign(new Error("no prompt waits under that id"), { data: { reason: "queue.not_found" } });
+      }
       case "_acpmux/permission_respond":
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
         return {};
       case "session/new": {
+        // A gallery state whose folder is not trusted yet: the start waits on the Trust question.
+        if ((globalThis as MockAuthGlobals).cmuxAcpmuxMockTrustPending && !this.trustGranted)
+          throw Object.assign(new Error("trust.pending: answer the trust question for the folder first"), {
+            data: { reason: "trust.pending", cwd: String(params.cwd ?? "~/code/cmux") },
+          });
         // A gallery state can stand for an agent slow to start, or one that fails to (`mockStart`).
         const start = (
           globalThis as { cmuxAcpmuxMockStart?: { delayMs?: number; error?: string; startMode?: boolean } }
@@ -667,6 +698,7 @@ export class MockAcpmuxSocket {
         }
         const level: TrustLevel = params.level === "untrusted" ? "untrusted" : "trusted";
         this.trust.set(cwd, level);
+        if (level === "trusted") this.trustGranted = true;
         return { cwd, level };
       }
       case "file.search":

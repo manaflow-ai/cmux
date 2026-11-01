@@ -91,6 +91,9 @@ class WorkflowShape(unittest.TestCase):
         for key, each in doc["jobs"].items():
             with self.subTest(runner=key):
                 self.assertIn("cmux-fleet-linux-x64", str(each["runs-on"]))
+                if key != "panic-ratchet":  # its optional fork route is unchanged in this resolver fix
+                    self.assertTrue(str(each["runs-on"]).endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
+                                    "a stalled literal fleet label must not bypass the reconciled live pool")
                 self.assertNotIn("vars.LINUX_RUNNER", str(each["runs-on"]))
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):

@@ -12,7 +12,15 @@
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { hasReplyActions, layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
+import {
+  codeCardHeight,
+  hasReplyActions,
+  keepsReplyRoom,
+  layoutConversation,
+  placeRows,
+  statusEdge,
+  type AcpmuxRow,
+} from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
@@ -383,7 +391,7 @@ test("a step of only quiet thoughts takes no room, estimated or drawn", () => {
   expect(placed.tops[1]).toBe(0);
 });
 
-test("a status row between two replies is estimated in the middle of the gap", () => {
+test("a status row between two replies is estimated under the reply's kept room", () => {
   // Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more alignment too".
   // The reply over the run ends at its action row (its 4px meta gap and 24px line, no message gap);
   // the run (2px over its 22px row) ends 30px over the next reply, the action row's room and the
@@ -404,10 +412,11 @@ test("a status row between two replies is estimated in the middle of the gap", (
     // The same reply over a prompt: its own action row, then the message gap.
     expect(reply).toBe(overPrompt! - 8);
   } else {
-    // No reply draws its own action row (a turn's copy lives in its footer): the plain 12px each
-    // side, the reply's 8px message gap plus 2 over the run's 2px top margin.
+    // No reply draws its own action row (a turn's copy lives in its footer), but it keeps that row's
+    // room (model.ts keepsReplyRoom; Leo, 2026-11-01: "i like this spacing kinda i prefer it to what
+    // we have now"): the same 36px over the run as over a prompt. The run keeps the plain 12px under it.
     expect(step).toBe(2 + 22 + 12);
-    expect(reply).toBe(overPrompt! + 2);
+    expect(reply).toBe(overPrompt!);
   }
   expect(alone).toBeGreaterThan(0);
 });
@@ -484,4 +493,48 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   // A sub-session message alone is one tool row, folded or not.
   expect(heightsOf(run([sendMessage]))[0]).toBe(lines(1));
   expect(heightsOf([{ id: "one", version: 1, at: 0, kind: "activity", items: [sendMessage] }])[0]).toBe(lines(1));
+});
+
+test("a turn's end keeps a reply's room: a folded reply to the person keeps it, a folded note does not", () => {
+  const reply = { id: "r", kind: "assistant", text: "The build passed.", version: 1 } as AcpmuxRow;
+  const next = { id: "n", kind: "user", text: "next", version: 1 } as AcpmuxRow;
+  expect(keepsReplyRoom(reply, next)).toBe(true);
+  // turns.ts marks a finished turn's earlier replies settled inside its open "Worked for"; a reply
+  // to the person there is `foldedReply`, so the end moves nothing (agent-pane-stream-jitter).
+  expect(keepsReplyRoom({ ...reply, settled: true, foldedReply: true }, next)).toBe(true);
+  expect(keepsReplyRoom({ ...reply, settled: true }, next)).toBe(false);
+  expect(keepsReplyRoom({ ...reply, streaming: true }, next)).toBe(false);
+});
+
+// A code card's estimate (model.ts codeCardHeight) follows what the card draws.
+const codeWidth = 600;
+const codeChars = (room: number) => Math.floor(room / currentChatMetrics().codeCharWidth);
+
+test("a code card estimate reads a fence's first word, as the renderer does (cmux#30836)", () => {
+  // Markdown.tsx keeps only the info string's first word, so `text title="tree"` draws unlabeled.
+  const tree = "root\n├─ a\n└─ b";
+  expect(codeCardHeight(tree, 'text title="tree"', codeWidth)).toBe(codeCardHeight(tree, "text", codeWidth));
+  expect(codeCardHeight("a\nb\nc", 'text title="tree"', codeWidth)).toBe(codeCardHeight("a\nb\nc", "", codeWidth));
+  const python = codeCardHeight("x = 1", "python", codeWidth);
+  expect(codeCardHeight("x = 1", "python  {.numberLines}", codeWidth)).toBe(python);
+});
+
+test("a code card scrolls against its text's width, not the card's (cmux#30690)", () => {
+  // The body's 13px and 1px margins and the plain card's 8px and 12px padding leave width - 34
+  // for text: a line 20px short of the card's edge still scrolls.
+  const scrollbar = (code: string) =>
+    codeCardHeight(code, "python", codeWidth) - codeCardHeight("x", "python", codeWidth);
+  expect(scrollbar("x".repeat(codeChars(codeWidth - 20)))).toBe(15);
+  expect(scrollbar("x".repeat(codeChars(codeWidth - 34)))).toBe(0);
+});
+
+test("an unlabeled card's first line keeps room for its corner actions (cmux#30689)", () => {
+  // A first line that fits the text but not the strip's room after it scrolls; as a later line it fits.
+  const line = "x".repeat(codeChars(codeWidth - 34 - 10));
+  const scrollbar = (code: string, lang: string) =>
+    codeCardHeight(code, lang, codeWidth) - codeCardHeight(code.replace(/x+/, "x"), lang, codeWidth);
+  expect(scrollbar(`${line}\nshort`, "")).toBe(15);
+  expect(scrollbar(`short\n${line}`, "")).toBe(0);
+  // A labeled card's actions sit in its header row, so its first line has the full width.
+  expect(scrollbar(`${line}\nshort`, "python")).toBe(0);
 });

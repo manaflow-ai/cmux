@@ -46,6 +46,16 @@ nonisolated public struct UpdateInstallPreflight: Sendable {
 
     /// The first failed check, or nil when the install may start.
     public func failure(files: FileManager = .default) -> Failure? {
+        if let failure = placeFailure(files: files) { return failure }
+        if let staged = try? files.contentsOfDirectory(atPath: stagedInstallation.path) {
+            return staged.contains(where: { !$0.hasPrefix(".") }) ? nil : .updateMissing
+        }
+        return files.fileExists(atPath: stagedInstallation.deletingLastPathComponent().path) ? .updateMissing : nil
+    }
+
+    /// The checks of where the app is: its folder is writable and its volume has room. They
+    /// also explain an install that failed after the app quit (``UpdateInstallFailure``).
+    public func placeFailure(files: FileManager = .default) -> Failure? {
         let folder = bundle.deletingLastPathComponent()
         guard files.isWritableFile(atPath: folder.path), files.isWritableFile(atPath: bundle.path) else {
             return .folderNotWritable(folder.path)
@@ -55,10 +65,7 @@ nonisolated public struct UpdateInstallPreflight: Sendable {
            let free = values.volumeAvailableCapacityForImportantUsage, free < needed {
             return .notEnoughSpace(free: free, needed: needed)
         }
-        if let staged = try? files.contentsOfDirectory(atPath: stagedInstallation.path) {
-            return staged.contains(where: { !$0.hasPrefix(".") }) ? nil : .updateMissing
-        }
-        return files.fileExists(atPath: stagedInstallation.deletingLastPathComponent().path) ? .updateMissing : nil
+        return nil
     }
 
     /// Whether the staged-update check could read Sparkle's folders (false:

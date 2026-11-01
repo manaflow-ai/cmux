@@ -1,9 +1,10 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct NativePopupContentTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NativePopupContentTests {
     @Test func searchDescriptorUpdatesWithoutChangingItsIdentity() throws {
         let content = NativePopupContent()
         var model = Self.model()
@@ -25,7 +26,7 @@ import Testing
         let content = NativePopupContent()
         window.contentView = content
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = Self.model()
         if isSearch { model.search = NativePopupField(id: "query", value: "A😀BCDE", placeholder: "Search") }
         else { model.rows = [NativePopupRow(id: "query", kind: .textField, label: "Value", value: "A😀BCDE")] }
@@ -53,7 +54,7 @@ import Testing
         let content = NativePopupContent()
         window.contentView = content
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = Self.model()
         model.rows[0].actions = [NativePopupAction(id: "accessory", label: "Accessory", keepOpen: true)]
         content.update(model)
@@ -86,7 +87,7 @@ import Testing
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = Self.model()
         model.width = 120
         model.rows = [NativePopupRow(id: "slider", kind: .slider, label: "Value", value: "0.5", minimum: 0, maximum: 1)]
@@ -136,7 +137,7 @@ import Testing
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = Self.model()
         let row = NativePopupRow(id: "name", kind: .textField, label: "Name", value: "")
         switch location {
@@ -176,7 +177,7 @@ import Testing
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = Self.model()
         model.rows = [NativePopupRow(id: "control", kind: kind, label: "Control", value: "0",
                                     options: [NativePopupOption(id: "0", label: "First"), NativePopupOption(id: "1", label: "Second")])]
@@ -198,7 +199,7 @@ import Testing
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = Self.model()
         model.rows = [NativePopupRow(id: "control", kind: kind, label: "Control", value: kind == .choice ? "0" : "0",
                                      options: kind == .choice ? [NativePopupOption(id: "0", label: "First"),
