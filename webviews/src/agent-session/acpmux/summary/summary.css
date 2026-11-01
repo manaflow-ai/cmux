@@ -15,6 +15,9 @@
 /* Under the tab row when the header's tools sit in it (header/tabRow.ts). */
 .acpmux-header[data-tab-row]~.acpmux-summary-card{top:calc(var(--acpmux-tab-row-height) + 8px)}
 .acpmux-reviewing>.acpmux-summary-card,.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
+/* While hidden, the popover blurs nothing under it (ui/glass/seeThroughBlur.ts): no Find bar or
+   transcript stays blurred under an invisible card. Above glass.css's filter rule in specificity. */
+:root[data-cmux-see-through] :is(.acpmux-reviewing,.acpmux-inspecting,.acpmux-stage:has(.acpmux-find))>[data-glass-under=summary]{filter:none}
 .acpmux-summary-card__head{flex:none;display:flex;align-items:center;gap:2px;padding:4px 4px 4px 6px}
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__head{height:28px;padding:0 2px 4px 4px}
 .acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:26px;padding:0 6px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left}

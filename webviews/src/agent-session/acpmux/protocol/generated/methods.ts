@@ -27,6 +27,8 @@ export interface AcpmuxRequests {
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
   "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: unknown; result: unknown };
+  "agent-session-turn-prepare": { params: unknown; result: unknown };
+  "agent-session-turn-abandon": { params: unknown; result: unknown };
   "_acpmux/sessions": { params: SessionsParams; result: SessionsResult };
   "_acpmux/attach": { params: AttachParams; result: AttachResult };
   "_acpmux/detach": { params: SessionRef; result: Done };
@@ -317,6 +319,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: false },
+  { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
+  { name: "agent-session-turn-abandon", kind: "request", acp: false, typed: false },
   { name: "_acpmux/sessions", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attach", kind: "request", acp: false, typed: true },
   { name: "_acpmux/detach", kind: "request", acp: false, typed: true },
