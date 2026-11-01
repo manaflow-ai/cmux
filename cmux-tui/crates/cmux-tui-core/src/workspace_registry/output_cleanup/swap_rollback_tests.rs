@@ -2,7 +2,6 @@
 //! and is finished by the next one.
 
 use super::*;
-use rusqlite::OptionalExtension as _;
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir()

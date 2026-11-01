@@ -13,6 +13,11 @@ use crate::workspace_registry::output_cleanup::{
 /// session restore.
 const START_DELAY: Duration = Duration::from_secs(60);
 
+/// How long a stop waits for the worker. Its last step (recording "not
+/// needed") takes the registry and its connection locks, which a stalled
+/// journal commit can hold; shutdown must not wait on them without a limit.
+const STOP_WAIT: Duration = Duration::from_secs(2);
+
 #[derive(Default)]
 pub(super) struct OutputCleanupState {
     /// Set while a registry is staged or being staged: journal maintenance
@@ -55,6 +60,34 @@ impl Control {
 struct OutputCleanupWorker {
     control: Arc<Control>,
     thread: Option<std::thread::JoinHandle<()>>,
+    /// Disconnects when the worker thread ends (its sender drops, panics
+    /// included).
+    exited: std::sync::mpsc::Receiver<()>,
+}
+
+impl OutputCleanupWorker {
+    /// Stops the worker and joins it, waiting at most `wait`: a worker still
+    /// blocked after that is left to finish on its own.
+    fn stop(mut self, wait: Duration) {
+        *self.control.stopped.lock().unwrap_or_else(PoisonError::into_inner) = true;
+        self.control.changed.notify_all();
+        let Some(thread) = self.thread.take() else { return };
+        // The last `Arc<Mux>` can drop on the worker itself; it must not
+        // join its own thread.
+        if thread.thread().id() == std::thread::current().id() {
+            return;
+        }
+        match self.exited.recv_timeout(wait) {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => eprintln!(
+                "cmux-tui: output cleanup: the worker did not stop within {:.1} s; \
+                 shutdown goes on without it",
+                wait.as_secs_f64()
+            ),
+            _ => {
+                let _ = thread.join();
+            }
+        }
+    }
 }
 
 fn env_duration(_name: &str) -> Option<Duration> {
@@ -93,8 +126,10 @@ impl Mux {
         let worker_control = control.clone();
         let pending = self.output_cleanup.pending.clone();
         let weak_mux = Arc::downgrade(self);
+        let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
         let thread =
             std::thread::Builder::new().name("cmux-output-cleanup".into()).spawn(move || {
+                let _exited = exited_sender;
                 lower_thread_priority();
                 let delay =
                     env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS").unwrap_or(START_DELAY);
@@ -102,7 +137,10 @@ impl Mux {
                     return;
                 }
                 let not_needed = run_output_cleanup(&db_path, &worker_control, &pending);
-                if not_needed && let Some(mux) = weak_mux.upgrade() {
+                if not_needed
+                    && !worker_control.is_stopped()
+                    && let Some(mux) = weak_mux.upgrade()
+                {
                     let marked = mux
                         .workspace_registry
                         .lock()
@@ -116,21 +154,15 @@ impl Mux {
                 }
             })?;
         *self.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some(OutputCleanupWorker { control, thread: Some(thread) });
+            Some(OutputCleanupWorker { control, thread: Some(thread), exited });
         Ok(())
     }
 
     pub(super) fn stop_output_cleanup(&self) {
         let worker =
             self.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner).take();
-        if let Some(mut worker) = worker {
-            *worker.control.stopped.lock().unwrap_or_else(PoisonError::into_inner) = true;
-            worker.control.changed.notify_all();
-            if let Some(thread) = worker.thread.take()
-                && thread.thread().id() != std::thread::current().id()
-            {
-                let _ = thread.join();
-            }
+        if let Some(worker) = worker {
+            worker.stop(STOP_WAIT);
         }
     }
 }
@@ -197,5 +229,41 @@ fn lower_thread_priority() {
         libc::setpriority(libc::PRIO_PROCESS, tid, 19);
         // ioprio_set(IOPRIO_WHO_PROCESS, tid, IOPRIO_CLASS_IDLE).
         libc::syscall(libc::SYS_ioprio_set, 1, tid, 3 << 13);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn worker_blocked_on(lock: Arc<Mutex<()>>) -> OutputCleanupWorker {
+        let control = Arc::new(Control { stopped: Mutex::new(false), changed: Condvar::new() });
+        let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let _exited = exited_sender;
+            // The final record waits on a lock a stalled journal commit holds.
+            drop(lock.lock().unwrap_or_else(PoisonError::into_inner));
+        });
+        OutputCleanupWorker { control, thread: Some(thread), exited }
+    }
+
+    #[test]
+    fn a_stop_returns_while_the_worker_waits_on_a_held_registry_lock() {
+        let lock = Arc::new(Mutex::new(()));
+        let held = lock.lock().unwrap();
+        let worker = worker_blocked_on(lock.clone());
+        let started = Instant::now();
+        worker.stop(Duration::from_millis(200));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "a stop waited without a limit for a worker blocked on the registry lock"
+        );
+        drop(held);
+    }
+
+    #[test]
+    fn a_stop_joins_a_worker_that_ends() {
+        let worker = worker_blocked_on(Arc::new(Mutex::new(())));
+        worker.stop(Duration::from_secs(5));
     }
 }

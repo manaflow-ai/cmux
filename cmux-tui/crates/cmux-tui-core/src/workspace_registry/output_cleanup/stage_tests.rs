@@ -125,3 +125,25 @@ fn an_interrupted_kind_backfill_never_marks_the_cleanup_not_needed() {
     // Segments sealed with their kind map (no backfill ever ran).
     assert!(!output_present(&mapped_source(None)).unwrap());
 }
+
+#[test]
+fn a_resumed_kind_backfill_decodes_partly_mapped_segments_again() {
+    // The startup backfill sets its marker to `1` when it finishes. Resumed
+    // after a stop, it must revisit a segment that already has some kind
+    // rows, or the missing `terminal.output` row is never added and the map
+    // later says "no output".
+    let source = Connection::open_in_memory().unwrap();
+    source
+        .execute_batch(
+            "CREATE TABLE journal_segments(segment_id TEXT PRIMARY KEY, start_sequence INTEGER);
+             CREATE TABLE journal_segment_kinds(segment_id TEXT, kind TEXT);
+             INSERT INTO journal_segments VALUES('partly', 1), ('unmapped', 3);
+             INSERT INTO journal_segment_kinds VALUES('partly', 'agent.session.started');",
+        )
+        .unwrap();
+    let ids = |resumed| {
+        super::super::super::session_journal::legacy_backfill_segment_ids(&source, resumed).unwrap()
+    };
+    assert_eq!(ids(false), vec!["unmapped".to_owned()]);
+    assert_eq!(ids(true), vec!["partly".to_owned(), "unmapped".to_owned()]);
+}

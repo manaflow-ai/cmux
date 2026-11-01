@@ -1612,21 +1612,16 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     if complete.as_deref() == Some("1") || connection.is_readonly(rusqlite::MAIN_DB)? {
         return Ok(());
     }
+    // A marker already at `0` is a backfill that was stopped partway: kind
+    // rows are inserted one at a time, so a segment can be left with some of
+    // its kinds (say, without `terminal.output`). That run's segments are all
+    // decoded again; the inserts ignore rows already there.
+    let resumed = complete.as_deref() == Some("0");
     connection.execute(
         "INSERT OR IGNORE INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')",
         [],
     )?;
-    let ids = {
-        let mut statement = connection.prepare(
-            "SELECT segment_id FROM journal_segments
-             WHERE NOT EXISTS (
-               SELECT 1 FROM journal_segment_kinds
-               WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
-             )
-             ORDER BY start_sequence ASC",
-        )?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
-    };
+    let ids = legacy_backfill_segment_ids(connection, resumed)?;
     for segment_id in ids {
         let segment = load_journal_segment(connection, &segment_id)?;
         let kinds = decode_journal_segment(connection, segment)?
@@ -1644,6 +1639,25 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     connection
         .execute("UPDATE meta SET value = '1' WHERE key = 'journal_segment_kinds_backfill'", [])?;
     Ok(())
+}
+
+/// The segments a legacy kind backfill decodes: those with no kind rows, or
+/// every segment when an earlier backfill was stopped partway (`resumed`).
+pub(super) fn legacy_backfill_segment_ids(
+    connection: &Connection,
+    resumed: bool,
+) -> anyhow::Result<Vec<String>> {
+    let mut statement = connection.prepare(
+        "SELECT segment_id FROM journal_segments
+         WHERE ?1 OR NOT EXISTS (
+           SELECT 1 FROM journal_segment_kinds
+           WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
+         )
+         ORDER BY start_sequence ASC",
+    )?;
+    Ok(statement
+        .query_map([resumed], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 fn load_journal_segment(
