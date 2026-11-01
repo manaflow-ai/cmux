@@ -156,7 +156,8 @@ extension AppActions {
         // With none asked for, a person's create (or one naming a space) goes where the space creates; a script's
         // stays on this Mac, so a `cmux new-workspace` never wakes a paused Cloud machine of the space shown.
         let daemon = asked ?? (invocation.origin == .user || spawn.profile != nil ? nil : services.daemon)
-        if invocation["machine"] != nil, daemon?.connection == nil {
+        // A named machine that does not resolve (unknown, or Cloud off) is refused, never made on this Mac instead.
+        if invocation["machine"] != nil, asked?.connection == nil {
             services.registry.track(Task { ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) })
             return
         }
