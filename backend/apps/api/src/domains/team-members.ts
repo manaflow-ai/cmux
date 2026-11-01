@@ -13,7 +13,7 @@ export const TABLE_HOST = "host"
 /** install id -> host id (a server or host enrolled by that install). */
 export const TABLE_HOST_BY_INSTALL = "host_by_install"
 /** Rows subscribers never get in event effects: clients page members, hosts and audit records (team-audit-rows.ts) with reads. */
-export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL, "audit", "group", "group_member", "group_item", "group_ws"]
+export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL, "audit", "group", "group_member", "group_item", "group_ws", "member_authority"]
 
 export type Member = typeof TeamMember.Type
 export type HostRecord = typeof Host.Type

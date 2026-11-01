@@ -27,6 +27,18 @@ nonisolated struct CloudMoveCLI: Sendable {
         /// `link machine update --if-older`: the machine runs another build that is not older than
         /// this app's (a newer one, or the same source tree), so it was left alone.
         var notOlder = false
+        /// Optional git-seed/environment progress returned by Cloud start-chat copy.
+        var seedState: String?
+        var seedPhase: String?
+        var seedReceivedBytes: Int?
+        var seedObjects: Int?
+        var seedTotalObjects: Int?
+        var environmentStatus: String?
+        var environmentLogTail: String?
+        var machineStartedAt: Double?
+        var machineFinishedAt: Double?
+        var harnessStartedAt: Double?
+        var harnessFinishedAt: Double?
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
@@ -116,9 +128,9 @@ nonisolated struct CloudMoveCLI: Sendable {
         var tabKey: String
     }
 
-    /// `cmux link start-chat plan --request JSON` (cmux-tui `link/start_chat_cli.rs`).
-    func startChatPlan(request: String) async throws -> (Answer, StartChatPlan) {
-        let run = try await parsed(["link", "start-chat", "plan", "--request", request])
+    /// `cmux link start-chat plan --request JSON` (cmux-tui `link/start_chat_cli.rs`), the cmux `access` token on stdin.
+    func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
+        let run = try await parsed(["link", "start-chat", "plan", "--request", request], stdin: access.map { Data(($0 + "\n").utf8) })
         let object = run.object ?? [:]
         let plan = StartChatPlan(machine: object["machine"] as? String, newName: object["new_name"] as? String,
                                  createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "")
@@ -163,8 +175,8 @@ nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// One run's answer, with its JSON line (nil when it printed none) and exit status.
-    private func parsed(_ arguments: [String], timeout: Duration? = nil) async throws -> (answer: Answer, object: [String: Any]?, status: Int32) {
-        let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil,
+    private func parsed(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil) async throws -> (answer: Answer, object: [String: Any]?, status: Int32) {
+        let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
                                                  timeout: timeout ?? self.timeout, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
@@ -177,7 +189,18 @@ nonisolated struct CloudMoveCLI: Sendable {
                             sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String,
                             conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String,
                             updated: object["updated"] as? Bool ?? false, build: object["build"] as? String,
-                            notOlder: object["not_older"] as? Bool ?? false)
+                            notOlder: object["not_older"] as? Bool ?? false,
+                            seedState: object["seed_state"] as? String ?? (object["state"] as? String),
+                            seedPhase: object["seed_phase"] as? String ?? (object["phase"] as? String),
+                            seedReceivedBytes: object["received_bytes"] as? Int,
+                            seedObjects: object["objects"] as? Int,
+                            seedTotalObjects: object["total_objects"] as? Int,
+                            environmentStatus: object["environment_status"] as? String,
+                            environmentLogTail: object["environment_log_tail"] as? String,
+                            machineStartedAt: object["machine_started_at"] as? Double ?? object["machineStartedAt"] as? Double,
+                            machineFinishedAt: object["machine_finished_at"] as? Double ?? object["machineFinishedAt"] as? Double,
+                            harnessStartedAt: object["harness_started_at"] as? Double ?? object["harnessStartedAt"] as? Double,
+                            harnessFinishedAt: object["harness_finished_at"] as? Double ?? object["harnessFinishedAt"] as? Double)
         return (answer, object, result.status)
     }
 }
