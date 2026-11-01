@@ -48,6 +48,8 @@ impl Daemon {
         let init = json!({"mcp_servers": [{"name": "github", "status": "connected"}]});
         let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]},
                                           "fakem": {"argv": ["python3", fake, "--model", "${model}"]},
+                                          "fakep": {"argv": ["python3", fake],
+                                                    "env": {"FAKE_PICKER": "1", "FAKE_MODELS": "m-a,m-b"}},
                                           "fakeclaude": {"argv": ["python3", claude], "kind": "claude-stdio",
                                                          "env": {"FAKE_CLAUDE_INIT": init.to_string()}}},
                             "defaultHarness": "fake", "permissionPolicy": "ask",
@@ -185,6 +187,7 @@ struct Case {
 fn harness_of(field: &str) -> (&'static str, bool) {
     match field {
         "modelRequest" => ("fakem", false),
+        "models.currentModelId" => ("fakep", false),
         "tools" => ("fakeclaude", true),
         "bookmarks" => ("fake", true),
         _ => ("fake", false),
@@ -278,6 +281,14 @@ fn cases() -> Vec<Case> {
             field: "modelRequest",
             change: |id, _| ("session/set_model", json!({"sessionId": id, "modelId": "g2-model"})),
             expect: |_| json!("g2-model"),
+            read: |c, id| info(c, id)["model"].clone(),
+        },
+        Case {
+            // `session/set_model` on a running harness with no model option: the model it
+            // reports runs now (`Hub::set_model`, its last path).
+            field: "models.currentModelId",
+            change: |id, _| ("session/set_model", json!({"sessionId": id, "modelId": "m-b"})),
+            expect: |_| json!("m-b"),
             read: |c, id| info(c, id)["model"].clone(),
         },
         Case {
