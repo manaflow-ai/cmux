@@ -186,8 +186,16 @@
    i feel like we could easily remove a bit of vertical space within and just get that little bit of
    bottom padding so there's not so much uncomfortable tangent line at the bottom"). The room comes
    out of the box: the prompt starts 11 px under the top (was 15) and the control row is 44 px (was
-   52), so the stack is as tall as before. design/composer.md, Codex's look. */
-.acpmux-composer[data-composer-look="codex"] {
+   52), so the stack is as tall as before. design/composer.md, Codex's look. Quick Composer's box
+   is the window itself: no floor, and the old prompt top and row. */
+.acpmux-quick .acpmux-composer[data-composer-look="codex"] {
+  --acpmux-codex-floor: 0px;
+  --acpmux-codex-row: calc(52px * var(--cmux-interface-scale, 1));
+  --acpmux-md-pad-top: calc(15px * var(--cmux-interface-scale, 1));
+  --acpmux-md-pad-bottom: calc(8px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-top: var(--acpmux-md-pad-top);
+}
+.acpmux-composer[data-composer-look="codex"]:not(.acpmux-quick .acpmux-composer) {
   --acpmux-codex-floor: calc(12px * var(--cmux-interface-scale, 1));
   --acpmux-codex-row: calc(44px * var(--cmux-interface-scale, 1));
   --acpmux-md-pad-top: calc(11px * var(--cmux-interface-scale, 1));
