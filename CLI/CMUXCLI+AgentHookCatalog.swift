@@ -300,4 +300,38 @@ extension CMUXCLI {
         let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return agentDefs.first { $0.name == normalized || $0.aliases.contains(normalized) }
     }
+
+    /// Resolves the target of a hook event: a built-in agent, or else the id of an
+    /// agent the user declared under `vault.agents` in cmux.json. The CLI cannot
+    /// read that registry, so it checks only the id's shape; the app ignores
+    /// lifecycle from an id with no registration.
+    static func hookEventTargetDef(named name: String) -> AgentHookDef? {
+        if let def = agentDef(named: name) { return def }
+        let id = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isJournalSafeAgentID(id) else { return nil }
+        return AgentHookDef(
+            name: id, displayName: id, statusKey: id,
+            configDir: "", configFile: "",
+            sessionStoreSuffix: id, disableEnvVar: "CMUX_VAULT_AGENT_HOOKS_DISABLED",
+            hookMarker: "cmux hooks \(id)", format: .flat,
+            events: []
+        )
+    }
+
+    /// Journal `source`/`agent_key` slugs are lowercase, so a vault id with
+    /// uppercase letters cannot report through hooks. Hook verbs and the
+    /// `manual` lifecycle namespace are never agent ids.
+    static func isJournalSafeAgentID(_ id: String) -> Bool {
+        guard !id.isEmpty, id.count <= 64, id != ".", id != "..", !id.hasPrefix("-") else { return false }
+        guard !reservedHookTargetNames.contains(id) else { return false }
+        return id.allSatisfy { character in
+            character.isASCII
+                && (character.isLowercase || character.isNumber
+                    || character == "." || character == "_" || character == "-")
+        }
+    }
+
+    private static let reservedHookTargetNames: Set<String> = [
+        "setup", "install", "uninstall", "enqueue", "feed", "claude", "help", "manual",
+    ]
 }

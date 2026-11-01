@@ -1,3 +1,4 @@
+import CmuxAgentJournal
 import CmuxFoundation
 import Darwin
 import Foundation
@@ -80,6 +81,56 @@ struct AgentHibernationTests {
         TerminalMutationBus.shared.drainForTesting()
 
         expectEqual(workspace.agentLifecycleStatesByPanelId[panelId]?["local-agent"], .idle)
+    }
+
+    @MainActor
+    @Test
+    func testJournalProjectsLifecycleOnlyForBuiltInOrRegisteredCustomAgents() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-journal-custom-lifecycle-\(UUID().uuidString)", isDirectory: true)
+        let configDirectory = root.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try """
+        {
+          "vault": {
+            "agents": [
+              {
+                "id": "local-agent",
+                "name": "Local Agent",
+                "detect": { "processName": "local-agent" },
+                "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
+                "resumeCommand": "local-agent --session {{sessionId}}",
+                "cwd": "preserve"
+              }
+            ]
+          }
+        }
+        """.write(to: configDirectory.appendingPathComponent("cmux.json"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let appDelegate = try #require(AppDelegate.shared)
+        let previousTabManager = appDelegate.tabManager
+        let manager = TabManager()
+        appDelegate.tabManager = manager
+        defer { appDelegate.tabManager = previousTabManager }
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.panelDirectories[panelId] = root.path
+
+        func projects(_ key: String) async -> Bool {
+            await AgentJournalLifecycleCenter.projectsLifecycle(
+                AgentLifecycleAssignment(surfaceId: panelId.uuidString, agentKey: key, phase: .idle),
+                workspaceHint: workspace.id.uuidString
+            )
+        }
+        let codex = await projects("codex")
+        let registered = await projects("local-agent")
+        let unregistered = await projects("unregistered-agent")
+        let manual = await projects("manual")
+        expectTrue(codex)
+        expectTrue(registered)
+        expectFalse(unregistered)
+        expectFalse(manual)
     }
 
     @Test

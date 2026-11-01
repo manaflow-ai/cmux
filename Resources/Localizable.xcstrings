@@ -610539,6 +610539,131 @@
         }
       }
     },
+    "cli.hooks.error.vaultAgentNothingToInstall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is declared in cmux.json and has no cmux-managed hooks to install or uninstall."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‏%@ معرَّف في cmux.json وليس له خطافات يديرها cmux لتثبيتها أو إلغاء تثبيتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je deklarisan u cmux.json i nema hookove kojima upravlja cmux za instalaciju ili deinstalaciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er erklæret i cmux.json og har ingen cmux-administrerede hooks at installere eller afinstallere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist in cmux.json deklariert und hat keine von cmux verwalteten Hooks zum Installieren oder Deinstallieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ está declarado en cmux.json y no tiene hooks gestionados por cmux que instalar o desinstalar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est déclaré dans cmux.json et n’a aucun hook géré par cmux à installer ou désinstaller."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ è dichiarato in cmux.json e non ha hook gestiti da cmux da installare o disinstallare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は cmux.json で宣言されており、インストールまたはアンインストールする cmux 管理のフックはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ត្រូវបានប្រកាសក្នុង cmux.json ហើយមិនមាន hooks ដែល cmux គ្រប់គ្រងសម្រាប់ដំឡើង ឬលុបចេញទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) cmux.json에 선언되어 있으며 설치하거나 제거할 cmux 관리 훅이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er deklarert i cmux.json og har ingen cmux-administrerte hooks å installere eller avinstallere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ jest zadeklarowany w cmux.json i nie ma hooków zarządzanych przez cmux do zainstalowania ani odinstalowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ está declarado em cmux.json e não tem hooks gerenciados pelo cmux para instalar ou desinstalar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ объявлен в cmux.json, и у него нет управляемых cmux хуков для установки или удаления."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ประกาศไว้ใน cmux.json และไม่มี hooks ที่ cmux จัดการให้ติดตั้งหรือถอนการติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ cmux.json içinde tanımlı ve yüklenecek ya da kaldırılacak cmux tarafından yönetilen hook'u yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ оголошено в cmux.json, і він не має керованих cmux хуків для встановлення чи видалення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已在 cmux.json 中声明，没有可安装或卸载的 cmux 托管钩子。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已在 cmux.json 中宣告，沒有可安裝或解除安裝的 cmux 管理鉤子。"
+          }
+        }
+      }
+    },
     "cli.error.notifyDesktopValue": {
       "extractionState": "manual",
       "localizations": {
