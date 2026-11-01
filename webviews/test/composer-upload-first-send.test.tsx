@@ -149,6 +149,19 @@ test("a failed upload that keeps failing shows Retry, and still holds a send unt
   expect(handle.current!.loading).toBe(0);
 });
 
+test("an upload the host refused outright shows Retry at once, with no try again", async () => {
+  let calls = 0;
+  const handle = mount(async () => {
+    calls += 1;
+    return { error: "The disk is full.", final: true };
+  });
+  await act(() => void handle.current!.attach([mp4()], true));
+  await until(() => Boolean(handle.current!.pending[0]?.failed));
+  expect(calls).toBe(1);
+  // Still the person's to Retry or remove: the send waits for it.
+  expect(handle.current!.hold(() => {})).toBe(true);
+});
+
 test("a file the composer refused never holds a send: Retry could never make it", async () => {
   const options: AttachmentIntakeOptions = { allowImages: false, scope: "chat", pasteTarget: () => undefined };
   const handle: { current: Probe | null } = { current: null };

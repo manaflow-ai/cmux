@@ -430,10 +430,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const failed = intakeErrorText(error, live.current.t);
       // An upload that failed (its host's words, never a file the composer refused) is tried again
       // on its own first; its chip keeps loading meanwhile, and shows Retry only once that fails.
+      // One the host refused outright (the app could not save it) shows Retry at once.
       if (uploads && "text" in error) {
         const kept = autoRetries.current.get(id);
         kept?.stop();
-        const tries = kept?.tries ?? 0;
+        const tries = error.final ? UPLOAD_AUTO_RETRIES : (kept?.tries ?? 0);
         const source = owned[index];
         const still = () => sources.current.get(id) === source;
         const giveUp = () => {

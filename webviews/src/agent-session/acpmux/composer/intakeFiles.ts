@@ -24,7 +24,8 @@ export type IntakeOptions = {
   cancelled?: UploadCancelled;
 };
 
-export type IntakeError = AttachmentError | { text: string };
+/// `final`: the host refused the upload outright, so it is not tried again on its own.
+export type IntakeError = AttachmentError | { text: string; final?: boolean };
 
 /// What happens to each file of a batch, by its index, the moment it happens: a chip never waits
 /// on the rest of its batch (Leo, 2026-10-24: "the attachments, they freeze").
@@ -191,7 +192,7 @@ export async function intakeFiles(
           });
         else if (!options.cancelled?.(index)) {
           const reason: IntakeError =
-            sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" };
+            sent && "error" in sent ? { text: sent.error, final: sent.final } : { name: file.name, reason: "unsupported" };
           if (image) events.originalFailed?.(index, reason);
           else fail(index, reason);
         }
