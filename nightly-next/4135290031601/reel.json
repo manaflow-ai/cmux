@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4135290031601",
+  "notes": "notes/4135290031601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 30888,
+      "title": "test(cmux-next): HomeDock allow_tabs wait: replacement, end when Home's page goes, no polling (#30826 review follow-ups)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28935,
+      "title": "acpmux: adopted agents hibernate when idle; Claude wrapper profiles read Claude's MCP configs",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30418,
+      "title": "Cloud: restrict environment credentials to platform deployments",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31324,
+      "title": "base red: cmux-tui tree key misses the embedded skill SKILL.md files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31346,
+      "title": "session info: Outputs fold to five with a whole-row Show more / Show less",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
