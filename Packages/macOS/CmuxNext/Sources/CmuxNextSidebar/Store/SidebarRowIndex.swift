@@ -175,7 +175,7 @@ nonisolated extension SidebarLayout {
     /// workspaces, which read as one collapsible "Chief" group of their own, never as the rows
     /// after the last group above them (Leo 2026-10-21). The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        section.isHostGroup
+        section.isHostGroup && !section.drawsAsGroup
     }
 
     /// The computer a workspace row of `section` names in the one-list sidebar
