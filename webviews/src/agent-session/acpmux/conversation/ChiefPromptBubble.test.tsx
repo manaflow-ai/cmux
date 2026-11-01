@@ -26,7 +26,7 @@ function render(text: string, actions?: React.ReactNode): HTMLElement {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   const host = dom.window.document.getElementById("root")!;
-  void act(() => {
+  act(() => {
     root = createRoot(host);
     root.render(<ChiefPromptBubble text={text} actions={actions} />);
   });
@@ -34,7 +34,7 @@ function render(text: string, actions?: React.ReactNode): HTMLElement {
 }
 
 afterEach(() => {
-  void act(() => root?.unmount());
+  act(() => root?.unmount());
   root = undefined;
   dom?.window.close();
   dom = undefined;
@@ -63,7 +63,7 @@ test("a long Chief task opens collapsed and Show all opens it", () => {
   expect(bubble().textContent).toBe(task);
   expect(toggle().textContent).toBe("Show all");
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
-  void act(() => {
+  act(() => {
     toggle().dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
   });
   expect(bubble().classList.contains("cv-user__bubble--collapsed")).toBe(false);
@@ -82,7 +82,7 @@ test("Show all leads the action row instead of taking a row of its own", () => {
   expect(row.firstElementChild).toBe(toggle);
   expect(row.querySelector(".cv-user__actions")).not.toBeNull();
   // A short prompt has no toggle, and its action row stays where it was.
-  void act(() => root?.render(<ChiefPromptBubble text="Short" actions={<div className="cv-user__actions">a</div>} />));
+  act(() => root?.render(<ChiefPromptBubble text="Short" actions={<div className="cv-user__actions">a</div>} />));
   expect(host.querySelector(".cv-user__expand")).toBeNull();
   expect(host.querySelector(".cv-user__chief-footer")).toBeNull();
   expect(host.querySelector(".cv-user__actions")).not.toBeNull();
