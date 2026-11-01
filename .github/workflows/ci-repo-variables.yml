@@ -48,6 +48,9 @@ jobs:
   # because it holds the routing App key, so it runs where no variable can
   # move it (tests/test_ci_fork_runner_routing.py), on the queue janitor's
   # bounded Linux pick. If it fails, check still runs and fails closed.
+  # The Python runs from feat-cmux-next, the reviewed tooling ref
+  # (scripts/ci/runs_on_values.py there), as nightly-next-launch-smoke.yml
+  # runs its scripts.
   runners:
     name: Read the self-hosted runner list
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
@@ -58,9 +61,10 @@ jobs:
     outputs:
       list: ${{ steps.read.outputs.list }}
     steps:
-      - name: Checkout
+      - name: Check out the runs-on tooling
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: feat-cmux-next
           persist-credentials: false
           sparse-checkout: scripts/ci
 
@@ -83,7 +87,15 @@ jobs:
         timeout-minutes: 1
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
-        run: python3 scripts/ci/runs_on_values.py --list-runners >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          # Until the counting lands on feat-cmux-next, there is no list to read;
+          # check then runs main's copy without the host count.
+          if ! grep -q -- '--list-runners' scripts/ci/runs_on_values.py; then
+            echo "::notice title=runs-on value::feat-cmux-next's runs_on_values.py has no --list-runners yet; hosts are not counted"
+            exit 0
+          fi
+          python3 scripts/ci/runs_on_values.py --list-runners >> "$GITHUB_OUTPUT"
 
   check:
     name: Check repository variables
@@ -164,6 +176,16 @@ jobs:
           LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
         run: python3 scripts/ci/runner_pools.py --check
+
+      # The host count's Python, from the reviewed tooling ref (see the runners job).
+      - name: Check out the runs-on tooling
+        if: ${{ !cancelled() }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .runs-on-tooling
+          persist-credentials: false
+          sparse-checkout: scripts/ci
 
       # No runs-on waits on one machine through a variable's value
       # (scripts/ci/runs_on_values.py). The workflow text passes
@@ -248,4 +270,12 @@ jobs:
             fi
             trees+=("$branch=$dir")
           done
-          python3 scripts/ci/runs_on_values.py "${trees[@]}"
+          # feat-cmux-next's copy counts hosts (CMUX_CI_COUNT_RUNNER_HOSTS); until it
+          # does, main's copy runs the same check without the count.
+          tool=.runs-on-tooling/scripts/ci/runs_on_values.py
+          if [ -f "$tool" ] && grep -q CMUX_CI_COUNT_RUNNER_HOSTS "$tool"; then
+            python3 "$tool" "${trees[@]}"
+          else
+            echo "::notice title=runs-on value::feat-cmux-next's runs_on_values.py does not count hosts yet; checking without the count"
+            python3 scripts/ci/runs_on_values.py "${trees[@]}"
+          fi
