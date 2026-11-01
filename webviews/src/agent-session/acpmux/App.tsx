@@ -80,6 +80,7 @@ import {
   authText,
   isAuthPreflightPending,
   sessionLogin,
+  slashLogin,
   useRouteAuthSwitch,
   useSessionAuth,
   UNKNOWN_AUTH,
@@ -9014,7 +9015,15 @@ function AcpmuxPane() {
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
   const composerSnapshot = useMemo(() => {
-    const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import", "model", "fast", "context", "plan"]);
+    const enabledCmuxActions = new Set<CmuxCommand["action"]>([
+      "import",
+      "model",
+      "fast",
+      "context",
+      "plan",
+      "resume",
+      "login",
+    ]);
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) {
@@ -10935,6 +10944,21 @@ function AcpmuxPane() {
     if (refusal) return t(refusal);
     if (command.action === "status") {
       setStatusCardOpen(true);
+      return true;
+    }
+    // /resume: the chats search, the same page Show all chats and Cmd-K open, where an earlier chat
+    // opens again where it left off.
+    if (command.action === "resume") {
+      showAllChats();
+      return true;
+    }
+    if (command.action === "login") {
+      const harness = sessionAuth.harness ?? snapshot.summary?.harness ?? healthHarness;
+      const declared = composerSnapshot.catalog.find((entry) => entry.id === harness)?.auth?.login;
+      const login = slashLogin(sessionAuth, declared);
+      if (!login) return authText(sessionAuth, t) ?? t("composer.cmuxLoginElsewhere");
+      if (login.kind === "session") signIn.loginSession?.(sessionAuth);
+      else signIn.logIn(harness ?? "", login.command);
       return true;
     }
     const argument = args?.trim();
