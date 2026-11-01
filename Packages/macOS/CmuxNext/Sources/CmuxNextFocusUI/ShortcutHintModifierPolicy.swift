@@ -2,11 +2,10 @@ public import AppKit
 
 /// The classic intentional-hold rule, without a timer or window dependency.
 public struct ShortcutHintModifierPolicy {
+    public init() {}
     public static let intentionalHoldDelay: Duration = .milliseconds(300)
     private var suppressed = false
     private var held = false
-
-    public init() {}
     /// A key while held suppresses the hints until release, unless it `keepsHints` (a pane-navigation key).
     public mutating func keyDown(keepsHints: Bool = false) {
         if !keepsHints { suppressed = held }
