@@ -224,6 +224,8 @@ final class AppControl {
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
                 return .value(DebugLayers.report(services: services, params: call.params))
             },
+            // Repeating Core Animation loops and whether anyone can see them (hq#3716).
+            .mainActor("debug.loops") { call in .value(DebugLoops.report(params: call.params)) },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
             .mainActor("debug.hover_cards") { [weak services] call in
