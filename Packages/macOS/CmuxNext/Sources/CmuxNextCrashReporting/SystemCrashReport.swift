@@ -143,7 +143,7 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
-        guard let whole = formatter.date(from: "\(parts[0]) \(clock[0]) \(parts[2])") else { return nil }
+        guard let time = clock.first, let whole = formatter.date(from: "\(parts[0]) \(time) \(parts[2])") else { return nil }
         guard clock.count == 2, let fraction = Double("0." + clock[1]) else { return whole }
         return whole.addingTimeInterval(fraction)
     }

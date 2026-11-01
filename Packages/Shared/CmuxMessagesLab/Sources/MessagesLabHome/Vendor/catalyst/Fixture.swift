@@ -238,7 +238,8 @@ enum Fixture {
     }
     static var repliesTint: UIColor { themedLink ?? PreviewStyle.repliesBlue }
     static var outgoingGradient: CGGradient? {
-        if let t = theme, themedAccent { return t.active.outgoingGradient }
+        // cmux: the palette's own gradient, made once per palette (PaletteBox.outgoingGradient), not once per draw.
+        if themedAccent, let box = PaletteScope.effective { return box.outgoingGradient.gradient }
         return measuredGradient
     }
     /// Text colours measured with screencapture -l (macOS 27, 2026-10-05).

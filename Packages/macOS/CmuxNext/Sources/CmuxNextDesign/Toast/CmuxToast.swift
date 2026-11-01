@@ -9,14 +9,22 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
         /// Cmd-Z runs it while the toast shows and the focused responder
         /// has nothing of its own to undo.
         public var isUndo: Bool
+        /// The button shows the toast in full where it is, and hides it again: the whole message
+        /// (no line limit) and its `detail` under it, selectable. It never ends the toast or runs
+        /// the handle's `onAction`; nothing opens elsewhere (Leo 2026-10-29: "the FUCKING details
+        /// are FUCKING STUPID BECAUSE IT TAKES YOU TO FUCKING SETTINGS????").
+        public var revealsDetails: Bool
 
-        public init(title: String, isUndo: Bool = false) {
+        public init(title: String, isUndo: Bool = false, revealsDetails: Bool = false) {
             self.title = title
             self.isUndo = isUndo
+            self.revealsDetails = revealsDetails
         }
 
         public static func undo(_ title: String = CmuxToastStrings.undo) -> Action { Action(title: title, isUndo: true) }
         public static func reopen(_ title: String = CmuxToastStrings.reopen) -> Action { Action(title: title) }
+        /// Details: the toast shows its details in place (``revealsDetails``).
+        public static func details(_ title: String) -> Action { Action(title: title, revealsDetails: true) }
     }
 
     /// A new toast with the same id replaces the one showing.

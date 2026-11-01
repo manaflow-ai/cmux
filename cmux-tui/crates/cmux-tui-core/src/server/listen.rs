@@ -12,10 +12,10 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use super::start_apps_when_ready;
 use super::{
-    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_watched_connection, cleanup,
-    handle_connection_with_permit, try_default_socket_path,
+    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_watched_connection,
+    claim_watched_terminal_connection, cleanup, handle_connection_with_permit,
+    try_default_socket_path,
 };
-use crate::diagnostics::ConnectionLane;
 use crate::mux::Mux;
 use crate::platform::{self, transport};
 
@@ -49,9 +49,7 @@ impl Drop for PendingServer {
     fn drop(&mut self) {
         if let Some(path) = self.path.take() {
             self.shutdown.store(true, Ordering::Release);
-            // Wake both blocked accepts so the loops see the shutdown flag.
             let _ = transport::connect(&path);
-            let _ = transport::connect(&app_lane_socket_path(&path));
             cleanup(&path);
         }
     }
@@ -325,11 +323,8 @@ pub const START_LOCK_DEADLINE: Duration = Duration::from_secs(10);
 /// A session socket this process bound, before any session serves it.
 /// Dropping it closes the listener and removes the socket file.
 pub struct BoundSocket {
-    // Declared first: the listeners close before the files are removed.
+    // Declared first: the listener closes before the file is removed.
     listener: transport::Listener,
-    /// The app's own socket (`app_lane_socket_path`); `None` when its path does
-    /// not fit a Unix socket path (the app then uses the session socket).
-    app: Option<(transport::Listener, SocketFile)>,
     file: SocketFile,
 }
 
@@ -359,15 +354,10 @@ impl BoundSocket {
         &self.file.path
     }
 
-    /// The session listener, the app's listener and the session socket path,
-    /// whose cleanup (both files, `cleanup`) the caller takes.
-    pub(super) fn into_parts(self) -> (PathBuf, transport::Listener, Option<transport::Listener>) {
-        let Self { listener, app, file } = self;
-        let app = app.map(|(listener, file)| {
-            file.release();
-            listener
-        });
-        (file.release(), listener, app)
+    /// The listener and the socket path, whose cleanup the caller takes.
+    pub(super) fn into_parts(self) -> (PathBuf, transport::Listener) {
+        let Self { listener, file } = self;
+        (file.release(), listener)
     }
 }
 
@@ -400,57 +390,10 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
         }
     }
     let listener = transport::listen(&path)?;
-    let file = SocketFile { path, owned: true };
-    // The app socket is an addition: without it the app connects to the
-    // session socket (LineTransport's fallback), so it never stops a start.
-    let app = match bind_app_lane(&file.path) {
-        Ok(app) => app,
-        Err(error) => {
-            eprintln!(
-                "cmux-tui: the app socket next to {} is not served ({error:#}); the app uses the session socket",
-                file.path.display()
-            );
-            None
-        }
-    };
     drop(start_lock);
-    let bound = BoundSocket { listener, app, file };
+    let bound = BoundSocket { listener, file: SocketFile { path, owned: true } };
     platform::restrict_file(bound.path())?;
     Ok(bound)
-}
-
-/// Bind the app's socket next to the session socket, under the same start
-/// lock: whoever owns the session socket owns this one, so a file left by a
-/// crashed owner is stale and goes. `None` when the path does not fit a Unix
-/// socket path, and an error when it can't be bound; either way the caller
-/// serves the session socket alone and the app connects there, as with an
-/// older daemon.
-fn bind_app_lane(
-    session_socket: &Path,
-) -> anyhow::Result<Option<(transport::Listener, SocketFile)>> {
-    let path = app_lane_socket_path(session_socket);
-    #[cfg(unix)]
-    if !super::socket_path::unix_socket_path_fits(&path) {
-        return Ok(None);
-    }
-    match std::fs::symlink_metadata(&path) {
-        Ok(_) => std::fs::remove_file(&path)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    let listener = transport::listen(&path)?;
-    let file = SocketFile { path, owned: true };
-    platform::restrict_file(&file.path)?;
-    Ok(Some((listener, file)))
-}
-
-/// The app's own socket next to a session socket: `<session socket>.app`.
-/// Only the cmux app connects to it; terminals, the CLI and hooks use the
-/// session socket.
-pub fn app_lane_socket_path(session_socket: &Path) -> PathBuf {
-    let mut path = session_socket.as_os_str().to_os_string();
-    path.push(".app");
-    PathBuf::from(path)
 }
 
 /// The session a bound socket's accept loop hands connections to, once the
@@ -458,60 +401,36 @@ pub fn app_lane_socket_path(session_socket: &Path) -> PathBuf {
 #[derive(Clone)]
 pub(super) struct ServedSession {
     pub(super) mux: Arc<Mux>,
-    /// The outbound byte budgets of the session socket's connections.
     pub(super) render_service: Arc<RenderService>,
-    /// The app socket's own budgets: a session-socket client that stops
-    /// reading holds its queued bytes until its queue overflows, and those
-    /// bytes must never be the ones the app's replies need (#27698).
-    pub(super) app_render_service: Arc<RenderService>,
+    pub(super) terminal_sessions: Arc<super::terminal_sessions::TerminalSessions>,
 }
 
 impl ServedSession {
-    /// The session `mux` serves on both sockets, each with its own outbound
-    /// byte budgets.
-    pub(super) fn new(mux: Arc<Mux>) -> Self {
-        Self {
-            mux,
-            render_service: Arc::new(RenderService::new()),
-            app_render_service: Arc::new(RenderService::new()),
-        }
-    }
-
-    /// Serve one connection accepted on `lane` on its own thread, bounded by
-    /// the lane's budget and, on the session socket, by its client's fair
-    /// share (`diagnostics::ConnectionBudget`).
-    pub(super) fn serve(&self, stream: Box<dyn transport::Stream>, lane: ConnectionLane) {
-        let identity = match lane {
-            ConnectionLane::App => None,
-            ConnectionLane::Shared => client_identity(&*stream),
+    /// Serve one accepted connection on its own thread (bounded by the
+    /// session's connection permits).
+    pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
+        // A process in one of the session's terminals (an agent, its hooks,
+        // `cmux` run in a pane) may hold only its share of the connections, so
+        // a burst of agents cannot lock the app out of its own daemon (#27698).
+        // Decided here, before the connection's thread, without waiting on the
+        // state lock (`TerminalSessions`).
+        let key = stream.peer_process_key();
+        let connections = self.mux.connection_stats();
+        let permit = if self.terminal_sessions.contains_peer(&self.mux, key.as_deref()) {
+            claim_watched_terminal_connection(connections, &*stream)
+        } else {
+            claim_watched_connection(connections, &*stream)
         };
-        let stats = self.mux.connection_stats();
-        let Some(permit) = claim_watched_connection(stats, lane, identity, &*stream) else {
+        let Some(permit) = permit else {
             refuse_busy(stream);
             return;
         };
         let mux = self.mux.clone();
-        let render_service = match lane {
-            ConnectionLane::App => self.app_render_service.clone(),
-            ConnectionLane::Shared => self.render_service.clone(),
-        };
+        let render_service = self.render_service.clone();
         let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
             handle_connection_with_permit(mux, stream, render_service, Some(permit));
         });
     }
-}
-
-/// The client a connection on the session socket counts against: the process
-/// session of the process at the other end (`getsid`). A terminal's shell,
-/// the agent in it, its hooks and a `cmux` run in it share one. `None` when the
-/// peer's process is unknown: such a client has no fair share, only the lane's
-/// budget.
-fn client_identity(stream: &dyn transport::Stream) -> Option<u32> {
-    stream
-        .peer_process_key()
-        .as_deref()
-        .and_then(super::origin_gate::peer_pid)
-        .and_then(super::origin_gate::peer_session_id)
 }
 
 /// The one line a connection refused at the connection limit reads before
@@ -525,27 +444,21 @@ pub(super) const REFUSED_BUSY_LINE: &str = concat!(
 
 /// Best effort: a short write timeout keeps the accept loop from waiting on a
 /// client that does not read.
-fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
+pub(super) fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
     use std::io::Write as _;
     let _ = stream.set_write_timeout(Some(Duration::from_millis(50)));
     let _ = stream.write_all(REFUSED_BUSY_LINE.as_bytes());
     let _ = stream.flush();
 }
 
-/// Start the accept loop for `listener`, whose connections are on `lane`.
-/// Every accepted connection goes to `slot`: served by the session once it is
-/// attached, parked until then.
+/// Start the accept loop for `listener`. Every accepted connection goes to
+/// `slot`: served by the session once it is attached, parked until then.
 pub(super) fn spawn_accept_loop(
     listener: transport::Listener,
-    lane: ConnectionLane,
     slot: Arc<super::restoring::SessionSlot>,
     shutdown: Arc<AtomicBool>,
 ) -> std::io::Result<()> {
-    let name = match lane {
-        ConnectionLane::App => "mux-server-app",
-        ConnectionLane::Shared => "mux-server",
-    };
-    std::thread::Builder::new().name(name.into()).spawn(move || {
+    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
         // accepts, and an immediate retry ran this thread at 100% CPU until
         // descriptors freed up. Space those retries; per-connection errors
@@ -570,8 +483,8 @@ pub(super) fn spawn_accept_loop(
             if shutdown.load(Ordering::Acquire) {
                 break;
             }
-            if let Some((session, stream)) = slot.route(stream, lane) {
-                session.serve(stream, lane);
+            if let Some((session, stream)) = slot.route(stream) {
+                session.serve(stream);
             }
         }
     })?;

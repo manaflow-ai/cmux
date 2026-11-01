@@ -107,8 +107,11 @@ final class ClassicUpgradeSimulator {
     private(set) var launchMade: Set<String> = []
     private var watcher: Task<Void, Never>?
 
-    /// - Parameter ssh: the daemon for an SSH destination (default: none connects).
-    init(mac: Mac, ssh: (@MainActor (String) throws -> DaemonService)? = nil) throws {
+    /// - Parameters:
+    ///   - ssh: the daemon for an SSH destination (default: none connects).
+    ///   - documentRemote: wraps the home daemon's sidebar document remote (a test holds its replies).
+    init(mac: Mac, ssh: (@MainActor (String) throws -> DaemonService)? = nil,
+         documentRemote: (@MainActor (any SidebarDocRemote) -> any SidebarDocRemote)? = nil) throws {
         self.mac = mac
         let binary = try #require(SameTreeDaemonBinary.url)
         launcher = DaemonLauncher(
@@ -117,6 +120,15 @@ final class ClassicUpgradeSimulator {
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
         services = AppServices(environment: AppEnvironment.current([:]))
+        if let documentRemote {
+            // `AppServices.sidebarLayout`'s own start, with the document's remote wrapped.
+            let services = services
+            let layout = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: services),
+                                              onRefused: { [weak services] message in services?.registry.refuse(message) })
+            layout.start()
+            SidebarDocWiring.start(services, layout: layout, wrapping: documentRemote)
+            services.sidebarLayout = layout
+        }
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.onboarding.classicMigrationSupport = mac.support
@@ -306,31 +318,15 @@ final class ClassicUpgradeSimulator {
         NSApp.modalWindow != nil || NSApp.windows.contains { $0.attachedSheet != nil }
     }
 
-    /// Waits until the tree stops changing (the daemon's last events of a run
-    /// land after the run returns): first until the store has applied every
-    /// event the daemon sent before now (its event sequence, the barrier
-    /// `WorkspaceSpawner.settled` takes), then until the workspaces and the
-    /// sidebar are unchanged for 0.5 s (the app's own follow-ups: placements,
-    /// group moves). Each wait has a 60 s ceiling, not a budget: a loaded Mac
-    /// gets there later, an idle one at once.
-    func settle() async {
-        let clock = ContinuousClock()
-        let store = services.daemon.store
-        if let barrier = await services.daemon.connection?.eventSequence() {
-            let applied = clock.now + .seconds(60)
-            while clock.now < applied, store.appliedSequence < barrier { try? await Task.sleep(for: .milliseconds(20)) }
-        }
-        let deadline = clock.now + .seconds(60)
-        var last = "\(made().sorted { $0.key < $1.key })\(windows())"
-        var stableSince = clock.now
-        while clock.now < deadline, clock.now - stableSince < .milliseconds(500) {
-            try? await Task.sleep(for: .milliseconds(100))
-            let now = "\(made().sorted { $0.key < $1.key })\(windows())"
-            if now != last {
-                last = now
-                stableSince = clock.now
-            }
-        }
+    /// Waits until every placement the run asked for has landed (the daemon's
+    /// last events of a run land after the run returns): the personal queue
+    /// through, the sidebar document's moves and adopts answered, the store
+    /// caught up with the daemon after them, no new-workspace placement left and
+    /// the sidebar's projection current (``AppServices/placementsSettled(timeout:sourceLocation:)``).
+    /// No quiet window: an idle Mac gets there at once, a loaded one later, and a
+    /// hang past 60 s is recorded as an issue naming what is still in flight.
+    func settle(sourceLocation: SourceLocation = #_sourceLocation) async {
+        await services.placementsSettled(sourceLocation: sourceLocation)
     }
 
     /// Checks `profile`'s promise against the tree after the run(s).

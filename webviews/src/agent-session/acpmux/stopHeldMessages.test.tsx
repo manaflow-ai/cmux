@@ -94,7 +94,7 @@ test("other agents' messages a Stop holds say so, and what lets them in, until t
     daemon.emit(id, { mux: "queued", msg: { promptId: "p-b", text: "Lint is green", fromAgent: "linter" } });
     daemon.emit(id, { mux: "queued", msg: { promptId: "p-me", text: "Then run the tests" } });
     await until(() => view.shown.queue?.length === 3);
-    expect(await lead(view.shown)).toBe(translate("message.readAfterTurn"));
+    expect(await lead(view.shown)).toBeUndefined();
     // The person's Stop: acpmux holds the agents' messages, and the turn ends stopped.
     daemon.emit(id, { mux: "queue_paused", msg: { stoppedTurnId: "t-1", held: ["p-a", "p-b"], reason: "stop" } });
     daemon.emit(id, { mux: "turn_result", msg: { status: "cancelled", turnId: "t-1" } });
@@ -125,7 +125,7 @@ test("other agents' messages a Stop holds say so, and what lets them in, until t
       ["p-b", true],
       ["p-me", false],
     ]);
-    expect(await lead(view.shown)).toBe(translate("message.readAfterTurn"));
+    expect(await lead(view.shown)).toBeUndefined();
     daemon.emit(id, { mux: "queue_resumed", msg: { queued: 3 } });
     await until(() => view.shown.queue?.[1]?.heldByStop !== true);
     expect(held(view.shown).every(([, isHeld]) => !isHeld)).toBe(true);
@@ -149,7 +149,7 @@ test("a list that names a held message unheld lets it go; a failed turn's hold i
     daemon.emit(id, { mux: "turn_result", msg: { status: "failed", turnId: "t-2" } });
     await until(() => view.shown.queue?.length === 2);
     expect(held(view.shown).every(([, isHeld]) => !isHeld)).toBe(true);
-    expect(await lead(view.shown)).toBe(translate("message.readAfterTurn"));
+    expect(await lead(view.shown)).toBeUndefined();
   } finally {
     close();
   }

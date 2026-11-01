@@ -907,6 +907,9 @@ async fn a_no_wait_send_from_a_session_names_its_proven_sender() {
         .as_str()
         .unwrap()
         .to_owned();
+    // A chat that ran a turn: another agent's message to it goes to its inbox, where a chat's
+    // first work would run as its prompt (`hub/inbox.rs`).
+    person.call(method::SESSION_PROMPT, prompt(&receiver, "hello", "p-hello")).await.unwrap();
     let mut lane = C::as_session(h.clone(), &sender).await;
     let mut request = prompt(&receiver, "Tests pass", "p-outbox");
     // A name the sender claims stays its display name; the session, harness and provenance are

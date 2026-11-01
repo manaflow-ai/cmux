@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import Foundation
@@ -32,6 +33,22 @@ struct ClosedPageTabTitleTests {
             """)
         let text = HistoryService.daemonClosedText(item, pages: pages)
         #expect(text.title == "Changes")
+        #expect(text.detail == nil)
+    }
+
+    @Test(arguments: [nil, "Pinned chat"] as [String?])
+    func aClosedAgentUsesItsStoredNameOrStableAgentTitle(_ name: String?) throws {
+        var item = try Self.closed("""
+            {"kind":"browser","name":null,"cwd":null,"url":"about:blank","browser_profile_id":null,"pinned":false,
+             "agent_session":{"session":"same-session","harness":"codex"}}
+            """)
+        var tab = try #require(item.tabs.first)
+        tab.name = name
+        item.screens = [.init(tabs: [tab])]
+
+        let text = HistoryService.daemonClosedText(item, pages: InternalPageTabStore())
+
+        #expect(text.title == (name ?? AgentPaneModel.tabTitle))
         #expect(text.detail == nil)
     }
 
