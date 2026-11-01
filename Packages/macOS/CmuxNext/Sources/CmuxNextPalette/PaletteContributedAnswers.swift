@@ -133,8 +133,7 @@ extension PaletteModel {
     static func joined(_ ranked: [PaletteResultSection], state: PageState)
         -> (shown: [PaletteResultSection], selectable: [PaletteResultSection], held: Bool) {
         let current = state.currentAnswers, standIns = state.standInAnswers
-        let rankedRows = ranked.reduce(0) { $0 + $1.rows.count }
-        let held = state.awaitsLead || (rankedRows == 0 && !state.awaitedAnswers.isEmpty)
+        let held = isHeld(ranked, state: state)
         guard !current.isEmpty || !standIns.isEmpty else { return (ranked, ranked, held) }
         let more = state.moreRows(forQuery: state.query)
         let shown = withAnswers(ranked, answers: current + standIns, leading: state.leadingAnswers, more: more)
@@ -145,13 +144,25 @@ extension PaletteModel {
         return (shown, selectable, held)
     }
 
-    /// What the page's answers make a delivery show and hold: each answer section's rows and the query they
-    /// answer, the awaited answers and the leading ones. Equal fingerprints deliver the same rows.
+    /// Whether the rows are held (not final, so a Return waits): the page waits for its leading answer, or the
+    /// query has no ranked row while an answer is still awaited.
+    static func isHeld(_ ranked: [PaletteResultSection], state: PageState) -> Bool {
+        state.awaitsLead || (!ranked.contains { !$0.rows.isEmpty } && !state.awaitedAnswers.isEmpty)
+    }
+
+    /// What the page's answers make a delivery show and hold: each answer section's rows as they show (id, title,
+    /// subtitle, accessory, enabled; a notice row's title carries its count) and the query they answer, and whether
+    /// the rows are held. Not the raw awaited set: an awaited answer that ends empty while the query has ranked rows
+    /// changes nothing a delivery shows or holds. Equal fingerprints deliver the same rows with the same final mark.
     static func answerFingerprint(_ state: PageState) -> [String] {
         var parts = state.answerSections.keys.sorted().map { id in
-            "\(id)|\(state.answerQueries[id] ?? "")|" + (state.answerSections[id]?.rows.map(\.id).joined(separator: ",") ?? "")
+            "\(id)|\(state.answerQueries[id] ?? "")|" + (state.answerSections[id]?.rows.map { row in
+                let item = row.item
+                return [item.id, item.title, item.subtitle ?? "", item.accessory ?? "", item.isEnabled ? "1" : "0"]
+                    .joined(separator: "\u{1F}")
+            }.joined(separator: "\u{1E}") ?? "")
         }
-        parts.append("awaited:" + state.awaitedAnswers.sorted().joined(separator: ","))
+        parts.append("held:\(isHeld(state.rankedSections ?? [], state: state))")
         parts.append("query:" + state.query)
         return parts
     }
