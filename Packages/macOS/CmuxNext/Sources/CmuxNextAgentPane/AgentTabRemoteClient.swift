@@ -34,7 +34,10 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
     }
 
     public func supportsCloudTurns() async throws -> Bool {
-        try await mapped { try await client.supportsCloudTurns() }
+        do { return try await client.supportsCloudTurns() }
+        catch let error as AgentSessionAttachError {
+            throw AgentSessionRemoteError(code: error.code, message: error.message)
+        }
     }
 
     public func abandonCloudTurn(id: String, scope: Data) async throws {
