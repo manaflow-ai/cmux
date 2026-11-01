@@ -1686,9 +1686,10 @@ class FixedOnBase(unittest.TestCase):
             GUARD, "Fail on any red check", "##[group]Run failed=()", "failed=()", "shell: /usr/bin/bash -e {0}",
             "##[endgroup]", "##[error]red check: Checks job structure", "##[error]Process completed with exit code 1.")
         self.assertIn("fixed on base", self.judge(github))
-        github.changed = ["webviews/package.json"]
-        with self.assertRaisesRegex(excuse.Refused, "webviews/package.json"):
-            self.judge(github)
+        for path in ("webviews/package.json", "cmux-tui/Cargo.toml", "Native/OptChat/chief/Cargo.toml"):
+            github.changed = [path]
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, path):
+                self.judge(github)
 
     def test_a_rollup_naming_more_reds_than_guard_tests_is_not_excused(self):
         github = FixedOnBaseGitHub()

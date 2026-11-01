@@ -698,8 +698,9 @@ GUARD_READS_DEFAULT = (".github/", "scripts/", "tests/") + RELEASE_MANIFESTS
 # The guard tests that can be fixed on the base, by file, with the product paths each reads beyond the default. A
 # test is declared here only after its reads are checked; any other test's red is refused.
 GUARD_READS = {
-    # cmux_next_route and the warn-branch check read the CmuxNext target graph and webviews/package.json.
-    "tests/test_cmux_next_checks_workflow.py": ("Packages/", "webviews/"),
+    # cmux_next_route and the warn-branch check read the CmuxNext target graph, webviews/package.json and the
+    # cmux-tui and Native Cargo manifests.
+    "tests/test_cmux_next_checks_workflow.py": ("Packages/", "webviews/", "cmux-tui/", "Native/"),
     # focused_tests.plan reads the tree: Swift imports, the CmuxNext target graph, the webviews import graph, Cargo.
     "tests/test_car_guards.py": ("Packages/", "webviews/", "cmux-tui/", "Native/"),
 }
