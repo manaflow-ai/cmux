@@ -1389,6 +1389,7 @@ fn pack_with(
     unpacked_limit: u64,
 ) -> Result<Vec<u8>, CliError> {
     use std::io::Read;
+    let dense = dense_args(&tar_version(program)?);
     let mut list = Vec::new();
     for file in files {
         list.extend_from_slice(file.as_os_str().as_encoded_bytes());
@@ -1398,6 +1399,7 @@ fn pack_with(
         .current_dir(dir)
         // No AppleDouble files or extended attributes from macOS.
         .env("COPYFILE_DISABLE", "1")
+        .args(dense)
         .args([
             "--no-recursion",
             "--no-xattrs",
@@ -1452,8 +1454,9 @@ fn pack_with(
     if oversized {
         let _ = gzip.kill();
     }
-    let unpacked_over = pump.join().unwrap_or(Ok(true)).unwrap_or(false);
-    if oversized || unpacked_over {
+    let pumped = pump.join().unwrap_or(Ok(true));
+    let unpacked_over = matches!(pumped, Ok(true));
+    if oversized || unpacked_over || pumped.is_err() {
         let _ = tar.kill();
     }
     let tar_status = tar.wait();
@@ -1462,6 +1465,12 @@ fn pack_with(
     let tar_errors = error_reader.join().unwrap_or_default();
     if unpacked_over {
         return Err(unpacks_past(unpacked_limit));
+    }
+    if let Err(e) = pumped {
+        return Err(CliError::unexpected(format!(
+            "could not read tar's archive of {}: {e}",
+            dir.display()
+        )));
     }
     if oversized {
         return Err(CliError::usage(format!(
@@ -1487,15 +1496,45 @@ fn pack_with(
     }
 }
 
+/// `tar --version`'s text; a tar that cannot say what it is is not run.
+fn tar_version(program: &str) -> Result<String, CliError> {
+    let output = std::process::Command::new(program)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| CliError::usage(format!("--sync needs tar: {e}")))?;
+    if !output.status.success() {
+        return Err(CliError::usage("--sync needs tar: `tar --version` failed"));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// What makes the local tar write a sparse file's holes as zeros, so the
+/// stream count sees the size the guest unpacks to. bsdtar (macOS's tar)
+/// stores holes as a map unless told `--no-read-sparse`; GNU tar writes
+/// them out unless asked for `--sparse`, and takes no such flag.
+fn dense_args(version: &str) -> &'static [&'static str] {
+    if version.contains("bsdtar") {
+        &["--no-read-sparse"]
+    } else {
+        &[]
+    }
+}
+
 /// Counts what tar writes and passes it to gzip; `Ok(true)` one buffer past
 /// `limit`, where it stops, which ends both streams (tar's on a broken pipe).
+/// A read error is returned, never taken as the end of tar's stream: a
+/// truncated archive would otherwise pass once tar had exited cleanly.
 fn pump(from: &mut impl std::io::Read, to: &mut impl Write, limit: u64) -> std::io::Result<bool> {
     let mut total = 0_u64;
     let mut buffer = vec![0_u8; 64 * 1024];
     loop {
         let read = match from.read(&mut buffer) {
-            Ok(0) | Err(_) => break,
+            Ok(0) => break,
             Ok(read) => read,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
         };
         total = total.saturating_add(read as u64);
         if total > limit {
@@ -1996,6 +2035,15 @@ mod tests {
         let error = pack_with("bsdtar", &dir, &files, MAX_SYNC_BYTES, 1024 * 1024).unwrap_err();
         assert!(error.message().contains("unpack"), "{}", error.message());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_bsdtar_is_told_to_write_holes_out() {
+        assert_eq!(
+            dense_args("bsdtar 3.5.3 - libarchive 3.5.3 zlib/1.2.12 liblzma/5.0.5 bz2lib/1.0.8"),
+            ["--no-read-sparse"]
+        );
+        assert!(dense_args("tar (GNU tar) 1.35\nCopyright (C) 2023").is_empty());
     }
 
     #[test]
