@@ -83,11 +83,13 @@ SIGNING_JOBS = {
     ("nightly.yml", "sign-nightly-identity-legacy"), ("nightly.yml", "generate-nightly-deltas"),
     ("nightly.yml", "publish-nightly"), ("nightly.yml", "publish-nightly-next-github"),
     ("nightly.yml", "publish-nightly-next-github-names"),
+    ("nightly.yml", "signer-app"), ("nightly.yml", "signer-app-notary"), ("nightly.yml", "signer-dmg"),
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
 OWNED_PICKER = "scripts/ci/signing_runner.py"
 BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
+NATIVE_PICKER = "scripts/ci/nightly_native_signing.py"
 CLAIM = "scripts/ci/signing-runner-claim.sh"
 CLAIM_GATE_NAME = "Hold the whole Mac before any credential"
 CLAIM_GATE_ID = "claim-gate"
@@ -238,6 +240,8 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
         if OWNED_PICKER in run:  # its `owned` output names a mini; `runner` and `alternate` are nightly_sign_runner's
             owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned(?:_pool)?\b", value) is not None
             found.append(OWNED_PICKER if owned else BLACKSMITH_PICKER)
+        elif NATIVE_PICKER in run:
+            found.append(NATIVE_PICKER)
         else:
             found.append(BLACKSMITH_PICKER if BLACKSMITH_PICKER in run
                          else f"steps.{step_id} ({run.strip()[:60] or 'no run'})")
@@ -340,7 +344,12 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                     continue  # the picker's own attempt number (attempt_clauses()), not a runner label
                 scripts = picker_scripts(jobs, needed, output)
                 for script in scripts:
-                    if script == OWNED_PICKER:
+                    if script == NATIVE_PICKER:
+                        if (workflow != "nightly.yml" or name not in {"signer-app", "signer-app-notary", "signer-dmg"}
+                                or output != "native_owned_pool"):
+                            failures.append(f"{label}: native signing capability belongs only to the three native signer jobs")
+                        owned_reads.append(f"needs.{needed}.outputs.{output}")
+                    elif script == OWNED_PICKER:
                         owned_reads.append(f"needs.{needed}.outputs.{output}")
                     elif script != BLACKSMITH_PICKER:
                         failures.append(f"{label}: runs-on reads needs.{needed}.outputs.{output}, from {script}; a "

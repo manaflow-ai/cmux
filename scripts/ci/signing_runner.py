@@ -74,7 +74,7 @@ ENABLED_VALUE = "1"
 SIGNING_JOBS = {
     "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization", "sign-nightly-identity-legacy",
                     "generate-nightly-deltas", "publish-nightly", "publish-nightly-next-github",
-                    "publish-nightly-next-github-names"),
+                    "publish-nightly-next-github-names", "signer-app", "signer-app-notary", "signer-dmg"),
     "release.yml": ("build-sign-notarize",),
     "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),

@@ -4006,43 +4006,22 @@ jobs:
   # macOS cap. The signing jobs, which hold the keys, stay on Blacksmith.
   pick-nightly-sign-runner:
     needs: [decide, prepare-nightly-variant]
-    # Also when only the legacy sign runs (a full re-run of a published build), so it can take an owned Mac.
     if: ${{ !cancelled() && (needs.prepare-nightly-variant.result == 'success' || needs.decide.result == 'success' && github.ref == 'refs/heads/nightly-next' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off') }}
-    # A failed pick reads as success to the signing jobs, whose runs-on consumes
-    # only the bounded Linux outputs. The picker itself never uses a hosted or
-    # non-Blacksmith label.
     continue-on-error: true
-    # The picker itself has no signing key. Keep its routing job on the
-    # allowlisted Blacksmith Linux set even when RUNNER_POOLS is stale or
-    # points at a non-Blacksmith fleet member.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]')[0] }}
-    # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
-    # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent
-    # Room for every step budget in turn (the read token mint 1, the Blacksmith pick 2, then the owned pick's token
-    # mints 1 + 1, the verify picker 2 and the signing picker 2) plus checkout, so the job is never
-    # cut off before its outputs; the Blacksmith pick runs before the owned steps so `runner` is set first.
     timeout-minutes: 15
     permissions:
-      # The queue janitor's pool snapshot (an artifact).
       actions: read
       contents: read
     outputs:
       runner: ${{ steps.sign-runner.outputs.runner }}
-      # The other Blacksmith macOS 26 size, which the signing jobs take on a re-run
-      # (attempt 2 on), so a re-run moves off a label that stalled after this pick.
       alternate: ${{ steps.sign-runner.outputs.alternate }}
       linux: ${{ steps.sign-linux-runner.outputs.runner }}
       linux_alternate: ${{ steps.sign-linux-runner.outputs.alternate }}
-      # An owned label (glaeda-...) or empty: the verify jobs then take `runner`. They read it only
-      # while `attempt` is the run's own attempt (a re-run of failed jobs that keeps this job takes
-      # `alternate`). Outside attempt 1 of a push (the rescue's workflow_run watch) it stands only once
-      # the owned-pool-watch marker is uploaded, as pick-nightly-build-runner's does.
+      native_owned_pool: ${{ steps.native-signing.outputs.owned_pool }}
       owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}
-      # A drained (or draining) owned Mac for the release signing jobs (sign-nightly-identity-legacy), as the JSON runs-on
-      # array scripts/ci/signing_runner.py prints, or empty, under the same marker and `attempt` rules as `owned`.
       sign_owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned || '' }}
-      # The shared pool label from sign_owned. Publication controls use this pool route so they never pin one runner.
       sign_owned_pool: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned_pool || '' }}
       attempt: ${{ github.run_attempt }}
     steps:
@@ -4054,7 +4033,16 @@ jobs:
           path: .publish-tooling
           sparse-checkout: scripts/ci
 
-      # As pick-nightly-build-runner (run 41051244674's 403s were here).
+      - name: Select proven native signing capability
+        id: native-signing
+        if: needs.decide.outputs.track == 'nightly-next' && (inputs.sign_pool || vars.CI_NIGHTLY_NEXT_SIGN_POOL == '1') && vars.CMUX_NEXT_CEF_ON_DEMAND != '1' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.variants == '["arm64"]' && inputs.nightly_next_unsigned_run == ''
+        env:
+          ENABLED: ${{ vars.CI_SIGN_OWNED }}
+          OWNED_ENABLED: ${{ vars.CI_PR_POOL_OWNED }}
+          NATIVE_SIGNER_CAPABILITY: ${{ vars.CI_NIGHTLY_NATIVE_SIGNER }}
+          NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
+        run: python3 .publish-tooling/scripts/ci/nightly_native_signing.py
+
       - name: Mint the glaeda read token
         id: snapshot-read-token
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
@@ -4066,9 +4054,6 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
 
-      # The Blacksmith macOS label whose queue is moving, for the macOS jobs after this one
-      # (scripts/ci/nightly_sign_runner.py). Signing stays on Blacksmith; a stale
-      # vars.MACOS_RUNNER_26 naming a label with no runners no longer strands them.
       - name: Pick the Blacksmith macOS label with a moving queue
         id: sign-runner
         continue-on-error: true
@@ -4076,7 +4061,6 @@ jobs:
         env:
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
-          # Its `_dead` marks and live macos_26 member (nightly_sign_runner.py).
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
         run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
 
@@ -4091,8 +4075,6 @@ jobs:
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
         run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
 
-      # As cmux-next-dev-daily.yml: idle owned runners read live with the routing App's own
-      # budget. Any failure leaves the token empty, and the pick below then finds no owned Mac.
       - name: Mint the owned-pool routing token
         id: route-token
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
@@ -4116,18 +4098,6 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
-      # The owned labels the build picker offers (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's
-      # nightly slot, then vars.CI_SIDE_LANE_RUNNER), never the dedicated builder, while one of
-      # their runners is idle now (nightly_build_runner.py verify). glaeda admits a nightly job on
-      # a mini ahead of every PR, DEV and side job. Anything else, a failure included, is empty,
-      # and the verify jobs take `runner`.
-      # Only nightly-next push and dispatch runs, at any attempt, the scope ci-owned-pool-rescue.yml
-      # watches (owned_pool_rescue.py nightly_target, and its sweeper through the marker below): a
-      # stuck owned verify there is moved to Blacksmith. RC and main runs keep Blacksmith. Until
-      # 2026-10-28 only attempt 1 of a push got it: dispatch run 40594111618's attempt 3 had
-      # signer-dmg-image wait 51 min on blacksmith-6vcpu-macos-26 and signer-verify queue there too. Until 2026-10-27 this
-      # ran the pull request pool picker, which named a Blacksmith macOS 15 label in run 40515681971
-      # while owned side runners sat idle: verify then queued 1.5 h on Blacksmith.
       - name: Pick an owned Mac for the verify jobs
         id: owned
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
@@ -4136,17 +4106,10 @@ jobs:
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
-          # In order; only labels ci-owned-pool-rescue.yml watches are offered.
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
         run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py verify
 
-      # Leo, 2026-10-28: the release signing jobs may run on owned Macs ("we can just read the code"). A mini
-      # that runs no job now is offered, pinned by its runner label, else an idle nightly slot on the least busy
-      # mini, which glaeda drains for the job (no new job starts there while it waits, 3600 s at most, then the
-      # Blacksmith twin signs); glaeda gives a signing job the whole mini (the exclusive class) and the job's
-      # first step checks that claim (scripts/ci/signing-runner-claim.sh).
-      # Off unless vars.CI_SIGN_OWNED is 1; any failure leaves it empty and the signing jobs take Blacksmith.
       - name: Pick a drained owned Mac for the signing jobs
         id: sign-owned
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_SIGN_OWNED == '1' && vars.CI_PR_POOL_OWNED == '1' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
@@ -4155,17 +4118,12 @@ jobs:
         env:
           ENABLED: ${{ vars.CI_SIGN_OWNED }}
           PICK_ON_RERUN: "1"
-          # Drain the mini that frees up soonest even past the 2 min horizon, never Blacksmith first
-          # (signing_runner.py DRAIN_ANYWAY; Leo, 2026-10-30).
           DRAIN_ANYWAY: "1"
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
-          # actions: read, to count the signing jobs already holding an owned Mac (at most one at once).
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
         run: python3 .publish-tooling/scripts/ci/signing_runner.py owned
 
-      # As pick-nightly-build-runner: a dispatch made with GITHUB_TOKEN, or a re-run, may start no
-      # workflow_run event, so an owned pick there leaves the sweeper's owned-pool-watch marker.
       - name: Write the owned-pool watch marker
         id: marker
         if: (steps.owned.outputs.owned != '' || steps.sign-owned.outputs.owned != '') && (github.event_name != 'push' || github.run_attempt != 1)
@@ -5334,17 +5292,11 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # The credentialed signer jobs use the trusted Blacksmith Linux pool. Their
-  # rcodesign artifact is a Linux ELF, and the current notarization scripts
-  # still use private temporary PEM/API-key files; moving them to an owned Mac
-  # waits for the per-job keychain/profile redesign. RUNNER_POOLS.linux is the
-  # reconciler's declared Blacksmith set: it keeps the smallest measured fit
-  # (4 vCPU today) and moves to a live 16/32-vCPU member when that pool stalls.
-  # No GitHub-hosted or single fixed label can strand a nightly. The
-  # release-environment Mac signer remains the fallback for a pool-signed build.
+  # Native-capable owned Macs sign without the Linux ELF compiler. Until the
+  # exact capability is activated, the existing trusted Linux path is unchanged.
   signer-build:
     needs: [decide, pick-nightly-sign-runner]
-    if: needs.decide.outputs.track == 'nightly-next' && (inputs.sign_pool || vars.CI_NIGHTLY_NEXT_SIGN_POOL == '1') && vars.CMUX_NEXT_CEF_ON_DEMAND != '1' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.variants == '["arm64"]' && inputs.nightly_next_unsigned_run == ''
+    if: needs.decide.outputs.track == 'nightly-next' && (inputs.sign_pool || vars.CI_NIGHTLY_NEXT_SIGN_POOL == '1') && vars.CMUX_NEXT_CEF_ON_DEMAND != '1' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.variants == '["arm64"]' && inputs.nightly_next_unsigned_run == '' && !(needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.native_owned_pool != '')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || needs.pick-nightly-sign-runner.outputs.linux_alternate || needs.pick-nightly-sign-runner.outputs.linux || (contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]')[0]) }}
     timeout-minutes: 20
     permissions:
@@ -5387,8 +5339,8 @@ jobs:
   signer-app:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, signer-build, pick-nightly-sign-runner]
-    if: needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || needs.pick-nightly-sign-runner.outputs.linux_alternate || needs.pick-nightly-sign-runner.outputs.linux || (contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]')[0]) }}
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success' && (needs.signer-build.result == 'success' || (needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.native_owned_pool != '') && needs.signer-build.result == 'skipped') && (needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true')"
+    runs-on: &native-signer-route ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.native_owned_pool || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || needs.pick-nightly-sign-runner.outputs.linux_alternate || needs.pick-nightly-sign-runner.outputs.linux || (contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]')[0]) }}
     timeout-minutes: 75
     permissions:
       contents: read
@@ -5396,6 +5348,9 @@ jobs:
     outputs:
       sha256: ${{ steps.pack.outputs.sha256 }}
     env:
+      CMUX_NATIVE_SIGNING_KEYCHAIN: build.keychain
+      CMUX_NATIVE_NOTARY_PROFILE: nightly-native
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
       TOOLS: .publish-tooling
       SIGNER_WORK: ${{ github.workspace }}/signer-work
       NIGHTLY_VARIANT: arm64
@@ -5413,6 +5368,32 @@ jobs:
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
     steps:
+      - &hold-the-whole-mac
+        name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
       - &signer-checkout-build
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -5426,6 +5407,14 @@ jobs:
           ref: ${{ github.sha }}
           path: .publish-tooling
           sparse-checkout: scripts
+      - &claim-publication-mac
+        name: Claim the whole Mac for signing
+        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
+      - &native-signer-xcode
+        name: Select native signing tools
+        if: runner.os == 'macOS'
+        run: bash .publish-tooling/scripts/select-ci-xcode.sh
+
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-prepared-app-arm64-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -5435,11 +5424,13 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets
       - &signer-install
+        if: runner.os != 'macOS'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ needs.signer-build.outputs.artifact }}
           path: ${{ runner.temp }}/signer
       - &signer-install-check
+        if: runner.os != 'macOS'
         name: Install the signer
         env:
           SIGNER_SHA256: ${{ needs.signer-build.outputs.sha256 }}
@@ -5449,6 +5440,13 @@ jobs:
         env:
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-app-prepare.sh
+      - &native-signer-keychain
+        name: Import the native signing identity
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: bash .publish-tooling/scripts/ci/signing-keychain.sh create --keychain "$CMUX_NATIVE_SIGNING_KEYCHAIN"
       - name: Sign the app, the Computer Use helper notarized first
         env:
           CMUX_SIGN_MODE: helper-first
@@ -5461,7 +5459,12 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
-        run: bash .publish-tooling/scripts/ci/release-signer/sign-app.sh "${{ steps.prepare.outputs.app }}" "$ENTITLEMENTS"
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            CMUX_NOTARY_USE_KEYCHAIN_PROFILE=true bash .publish-tooling/scripts/ci/release-signer/native-sign-app.sh "${{ steps.prepare.outputs.app }}" "$ENTITLEMENTS"
+          else
+            bash .publish-tooling/scripts/ci/release-signer/sign-app.sh "${{ steps.prepare.outputs.app }}" "$ENTITLEMENTS"
+          fi
       - name: Pack the signed app
         id: pack
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-app-pack.sh
@@ -5474,20 +5477,32 @@ jobs:
           retention-days: 1
           overwrite: true
 
+      - &native-signer-cleanup
+        name: Delete the native signing keychain
+        if: always() && runner.os == 'macOS'
+        run: bash .publish-tooling/scripts/ci/signing-keychain.sh delete --keychain "$CMUX_NATIVE_SIGNING_KEYCHAIN"
+
   signer-app-notary:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, resolve-nightly-cmux-tui-client, signer-build, signer-app, pick-nightly-sign-runner]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || needs.pick-nightly-sign-runner.outputs.linux_alternate || needs.pick-nightly-sign-runner.outputs.linux || (contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]')[0]) }}
+    if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.signer-app.result == 'success' && needs.pick-nightly-sign-runner.result == 'success' && (needs.signer-build.result == 'success' || (needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.native_owned_pool != '') && needs.signer-build.result == 'skipped')"
+    runs-on: *native-signer-route
     timeout-minutes: 40
     permissions:
       contents: read
     outputs:
       submission_id: ${{ steps.notarize.outputs.submission_id }}
     env:
+      CMUX_NATIVE_SIGNING_KEYCHAIN: build.keychain
+      CMUX_NATIVE_NOTARY_PROFILE: nightly-native
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
       SIGNER_WORK: ${{ github.workspace }}/signer-work
       CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
     steps:
+      - *hold-the-whole-mac
       - *signer-checkout-tools
+      - *claim-publication-mac
+      - *native-signer-xcode
       - *signer-install
       - *signer-install-check
       - name: Download the signed app
@@ -5500,6 +5515,9 @@ jobs:
         env:
           APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-unpack-app.sh
+      - name: Create the notarization keychain
+        if: runner.os == 'macOS'
+        run: bash .publish-tooling/scripts/ci/signing-keychain.sh create --empty --keychain "$CMUX_NATIVE_SIGNING_KEYCHAIN"
       - name: Notarize the app
         id: notarize
         env:
@@ -5507,7 +5525,14 @@ jobs:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-        run: bash .publish-tooling/scripts/ci/release-signer/notarize-app.sh "$SIGNER_WORK/$CHANNEL_APP_NAME.app" "$RUNNER_TEMP/notary-app.log" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            CMUX_NOTARY_USE_KEYCHAIN_PROFILE=true bash .publish-tooling/scripts/ci/release-signer/native-notarize-app.sh "$SIGNER_WORK/$CHANNEL_APP_NAME.app" "$RUNNER_TEMP/notary-app.log" >> "$GITHUB_OUTPUT"
+          else
+            bash .publish-tooling/scripts/ci/release-signer/notarize-app.sh "$SIGNER_WORK/$CHANNEL_APP_NAME.app" "$RUNNER_TEMP/notary-app.log" >> "$GITHUB_OUTPUT"
+          fi
+
+      - *native-signer-cleanup
 
   signer-dmg-image:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, pick-nightly-sign-runner, signer-app]
@@ -5594,11 +5619,15 @@ jobs:
   signer-dmg:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-app, signer-app-notary, signer-dmg-image, pick-nightly-sign-runner]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || needs.pick-nightly-sign-runner.outputs.linux_alternate || needs.pick-nightly-sign-runner.outputs.linux || (contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]')[0]) }}
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.signer-app.result == 'success' && needs.signer-app-notary.result == 'success' && needs.signer-dmg-image.result == 'success' && needs.pick-nightly-sign-runner.result == 'success' && (needs.signer-build.result == 'success' || (needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.native_owned_pool != '') && needs.signer-build.result == 'skipped')"
+    runs-on: *native-signer-route
     timeout-minutes: 40
     permissions:
       contents: read
     env:
+      CMUX_NATIVE_SIGNING_KEYCHAIN: build.keychain
+      CMUX_NATIVE_NOTARY_PROFILE: nightly-native
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
       TOOLS: .publish-tooling
       SIGNER_WORK: ${{ github.workspace }}/signer-work
       NIGHTLY_VARIANT: arm64
@@ -5617,7 +5646,10 @@ jobs:
       BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
       SOURCE_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
     steps:
+      - *hold-the-whole-mac
       - *signer-checkout-tools
+      - *claim-publication-mac
+      - *native-signer-xcode
       - *signer-install
       - *signer-install-check
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5626,6 +5658,7 @@ jobs:
           path: signer-out
       - *signer-download-app
       - *signer-download-app-retry
+      - *native-signer-keychain
       - name: Sign, notarize and staple the DMG
         env:
           UNSIGNED_SHA256: ${{ needs.signer-dmg-image.outputs.sha256 }}
@@ -5644,7 +5677,8 @@ jobs:
           SPARKLE_CHANNEL: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next' }}
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
         run: |
-          echo "$APP_SHA256  signer-app/signed-app.tar" | sha256sum -c -
+          if command -v sha256sum >/dev/null 2>&1; then sum=(sha256sum); else sum=(shasum -a 256); fi
+          echo "$APP_SHA256  signer-app/signed-app.tar" | "${sum[@]}" -c -
           bash .publish-tooling/scripts/ci/nightly-steps/signer-appcast.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -5664,6 +5698,8 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
+
+      - *native-signer-cleanup
 
   find-nightly-next-recovery:
     needs: [decide]
@@ -6313,38 +6349,11 @@ jobs:
       - *checkout-publication-tooling-a
 
       # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
-      - &hold-the-whole-mac
-        name: Hold the whole Mac before any credential
-        id: claim-gate
-        shell: bash
-        run: |
-          owned=""
-          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
-          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
-          if [ -n "$owned" ]; then
-            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
-              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            echo "claim=owned" >> "$GITHUB_OUTPUT"
-          fi
+      - *hold-the-whole-mac
       # This run's build when Apple accepted it, else an earlier nightly-next
       # build that recover-nightly-next-notarization continued; every later
       # step takes the build number and commit from here.
-      - &claim-publication-mac
-        name: Claim the whole Mac for signing
-        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
+      - *claim-publication-mac
 
       # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
       # its own actor, so a limit that every workflow's github.token shares does not refuse it.
