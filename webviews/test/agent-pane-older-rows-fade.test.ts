@@ -102,6 +102,12 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const T0 = Date.now();
+  const { appendFileSync } = await import("node:fs");
+  const diag = (line: string) => {
+    const text = `DIAG[${process.pid}] +${Date.now() - T0}ms ${line}`;
+    console.log(text);
+    appendFileSync("/tmp/older-diag.log", text + "\n");
+  };
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -120,6 +126,8 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
           const result = answer(message.method, message.params ?? {});
+          if (message.method === "_acpmux/events" || message.method === "_acpmux/attach")
+            diag(`${message.method} ${JSON.stringify(message.params)} -> ${(result as any)?.events?.length} delay ${message.method === "_acpmux/events" ? eventsDelay : 40}`);
           inflight++;
           setTimeout(
             () => {
@@ -141,12 +149,12 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
       const hot = vite.environments.client.hot;
       const send = hot.send;
       hot.send = ((...args: any[]) => {
-        if (args[0]?.type === "full-reload") console.log(`DIAG full-reload sent at ${Date.now() - T0}ms`);
+        if (args[0]?.type === "full-reload") diag(`full-reload sent ${JSON.stringify(args[0]).slice(0, 200)}`);
         return (send as any).apply(hot, args);
       }) as typeof send;
     }
     await warmViteServer(vite, "/");
-    console.log(`DIAG warm done at ${Date.now() - T0}ms`);
+    diag(`warm done; discovered=${Object.keys(vite.environments.client.depsOptimizer?.metadata.discovered ?? {}).length} optimized=${Object.keys(vite.environments.client.depsOptimizer?.metadata.optimized ?? {}).length}`);
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -160,8 +168,12 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
   async function open(reducedMotion: "reduce" | "no-preference"): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 }, reducedMotion });
     await installPaintedFrames(page);
+    page.on("console", (message) => {
+      if (message.type() === "error" || message.type() === "warning" || /vite/i.test(message.text())) diag(`console.${message.type()} ${message.text().slice(0, 300)}`);
+    });
+    page.on("pageerror", (error) => diag(`pageerror ${error.message.slice(0, 300)}`));
     page.on("framenavigated", (frame) => {
-      if (frame === page.mainFrame()) console.log(`DIAG framenavigated ${frame.url().slice(0, 40)} at ${Date.now() - T0}ms`);
+      if (frame === page.mainFrame()) diag(`framenavigated ${frame.url().slice(0, 30)}`);
     });
     await page.addInitScript(() => {
       const fades: { id: string; text: string; name: string }[] = [];
@@ -341,7 +353,14 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
           ),
         undefined,
         { timeout: 20_000 },
-      );
+      ).catch(async (error) => {
+        diag(`late fade missing: ${JSON.stringify(await page.evaluate(() => {
+          const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-row")];
+          return { top: node.scrollTop, height: node.scrollHeight, client: node.clientHeight, rows: rows.length, first: rows[0]?.textContent?.slice(0, 40), older: document.querySelectorAll(".acpmux-row--older").length, anims: (window as any).__rowAnimations.length };
+        }))}`);
+        throw error;
+      });
       await settle(page);
       await animationsDone(page);
     } finally {
