@@ -1850,7 +1850,12 @@ export const stripeWebhookEvents = pgTable(
     eventCreatedAt: timestamp("event_created_at", { withTimezone: true }),
     attempts: integer("attempts").notNull().default(0),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow(),
-    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    /**
+     * The holder's lease. Defaults to 15 minutes from the insert: a row the
+     * pre-inbox build writes is held while that build applies it.
+     */
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true })
+      .default(sql`now() + interval '15 minutes'`),
     /** Why a processed event changed nothing; null when it was applied. */
     skipReason: text("skip_reason"),
   },

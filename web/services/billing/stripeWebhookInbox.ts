@@ -84,6 +84,8 @@ export function createDrizzleStripeWebhookInbox(
           // The webhook processes the event itself right after answering;
           // the drain picks it up only if that did not finish.
           nextAttemptAt: sql`now() + make_interval(secs => ${FIRST_DRAIN_DELAY_SECONDS})`,
+          // The column's default leases rows the pre-inbox build writes.
+          leaseExpiresAt: null,
         })
         .onConflictDoUpdate({
           target: events.id,

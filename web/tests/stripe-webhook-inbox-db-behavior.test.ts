@@ -128,8 +128,8 @@ describe("Stripe webhook inbox store", () => {
 
   dbTest("a later record fills a stored row's missing object key and keeps its schedule", async () => {
     await sql!`
-      insert into stripe_webhook_events (id, type, payload_hash, next_attempt_at)
-      values ('evt_legacy', 'charge.refunded', 'h', now() - interval '1 minute')
+      insert into stripe_webhook_events (id, type, payload_hash, next_attempt_at, lease_expires_at)
+      values ('evt_legacy', 'charge.refunded', 'h', now() - interval '1 minute', now() - interval '1 minute')
     `;
     const created = new Date(Date.UTC(2026, 9, 30));
     expect(await inbox.record(entry("evt_legacy", "sub_1", "charge.refunded", created))).toEqual({ processed: false });
@@ -172,10 +172,24 @@ describe("Stripe webhook inbox store", () => {
     expect(sent[0]?.body).not.toContain("evt_fresh");
   });
 
+  dbTest("a row the pre-inbox build is applying is held until that build is gone", async () => {
+    // What the previous web build inserts before processing in its request.
+    await sql!`insert into stripe_webhook_events (id, type, payload_hash) values ('evt_old_build', 'invoice.paid', 'h')`;
+    const now = new Date();
+    expect(await inbox.claim("evt_old_build", now, new Date(now.getTime() + MINUTE))).toBeNull();
+    // A redelivery to the new build keys it, so its siblings wait too.
+    expect(await inbox.record(entry("evt_old_build", "sub_1", "invoice.paid"))).toEqual({ processed: false });
+    await inbox.record(entry("evt_sibling"));
+    expect(await inbox.claim("evt_sibling", now, new Date(now.getTime() + MINUTE))).toBeNull();
+
+    const later = new Date(now.getTime() + 16 * MINUTE);
+    expect(await inbox.claim("evt_old_build", later, new Date(later.getTime() + MINUTE))).toMatchObject({ attempts: 1 });
+  });
+
   dbTest("rows stored before the inbox columns existed are drained", async () => {
     await sql!`
-      insert into stripe_webhook_events (id, type, payload_hash, error, created_at)
-      values ('evt_legacy', 'invoice.paid', 'h', 'retryable: lease', now() - interval '10 minutes')
+      insert into stripe_webhook_events (id, type, payload_hash, error, created_at, lease_expires_at)
+      values ('evt_legacy', 'invoice.paid', 'h', 'retryable: lease', now() - interval '10 minutes', now() - interval '1 minute')
     `;
     const now = new Date();
     expect(await inbox.due(now, new Date(now.getTime() - 60 * MINUTE), 10)).toEqual(["evt_legacy"]);
