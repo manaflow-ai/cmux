@@ -74,6 +74,15 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
       const c = chip.getBoundingClientRect();
       const i = icon.getBoundingClientRect();
       const l = label.getBoundingClientRect();
+      // A colour as painted (rgba over a 1px canvas): oklab and srgb spellings of one colour agree.
+      const paint = (color: string) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 1;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        return [...context.getImageData(0, 0, 1, 1).data].join(",");
+      };
       const lineStyle = getComputedStyle(line);
       const chipStyle = getComputedStyle(chip);
       return {
@@ -86,11 +95,13 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
         insetEnd: c.right - (cue ? cue.getBoundingClientRect().right : l.right),
         cue: cue ? Number(getComputedStyle(cue).opacity) : -1,
         labelCut: label.scrollWidth > label.clientWidth + 0.5,
-        chipColor: chipStyle.color,
-        chipBackground: chipStyle.backgroundColor,
-        lineColor: lineStyle.color,
-        lineBackground: lineStyle.backgroundColor,
-        preview: getComputedStyle(line.querySelector(".cv-received__preview, .cv-agentmsg__preview") ?? line).color,
+        chipColor: paint(chipStyle.color),
+        chipBackground: paint(chipStyle.backgroundColor),
+        lineColor: paint(lineStyle.color),
+        lineBackground: paint(lineStyle.backgroundColor),
+        preview: paint(
+          getComputedStyle(line.querySelector(".cv-received__preview, .cv-agentmsg__preview") ?? line).color,
+        ),
       };
     }, row);
   };

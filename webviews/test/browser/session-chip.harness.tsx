@@ -21,6 +21,22 @@ import type { AcpmuxSessionEntry } from "../../src/agent-session/acpmux/sessionL
 globalThis.__cmuxPaneStrings = { en: strings.en };
 document.documentElement.dataset.cmuxMotion = "off";
 const theme = new URLSearchParams(location.search).get("theme") === "light" ? "light" : "dark";
+// The pane's theme colours, as the host's theme sets them (transcript-glyph-alignment.harness.tsx).
+const themes = {
+  dark: { page: "#202124", text: "#f5f5f1", muted: "#c9c9c4", soft: "#95958f", link: "#6aa7ff" },
+  light: { page: "#f7f7f2", text: "#242420", muted: "#55554f", soft: "#77776f", link: "#1f6feb" },
+} as const;
+for (const [key, value] of Object.entries({
+  "--agent-page-bg": themes[theme].page,
+  "--agent-text": themes[theme].text,
+  "--agent-muted": themes[theme].muted,
+  "--agent-soft": themes[theme].soft,
+  "--agent-link-base": themes[theme].link,
+  "--font-ui": "system-ui",
+}))
+  document.documentElement.style.setProperty(key, value);
+document.body.style.background = themes[theme].page;
+document.body.style.margin = "0";
 
 const entry = (fields: Partial<AcpmuxSessionEntry> & { sessionId: string }) =>
   ({ displayTitle: fields.name ?? "", pendingPermissions: 0, ...fields }) as AcpmuxSessionEntry;

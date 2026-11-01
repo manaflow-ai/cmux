@@ -25,7 +25,7 @@
 }
 /* A received line's plain sender (no chat to open) starts its words on the rows' text column. */
 .cv-agent-tag.cv-received__from:not(.is-open) {
-  margin-inline: calc(-1 * var(--cv-disclosure-gap));
+  margin-inline-start: calc(-1 * var(--cv-disclosure-gap));
 }
 /* A tag that opens a chat is a link chip (design/chat-transcript.md, "Session link chip"): the
    link colour on a tint of it, real padding, centred on its row's icon line, and an open cue (↗)
