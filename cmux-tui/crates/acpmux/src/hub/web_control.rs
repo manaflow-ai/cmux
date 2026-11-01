@@ -643,6 +643,27 @@ mod mode_write_tests {
             "createdAt": 1, "updatedAt": 2, "modes": {"currentModeId": "ask"},
         })).expect("codex metadata");
         assert!(!hub.cloud_mobile_mode_asks(&codex), "codex is not a Claude phone profile");
+
+        let mut bridge_cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"codex": {"argv": ["codex", "app-server"]}},
+            "defaultHarness": "codex",
+        }))
+        .expect("bridge config");
+        bridge_cfg.store.mode = StoreMode::Memory;
+        let bridge_store = crate::store::open(&bridge_cfg.store, Path::new("/nonexistent"))
+            .expect("bridge store");
+        let bridge_hub = Hub::new(bridge_cfg, bridge_store);
+        let bridge_meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "bridge-test", "name": "codex",
+            "harness": "codex", "family": "codex", "harnessArgv": ["codex", "app-server"],
+            "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 2,
+            "modes": {"currentModeId": "ask"},
+        }))
+        .expect("bridge metadata");
+        assert!(bridge_hub.cloud_mobile_mode_asks(&bridge_meta));
+        let mut agent_meta = bridge_meta.clone();
+        agent_meta.modes = Some(json!({"currentModeId": "agent"}));
+        assert!(!bridge_hub.cloud_mobile_mode_asks(&agent_meta));
     }
 
     #[tokio::test]
