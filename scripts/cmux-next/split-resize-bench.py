@@ -38,7 +38,7 @@ parser.add_argument("--tag")
 # (live: AsyncLiveResize, the behaviour before cmux#25842; hold; synced: AsyncLiveResize off).
 parser.add_argument("--variants", default="")
 opts, _ = parser.parse_known_args()
-VARIANTS = ("live", "hold", "synced")
+VARIANTS = ("live", "hold", "synced", "resizeSync", "live-hosted", "resizeSync-hosted")  # MEASURE-ONLY: -hosted also turns layerHosting on
 variants = [v for v in opts.variants.split(",") if v] or [None]
 for variant in variants:
     if variant is not None and variant not in VARIANTS:
@@ -63,7 +63,10 @@ def measure(variant: str | None, folder: Path) -> dict:
     env = {}
     if variant is not None:
         tunables = folder / "debug-tunables.json"
-        tunables.write_text(json.dumps({"version": 1, "values": {"browserResize.dragResize": variant}}))
+        values = {"browserResize.dragResize": variant.removesuffix("-hosted")}
+        if variant.endswith("-hosted"):
+            values["browserResize.layerHosting"] = True
+        tunables.write_text(json.dumps({"version": 1, "values": values}))
         env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = str(tunables)
     app = BenchApp(opts.app, out=str(folder), env=env, window=(80, 80, 1100, 720))
     report: dict = {"variant": variant}
