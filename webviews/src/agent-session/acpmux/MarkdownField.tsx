@@ -16,7 +16,10 @@ import {
   orderInline,
   placeTokensIn,
   removeInline,
+  type SelectionPart,
+  selectionParts,
   sliceHoldsInline,
+  wholeSelected,
   withTextMarksEscaped,
 } from "./composer/inlineNode";
 import { followActionsWidth } from "./composerScrollLane";
@@ -97,6 +100,9 @@ export type MarkdownFieldHandle = {
   redo(): void;
   /// Selects the whole prompt (its context menu's Select All).
   selectAll(): void;
+  /// Inserts `text` at the selection as a paste of plain text goes in, with no surface rule run on it
+  /// (a copy's own runs of text put back in order, composer/composerCopy.ts).
+  insertText(text: string): void;
   /// Places attachments `ids` at the caret, in the text (composer/inlineNode.ts); false where they
   /// cannot go (a code block, an editor not made yet).
   insertInline(ids: readonly string[]): boolean;
@@ -154,6 +160,15 @@ export type MarkdownFieldProps = {
   /// attachment stays their text. Read when a value's tokens become nodes (the editor made, a value
   /// set from outside, `type`); unset, every token-shaped run is taken for an attachment.
   isInlineAttachment?(id: string): boolean;
+  /// A copy or cut of the selection (Cmd-C, Cmd-X, the menu's): its runs of text and its placed
+  /// attachments in order, its text as the field copies it, and whether it holds the whole draft.
+  /// True when the surface wrote the pasteboard itself; the field then takes a cut's selection out.
+  onCopy?(copy: { parts: SelectionPart[]; text: string; whole: boolean }, cut: boolean): boolean;
+  /// Whether the selection holds the whole draft (Select All), as it changes: the surface marks what
+  /// it shows besides the text (the strip's attachments) as selected too.
+  onWholeSelection?(whole: boolean): void;
+  /// A paste before the field reads it: true when the surface put it in itself.
+  onPasteFirst?(event: ClipboardEvent): boolean;
   /// The surface's own key handling, which runs before the editor's keys (the omnibar word rules).
   plugins?: Plugin[];
   /// Shift-Enter adds a line (default true).
@@ -210,6 +225,9 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onUnplacedQuotes === next.onUnplacedQuotes &&
     previous.onInlineViews === next.onInlineViews &&
     previous.isInlineAttachment === next.isInlineAttachment &&
+    previous.onCopy === next.onCopy &&
+    previous.onWholeSelection === next.onWholeSelection &&
+    previous.onPasteFirst === next.onPasteFirst &&
     previous.plugins === next.plugins &&
     sameMarkdownFieldAttributes(previous.attributes, next.attributes)
   );
@@ -432,6 +450,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    onCopy,
+    onWholeSelection,
+    onPasteFirst,
     plugins = [],
     multiline = true,
     literal = false,
@@ -503,6 +524,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    onCopy,
+    onWholeSelection,
+    onPasteFirst,
   });
   latest.current = {
     onChange,
@@ -517,6 +541,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    onCopy,
+    onWholeSelection,
+    onPasteFirst,
   };
   const composing = useRef(false);
   const touched = useRef(false);
@@ -577,6 +604,25 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const inlineKnown = (id: string) => latest.current.isInlineAttachment?.(id) ?? true;
   // Whether this field's editor was made with placed attachments (`placesInline` in `mount`).
   const inlineOn = useRef(false);
+  /// A copy or cut the surface writes itself (`onCopy`): the field's own copy is skipped, and a cut's
+  /// selection goes as one edit.
+  const copied = (editorView: EditorView, event: ClipboardEvent, cut: boolean) => {
+    const surface = latest.current.onCopy;
+    const { state } = editorView;
+    if (!surface || state.selection.empty) return false;
+    const copy = {
+      parts: inlineOn.current ? selectionParts(state) : [],
+      text: copiedText(state.selection.content()),
+      whole: wholeSelected(state),
+    };
+    if (!copy.parts.length && copy.text) copy.parts.push({ text: copy.text });
+    if (!surface(copy, cut)) return false;
+    event.preventDefault();
+    // The text at once; the surface's own write (the host's, a moment later) replaces it whole.
+    event.clipboardData?.setData("text/plain", copy.text);
+    if (cut) editorView.dispatch(editorView.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
+    return true;
+  };
 
   const mount = useCallback(
     (root: HTMLDivElement | null) => {
@@ -599,6 +645,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       // Set from a passed-on Return the field took until its key comes up: the paragraph an input
       // method may still insert for that key is the same Return, not a second one.
       let returnTaken = false;
+      // Whether the selection held the whole draft at the last update (`onWholeSelection`).
+      let wholeNow = false;
       // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
       // reveal stops a margin short in WebKit, which would leave the last line under the bottom fade
       // (markdownField.css). Every paste path ends here.
@@ -746,7 +794,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   event.preventDefault();
                   return true;
                 },
+                // A copy of a selection with attachments in it is the surface's: it puts the text and
+                // the attachments on the pasteboard together (Leo, 2026-11-01: "select all in
+                // composer which also selects all the attachments as the copy as well").
+                copy: (editorView, event) => copied(editorView, event, false),
+                cut: (editorView, event) => copied(editorView, event, true),
                 paste: (editorView, event) => {
+                  if (latest.current.onPasteFirst?.(event)) {
+                    event.preventDefault();
+                    return true;
+                  }
                   const data = event.clipboardData;
                   if (!data) return false;
                   if (literalNow.current) {
@@ -842,6 +899,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             // Report every document and caret change; the composer's menu follows the caret.
             view: () => ({
               update: (next, previous) => {
+                const whole = wholeSelected(next.state);
+                if (whole !== wholeNow) {
+                  wholeNow = whole;
+                  latest.current.onWholeSelection?.(whole);
+                }
                 if (next.state.doc.eq(previous.doc)) {
                   if (!next.state.selection.eq(previous.selection)) latest.current.onCaret?.(caretOf(next));
                   return;
@@ -1218,6 +1280,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         selectAll: () => {
           refocus.current = null;
           if (view.current) selectAll(view.current.state, view.current.dispatch);
+        },
+        insertText: (text) => {
+          if (!view.current || !text) return;
+          refocus.current = null;
+          insertPlain(view.current, text);
         },
         insertInline: (ids) => {
           if (!view.current) return false;

@@ -142,28 +142,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     var body: some View {
         let layout = toolbarLayout
         ZStack(alignment: .topLeading) {
-            // Kept mounted (hidden) so opening it does not pay for building
-            // the grid on the first animation frame.
-            TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
-                        // On the settled grid the page layer draws the active
-                        // tab's card live (the same view as the page).
-                        hiddenTabId: zoomState.phase == .overview ? (staticCardID == activeID || gridDrawsActive ? nil : activeID) : zoomTabId,
-                        gridInteractive: zoomState.gridInteractive,
-                        swipeInteractive: zoomState.phase == .animating && zoomState.headingToOverview,
-                        controlsInteractive: overviewVisible && zoomState.headingToOverview,
-                        scroll: gridScroll, position: $overviewPosition,
-                        onSelect: { closeOverview(selecting: $0) },
-                        onClose: { id in await closeFromGrid(id) },
-                        onNewTab: newTabFromOverview,
-                        onDone: { closeOverview(selecting: activeID) },
-                        onCloseAll: { confirmingCloseAll = CloseAllConfirmation(ids: tabs.map(\.id)) },
-                        pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
-                        onScrolling: { source.overviewScrollingChanged($0) },
-                        onQueueSelect: { queuedOpen = $0 },
-                        onPressChanged: { pressedCard = $0 })
-                .opacity(overviewVisible ? 1 : 0)
-                .allowsHitTesting(overviewVisible)
-                .accessibilityHidden(!zoomState.gridInteractive)
+            overview
                 // Close All Tabs asks first, as Safari does: every tab closes with no way back.
                 .confirmationDialog(confirmingCloseAll?.confirmTitle ?? "", isPresented: Binding(
                     get: { confirmingCloseAll != nil }, set: { if !$0 { confirmingCloseAll = nil } }
@@ -335,6 +314,42 @@ struct TabsScreen<Source: TabsDataSource>: View {
         }
     }
 
+    /// The tab grid, kept mounted (hidden) so opening it does not pay for
+    /// building it on the first animation frame.
+    @ViewBuilder private var overview: some View {
+        // While it is hidden it is dormant: a change on the page (the toolbar collapsing, a
+        // tab's title) does not re-run it (`DormantGate`).
+        let hidden = zoomState.phase == .overview ? (staticCardID == activeID || gridDrawsActive ? nil : activeID) : (zoomTabId ?? activeID)
+        DormantGate(dormant: !overviewVisible) {
+        TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
+                    // On the settled grid the page layer draws the active
+                    // tab's card live (the same view as the page); on the
+                    // page and in the zoom it is the page itself, so its
+                    // card is not built (a streaming chat's card re-rendered
+                    // every token under the page).
+                    hiddenTabId: hidden,
+                    gridInteractive: zoomState.gridInteractive,
+                    swipeInteractive: zoomState.phase == .animating && zoomState.headingToOverview,
+                    controlsInteractive: overviewVisible && zoomState.headingToOverview,
+                    scroll: gridScroll, position: $overviewPosition,
+                    onSelect: { closeOverview(selecting: $0) },
+                    onClose: { id in await closeFromGrid(id) },
+                    onNewTab: newTabFromOverview,
+                    onDone: { closeOverview(selecting: activeID) },
+                    onCloseAll: { confirmingCloseAll = CloseAllConfirmation(ids: tabs.map(\.id)) },
+                    pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
+                    onScrolling: { source.overviewScrollingChanged($0) },
+                    onQueueSelect: { queuedOpen = $0 },
+                    onPressChanged: { pressedCard = $0 },
+                    isVisible: overviewVisible,
+                    isSettled: zoomState.phase == .overview)
+        }
+            .equatable()
+            .opacity(overviewVisible ? 1 : 0)
+            .allowsHitTesting(overviewVisible)
+            .accessibilityHidden(!zoomState.gridInteractive)
+    }
+
     // MARK: Page
 
     private var contentContext: TabsKitContentContext {
@@ -383,7 +398,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 // the screen's centre, its card stands in (a web view that
                 // was just created draws nothing for about 300 ms).
                 if !source.isContentReady(tab.id) || (newTabZoomID == tab.id && phase != .page) {
-                    ScaledContent(pageSize: size) { source.card(for: tab).offset(y: -contentOffset) }
+                    ScaledContent(pageSize: size) { source.card(for: tab).offset(y: -contentOffset).environment(\.tabsKitCardPageSize, size) }
                         .allowsHitTesting(false)
                         // Safari's new start page sharpens as it grows.
                         .blur(radius: newTabZoomID == tab.id && newTabZoom.blurs && phase != .page
@@ -451,7 +466,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             if let neighbor {
                 Group {
                     if case .tab(let tab) = neighbor {
-                        ScaledContent(pageSize: size) { source.card(for: tab) }
+                        ScaledContent(pageSize: size) { source.card(for: tab).environment(\.tabsKitCardPageSize, size) }
                     } else {
                         theme.colors.pageBackground
                     }
@@ -830,6 +845,20 @@ struct TabsScreen<Source: TabsDataSource>: View {
         }
     }
 }
+/// Holds back updates from the parent while the grid is hidden: two dormant
+/// values compare equal, so SwiftUI keeps the grid as it was instead of
+/// re-running it for every change on the page. Waking (the grid starting
+/// to show) compares unequal and the grid gets the current values at once.
+/// The grid's own observation (its tabs, its cards' content) still applies.
+struct DormantGate<Content: View>: View, Equatable {
+    let dormant: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View { content }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.dormant && rhs.dormant }
+}
+
 /// A mask showing everything but the grid's bottom bar, as far as the
 /// bar's controls have faded in (`shown`, 0 on the page, 1 on the grid).
 struct BarCutout: View {

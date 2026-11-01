@@ -52622,6 +52622,534 @@
         }
       }
     },
+    "settingsPage.chiefPet.about.fox-arctic": {
+      "comment": "Chief pet character Arctic Fox (the fox in silver-blue): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A snow-white fox that keeps a cool head when builds break."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ثعلب أبيض كالثلج يحافظ على هدوئه حين تتعطل عمليات البناء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snježnobijela lisica koja ostaje hladne glave kad buildovi puknu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En snehvid ræv, der bevarer roen, når builds fejler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein schneeweißer Fuchs, der kühlen Kopf bewahrt, wenn Builds scheitern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un zorro blanco como la nieve que mantiene la calma cuando fallan las compilaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un renard blanc comme neige qui garde la tête froide quand les builds cassent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una volpe bianca come la neve che resta calma quando le build si rompono."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ビルドが壊れても冷静さを失わない、雪のように白いキツネ。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កញ្ជ្រោងសដូចព្រិល ដែលនៅតែស្ងប់ស្ងាត់ពេល build បរាជ័យ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "빌드가 깨져도 침착함을 잃지 않는 눈처럼 하얀 여우."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En snøhvit rev som holder hodet kaldt når bygg feiler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Śnieżnobiały lis, który zachowuje zimną krew, gdy buildy się sypią."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma raposa branca como a neve que mantém a calma quando os builds quebram."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Белоснежная лиса, которая сохраняет хладнокровие, когда сборки падают."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จิ้งจอกขาวราวหิมะ ที่ใจเย็นเสมอแม้บิลด์จะพัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Derlemeler bozulduğunda soğukkanlılığını koruyan kar beyazı bir tilki."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Білосніжна лисиця, що зберігає холодну голову, коли збірки падають."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chú cáo trắng như tuyết luôn bình tĩnh khi bản dựng hỏng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "雪白的狐狸，构建出错时依然冷静。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "雪白的狐狸，建置出錯時依然冷靜。"
+          }
+        }
+      }
+    },
+    "settingsPage.chiefPet.about.machine-violet": {
+      "comment": "Chief pet character Violet Machine (the leaf-eared robot in violet): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A violet robot that hums through the night shift."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "روبوت بنفسجي يدندن طوال نوبة الليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ljubičasti robot koji pjevuši kroz noćnu smjenu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En violet robot, der nynner sig gennem nattevagten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein violetter Roboter, der sich summend durch die Nachtschicht arbeitet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot violeta que tararea durante el turno de noche."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot violet qui fredonne pendant le service de nuit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot viola che canticchia per tutto il turno di notte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "夜勤をハミングしながらこなすバイオレットのロボット。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រ៉ូបូតពណ៌ស្វាយ ដែលច្រៀងខ្សឹបៗពេញវេនយប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "야간 근무 내내 콧노래를 부르는 바이올렛 로봇."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En fiolett robot som nynner seg gjennom nattskiftet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fioletowy robot, który nuci przez całą nocną zmianę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um robô violeta que cantarola durante o turno da noite."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фиолетовый робот, который напевает всю ночную смену."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หุ่นยนต์สีม่วงที่ฮัมเพลงตลอดกะดึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gece vardiyası boyunca mırıldanan mor bir robot."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фіолетовий робот, що наспівує всю нічну зміну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chú robot tím vừa ngân nga vừa làm ca đêm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "紫色机器人，哼着歌度过夜班。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "紫色機器人，哼著歌度過夜班。"
+          }
+        }
+      }
+    },
+    "settingsPage.chiefPet.about.machine-gold": {
+      "comment": "Chief pet character Gold Machine (the leaf-eared robot in gold): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A gold-leafed robot that polishes every release."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "روبوت بأوراق ذهبية يصقل كل إصدار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Robot sa zlatnim listovima koji glanca svako izdanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En robot med gyldne blade, der pudser hver udgivelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Roboter mit goldenen Blättern, der jedes Release poliert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot de hojas doradas que pule cada versión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot aux feuilles dorées qui peaufine chaque version."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un robot dalle foglie dorate che rifinisce ogni release."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "どのリリースもピカピカに仕上げる、金の葉のロボット。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រ៉ូបូតស្លឹកពណ៌មាស ដែលខាត់គ្រប់ការចេញផ្សាយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 릴리스를 반짝이게 다듬는 금빛 잎 로봇."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En robot med gylne blader som pusser hver utgivelse."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Robot o złotych liściach, który szlifuje każde wydanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um robô de folhas douradas que dá polimento em cada versão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робот с золотыми листьями, который шлифует каждый релиз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หุ่นยนต์ใบไม้สีทองที่ขัดเกลาทุกรีลีส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her sürümü parlatan altın yapraklı bir robot."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робот із золотим листям, що шліфує кожен реліз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chú robot lá vàng chăm chút từng bản phát hành."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "金叶机器人，把每次发布都打磨得闪闪发亮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "金葉機器人，把每次發佈都打磨得閃閃發亮。"
+          }
+        }
+      }
+    },
+    "settingsPage.chiefPet.about.moon-rose": {
+      "comment": "Chief pet character Rose Moon (the moon moth with rose wings): one-line description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A rose moon moth that flutters toward green checks."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عثة قمرية وردية ترفرف نحو العلامات الخضراء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ružičasti mjesečev moljac koji leprša prema zelenim kvačicama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En rosa månemøl, der flagrer hen mod grønne flueben."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein rosafarbener Mondfalter, der zu grünen Häkchen flattert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una polilla lunar rosa que revolotea hacia las marcas verdes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un papillon lunaire rose qui volette vers les coches vertes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una falena lunare rosa che svolazza verso le spunte verdi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "緑のチェックマークへひらひら飛んでいく、ローズ色のムーンモス。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មេអំបៅព្រះចន្ទពណ៌ផ្កាឈូក ដែលហើរទៅរកសញ្ញាធីកពណ៌បៃតង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "초록 체크 표시를 향해 날아가는 장밋빛 달나방."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En rosa månemøll som flagrer mot grønne haker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Różana ćma księżycowa, która fruwa ku zielonym znaczkom."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma mariposa-lua rosa que esvoaça rumo aos checks verdes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розовая лунная моль, что порхает к зелёным галочкам."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผีเสื้อกลางคืนจันทราสีชมพูที่บินไปหาเครื่องหมายถูกสีเขียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeşil onay işaretlerine doğru kanat çırpan pembe bir ay güvesi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рожевий місячний метелик, що пурхає до зелених позначок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chú bướm đêm trăng hồng bay về phía những dấu tích xanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玫瑰色的月亮蛾，朝着绿色对勾翩翩飞去。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玫瑰色的月亮蛾，朝著綠色勾號翩翩飛去。"
+          }
+        }
+      }
+    },
     "settingsWindow.density.previewCaption": {
       "comment": "Caption under a density preview: row height and text size in points.",
       "extractionState": "manual",

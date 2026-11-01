@@ -8,7 +8,7 @@ GUI host and builds one sidebar:
   shell     the first workspace, a plain terminal
   done      a terminal whose program reported done over OSC 7501 (left unseen)
   working   a terminal whose program reports working (the spinner)
-  web       a browser tab on a local page with a favicon (a favicon tab row; tab rows are listed)
+  web       a workspace with a browser tab on a local page (tabs stay out of the sidebar)
   pinned    a pinned workspace (the top band)
   group     two workspaces in a group, expanded
 
@@ -17,8 +17,8 @@ the action path (`action.run sidebar.density.<name>`, the palette and Options en
 the setting): comfortable, expanded, and compact again. For each it writes `debug.sidebar_rows`
 (rows-<label>.json) and a window snapshot ($NX_CAPTURE; window-<label>.png), and it checks:
 
-  default    the default is Compact (the compact action is hidden, cmux.json has no density)
-  rows       Comfortable rows, tab rows and group headers are one line and taller than Compact's
+  default    cmux.json has no density; Options keeps every density choice visible
+  rows       Comfortable workspace rows and group headers are one line and taller than Compact's
              by the same step; Expanded rows are at least as tall as Compact's; Compact again
              matches the default
   pinned     the pinned workspace's band row scales with the same step
@@ -180,13 +180,6 @@ def report(terminal, state, tail=""):
     return cli("terminal", terminal, "write", "--text", f"printf '\\033]7501;state={state}\\033\\\\'{tail}\n")
 
 
-def tab_rows(title, state=None):
-    """The tab rows under the workspace row titled `title`."""
-    key = next((str(r.get("key")) for r in rows("workspace", state) if r.get("title") == title), None)
-    sidebar_id = key[key.find("(") + 1:key.rfind(")")] if key else None
-    return [r for r in rows("tab", state) if sidebar_id and str(r.get("key")).startswith(f"tab({sidebar_id},")]
-
-
 def configured_density():
     try:
         return (json.load(open(CONFIG)).get("sidebar") or {}).get("density")
@@ -199,10 +192,8 @@ def height(row):
 
 
 def measure(state, pinned_ws):
-    """Heights by role: workspace rows by title, tab rows, group headers, section headers, pinned band row."""
+    """Heights by role: workspace rows by title, group headers, section headers, pinned band row."""
     out = {"workspace": {r.get("title"): height(r) for r in rows("workspace", state)},
-           "tab": [height(r) for r in rows("tab", state)],
-           "favicon_tab": [height(r) for r in rows("tab", state) if r.get("icon") == "favicon"],
            "group": [height(r) for r in rows("group", state)],
            "section": [height(r) for r in rows("section", state)],
            "pinned": None,
@@ -244,7 +235,7 @@ def set_density(name, baseline_row):
 app = None
 try:
     with open(CONFIG, "w") as f:
-        json.dump({"appearance": {"theme": "Catppuccin Latte"}, "sidebar": {"showWorkspaceTabs": True}}, f)
+        json.dump({"appearance": {"theme": "Catppuccin Latte"}}, f)
     open(GHOSTTY, "w").write("")
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
@@ -266,11 +257,8 @@ try:
     check(report(working_terminal or "", "working", "; sleep 900").returncode == 0, "working: the program reports it")
 
     new_workspace("web")
-    if not rows("tab"):
-        action("sidebar.workspaceTabs.toggle")
-    wait(lambda: rows("tab"), 10)
     action("openBrowser.webkit", {"url": ORIGIN + "/"})
-    check(bool(wait(lambda: any(r.get("icon") == "favicon" for r in tab_rows("web")), 30)), "web: a tab row draws the page's favicon")
+    check(not rows("tab"), "web: browser tabs stay out of the workspace sidebar")
 
     pinned_ws, _ = new_workspace("pinned")
     action("palette.toggleWorkspacePin", target={"kind": "workspace", "id": pinned_ws})
@@ -298,8 +286,8 @@ try:
     if options is None:
         check(False, f"default: the sidebar background menu has an Options folder (submenus {list(hidden)})")
     else:
-        check("Sidebar Density: Compact" not in options and "Sidebar Density: Comfortable" in options,
-              f"default: Options offers Comfortable and hides Compact (the current density) ({options})")
+        check(all(title in options for title in ("Compact Rows", "Comfortable Rows", "Expanded Rows")),
+              f"default: Options keeps every density choice visible ({options})")
 
     base = default["workspace"].get("done")
     set_density("comfortable", base)
@@ -314,7 +302,7 @@ try:
     print("comfortable minus default, by row:", steps, flush=True)
     step = next(iter(steps.values()), 0)
     check(step > 0 and all(s == step for s in steps.values()), f"comfortable: every workspace row is taller by the same step ({steps})")
-    for role in ("tab", "favicon_tab", "group", "section"):
+    for role in ("group", "section"):
         a, b = default[role], comfortable[role]
         if a:
             check(len(a) == len(b) and all(y - x == step for x, y in zip(a, b)), f"comfortable: {role} rows grow by the step ({a} -> {b})")
@@ -327,7 +315,7 @@ try:
           "expanded: no workspace row is shorter than compact")
     check(any((expanded["workspace"].get(t) or 0) > h for t, h in default["workspace"].items() if h),
           "expanded: rows gain detail lines")
-    check(all(compact[k] == default[k] for k in ("workspace", "tab", "group", "section", "pinned", "row_x")),
+    check(all(compact[k] == default[k] for k in ("workspace", "group", "section", "pinned", "row_x")),
           "compact again: the rows match the default")
 finally:
     server.shutdown()

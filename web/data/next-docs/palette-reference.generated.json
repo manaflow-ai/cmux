@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1258,
+    "entries": 1259,
     "shortcuts": 189
   },
   "sections": [
@@ -4956,6 +4956,12 @@
         {
           "id": "sidebar.section.toggleCollapsed",
           "title": "Collapse/Expand Section",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.compactList.toggle",
+          "title": "Compact Workspace List",
           "shortcut": null,
           "command": null
         },

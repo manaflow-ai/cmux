@@ -48,6 +48,7 @@
 
 use crate::hub::Hub;
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::PathBuf;
@@ -75,6 +76,8 @@ const MAX_CLOSED: usize = 4096;
 /// The agent answers within its own bounds (a queued ask waits at most 60 s,
 /// then up to three API calls of 20 s); past this it is not answering.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(150);
+/// A fire-and-forget attention line must not hold the hand-off worker on a dead socket.
+const NOTIFY_TIMEOUT: Duration = Duration::from_secs(2);
 /// The longest reply line read.
 const MAX_REPLY: u64 = 64 * 1024;
 /// A report that did not reach the store is sent again after these waits.
@@ -281,6 +284,140 @@ pub(super) fn cut(text: &str, max: usize) -> String {
     cut
 }
 
+/// Converts prompt-owned mux records into attention events without requiring
+/// a hand-off row. Background turns never emit `turn_started`, so they are
+/// excluded by the active-turn gate in `handoff_loop`.
+fn attention_for_record(kind: &str, msg: &Value, session: &str, seq: u64) -> Option<Value> {
+    let kind = match kind {
+        "permission_request" => {
+            if crate::hub::is_question(&msg["request"]) {
+                "question"
+            } else {
+                "permission"
+            }
+        }
+        "turn_result" if msg["status"] == "completed" => "done",
+        _ => return None,
+    };
+    let semantic_id = match kind {
+        "question" | "permission" => msg
+            .get("permissionId")
+            .and_then(Value::as_str)
+            .or_else(|| msg.pointer("/request/requestId").and_then(Value::as_str)),
+        "done" => msg
+            .get("turnId")
+            .and_then(Value::as_str)
+            .or_else(|| msg.get("promptId").and_then(Value::as_str)),
+        _ => None,
+    }
+    .unwrap_or("record");
+    let key =
+        if semantic_id == "record" { format!("record-{seq}") } else { semantic_id.to_owned() };
+    let digest = Sha256::digest(format!("{session}\0{key}\0{kind}").as_bytes());
+    let event_id =
+        format!("attn_{}", digest.iter().take(20).map(|b| format!("{b:02x}")).collect::<String>());
+    Some(json!({
+        "event_id": event_id,
+        "kind": kind,
+        "session": session,
+        "title": "Cloud chat",
+        "occurred_at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
+    }))
+}
+
+fn attention_for_event(
+    active_turn: Option<&str>,
+    kind: &str,
+    msg: &Value,
+    session: &str,
+    seq: u64,
+) -> Option<Value> {
+    let active_turn = active_turn?;
+    if kind == "permission_request"
+        && let Some(turn_id) = msg.get("turnId").and_then(Value::as_str)
+        && !active_turn.is_empty()
+        && turn_id != active_turn
+    {
+        return None;
+    }
+    attention_for_record(kind, msg, session, seq)
+}
+
+#[cfg(test)]
+mod attention_tests {
+    use super::{attention_for_event, attention_for_record};
+    use serde_json::json;
+
+    #[test]
+    fn only_prompt_owned_turns_emit_attention() {
+        let permission =
+            json!({"request": {"toolCall": {"title": "Run tests", "kind": "execute"}}});
+        assert_eq!(attention_for_event(None, "permission_request", &permission, "s", 1), None);
+        assert_eq!(
+            attention_for_event(Some("turn-1"), "permission_request", &permission, "s", 1)
+                .expect("permission")["kind"],
+            "permission"
+        );
+        assert_eq!(
+            attention_for_event(Some("turn-1"), "background_turn", &json!({}), "s", 2),
+            None
+        );
+        assert_eq!(
+            attention_for_event(
+                Some("turn-1"),
+                "turn_result",
+                &json!({"status": "completed"}),
+                "s",
+                3
+            )
+            .expect("done")["kind"],
+            "done"
+        );
+    }
+
+    #[test]
+    fn question_and_permission_are_distinct() {
+        let question = json!({"request": {"toolCall": {"title": "AskUserQuestion",
+            "_meta": {"claude": {"tool": "AskUserQuestion"}},
+            "rawInput": {"questions": [{"question": "Ship it?"}]}}}});
+        let permission =
+            json!({"request": {"toolCall": {"title": "Write file", "kind": "execute"}}});
+        assert_eq!(
+            attention_for_record("permission_request", &question, "s", 1).expect("question")["kind"],
+            "question"
+        );
+        assert_eq!(
+            attention_for_record("permission_request", &permission, "s", 2).expect("permission")["kind"],
+            "permission"
+        );
+    }
+
+    #[test]
+    fn semantic_ids_survive_record_replay() {
+        let permission = json!({"permissionId": "perm-1", "request": {"toolCall": {"title": "Write", "kind": "execute"}}});
+        let first = attention_for_record("permission_request", &permission, "s", 1).unwrap();
+        let replay = attention_for_record("permission_request", &permission, "s", 99).unwrap();
+        assert_eq!(first["event_id"], replay["event_id"]);
+        let done = json!({"status": "completed", "turnId": "turn-1"});
+        let first = attention_for_record("turn_result", &done, "s", 2).unwrap();
+        let replay = attention_for_record("turn_result", &done, "s", 100).unwrap();
+        assert_eq!(first["event_id"], replay["event_id"]);
+    }
+
+    #[test]
+    fn late_permission_from_an_old_turn_is_ignored() {
+        let permission = json!({"turnId": "turn-old", "permissionId": "perm-1",
+            "request": {"toolCall": {"title": "Write", "kind": "execute"}}});
+        assert_eq!(
+            attention_for_event(Some("turn-new"), "permission_request", &permission, "s", 1),
+            None
+        );
+    }
+}
+
 /// The store's session id shape (`[A-Za-z0-9_.:-]{1,128}`); any other session has no hand-off.
 fn valid_session(id: &str) -> bool {
     !id.is_empty()
@@ -305,6 +442,8 @@ pub(super) trait Io {
     fn present(&self) -> bool;
     /// One line to the agent and what came back.
     fn send(&self, line: String) -> impl Future<Output = Reply> + Send;
+    /// Queue an independent attention event; the Cloud agent owns retries.
+    fn notify(&self, line: String) -> impl Future<Output = ()> + Send;
 }
 
 /// How the store answered one report.
@@ -403,6 +542,12 @@ impl<I: Io> Reporter<I> {
             handoff_closed: Remembered::default(),
             silent_until: None,
             later: HashMap::new(),
+        }
+    }
+
+    async fn notify_attention(&self, attention: Value) {
+        if self.io.present() {
+            self.io.notify(json!({ "attention": attention }).to_string()).await;
         }
     }
 
@@ -797,7 +942,12 @@ impl<I: Io> Reporter<I> {
                 self.set_now(session, Now::Quiet);
             }
             // Not this turn, or no hand-off for the session: its end is not sent.
-            Outcome::Refused | Outcome::NotFound => {
+            Outcome::Refused => {
+                if let Some(track) = self.tracks.get_mut(session) {
+                    track.refused = Some(turn);
+                }
+            }
+            Outcome::NotFound => {
                 if let Some(track) = self.tracks.get_mut(session) {
                     track.refused = Some(turn);
                 }
@@ -832,6 +982,17 @@ impl Io for AgentSocket {
             Ok(Ok(n)) if n > 0 => serde_json::from_str(&reply).map_or(Reply::Failed, Reply::Answer),
             Ok(_) => Reply::Failed,
         }
+    }
+
+    async fn notify(&self, line: String) {
+        let Ok(Ok(mut stream)) =
+            tokio::time::timeout(NOTIFY_TIMEOUT, tokio::net::UnixStream::connect(&self.path)).await
+        else {
+            return;
+        };
+        let _ =
+            tokio::time::timeout(NOTIFY_TIMEOUT, stream.write_all(format!("{line}\n").as_bytes()))
+                .await;
     }
 }
 
@@ -915,17 +1076,22 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
                     .flatten()
                     .map(|r| cut(&r, DONE_CHARS));
             }
+            if let Some(attention) = queued.attention {
+                reporter.notify_attention(attention).await;
+            }
             reporter.step_at(&queued.session, queued.step, queued.at).await;
         }
     });
     let mut events = hub.subscribe();
     let mut cloud = false;
+    let mut active_turns = HashMap::<String, String>::new();
     loop {
         let ev = match events.recv().await {
             Ok(ev) => ev,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                 tracing::warn!(missed = n, "hand-off reports: the event stream lagged");
                 losses.fetch_add(1, Ordering::SeqCst);
+                active_turns.clear();
                 continue;
             }
             Err(_) => break,
@@ -943,6 +1109,25 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         if !cloud && !matches!(step, Step::Closed | Step::Reopened) {
             continue;
         }
+        if ev.record.kind == "turn_started" {
+            if active_turns.len() >= MAX_TRACKS {
+                active_turns.clear();
+            }
+            active_turns.insert(
+                ev.session_id.clone(),
+                ev.record.msg.get("turnId").and_then(Value::as_str).unwrap_or("").to_owned(),
+            );
+        }
+        let attention = attention_for_event(
+            active_turns.get(&ev.session_id).map(String::as_str),
+            &ev.record.kind,
+            &ev.record.msg,
+            &ev.session_id,
+            ev.record.seq,
+        );
+        if ev.record.kind == "turn_result" || matches!(step, Step::Closed | Step::Reopened) {
+            active_turns.remove(&ev.session_id);
+        }
         if !step.lifecycle() && tx.capacity() <= QUEUE_CAP - QUEUE_SOFT_CAP {
             tracing::warn!(session = %ev.session_id, "hand-off reports: queue long, a step dropped");
             continue;
@@ -956,6 +1141,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         let queued = Queued {
             session: ev.session_id.clone(),
             step,
+            attention,
             reply,
             losses: losses.load(Ordering::SeqCst),
             at: tokio::time::Instant::now(),
@@ -981,6 +1167,8 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
 struct Queued {
     session: String,
     step: Step,
+    /// A prompt-owned durable attention transition, independent of hand-offs.
+    attention: Option<Value>,
     /// A completed turn's records to read its reply from: after this seq, up to that one.
     reply: Option<(u64, u64)>,
     /// The loss count when it was queued.

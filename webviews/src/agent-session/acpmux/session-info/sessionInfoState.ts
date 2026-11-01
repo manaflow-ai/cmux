@@ -24,11 +24,12 @@ export type SessionInfoSections = Readonly<Record<SessionInfoSectionId, boolean>
 /// The width a drag can give it, in px, and the width it opens at the first time.
 export const SESSION_INFO_WIDTH = { min: 260, max: 560, fallback: 320 } as const;
 
-/// Context and Connectors start folded to their one-line values (as in Claude Code desktop); the
-/// rest start open.
+/// Connectors starts folded to its one-line value (as in Claude Code desktop); the rest start open,
+/// Context too (Leo, 2026-11-01: "context tho is pretty good i think to keep expanded by default? it
+/// seemed like it was collapsed initially").
 export const DEFAULT_SECTIONS: SessionInfoSections = {
   environment: true,
-  context: false,
+  context: true,
   connectors: false,
   changes: true,
   sources: true,
@@ -67,14 +68,23 @@ const clampWidth = (width: number) =>
 const widthOf = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? clampWidth(value) : SESSION_INFO_WIDTH.fallback;
 
+/// The saved sections' version. Before 2 every chat saved Context folded because that was the
+/// default (each chat saves its whole state when a pane first shows it), not because the viewer folded
+/// it, so a saved Context from before 2 gives way to today's default.
+const SECTIONS_VERSION = 2;
+
 function sectionsOf(value: unknown): SessionInfoSections {
   if (!value || typeof value !== "object") return DEFAULT_SECTIONS;
-  const stored = value as Partial<Record<SessionInfoSectionId, unknown>>;
+  const stored = value as Partial<Record<SessionInfoSectionId | "v", unknown>>;
   const sections = { ...DEFAULT_SECTIONS };
   for (const id of Object.keys(DEFAULT_SECTIONS) as SessionInfoSectionId[])
-    if (typeof stored[id] === "boolean") sections[id] = stored[id];
+    if (typeof stored[id] === "boolean" && (id !== "context" || stored.v === SECTIONS_VERSION))
+      sections[id] = stored[id];
   return sections;
 }
+
+/// The sections as they are saved: with their version.
+const savedSections = (sections: SessionInfoSections) => ({ ...sections, v: SECTIONS_VERSION });
 
 function parse(raw: string | null): unknown {
   try {
@@ -167,7 +177,10 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   /// chat's state.
   const save = (sessionId: string, next: State) => {
     const now = Date.now();
-    write(SESSION_INFO_PANE_PREFIX + sessionId, JSON.stringify({ ...next, at: now }));
+    write(
+      SESSION_INFO_PANE_PREFIX + sessionId,
+      JSON.stringify({ ...next, sections: savedSections(next.sections), at: now }),
+    );
     const others = adoptStrays(indexOf())
       .filter(([id]) => id !== sessionId)
       .sort((a, b) => b[1] - a[1]);
@@ -245,7 +258,7 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     },
     setSection(id: SessionInfoSectionId, open: boolean) {
       const sections = { ...current().sections, [id]: open };
-      write(SECTIONS_KEY, JSON.stringify(sections));
+      write(SECTIONS_KEY, JSON.stringify(savedSections(sections)));
       update({ ...current(), sections }, true);
     },
     setSourcesAll(all: boolean) {

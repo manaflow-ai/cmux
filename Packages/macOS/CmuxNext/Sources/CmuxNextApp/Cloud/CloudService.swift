@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -176,7 +177,7 @@ final class CloudService {
         machineAPI = configuration.linkSource == .appServer
             ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                             teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-                                            machineIO: CloudMachineIO(binary: LocalServerSource.bundledCLI(), cloudRoot: paths.root))
+                                            machineIO: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
             : api
         let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build
@@ -217,24 +218,14 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
-        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
+        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
+            signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
+            allowedOps: { await CloudCredentialRelay.bundledServedOps() })
+        credentialProvider = CloudCredentialProvider(relay: relay)
+        let launcher = configuration.linkSource == .appServer
+            ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build, relay: relay) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
-        let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
-        let clientHeaders = identity.requestHeaders
-        credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
-            post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
-            token: { try await identity.installToken() },
-            invalidate: { await identity.invalidate() },
-            // The team is the backend team the relay bills: the install
-            // token's team claim (never the Stack team id) (cx-i6g4).
-            session: { [auth] in
-                guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
-                let token = try? await identity.installToken()
-                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
-            },
-            allowedOps: { await CloudCredentialRelay.bundledServedOps() }
-        ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
@@ -782,12 +773,12 @@ final class CloudService {
         return await current()
     }
     /// Kill, Pause and Resume show their transition from the click until the next list settles it.
-    func deleteMachine(_ machineID: String, byPerson: Bool = false) async throws {
+    func deleteMachine(_ machineID: String) async throws {
         // Retain credentials and broker registration until a list confirms removal. Both
         // the request and the asynchronous provider deletion can still fail.
         try await changes.run(.deleting, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            if configuration.linkSource == .appServer { try await appServerMachineCall("cloud.machine.delete", machineID, byPerson: byPerson) } else { try await api.deleteMachine(machineID) }
+            try await api.deleteMachine(machineID)
         }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
@@ -796,31 +787,26 @@ final class CloudService {
         logger.info("deleted machine \(machineID, privacy: .public)")
     }
 
-    func pauseMachine(_ machineID: String, byPerson: Bool = false) async throws {
+    func pauseMachine(_ machineID: String) async throws {
         try await changes.run(.pausing, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            if configuration.linkSource == .appServer { try await appServerMachineCall("cloud.machine.pause", machineID, byPerson: byPerson) } else { try await api.pauseMachine(machineID) }
+            try await api.pauseMachine(machineID)
         }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
     }
 
-    func resumeMachine(_ machineID: String, byPerson: Bool = false) async throws {
+    func resumeMachine(_ machineID: String) async throws {
         try await changes.run(.starting, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            if configuration.linkSource == .appServer { try await appServerMachineCall("cloud.machine.start", machineID, byPerson: byPerson) } else { try await api.resumeMachine(machineID) }
+            try await api.resumeMachine(machineID)
         }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
-    /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`, or
-    /// `cloud.machine.idle_policy.set` on the app server link): minutes of idle
-    /// before cmux Cloud pauses it; 0 is Off.
-    func setIdlePause(_ machineID: String, minutes: Int, byPerson: Bool = false) async throws {
-        if configuration.linkSource == .appServer {
-            try await appServerMachineCall("cloud.machine.idle_policy.set", machineID, ["idle_seconds": .number(Double(minutes * 60))], byPerson: byPerson)
-        } else {
-            try await api.setIdlePause(machineID, minutes: minutes)
-        }
+    /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes
+    /// of idle before cmux Cloud pauses it; 0 is Off.
+    func setIdlePause(_ machineID: String, minutes: Int) async throws {
+        try await api.setIdlePause(machineID, minutes: minutes)
         machines.session(machineID)?.machine.idlePauseMinutes = minutes
         logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
     }
@@ -838,14 +824,8 @@ final class CloudService {
         do { _ = try await hub.linkedSocketPath() } catch { logger.error("wireguard hub for ssh routes: \(String(describing: error), privacy: .public)") }
     }
 
-    func renameMachine(_ machineID: String, to name: String, byPerson: Bool = false) async throws {
-        if configuration.linkSource == .appServer {
-            // The app server keeps a name on every machine (1 to 80 characters): no clearing it there.
-            guard !name.isEmpty else { return }
-            try await appServerMachineCall("cloud.machine.rename", machineID, ["name": .string(name)], byPerson: byPerson)
-        } else {
-            try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
-        }
+    func renameMachine(_ machineID: String, to name: String) async throws {
+        try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
     }
 

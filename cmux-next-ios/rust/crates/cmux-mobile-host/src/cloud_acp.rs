@@ -440,11 +440,11 @@ mod tests {
         assert!(asked.to_native[0].get("sessionId").is_none());
         let record = json!({"sessionId":"sess_a","seq":57,"at":1234,"dir":"in","kind":"session.update",
             "msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"actual answer"}}}}});
-        let page = json!({"session":{"sessionId":"sess_a","name":"Cloud chat"},"events":[record.clone()],"hasMore":true});
+        let page = json!({"session":{"sessionId":"sess_a","name":"Cloud chat"},"events":[record],"hasMore":true});
         let reply = respond(&mut a, &asked.to_native[0], page.clone());
         assert_eq!(reply.to_phone[0]["result"], page);
         let live =
-            a.native(json!({"event":"agent-session-record","surface":7,"record":record.clone()})).unwrap();
+            a.native(json!({"event":"agent-session-record","surface":7,"record":record})).unwrap();
         assert_eq!(live.to_phone[0]["params"], record);
         assert_eq!(live.to_phone[0]["method"], "_acpmux/event");
         let other = a.native(json!({"event":"agent-session-record","surface":7,"record":{"sessionId":"sess_other","seq":58}})).unwrap();

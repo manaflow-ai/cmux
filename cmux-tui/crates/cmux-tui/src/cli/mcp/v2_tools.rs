@@ -5,9 +5,11 @@
 //! control and the `cmux-tui`-only scopes are excluded with a reason
 //! (`exclusions`); the parity test pins both lists to the CLI.
 
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use cmux_tui_core::resource::ResourceOperation;
+use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
 use super::super::command::{RequestPlan, WireOperation};
@@ -16,7 +18,7 @@ use super::Exclusion;
 use super::schema::{self, Generator};
 use super::transport::{self, Prefix};
 
-const CATALOG_JSON: &str =
+pub(super) const CATALOG_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
 
 /// A read with an array result and no `limit` of its own answers one page:
@@ -263,9 +265,37 @@ const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user
 const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
      chat opens; an agent already runs in its folder (cx-9aps).";
 
-pub(super) fn catalog() -> &'static Value {
-    static CATALOG: OnceLock<Value> = OnceLock::new();
-    CATALOG.get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("the checked-in catalog"))
+/// The v2 catalog as an index of raw JSON slices of [`CATALOG_JSON`], which is
+/// embedded in the binary: parsed into one tree, its ~1 MB took ~17 MB of heap,
+/// held by every agent's `cmux mcp serve` for its whole life. An operation's
+/// descriptor or a type definition is parsed only while a tool is listed or
+/// called, and dropped after.
+pub(super) struct Catalog {
+    pub types: schema::RawTypes,
+    pub operations: BTreeMap<&'static str, &'static RawValue>,
+}
+
+pub(super) fn catalog() -> &'static Catalog {
+    #[derive(serde::Deserialize)]
+    struct Index<'a> {
+        #[serde(borrow)]
+        types: BTreeMap<&'a str, &'a RawValue>,
+        #[serde(borrow)]
+        operations: BTreeMap<&'a str, &'a RawValue>,
+    }
+    static CATALOG: OnceLock<Catalog> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        let index: Index<'static> =
+            serde_json::from_str(CATALOG_JSON).expect("the checked-in catalog");
+        Catalog { types: index.types, operations: index.operations }
+    })
+}
+
+/// The parsed descriptor of an operation. The index already checked that the
+/// slice is valid JSON, so this fails only past serde_json's nesting limit:
+/// `build` then offers no tool for it and `exclusions` lists it.
+fn parse(raw: &RawValue) -> Result<Value, serde_json::Error> {
+    serde_json::from_str(raw.get())
 }
 
 pub(super) struct V2Tool {
@@ -274,7 +304,8 @@ pub(super) struct V2Tool {
     pub wire: &'static str,
     pub mutation: bool,
     pub paginated: bool,
-    descriptor: &'static Value,
+    needs_terminal: bool,
+    raw: &'static RawValue,
 }
 
 /// One page of an array result.
@@ -305,13 +336,18 @@ pub(super) fn find(name: &str) -> Option<&'static V2Tool> {
 
 fn build() -> Vec<V2Tool> {
     let mut tools = Vec::new();
-    for (wire, descriptor) in catalog()["operations"].as_object().into_iter().flatten() {
-        let class = descriptor["class"].as_str().unwrap_or_default();
-        if !matches!(class, "read" | "mutation") || excluded_reason(wire).is_some() {
+    for (&wire, &raw) in &catalog().operations {
+        if excluded_reason(wire).is_some() {
             continue;
         }
-        let Ok(operation) =
-            serde_json::from_value::<ResourceOperation>(Value::String(wire.clone()))
+        let Ok(descriptor) = parse(raw) else {
+            continue;
+        };
+        let class = descriptor.get("class").and_then(Value::as_str).unwrap_or_default();
+        if !matches!(class, "read" | "mutation") {
+            continue;
+        }
+        let Ok(operation) = serde_json::from_value::<ResourceOperation>(Value::String(wire.into()))
         else {
             continue;
         };
@@ -319,12 +355,16 @@ fn build() -> Vec<V2Tool> {
         tools.push(V2Tool {
             name: tool_name(wire),
             operation,
-            wire: wire.as_str(),
+            wire,
             mutation: class == "mutation",
             paginated: class == "read"
                 && descriptor["result"]["kind"] == "array"
                 && fields.get("limit").is_none(),
-            descriptor,
+            needs_terminal: descriptor
+                .pointer("/params/selectors/terminal")
+                .and_then(Value::as_str)
+                == Some("required"),
+            raw,
         });
     }
     tools
@@ -341,11 +381,19 @@ fn excluded_reason(wire: &str) -> Option<&'static str> {
 /// Every catalog operation that is not a tool, with the reason.
 pub(super) fn exclusions() -> Vec<Exclusion> {
     let mut excluded = Vec::new();
-    for (wire, descriptor) in catalog()["operations"].as_object().into_iter().flatten() {
-        let reason = match descriptor["class"].as_str().unwrap_or_default() {
+    for (&wire, &raw) in &catalog().operations {
+        let Ok(descriptor) = parse(raw) else {
+            excluded.push(Exclusion {
+                kind: "operation",
+                name: wire.to_owned(),
+                reason: "Its catalog descriptor does not parse.".to_owned(),
+            });
+            continue;
+        };
+        let reason = match descriptor.get("class").and_then(Value::as_str).unwrap_or_default() {
             "stream_open" => Some(STREAM_REASON),
             "connection_control" => Some(CONNECTION_REASON),
-            _ if serde_json::from_value::<ResourceOperation>(Value::String(wire.clone()))
+            _ if serde_json::from_value::<ResourceOperation>(Value::String(wire.into()))
                 .is_err() =>
             {
                 Some("This binary does not know the operation.")
@@ -355,7 +403,7 @@ pub(super) fn exclusions() -> Vec<Exclusion> {
         if let Some(reason) = reason {
             excluded.push(Exclusion {
                 kind: "operation",
-                name: wire.clone(),
+                name: wire.to_owned(),
                 reason: reason.to_owned(),
             });
         }
@@ -364,7 +412,14 @@ pub(super) fn exclusions() -> Vec<Exclusion> {
 }
 
 impl V2Tool {
+    /// The tool's parsed descriptor. `build` made this tool only after the same
+    /// immutable slice parsed, so the `Null` fallback is never taken.
+    fn descriptor(&self) -> Value {
+        parse(self.raw).unwrap_or_default()
+    }
+
     pub(super) fn descriptor_json(&self) -> Value {
+        let descriptor = self.descriptor();
         let verb = self.wire.rsplit('.').next().unwrap_or_default();
         let destructive = self.mutation
             // `layout.bulk` closes tabs, panes, screens or workspaces.
@@ -372,28 +427,20 @@ impl V2Tool {
                 || verb.starts_with("remove"));
         json!({
             "name": self.name,
-            "description": self.description(),
-            "inputSchema": self.input_schema(),
+            "description": self.description(&descriptor),
+            "inputSchema": self.schema(&descriptor),
             "annotations": {
                 "readOnlyHint": !self.mutation,
                 "destructiveHint": destructive,
                 "idempotentHint": !self.mutation,
                 // The catalog marks operations that change state elsewhere.
-                "openWorldHint": self.descriptor["risk"] == "send-external",
+                "openWorldHint": descriptor.get("risk").and_then(Value::as_str) == Some("send-external"),
             },
         })
     }
 
-    fn selectors(&self) -> impl Iterator<Item = (&'static String, &'static Value)> {
-        self.descriptor["params"]["selectors"].as_object().into_iter().flatten()
-    }
-
-    fn fields(&self) -> &'static Value {
-        &self.descriptor["params"]["fields"]
-    }
-
-    fn description(&self) -> String {
-        let target = self.descriptor["target"].as_str().unwrap_or("resource").replace('_', " ");
+    fn description(&self, descriptor: &Value) -> String {
+        let target = descriptor["target"].as_str().unwrap_or("resource").replace('_', " ");
         let mut text = format!(
             "{} (cmux.protocol/2 `{}`). {}",
             summary(self.wire, &target),
@@ -410,7 +457,7 @@ impl V2Tool {
         {
             text.push_str(" By default reads the original local-only machine shape. catalog:true explicitly includes owner metadata and currently published admitted routes. Metadata grants no execution rights and opens no machine connection.");
         }
-        if let Some(constraints) = schema::joined(&self.descriptor["params"]["constraints"]) {
+        if let Some(constraints) = schema::joined(&descriptor["params"]["constraints"]) {
             text.push(' ');
             text.push_str(&constraints);
         }
@@ -428,8 +475,14 @@ impl V2Tool {
         text
     }
 
+    /// The input schema alone (tests); `descriptor_json` parses the descriptor once for both.
+    #[cfg(test)]
     pub(super) fn input_schema(&self) -> Value {
-        let generator = Generator::new(catalog());
+        self.schema(&self.descriptor())
+    }
+
+    fn schema(&self, descriptor: &Value) -> Value {
+        let generator = Generator::raw(&catalog().types);
         let mut properties = Map::new();
         let mut required = Vec::new();
         properties.insert(
@@ -441,7 +494,9 @@ impl V2Tool {
                     Default: the session the cmux CLI uses here.",
             }),
         );
-        for (selector, requiredness) in self.selectors() {
+        for (selector, requiredness) in
+            descriptor["params"]["selectors"].as_object().into_iter().flatten()
+        {
             if !self.selector_argument(selector) {
                 continue;
             }
@@ -450,7 +505,7 @@ impl V2Tool {
                 required.push(Value::String(selector.clone()));
             }
         }
-        for (name, field) in self.fields().as_object().into_iter().flatten() {
+        for (name, field) in descriptor["params"]["fields"].as_object().into_iter().flatten() {
             let mut property = generator.field(field);
             if let (Some(default), Some(property)) =
                 (self.default_of(name), property.as_object_mut())
@@ -504,8 +559,9 @@ impl V2Tool {
         if self.operation == ResourceOperation::MachineGet {
             text("machine", arguments.get("machine").unwrap_or(&Value::Null))?;
         }
-        let selectors = self.descriptor["params"]["selectors"].as_object();
-        let fields = self.fields().as_object();
+        let descriptor = self.descriptor();
+        let selectors = descriptor.pointer("/params/selectors").and_then(Value::as_object);
+        let fields = descriptor.pointer("/params/fields").and_then(Value::as_object);
         let mut params = Map::new();
         for scope in ["machine", "session"] {
             if selectors.is_some_and(|selectors| selectors.contains_key(scope)) {
@@ -616,14 +672,14 @@ impl V2Tool {
             }
         }
         let mut missing = Vec::new();
-        for (name, field) in self.fields().as_object().into_iter().flatten() {
+        for (name, field) in fields.into_iter().flatten() {
             if params.contains_key(name) {
                 continue;
             }
             if let Some(default) = self.default_of(name) {
                 params.insert(name.clone(), default);
             } else if field["required"] == Value::Bool(true) {
-                let schema = Generator::new(catalog()).field(field);
+                let schema = Generator::raw(&catalog().types).field(field);
                 let values = schema
                     .get("enum")
                     .and_then(Value::as_array)
@@ -688,8 +744,7 @@ impl V2Tool {
     /// Whether the operation needs a `terminal` selector (`terminal_list` only filters by
     /// one, through its optional `tab`).
     pub(super) fn needs_terminal(&self) -> bool {
-        self.descriptor.pointer("/params/selectors/terminal").and_then(Value::as_str)
-            == Some("required")
+        self.needs_terminal
     }
 
     fn waits(&self) -> bool {
