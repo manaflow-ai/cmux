@@ -509,6 +509,9 @@ struct ChatModel {
     maybe: BTreeSet<String>,
     /// Prompt ids `_acpmux/queue_remove` answered `removed: true` for.
     removed: BTreeSet<String>,
+    /// Prompt ids a `_acpmux/queue_remove` was sent for: the daemon may have removed them,
+    /// whatever the answer (a kill can cut it), so their absence after a restart is no loss.
+    remove_sent: BTreeSet<String>,
     /// Permission ids answered.
     answered: BTreeSet<String>,
 }
@@ -682,6 +685,11 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
                     // A prompt subscribes this connection as showing the chat
                     // (`server/view.rs` `subscribe_local`), which is seeing it: unread clears.
                     c.unread_acked = false;
+                }
+            }
+            Op::QueueRemove { chat, pid } => {
+                if let Some(c) = m.chats.get_mut(chat) {
+                    c.remove_sent.insert(pid.clone());
                 }
             }
             Op::PermissionAnswer { chat } => {
@@ -1077,7 +1085,12 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
                 let key = format!("\"promptId\":\"{p}\"");
                 queue.contains(&key) || ran.contains(&key)
             };
-            missing = c.accepted.iter().filter(|p| !found(p)).cloned().collect();
+            missing = c
+                .accepted
+                .iter()
+                .filter(|p| !found(p) && !c.remove_sent.contains(*p))
+                .cloned()
+                .collect();
             back = c
                 .removed
                 .iter()
