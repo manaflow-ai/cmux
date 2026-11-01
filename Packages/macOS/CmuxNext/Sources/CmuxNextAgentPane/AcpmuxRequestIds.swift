@@ -114,13 +114,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         // Stream notifications have no id to rewrite. The marker check avoids Foundation's full
         // parse for the usual `session/update` payloads while retaining the parsed object for the
         // three notifications read by host observers.
-        let methodAt = text.range(of: "\"method\"")?.lowerBound
-        let resultBeforeMethod = methodAt.map { methodAt in
-            if let resultAt = text.range(of: "\"result\"")?.lowerBound, resultAt < methodAt { return true }
-            if let errorAt = text.range(of: "\"error\"")?.lowerBound, errorAt < methodAt { return true }
-            return false
-        } ?? false
-        if methodAt != nil, !resultBeforeMethod {
+        if Self.hasTopLevelMethod(text) {
             guard Self.observedNotificationMarkers.contains(where: text.contains),
                   let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
             else { return .page(text, object: nil, replyTo: nil) }
@@ -161,5 +155,46 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     static func encode(_ object: [String: Any]) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else { return nil }
         return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Finds the top-level `method` key without constructing a JSON object. The duplicate-key
+    /// validator has already established that this is well-formed JSON, so this small scanner only
+    /// needs to track strings and nesting; it avoids mistaking a transcript field named `method`
+    /// for the frame's method when deciding whether a reply needs a full parse.
+    private static func hasTopLevelMethod(_ text: String) -> Bool {
+        text.withUTF8 { bytes in
+            guard let base = bytes.baseAddress, bytes.count > 0 else { return false }
+            var depth = 0
+            var i = 0
+            while i < bytes.count {
+                switch base[i] {
+                case 0x22: // string
+                    let start = i + 1
+                    i = start
+                    var escaped = false
+                    while i < bytes.count {
+                        let byte = base[i]
+                        if escaped { escaped = false }
+                        else if byte == 0x5C { escaped = true }
+                        else if byte == 0x22 { break }
+                        i += 1
+                    }
+                    if depth == 1, i - start == 6 {
+                        var next = i + 1
+                        while next < bytes.count, base[next] == 0x20 || base[next] == 0x09 || base[next] == 0x0A || base[next] == 0x0D { next += 1 }
+                        if next < bytes.count, base[next] == 0x3A,
+                           base[start] == 0x6D, base[start + 1] == 0x65, base[start + 2] == 0x74,
+                           base[start + 3] == 0x68, base[start + 4] == 0x6F, base[start + 5] == 0x64 {
+                            return true
+                        }
+                    }
+                    i += 1
+                case 0x7B, 0x5B: depth += 1; i += 1
+                case 0x7D, 0x5D: depth -= 1; i += 1
+                default: i += 1
+                }
+            }
+            return false
+        }
     }
 }
