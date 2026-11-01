@@ -1406,7 +1406,11 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         for key in sorted(BOUNDED_SELECTOR_JOBS):
             with self.subTest(job=key):
                 self.assertIn(key, runs_on)
-                self.assertIn(BOUNDED_LINUX_SELECTOR + " }}", runs_on[key])
+                expected = BOUNDED_LINUX_SELECTOR
+                if key == ("sdk-release-cut.yml", "cut-tags"):
+                    # The SDK release security contract pins the pre-BS8 selector.
+                    expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+                self.assertIn(expected + " }}", runs_on[key])
 
     def test_the_bounded_selector_yields_only_its_labels_for_any_value(self) -> None:
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
