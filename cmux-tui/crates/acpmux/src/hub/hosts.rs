@@ -34,6 +34,8 @@ pub(super) struct OpenWork {
     /// That turn was carried on from the turn before (`turn_started` `carried`,
     /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
     turn_carried: bool,
+    /// The person's own prompt started this turn (`turn_started` `persons`).
+    turn_persons: bool,
     /// The last turn ended naming the turn it carried into (`turn_result` `carriedTo`), which
     /// never logged its start: the restart came in between.
     carry_next: Option<(String, Value)>,
@@ -911,6 +913,7 @@ impl Hub {
                     work.turn_line =
                         e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
                     work.turn_trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
+                    work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                     work.turn_at = e.at;
                     work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
                     work.carry_next = None;
@@ -951,6 +954,7 @@ impl Hub {
                     work.turn = None;
                     work.turn_line = None;
                     work.turn_carried = false;
+                    work.turn_persons = false;
                     work.next_raised = false;
                     work.compacting = false;
                     // No turn, no turn state: an ended turn's records are not read
@@ -1207,7 +1211,7 @@ impl Hub {
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
                         doing: work.doing.clone(),
-                        persons: false,
+                        persons: work.turn_persons,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);

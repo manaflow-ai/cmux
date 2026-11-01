@@ -431,6 +431,11 @@ impl Hub {
             && running.is_some()
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
             && super::inbox::persons_prompt_waits(session);
+        // Other agents wait until the person's own turn ends; family replies still enter it.
+        let persons_held = from_agent
+            && running.as_ref().is_some_and(|t| t.persons)
+            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
         let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
         let trigger_held = trigger || running.as_ref().is_some_and(|t| t.trigger);
         let steer_now = steer
@@ -440,13 +445,17 @@ impl Hub {
             && !capped
             && !notice_held
             && !review_held
-            && !prompt_held;
+            && !prompt_held
+            && !persons_held;
         if steer && opts.steer_only && !steer_now {
             if review_held && running.is_some() {
                 return Err(super::inbox::review_box_steer_refused());
             }
             if prompt_held && !capped {
                 return Err(super::inbox::prompt_waits_steer_refused());
+            }
+            if persons_held && !capped {
+                return Err(super::inbox::persons_turn_steer_refused());
             }
             return Err(super::turn_cap::steer_unavailable(capped));
         }
@@ -484,7 +493,7 @@ impl Hub {
             // Held past the cap, it waits: it stops no turn (`turn_cap.rs`); nor does another
             // agent's message stop a review box's review, or go ahead of the person's prompt that
             // waits (`inbox.rs`).
-            interrupt: opts.interrupt && !capped && !review_held && !prompt_held,
+            interrupt: opts.interrupt && !capped && !review_held && !prompt_held && !persons_held,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
@@ -586,8 +595,11 @@ impl Hub {
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         // Another agent's message shows as its sender and words (`prompt_line.rs`).
         let trigger = crate::prompt_provenance::is_trigger(run.provenance.as_ref());
+        let persons = super::inbox::persons_prompt(run.agent.as_deref(), run.provenance.as_ref())
+            && self.config.read().await.agent_inbox();
         let mut turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
-            .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()));
+            .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
+            .by_person(persons);
         turn.trigger = trigger;
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
@@ -784,7 +796,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "trigger": trigger}),
+                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger}),
             )
             .seq;
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
@@ -859,7 +871,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": wire}),
+            super::prompt_sender::run_params(&agent_sid, json!(wire), &run),
             &turn_id,
             false,
             false,
@@ -1534,6 +1546,7 @@ impl Hub {
             }
             self.save_meta(session);
             self.lane_turn_ended(session, false, turn);
+            self.inbox_turn_ended(session);
             return;
         }
         let mut e = e.clone();
