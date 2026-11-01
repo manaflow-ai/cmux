@@ -506,7 +506,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           literalKeys.current!,
         ]
       : richPlugins.current;
+    // A new plugin list remakes every plugin view, and Milkdown's root view unwraps and wraps the
+    // editor's element again: the move drops focus to the page, so the key after leaving shell
+    // mode (Escape, Cmd-A) went nowhere. The field keeps the focus it had.
+    const focused = current.hasFocus();
     current.updateState(current.state.reconfigure({ plugins }));
+    if (focused && !current.hasFocus()) current.focus();
   }, []);
   useLayoutEffect(configureLiteral, [configureLiteral, literal, plainInput]);
   // The markdown the field last emitted or applied; a different `value` comes from outside.

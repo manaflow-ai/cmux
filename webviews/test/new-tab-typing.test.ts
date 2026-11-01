@@ -119,6 +119,13 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       // The initial location is selected. Collapse that selection at its end; End scrolls the
       // document on macOS rather than moving the caret, and would leave the location selected.
       await page.keyboard.press("ArrowRight");
+      // The browser collapses the selection, and ProseMirror reads it on a later selectionchange.
+      // A key sent before that (Playwright's come a few milliseconds apart) still finds the whole
+      // location selected in the editor's state and replaces it, so wait for the editor's caret.
+      await page.waitForFunction(() => {
+        const prompt = document.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.text();
+        return prompt !== undefined && prompt.selectionStart === prompt.selectionEnd;
+      });
       await page.keyboard.type("/next");
       expect(await editor.textContent()).toBe(`${location}/next`);
       await page.keyboard.press("Enter");
