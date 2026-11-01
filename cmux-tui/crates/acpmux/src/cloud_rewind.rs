@@ -89,19 +89,6 @@ impl CloudTurnClient {
         Ok(Self { http, origin, workspace, machine, auth })
     }
 
-    #[cfg(test)]
-    fn with_http(
-        http: reqwest::Client,
-        origin: &str,
-        workspace: impl Into<String>,
-        machine: impl Into<String>,
-        auth: Arc<dyn OwnerCapability>,
-    ) -> Result<Self> {
-        let mut client = Self::new(origin, workspace, machine, auth)?;
-        client.http = http;
-        Ok(client)
-    }
-
     /// Stable idempotency key for one acpmux session. It contains no secret.
     pub fn client_key(session: &str) -> Result<String> {
         valid_component("session", session)?;
