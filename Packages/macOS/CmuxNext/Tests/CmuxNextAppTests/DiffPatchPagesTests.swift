@@ -67,4 +67,17 @@ struct DiffPatchPagesTests {
         }
         #expect(calls == 1)
     }
+
+    /// One file's read stops at the local viewer's size rule (the sidecar's 2 MiB a side): a larger
+    /// patch reads no page past the first, and the page answers tooLarge, so four reads at once never
+    /// join hundreds of MiB or evict each other's daemon capture (review of fcd87b662c5).
+    @Test func aFilePatchPastTheSideLimitStopsAfterTheFirstPage() async throws {
+        var calls = 0
+        let joined = try await DiffPatchPages.read { _, _ in
+            calls += 1
+            return reply(Data([0x61]), offset: 0, total: DiffPatchPages.maximumFilePatchBytes + 1)
+        }
+        #expect(joined == nil)
+        #expect(calls == 1)
+    }
 }

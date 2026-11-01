@@ -363,7 +363,7 @@ public final class DiffPageProvider: PageProvider {
                 } catch { throw Self.pageError(error) }
             }
             guard !isClosed, remoteSessions[id]?.generation == session.generation else { throw PageError.closed }
-            patch = await DiffPatchPages.text(bytes)
+            patch = if let bytes { await DiffPatchPages.text(bytes) } else { nil }
         } else {
             patch = file["patch"]?.stringValue
         }
@@ -374,7 +374,8 @@ public final class DiffPageProvider: PageProvider {
                                            contextLimit: Self.remoteFullFileContextLines)
         try Task.checkCancellation()
         guard !isClosed, remoteSessions[id]?.generation == session.generation else { throw PageError.closed }
-        guard let sides else {
+        // As the local viewer: a side past the sidecar's limit answers tooLarge, and neither side is sent.
+        guard let sides, [sides.old, sides.new].allSatisfy({ ($0?.utf8.count ?? 0) <= DiffPatchPages.maximumSideBytes }) else {
             return ["type": "fileContents", "value": ["tooLarge": true]]
         }
         var value: [String: JSONValue] = [:]
