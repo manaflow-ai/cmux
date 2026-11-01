@@ -6,13 +6,16 @@ import Testing
 /// Lawrence 2026-10-25 (msg 12385): "groups headers and rails need more left padding". A top-level group
 /// header's bar started at x = 0 and its rail 2 pt in, flush with the sidebar's edge. The rule: at every
 /// sidebar density, Minimal Mode and nesting level, a header bar and its rail keep at least
-/// `horizontalInset - space1` points of padding from the list's left edge, while member rows keep
-/// the ungrouped rows' left edge (#23975).
+/// `SidebarStyle.groupEdgePadding` points of padding from the list's left edge, while member rows keep
+/// the ungrouped rows' left edge (#23975). Lawrence's 63d46f831c0a (2026-10-30, "alignment here is bad")
+/// set that padding to the inset less the rail reach (2 pt compact, 4 pt comfortable) so it never eats
+/// the rail's gap; this test had kept the earlier `horizontalInset - space1`.
 @MainActor @Suite(.serialized) struct SidebarGroupEdgePaddingTests {
     @Test(arguments: SidebarGroupRailAlignmentTests.cases)
     func headersAndRailsKeepLeftPadding(_ c: SidebarGroupRailAlignmentTests.Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
-            let want = SidebarStyle.horizontalInset - Metrics.space1
+            let want = SidebarStyle.groupEdgePadding
+            #expect(want > 0, "\(c.testDescription): no edge padding")
             let (list, window) = SidebarGroupRailAlignmentTests.list(SidebarNestedFixture(scenario: c.scenario))
             defer { window.close() }
             let lines = list.groupLines(list.displayed)
