@@ -666,7 +666,8 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   await act(async () => root!.render(<main />));
-  const attachment = (left[0]?.[1] as ComposerAttachment[])[0]!;
+  expect(left).toHaveLength(1);
+  const attachment = (left[0]![1] as ComposerAttachment[])[0]!;
   expect(left).toEqual([[inlineToken(attachment.id), [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
 });
 
