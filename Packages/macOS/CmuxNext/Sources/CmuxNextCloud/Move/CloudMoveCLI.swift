@@ -27,9 +27,14 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// `link machine update --if-older`: the machine runs another build that is not older than
         /// this app's (a newer one, or the same source tree), so it was left alone.
         public var notOlder = false
+        public var seedState: String?
+        public var seedPhase: String?
+        public var seedStartedAt: Double?
+        public var seedFinishedAt: Double?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
-                    conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false) {
+                    conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
+                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil) {
             self.ok = ok
             self.errorCode = errorCode
             self.error = error
@@ -40,6 +45,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
             self.updated = updated
             self.build = build
             self.notOlder = notOlder
+            self.seedState = seedState
+            self.seedPhase = seedPhase
+            self.seedStartedAt = seedStartedAt
+            self.seedFinishedAt = seedFinishedAt
         }
     }
 
@@ -212,7 +221,11 @@ public nonisolated struct CloudMoveCLI: Sendable {
                             sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String,
                             conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String,
                             updated: object["updated"] as? Bool ?? false, build: object["build"] as? String,
-                            notOlder: object["not_older"] as? Bool ?? false)
+                            notOlder: object["not_older"] as? Bool ?? false,
+                            seedState: object["seed_state"] as? String,
+                            seedPhase: object["seed_phase"] as? String,
+                            seedStartedAt: object["seed_started_at"] as? Double,
+                            seedFinishedAt: object["seed_finished_at"] as? Double)
         return (answer, object, result.status)
     }
 }
