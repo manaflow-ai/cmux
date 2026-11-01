@@ -58,6 +58,11 @@ if (resident) {
   await window.cmuxAcpmuxDebug!.seedRows(turns * 3);
   await until(() => document.querySelector(".acpmux-minimap__entry")?.getAttribute("aria-setsize") === String(turns));
 }
+// GLASS: the pane over a picture with the glass in one mode, to compare the frame cost of each
+// (design/glass.md in leo-workspace): plain (blur), lens, lens-flat (the lens with no gloss),
+// prism (Spectrum with full gloss) and svg (Chromium's feDisplacementMap backdrop, svgRefraction.ts).
+const glass = new URLSearchParams(location.search).get("glass");
+if (glass) await installGlass(glass);
 // LIVE BACKGROUND: `live=<style>` draws the live background behind the pane (liveBackground.ts),
 // to measure what its loop costs the transcript's scroll.
 const live = new URLSearchParams(location.search).get("live");
@@ -67,3 +72,62 @@ if (live) {
   if (!installLiveBackground(document, live)) throw new Error("the live background needs WebGL");
 }
 document.documentElement.dataset.latencyFlowsReady = "true";
+
+/** A synthetic, colourful still: the picture behind the window glass, as the host sends it. */
+function picture(width: number, height: number): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d")!;
+  const sky = context.createLinearGradient(0, 0, width, height);
+  sky.addColorStop(0, "#1b2a6b");
+  sky.addColorStop(0.5, "#b0306a");
+  sky.addColorStop(1, "#f2a541");
+  context.fillStyle = sky;
+  context.fillRect(0, 0, width, height);
+  for (let index = 0; index < 40; index++) {
+    context.fillStyle = `hsl(${(index * 47) % 360} 80% 60% / 0.55)`;
+    context.beginPath();
+    context.arc((index * 197) % width, (index * 131) % height, 30 + ((index * 17) % 90), 0, Math.PI * 2);
+    context.fill();
+  }
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
+async function installGlass(mode: string): Promise<void> {
+  const known = ["plain", "lens", "lens-flat", "prism", "svg"];
+  if (!known.includes(mode)) throw new Error(`unsupported glass mode ${mode}`);
+  const root = document.documentElement;
+  const { installBackdropFallback } = await import("../../src/ui/glass/glassState");
+  const { installGlassLens } = await import("../../src/ui/glass/lens");
+  installBackdropFallback(window);
+  const image = picture(1024, 640);
+  root.style.setProperty("--cmux-surface-background", "transparent");
+  root.style.setProperty("background", `url("${image}") 0 0 / 100vw 100vh no-repeat fixed`, "important");
+  root.setAttribute(
+    "data-glass",
+    mode === "prism" ? "spectrum" : mode === "lens" || mode === "lens-flat" ? "lens" : "plain",
+  );
+  if (mode === "lens-flat") root.style.setProperty("--glass-gloss", "0");
+  if (mode === "prism") root.style.setProperty("--glass-gloss", "1");
+  if (mode === "svg") {
+    const { installSvgRefraction } = await import("../../src/ui/glass/svgRefraction");
+    installSvgRefraction(document);
+  }
+  installGlassLens(document);
+  (window as Window & { cmuxTheme?: { backdrop?: (partial: unknown) => void } }).cmuxTheme?.backdrop?.({
+    image,
+    key: "latency-glass",
+    rect: { x: 0, y: 0, width: root.clientWidth, height: root.clientHeight },
+    blur: 0,
+    tint: "rgba(0, 0, 0, 0.18)",
+  });
+  if (mode === "lens" || mode === "lens-flat" || mode === "prism") {
+    // The lens needs WebGL: a browser without it would measure CSS glass under the lens's name.
+    const deadline = performance.now() + 8_000;
+    while (!root.hasAttribute("data-glass-lens")) {
+      if (performance.now() > deadline) throw new Error(`glass=${mode}: the WebGL lens did not start in this browser`);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+  }
+}

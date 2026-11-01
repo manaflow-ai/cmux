@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import importlib.util
+import http.server
 import pathlib
+import socketserver
 import sys
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -16,6 +20,40 @@ SPEC = importlib.util.spec_from_file_location("fast_checks_runner", ROOT / "scri
 assert SPEC and SPEC.loader
 picker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(picker)
+
+
+class _DripHandler(http.server.BaseHTTPRequestHandler):
+    stop = threading.Event()
+
+    def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
+        if self.path == "/artifact":
+            self.send_response(302)
+            host, port = self.server.server_address
+            self.send_header("Location", f"http://{host}:{port}/blob")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", "100000")
+        self.end_headers()
+        try:
+            self.wfile.write(b"{")
+            self.wfile.flush()
+            while not self.stop.wait(0.01):
+                self.wfile.write(b" ")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def log_message(self, _format: str, *_args: object) -> None:
+        return
+
+
+class _DripServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = False
+    block_on_close = True
 
 
 class FastChecksRunnerTests(unittest.TestCase):
@@ -128,6 +166,52 @@ class FastChecksRunnerTests(unittest.TestCase):
         with mock.patch.object(picker.pr_runner_pool.time, "monotonic", return_value=10.0):
             with self.assertRaises(TimeoutError):
                 client._timeout(15.0)
+
+    def test_github_deadline_interrupts_a_byte_dripping_response(self) -> None:
+        _DripHandler.stop.clear()
+        server = _DripServer(("127.0.0.1", 0), _DripHandler)
+        thread = threading.Thread(target=server.serve_forever, name="fast-check-drip-server")
+        thread.start()
+        api = picker.pr_runner_pool.API
+        picker.pr_runner_pool.API = f"http://127.0.0.1:{server.server_address[1]}"
+        started = time.monotonic()
+        try:
+            client = picker.pr_runner_pool.GitHub(
+                "route", "manaflow-ai/cmux", deadline=started + 0.08,
+            )
+            with self.assertRaises(TimeoutError):
+                client.get_api("/drip")
+            self.assertLess(time.monotonic() - started, 0.8)
+        finally:
+            picker.pr_runner_pool.API = api
+            _DripHandler.stop.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(1.0)
+            self.assertFalse(thread.is_alive())
+
+    def test_github_deadline_interrupts_a_byte_dripping_artifact(self) -> None:
+        _DripHandler.stop.clear()
+        server = _DripServer(("127.0.0.1", 0), _DripHandler)
+        thread = threading.Thread(target=server.serve_forever, name="fast-check-artifact-drip-server")
+        thread.start()
+        api = picker.pr_runner_pool.API
+        picker.pr_runner_pool.API = f"http://127.0.0.1:{server.server_address[1]}"
+        started = time.monotonic()
+        try:
+            client = picker.pr_runner_pool.GitHub(
+                "route", "manaflow-ai/cmux", deadline=started + 0.08,
+            )
+            with self.assertRaises(TimeoutError):
+                client.download({"archive_download_url": f"{picker.pr_runner_pool.API}/artifact"})
+            self.assertLess(time.monotonic() - started, 0.8)
+        finally:
+            picker.pr_runner_pool.API = api
+            _DripHandler.stop.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(1.0)
+            self.assertFalse(thread.is_alive())
 
 
 if __name__ == "__main__":

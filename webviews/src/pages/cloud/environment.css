@@ -7,13 +7,13 @@
   overflow: auto;
   border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent));
   border-radius: var(--radius-lg, 12px);
-  background: var(--cmux-elevated-background, Canvas);
   color: var(--cmux-text, CanvasText);
   box-shadow: var(--elevation-2);
   font-family: var(--font-ui, system-ui);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
+.cloud-environment-sheet.ui-glass { background: var(--glass-tint); }
 .env-heading { display: flex; align-items: center; gap: 12px; padding: 24px; }
 .env-heading h2 { margin: 0; font-size: var(--text-heading); font-weight: 600; line-height: var(--text-heading--line-height); }
 .env-close { margin-inline-start: auto; }
@@ -59,7 +59,7 @@
 .env-editor-toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-block-end: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); }
 .env-language { border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); border-radius: 12px; padding: 4px 8px; }
 .env-file { position: relative; margin-inline-start: auto; overflow: hidden; }
-.env-file input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.env-file input { position: absolute; inset: 0; opacity: 0; width: 100%; }
 .env-file:focus-within { outline: 2px solid var(--cmux-focus-ring-color, Highlight); outline-offset: 2px; }
 .env-code { display: flex; height: min(34vh, 20em);
   min-height: 12em; }

@@ -5167,6 +5167,15 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
+      } else if (event.kind === "host_notice") {
+        // A line from outside the chat, such as cmux Cloud's after it resized the machine
+        // (acpmux `server/host_notice.rs`): one muted notice where it happened.
+        if (typeof msg.text === "string" && msg.text.trim()) {
+          // What the agent writes or does after the notice goes below it, not into the row above.
+          this.closeSegment();
+          const id = `host-notice-${event.seq}`;
+          this.rows.set(id, { id, version: 1, at: event.at, kind: "notice", text: msg.text });
+        }
       } else if (event.kind === "policy_unenforced") {
         // The chat's policy is narrower than approve-all and its harness has no mode that asks
         // (`hub/policy_mode.rs`): its agent runs without the asks the policy would answer.

@@ -1147,6 +1147,49 @@ export const SETTINGS_PAGE: LatencyPageSpec = {
   actions: settingsActions,
 };
 
+const GLASS_WHEEL_STEPS = 12;
+const GLASS_WHEEL_DELTA = 120;
+
+/** The 3,000-turn chat scrolled under its glass (composer, user bubbles, Session Info) over a
+ *  picture, once per glass mode (flows.harness.ts `glass=`): the frame cost of each glass. */
+function glassScroll(mode: string): LatencyPageSpec {
+  return {
+    name: `chat glass ${mode}`,
+    path: `/test/latency/flows.html?mock&turns=3000&resident&glass=${mode}`,
+    ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+    actions: [
+      {
+        id: `chat.glass.${mode}.scroll`,
+        name: `scroll under ${mode} glass`,
+        metricType: "scroll_frame_time",
+        requiredInstrumentation: requiredProfiled,
+        async prepare(page) {
+          await page.waitForSelector(".acpmux-scroll");
+          await page.evaluate(() => {
+            const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            scroll.scrollTop = scroll.scrollHeight;
+          });
+          await quiet(page);
+          const from = await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop);
+          const travel = GLASS_WHEEL_STEPS * GLASS_WHEEL_DELTA;
+          if (from < travel + 100) throw new Error("long transcript does not have a scrollable history");
+          await page.locator(".acpmux-scroll").hover();
+          return `document.querySelector(".acpmux-scroll").scrollTop <= ${from - travel + GLASS_WHEEL_DELTA / 2}`;
+        },
+        async input(page) {
+          for (let step = 0; step < GLASS_WHEEL_STEPS; step += 1) {
+            await page.mouse.wheel(0, -GLASS_WHEEL_DELTA);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+        },
+        settle: quiet,
+      },
+    ],
+  };
+}
+
+export const GLASS_PAGES: LatencyPageSpec[] = ["plain", "lens-flat", "lens", "prism", "svg"].map(glassScroll);
+
 const LIVE_WHEEL_STEPS = 12;
 const LIVE_WHEEL_DELTA = 120;
 
@@ -1204,5 +1247,6 @@ export const PAGES: LatencyPageSpec[] = [
   ...RAIL_SWEEP_PAGES,
   // Experiment comparisons (design/glass.md, design/motion-and-polish.md in leo-workspace): run on
   // demand with CMUX_LATENCY_EXPERIMENTS=1, never in the CI scoreboard.
+  ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? LIVE_BACKGROUND_PAGES : []),
 ];
