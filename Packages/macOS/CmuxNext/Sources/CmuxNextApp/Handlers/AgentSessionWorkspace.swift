@@ -23,9 +23,9 @@ import Foundation
 /// (`chief:<home id>`: the session runs in this app's Chief home's acpmux),
 /// `group` (the name of the sidebar group it goes in: any group of that name
 /// that can hold the row, made only when none can; `acpmux new --group` sends
-/// it), `placement` (`top`: first in the sidebar, below Home, whatever
-/// `workspaces.newPlacement` says; `cmux agents chat new --top`, #29875). A `key` that names a listed workspace opens nothing: a launcher run
-/// again finds its row. A `name` that already has a row in that group (a lane
+/// it), `placement` (`top`: first below Home over `workspaces.newPlacement`, `agents chat new --top`).
+/// A `key` that names a listed workspace opens nothing: a launcher run again finds its row.
+/// A `name` that already has a row in that group (a lane
 /// re-homed to another machine, whose new session has a new key) gets the
 /// chat as a tab of that row, never a second row of the same name.
 /// An agent's call (`callerAgentSession`) records that agent's session as
@@ -52,10 +52,8 @@ enum AgentSessionWorkspace {
         if let group, !validGroupName(group) {
             throw ActionFailure(message: "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\"")
         }
-        let placement = invocation["placement"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        if let placement, placement != "top" {
-            throw ActionFailure(message: "agent.openSessionWorkspace: placement must be top; omit it for the workspaces.newPlacement setting")
-        }
+        let placement = invocation["placement"]?.stringValue ?? ""
+        if !["", "top"].contains(placement) { throw ActionFailure(message: "agent.openSessionWorkspace: placement must be top; omit it for the workspaces.newPlacement setting") }
         let parent = invocation.callerAgentSession.flatMap { caller in
             Self.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
                 AgentSessionRef(host: $0.record.host, session: $0.record.session)
@@ -101,8 +99,7 @@ enum AgentSessionWorkspace {
         }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
-        // the named `group`. `top`: first in its machine section, below Home,
-        // whatever the setting and the shown workspace say.
+        // the named `group`; `top` first below Home whatever they say.
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
             join = { id, sidebar in

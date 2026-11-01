@@ -32,17 +32,8 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// top region, a custom section): the list leaves that row out on purpose,
     /// so its absence is no stale layout and `afterCurrent` falls back to `top`.
     var currentMachine: String?
-    /// The creator named `placement` for this workspace (`cmux agents chat new --top`), so the daemon's
-    /// create, which places by the setting, may not have put it there: the app writes the slot even when it
-    /// is the daemon's top slot (``move(for:section:in:home:catchingUp:)`` skips that one).
-    var named: Bool
-
-    init(placement: NewWorkspacePlacement, current: String?, currentMachine: String? = nil, named: Bool = false) {
-        self.placement = placement
-        self.current = current
-        self.currentMachine = currentMachine
-        self.named = named
-    }
+    /// Its creator named `placement` (`agents chat new --top`): the daemon placed it by the setting, so `move` writes even its top slot.
+    var named = false
 
     /// The current row is expected in this machine section but is not in the
     /// stale layout yet. Returning true keeps Cmd-N pending until the row is
