@@ -29,14 +29,12 @@ const rows = [
 
 const snapshot = chat(rows, { title: "Retry fix", isWorking: true });
 
-/// Open the run, then its "Ran 2 commands" group, so both notes sit between drawn tool rows.
+/// Open the run (its "Ran 2 commands" group draws opened), so both notes sit between drawn tool rows.
 const openRun: Play = async (ctx) => {
-  const toggle = (open: boolean) =>
-    ctx.document.querySelector(`.acpmux-activity .cv-tool.is-toggle[aria-expanded="${open}"]`);
-  await ctx.waitFor(() => toggle(false));
-  await ctx.click({ selector: '.acpmux-activity .cv-tool.is-toggle[aria-expanded="false"]' });
+  const run = '.acpmux-activity .cv-tool.is-toggle[aria-expanded="false"]';
+  await ctx.waitFor(() => ctx.document.querySelector(run));
+  await ctx.click({ selector: run });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-note"));
-  if (toggle(false)) await ctx.click({ selector: '.cv-tool-run .cv-tool.is-toggle[aria-expanded="false"]' });
 };
 
 const variant = (note: string, gap?: string) => ({
