@@ -38,6 +38,7 @@ nonisolated extension SidebarLayout {
         // "Show N more" row).
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
               !(o.foldsArchived && group.workspaces.contains(where: \.isArchived)),
+              !(o.archiveSection && (group.isArchived || group.workspaces.contains(where: \.isArchived))),
               o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
         let m = base.resolved(for: o)

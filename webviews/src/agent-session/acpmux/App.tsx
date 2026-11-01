@@ -46,8 +46,11 @@ import {
   type AcpmuxSnapshot,
   type QueueEdit,
   nextDrawnRow,
+  prevDrawnRow,
   isBeforeFooter,
   hasReplyActions,
+  statusEdge,
+  type StatusEdge,
   isLastFooter,
   isContinuationFooter,
   QUEUED_MESSAGE,
@@ -55,6 +58,7 @@ import {
   LANE_NOTICE_BATCH,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
+import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 import { pendingMessagesRow, searchablePendingRows } from "./conversation/pendingMessages";
 import { LaneNoticeBatch } from "./conversation/LaneNoticeBatch";
 import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
@@ -95,6 +99,7 @@ import {
   useNewTabAdoption,
   useNewTabPlaces,
   useNewTabWeather,
+  withHandshakeNewTab,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
@@ -480,7 +485,14 @@ import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabR
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
-import { cloudPageRefusal, cloudStartFolder, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
+import {
+  cloudPageRefusal,
+  cloudStartFolder,
+  cloudStartToasted,
+  newTabProjectPick,
+  oneCloudStart,
+  type CloudStart,
+} from "./cloudRun";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
@@ -527,6 +539,7 @@ import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./sig
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { hostLineText } from "./hostLine";
 import {
   AcpmuxRestartGate,
   hostErrorShows,
@@ -1160,6 +1173,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 const MessageRow = memo(
   function MessageRow({ row, replyActions, githubRepository }: RowProps) {
     const t = useT();
+    if (isVisiblyEmptyMessage(row)) return null;
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
     // Another agent's message as one line at the left (its sender's chip), its text as a card under
@@ -1753,9 +1767,23 @@ const defaultRegistry: NativeRegistry = {
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
 /// `actions`: whether a reply drew its own action row then (model.ts `hasReplyActions`); a drawn
 /// height taken without it, or with it, is stale once the row after the reply changes that.
-type DrawnHeight = { sessionId?: string; version: number; width: number; height: number; actions?: boolean };
+type DrawnHeight = {
+  sessionId?: string;
+  version: number;
+  width: number;
+  height: number;
+  actions?: boolean;
+  /// model.ts `statusEdge` when it was drawn: the room under the row depends on it.
+  status?: string;
+};
 /// `height` is undefined for a row the page has not laid out (drawnHeightOf).
-type ReportDrawn = (id: string, version: number, height: number | undefined, actions?: boolean) => void;
+type ReportDrawn = (
+  id: string,
+  version: number,
+  height: number | undefined,
+  actions?: boolean,
+  status?: string,
+) => void;
 
 /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
 /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
@@ -1804,7 +1832,8 @@ function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
     old.version === entry.version &&
     old.width === entry.width &&
     old.height === entry.height &&
-    Boolean(old.actions) === Boolean(entry.actions)
+    Boolean(old.actions) === Boolean(entry.actions) &&
+    old.status === entry.status
   );
 }
 
@@ -1895,6 +1924,7 @@ const RowFrame = React.memo(function RowFrame({
   joinsNext,
   beforeFooter,
   replyActions,
+  status,
   lastFooter,
   continuationFooter,
   lastTurn,
@@ -1928,6 +1958,9 @@ const RowFrame = React.memo(function RowFrame({
   /// Whether the row (a reply) draws its own action row (model.ts `hasReplyActions`): its height
   /// depends on it, so the frame redraws and measures again when it changes.
   replyActions: boolean;
+  /// Next to a status row (model.ts `statusEdge`): the room between the row and the next one is the
+  /// status gap, so a status line between two replies sits in the middle of it.
+  status: StatusEdge | undefined;
   /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
   lastFooter: boolean;
   /// The next drawn turn belongs to this same assistant: half the normal turn gap.
@@ -2014,11 +2047,13 @@ const RowFrame = React.memo(function RowFrame({
         row.version,
         acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
         replyActions,
+        status,
       );
   }, [
     row.id,
     row.version,
     replyActions,
+    status,
     rowWidth,
     expanded,
     joinsPrevious,
@@ -2037,7 +2072,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -2868,7 +2903,7 @@ export function VirtualTranscript({
   const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
   useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
-    (id, version, drawnHeight, actions) => {
+    (id, version, drawnHeight, actions, status) => {
       // A row not laid out (hidden, or no layout at all) has no height yet; 0 is one (drawnHeightOf).
       if (drawnHeight !== undefined)
         pendingDrawn.current.set(id, {
@@ -2877,6 +2912,7 @@ export function VirtualTranscript({
           width: rowWidthRef.current,
           height: drawnHeight,
           ...(actions ? { actions } : {}),
+          ...(status ? { status } : {}),
         });
     },
     [sessionId],
@@ -2936,6 +2972,7 @@ export function VirtualTranscript({
                     row.version,
                     drawnHeightOf(target),
                     hasReplyActions(row, nextDrawnRow(shown, index)),
+                    statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
                   );
               }
             };
@@ -3343,9 +3380,10 @@ export function VirtualTranscript({
               if (!known || known.sessionId !== sessionId || known.width !== rowWidth) return undefined;
               // A reply drawn before (or after) the row that gives it its own action row: its estimate
               // holds until it is drawn again (`hasReplyActions` reads only the next drawn row).
+              const next = nextDrawnRow(rows, index);
               if (
-                row.kind === "assistant" &&
-                Boolean(known.actions) !== hasReplyActions(row, nextDrawnRow(rows, index))
+                (row.kind === "assistant" && Boolean(known.actions) !== hasReplyActions(row, next)) ||
+                known.status !== statusEdge(row, next, prevDrawnRow(rows, index))
               )
                 return undefined;
               return known.height;
@@ -4979,6 +5017,7 @@ export function VirtualTranscript({
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       beforeFooter={isBeforeFooter(row, next)}
                       replyActions={actions}
+                      status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
@@ -7452,14 +7491,16 @@ function AcpmuxPane() {
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
   /// before the host said what this tab already sent (`sandbox.checked`): a run it holds takes the
   /// chat view, so a send picked before that could only be refused, its prompt with it.
-  const sandboxOffered =
-    sandbox.checked &&
+  /// Everything but the host's check: the New Tab page's project pick goes to the host under this,
+  /// so a pick made before `sandbox.checked` still goes with a Cloud start (newTabProjectPick).
+  const sandboxOfferable =
     freshChat &&
     !snapshot.sessionId &&
     !snapshot.summary?.sessionId &&
     snapshot.switching === undefined &&
     sessionSelection?.state !== "pending" &&
     surface !== "quick";
+  const sandboxOffered = sandbox.checked && sandboxOfferable;
   /// The tab's Sandboxed result (sandboxRun.ts SandboxTab): its run (running, receipt, or an answer
   /// that may hide a live Run) or a refusal before any Run.
   const sandboxView = sandbox.view();
@@ -8455,6 +8496,9 @@ function AcpmuxPane() {
   // the handshake is done (below): the page that comes back right then takes the draft, and no
   // later page (another New Tab adopted into this pane, a chat's own recovery) ever does.
   const composerStoodIn = useRef(false);
+  /// The failure behind `hostError`, which hostLine.ts words plainly (a chat's machine that is not
+  /// reachable, acpmux's own codes and commands behind Details).
+  const [hostFailure, setHostFailure] = useState<unknown>();
   /// Whether `hostError` is said (one line above the composer, hostRetry.ts `hostErrorShows`): a
   /// refusal at once, a recovery (a daemon starting, restarting or handed off by an update) only
   /// once it has failed past its deadline. Until then the pane shows nothing; a connect clears it.
@@ -8574,10 +8618,11 @@ function AcpmuxPane() {
   /// Settings' Start New Chats In (`agentPane.newChatsIn`) set to Cloud makes it Cloud whatever the
   /// folder's history says (newChatRunLocation); This Mac in the composer's picker still wins.
   /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
-  /// refuses `cloud.startChat` from it.
+  /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
+  const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
   const folderRunDefault = useMemo(
     () =>
-      sandboxOffered && !remoteChat
+      sandboxOffered && !onOtherMachine
         ? newChatRunLocation(
             newChatsIn,
             folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds),
@@ -8585,7 +8630,7 @@ function AcpmuxPane() {
         : undefined,
     [
       sandboxOffered,
-      remoteChat,
+      onOtherMachine,
       newChatsIn,
       composerSnapshot.summary?.cwd,
       newTab?.cwd,
@@ -9208,9 +9253,9 @@ function AcpmuxPane() {
         // A page that drew its New Tab frame before the handshake (useEarlyNewTabContext) keeps its
         // state: a page the user already left stays a chat.
         if (!reconnect && !earlyNewTab.current) setNewTab(newTabHost(host));
-        // The early context lacks the folder the handshake filled in (seed, start folder): add it.
-        else if (!reconnect && typeof host.cwd === "string" && host.cwd)
-          setNewTab((current) => (current && !current.cwd ? { ...current, cwd: host.cwd as string } : current));
+        // The early context lacks the folder the handshake filled in (seed, start folder) and, on a
+        // cold page, the palette's actions whose places event came before its listener: add them.
+        else if (!reconnect) setNewTab((current) => withHandshakeNewTab(current, host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -9524,7 +9569,7 @@ function AcpmuxPane() {
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
           const switchPromptId = promptId ?? crypto.randomUUID();
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), switchPromptId);
+          const held = harnessSwitch.send(text, attachments, undefined, switchPromptId);
           if (held) {
             accepted?.();
             return held.then(
@@ -9542,8 +9587,12 @@ function AcpmuxPane() {
               },
             );
           }
-          // A prompt acpmux held goes with the gesture its first send kept.
-          const kept = heldPrompt.take();
+          // A prompt acpmux held goes with the gesture its first send kept. Otherwise bind this
+          // send before waiting for chat creation and persistence; rapid Enters each get its own
+          // host ticket instead of sharing the one checked when the relay finally drains.
+          const sendPromptId = promptId ?? switchPromptId;
+          const heldForTrust = heldPrompt.take();
+          const kept = heldForTrust ?? (client.selectedSession ? client.bindSendGesture(sendPromptId) : undefined);
           const sessionId = await client.ensureSession().catch((error: unknown) => {
             // A folder harness that waits for Enable or Trust says so on its own card.
             setBlockedHarness(harnessBlock(error));
@@ -9570,13 +9619,19 @@ function AcpmuxPane() {
             throw new Error("agent_session.changed_during_send");
           }
 
+          // A New Tab's session/new consumes the gesture into the transport's start credit. Reserve
+          // the prompt ticket only after that start has succeeded; an existing chat reserved above.
+          const sendTicket = kept !== undefined ? kept.ticket : client.bindSendGesture(sendPromptId)?.ticket;
+
+          // A Quick Composer handoff can close this page only after acpmux takes the prompt.
+          // Releasing a local queued row happens earlier, while its gesture may still be pending.
           const turn = client
-            .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
+            .send(text, attachments, kept?.promptId ?? sendPromptId, accepted, sendTicket, steer, () =>
+              promptLanded.current(),
+            )
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The client counts it from here (it registers the send before its first wait).
           handedOn();
-          // The prompt is written; a Quick Composer hand-off can close this page now.
-          promptLanded.current();
           return turn;
         };
         window.cmuxAcpmuxActions = {
@@ -10126,6 +10181,9 @@ function AcpmuxPane() {
           // A prompt held behind the trust question goes with the gesture its send kept.
           send: (text, attachments, promptId) => {
             const kept = heldPrompt.take();
+            // session/new has completed by the time HarnessSwitch hands the prompt back. The
+            // transport's start credit now pays for this prompt ticket, including remote starts.
+            const switchTicket = kept?.promptId === promptId ? kept.ticket : client.bindSendGesture(promptId)?.ticket;
             switchSendOwners.set(promptId, {
               client,
               generation: client.trustGeneration,
@@ -10137,7 +10195,9 @@ function AcpmuxPane() {
               attachments,
               promptId,
               undefined,
-              kept?.promptId === promptId ? kept.ticket : undefined,
+              kept?.promptId === promptId ? kept.ticket : switchTicket,
+              false,
+              () => promptLanded.current(),
             );
           },
           setModel: (modelId) => client.setModel(modelId),
@@ -10234,6 +10294,7 @@ function AcpmuxPane() {
           // A chat too large to open says so in plain words; the reply's byte count stays in the log.
           const tooLarge = hostRefusedTooLarge(error);
           setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
+          setHostFailure(error);
           failingSince ??= Date.now();
           const recovering = hostIsReconnecting(error);
           setHostErrorShown(hostErrorShows(error, Date.now() - failingSince));
@@ -10325,7 +10386,7 @@ function AcpmuxPane() {
   // the composer is a failure.
   const header = paneHeader(composerSnapshot, t, { hostRecovering: !hostErrorShown });
   // The pane header never says where the chat runs (Leo 2026-10-26); Session Info's Environment does.
-  const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
+  const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family);
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   /// Shared by the chat composer and New Tab: cmux-owned slash commands never fall through to a
@@ -12349,10 +12410,14 @@ function AcpmuxPane() {
     );
   // While the host recovers nothing shows (no card, no spinner, no button) and the composer stays
   // usable; a failure past its deadline, or a refusal, is one line (HostUnavailableLine).
+  // The line is plain words: a chat's machine that is not reachable says so, and acpmux's own codes
+  // and commands go behind Details (hostLine.ts).
+  const hostWords = hostLineText(hostFailure, hostError ?? "", t, machineName);
   const hostErrorCard = (
     <Notice id="host-error" tier="error" when={hostError !== undefined && (hostErrorShown || restartingAcpmux)}>
       <HostUnavailableLine
-        message={hostError ?? ""}
+        message={hostWords.line}
+        detail={hostWords.detail}
         retrying={retryQueued}
         onRetry={() => retryHost.current?.()}
         restarting={restartingAcpmux}
@@ -12732,15 +12797,10 @@ function AcpmuxPane() {
                   // send copies it: cloud.startChat copies only the pane's own folders, and a recent project
                   // this page lists was none until the person sent in it here (#29294). Not on Return: the
                   // grant spends a gesture, and the Return's is the start's. Only a folder Cloud would copy
-                  // (never home or above it, cloudStartFolder), and only while Cloud is offered; a home or
-                  // root answer asks nothing here (the local start still asks on Return).
-                  {...(sandboxOffered
-                    ? {
-                        onProjectPicked: (cwd: string) => {
-                          if ("cwd" in cloudStartFolder(cwd)) void pickFolder(callNative, cwd, () => undefined);
-                        },
-                      }
-                    : {})}
+                  // (never home or above it, cloudStartFolder), and whenever Cloud may be offered, the
+                  // host's sandbox check still out included (newTabProjectPick); a home or root answer
+                  // asks nothing here (the local start still asks on Return).
+                  {...newTabProjectPick(callNative, sandboxOfferable)}
                   {...(!handshaken ? { startPending: true } : {})}
                   {...(newTabChatsPending ? { chatsPending: true } : {})}
                   {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}

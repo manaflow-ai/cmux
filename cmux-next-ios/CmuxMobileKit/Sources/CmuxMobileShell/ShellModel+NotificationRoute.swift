@@ -35,9 +35,20 @@ enum NotificationTarget: Equatable {
         if route.kind == "chief" { return .chief }
         // A terminal notification opens its terminal, never a chat bound elsewhere.
         // A terminal agent's event (no acpmux session, its terminal's tab) opens its terminal too.
-        let terminalTab = route.sessionID == nil && route.workspaceID.flatMap(workspace)?.tabs
-            .contains { $0.id == route.tabID && $0.kind == .terminal } == true
-        if route.kind != "terminal", !terminalTab, let destination = chat(route) { return .chat(destination) }
+        let terminalTab = route.sessionID == nil && route.workspaceID.flatMap(workspace).map { ws in
+            (route.mac == nil || ws.macID == route.mac)
+                && ws.tabs.contains { $0.id == route.tabID && $0.kind == .terminal }
+        } == true
+        if route.kind != "terminal", !terminalTab, let destination = chat(route) {
+            // The chat resolver already uses the source Mac. Its tree can arrive
+            // ahead of the workspace cache, so accept a missing cache entry;
+            // reject a cached entry that proves a different Mac owns this chat.
+            if let sourceMac = route.mac, let owner = workspace(destination.workspaceID)?.macID {
+                if owner == sourceMac { return .chat(destination) }
+            } else {
+                return .chat(destination)
+            }
+        }
         if let id = route.workspaceID, let ws = workspace(id), route.mac == nil || ws.macID == route.mac {
             let tab = route.tabID.flatMap { tab in ws.tabs.contains(where: { $0.id == tab }) ? tab : nil }
             if tab != nil || route.kind == "terminal" || route.tabID == nil { return .workspace(id: ws.id, tabID: tab) }
@@ -77,7 +88,7 @@ extension ShellModel {
         }
         let target = NotificationTarget.decide(
             route,
-            chat: { [live] in live?.destination(sessionID: $0.sessionID, workspaceID: $0.workspaceID, tabID: $0.tabID) },
+            chat: { [live] in live?.destination(sessionID: $0.sessionID, workspaceID: $0.workspaceID, tabID: $0.tabID, macID: $0.mac) },
             workspace: { [store] in store.workspace(id: $0) },
             phase: { [store] in store.macDataPhase($0) },
             canLink: { [live] in live?.canLink(macID: $0) ?? false },
