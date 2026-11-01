@@ -79,7 +79,6 @@ public nonisolated struct BrowserProfileBook: Codable, Hashable, Sendable {
                                           icon: try Self.validIcon(icon), position: (profiles.map(\.position).max() ?? 0) + 1,
                                           source: source)
         profiles.append(record)
-        pendingCleanup.removeAll { $0 == id }
         return record
     }
 
