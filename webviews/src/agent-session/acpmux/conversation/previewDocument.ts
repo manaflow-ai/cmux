@@ -77,9 +77,11 @@ export function inertDocument(html: string): string {
     .replace(LINK_ATTRIBUTE, (whole, name: string, equals: string, value: string) => {
       const target = value.replace(/^["']|["']$/g, "");
       if (target.startsWith("#") || /^(?:data|blob):/i.test(target)) return whole;
-      // `#` unquoted: the rewrite may sit inside another attribute's value (`title="href='x' …"`),
-      // and a quote it added would close that value and expose what follows as live attributes.
-      return `data-${name}${equals}${value} ${name}=#`;
+      // `#` unquoted and first: the rewrite may sit inside another attribute's value
+      // (`title="href='x' …"`), where a quote it added would close that value and expose what
+      // follows as live attributes; and the original value, last, ends exactly where it did, so the
+      // rest of the tag reads as written (an unquoted `#` before `/>` would swallow the slash).
+      return `${name}=# data-${name}${equals}${value}`;
     });
 }
 
