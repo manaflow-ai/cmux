@@ -131,6 +131,48 @@ import UIKit
         #expect(abs(reopened - opened) <= 1, "reopened at its open height: \(reopened), open was \(opened)")
     }
 
+    /// CI at f8ed786e (`aReopenedRowTakesItsOpenHeight` failing in the full suite): a row's
+    /// height was recorded for a disclosure state its cell did not draw yet. The list installs the
+    /// new state's layout before it reconfigures the cell, and the layout pass in between measured
+    /// the cell still drawing the old state, then kept that height for the new one (and handed it
+    /// to the cell as its known height). When the reload and its layout pass run before SwiftUI
+    /// has updated the row (a busy main queue), the height kept for the state is still the one
+    /// measured when the row last settled in it.
+    @Test func aRowsHeightForAStateIsTheOneItSettledAt() async throws {
+        let chat = try await chat(category: .accessibilityLarge)
+        defer { chat.window.isHidden = true }
+        let row = try #require(chat.toolRows().first, "a tool row on screen")
+        let key = "tool-\(row.call)"
+        let disclosures = chat.surface.disclosures
+        let closed = try #require(chat.line(row.id)).height
+        disclosures.set(key, true)
+        await chat.frames(30)
+        let opened = try #require(chat.line(row.id)).height
+        try #require(opened > closed + 60, "the output shows: \(closed) -> \(opened)")
+        disclosures.set(key, false)
+        await chat.frames(30)
+        try #require(abs((chat.line(row.id)?.height ?? 0) - closed) <= 1)
+
+        // Opened again, with the list's reload and its layout pass before SwiftUI updates the row.
+        disclosures.set(key, true)
+        chat.list.reloadIfDisclosuresChanged()
+        chat.list.collectionView.layoutIfNeeded()
+        let kept = chat.list.layout.knownHeight(of: row.id)?.height
+        #expect(kept.map { abs($0 - opened) <= 1 } ?? true, "the open state's height is the one it settled at: \(String(describing: kept)), open was \(opened)")
+        await chat.frames(30)
+        let reopened = try #require(chat.line(row.id)).height
+        #expect(abs(reopened - opened) <= 1, "reopened at its open height: \(reopened), open was \(opened)")
+
+        // And closed the same way.
+        disclosures.set(key, false)
+        chat.list.reloadIfDisclosuresChanged()
+        chat.list.collectionView.layoutIfNeeded()
+        let keptClosed = chat.list.layout.knownHeight(of: row.id)?.height
+        #expect(keptClosed.map { abs($0 - closed) <= 1 } ?? true, "the closed state's height is the one it settled at: \(String(describing: keptClosed)), closed was \(closed)")
+        await chat.frames(30)
+        #expect(abs((chat.line(row.id)?.height ?? 0) - closed) <= 1)
+    }
+
     /// Blocker 2: a native line's tap opened its disclosure without the transcript's hold, so a
     /// chat following its newest row re-pinned to the bottom and the tapped line jumped up by
     /// the body's height (base's "disclosures hold their line", a5efcb96 and 5d53628b). Tapped
