@@ -31,13 +31,17 @@ public nonisolated struct DaemonStartFailure: Sendable, Equatable {
     /// The words a failure caused by a full disk carries (ENOSPC, SQLite's SQLITE_FULL).
     private static let diskFullMarkers = ["no space left on device", "os error 28", "enospc", "disk is full", "disk full"]
 
+    /// Whether `text` (an error's words) says the disk is full.
+    static func saysDiskFull(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        return diskFullMarkers.contains { lowered.contains($0) }
+    }
+
     /// `error`'s failure; `freeBytes` is the free space on the state's volume (nil: unknown).
     init(_ error: any Error, freeBytes: UInt64?) {
         let detail = String(describing: error)
-        let lowered = detail.lowercased()
-        let saysFull = Self.diskFullMarkers.contains { lowered.contains($0) }
         let lowSpace = freeBytes.map { $0 < Self.lowSpaceBytes } ?? false
-        self.init(kind: saysFull || lowSpace ? .diskFull : .failed, detail: detail)
+        self.init(kind: Self.saysDiskFull(detail) || lowSpace ? .diskFull : .failed, detail: detail)
     }
 
     /// Free bytes on the volume that holds `url`, or on its nearest existing parent; nil when
@@ -55,5 +59,23 @@ public nonisolated struct DaemonStartFailure: Sendable, Equatable {
             path = parent
         }
         return nil
+    }
+}
+
+extension DaemonError {
+    /// The daemon refused, or could not start, because the volume under its state is full (SQLite's
+    /// "database or disk is full", ENOSPC; restore fuzz h2 and h3). The person reads that reason in
+    /// their language; a scripted caller still gets this error.
+    public var isDiskFull: Bool {
+        switch self {
+        case .command(_, let message, _, let details, _):
+            if DaemonStartFailure.saysDiskFull(message) { return true }
+            guard case .object(let fields)? = details, let reason = fields["reason"]?.stringValue else { return false }
+            return DaemonStartFailure.saysDiskFull(reason)
+        case .launchFailed(let detail):
+            return DaemonStartFailure.saysDiskFull(detail)
+        default:
+            return false
+        }
     }
 }

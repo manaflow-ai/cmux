@@ -27,11 +27,12 @@ enum DaemonRecoveryStrings {
     static var failed: String {
         String(localized: "daemon.recovery.failed", defaultValue: "cmux-tui could not be restarted. Try again in a moment.", bundle: .module)
     }
-    /// Why cmux-tui is not running, when its start failed because the disk is full (restore fuzz h2).
+    /// Why cmux-tui is not running, when its start failed because the disk is full (restore fuzz h2): the one
+    /// disk-full reason a refused change also shows (`RefusalStrings.diskFull`, restore fuzz h3).
     static var diskFull: String {
-        String(localized: "daemon.recovery.diskFull",
-               defaultValue: "cmux-tui could not start because the disk is full. Free some space and cmux starts it again by itself.",
-               bundle: .module)
+        String(format: String(localized: "daemon.recovery.diskFull",
+                              defaultValue: "cmux-tui could not start: %@. Free some space and cmux starts it again by itself.",
+                              bundle: .module), RefusalStrings.diskFull)
     }
     /// Why cmux-tui is not running, when its start failed for any other reason.
     static var stopped: String {
