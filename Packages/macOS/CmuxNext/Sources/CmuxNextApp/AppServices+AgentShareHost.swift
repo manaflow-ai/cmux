@@ -29,10 +29,14 @@ enum AgentShareConsentSheet {
     /// (``AgentShareActions/createDeadline``) and a margin inside the caller's person deadline.
     static let answerWithin: Duration = ActionDescriptor.personDeadline - AgentShareActions.createDeadline - .seconds(10)
 
+    /// Only the person answers it (`DebugDialog.userOnly`): the debug socket's press would let the
+    /// asking script approve its own link.
+    static let identifier = "cmux.dialog.agentShareConsent"
+
     static func spec(_ ask: AgentShareConsentAsk) -> CmuxDialogSpec {
         CmuxDialogSpec(title: ask.title, lines: ask.lines,
                        buttons: [.cancel(ask.declineTitle), CmuxDialogButton(id: "allow", title: ask.allowTitle)],
-                       identifier: "cmux.dialog.agentShareConsent")
+                       identifier: identifier)
     }
 
     static func ask(_ ask: AgentShareConsentAsk, center: CmuxDialogCenter = .shared, within limit: Duration = answerWithin) async -> Bool {

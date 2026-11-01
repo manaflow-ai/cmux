@@ -104,6 +104,9 @@ struct AgentShareConsentTests {
         let spec = AgentShareConsentSheet.spec(AgentShareConsentAsk(chat: "Fix the build", ttlSecs: nil, uses: nil))
         #expect(spec.buttons.map(\.id) == ["cancel", "allow"])
         #expect(spec.buttons.allSatisfy { $0.role != .default })
+        // The debug socket's dialog press never answers it: the asking script cannot approve its own link.
+        #expect(spec.identifier == AgentShareConsentSheet.identifier)
+        #expect(DebugDialog.userOnly.contains(AgentShareConsentSheet.identifier))
     }
 
     /// A run the agent made from its own chat asks, even when it claims the `user` origin.
