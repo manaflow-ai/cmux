@@ -224,3 +224,22 @@ test("a Markdown bubble's selection copies its text as shown, with no hidden cha
   expect(/[\u200B-\u200D\u2060\uFEFF\uE000-\uF8FF]/.test(copied)).toBe(false);
   selection.removeAllRanges();
 });
+
+test("a /btw side note shows its question as typed, a Codex skill without its `$`", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { BtwAside } = await import("../src/agent-session/acpmux/aside/BtwAside");
+  const { SkillWordsContext, skillWords } = await import("../src/agent-session/acpmux/conversation/skillWords");
+  const box = dom.window.document.createElement("div");
+  dom.window.document.body.append(box);
+  const note = createRoot(box);
+  await act(async () =>
+    note.render(
+      <SkillWordsContext.Provider value={skillWords(COMMANDS)}>
+        <BtwAside note={{ question: "why /$emil-design-vocabulary here?" } as never} onDismiss={() => {}} />
+      </SkillWordsContext.Provider>,
+    ),
+  );
+  expect(box.querySelector(".acpmux-btw-question")?.textContent).toBe("why /emil-design-vocabulary here?");
+  await act(async () => note.unmount());
+  box.remove();
+});

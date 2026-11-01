@@ -249,11 +249,11 @@ export function commandWords(text: string, inCode = false): CommandWord[] {
 
 /// `text` with each `/word` outside code (`commandWords`) that `visit` rewrites replaced, the rest
 /// as it is.
-function mapCommandWords(text: string, visit: (word: string) => string | undefined): string {
+function mapCommandWords(text: string, visit: (word: string, start: number) => string | undefined): string {
   let out = "";
   let copied = 0;
   for (const { start, end, word } of commandWords(text)) {
-    const written = visit(word);
+    const written = visit(word, start);
     if (written === undefined) continue;
     out += text.slice(copied, start) + written;
     copied = end;
@@ -261,10 +261,23 @@ function mapCommandWords(text: string, visit: (word: string) => string | undefin
   return copied ? out + text.slice(copied) : text;
 }
 
+/// Where `text`'s first word starts, as send reads the prompt: past spaces, line breaks and the
+/// attachments placed in it (U+FFFC, an id, U+FFFC), which send takes out.
+function promptStart(text: string): number {
+  let at = 0;
+  while (at < text.length) {
+    if (/\s/.test(text[at]!)) at++;
+    else if (text[at] === "\uFFFC" && text.indexOf("\uFFFC", at + 1) > at) at = text.indexOf("\uFFFC", at + 1) + 1;
+    else break;
+  }
+  return at;
+}
+
 /// The prompt as sent: each `/name` in a command position outside code that names a Codex skill
-/// without its `$` is written `/$name`, as codex-acp needs. When a command also has that name
-/// without `$`, the word is that command's unless the person picked the skill in this draft
-/// (`picked`, by shown name): typed text stays as typed. Every other character stays.
+/// without its `$` is written `/$name`, as codex-acp needs. Only the prompt's first word can be
+/// another command's: where a command also has the name without `$`, that word is the command's
+/// unless the person picked the skill in this draft (`picked`, by shown name). Further on, only a
+/// skill is read, so it always gets its `$`. Every other character stays.
 export function withSkillDollars(
   text: string,
   commands: readonly SlashCommand[] | SkillCatalog | undefined,
@@ -272,8 +285,11 @@ export function withSkillDollars(
 ): string {
   const catalog = catalogOf(commands);
   if (!catalog.dollar.size) return text;
-  return mapCommandWords(text, (name) =>
-    catalog.dollar.has(name) && (!catalog.plain.has(name) || picked?.has(name)) ? `/$${name}` : undefined,
+  const start = text.includes("/") ? promptStart(text) : 0;
+  return mapCommandWords(text, (name, at) =>
+    catalog.dollar.has(name) && (at !== start || !catalog.plain.has(name) || picked?.has(name))
+      ? `/$${name}`
+      : undefined,
   );
 }
 
@@ -369,7 +385,22 @@ export const goesAsText = (command: SlashCommand) => command.source === "skill" 
 /// The menu's rows for `trigger`: every command at the prompt's start, the ones that go as text
 /// mid-prompt.
 export function slashMatches(commands: readonly SlashCommand[], trigger: SlashTrigger): SlashMatch[] {
-  return matchCommands(trigger.leading ? [...commands] : commands.filter(goesAsText), trigger.query);
+  return trigger.leading
+    ? matchCommands([...commands], trigger.query)
+    : matchCommands(commands.filter(goesAsText), trigger.query, false);
+}
+
+/// Whether Return picks `match`, the menu's highlighted row, for `query` (the typed word without its
+/// `/`): when the row was chosen with the arrows (`arrowed`), or when the typed word begins the row's
+/// name, unless it is that name in full and the command takes no arguments (Return then sends it).
+/// Otherwise Return does what it does with no menu: a path or a word that only resembles a command
+/// (`look in /dev`) is never rewritten. The chat and New Tab both decide by this.
+export function returnPicks(match: SlashMatch | undefined, query: string, arrowed: boolean): boolean {
+  if (!match) return false;
+  const name = shownName(match.command);
+  const typed = query.replace(/^\$/, "");
+  if (name === typed && (!match.command.hint || match.command.source === "cmux")) return false;
+  return arrowed || name.toLowerCase().startsWith(typed.toLowerCase());
 }
 
 /// The names a `/name` word is a command by: `anywhere` mid-prompt, `leading` at the prompt's start.
@@ -449,17 +480,20 @@ export function slashTokens(
 /// inside the name, then any in-order subsequence; ties keep the agent's order. Names are read as
 /// the menu shows them (`shownName`, a Codex skill without its `$`), and the ranges index that name;
 /// a `$` typed first is skipped too.
-export function matchCommands(commands: SlashCommand[], query: string): SlashMatch[] {
+/// The name typed in full ranks first (`/emil` lists `emil` above `emil-color`). `scattered` false
+/// leaves out the in-order subsequences: mid-prompt, `/dev` or `/s` is far more often a path or a
+/// word than a command spelled in scattered letters.
+export function matchCommands(commands: SlashCommand[], query: string, scattered = true): SlashMatch[] {
   const needle = query.replace(/^\$/, "").toLowerCase();
   const scored: { match: SlashMatch; score: number; index: number }[] = [];
   commands.forEach((command, index) => {
     const name = shownName(command).toLowerCase();
     if (!needle) return scored.push({ match: { command, ranges: [] }, score: 0, index });
     if (name.startsWith(needle))
-      return scored.push({ match: { command, ranges: [[0, needle.length]] }, score: 0, index });
+      return scored.push({ match: { command, ranges: [[0, needle.length]] }, score: name === needle ? -1 : 0, index });
     const word = wordStart(name, needle);
     if (word >= 0) return scored.push({ match: { command, ranges: [[word, word + needle.length]] }, score: 1, index });
-    const ranges = subsequence(name, needle);
+    const ranges = scattered ? subsequence(name, needle) : undefined;
     if (ranges) scored.push({ match: { command, ranges }, score: 2, index });
   });
   return scored.sort((a, b) => a.score - b.score || a.index - b.index).map((entry) => entry.match);

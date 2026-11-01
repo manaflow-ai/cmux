@@ -8,6 +8,7 @@ import {
   matchCommands,
   shownName,
   pickedSkillsOf,
+  returnPicks,
   slashMatches,
   slashNames,
   slashTokens,
@@ -271,12 +272,24 @@ describe("a sent prompt reads its Codex skills as typed", () => {
     ]);
   });
 
-  test("where a command shares a skill's name, the picked one wins; typed text stays as typed", () => {
+  test("where a command shares a skill's name, the prompt's first word is the command's unless picked", () => {
     const both: SlashCommand[] = [...codex, { name: "emil-color", description: "", source: "agent" }];
-    expect(withSkillDollars("use /emil-color", both)).toBe("use /emil-color");
-    expect(withSkillDollars("use /emil-color", both, new Set(["emil-color"]))).toBe("use /$emil-color");
-    const sent = "use /$emil-color";
+    expect(withSkillDollars("/emil-color now", both)).toBe("/emil-color now");
+    expect(withSkillDollars(" \uFFFCid\uFFFC /emil-color now", both)).toBe(" \uFFFCid\uFFFC /emil-color now");
+    expect(withSkillDollars("/emil-color now", both, new Set(["emil-color"]))).toBe("/$emil-color now");
+    const sent = "/$emil-color now";
     expect(withSkillDollars(withoutSkillDollars(sent, both), both, pickedSkillsOf(sent, both))).toBe(sent);
+  });
+
+  test("mid-prompt only a skill is read, so a `$` skill named like a command always gets its `$`", () => {
+    const clash: SlashCommand[] = [
+      { name: "review", description: "", source: "agent" },
+      { name: "plan", description: "", source: "cmux" },
+      { name: "$review", description: "", source: "skill" },
+      { name: "$plan", description: "", source: "skill" },
+    ];
+    expect(withSkillDollars("then /review and /plan", clash)).toBe("then /$review and /$plan");
+    expect(withSkillDollars("/review then /review", clash)).toBe("/review then /$review");
   });
 });
 
@@ -327,5 +340,36 @@ describe("CommonMark's code reading", () => {
       ["y", true],
       ["c", false],
     ]);
+  });
+});
+
+describe("Return picks only a command the person means", () => {
+  const list: SlashCommand[] = [
+    { name: "design-vocabulary", description: "", source: "skill" },
+    { name: "$emil-color", description: "", source: "skill" },
+    { name: "$emil", description: "", source: "skill" },
+    { name: "compact", description: "", source: "agent", hint: "instructions" },
+  ];
+  const mid = (query: string) => slashMatches(list, { query, length: query.length + 1, leading: false });
+
+  test("mid-prompt, scattered letters match nothing: a path or a short word is not a command", () => {
+    for (const query of ["dev", "tmp", "etc", "opt", "s"]) expect(mid(query)).toEqual([]);
+    expect(mid("voc").map((match) => match.command.name)).toEqual(["design-vocabulary"]);
+    // At the start the menu still finds scattered letters.
+    expect(matchCommands(list, "dev").map((match) => match.command.name)).toEqual(["design-vocabulary"]);
+  });
+
+  test("the name typed in full ranks first", () => {
+    expect(matchCommands(list, "emil").map((match) => match.command.name)).toEqual(["$emil", "$emil-color"]);
+  });
+
+  test("Return picks a row whose name the word begins, or one the arrows chose", () => {
+    const [vocabulary] = mid("voc");
+    expect(returnPicks(vocabulary, "voc", false)).toBe(false);
+    expect(returnPicks(vocabulary, "voc", true)).toBe(true);
+    expect(returnPicks(mid("des")[0], "des", false)).toBe(true);
+    // Typed in full with no arguments to take: Return sends it.
+    expect(returnPicks(mid("design-vocabulary")[0], "design-vocabulary", false)).toBe(false);
+    expect(returnPicks(undefined, "x", true)).toBe(false);
   });
 });

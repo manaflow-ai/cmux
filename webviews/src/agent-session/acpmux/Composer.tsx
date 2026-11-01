@@ -58,6 +58,7 @@ import {
   applyCommand,
   fastModeState,
   isFastCommand,
+  returnPicks,
   shownName,
   slashMatches,
   useSlashNames,
@@ -1181,7 +1182,12 @@ export function Composer({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
-  useEffect(() => setActive(0), [query]);
+  // The row the arrows chose: Return picks it whatever was typed (returnPicks).
+  const [arrowed, setArrowed] = useState(false);
+  useEffect(() => {
+    setActive(0);
+    setArrowed(false);
+  }, [query]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
@@ -1609,14 +1615,10 @@ export function Composer({
     window.addEventListener("cmux-acpmux-stopTurn", stopFromAction);
     return () => window.removeEventListener("cmux-acpmux-stopTurn", stopFromAction);
   }, [actionSessionId, actionWorking, stopTurn]);
-  // Enter sends unless it picks a command: with the menu closed, with nothing to pick (an unknown
-  // command or a pasted path), or on a command already typed in full that takes no arguments.
-  const returnSends = () => {
-    const typedInFull =
-      (matches[selected] ? shownName(matches[selected].command) : undefined) === query &&
-      (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
-    return !open || matches.length === 0 || typedInFull;
-  };
+  // Enter sends unless it picks a command (slashCommands.ts returnPicks): the highlighted row was
+  // chosen with the arrows, or the typed word begins its name and is not that name in full with no
+  // arguments to take. A path or a word that only resembles a command is never rewritten.
+  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed);
   const sendOnReturn = (event: { preventDefault(): void }) => {
     if (!returnSteers) return submit(event);
     event.preventDefault();
@@ -1803,6 +1805,7 @@ export function Composer({
       event.preventDefault();
       const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
+      setArrowed(true);
     } else if ((event.key === "Enter" || event.key === "Tab") && plain) {
       event.preventDefault();
       pick(matches[selected].command);
@@ -2580,7 +2583,7 @@ function SlashMenu({
         const fastName = t("picker.tierFast");
         return (
           <div
-            key={match.command.name}
+            key={`${match.command.source ?? "agent"}:${match.command.name}`}
             id={`acpmux-slash-${index}`}
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="option"
