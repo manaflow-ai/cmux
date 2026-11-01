@@ -1081,6 +1081,12 @@ check_no_github_hosted_runners() {
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
 SIGNER_ROUTE
 )
+  # signer-build takes the nightly's early fleet placement (#29864) first, then the same route.
+  local signer_build_route
+  signer_build_route=$(cat <<'SIGNER_BUILD_ROUTE'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_linux_jobs, ' signer-build ') && needs.decide.outputs.early_linux_runner || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+SIGNER_BUILD_ROUTE
+)
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
   # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
@@ -1112,6 +1118,7 @@ SIGNER_ROUTE
     # unstarted hands the nightly to the macOS signer. Leo, 2026-11-01: "surely we measured the signign we
     # dont need 32/16 just for signing", then "surely github has linux hosted we can just use".
     "nightly.yml:$signer_route"
+    "nightly.yml:$signer_build_route"
     "cmux-next-dev-daily.yml:$signer_route"
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
