@@ -304,11 +304,38 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
 
 /** Install and start acpmux's canonical per-user service on a baked Linux image. */
 export function cmuxTuiServiceInstallCommand(): string {
+  const unit = `[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run
+WorkingDirectory=%h
+Restart=always
+RestartPreventExitStatus=75
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+`;
   return [
     cmuxTuiLayoutSelector(),
     `if [ "$CMUX_TUI_LAYOUT" = user ] && command -v loginctl >/dev/null 2>&1; then loginctl enable-linger "$CMUX_TUI_USER"; fi`,
     `if [ "$CMUX_TUI_LAYOUT" = user ]; then`,
-    `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" "$CMUX_TUI_HOME/.local/bin/acpmux" daemon service install`,
+    `i=0; while [ "$i" -lt 30 ] && [ ! -S "/run/user/$(id -u "$CMUX_TUI_USER")/bus" ]; do i=$((i + 1)); sleep 1; done; test -S "/run/user/$(id -u "$CMUX_TUI_USER")/bus"`,
+    `mkdir -p "$CMUX_TUI_HOME/.config/systemd/user"`,
+    `cat > "$CMUX_TUI_HOME/.config/systemd/user/acpmux.service" <<'ACPMUX_UNIT'`,
+    unit.trimEnd(),
+    `ACPMUX_UNIT`,
+    `chown -R "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.config"`,
+    `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user daemon-reload`,
     `if XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user is-active --quiet acpmux.service; then XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user restart acpmux.service; else XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user enable --now acpmux.service; fi && XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user is-active --quiet acpmux.service`,
     `fi`,
   ].join("\n");

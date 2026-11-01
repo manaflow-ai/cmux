@@ -105,11 +105,20 @@ describe("cmux-tui install and daemon commands", () => {
   test("bakes the canonical acpmux user service with linger and enable-now", () => {
     const command = cmuxTuiServiceInstallCommand();
     expect(command).toContain("loginctl enable-linger \"$CMUX_TUI_USER\"");
-    expect(command).toContain('"$CMUX_TUI_HOME/.local/bin/acpmux" daemon service install');
     expect(command).toContain("acpmux.service");
     expect(command).toContain("systemctl --user enable --now acpmux.service");
     expect(command).toContain("systemctl --user restart acpmux.service");
     expect(command).toContain("systemctl --user is-active --quiet acpmux.service");
+  });
+
+  test("keeps the baked unit byte-identical to acpmux's canonical unit", () => {
+    const command = cmuxTuiServiceInstallCommand();
+    const baked = command.match(/<<'ACPMUX_UNIT'\n([\s\S]*?)ACPMUX_UNIT/);
+    expect(baked?.[1]).toBeDefined();
+    const hosts = readFileSync(join(import.meta.dirname, "../../cmux-tui/crates/acpmux/src/cli/hosts.rs"), "utf8");
+    const canonical = hosts.match(/const SYSTEMD_UNIT: &str = "([\s\S]*?)";\n\n\/\/\/ Unit texts earlier/);
+    expect(canonical?.[1]).toBeDefined();
+    expect(baked?.[1]).toBe(canonical?.[1]);
   });
 
   test("installs into the daemon's own home, verifies the pin before and after download, and probes the binary", () => {
