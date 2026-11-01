@@ -696,12 +696,9 @@ pub(super) async fn handle_request(
     // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
-    // A policy raise the person proved in another machine's app, for a chat here: counted and
-    // its challenge spent once, before any check reads it, and the change goes to that very
-    // chat (`hub/person/policy_grant.rs`).
+    // A policy raise the person proved in another machine's app: count and spend it before checks.
     let proved_chat = hub.take_person_policy(m, &params);
     let policy_proved = proved_chat.is_some();
-    // A refused raise of a chat here carries a challenge the person's app can prove.
     let challenge = |e: RpcError, params: &Value| {
         hub.with_policy_challenge(
             m,
@@ -710,6 +707,10 @@ pub(super) async fn handle_request(
             e,
         )
     };
+    // A transitive start is refused before remote mode checks, including via:web.
+    if m == method::SESSION_NEW {
+        super::peer_forward::refuse_peer_selector(conn.origin, m, &params)?;
+    }
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
@@ -726,6 +727,8 @@ pub(super) async fn handle_request(
         .map_err(|e| challenge(e, &params))?;
     }
     caller_sends_no_files(hub, conn, m, &params)?;
+    // For trust writes, remote_guard retains trust.remote for forwarded Web callers.
+    super::peer_forward::refuse_peer_selector(conn.origin, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
     // check, before the request runs or reaches a peer. Held to the Web's rules: a Web
     // connection, or a peer forwarding for its own Web client (`via: web`); a peer
@@ -861,6 +864,7 @@ async fn dispatch_request(
             // expansion passes the default recursion limit.
             #[rustfmt::skip]
             let extensions: &[&str] = &[
+                super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_TEXT,
                 method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
