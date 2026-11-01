@@ -5896,7 +5896,6 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
         run: bash scripts/ci/nightly-steps/visual-gate-pick-runner.sh
-
   visual-gate-nightly:
     needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly]
     if: needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''
@@ -6039,7 +6038,6 @@ jobs:
       - name: Fail with the gate when it holds the build
         if: steps.await.outputs.blocks == 'true'
         run: bash scripts/ci/nightly-steps/visual-gate-fail-when-held.sh
-
   # One comment per judged build in the `nightly-next visual gate` issue, read by recovery and the auto flip.
   report-visual-gate-nightly:
     needs: [resolve-nightly-cmux-tui-client, route-visual-gate-nightly, visual-gate-nightly, visual-gate-nightly-verdict, pick-nightly-build-runner]
@@ -6080,7 +6078,6 @@ jobs:
                 + 'so keep the first line of each comment as it is.' }));
             }
             await github.rest.issues.createComment({ ...context.repo, issue_number: issue.number, body });
-
   await-nightly-tree-marker:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     if: (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true' || inputs.nightly_next_unsigned_run != '') && needs.build-nightly-app.result == 'success'
@@ -7662,7 +7659,6 @@ jobs:
             echo "::notice::continued build $BUILD is not this run's ($NEXT_BUILD); a later run publishes it"; exit 0
           fi
           echo "::error title=cmux NIGHTLY feed not published::build $BUILD (action ${ACTION:-}) was neither published nor pending"; exit 1
-
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow
     # BinaryDelta process therefore cannot extend the user's wait for a full
@@ -8348,7 +8344,6 @@ jobs:
             } else {
               await github.rest.issues.create({ owner, repo, title: `${appName} build is failing on ${refName}`, labels: [label], body });
             }
-
   # The nightly-next feed alarm (one `nightly-next-feed-stale` issue past
   # NIGHTLY_NEXT_MAX_FEED_LAG_HOURS) runs from main every 30 minutes, so it also
   # sees promotion stalls: nightly-next-feed-watch.yml (cx-npz7g).
