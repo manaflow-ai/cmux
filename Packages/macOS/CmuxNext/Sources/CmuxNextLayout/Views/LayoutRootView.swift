@@ -168,6 +168,7 @@ public final class LayoutRootView: NSView {
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
+        driver.onSettle = { [weak self] in self?.landMotion() }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
         context.userMotionEnded = { [weak self] in
@@ -487,8 +488,23 @@ public final class LayoutRootView: NSView {
 
     // MARK: Frames
 
-    func advanceFrame(_ dt: Double) -> Bool {
+    /// The final layout now, in one pass: Reduce Motion turned on mid-flight, or the window went out
+    /// of sight (`DisplayLinkDriver.motionSettle`).
+    func landMotion() {
         defer { onFramePlaced?() }
+        for view in screenViews.values {
+            if view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
+            view.settleCanvasCamera()
+        }
+        for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
+        applyScreenFrames()
+        highlight.settle()
+        updateVisibility()
+        flushOverlaySync()
+        setLayoutInMotion(false)
+    }
+
+    func advanceFrame(_ dt: Double) -> Bool {
         // A released resize drag whose layout the observation has not applied yet: apply it before this
         // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
         if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {
@@ -498,14 +514,10 @@ public final class LayoutRootView: NSView {
         }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
-            for view in screenViews.values where view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
-            for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
-            applyScreenFrames()
-            updateVisibility()
-            flushOverlaySync()
-            setLayoutInMotion(false)
+            landMotion()
             return false
         }
+        defer { onFramePlaced?() }
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.panes.policy
         var moving = false, panning = false
