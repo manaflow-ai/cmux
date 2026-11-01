@@ -6,7 +6,8 @@ bench-startup stopped only the processes of THAT path (tag_pids), so a daemon of
 copy or commit kept running, and the new app attached to it. Such a round measures the old daemon. These tests need no
 app: daemon_verdict() is pure, and the stop test uses `sleep` copies in two fake bundles.
 Run: python3 -I scripts/cmux-next/tests/test_bench_startup_daemon_build.py"""
-import importlib.util, os, shutil, subprocess, sys, tempfile, time, unittest
+import importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time, unittest
+from contextlib import redirect_stderr, redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
@@ -127,6 +128,7 @@ class FloorOrder(unittest.TestCase):
         launches = iter([Prime, measured])
         patches = {"app_pids": lambda tag: [], "tag_pids": lambda tag: [], "stop": lambda pids, timeout=10: None,
                    "tag_daemon_pids": lambda tag: [], "other_copy_apps": lambda tag: [],
+                   "end_tag_hosts": lambda tag: None,  # never the real teardown of a same-named tag on a Mac
                    "Launch": lambda *a, **k: next(launches)(*a, **k)}
         saved = {k: getattr(bench_startup, k, None) for k in patches}
         try:
@@ -163,7 +165,46 @@ class NotRunIsNeverCounted(unittest.TestCase):
         spec2.loader.exec_module(bench_ab)
         out = bench_ab.samples_launch(self.runs())
         self.assertEqual(out["cold"]["first_terminal_frame"], [700.0])
-        self.assertEqual(out["cold"]["not_run"], [1.0])
+        self.assertNotIn("not_run", out["cold"])  # never an A/B metric row
+
+
+class AllNotRun(unittest.TestCase):
+    """Review 3 of #29878: a tag and mode whose every run is not run must keep its report and not read as a pass."""
+
+    def run_main(self, run, argv):
+        json_path = os.path.join(tempfile.mkdtemp(), "report.json")
+        patches = {"require_gui_session": lambda name: None, "one_run": lambda *a, **k: dict(run),
+                   "stop": lambda pids, timeout=10: None, "tag_pids": lambda tag: []}
+        saved = {k: getattr(bench_startup, k) for k in patches}
+        argv_saved = sys.argv
+        code = 0
+        try:
+            for k, v in patches.items():
+                setattr(bench_startup, k, v)
+            sys.argv = ["bench-startup.py", "--tag", "t", "--runs", "2", "--mode", "cold", "--json", json_path] + argv
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                try:
+                    bench_startup.main()
+                except SystemExit as exit_:
+                    code = exit_.code if isinstance(exit_.code, int) else 1
+        finally:
+            for k, v in saved.items():
+                setattr(bench_startup, k, v)
+            sys.argv = argv_saved
+        return code, json_path
+
+    def test_hangs_with_no_counted_run_keeps_the_report(self):
+        stale = {"first_terminal_frame": 700.0, "stalls": [], "daemons": {"verdict": "not_run", "reasons": ["old"]}}
+        code, path = self.run_main(stale, ["--hangs", "50"])
+        self.assertTrue(os.path.exists(path), "the JSON report was lost")
+
+    def test_no_counted_run_is_not_a_pass(self):
+        stale = {"first_terminal_frame": 700.0, "daemons": {"verdict": "not_run", "reasons": ["old"]}}
+        code, path = self.run_main(stale, [])
+        self.assertNotEqual(code, 0, "every run not run must not exit 0 (a pass)")
+        self.assertNotEqual(code, 1, "and not 1 (a budget fail)")
+        with open(path) as f:
+            self.assertIn("not_run", json.load(f))
 
 
 class Helpers(unittest.TestCase):
@@ -189,6 +230,18 @@ class Helpers(unittest.TestCase):
         src = open(spec.origin).read()
         body = src[src.index("def process_exe("):src.index("def process_exe(") + 900]
         self.assertNotIn('"comm="', body)
+
+    def test_a_differing_acpmux_build_is_not_run(self):
+        app = APP
+        d = daemon("acpmux", app, 1000.5)
+        d["build_id"] = "aaa111 2026-10-30"
+        owner = daemon("cmux-tui", app, 1000.5)
+        v = bench_startup.daemon_verdict(app, [owner, d], 1000.0, {"acpmux": "bbb222 2026-10-31"})
+        self.assertEqual(v["verdict"], "not_run")
+
+    def test_a_holder_is_matched_by_its_program_not_a_mention(self):
+        self.assertTrue(bench_startup.is_host_command("/x/host-exe/abc/cmux-holder --socket /tmp/s.sock"))
+        self.assertFalse(bench_startup.is_host_command("/usr/bin/grep cmux-holder some.log"))
 
     def test_pgrep_is_this_users_only(self):
         src = open(spec.origin).read()
