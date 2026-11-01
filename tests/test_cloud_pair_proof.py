@@ -2,6 +2,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -121,7 +122,13 @@ class UIProofTests(unittest.TestCase):
         script = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux-next-ios-sim.sh").read_text()
         self.assertIn('if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then', script)
         self.assertIn("allowlist_public_cloud_artifact", script)
+        self.assertIn('(cd "$out" && rm -f evidence.zip && zip -q evidence.zip cloud-ui-proof.json)', script)
+        self.assertIn('if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then', script)
         self.assertIn('else\n  # The app log goes through the pairing redactor', script)
+
+    def test_simulator_script_parses(self):
+        script = Path(__file__).resolve().parents[1] / "scripts/ci/cmux-next-ios-sim.sh"
+        subprocess.run(["bash", "-n", str(script)], check=True)
 
     def test_offscreen_copy_is_excluded_and_partial_control_is_visible(self):
         bounds = {"x": 0, "y": 0, "width": 400, "height": 800}

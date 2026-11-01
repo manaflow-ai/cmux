@@ -814,6 +814,8 @@ except Exception as error:
     print(f"cloud proof export failed: {type(error).__name__}: sanitized receipt missing", file=sys.stderr)
     raise SystemExit(1)
 PY
+  (cd "$out" && rm -f evidence.zip && zip -q evidence.zip cloud-ui-proof.json)
+  printf '%s\n' '- Cloud proof: exported sanitized receipt only; raw captures and logs omitted'
   [[ "${pair_status:-0}" -eq 0 ]] || pair_status=1
 else
   # The app log goes through the pairing redactor: a pairing link or token it logged never reaches the artifact.
@@ -828,7 +830,9 @@ else
   fi
   (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
 fi
-cat "$summary"
+if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then
+  cat "$summary"
+fi
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
 if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
