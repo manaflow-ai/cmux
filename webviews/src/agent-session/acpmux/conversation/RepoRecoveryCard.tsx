@@ -125,7 +125,8 @@ export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
       );
   };
 
-  if (state === "done") return <div className="cv-repo-recovery cv-repo-recovery--done">{t("cloudRepository.attached")}</div>;
+  if (state === "done")
+    return <div className="cv-repo-recovery cv-repo-recovery--done">{t("cloudRepository.attached")}</div>;
   if (state === "waiting" || state === "retrying")
     return (
       <div className="cv-repo-recovery cv-repo-recovery--quiet">

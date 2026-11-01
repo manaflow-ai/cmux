@@ -138,6 +138,22 @@ def test_superseded_ok_never_hides_an_unreadable_feed():
         assert "superseded=true" not in result.stdout
 
 
+def test_a_feed_with_an_unbound_cmux_prefix_is_read():
+    # The live cmux NEXT feed of 2026-11-01: a carried item's bare <cmux:sourceCommit>
+    # with only sparkle: declared on <rss>, beside an item that binds cmux: inline.
+    unbound = appcast("3717696535601", "3718773117601").replace(
+        "<item><sparkle:version>3717696535601",
+        "<item><cmux:sourceCommit>" + "b" * 40 + "</cmux:sourceCommit><sparkle:version>3717696535601").replace(
+        "<item><sparkle:version>3718773117601",
+        '<item><cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">' + "c" * 40
+        + "</cmux:sourceCommit><sparkle:version>3718773117601")
+    with tempfile.TemporaryDirectory() as d:
+        feed = write(d, "next.xml", unbound)
+        assert run("check-build", "--build", "3719000000001", "--feed", feed).returncode == 0
+        refused = run("check-build", "--build", "3718000000001", "--feed", feed)
+        assert refused.returncode == 1 and "unbound" not in refused.stderr, refused.stderr
+
+
 def test_unreadable_feed_is_refused():
     with tempfile.TemporaryDirectory() as d:
         broken = write(d, "broken.xml", "<rss")

@@ -15,7 +15,7 @@ import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../s
 import { WorktreeFailure } from "../startFolder";
 import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
 import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
-import { errorMessage } from "../transportErrors";
+import { errorMessage, isStartCancelled } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -44,6 +44,7 @@ import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
 import { ArrowUpIcon } from "../ComposerPickers";
+import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
@@ -92,6 +93,7 @@ import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocus } from "../promptFocus";
+import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
@@ -598,22 +600,30 @@ export function NewTabScreen(props: Props) {
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
   const [startError, setStartError] = useState<string>();
-  const asking = useRef(false);
+  /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
+  /// opens the page again, never an older one's late reply.
+  const asking = useRef(0);
+  const askCount = useRef(0);
   /// The agent whose chat is starting while the page still shows (a chat on another machine, or in
-  /// no project, leaves only once it has started): the composer says "Starting Claude Code…" until
-  /// the start answers, so a slow start never reads as Return having done nothing.
+  /// no project, leaves only once it has started): Send spins in its own box until the start
+  /// answers (and a hidden live line says "Starting Claude Code…"), so a slow start never reads as
+  /// Return having done nothing, and nothing around the composer moves.
   const [starting, setStarting] = useState<string>();
   const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
     if (asking.current) return;
-    asking.current = true;
+    const request = ++askCount.current;
+    asking.current = request;
     setStartError(undefined);
     setStarting(args[0]);
     const failed = (error: unknown) => {
-      setStartError(errorMessage(error) || t("switch.unknownError"));
       created.current = false;
+      // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
+      // failure: the draft stays and nothing says it failed. A real refusal still says why.
+      if (!isStartCancelled(error)) setStartError(errorMessage(error) || t("switch.unknownError"));
     };
     const done = () => {
-      asking.current = false;
+      if (asking.current !== request) return;
+      asking.current = 0;
       setStarting(undefined);
     };
     try {
@@ -965,9 +975,19 @@ export function NewTabScreen(props: Props) {
       if (!active || active === fieldElement()?.ownerDocument.body) field.current?.focus();
     };
     if (focusOnShow) view?.addEventListener("focus", reclaim);
+    // Tab with nothing focused goes to the field, not through the project and machine chips that
+    // head it (Leo 2026-10-20); Shift-Tab from the field still reaches them.
+    const doc = fieldElement()?.ownerDocument;
+    const tab = (event: KeyboardEvent) => {
+      if (!doc || !field.current || !tabsToComposer(event, doc)) return;
+      event.preventDefault();
+      field.current.focus();
+    };
+    if (focusOnShow) doc?.addEventListener("keydown", tab);
     return () => {
       view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
       view?.removeEventListener("focus", reclaim);
+      doc?.removeEventListener("keydown", tab);
     };
   }, [inputToken, focusOnShow, fieldReady]);
 
@@ -1584,9 +1604,11 @@ export function NewTabScreen(props: Props) {
               aria-label={t("composer.send")}
               title={t("composer.sendTooltip")}
               disabled={!text.trim() && attachments.length === 0 && reading.length === 0}
+              data-starting={starting !== undefined ? "" : undefined}
               onClick={send}
             >
-              <ArrowUpIcon />
+              {/* While the chat starts (`starting`), in Send's own box: nothing else moves. */}
+              {starting !== undefined ? <Spinner size={14} loading /> : <ArrowUpIcon />}
             </button>
           )}
         </span>
@@ -1668,7 +1690,9 @@ export function NewTabScreen(props: Props) {
           </p>
         ) : (
           starting !== undefined && (
-            <output className="acpmux-composer-remote-note">
+            // Read out, not drawn: a line here pushed the card while the chat started (Leo,
+            // 2026-11-01: "then the stupid ass layout shift"). Send's spinner shows the start.
+            <output className="acpmux-hidden-label">
               {t("switch.starting", {
                 agent: snapshot.catalog.find((entry) => entry.id === starting)?.name ?? starting,
               })}
@@ -1905,15 +1929,25 @@ export function NewTabScreen(props: Props) {
       {content}
     </WidgetFrame>
   );
-  // The headline (off by default): "What should we work on in <project>?", its project the folder
-  // Enter asks in, picked in place as the composer's strip picks it.
+  // The headline (off by default): "What should we work on in <project> on <machine>?", its project
+  // the folder Enter asks in, picked in place as the composer's strip picks it, and its machine the
+  // one the chat starts on: a saved SSH environment's machine, else the location row's machine, else
+  // this Mac's name. Cloud and Sandboxed send the prompt to no machine of these, so it names none.
+  const offMachine =
+    (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
+  const headlineMachine = offMachine
+    ? undefined
+    : (environment?.kind === "ssh" ? environment.host : undefined) || machine?.peer || props.machineName;
+  // The folder askChat starts in: the saved environment's, else the picked machine's, else askFolder.
+  const headlineFolder = environment ? environment.folder : machine ? machine.folder : askFolder;
   const headline =
     widgets.has("greeting") &&
     frame(
       "greeting",
       <NewTabHeadline
         projects={props.projects ?? []}
-        {...(askFolder ? { folder: askFolder } : {})}
+        {...(headlineFolder ? { folder: headlineFolder } : {})}
+        {...(headlineMachine ? { machine: headlineMachine } : {})}
         noProject={none}
         onPick={(cwd) => pickProject(cwd)}
         onNoProject={() => pickProject(undefined)}

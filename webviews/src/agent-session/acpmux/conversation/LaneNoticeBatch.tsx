@@ -2,6 +2,7 @@ import { useContext, useId, useLayoutEffect, useState, type ReactNode } from "re
 import type { AcpmuxRow } from "../model";
 import { useT } from "../i18n";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
+import { groupSender, MessageGroupHead } from "./MessageGroupHead";
 import { Icon } from "../icons/Icon";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
@@ -43,22 +44,37 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
       : t("message.inboxThreads", { n: batch.threads.length || batch.rows.length });
   const detail = batch.kind === "report" ? verdicts : names && t("message.inboxFrom", { names });
   return (
-    <div className="cv-lane-batch" data-open={open || undefined}>
-      <TranscriptActivityRow
-        icon={<Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />}
-        before={count}
-        name={batch.kind === "inbox" && names ? names : undefined}
-        after={batch.kind === "report" && detail ? ` · ${detail}` : undefined}
-        className="cv-lane-batch__toggle"
-        ariaLabel={[count, detail].filter(Boolean).join(". ")}
-        expanded={open}
-        attributes={{
-          "aria-expanded": String(open),
-          "aria-controls": open ? bodyId : undefined,
-          "data-find-skip": "",
-        }}
-        onClick={() => show(!open)}
-      />
+    <div className="cv-lane-batch" data-kind={batch.kind} data-open={open || undefined}>
+      {batch.kind === "inbox" ? (
+        // Delivered messages from other sessions: a sibling of the tool rows (MessageGroupHead.tsx).
+        <MessageGroupHead
+          sender={groupSender(
+            batch.rows.map((member) => (member.incoming?.kind === "message" ? member.incoming.message : undefined)),
+          )}
+          count={count}
+          senders={names}
+          open={open}
+          bodyId={bodyId}
+          onToggle={() => show(!open)}
+          className="cv-lane-batch__toggle"
+          ariaLabel={[count, detail].filter(Boolean).join(". ")}
+        />
+      ) : (
+        <TranscriptActivityRow
+          icon={<Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />}
+          before={count}
+          after={batch.kind === "report" && detail ? ` · ${detail}` : undefined}
+          className="cv-lane-batch__toggle"
+          ariaLabel={[count, detail].filter(Boolean).join(". ")}
+          expanded={open}
+          attributes={{
+            "aria-expanded": String(open),
+            "aria-controls": open ? bodyId : undefined,
+            "data-find-skip": "",
+          }}
+          onClick={() => show(!open)}
+        />
+      )}
       {open && (
         <div className="cv-lane-batch__body" id={bodyId}>
           {batch.rows.map((member) => (

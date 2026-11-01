@@ -191,7 +191,7 @@ struct WorkspaceTabHoverCardTests {
     /// The whole list (its rows, the gaps between them and the scroller) takes the pointer, so a
     /// click or a wheel between two rows never falls through and ends the card.
     @Test func theGapBetweenRowsIsPartOfTheInteractiveList() throws {
-        let view = WorkspaceTabHoverCardView(rowLimit: 1)
+        let view = WorkspaceTabHoverCardView(style: WorkspaceTabHoverCardStyle(rowLimit: 1))
         view.configure(title: "project", tabs: (1...6).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") })
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 280, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -317,7 +317,8 @@ struct WorkspaceTabHoverCardTests {
         view.configure(title: "scratch", tabs: [
             SidebarTab(id: TabID("shell"), title: "shell", folder: "~", state: .idle),
         ])
-        #expect(view.reportedLines == ["shell · ~ · Done"])
+        // An idle shell says where it is, not "Done" (Lawrence msg 19245: each tab says what it is doing).
+        #expect(view.reportedLines == ["shell · ~"])
     }
 
     @Test func modifiedArrowKeysPassThroughTheCard() throws {

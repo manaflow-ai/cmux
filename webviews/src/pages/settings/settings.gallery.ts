@@ -345,6 +345,12 @@ Object.assign(variants, {
     ],
     note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
   }),
+  // The floating bar's Presets menu open: Solid, Frosted, Glass and Clear, the current one checked.
+  "appearance-presets": variant("appearance", {
+    options: { values: { "appearance.backgroundOpacity": 0.8, "appearance.backgroundBlur": "frosted" } },
+    steps: [wait("[data-appearance-bar]"), click('[data-menu="appearance-presets"]'), wait('[role="menuitemradio"]')],
+    note: "Presets at the bottom right beside Undo, Redo and Reset: one pick sets the window's Opacity and Material and every surface's opacity, as one undoable step; Frosted is checked.",
+  }),
   // The terminal font list open: recent fonts first under a Recent tag, every family in its own face.
   "font-picker-open": variant("appearance", {
     focus: "terminal.fontFamily",
