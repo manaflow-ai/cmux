@@ -36,12 +36,15 @@ contains(' <key> ') matches whole keys only:
 - `linux_jobs`: the jobs that take it;
 - `mini_runner`: the side label the idle minis carry, or empty;
 - `mini_jobs`: the jobs that take it.
-Anything uncertain writes empty values, and every job keeps its Blacksmith route.
+For early nightly controls, unread capacity keeps portable jobs on the configured
+owned-mini pool. Other callers write empty values and keep their Blacksmith route.
 
 LINUX_ONLY jobs (the nightly signer compiler emits a Linux executable) never
 take a mini. NIGHTLY_WAIT_FOR_FLEET=1 retries placement for at most three minutes
 before returning unplaced jobs to overflow. The process-wide deadline bounds
 reads too, and main always clears its alarm and restores the previous handler.
+REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh live
+capacity observation, including after the admission wait expires.
 """
 from __future__ import annotations
 
@@ -71,7 +74,7 @@ side = _load("side_lane_placement")
 # Labels that are not our own Linux fleet: Blacksmith, and GitHub's hosted images (never in the
 # routing order at all).
 NOT_FLEET_LINUX = ("blacksmith-", "ubuntu-", "macos-", "windows-")
-# Keep the step below its own timeout; a timed-out read leaves every job on Blacksmith.
+# Keep the step below its own timeout; early nightly controls retain their fleet fallback.
 DEADLINE_SECONDS = 60
 
 
@@ -159,9 +162,18 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     refusal = eligible(env)
     if refusal:
         return done(refusal)
+    problem = pool.snapshot_problem(snapshot, now)
+    if ((runners is None or problem) and env.get("NIGHTLY") == "1"
+            and env.get("NIGHTLY_WAIT_FOR_FLEET") == "1" and env.get("REQUIRE_LIVE_CAPACITY") != "1"):
+        # An exhausted routing API is not evidence of a fleet no-start. Queue
+        # these secret-free controls on the already configured owned pool,
+        # rather than turn a missing observation into permission for paid work.
+        # This is not a reservation or a bounded no-start overflow mechanism.
+        # `rest` excludes Linux-only work (in particular the signer compiler).
+        return done("capacity unknown; portable nightly controls queue on the owned fleet",
+                    env["SIDE_LABEL"].strip(), rest)
     if runners is None:
         return done("the runners could not be read, so no mini is known to be free")
-    problem = pool.snapshot_problem(snapshot, now)
     if problem:
         return done(f"{problem}, so no mini is known to have no nightly job waiting")
     label = env["SIDE_LABEL"].strip()

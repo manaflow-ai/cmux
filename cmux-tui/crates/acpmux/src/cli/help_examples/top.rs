@@ -6,7 +6,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "",
         &[
-            ("List sessions on every host", "acpmux ls"),
+            ("List sessions on every machine", "acpmux ls"),
             (
                 "Send coord a message and return at once",
                 "acpmux send --no-wait coord \"PR 27310 is green\"",
@@ -22,17 +22,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "dispatch",
         &[
             (
-                "Send a brief to the least-loaded allowed host",
+                "Send a brief to the least-loaded allowed machine",
                 "acpmux dispatch ~/notes/brief.md -m codex/gpt-6-astra",
             ),
             (
-                "Send a brief to a named peer with a title and stop condition",
-                "acpmux dispatch ~/notes/brief.md --host mini-3 --title \"Fix 27310\" \
+                "Send a brief to a named machine with a title and stop condition",
+                "acpmux dispatch ~/notes/brief.md --machine mini-3 --title \"Fix 27310\" \
                  --stop-condition \"PR 27310 merged\"",
             ),
             (
                 "Send a brief read from stdin to this machine",
-                "printf 'Audit the retry path' | acpmux dispatch - --host local",
+                "printf 'Audit the retry path' | acpmux dispatch - --machine local",
             ),
         ],
     ),
@@ -44,7 +44,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux resolve \"https://cmux.com/deeplink/agent?id=aid-3f9c2a\"",
             ),
             (
-                "Show the host, lane and pull requests of a peer's session",
+                "Show the machine, lane and pull requests of another machine's session",
                 "acpmux resolve mini-3/review-27",
             ),
             ("Show this session's own ids and link", "acpmux resolve @"),
@@ -93,8 +93,8 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux ensure coord -m claude/opus",
             ),
             (
-                "Get a review session on a peer, created in a folder there",
-                "acpmux ensure review-27 --host mini-3 -m codex --cwd ~/Projects/cmux",
+                "Get a review session on another machine, created in a folder there",
+                "acpmux ensure review-27 --machine mini-3 -m codex --cwd ~/Projects/cmux",
             ),
         ],
     ),
@@ -121,7 +121,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "retry",
         &[
             ("Retry a session's failed last turn now", "acpmux retry review-27310"),
-            ("Retry a failed turn of a session on a peer", "acpmux retry mini-3/review-27"),
+            (
+                "Retry a failed turn of a session on another machine",
+                "acpmux retry mini-3/review-27",
+            ),
         ],
     ),
     (
@@ -179,7 +182,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Print a review session's last reply", "acpmux last review-27310"),
             ("Print coord's last 3 replies, newest last", "acpmux last coord -n 3"),
-            ("Print the last reply of a session on a peer", "acpmux last mini-3/review-27"),
+            (
+                "Print the last reply of a session on another machine",
+                "acpmux last mini-3/review-27",
+            ),
         ],
     ),
     (
@@ -192,8 +198,11 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "send",
         &[
-            ("Send to the one live `review`, here or on a peer", "acpmux send review \"ship it\""),
-            ("Send to `review` on peer hb", "acpmux send hb/review \"ship it\""),
+            (
+                "Send to the one live `review`, here or on another machine",
+                "acpmux send review \"ship it\"",
+            ),
+            ("Send to `review` on machine hb", "acpmux send hb/review \"ship it\""),
             ("Send to a session by its id prefix", "acpmux send 0199aaaa \"ship it\""),
             (
                 "Send coord a message and return at once",
@@ -208,7 +217,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux send fix-27310 --attach ~/notes/before.png \"The caret jumps after paste\"",
             ),
             (
-                "Message every live session tagged area=acpmux, on every host",
+                "Message every live session tagged area=acpmux, on every machine",
                 "acpmux send --tag area=acpmux \"base is green again; update your PRs\"",
             ),
             (

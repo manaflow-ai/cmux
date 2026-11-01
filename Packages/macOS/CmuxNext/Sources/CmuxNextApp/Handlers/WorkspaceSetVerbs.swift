@@ -31,7 +31,7 @@ enum WorkspaceSetVerbs {
             let services = context.services
             let pane: PaneController? = switch target.kind {
             case .pane: services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == target.id } }.first
-            case .tab: services.locateTab(target.id).flatMap { services.paneController(for: $0.1) }
+            case .tab: context.targetTab(target.id, invocation).flatMap { services.paneController(for: $0.1) }
             default: nil
             }
             var facts: ActionContext = []

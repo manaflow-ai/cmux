@@ -34,7 +34,20 @@ struct CloudStartChatMachineTests {
         let machines = [CloudMachine(id: "vm-listed"), CloudMachine(id: "vm-new", status: .provisioning),
                         CloudMachine(id: "vm-destroyed", status: .destroyed), CloudMachine(id: "vm-failed", status: .failed),
                         CloudMachine(id: "vm-deleting", status: .deleting)]
-        #expect(CloudStartChat.stored(machines, listed: ["vm-listed"]) == ["vm-new"])
+        #expect(machines.keptForPin(listed: ["vm-listed"]) == ["vm-new"])
+    }
+
+    /// A listed machine's plan entry: its id, title, shown status and link, the known slug and pause reason, and its
+    /// chat count only when connected (a disconnected machine's entry has no `chats` key).
+    @Test func aListedMachinesPlanEntryNamesWhatThePickReads() {
+        let machine = CloudMachine(id: "vm-a", status: .paused, displayName: "Chats", slug: "kind-aqua", pauseReason: .idle)
+        let connected = machine.startChatPlanEntry(connected: true, chats: 2)
+        #expect(connected["id"] as? String == "vm-a" && connected["title"] as? String == "Chats")
+        #expect(connected["status"] as? String == "paused" && connected["connected"] as? Bool == true)
+        #expect(connected["slug"] as? String == "kind-aqua" && connected["pause_reason"] as? String == "idle")
+        #expect(connected["chats"] as? Int == 2 && connected["created_by"] == nil)
+        let away = CloudMachine(id: "vm-b").startChatPlanEntry(connected: false, chats: nil)
+        #expect(away["connected"] as? Bool == false && away["chats"] == nil && away["slug"] == nil && away["pause_reason"] == nil)
     }
 
     @Test func thePlanRequestCarriesTheSendItsAccountWorkspaceAndTheListedMachines() throws {
