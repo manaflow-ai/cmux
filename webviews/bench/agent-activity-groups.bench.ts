@@ -1,10 +1,10 @@
-// The grouped, filtered session list the Agent Activity page draws (model.ts `groups`), per Timeline or
-// Grid render. A render asks for it twice (App's follow subscription, then the layout). The host pushes
-// the whole state as one snapshot per change, so every snapshot carries new session objects; the second
-// ask in the same render (and any later render that changes none of the inputs, such as selecting or
-// scrubbing) shares the first one's projection. Two arms, each timing one render's two asks:
-//   snapshot: the state came from a fresh host snapshot (new objects), the common case;
-//   local:    the state is the same objects (a select, scrub or layout action).
+// The grouped, filtered session list the Agent Activity page draws (model.ts `groups`): App asks for it
+// once per render and hands it to the layout. The host pushes the whole state as one snapshot per change,
+// so a snapshot carries new session objects and must project again; a local action (select, scrub,
+// layout) and a frame event re-render with the same sessions, names, connections and filter, so they
+// reuse the last projection. Two arms, each timing one render's `groups` ask:
+//   snapshot: the state came from a fresh host snapshot (new objects), the projection is rebuilt;
+//   local:    the state is the same objects (a select, scrub, layout action or frame event).
 //   bun bench/agent-activity-groups.bench.ts [rounds=9] [renders=200]
 import { groups, initialActivityState, reduceActivity, type ActivitySession } from "../src/agent-activity/model";
 
@@ -58,12 +58,12 @@ for (const size of SIZES) {
     });
     let seen = 0;
     let started = performance.now();
-    for (const state of snapshots) seen += groups(state).length + groups(state).length;
+    for (const state of snapshots) seen += groups(state).length;
     const snapshotMs = (performance.now() - started) / RENDERS;
     started = performance.now();
     for (let render = 0; render < RENDERS; render += 1) {
       const state = reduceActivity(base, { type: "scrub", seq: render });
-      seen += groups(state).length + groups(state).length;
+      seen += groups(state).length;
     }
     const localMs = (performance.now() - started) / RENDERS;
     if (seen < 0) throw new Error("unreachable");
