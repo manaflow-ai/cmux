@@ -162,7 +162,7 @@ import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
-import { pageAction } from "./automation";
+import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { followTrace } from "./followTrace";
@@ -8784,6 +8784,25 @@ function AcpmuxPane() {
   );
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
+  /// The composer for automation (automation.ts composeSend, runMode): its own Return and run row.
+  const automationCompose = useRef<AutomationCompose>(undefined);
+  automationCompose.current = {
+    async send(text) {
+      const handle = composerHandle.current;
+      if (!handle) return undefined;
+      handle.restore(text, []);
+      // A field whose editor is still starting takes the text as state: let it render first.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return composerHandle.current?.send();
+    },
+    runMode: () => sandbox.mode,
+    setRunMode(mode) {
+      if (!sandboxOffered && !sandboxPickedNotOffered && !cloudPickedNotOffered) return false;
+      sandboxModeRows.onMode(mode);
+      return true;
+    },
+    cloudStart: () => cloudStart ?? null,
+  };
   useEffect(() => {
     window.React = React;
     window.cmuxAcpmuxRegistry = {
@@ -9060,6 +9079,12 @@ function AcpmuxPane() {
         openDiff: (rowId) => automationView.current?.openDiff(rowId),
         diff: () => automationView.current?.diff ?? { open: false, paths: [] },
         pickFolder: (cwd) => automationPick.current?.(cwd),
+        compose: {
+          send: (text) => automationCompose.current?.send(text) ?? Promise.resolve(undefined),
+          runMode: () => automationCompose.current?.runMode(),
+          setRunMode: (mode) => automationCompose.current?.setRunMode(mode) ?? false,
+          cloudStart: () => automationCompose.current?.cloudStart() ?? null,
+        },
       },
     });
     let cancelled = false;
