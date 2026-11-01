@@ -10,6 +10,29 @@ pub(super) fn handle_command_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
+    // A move into a new workspace out of an incognito one makes another
+    // incognito workspace; its app owns it (incognito_orphans).
+    let moves_to_new_workspace = matches!(
+        cmd,
+        Command::MoveTabToNewWorkspace { .. }
+            | Command::MoveTabGroupToNewWorkspace { .. }
+            | Command::MoveScreen { new_workspace: true, .. }
+            | Command::MoveScreenGroup { new_workspace: true, .. }
+    );
+    let result = dispatch_command(mux, client, cmd, writer, cancellation);
+    if moves_to_new_workspace && result.is_ok() {
+        incognito_orphans::claim_moved(mux, client);
+    }
+    result
+}
+
+fn dispatch_command(
+    mux: &Arc<Mux>,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+    cancellation: Option<&ConnectionCancellation>,
+) -> anyhow::Result<Value> {
     // Who a durable legacy command acts as (P8): read once per command.
     let actor = origin_gate::connection_actor(mux, client);
     if let Some(remote) = remote_relay::intercept(mux, client, &cmd, writer) {

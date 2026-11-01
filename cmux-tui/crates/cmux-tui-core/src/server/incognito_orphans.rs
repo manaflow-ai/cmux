@@ -39,8 +39,10 @@ fn app_peer_key(mux: &Mux, client: u64) -> Option<String> {
     (record.origin.role == HelloRole::Main).then(|| record.origin.peer_key.clone()).flatten()
 }
 
-/// After `workspace.create` answered: remember the creator of an ephemeral
-/// workspace an app connection created.
+/// After a resource request answered: remember the creator of the
+/// ephemeral workspace an app connection's `workspace.create {ephemeral}`
+/// made, or of those a move made (`state::ephemeral_moves` marks a
+/// workspace made for content moved out of an incognito one).
 pub(super) fn note_create(
     mux: &Mux,
     client: u64,
@@ -48,7 +50,14 @@ pub(super) fn note_create(
     ephemeral: bool,
     response: &Value,
 ) {
-    if operation != ResourceOperation::WorkspaceCreate || !ephemeral || response["ok"] != true {
+    if response["ok"] != true {
+        return;
+    }
+    if moves_content(operation) {
+        claim_moved(mux, client);
+        return;
+    }
+    if operation != ResourceOperation::WorkspaceCreate || !ephemeral {
         return;
     }
     let result = &response["result"];
@@ -66,6 +75,43 @@ pub(super) fn note_create(
         .insert(workspace.to_string(), peer_key);
 }
 
+/// After app connection `client` moved content into a new workspace: it
+/// owns every incognito workspace nobody is recorded for (a move out of an
+/// incognito workspace makes one). Reads the registry only while some
+/// incognito workspace is tracked: a move out of one needs one.
+pub(super) fn claim_moved(mux: &Mux, client: u64) {
+    let creators = &mux.control_clients.incognito_creators;
+    if creators.by_workspace.lock().recover_poison().is_empty() {
+        return;
+    }
+    let Some(peer_key) = app_peer_key(mux, client) else { return };
+    let ephemeral = match mux.read_registry_state(crate::state::store::ephemeral_workspaces) {
+        Ok(ephemeral) => ephemeral,
+        Err(error) => {
+            eprintln!("cmux-tui: could not list incognito workspaces after a move: {error:#}");
+            return;
+        }
+    };
+    let mut by_workspace = creators.by_workspace.lock().recover_poison();
+    for workspace in ephemeral {
+        by_workspace.entry(workspace).or_insert_with(|| peer_key.clone());
+    }
+}
+
+/// The operations that can make a workspace for content moved out of
+/// another one.
+fn moves_content(operation: ResourceOperation) -> bool {
+    matches!(
+        operation,
+        ResourceOperation::TabMove
+            | ResourceOperation::TerminalMove
+            | ResourceOperation::ScreenMove
+            | ResourceOperation::TabGroupMove
+            | ResourceOperation::LayoutBulk
+            | ResourceOperation::WorkspaceLayoutApply
+    )
+}
+
 /// The workspaces in `creators` whose creating process is not `reader` and
 /// has no connection among `connected`.
 fn orphaned(
@@ -80,6 +126,12 @@ fn orphaned(
         .collect()
 }
 
+/// The peer keys of every connection.
+fn connected(mux: &Mux) -> HashSet<String> {
+    let state = mux.control_clients.state.lock().recover_poison();
+    state.clients.values().filter_map(|record| record.origin.peer_key.clone()).collect()
+}
+
 /// Before an app connection's session read: close the incognito workspaces
 /// of app processes that are gone. Cheap when there are none.
 pub(super) fn close_orphaned(mux: &Arc<Mux>, client: u64) {
@@ -88,22 +140,38 @@ pub(super) fn close_orphaned(mux: &Arc<Mux>, client: u64) {
         return;
     }
     let Some(reader) = app_peer_key(mux, client) else { return };
-    let connected: HashSet<String> = {
-        let state = mux.control_clients.state.lock().recover_poison();
-        state.clients.values().filter_map(|record| record.origin.peer_key.clone()).collect()
-    };
-    let orphans = {
-        let mut by_workspace = creators.by_workspace.lock().recover_poison();
-        let orphans = orphaned(&by_workspace, &reader, &connected);
-        for workspace in &orphans {
-            by_workspace.remove(workspace);
+    // Workspaces closed another way leave the record here.
+    match mux.read_registry_state(crate::state::store::ephemeral_workspaces) {
+        Ok(live) => {
+            let live: HashSet<String> = live.into_iter().collect();
+            creators.by_workspace.lock().recover_poison().retain(|workspace, _| live.contains(workspace));
         }
-        orphans
+        Err(error) => {
+            eprintln!("cmux-tui: could not list incognito workspaces: {error:#}");
+            return;
+        }
+    }
+    let orphans = {
+        let by_workspace = creators.by_workspace.lock().recover_poison();
+        orphaned(&by_workspace, &reader, &connected(mux))
     };
     for workspace in orphans {
+        // Its creator may have reconnected since: look again right before
+        // the close, and take the record only for a creator still gone.
+        let creator = {
+            let state = mux.control_clients.state.lock().recover_poison();
+            let mut by_workspace = creators.by_workspace.lock().recover_poison();
+            let Some(creator) = by_workspace.get(&workspace).cloned() else { continue };
+            if state.clients.values().any(|record| record.origin.peer_key.as_ref() == Some(&creator))
+            {
+                continue;
+            }
+            by_workspace.remove(&workspace);
+            creator
+        };
         if let Err(error) = mux.close_ephemeral_workspace(&workspace) {
             eprintln!(
-                "cmux-tui: could not close incognito workspace {workspace} of a gone app: {error:#}"
+                "cmux-tui: could not close incognito workspace {workspace} of gone app {creator}: {error:#}"
             );
         }
     }
