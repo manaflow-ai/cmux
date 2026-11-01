@@ -3565,7 +3565,7 @@ def nightly_cancel(api: GitHub, target: Target, sleep: Callable[[float], None], 
     def check() -> None:
         if before_cancel is not None:
             before_cancel()
-        if not target.nightly:
+        if not is_delivery_target(target):
             return
         for _ in range(NIGHTLY_GUARD_TRIES):
             # The jobs first, then the run: a jobs read that waited (a rate limit, a retried error) may return
@@ -3588,7 +3588,7 @@ def nightly_cancel(api: GitHub, target: Target, sleep: Callable[[float], None], 
             # The run read itself waited (a rate limit, a token mint): a job may have started since the jobs
             # read. Look again.
         raise NightlyBusy(f"slow reads kept the jobs of run {target.run_id} unconfirmed")
-    if before_cancel is None and not target.nightly:
+    if before_cancel is None and not is_delivery_target(target):
         api.cancel(target.run_id)
         return
     api.cancel(target.run_id, before_send=check)
@@ -3619,6 +3619,15 @@ NEVER_FAILOVER_PATHS = frozenset({
     ".github/workflows/nightly-next-launch-smoke.yml", ".github/workflows/nightly-next-rollback.yml",
     ".github/workflows/nightly-next-verdict.yml", ".github/workflows/nightly-next-feed-watch.yml",
 })
+
+
+def is_delivery_target(target: Target) -> bool:
+    """Runs that build or publish a feed must not lose started work to queue rescue."""
+    if target.nightly:
+        return True
+    if target.path in (NIGHTLY_WORKFLOW_PATH, CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH):
+        return not target.event or target.event not in {"pull_request", "pull_request_target", "merge_group"}
+    return target.e2e and target.path == CMUX_NEXT_WORKFLOW_PATH and target.event in TRUSTED_SIDE_EVENTS
 
 
 def never_fails_over(path: str, event: str | None) -> bool:
@@ -4152,7 +4161,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             return "not rescued: someone else already re-ran the run"
         if run.get("status") == "completed":
             return f"not rescued: {moved}"
-        busy = started_nightly_work(api, target, sleep, log)
+        busy = started_delivery_work(api, target, sleep, log)
         if busy:
             return f"{NIGHTLY_BUSY} ({busy}); {moved}, but started delivery work is never cancelled"
         try:
@@ -4225,7 +4234,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         slot = started_dev_compile(jobs)
         if slot:
             return f"not rescued: a DEV feed compile started on {slot}; a started dev build is never cancelled"
-    busy = started_nightly_work(api, target, sleep, log)
+    busy = started_delivery_work(api, target, sleep, log)
     if busy:
         return f"{NIGHTLY_BUSY} ({busy}); started delivery work is never cancelled"
     try:
@@ -4411,7 +4420,7 @@ def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.
         if int(run.get("run_attempt") or 0) != target.attempt or run.get("status") == "completed":
             raise SignStallChanged(f"the run is at attempt {run.get('run_attempt')} "
                                    f"({run.get('status') or 'unknown'}), not attempt {target.attempt} in progress")
-        started = started_nightly_work(api, target, sleep, log)
+        started = started_delivery_work(api, target, sleep, log)
         if started:
             raise SignStallChanged(f"started delivery work ({started}); a queued signing job is left alone")
         found = look()

@@ -2165,9 +2165,9 @@ class BlacksmithStall(unittest.TestCase):
         clock = Clock()
         api = FakeAPI(clock, jobs, marker=True, workflow=DEV_WORKFLOW,
                       snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
-        run_main(api, clock, payload=dev_event())
-        self.assertIn("cancel", api.calls)
-        self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+        _, summary = run_main(api, clock, payload=dev_event())
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("started delivery work", summary)
 
     def test_a_refusal_found_after_the_run_finished_during_a_hold_is_rerun(self):
         # verify and tip-dmg-build stay queued while Blacksmith stalls; then verify runs and passes and
@@ -3320,6 +3320,20 @@ class NightlyRetryDestination(unittest.TestCase):
         self.assertEqual(clock.seconds, rescue.FIRST_LOOK_SECONDS)  # its first look
 
 class Nightly(unittest.TestCase):
+    def test_started_dev_delivery_protects_a_later_queued_job(self):
+        clock = Clock()
+
+        def jobs(_seconds):
+            return [job("runner", status="completed", runner="linux"),
+                    {**job("tip-dmg-build", status="completed", runner="mini"), "conclusion": "success"},
+                    job("verify", status="queued", labels=["glaeda-side-std-xcode-26.6"])]
+
+        api = NightlyAPI(clock, jobs)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY, event="workflow_dispatch")
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertIn("started delivery work", result)
+        self.assertNotIn("cancel", api.calls)
+
     """nightly.yml's app build takes the trusted owned pool on attempt 1 of main's push and schedule runs."""
 
     def test_only_attempt_1_of_main_s_own_push_or_schedule_run(self):
