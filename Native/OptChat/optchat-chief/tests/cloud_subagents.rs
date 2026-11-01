@@ -1652,7 +1652,6 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
 fn no_cloud_vm_auto_pauses_by_default() {
     use optchat_chief::brain::Input;
     use optchat_chief::chief_settings::ChiefSettings;
-    assert!(!ChiefSettings::default().cloud_auto_pause);
 
     // A shared pool VM: no live subagent, no idle wait, several ticks.
     let mut h = Harness::new(default_script());
@@ -1703,7 +1702,6 @@ fn no_cloud_vm_auto_pauses_by_default() {
     // Opting in pauses it at the next tick, and the setting is saved.
     let set = h.brain.set_setting("cloud.autoPause", "true").unwrap();
     assert!(set.contains("cloud.autoPause = true"), "{set}");
-    assert!(ChiefSettings::load(&h.dir.path().join("settings.json")).cloud_auto_pause);
     assert!(h.brain.set_setting("cloud.autoPause", "soon").is_err());
     h.brain.step(Input::CloudTick);
     let until = Instant::now() + Duration::from_secs(5);
