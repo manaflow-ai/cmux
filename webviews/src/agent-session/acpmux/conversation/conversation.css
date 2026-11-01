@@ -1966,11 +1966,8 @@ pre.cv-math-source {
    - shimmer: a still dot in the theme accent, and a light band crosses the row's words.
    A loading mark (no `data-working`) is always the ring. Every loop runs on the shared clock
    (ui/spinnerClock.ts), so many rows move as one, and holds still under Reduce Motion and the
-   static look (the mark stopped). */
-.cv-spinner__dot {
-  display: none;
-  fill: var(--cmux-accent, currentColor);
-}
+   static look (the mark stopped). The mark's own default (dot hidden, the mark turning) lives in
+   spinner.css, which `Spinner` imports, so it holds on every page that draws one. */
 :root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] .cv-spinner__spokes {
   display: none;
 }
@@ -1978,16 +1975,6 @@ pre.cv-math-source {
   display: inline;
 }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"]) .cv-spinner:not([data-working]),
-  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
-    .cv-spinner {
-    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
-  }
-  /* Agent work's spokes step round one spoke at a time, like the macOS activity indicator. */
-  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
-    .cv-spinner[data-working] {
-    animation-timing-function: steps(8, end);
-  }
   :root:not([data-status-indicators="static"])[data-working-look="breathe"] .cv-spinner[data-working] {
     animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
   }
