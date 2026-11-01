@@ -3390,7 +3390,11 @@ jobs:
     # bytes); Mach-O checks run in verify-signed-nightly. Like every Linux
     # nightly job it takes a runner-set member (16 vCPU when LINUX_RUNNER
     # names it, else 32), never LINUX_RUNNER as-is.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # The all-nightly M4 Pro reservation is opt-in and remains disabled until
+    # its managed runner and hook are enrolled. When enabled, only the exact
+    # NEXT attempt-1 reservation takes this route; every other caller keeps the
+    # existing light-placement and overflow fallbacks.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3838,7 +3842,9 @@ jobs:
       contents: read
       actions: read
     # A retry takes the other set size.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant ') && needs.build-nightly-app.outputs.light_mini_runner || needs.prepare-nightly-variant-primary.result == 'success' && (vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    # Keep the exact reservation contract from the primary leg. It is unset
+    # until the dedicated mini's rollout and hook registration complete.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant ') && needs.build-nightly-app.outputs.light_mini_runner || needs.prepare-nightly-variant-primary.result == 'success' && (vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
