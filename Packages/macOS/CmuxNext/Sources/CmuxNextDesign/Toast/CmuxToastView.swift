@@ -161,6 +161,7 @@ public final class CmuxToastView: NSView {
         label.font = Typography.body
         label.maximumNumberOfLines = 0
         label.isSelectable = true
+        label.focusRingType = .none
         label.isHidden = true
         label.translatesAutoresizingMaskIntoConstraints = false
         // It takes the toast's width, never sets it: a hidden view still lays out, and its text
