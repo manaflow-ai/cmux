@@ -1,4 +1,7 @@
 import Foundation
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextWakeups
+#endif
 
 /// The id and surface of a tab a create intent shows before the daemon has the tab: neither can
 /// name a daemon tab.
@@ -59,6 +62,9 @@ public struct ProvisionalTab: Sendable, Hashable {
         guard store.intentLog.contains(transaction) else { return }
         // A guessed tab (``matched(_:in:)``) is hidden from the visible records until now.
         let guessed = store.intentLog.entries.contains { $0.transaction == transaction && $0.createdSurface == surface && !$0.createdConfirmed }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if store.intentLog.entries.contains(where: { if case .createWorkspace = $0.kind { $0.transaction == transaction } else { false } }) { ChatOpenTrace.shared.mark(.tabNamed) }
+        #endif
         store.intentLog.noteCreated(transaction, surface: surface)
         if store.tabsBySurface[surface] != nil || guessed, !store.overlayLifted, store.applyDepth == 0 {
             store.withOverlayLifted(writer: "intent created") {}
@@ -76,6 +82,9 @@ public struct ProvisionalTab: Sendable, Hashable {
               let provisional = createdTab(of: entry.kind), let tab = store.tabsBySurface[delta.surface] else { return }
         let paired = entry.createdConfirmed && entry.createdSurface == delta.surface // the reply named it already
         store.intentLog.noteCreated(transaction, surface: delta.surface)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if case .createWorkspace = entry.kind { ChatOpenTrace.shared.mark(.tabNamed) }
+        #endif
         guard !paired else { return }
         guard !entry.closeWhenCreated else { return } // closed first: nothing moves to it
         let id = provisional.tabResourceID?.rawValue ?? ""
@@ -189,6 +198,9 @@ public struct ProvisionalTab: Sendable, Hashable {
                 && wanted.page == asked?.page && wanted.route == asked?.route
         }
         guard let entry = waiting else { return }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if case .createWorkspace = entry.kind { ChatOpenTrace.shared.mark(.rawTabHidden) }
+        #endif
         // The newest daemon tab of the pane (daemon surfaces count up; provisional ones live above them).
         let daemonTabs = store.pane(pane)?.tabs.filter { !isProvisional(surface: $0.surface) } ?? []
         guard daemonTabs.allSatisfy({ $0.surface.rawValue <= surface.rawValue }) else { return }

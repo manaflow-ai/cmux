@@ -34,7 +34,7 @@ public final class ChatOpenTrace {
     public static let frameCap: TimeInterval = 15
 
     public enum Mark: Int, CaseIterable, Sendable {
-        case action, paneMade, holdBegin, chromiumStart, cefWindowCreate, cefWindowCreated, browserCreated,
+        case action, rawTabHidden, tabNamed, paneMade, holdBegin, chromiumStart, cefWindowCreate, cefWindowCreated, browserCreated,
              setupDone, navigationStart, committed, firstContentfulPaint, pagePainted, panePainted,
              loadingLeave, loadingLeft, holdEnd
 
@@ -42,6 +42,8 @@ public final class ChatOpenTrace {
         public var name: String {
             switch self {
             case .action: "action"
+            case .rawTabHidden: "raw_tab_hidden"
+            case .tabNamed: "tab_named"
             case .paneMade: "pane_made"
             case .holdBegin: "hold_begin"
             case .chromiumStart: "chromium_start"
