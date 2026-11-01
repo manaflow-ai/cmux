@@ -139,6 +139,17 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
         return isConnecting ? AddMachineStrings.connecting : AddMachineStrings.offline
     }
 
+    /// Where the row sorts inside its group (Leo, 2026-10-31: "ready machines first, then paused, then
+    /// offline"): this Mac, then connected machines, then those connecting or resuming, then paused ones,
+    /// then the rest (offline, failed, deleted). Lower sorts first; equal ranks keep the registry's order.
+    public var readinessRank: Int {
+        if isLocal { return 0 }
+        if isConnected { return 1 }
+        if isConnecting { return 2 }
+        if serverState == .paused { return 3 }
+        return 4
+    }
+
     /// What VoiceOver reads for the row: its name, its link state and its last check.
     var accessibilityText: String {
         [name, stateText, healthHelp ?? ""].filter { !$0.isEmpty }.joined(separator: ", ")
@@ -164,15 +175,22 @@ public nonisolated enum MachineSectionStyle: String, Sendable, CaseIterable, Has
         }
     }
 
+    /// `rows` by ``MachineSectionRow/readinessRank``, keeping the given order inside a rank (a stable sort).
+    static func byReadiness(_ rows: [MachineSectionRow]) -> [MachineSectionRow] {
+        rows.enumerated().sorted { ($0.element.readinessRank, $0.offset) < ($1.element.readinessRank, $1.offset) }.map(\.element)
+    }
+
     /// Whether machines sit under a header per kind.
     public var groupsByKind: Bool { self != .flat }
     /// Whether each row has a second line with its link state.
     public var showsStateLine: Bool { self != .compact }
 
     /// `rows` in this style's groups: one untitled group for `.flat`; otherwise this Mac first with no
-    /// header, then Cloud, SSH, server and joined machines under their headers, each in the order given.
-    /// A kind with no machine has no group.
+    /// header, then Cloud, SSH, server and joined machines under their headers. Inside a group, ready
+    /// machines come first, then connecting, paused and offline ones (``MachineSectionRow/readinessRank``),
+    /// each rank in the order given. A kind with no machine has no group.
     public func groups(_ rows: [MachineSectionRow]) -> [MachineSectionGroup] {
+        let rows = Self.byReadiness(rows)
         guard groupsByKind else { return rows.isEmpty ? [] : [MachineSectionGroup(id: "all", kind: nil, rows: rows)] }
         return MachineKind.allCases.compactMap { kind in
             let members = rows.filter { $0.kind == kind }

@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+public import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDevices
 public import CmuxNextSettings
@@ -37,6 +37,8 @@ public final class DeviceHubService {
     private let pages: MacScreenPages
     private let account: Account
     private let bundleIdentifier: String
+    /// The app's one guard of the Keychain UI switch (the hub's identity and relay secrets).
+    private let loginKeychain: LoginKeychain
     /// Settings > Devices (the React page's `devices` card).
     public let settingsModel: MacScreenDevicesSettings
     private var hub: DeviceHub?
@@ -56,9 +58,10 @@ public final class DeviceHubService {
     private var loadingFor: (url: URL, user: String)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
 
-    public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?) {
+    public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?, loginKeychain: LoginKeychain) {
         self.pages = pages
         self.account = account
+        self.loginKeychain = loginKeychain
         self.bundleIdentifier = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         settingsModel = MacScreenDevicesSettings(pages: pages)
         settingsModel.canSignIn = { [weak self] in self?.leftHub ?? false }
@@ -113,7 +116,7 @@ public final class DeviceHubService {
     /// Loads the identity (file Keychain, Secure Enclave) off the main thread,
     /// then installs the hub unless a stop or another start came first.
     private func startHub(url: URL, user: String) {
-        let token = account.accessToken, bundleIdentifier = bundleIdentifier
+        let token = account.accessToken, bundleIdentifier = bundleIdentifier, loginKeychain = loginKeychain
         let name = pages.store.hubDeviceName ?? MacScreenShareHost.computerName
         loadingFor = (url, user)
         // task-owner: DeviceHubService.loading: one identity load; stopHub cancels it
@@ -121,7 +124,7 @@ public final class DeviceHubService {
             let hub: DeviceHub
             do {
                 hub = try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
-                                                 tokens: DeviceHubAccountToken(token))
+                                                 tokens: DeviceHubAccountToken(token), loginKeychain: loginKeychain)
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")
