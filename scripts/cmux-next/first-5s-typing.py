@@ -302,6 +302,12 @@ class NextApp:
             if not (isinstance(reply, dict) and reply.get("error")):
                 break
             time.sleep(3)
+        else:
+            # Every try refused (FC-1): open it with the key a person uses, Ctrl-` (debug.key), which the terminal
+            # scenario's rounds open fine; without a base terminal Ctrl-2 selects a Home chat, not a cold tab.
+            reply = self.key("`", ["control"])
+            note(f"first5s: base terminal by Ctrl-` after {attempt + 1} refused tries: {json.dumps(reply)[:220]}")
+            time.sleep(2)
         time.sleep(4)
 
     def key(self, name, modifiers=(), stamp=None):
@@ -384,7 +390,9 @@ class NextApp:
     def prepare(self, scenario):
         """Before the open key: the cold tab Ctrl-2 selects (a terminal tab a script made without focus)."""
         if scenario == "coldtab":
-            self.control.action("newSurface", focus=False)
+            reply = self.control.action("newSurface", focus=False)
+            if isinstance(reply, dict) and reply.get("error"):
+                note(f"first5s: coldtab's script tab refused: {json.dumps(reply)[:200]}")
             time.sleep(0.5)
 
     def clear_line(self):
