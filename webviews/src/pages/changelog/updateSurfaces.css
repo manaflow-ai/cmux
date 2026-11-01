@@ -70,6 +70,31 @@
   line-height: var(--text-caption--line-height);
   font-variant-numeric: tabular-nums;
 }
+/* The build's commit on the card and the version in the popover's heading: plain text a click copies
+   the full version from (UpdateSurfaces CopyVersion, 2026-10-31). No tooltip, no link styling: hover only lifts it to the primary text color, and
+   keyboard focus takes the pages' ring (desktop.css). It is a <button> that reads as the text
+   around it: no box, that text's font and color. */
+.wn-copy-version {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: default;
+  transition: color 0.12s ease-out;
+}
+/* Outranks the surfaces' `button { user-select: none }` above: the version is words to quote. */
+:is(.wn-card, .wn-pop) .wn-copy-version {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.wn-copy-version:hover { color: var(--page-text); }
+@media (prefers-reduced-motion: reduce) {
+  .wn-copy-version { transition: none; }
+}
 .wn-card-close {
   position: absolute;
   top: 7px;

@@ -140,7 +140,7 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
-/** Follows every answer the store takes (the Inspector's Changes reads many links at once). */
+/** Follows every answer the store takes (Session Info's Changes reads many links at once). */
 export function subscribePullRequests(listener: () => void): () => void {
   listeners.add(listener);
   return () => void listeners.delete(listener);

@@ -10,17 +10,24 @@ import Testing
 /// identity' in your keychain."
 @Suite struct MobileHostMacIdentityKeychainTests {
     /// What each Keychain call saw: its query and whether Keychain UI was on during it.
+    // crash-allow: every stored var is private and read or written only inside `lock.withLock`; `lock` and `copyStatus` are immutable lets.
     final class Recorder: @unchecked Sendable {
-        let lock = NSLock()
-        var queries: [[String: Any]] = []
-        var interactionDuringCalls: [Bool] = []
-        var stored: Data?
-        var copyStatus: OSStatus?
+        private let lock = NSLock()
+        private var recordedQueries: [[String: Any]] = []
+        private var recordedInteraction: [Bool] = []
+        private var stored: Data?
+        private let copyStatus: OSStatus?
+
+        /// `copyStatus`, when set, is what every read returns (an item the read is refused).
+        init(copyStatus: OSStatus? = nil) { self.copyStatus = copyStatus }
+
+        var queries: [[String: Any]] { lock.withLock { recordedQueries } }
+        var interactionDuringCalls: [Bool] { lock.withLock { recordedInteraction } }
 
         func record(_ query: [String: Any]) {
             lock.withLock {
-                queries.append(query)
-                interactionDuringCalls.append(LoginKeychain.userInteractionAllowed)
+                recordedQueries.append(query)
+                recordedInteraction.append(LoginKeychain.userInteractionAllowed)
             }
         }
 
@@ -85,8 +92,7 @@ import Testing
     /// An item an earlier build signed another way made: the read is refused (no prompt), and the
     /// store keeps a key of its own in the file, the same one every launch.
     @Test func aRefusedItemFallsBackToTheFileWithoutAsking() throws {
-        let recorder = Recorder()
-        recorder.copyStatus = errSecInteractionNotAllowed
+        let recorder = Recorder(copyStatus: errSecInteractionNotAllowed)
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls)
