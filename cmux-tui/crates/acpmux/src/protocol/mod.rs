@@ -183,6 +183,10 @@ pub fn registry() -> Vec<MethodDecl> {
         // while the owner capability payload remains private to Cloud clients.
         untyped(method::AGENT_SESSION_TURN_PREPARE, Request),
         untyped(method::AGENT_SESSION_TURN_ABANDON, Request),
+        // Scoped Cloud trigger chat operations.
+        untyped(method::TRIGGER_CHAT_ENSURE, Request),
+        untyped(method::TRIGGER_CHAT_SEND, Request),
+        untyped(method::TRIGGER_CHAT_STATUS, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
@@ -407,6 +411,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
         untyped("_acpmux/vm_host", Request),
+        untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),

@@ -61,8 +61,8 @@ export function useInlineAttachments(options: Options) {
   /// failed prompt) is the composer's again.
   const sentIds = useRef(new Set<string>());
   /// From a send until its clear is done (the same task): the clear takes the text's nodes out, and a
-  /// file among them still uploading is not sent (useSendWhenAttached) but stays for the next prompt,
-  /// never cancelled. Only the person's own edit cancels one (review of #26667).
+  /// file among them still uploading holds the send (useSendWhenAttached) and is never cancelled by
+  /// it. Only the person's own edit cancels one (review of #26667).
   const clearing = useRef(false);
   useLayoutEffect(() => {
     removed.current.clear();

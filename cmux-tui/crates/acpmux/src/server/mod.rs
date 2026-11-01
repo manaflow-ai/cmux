@@ -2024,6 +2024,7 @@ pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
+pub(crate) mod host_notice;
 mod inventory_watch;
 mod lane_parent;
 mod list_reply;

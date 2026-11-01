@@ -195,6 +195,24 @@
     },
     {
       "kind": "request",
+      "name": "trigger/chat.ensure",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "trigger/chat.send",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "trigger/chat.status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/sessions",
       "params": {
         "$ref": "#/types/SessionsParams"
@@ -1508,6 +1526,12 @@
     {
       "kind": "request",
       "name": "_acpmux/vm_host",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/host_notice",
       "params": true,
       "result": true
     },

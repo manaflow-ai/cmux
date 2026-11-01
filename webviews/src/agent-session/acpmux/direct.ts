@@ -50,6 +50,7 @@ import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
+import { isFramesNote, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
@@ -60,7 +61,16 @@ import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
-import { forgetTail, keptTail, KEPT_EVENTS, readHostTail, rememberReadAhead, rememberTail } from "./tailCache";
+import {
+  forgetTail,
+  keptTail,
+  KEPT_EVENTS,
+  readHostTail,
+  rememberReadAhead,
+  rememberTail,
+  shareReadAhead,
+} from "./tailCache";
+import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
@@ -1832,6 +1842,9 @@ export class AcpmuxDirectClient {
     () => {
       for (const group of this.permissions.state.groups)
         for (const item of group.items) if (item.state !== "pending") this.groupedPermissions.delete(item.permissionId);
+      // The groups can land after the attach drew the chat's asks (`attachWatched` no longer waits
+      // for them): an ask a group now holds is the group's card, never a second one of its own.
+      if (this.permissions.state.supported && this.permissions.state.ready) this.dropGroupedAsks();
       if (!this.permissions.state.supported && !this.pendingPermission)
         this.pendingPermission = [...this.groupedPermissions.values()].at(-1);
       this.emit();
@@ -2315,6 +2328,7 @@ export class AcpmuxDirectClient {
         this.host.newSession || this.missingSession !== undefined,
       );
       if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
+      this.seedListedSummary();
       // A reconnect to the same session keeps its transcript; the attach page holds only the newest events.
       const sessionId = this.selectedSessionId;
       const generation = this.selectionGeneration;
@@ -4086,24 +4100,31 @@ export class AcpmuxDirectClient {
     this.limitsVersion += 1;
     this.goalSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
-    // The reads the chat draws with (`startAttachReads`): asked with the attach, or now for a chat
-    // on another machine. The chat shows only once they are in, with the turn's opener.
-    const reads = sent.reads ?? this.startAttachReads(sessionId);
-    const rows = mergeEventRecords(page, this.events);
-    // acpmux names the turn's opener with its page; only an older one leaves it to a read of its own.
-    const served = servedTurnOpener(result, page, rows, sessionId);
-    const [opener] = await Promise.all([
-      served !== undefined ? (served ?? undefined) : this.fetchTurnOpener(sessionId, rows, result?.hasMore === true),
-      reads.permissions,
-      reads.handoff,
-    ]);
-    if (!current()) return [];
-    // The row moved on while those reads were out: what this attach staged is not the chat's.
-    if (strayed() || this.sessions.find((session) => session.sessionId === sessionId)?.peer !== askedOf) return again();
+    // The chat's permission groups and handoff (`startAttachReads`): asked with the attach, or now
+    // for a chat on another machine. The rows draw without waiting for them: each client draws its
+    // answer when it lands (its `changed`), in the asks and composer stack under the transcript,
+    // where a live ask lands too, and a chat read before shows its last groups until then
+    // (`PermissionGroupClient.select`). Waiting cost every cold open the slowest of the reads.
+    if (!sent.reads) this.startAttachReads(sessionId);
+    // acpmux names the turn's opener with its page; only an older one (or a kept tail drawn first)
+    // leaves it to a read of its own. That read stays awaited: the opener is the first row of the
+    // open, and older pages are read from it (`fetchOlder`).
+    const served = servedTurnOpener(result, page, mergeEventRecords(page, this.events), sessionId);
+    if (served === undefined) {
+      const opener = await this.fetchTurnOpener(
+        sessionId,
+        mergeEventRecords(page, this.events),
+        result?.hasMore === true,
+      );
+      if (!current()) return [];
+      // The row moved on while the read was out: what this attach staged is not the chat's.
+      if (strayed() || this.sessions.find((session) => session.sessionId === sessionId)?.peer !== askedOf)
+        return again();
+      this.turnOpener = opener;
+    } else this.turnOpener = served ?? undefined;
     if (readCommandsThrough !== undefined)
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
-    this.turnOpener = opener;
-    // Merged after the reads: live events that landed meanwhile are kept.
+    // Merged after the opener's read: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
     this.sawPrompts(page);
     this.rebuild();
@@ -4150,6 +4171,33 @@ export class AcpmuxDirectClient {
     }
     this.emit("attached");
     return page;
+  }
+
+  /// A chat opened with nothing of it drawn yet (no kept tail, no Mac's copy) takes its listed row as
+  /// its summary until the attach's detail replaces it, as a read-ahead tail does: whatever draws
+  /// before the attach (the hold running out on a slow daemon, a live row) shows the chat's title,
+  /// harness, model and folder, never "New chat" with no chips. The hold itself is unchanged: a
+  /// switch still draws all of the chat before or all of this one (agent-pane-switch-frames).
+  private seedListedSummary(): void {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.summary) return;
+    const listed = this.sessions.find((session) => session.sessionId === sessionId);
+    if (listed) this.summary = { ...listed };
+  }
+
+  /// Drops the attach's own asks that a permission group read since holds (`permissions`' change).
+  private dropGroupedAsks(): void {
+    if (!this.pendingPermission && this.waitingPermissions.size === 0) return;
+    const grouped = new Set(
+      this.permissions.state.groups.flatMap((group) => group.items.map((item) => item.permissionId)),
+    );
+    if (grouped.size === 0) return;
+    const asks = [this.pendingPermission, ...this.waitingPermissions.values()].filter(
+      (ask): ask is AcpmuxPermission => !!ask && !grouped.has(ask.permissionId),
+    );
+    if (asks.length === (this.pendingPermission ? 1 : 0) + this.waitingPermissions.size) return;
+    this.pendingPermission = asks[0];
+    this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
   }
 
   /// Read commands for a deferred chat without selecting or attaching it.
@@ -5167,6 +5215,15 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
+      } else if (event.kind === "host_notice") {
+        // A line from outside the chat, such as cmux Cloud's after it resized the machine
+        // (acpmux `server/host_notice.rs`): one muted notice where it happened.
+        if (typeof msg.text === "string" && msg.text.trim()) {
+          // What the agent writes or does after the notice goes below it, not into the row above.
+          this.closeSegment();
+          const id = `host-notice-${event.seq}`;
+          this.rows.set(id, { id, version: 1, at: event.at, kind: "notice", text: msg.text });
+        }
       } else if (event.kind === "policy_unenforced") {
         // The chat's policy is narrower than approve-all and its harness has no mode that asks
         // (`hub/policy_mode.rs`): its agent runs without the asks the policy would answer.
@@ -6283,11 +6340,12 @@ export class AcpmuxDirectClient {
     }
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
     const supportsAudio = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions);
-    const sendAttachments = supportsAudio
-      ? attachments
-      : attachments.filter((attachment) => attachment.kind !== "audio");
+    const audible = supportsAudio ? attachments : attachments.filter((attachment) => attachment.kind !== "audio");
+    // A video's frames go as images (composer/videoPrompt.ts): an agent that takes none gets its link.
+    const sendAttachments =
+      this.summary?.agentCapabilities?.promptCapabilities?.image === false ? withoutFrames(audible) : audible;
     const dropped = new Set(
-      attachments.filter((attachment) => !sendAttachments.includes(attachment)).map((attachment) => attachment.id),
+      attachments.filter((attachment) => !audible.includes(attachment)).map((attachment) => attachment.id),
     );
     const options = { dropped: (id: string) => dropped.has(id) };
     // The prompt is one acpmux message: past its budget, the largest image previews go as the links
@@ -6304,7 +6362,8 @@ export class AcpmuxDirectClient {
     const { text, pasted } = inline
       ? blocks.reduce(
           (shown, block) => {
-            if (block.type !== "text") return shown;
+            // A video's frames note is the agent's; the bubble draws the video's tile.
+            if (block.type !== "text" || isFramesNote(block.text)) return shown;
             if (shown.text) shown.text += "\n";
             const start = shown.text.length;
             shown.text += block.text;
@@ -7369,6 +7428,7 @@ export class AcpmuxDirectClient {
       // A peer chat no tab read: the Mac's own copy of it, so a machine that is paused or offline
       // still opens on its history (peerCopy.ts).
       if (keptThrough === 0) keptThrough = await this.drawPeerCopy(sessionId, generation);
+      if (generation === this.selectionGeneration) this.seedListedSummary();
     }
     if (keptThrough > 0) {
       this.drewKeptTail = true;
@@ -7693,6 +7753,31 @@ export class AcpmuxDirectClient {
     this.queueReadAhead([sessionId], true);
   }
 
+  /// The sidebar's pointer is on `sessionId`'s row (undefined: on no chat's row), forwarded by the
+  /// host's `chat.prefetch` with `hover`. Once it rests there (hoverPrefetch.ts), the chat is read
+  /// ahead and its tail handed to the app host, so the tab the click opens draws it from the host's
+  /// copy (`chat.tail.get`) instead of after its attach: that tab is another page.
+  hoverPrefetch(sessionId: string | undefined, options: HoverOptions = {}): void {
+    this.hoverReads.hover(sessionId, options);
+  }
+  private hoverReads = new HoverPrefetch((sessionId) => this.prefetchForHost(sessionId));
+  /// Chats whose next read ahead is handed to the host (a rested hover), at most HOVER_RECENT. An
+  /// entry leaves when its read ends, read or not (`pumpReadAhead`), and on close.
+  private shareOnRead = new Set<string>();
+  private prefetchForHost(sessionId: string): void {
+    if (this.closed || sessionId === this.selectedSessionId) return;
+    this.shareOnRead.delete(sessionId);
+    this.shareOnRead.add(sessionId);
+    while (this.shareOnRead.size > HOVER_RECENT) this.shareOnRead.delete(this.shareOnRead.keys().next().value!);
+    this.queueReadAhead([sessionId], true);
+    // Nothing to read: this page holds a tail of the chat it counts as current, so that one goes,
+    // and the host keeps it only over an older one (`shareReadAhead`).
+    if (!this.readingAhead.has(sessionId) && !this.readAheadQueue.includes(sessionId)) {
+      this.shareOnRead.delete(sessionId);
+      shareReadAhead(sessionId);
+    }
+  }
+
   /// Chats read ahead, by when their read went out.
   private readAheadAt = new Map<string, number>();
   /// Reads out now, by chat, so a switch to one can wait on it briefly.
@@ -7740,6 +7825,7 @@ export class AcpmuxDirectClient {
         .catch(() => undefined)
         .finally(() => {
           this.readingAhead.delete(sessionId);
+          this.shareOnRead.delete(sessionId);
           this.pumpReadAhead();
         });
       this.readingAhead.set(sessionId, read);
@@ -7778,6 +7864,8 @@ export class AcpmuxDirectClient {
       configSeq: 0,
       usageFromSeq: result?.hasMore === true ? oldest : 0,
     });
+    // A rested hover asked for it: the tab its click opens is another page, which reads the host.
+    if (this.shareOnRead.delete(sessionId)) shareReadAhead(sessionId);
   }
 
   /// acpmux serves `_acpmux/prewarm` to this connection: it lists the method and calls the
@@ -8816,6 +8904,8 @@ export class AcpmuxDirectClient {
     clearTimeout(this.readAheadTimer);
     this.readAheadTimer = undefined;
     this.readAheadQueue = [];
+    this.hoverReads.stop();
+    this.shareOnRead.clear();
     clearTimeout(this.sessionReread);
     this.sessionReread = undefined;
     clearTimeout(this.missingRecheck);

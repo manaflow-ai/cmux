@@ -194,6 +194,16 @@ pub struct SpawnEngine {
     pub other_family: Option<crate::acpmux::Family>,
 }
 
+/// Whether a spawn may route its subagents to another harness (Leo,
+/// 2026-11-01: "maybe toggle off-able but if you look into grokbot they auto
+/// route stuff all the time"): cmux.json `chief.autoRouteSubagents`, on
+/// unless the person set it false.
+pub fn auto_route_on(user: Option<&Value>) -> bool {
+    user.and_then(|d| crate::agent_memory::settings::value(d, "chief.autoRouteSubagents"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+}
+
 /// The subagent preset of `family` beside the default one `preset`.
 pub fn family_preset(preset: &str, family: crate::acpmux::Family) -> Option<String> {
     match family {
@@ -615,6 +625,25 @@ impl Spawner {
     pub fn with_pinned_harness(mut self, pinned: bool) -> Spawner {
         self.pinned = pinned;
         self
+    }
+
+    /// Whether a spawn may name its subagents' harness (`spawn(harness)`):
+    /// refused when OPTCHAT_SUBAGENT_HARNESS pins it or the person turned
+    /// routing off (cmux.json `chief.autoRouteSubagents`, read now).
+    fn check_route(&self, harness: &str) -> Result<(), String> {
+        if self.pinned {
+            return Err(format!(
+                "spawn: this Chief's subagent harness is pinned (OPTCHAT_SUBAGENT_HARNESS), so it cannot route to {harness}; leave out harness"
+            ));
+        }
+        let user = std::env::var_os("HOME")
+            .and_then(|home| crate::agent_memory::settings::document(std::path::Path::new(&home)));
+        if !auto_route_on(user.as_ref()) {
+            return Err(format!(
+                "spawn: the person turned off routing subagents to other harnesses (chief.autoRouteSubagents), so it cannot route to {harness}; leave out harness"
+            ));
+        }
+        Ok(())
     }
 
     /// The settings of one spawn's subagents: the calling turn's harness
@@ -1314,6 +1343,23 @@ impl Orchestrator for Spawner {
         effort: Option<String>,
         place: Option<String>,
     ) -> Result<String, String> {
+        self.spawn_routed(tasks, cwd, effort, place, None)
+    }
+
+    fn spawn_routed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+        harness: Option<String>,
+    ) -> Result<String, String> {
+        let harness = harness
+            .map(|h| h.trim().to_owned())
+            .filter(|h| !h.is_empty());
+        if let Some(h) = harness.as_deref() {
+            self.check_route(h)?;
+        }
         if let Some(e) = effort.as_deref()
             && !crate::tools::EFFORTS.contains(&e)
         {
@@ -1344,6 +1390,7 @@ impl Orchestrator for Spawner {
             tasks: tasks.clone(),
             peer: self.cloud.as_ref().map(|c| c.peer.clone()),
             place,
+            harness: harness.clone(),
             reply,
         })?;
         let plan = answer
@@ -1451,7 +1498,7 @@ impl Orchestrator for Spawner {
                         cwd: Some(local_dir.display().to_string()),
                         effort: launch.effort.clone(),
                         floor: floor.clone(),
-                        harness: None,
+                        harness: harness.clone(),
                     },
                 });
                 self.waiting
