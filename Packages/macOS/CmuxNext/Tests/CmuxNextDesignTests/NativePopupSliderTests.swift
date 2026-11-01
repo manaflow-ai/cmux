@@ -28,7 +28,7 @@ import Testing
         #expect(values.isEmpty)
         #expect(view.slider.doubleValue == 1)
         #expect(view.currentLabel.stringValue == "High")
-        #expect(view.currentLabel.toolTip == "More careful")
+        #expect(view.currentLabel.themedToolTip == "More careful")
         #expect(view.slider.accessibilityLabel() == "Effort")
         #expect(view.slider.accessibilityValueDescription() == "High, recommended")
         view.slider.keyDown(with: key(36))
