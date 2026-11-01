@@ -163,7 +163,8 @@ pub enum PeerCmd {
         /// Peer name (default: the host's first label).
         #[arg(long)]
         name: Option<String>,
-        /// A harness profile to copy (repeatable).
+        /// A harness profile to copy (repeatable); `local` copies every
+        /// profile in this machine's harness folder.
         #[arg(long = "harness", value_name = "ID")]
         harnesses: Vec<String>,
         /// The remote binary to install; another than ~/.local/bin/acpmux
@@ -195,7 +196,8 @@ pub enum PeerCmd {
         here: bool,
         #[arg(long)]
         fix: bool,
-        /// A harness profile to check (repeatable).
+        /// A harness profile to check (repeatable); `local` checks every
+        /// profile in this machine's harness folder.
         #[arg(long = "harness", value_name = "ID")]
         harnesses: Vec<String>,
         #[arg(long, default_value = "~/.local/bin/acpmux")]
