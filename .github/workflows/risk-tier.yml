@@ -2,11 +2,11 @@ name: risk tier
 
 # Labels each feat-cmux-next pull request risk:low, risk:normal or risk:high from what it changes
 # (docs/ci/risk-tiers.md). Low and normal never wait for a person: the check passes as soon as it
-# has graded them (about a minute, alongside the rest of CI). High stays red until the head is signed
-# off: an independent review receipt `Review (<reviewer>): SHIP at <full head sha>`, an approving
-# review on the head commit, or risk:human-ok from a maintainer. Any tier is
-# held while it takes back another pull request's change from the last week, until a
-# `Takes back #N: <why>` line owns it. gh-merge-green and next-autoland refuse a red `risk evidence` check.
+# has graded them (about a minute, alongside the rest of CI). A high head with no sign-off, or with
+# a BLOCK, gets a warning only: the lander lands nothing without an independent SHIP at the head and
+# never one with a BLOCK there (cmuxterm-hq#5745). Any tier stays red while it takes back another
+# pull request's change from the last week, until a `Takes back #N: <why>` line owns it.
+# gh-merge-green and next-autoland refuse a red `risk evidence` check.
 #
 # pull_request_target so fork pull requests can be labeled. It never checks out or runs the
 # pull request's code: the classifier comes from the base branch and reads only the changed-file
@@ -93,19 +93,20 @@ jobs:
             [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
           done
           grep -qx "$LABEL" <<<"$current" || gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
-      # Advisory until ENFORCE_FROM, so high pull requests already in flight can get their sign-off:
-      # until then a missing item is a warning and the check passes. gh-merge-green reads this
-      # value from the base and, after it, refuses a verdict that finished before it.
+      # Since cmuxterm-hq#5745 only an unowned takeback keeps this check red: a squash from a stale base
+      # that quietly reverts a change merged in the last week is real breakage. A BLOCK (or an unreadable
+      # verdict) on a high head only warns here, since every pull request already lands only on an
+      # independent review at its exact head and a BLOCK there keeps it out. ENFORCE_FROM stays for
+      # gh-merge-green, which reads it from the base.
       - name: Hold high until the head is signed off
         if: steps.grade.outputs.ready != 'true'
         env:
           TIER: ${{ steps.grade.outputs.tier }}
+          TAKES_BACK: ${{ steps.grade.outputs.takes_back }}
           ENFORCE_FROM: "2026-10-24T00:00:00Z"
         run: |
-          if [ "$(date -u +%s)" -lt "$(date -u -d "$ENFORCE_FROM" +%s)" ]; then
-            echo "::warning::risk:$TIER is held (the job summary says why); this is advisory until $ENFORCE_FROM, then it blocks merge."
-            echo "Advisory until $ENFORCE_FROM: this check passes now and blocks merge after that." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          if [ "$TAKES_BACK" = true ]; then
+            echo "::error::risk:$TIER takes back a recent change; the job summary says how to own it or merge the base."
+            exit 1
           fi
-          echo "::error::risk:$TIER is held before merge; the job summary says what clears it."
-          exit 1
+          echo "::warning::risk:$TIER is held by its review verdict (the job summary says why). The lander refuses a BLOCK at the head; this check does not."
