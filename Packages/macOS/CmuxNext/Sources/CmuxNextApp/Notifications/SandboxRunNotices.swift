@@ -21,8 +21,6 @@ final class SandboxRunNotices {
     let follower: SandboxRunFollower
     private weak var services: AppServices?
     private var account: Task<Void, Never>?
-    /// Runs sent from an incognito window's chat: their banners name nothing of it (DesktopNotifier+Incognito).
-    private var incognitoRuns: Set<String> = []
 
     init(services: AppServices, follower: SandboxRunFollower? = nil) {
         self.services = services
@@ -54,8 +52,10 @@ final class SandboxRunNotices {
     /// during the send), this account's wait is refused (403, 404) and the follow ends, untold.
     func follow(id: String, task: String, key: String, team: String?) async throws -> Data {
         guard let user = services?.cloud.auth.user?.id else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
-        if incognito(key) { incognitoRuns.insert(id) }
-        return try await follower.follow(SandboxRunRecord(id: id, task: task, key: key, user: user, team: team, started: Date()))
+        var record = SandboxRunRecord(id: id, task: task, key: key, user: user, team: team, started: Date())
+        // A send whose tab is gone already may have been an incognito one: it is taken as one.
+        record.incognito = tab(holding: key) == nil || incognito(key) ? true : nil
+        return try await follower.follow(record)
     }
 
     func ended(_ end: SandboxRunEnd) {
@@ -97,7 +97,7 @@ final class SandboxRunNotices {
         if decision.desktop {
             center.desktop.post(id: Self.bannerPrefix + end.record.id, title: text.title, body: text.body, surface: nil,
                                 workspace: nil, defaultSound: decision.sound == "default",
-                                incognito: incognitoRuns.contains(end.record.id) || incognito(end.record.key))
+                                incognito: end.record.incognito == true || incognito(end.record.key))
             if let sound = decision.sound, sound != "default" { center.soundGate.player.play(sound, volume: decision.soundVolume, banner: true) }
         } else if let sound = decision.sound {
             center.soundGate.player.play(sound, volume: decision.soundVolume, banner: false)
@@ -135,6 +135,8 @@ final class SandboxRunNotices {
             services.notifications.open(surface: tab.surface)
             return true
         }
+        // An incognito chat's Run never shows outside its window: with the tab gone, the click opens nothing.
+        if run.record.incognito == true { return true }
         var seed = AgentPaneSeed()
         seed.sandboxResult = .init(task: run.record.task, key: run.record.key, card: run.card)
         var spawn = WorkspaceSpawn(name: Self.text(SandboxRunEnd(record: run.record, outcome: run.outcome, snapshot: Data())).title)
