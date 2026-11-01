@@ -227,7 +227,9 @@ fn check_head_ref(head_ref: &str) -> Result<String, SeedRefusal> {
         return Err(refused());
     }
     let valid = std::process::Command::new("git")
-        .args(["check-ref-format", "--", head_ref])
+        // No `--`: git's check-ref-format refuses it. The ref starts with
+        // `refs/heads/`, so it is never read as an option.
+        .args(["check-ref-format", head_ref])
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .stdin(std::process::Stdio::null())

@@ -43,7 +43,7 @@ pub fn machine_credentials() -> Vec<Credential> {
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         let program = home.join(".local/bin/lane-gh-credential");
         let lane = format!("!{}", program.display());
-        if executable(&program) && global_github_helpers().iter().any(|helper| *helper == lane) {
+        if executable(&program) && global_github_helpers().contains(&lane) {
             credentials.push(Credential::Lane(lane));
         }
     }

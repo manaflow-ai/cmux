@@ -475,7 +475,7 @@ fn a_delta_seed_applies_edits_adds_and_deletes_without_the_network() {
     let second = world.snapshot("two", &[&first.work, &first.head]);
     let mut params = world.start_params(&folder, &second);
     params["since"] = first.work.clone().into();
-    params["base"] = first.work.clone().into();
+    params["base"] = first.work.into();
     let status = seed(&world, &params);
     assert_eq!(status["state"], "done", "{status}");
     assert_eq!(state(&folder), state(mac));
@@ -499,7 +499,7 @@ fn a_delta_on_another_seed_fails_since_mismatch() {
     assert_eq!(status["error_code"], "seed.since_mismatch", "{status}");
     let fresh = world.home.join("fresh");
     params["folder"] = fresh.display().to_string().into();
-    params["since"] = first.work.clone().into();
+    params["since"] = first.work.into();
     let status = seed(&world, &params);
     assert_eq!(status["error_code"], "seed.since_mismatch", "{status}");
 }
@@ -514,7 +514,7 @@ fn a_delta_after_the_machine_changed_fails_and_changes_nothing() {
     write(&world.mac.join("a"), "a\ntwo\n");
     let second = world.snapshot("two", &[&first.work, &first.head]);
     let mut params = world.start_params(&folder, &second);
-    params["since"] = first.work.clone().into();
+    params["since"] = first.work.into();
     for change in ["edit", "untracked", "stage"] {
         match change {
             "edit" => write(&folder.join("b"), "b\nmachine\n"),
