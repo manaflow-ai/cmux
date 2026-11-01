@@ -381,12 +381,13 @@
    field's drop-down (Leo 2026-10-30: "look for wastage"; leo-workspace design/menus.md): it opens at
    the field's leading edge (Menu.tsx, align start) and is at least as wide as the field, Base UI's
    --anchor-width, so a 560px field never opens a 200px menu. It grows past the field only for longer
-   rows. Three classes, so a surface's own width caps (.acpmux-location-menu's 200-320) give way to
-   it in hosts that load this sheet before or after theirs. */
+   rows, up to the window's width, so a long row (Appearance's painting titles) stays one menu row
+   high instead of wrapping onto two. Three classes, so a surface's own width caps
+   (.acpmux-location-menu's 200-320) give way to it in hosts that load this sheet before or after theirs. */
 .ui-popup.ui-menu.ui-menu-match-trigger {
   box-sizing: border-box;
   min-width: max(var(--anchor-width, 0px), 160px);
-  max-width: max(var(--anchor-width, 0px), min(420px, calc(100vw - 16px)));
+  max-width: max(var(--anchor-width, 0px), calc(100vw - 16px));
 }
 
 /* Pinned combobox actions live outside the scrolling results. This sheet is loaded by the agent
