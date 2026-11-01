@@ -50,6 +50,7 @@ import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
+import { isFramesNote, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
@@ -6330,11 +6331,12 @@ export class AcpmuxDirectClient {
     }
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
     const supportsAudio = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions);
-    const sendAttachments = supportsAudio
-      ? attachments
-      : attachments.filter((attachment) => attachment.kind !== "audio");
+    const audible = supportsAudio ? attachments : attachments.filter((attachment) => attachment.kind !== "audio");
+    // A video's frames go as images (composer/videoPrompt.ts): an agent that takes none gets its link.
+    const sendAttachments =
+      this.summary?.agentCapabilities?.promptCapabilities?.image === false ? withoutFrames(audible) : audible;
     const dropped = new Set(
-      attachments.filter((attachment) => !sendAttachments.includes(attachment)).map((attachment) => attachment.id),
+      attachments.filter((attachment) => !audible.includes(attachment)).map((attachment) => attachment.id),
     );
     const options = { dropped: (id: string) => dropped.has(id) };
     // The prompt is one acpmux message: past its budget, the largest image previews go as the links
@@ -6351,7 +6353,8 @@ export class AcpmuxDirectClient {
     const { text, pasted } = inline
       ? blocks.reduce(
           (shown, block) => {
-            if (block.type !== "text") return shown;
+            // A video's frames note is the agent's; the bubble draws the video's tile.
+            if (block.type !== "text" || isFramesNote(block.text)) return shown;
             if (shown.text) shown.text += "\n";
             const start = shown.text.length;
             shown.text += block.text;

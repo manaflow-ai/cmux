@@ -1399,7 +1399,7 @@ export function Composer({
         return true;
       }
     }
-    // A file pasted or dropped a moment ago is still being read: the prompt waits for its chip.
+    // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
     if (holdForAttachments(() => submitNow.current(force, steer))) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (

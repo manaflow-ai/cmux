@@ -267,7 +267,7 @@ export function SummaryCard({
                 aria-label={foldLabel}
                 onClick={() => card.fold(!card.collapsed)}
               >
-                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={12} />
               </button>
             )}
             {tab ? (
@@ -297,7 +297,7 @@ export function SummaryCard({
                     aria-label={t("summary.subagents.closeTab")}
                     onClick={closeTab}
                   >
-                    <Icon name="action.close" size={10} />
+                    <Icon name="action.close" size={12} />
                   </button>
                 </span>
               </div>
@@ -309,7 +309,7 @@ export function SummaryCard({
                 aria-label={foldLabel}
                 onClick={() => card.fold(!card.collapsed)}
               >
-                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={12} />
               </button>
             )}
             {/* The popover has no title row, but folded it keeps the live counts in view (its body, where Subagents
