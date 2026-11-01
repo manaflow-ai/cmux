@@ -218,9 +218,18 @@ final class CloudService {
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
             allowedOps: { await CloudCredentialRelay.bundledServedOps() })
         credentialProvider = CloudCredentialProvider(relay: relay)
-        let launcher = configuration.linkSource == .appServer
-            ? CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths,
-                                           build: LaunchIdentity.current().build, deviceName: Self.deviceName) : nil
+        // The app server link runs this Mac's `cmux link` (base's launcher). The Native device route
+        // (#28947) is opt-in: it first asks the Worker for the team's Native mesh, and an account
+        // without one (the Worker answers 400) never starts a link, so no machine connects.
+        let launcher: (any CloudLinkLaunching)?
+        if configuration.linkSource != .appServer {
+            launcher = nil
+        } else if Self.nativeLinkOptedIn {
+            launcher = CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths,
+                                                     build: LaunchIdentity.current().build, deviceName: Self.deviceName)
+        } else {
+            launcher = CloudLinkLauncher.forApp(build: LaunchIdentity.current().build, relay: relay)
+        }
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
@@ -240,6 +249,15 @@ final class CloudService {
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
+
+    /// `CMUX_NEXT_CLOUD_NATIVE_LINK=1` in the bundle's LSEnvironment or the launch environment
+    /// (CMUX_NEXT_* survives LaunchIdentity's strip): the app server link takes the Native device
+    /// route instead of `cmux link`.
+    static var nativeLinkOptedIn: Bool {
+        let key = "CMUX_NEXT_CLOUD_NATIVE_LINK"
+        let bundled = Bundle.main.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String]
+        return (bundled?[key] ?? ProcessInfo.processInfo.environment[key]) == "1"
+    }
     /// This Mac's install id for a synchronous caller (``CloudDeviceID/loadNow()``): read once, on the files
     /// lane when Cloud starts; async callers use ``installID()``.
     func localDeviceID() throws -> String { try deviceID.loadNow() }
