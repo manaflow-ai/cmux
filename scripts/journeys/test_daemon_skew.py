@@ -99,6 +99,37 @@ class DaemonSkew(unittest.TestCase):
         self.assertEqual(calls["asked"]["cmd"], "identify")
         self.assertEqual(facts["cmux_tui"], {"pid": 11, "build_id": "abc123", "exe": own, "socket": "/tmp/sock"})
 
+    def test_an_unanswering_owner_keeps_a_fail_but_never_lets_a_pass_count(self):
+        """Review B1 at 1493aa24d96: a daemon that died, hung or quit during the round has no owner at the end; its
+        red is the finding (app-life, restart, terminal gone) and must stay a FAIL."""
+        dead = self.facts()
+        dead["cmux_tui"] = None
+        verdict = self.d.daemon_verdict([dead], str(self.bundle))
+        self.assertEqual(verdict[0], "unverified")
+        self.assertEqual(self.d.apply_daemon_verdict("fail", "TERMINAL GONE", verdict)[0], "fail")
+        self.assertIn("not verified", self.d.apply_daemon_verdict("fail", "TERMINAL GONE", verdict)[1])
+        self.assertEqual(self.d.apply_daemon_verdict("pass", "", verdict)[0], "not run")
+
+    def test_skew_in_any_sample_makes_pass_and_fail_not_run(self):
+        """Review S1: the daemon is sampled after the first step, after each relaunch and at the end."""
+        old = self.facts(tui_exe=self.old / "cmux", tui_build="0ld999")
+        verdict = self.d.daemon_verdict([old, self.facts()], str(self.bundle))
+        self.assertEqual(verdict[0], "skew")
+        for status in ("pass", "fail"):
+            self.assertEqual(self.d.apply_daemon_verdict(status, "", verdict)[0], "not run")
+        self.assertIsNone(self.d.daemon_verdict([self.facts(), self.facts()], str(self.bundle)))
+        # an unanswering early sample (the daemon not up yet) and a good final one: valid
+        early = self.facts()
+        early["cmux_tui"] = None
+        self.assertIsNone(self.d.daemon_verdict([early, self.facts()], str(self.bundle)))
+
+    def test_an_acpmux_that_is_a_copy_of_bin_cmux_in_the_same_bundle_is_valid(self):
+        """Review S2: a bundle may ship bin/acpmux as a hard link or a copy; its own bin/acpmux is the build."""
+        own_bin = self.bundle / "Contents" / "Resources" / "bin"
+        (own_bin / "acpmux").unlink()
+        (own_bin / "acpmux").write_text("binary")
+        self.assertIsNone(self.d.daemon_skew(self.facts(acp_exe=own_bin / "acpmux"), str(self.bundle)))
+
     def test_the_verdict_turns_a_pass_or_a_fail_into_not_run_and_keeps_not_run(self):
         skew = "cmux-tui owner pid 11 runs build 0ld999"
         for status in ("pass", "fail"):
