@@ -1529,7 +1529,7 @@ function fallbackRowHeight(
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
   // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
   // below when asked.
-  if (row.kind === "sessionStart") return finish(37);
+  if (row.kind === "sessionStart") return finish(toolRowHeight());
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return finish(40 + row.plan.length * 24);
   // A turn's footer: its meta line, then the normal turn gap. An empty footer (only hover controls,
@@ -1547,7 +1547,8 @@ function fallbackRowHeight(
     row.kind === "typing" ||
     row.kind === BACKGROUND_TURN
   )
-    return finish(37);
+    // A standalone note is one `.cv-tools` line: a grid row (conversation.css), no frame of its own.
+    return finish(toolRowHeight());
   return finish(messageBelow(beforeFooter) + chromeHeight(row, actions) + textLines * metrics().lineHeight);
 }
 
@@ -1766,7 +1767,8 @@ function measuredRowHeight(
     return isEmptyFooter(row) ? Math.max(metaRow(), gap) : metaRow() + gap;
   }
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
-  if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  // On the grid every activity line is the footer slot's one line, live or not (fallbackRowHeight).
+  if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   // A task notification from another agent is a tool row's line (conversation/IncomingMessageCard.tsx)
   // in the one-line rows' frame (lineRow).
   // The messages that wait, as one group (conversation/PendingMessagesCard.tsx): its head is a
