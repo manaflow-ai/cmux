@@ -289,7 +289,7 @@ const quickSlider: ModelPickerProps = {
   },
 };
 
-/// A started Claude chat that can fork, on a Mac with a second Claude account (its own profile).
+/// A started Claude chat can fork to Codex, excluding another Claude-family profile.
 const startedFork: ModelPickerProps = {
   ...quick,
   catalog: [
@@ -297,7 +297,7 @@ const startedFork: ModelPickerProps = {
     { ...curated.catalog.find((entry) => entry.id === "claude")!, id: "claude-work", name: "Claude (work)" },
   ],
   harnessFixed: true,
-  fork: { to: () => undefined, ready: true },
+  fork: { to: () => undefined, ready: true, targets: new Set(["codex"]) },
 };
 
 /// A short New Tab/chat pane with 48 installed accounts: the menu must cap to its window and

@@ -1274,6 +1274,8 @@ class Rerun(unittest.TestCase):
                     # GitHub keeps an output's last value.
                     step = dict(line.split("=", 1) for line in output.read_text().splitlines())
                     context = self.route_context("1", "teamleaderleo")
+                    # Display placement remains in use on pushes; PR jobs use the side cascade.
+                    context["github"]["event_name"] = "push"
                     context["needs"] = {"macos-placement": {"outputs": {
                         key: step.get(key, "") for key in ("runner", "gui_runner", "session_runner", "gui_overflow",
                                                            "free_gui_runner", "free_session_runner",
@@ -1668,12 +1670,14 @@ class Wiring(unittest.TestCase):
                                          **{"push-head-preflight": {"outputs": {"current": "true"}}})
                 self.assertTrue(evaluate(self.jobs["fast-tier"]["if"].replace("!cancelled()", "true"), context))
 
-    def test_gui_jobs_keep_their_route(self):
+    def test_display_jobs_keep_push_routes_and_take_allocated_pr_overflow(self):
         for name in GUI_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertNotIn("blacksmith_12_jobs", runs_on)
-                self.assertEqual(evaluate(runs_on, self.context(large=f" {name} ", small=f" {name} ")), GUI)
+                context = self.context(large=f" {name} ", small=f" {name} ")
+                self.assertEqual(evaluate(runs_on, context), LARGE)
+                context["github"]["event_name"] = "push"
+                self.assertEqual(evaluate(runs_on, context), GUI)
 
     def test_each_jobs_own_label_copy_matches_runs_on(self):
         for name in CASCADED:
@@ -1838,7 +1842,9 @@ class SaturatedOwnedPool(unittest.TestCase):
                     continue
                 found.append(name)
                 with self.subTest(job=name, attempt=attempt):
-                    self.assertIn(name, cascade.CASCADE_JOBS,
+                    place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+                    declared = cascade.cascade_jobs({"CASCADE_JOBS": evaluate(place["env"]["CASCADE_JOBS"], context)})
+                    self.assertIn(name, declared,
                                   f"{name} can take the side label but the cascade never places it off it")
                     self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, small=f" {name} ")), SMALL)
                     self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, large=f" {name} ")), LARGE)

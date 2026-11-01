@@ -1855,7 +1855,7 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
-  /// `_acpmux/process_update` listeners (inspector/processes.ts).
+  /// `_acpmux/process_update` listeners (session-info/processes.ts).
   private readonly processListeners = new Set<(process: unknown) => void>();
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
@@ -5983,7 +5983,8 @@ export class AcpmuxDirectClient {
   /// that, and then a caller that passed `accepted` still holds the prompt (the composer keeps
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
-  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
+  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it. Without one,
+  /// a send into a shown chat binds the person's Enter or click to this prompt before any waits.
   /// `steer`: into the running turn, read when the agent's current step ends; an agent that
   /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
   /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`. No send carries
@@ -5994,14 +5995,26 @@ export class AcpmuxDirectClient {
     this.presence.typed(text, sessionId);
   }
 
+  /// Binds the person's current gesture to one prompt before the caller waits for a start or
+  /// persistence. The host still refuses frames without a ticket, so forged/script sends remain
+  /// denied; a ticket is scoped to this prompt id and can be spent only once.
+  bindSendGesture(
+    promptId: string = crypto.randomUUID(),
+  ): { promptId: string; ticket: Promise<string | undefined> } | undefined {
+    return { promptId, ticket: reservePromptGesture(promptId) };
+  }
+
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
     accepted?: () => void,
-    ticket?: string,
+    ticket?: string | Promise<string | undefined>,
     steer = false,
+    /// Safe to close the page: acpmux has acknowledged this prompt, including a queued one.
+    onTaken?: () => void,
   ): Promise<string | undefined> {
+    const reserved = ticket ?? this.bindSendGesture(promptId)?.ticket;
     this.presence.stopTyping();
     this.untakenSends += 1;
     let untaken = true;
@@ -6010,7 +6023,7 @@ export class AcpmuxDirectClient {
       untaken = false;
     };
     try {
-      return await this.sendNow(input, attachments, promptId, accepted, ticket, steer, settle);
+      return await this.sendNow(input, attachments, promptId, accepted, reserved, steer, settle, onTaken);
     } finally {
       settle();
     }
@@ -6028,10 +6041,11 @@ export class AcpmuxDirectClient {
     attachments: ComposerAttachment[],
     promptId: string,
     accepted: (() => void) | undefined,
-    ticket: string | undefined,
+    ticket: string | Promise<string | undefined> | undefined,
     steer: boolean,
     /// acpmux took it: the page no longer holds the only copy.
     tookIt: () => void,
+    onTaken?: () => void,
   ): Promise<string | undefined> {
     const trustCancellation = this.trustCancellation;
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
@@ -6206,6 +6220,7 @@ export class AcpmuxDirectClient {
       if (context) this.host = { ...this.host, workspaceContext: undefined };
       if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
       release();
+      onTaken?.();
     };
     this.promptAccepts.set(promptId, accept);
     this.sentPrompts.add(promptId);
@@ -6273,6 +6288,7 @@ export class AcpmuxDirectClient {
       ),
     );
     this.emit();
+    const gesture = await ticket;
     try {
       await this.request("session/prompt", {
         sessionId,
@@ -6287,7 +6303,7 @@ export class AcpmuxDirectClient {
             ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
             ...promptSurfaceMeta(),
           },
-          ...(ticket ? { cmuxGesture: ticket } : {}),
+          ...(gesture ? { cmuxGesture: gesture } : {}),
         },
       });
       accept();
@@ -8624,6 +8640,23 @@ export class AcpmuxDirectClient {
 }
 
 /// The params field that carries a pick's gesture ticket, or nothing without one.
+/// Reserves the person's current gesture for one prompt. A page or script without a trusted
+/// AppKit event gets no ticket; the host's normal gesture check then refuses its send.
+const reservePromptGesture = (promptId: string): Promise<string | undefined> => {
+  try {
+    return postNative<{ ticket?: string }>("transport.gesture", {
+      intent: { method: "session/prompt", params: { promptId } },
+    }).then(
+      (reply) => reply?.ticket,
+      () => undefined,
+    );
+  } catch {
+    // Tests and non-webview callers have no native host. They still send through the normal
+    // relay path; the absent ticket leaves the host's gesture guard in force.
+    return Promise.resolve(undefined);
+  }
+};
+
 const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticket } } : {});
 
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
