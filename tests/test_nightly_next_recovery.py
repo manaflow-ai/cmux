@@ -707,7 +707,6 @@ def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
                 "DMG_NAME=next.dmg IMMUTABLE_NAME=next-49801.dmg\n"
             ),
             ci / "nightly_version.py": "exit 0\n",
-            # The visual gate admits the build (report mode, no verdict on it).
             ci / "nightly_next_canary_mode.py": "exit 0\n",
             ci / "nightly-next-recovery-lineage.sh": "echo ok\n",
             ci / "notarize-nightly-dmg.sh": (
@@ -737,8 +736,6 @@ def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
             CHANNEL="nightly",
             SIGN_CHANNEL="next",
             CHANNEL_RELEASE_TAG="nightly-next",
-            VISUAL_GATE_MODE="",
-            VISUAL_GATE_VERDICTS="",
         )
         result = subprocess.run(["bash", "-c", script], cwd=work, env=env, capture_output=True, text=True)
         result.output = (work / "output").read_text()  # type: ignore[attr-defined]

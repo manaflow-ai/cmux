@@ -1278,16 +1278,15 @@ class WiringTests(unittest.TestCase):
         report = self.job("report-visual-gate-nightly")
         self.assertNotIn("HELD:", report)
 
-    def test_a_recovered_build_is_judged_by_its_own_verdict(self):
+    def test_recovery_keeps_visual_verdicts_advisory(self):
         find = self.job("find-nightly-next-recovery")
         self.assertIn("issues: read", find)
-        self.assertIn("nightly_next_canary_mode.py verdicts --issue-title \"nightly-next visual gate\"", find)
-        self.assertIn("visual_gate_verdicts: ${{ steps.visual-gate.outputs.verdicts }}", find)
+        self.assertNotIn("Read the visual gate's verdicts", find)
         job = self.job("recover-nightly-next-notarization")
         self.assertIn("run: bash scripts/ci/nightly-steps/recover-continue-pending-notarization.sh",
                       (ROOT / ".github/workflows/nightly.yml").read_text())
-        self.assertIn("VISUAL_GATE_MODE: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_mode }}", job)
-        self.assertIn("VISUAL_GATE_VERDICTS: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_verdicts }}", job)
+        self.assertNotIn("VISUAL_GATE_MODE", job)
+        self.assertNotIn("VISUAL_GATE_VERDICTS", job)
         # The step's shell lives in its script (nightly.yml's size limit).
         recover = (ROOT / "scripts/ci/nightly-steps/recover-continue-pending-notarization.sh").read_text()
         # Recovery remains gated by the manifest, lineage, notarization and feed checks;

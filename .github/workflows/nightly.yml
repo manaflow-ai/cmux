@@ -5673,14 +5673,12 @@ jobs:
     permissions:
       actions: read
       contents: read
-      issues: read # the visual gate's verdict per build (docs/ci/nightly-next-visual-gate.md)
+      issues: read
     outputs:
       sign_runner: ${{ steps.sign-runner.outputs.runner }}
       sign_alternate: ${{ steps.sign-runner.outputs.alternate }}
       found: ${{ steps.find.outputs.found }}
       candidates: ${{ steps.find.outputs.candidates }}
-      visual_gate_mode: ${{ steps.visual-gate.outputs.mode }}
-      visual_gate_verdicts: ${{ steps.visual-gate.outputs.verdicts }}
     steps:
       - &checkout-default
         name: Checkout
@@ -5711,16 +5709,6 @@ jobs:
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
         run: bash scripts/ci/nightly-steps/recover-list-newer-pending.sh
-
-      - name: Read the visual gate's verdicts
-        id: visual-gate
-        if: steps.find.outputs.found == 'true'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NIGHTLY_NEXT_VISUAL_GATE: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE }}
-          NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER }}
-        run: bash scripts/ci/nightly-steps/visual-gate-read-verdicts.sh
 
   recover-nightly-next-notarization:
     environment: ${{ needs.decide.outputs.environment }}
@@ -5810,8 +5798,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CANDIDATES: ${{ needs.find-nightly-next-recovery.outputs.candidates }}
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
-          VISUAL_GATE_MODE: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_mode }}
-          VISUAL_GATE_VERDICTS: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_verdicts }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
