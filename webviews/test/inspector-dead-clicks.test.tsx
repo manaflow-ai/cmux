@@ -309,8 +309,22 @@ test("every line of the tray, and its header, does something", async () => {
   expect(loneChevrons(container)).toEqual([]);
   const { dead } = await deadClicks(container, calls);
   expect(dead).toEqual([]);
-  for (const handler of ["onOpen", "onOpenCommand", "onOpenSession", "stop", "stopProcess"])
-    expect(calls).toContain(handler);
+  for (const handler of ["onOpen", "onOpenCommand", "onOpenSession"]) expect(calls).toContain(handler);
+  // A line's Stop is in its context menu (#28533), and each one there does something too.
+  for (const name of ["Lane 0", "bun run dev"]) {
+    const line = [...container.querySelectorAll<HTMLElement>(".acpmux-agent-line")].find((each) =>
+      each.textContent?.includes(name),
+    )!;
+    await act(async () => {
+      line
+        .querySelector(".acpmux-agent-line__button")!
+        .dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    const item = dom.window.document.body.querySelector<HTMLButtonElement>('[role="menu"] [role="menuitem"]')!;
+    await act(async () => item.click());
+  }
+  for (const handler of ["stop", "stopProcess"]) expect(calls).toContain(handler);
   // The session lines open their session (App.tsx `openOfferChat`), never nothing.
   expect(calls.filter((call) => call === "onOpenSession")).toHaveLength(2);
   expect(hoverOnDisabled(container)).toEqual([]);

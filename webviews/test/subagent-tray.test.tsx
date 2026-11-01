@@ -38,6 +38,10 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
+  // The line's context menu (ui/ContextMenu.tsx): its keyboard path reads the line's direction and
+  // dispatches a right-click.
+  MouseEvent: dom.window.MouseEvent,
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -121,6 +125,26 @@ async function render(node: ReturnType<typeof createElement>): Promise<{
     done: async () => act(async () => root.unmount()),
   };
 }
+
+/// Right-clicks a tray line's button and returns its open menu's items (the page draws the menu: the
+/// test has no host's native menu).
+async function openMenu(line: HTMLElement): Promise<HTMLButtonElement[]> {
+  const button = line.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+  await act(async () => {
+    button.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+    );
+    await Promise.resolve();
+  });
+  return [...dom.window.document.body.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')];
+}
+
+/// The buttons on a line that stop something: none at rest (#28533, Leo's rule on a control repeated
+/// down the rows).
+const stopButtons = (root: Element) =>
+  [...root.querySelectorAll<HTMLButtonElement>("button")].filter((each) =>
+    /stop/i.test(`${each.getAttribute("aria-label") ?? ""} ${each.getAttribute("title") ?? ""}`),
+  );
 
 describe("the transcript keeps no running card", () => {
   const transcript = (agents: Subagent[]) => [
@@ -438,9 +462,10 @@ describe("the tray", () => {
         lines.find((line) => line.textContent?.includes("Started chat"))?.querySelector(".acpmux-agent-line__time")
           ?.textContent,
       ).toBe("");
-      expect(
-        lines.find((line) => line.textContent?.includes("Reviewer"))?.querySelector(".cv-subagent__stop"),
-      ).not.toBeNull();
+      // No Stop on the line at rest: it is in the line's menu.
+      expect(stopButtons(tray)).toEqual([]);
+      const reviewer = lines.find((line) => line.textContent?.includes("Reviewer"))!;
+      expect((await openMenu(reviewer)).map((item) => item.textContent)).toEqual(["Stop Reviewer"]);
     } finally {
       await done();
     }
@@ -513,7 +538,9 @@ describe("the tray", () => {
       ]);
       for (const line of lines) await act(async () => line.querySelector<HTMLButtonElement>("button")!.click());
       expect(opened).toEqual(["agent:Watcher", "command:s/1", "chat:c1"]);
-      await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-stop")!.click());
+      expect(stopButtons(root)).toEqual([]);
+      const [kill] = await openMenu(lines[1]!);
+      await act(async () => kill!.click());
       expect(stopped).toEqual(["s/1"]);
     } finally {
       await done();
@@ -647,14 +674,83 @@ describe("a tray line says what it is and what a click does", () => {
       expect(button.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
       await act(async () => button.click());
       expect(opened).toEqual(["s/1"]);
-      // One stop control on the line, and it says exactly what it stops.
-      const stops = [...root.querySelectorAll<HTMLButtonElement>("button")].filter((each) =>
-        /stop/i.test(`${each.getAttribute("aria-label") ?? ""} ${each.getAttribute("title") ?? ""}`),
-      );
-      expect(stops.length).toBe(1);
-      expect(stops[0]!.getAttribute("title")).toBe("Stop only this command");
-      await act(async () => stops[0]!.click());
+      // No stop control on the line at rest; its menu's one Stop says exactly what it stops.
+      expect(stopButtons(root)).toEqual([]);
+      const items = await openMenu(line);
+      expect(items.map((item) => item.textContent)).toEqual(["Stop only this command"]);
+      await act(async () => items[0]!.click());
       expect(stopped).toEqual(["s/1"]);
+    } finally {
+      await done();
+    }
+  });
+
+  // #28533's review: a Stop on every running line is a control repeated down the rows, a block on
+  // Leo's visual rule. Each line stops from its own context menu instead (a right-click, or Shift-F10
+  // on the focused line); a line with nothing to stop has no menu.
+  test("no line carries a Stop at rest; each running subagent stops from its own menu", async () => {
+    const now = Date.now();
+    const stopped: string[] = [];
+    const refuse = new Set(["Linter"]);
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items: trayItems(
+          [agent("Reviewer", { startedAt: now }), agent("Linter", { startedAt: now })],
+          [],
+          [{ sessionId: "c1", title: "Started chat", state: "running" }],
+          true,
+        ),
+        finished: finishedTrayItems(
+          [agent("Writer", { state: "completed", startedAt: now - 9000, endedAt: now })],
+          NONE,
+        ),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        onOpenSession: () => {},
+        stop: async (id: string) => {
+          stopped.push(id);
+          if (refuse.has(id)) throw new Error("refused");
+        },
+      }),
+    );
+    try {
+      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
+      const named = (name: string) => lines.find((line) => line.textContent?.includes(name))!;
+      expect(lines).toHaveLength(4);
+      expect(stopButtons(root)).toEqual([]);
+      // The Reviewer's menu stops the Reviewer, and its item is off while the request is out.
+      const [reviewerStop] = await openMenu(named("Reviewer"));
+      expect(reviewerStop!.textContent).toBe("Stop Reviewer");
+      await act(async () => reviewerStop!.click());
+      expect(stopped).toEqual(["Reviewer"]);
+      expect((await openMenu(named("Reviewer")))[0]!.disabled).toBe(true);
+      await act(async () =>
+        dom.window.document.body
+          .querySelector<HTMLElement>(".ui-context-menu-backdrop")!
+          .dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true })),
+      );
+      // The keyboard opens a line's menu too; a refused stop says so and can be tried again.
+      const linter = named("Linter").querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+      linter.focus();
+      await act(async () => {
+        linter.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }),
+        );
+        await Promise.resolve();
+      });
+      const linterStop = dom.window.document.body.querySelector<HTMLButtonElement>('[role="menu"] [role="menuitem"]')!;
+      expect(linterStop.textContent).toBe("Stop Linter");
+      await act(async () => linterStop.click());
+      expect(stopped).toEqual(["Reviewer", "Linter"]);
+      const [retry] = await openMenu(named("Linter"));
+      expect(retry!.textContent).toBe("Couldn’t stop Linter");
+      expect(retry!.disabled).toBe(false);
+      await act(async () => retry!.click());
+      expect(stopped).toEqual(["Reviewer", "Linter", "Linter"]);
+      // A chat the agent started and a subagent that ended have nothing to stop: no menu.
+      expect(await openMenu(named("Started chat"))).toEqual([]);
+      expect(await openMenu(named("Writer"))).toEqual([]);
     } finally {
       await done();
     }
