@@ -527,6 +527,19 @@ test("a started chat lists no account machine", async () => {
   expect(pickerRows().map(label)).not.toContain("build box");
 });
 
+test("an older chat's plain picker reads the Cloud account as it opens, so a signed-in person gets no sign-in row", async () => {
+  const posted: { method: string; params: unknown }[] = [];
+  answerAsTheApp(posted);
+  // No `onProject`: not a new chat, so its machine list never reads the account's machines; the
+  // connect rows still need the account state.
+  await mount(false, { peers: [], onProject: undefined, cloudMachines: undefined });
+  await openPicker();
+  await act(async () => undefined);
+  expect(posted.map((message) => message.method)).toContain("cloudMachine.list");
+  const labels = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].map(label);
+  expect(labels).not.toContain("Sign in for Cloud");
+});
+
 function answerAsTheApp(
   posted: { method: string; params: unknown }[],
   listReply: () => unknown = () => ({ ok: true, value: { signedIn: true, loaded: true, machines: [account[0]] } }),

@@ -8,7 +8,8 @@ import Foundation
 /// The turn is a label on the same prompt: a gesture ticket bound to the prompt's own id (the
 /// Send's, a held prompt's, a seeded prompt's) is the same prompt's ticket under the label
 /// (``AgentPaneGesturePick``). It allows that prompt and nothing else.
-public nonisolated enum AgentPaneHandoffPrompt {
+public nonisolated struct AgentPaneHandoffPrompt {
+    private init() {}
     public static let prefix = "handoff-"
 
     /// The prompt's own id: `id` without a hand-off turn's `handoff-<turn>-`, else `id` as it is.

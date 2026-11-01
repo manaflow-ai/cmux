@@ -10,11 +10,15 @@ public nonisolated struct SidebarHistoryChat: Hashable, Sendable, Identifiable {
     public let id: String
     public let title: String
     public let updatedAt: Date
+    /// The acpmux harness family that owns this chat (for example `claude-code` or `codex`).
+    /// History rows use it only for their identity mark; no transcript is loaded.
+    public let harness: String?
 
-    public init(id: String, title: String, updatedAt: Date) {
+    public init(id: String, title: String, updatedAt: Date, harness: String? = nil) {
         self.id = id
         self.title = title
         self.updatedAt = updatedAt
+        self.harness = harness
     }
 }
 

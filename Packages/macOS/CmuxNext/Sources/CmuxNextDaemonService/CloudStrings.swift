@@ -141,6 +141,11 @@ public enum CloudStrings {
     public static var deleteFirewallRuleBody: String { String(localized: "cloud.prompt.deleteFirewallRuleBody", defaultValue: "This permanently removes the selected firewall rule.", table: "Cloud", bundle: .module) }
     public static var deleteFirewallRule: String { String(localized: "cloud.button.deleteFirewallRule", defaultValue: "Delete", table: "Cloud", bundle: .module) }
 
+    /// `cloud resize-machine` with neither `--size` nor `--disk`, or a `--disk` that is not a positive whole number.
+    public static func resizeNeedsSizeOrDisk(_ sizes: String) -> String {
+        String(format: String(localized: "cloud.failed.resizeNeedsSizeOrDisk", defaultValue: "Pass --size (%@), --disk with a whole number of GiB (4 GiB steps, up to 256, grow-only), or both.", table: "Cloud", bundle: .module), sizes)
+    }
+
     public static func sizeMustBeOneOf(_ list: String) -> String {
         String(format: String(localized: "cloud.failed.sizeMustBeOneOf", defaultValue: "Size must be one of: %@.", table: "Cloud", bundle: .module), list)
     }
