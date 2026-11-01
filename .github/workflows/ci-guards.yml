@@ -1498,6 +1498,7 @@ jobs:
         run: |
           python3 tests/test_defaults_guard_review_rerun.py
           python3 tests/test_nightly_promotion_admission.py
+          python3 tests/test_nightly_promotion_runner_admission.py
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_nightly_next_feed_watch.py
           python3 tests/test_nightly_next_unsigned_resume.py

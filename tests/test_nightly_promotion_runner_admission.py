@@ -94,6 +94,7 @@ class PromotionAdmissionTests(unittest.TestCase):
         self.assertNotIn("LINUX_RUNNER", picker_runner)
         self.assertIn("environment: nightly-next-promote", promote)
         self.assertLess(promote.index("run: bash scripts/ci/signing-runner-claim.sh"), promote.index("secrets.CMUX_RELEASE_APP_KEY"))
+        self.assertLess(promote.index("run: bash scripts/ci/signing-runner-claim.sh"), promote.index("secrets.GLAEDA_ROUTE_APP_KEY"))
         self.assertNotIn("secrets.", picker)
         self.assertIn("vars.CMUX_FLEET_CONTROLLER", picker)
 
