@@ -145,6 +145,26 @@ class HelperNotarizationTests(unittest.TestCase):
         calls = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
         return [c for c in calls if c[0] == tool and c[1:1 + len(prefix)] == list(prefix)]
 
+    def test_computer_use_signing_enables_apple_events_without_changing_generic_helpers(self):
+        self.env.pop('CMUX_HELPER_ENTITLEMENTS')
+        self.run_helper('--start', self.state)
+        sign = self.calls('codesign', '--force')[0]
+        path = Path(sign[sign.index('--entitlements') + 1])
+        entitlements = plistlib.loads(path.read_bytes())
+        self.assertIs(entitlements.get('com.apple.security.automation.apple-events'), True)
+        generic = plistlib.loads((ROOT / 'cmux-helper.entitlements').read_bytes())
+        self.assertNotIn('com.apple.security.automation.apple-events', generic)
+
+    def test_computer_use_entitlements_override_is_used_for_signing(self):
+        dedicated = self.root / 'computer-use-entitlements.plist'
+        dedicated.write_bytes(plistlib.dumps({
+            'com.apple.security.automation.apple-events': True,
+        }))
+        self.run_helper('--start', self.state,
+                        CMUX_COMPUTER_USE_ENTITLEMENTS=str(dedicated))
+        sign = self.calls('codesign', '--force')[0]
+        self.assertEqual(sign[sign.index('--entitlements') + 1], str(dedicated))
+
     def test_submit_and_finish_preserve_ticket_and_reseal_outer_app(self):
         self.run_helper('--start', self.state)
         self.assertTrue(self.state.exists())
