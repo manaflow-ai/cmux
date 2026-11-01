@@ -69,6 +69,11 @@ pub(super) enum OutboundItem {
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
+/// The most of the session's connections that processes inside its terminals
+/// may hold. The rest stay for the app and its other local clients, so a burst
+/// of agents cannot lock the app out of its own daemon (#27698).
+pub(super) const MAX_TERMINAL_CONNECTIONS: usize = MAX_SERVER_CONNECTIONS * 3 / 4;
+
 #[derive(Clone)]
 pub(super) struct ConnectionPermit {
     pub(super) _lease: Arc<crate::diagnostics::ConnectionLease>,
@@ -77,7 +82,7 @@ pub(super) struct ConnectionPermit {
 pub(super) fn claim_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
 ) -> Option<ConnectionPermit> {
-    claim_connection_watching(connections, None)
+    claim_connection_watching(connections, None, None)
 }
 
 /// A slot for a local client, taken back if the client hangs up while its
@@ -86,19 +91,72 @@ pub(super) fn claim_watched_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
     stream: &dyn transport::Stream,
 ) -> Option<ConnectionPermit> {
-    let peer: Option<crate::diagnostics::PeerClosed> = match stream.try_clone_box() {
-        Ok(peer) => Some(Box::new(move || peer.peer_closed())),
-        Err(_) => None,
-    };
-    claim_connection_watching(connections, peer)
+    claim_connection_watching(connections, watch_peer(stream), None)
 }
 
+/// A slot for a process inside one of the session's terminals: it also takes
+/// a terminal slot, and is refused (its slot given back) when terminals
+/// already hold `MAX_TERMINAL_CONNECTIONS` (#27698). Watched like
+/// `claim_watched_connection`; a hang-up gives back both slots.
+/// `client`: the terminal the peer runs in (its process session), nil when
+/// unknown.
+pub(super) fn claim_watched_terminal_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    stream: &dyn transport::Stream,
+    client: Option<u32>,
+) -> Option<ConnectionPermit> {
+    claim_connection_watching(connections, watch_peer(stream), Some(client))
+}
+
+#[cfg(test)]
+pub(super) fn claim_terminal_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+) -> Option<ConnectionPermit> {
+    claim_connection_watching(connections, None, Some(None))
+}
+
+/// A terminal slot for a connection from terminal `client` (its process session).
+#[cfg(test)]
+pub(super) fn claim_terminal_connection_from(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    client: u32,
+) -> Option<ConnectionPermit> {
+    claim_connection_watching(connections, None, Some(Some(client)))
+}
+
+fn watch_peer(stream: &dyn transport::Stream) -> Option<crate::diagnostics::PeerClosed> {
+    match stream.try_clone_box() {
+        Ok(peer) => Some(Box::new(move || peer.peer_closed())),
+        Err(_) => None,
+    }
+}
+
+/// `terminal`: nil for a connection from outside the session's terminals,
+/// else the terminal it comes from (nil inside when unknown).
 fn claim_connection_watching(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
     peer_closed: Option<crate::diagnostics::PeerClosed>,
+    terminal: Option<Option<u32>>,
 ) -> Option<ConnectionPermit> {
-    connections.try_claim(MAX_SERVER_CONNECTIONS as u64).then(|| ConnectionPermit {
-        _lease: crate::diagnostics::ConnectionLease::new(connections.clone(), peer_closed),
+    if !connections.try_claim(MAX_SERVER_CONNECTIONS as u64) {
+        return None;
+    }
+    if let Some(client) = terminal
+        && !connections.try_claim_terminal(
+            MAX_TERMINAL_CONNECTIONS as u64,
+            MAX_SERVER_CONNECTIONS as u64,
+            client,
+        )
+    {
+        connections.release();
+        return None;
+    }
+    Some(ConnectionPermit {
+        _lease: crate::diagnostics::ConnectionLease::new(
+            connections.clone(),
+            peer_closed,
+            terminal,
+        ),
     })
 }
 

@@ -5,6 +5,7 @@ use super::*;
 impl PromptRun {
     fn clone_run(&self) -> PromptRun {
         PromptRun {
+            size: Default::default(),
             blocks: self.blocks.clone(),
             display_parts: self.display_parts.clone(),
             control: self.control,
@@ -14,6 +15,8 @@ impl PromptRun {
             class: self.class,
             supersede: self.supersede.clone(),
             full_access_device: self.full_access_device.clone(),
+            message_id: self.message_id.clone(),
+            message_sender: self.message_sender.clone(),
         }
     }
 }
@@ -108,6 +111,7 @@ fn an_fyi_is_its_first_line_up_to_160_characters() {
 /// A queue entry as `enqueue` makes it, from `agent` when given, of `class`.
 fn queued(prompt_id: &str, agent: Option<&str>, class: Option<Class>, text: &str) -> QueuedPrompt {
     let run = PromptRun {
+        size: Default::default(),
         blocks: vec![json!({"type": "text", "text": text})],
         display_parts: None,
         control: Control::Local,
@@ -117,6 +121,8 @@ fn queued(prompt_id: &str, agent: Option<&str>, class: Option<Class>, text: &str
         class,
         supersede: None,
         full_access_device: None,
+        message_id: None,
+        message_sender: None,
     };
     QueuedPrompt {
         prompt_id: prompt_id.into(),

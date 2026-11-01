@@ -4,7 +4,7 @@ import CmuxNextWakeups
 /// What an automatic install's relaunch would cut off right now. The install never waits for
 /// anything else (Leo, 2026-10-26: "if the nightly is post, I just want it. Just give it to me.
 /// Don't wait. Like, stop waiting."): only the moment a modal, a sheet, an open menu or an input
-/// method's composition is up, and it starts as soon as none is.
+/// method's composition is up, and it starts within a second of none being up.
 public struct UpdateRelaunchMoment: Equatable, Sendable {
     /// A modal session runs (`NSApp.modalWindow`: an alert, an open or save panel run modally).
     public var modal = false
@@ -48,31 +48,27 @@ public struct UpdateRelaunchMoment: Equatable, Sendable {
 
 /// Holds one automatic install until the app's ``UpdateRelaunchMoment`` clears, then runs it once.
 ///
-/// While held it re-reads the moment on the events that end one (a sheet ends, a menu stops
-/// tracking, the app updates its windows after any event) and, for an end no event announces,
-/// once a second on a ``DemandTimer``. Stop condition: the moment clears (the install runs), a
-/// newer hold replaces it, or ``cancel()``. Each of them removes the observers and cancels the
-/// timer; nothing runs while nothing is held.
+/// While held it re-reads the moment once a second on one ``DemandTimer``, and on ``recheck()``.
+/// It observes no event: the one that announces every end (`NSApplication.didUpdateNotification`)
+/// posts after each event-loop pass, so following it cost a main-actor Task per pass while an
+/// update waited. Stop condition: the moment clears (the install runs), a newer hold replaces it,
+/// or ``cancel()``. Each of them cancels the timer; nothing runs while nothing is held.
 @MainActor
 final class UpdateRelaunchMomentHold {
-    /// The longest an end no event announces goes unnoticed.
+    /// The longest a moment that cleared goes unnoticed.
     static let recheckInterval: Duration = .seconds(1)
 
     private let moment: @MainActor () -> UpdateRelaunchMoment
-    private let center: NotificationCenter
     private let timer: DemandTimer
     private let log: (String) -> Void
     private var ready: (@MainActor () -> Void)?
-    private var observers: [any NSObjectProtocol] = []
     /// Ends a ``waitUntilClear()`` whose hold is dropped instead of released.
     private var dropped: (() -> Void)?
 
     init(moment: @escaping @MainActor () -> UpdateRelaunchMoment = { .current() },
-         center: NotificationCenter = .default,
          clock: any Clock<Duration> = ContinuousClock(),
          log: @escaping (String) -> Void = { _ in }) {
         self.moment = moment
-        self.center = center
         self.log = log
         timer = DemandTimer(owner: "UpdaterService.relaunchMoment", clock: clock)
     }
@@ -87,14 +83,6 @@ final class UpdateRelaunchMomentHold {
         guard let reason = moment().interruption else { return false }
         log("automatic install waits: \(reason)")
         self.ready = ready
-        let names: [Notification.Name] = [NSWindow.didEndSheetNotification, NSMenu.didEndTrackingNotification,
-                                          NSApplication.didUpdateNotification]
-        observers = names.map { name in
-            // AppKit posts these on the main thread; the check runs on the main actor right after.
-            center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.recheck() }
-            }
-        }
         scheduleRecheck()
         return true
     }
@@ -114,7 +102,7 @@ final class UpdateRelaunchMomentHold {
     /// checked again when the caller resumes, so nothing that began in between is missed: the
     /// caller acts in the same main-actor turn as that last check.
     func waitUntilClear() async -> Bool {
-        // Each wait suspends on a hold (released only by the events or the 1 s timer), never spins.
+        // Each wait suspends on a hold (released only by the 1 s timer or a recheck), never spins.
         let cleared = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             let held = hold { done.resume(returning: true) }
             if held { dropped = { done.resume(returning: false) } } else { done.resume(returning: true) }
@@ -130,8 +118,6 @@ final class UpdateRelaunchMomentHold {
         dropped = nil
         ready = nil
         timer.cancel()
-        for observer in observers { center.removeObserver(observer) }
-        observers = []
         drop?()
     }
 

@@ -1,6 +1,6 @@
 import AppKit
-import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
@@ -33,52 +33,31 @@ enum OnboardingHandlers {
         })
         // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person first.
         let cef = services.cache.cef
-        let window: @MainActor () -> NSWindow? = { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) }
-        let reveal: @MainActor (String) -> Void = { tab in
-            _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user))
-        }
-        let requester: @MainActor (ActionInvocation) -> CookieImportRequester = { invocation in
-            let agentTabs = services.agentTabs
-            let tabs = services.daemon.store.workspaces.flatMap { workspace in
-                workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
-                    CookieImportCandidate(tabID: tab.id, title: tab.displayTitle, workspace: workspace.displayName,
-                                          agentSession: agentTabs.sessions[agentTabs.resolve(tab.id)] ?? tab.agentSession?.session,
-                                          terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self))
-                }
-            }
-            return CookieImportRequester(invocation, among: tabs) { session in
-                services.chatsFeed?.chats.first { $0.sessionID == session }.map { ($0.title, $0.preview) }
-            }
-        }
         let cookieImports = CookieImportService(host: CookieImportHost(
-            requester: requester,
+            requester: { invocation in
+                let agentTabs = services.agentTabs
+                let tabs = services.daemon.store.workspaces.flatMap { workspace in
+                    workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
+                        CookieImportCandidate(tabID: tab.id, title: tab.displayTitle, workspace: workspace.displayName,
+                                              agentSession: agentTabs.sessions[agentTabs.resolve(tab.id)] ?? tab.agentSession?.session,
+                                              terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self))
+                    }
+                }
+                return CookieImportRequester(invocation, among: tabs) { session in
+                    services.chatsFeed?.chats.first { $0.sessionID == session }.map { ($0.title, $0.preview) }
+                }
+            },
             target: { invocation in
                 let id = BookmarkResolver(services: services).profile(invocation)
                 return (id, services.browserProfiles.record(id)?.name ?? id)
             },
-            window: window, reveal: reveal,
+            window: { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) },
+            reveal: { tab in _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) },
             track: { registry.track($0) },
             destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
-        // Invite to Team for the CLI, MCP and agents: every run waits for the person's Send Invite first.
-        let invites = TeamInviteRunner(consent: TeamInviteConsentPanel(window: window, reveal: reveal))
-        _ = registry.bindEffect("team.invite", effect: { invocation in
-            let input: TeamInviteInput
-            do {
-                input = try TeamInviteInput(email: invocation["email"]?.stringValue, team: invocation["team"]?.stringValue,
-                                            role: invocation["role"]?.stringValue, reason: invocation["reason"]?.stringValue)
-            } catch { return .refused(String(describing: error)) }
-            let asker = requester(invocation)
-            let kind: TeamInviteRequester.Kind = asker.kind == .agentChat ? .agentChat : asker.kind == .terminal ? .terminal : .unknown
-            let agent = invocation.origin != .user && !(invocation.origin == .cli && invocation.callerAgentSession == nil)
-            let backend = services.cloud.isSignedIn ? services.accounts.client.map(CmuxTeamInviteBackend.init(client:)) : nil
-            switch invites.start(input, reasonRequired: agent, requester: TeamInviteRequester(kind: kind, name: asker.name, tabID: asker.tabID),
-                                 backend: backend) {
-            case .failure(let refusal): return .refused(refusal.message)
-            // The confirmation panel is what this run shows; the person's answer and cmux.com's decide the fields.
-            case .success(let work): return .applied(result: { await teamInviteFields(work(), window: window) })
-            }
-        })
+        // Brings the Import Cookies banner back (Don't Show Again undone) and shows it; it imports nothing.
+        registry.bindEffect("browser.showCookieImportBanner", effect: { _ in services.onboarding.browserImportOffer.showNow(); return .done })
         // Import suggestion cards (Settings › Import only): the same import run as the window's.
         ImportSuggestionsCenter.shared.bind(into: registry, host: importCardsHost(services))
         // Every entrypoint previews the exact snapshot and waits for the
@@ -219,24 +198,5 @@ enum ClassicImportStrings {
     @MainActor static func toast(_ message: String, in window: NSWindow?) {
         guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
         _ = CmuxToastCenter.shared.show(CmuxToast(id: "classicImport", message: message), in: window)
-    }
-}
-
-/// A team invite's answer as `action.run` result fields (each invitation `state: pending`), with the done toast.
-@MainActor
-private func teamInviteFields(_ result: Result<TeamInviteReceipt, TeamInviteRefusal>,
-                              window: () -> NSWindow?) -> Result<[String: ActionResultValue], ActionWorkFailure> {
-    switch result {
-    case .failure(let refusal): return .failure(ActionWorkFailure(code: refusal.code, reason: refusal.message))
-    case .success(let receipt):
-        if let window = window() { _ = CmuxToastCenter.shared.show(CmuxToast(id: "teamInvite", message: receipt.message), in: window) }
-        return .success([
-            "team_id": .string(receipt.team.id), "team_name": .string(receipt.team.name), "message": .string(receipt.message),
-            "invitations": .array(receipt.outcome.invitations.map {
-                .object(["id": .string($0.id), "email": .string($0.email), "role": .string($0.role),
-                         "expires_at": .string($0.expiresAt), "state": .string("pending")])
-            }),
-            "failed": .array(receipt.outcome.failed.map { .object(["email": .string($0.email), "code": .string($0.code)]) }),
-        ])
     }
 }

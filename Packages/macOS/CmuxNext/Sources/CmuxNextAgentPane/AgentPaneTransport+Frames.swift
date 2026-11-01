@@ -11,6 +11,10 @@ extension AgentPaneTransport {
     nonisolated struct Snapshot: Sendable {
         var isFirst: Bool
         var localAppToken: String?
+        /// The local daemon's unix socket. Read-only status requests use this
+        /// path so the page can receive the cached peer health that the app's
+        /// sidebar already reads; it is never sent to the page.
+        var socketPath: String?
         var modeFields: Set<String>?
         var sessions: AcpmuxPaneSessions
         var options: AcpmuxPermissionOptions
@@ -152,6 +156,9 @@ extension AgentPaneTransport {
         case sent(AgentPaneTransportError?)
         /// The main actor decides.
         case decide(Facts, FrameBox)
+        /// `_acpmux/status` is answered from the daemon's unix socket so its
+        /// cached peer health survives the WebSocket's remote redaction.
+        case status(pageID: String, relayID: Int, path: String)
     }
 
     /// Drains the send line in order. Off the main thread, one pass takes every waiting frame of the
@@ -190,7 +197,7 @@ extension AgentPaneTransport {
             // The page's first frame goes alone: the person proof is the connection's second request.
             let wasFirst = !sentFirst
             if wasFirst { texts = Array(texts.prefix(1)) }
-            let snapshot = Snapshot(isFirst: !sentFirst, localAppToken: localAppToken, modeFields: modeFields,
+            let snapshot = Snapshot(isFirst: !sentFirst, localAppToken: localAppToken, socketPath: socketPath, modeFields: modeFields,
                                     sessions: sessions, options: permissionOptions, remoteWire: remoteWire)
             let batch = await Self.analyze(texts, snapshot, socket: socket, ids: ids)
             if batch.firstSent {
@@ -343,6 +350,7 @@ extension AgentPaneTransport {
         var ticketPick = false
         if !facts.isFirst {
             let granted: Bool
+            var redeemedQuestion = false
             if let ticket = facts.ticket {
                 if facts.otherMeta {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
@@ -352,10 +360,23 @@ extension AgentPaneTransport {
                 // promptId) and a permission answer (its session, prompt and option) redeem a
                 // ticket, for their exact pick, into a session of this pane. A ticket is spent even
                 // when it does not match.
-                let redeemed = gestures.redeem(ticket, connection: id, pick: facts.pick, sessionId: facts.sessionId)
+                let questionCredit = facts.method == "_acpmux/permission_respond" ? takeQuestionKeyCredit(ticket, connection: id) : nil
+                redeemedQuestion = questionCredit.map { credit in
+                    credit.intent.matches(facts.pick) && credit.target.sessionID == facts.sessionId &&
+                    credit.target.permissionID == box.param("permissionId")
+                } ?? false
+                let redeemed = redeemedQuestion || gestures.redeem(ticket, connection: id, pick: facts.pick, sessionId: facts.sessionId)
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
                 ticketPick = granted
+                if redeemedQuestion, let credit = questionCredit {
+                    guard let before = decisions.context(session: credit.target.sessionID, permission: credit.target.permissionID), before == credit.context,
+                          await credit.redeem(), id == current, self.socket === socket,
+                          let after = decisions.context(session: credit.target.sessionID, permission: credit.target.permissionID), after == credit.context,
+                          gestures.consumeQuestionReturn(credit.witness) else {
+                        return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
+                    }
+                }
             } else if remoteWire, facts.method == "session/new" {
                 // A new chat on another machine starts only from the person's own send (cx-k21v);
                 // its first prompt goes with the same gesture, after the start. A prompt a
@@ -378,7 +399,7 @@ extension AgentPaneTransport {
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
                 // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``).
-                granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
+                granted = redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
                     && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
@@ -469,10 +490,10 @@ extension AgentPaneTransport {
             localAppToken = nil
         } else {
             noteSent(facts, relayID: relayID)
-            // The switch's queued prompt goes out: the switch has ended, its tickets with it.
-            // A prompt went out: a seed ticket it did not redeem and the start's credit end too.
+            // The switch's queued prompt goes out: its pick tickets end, but each other prompt
+            // keeps its own send proof for the rapid-send case.
             if facts.method == "session/prompt" {
-                gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
+                gestures.clearTicketsKeepingPrompts(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
             }
         }
         // Whether this answer carries this Mac's signed allow, by its page id (one request at a

@@ -77,8 +77,15 @@ impl Hub {
             current.agent_start_timeout_ms = next.agent_start_timeout_ms;
             current.uploads_max_age_days = next.uploads_max_age_days;
             current.silent_turn_ms = next.silent_turn_ms;
+            // The next prompt that would wait is held to the new queue limits.
+            current.queue_max_prompts = next.queue_max_prompts;
+            current.queue_max_bytes = next.queue_max_bytes;
             current.stalled_turn_ms = next.stalled_turn_ms;
             current.stalled_turn_end_ms = next.stalled_turn_end_ms;
+            // The next summary read warns by the new thresholds (`usage_warnings.rs`).
+            *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner()) =
+                next.usage_warnings.limits();
+            current.usage_warnings = next.usage_warnings;
             let start_changed = current.default_permission_mode != next.default_permission_mode;
             current.default_permission_mode = next.default_permission_mode;
             if start_changed {
@@ -95,6 +102,9 @@ impl Hub {
         self.idle_wake.notify_one();
         // Pooled sessions started under the old catalog are never served.
         self.drain_pool();
+        // Nor do live agents keep running a profile's old launch: each restarts on the new
+        // one between turns (`profile_respawn.rs`).
+        self.spawn_profile_respawns();
         self.probe_models_with(true, false, None).await;
         Ok(json!({"reloaded": true, "harnesses": harnesses, "defaultHarness": default_harness,
             "retainedProfiles": retained, "modelProbePending": true}))
@@ -145,6 +155,53 @@ mod tests {
 
             let saved: Config = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
             assert_eq!(saved.session, expected, "daemon save must retain the reloaded limits");
+        }
+    }
+
+    /// Edited `usageWarnings` thresholds apply at the next reload: summaries warn by them, and a
+    /// later daemon save keeps them in the file.
+    #[tokio::test]
+    async fn reloaded_usage_warnings_apply_and_survive_a_later_daemon_config_save() {
+        use crate::config::{UsageLimits, UsageWarningsConfig};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.json");
+        let config = Config {
+            path: Some(path.clone()),
+            profile_sources: ProfileSources::none(),
+            ..Config::default()
+        };
+        config.save().unwrap();
+        let mut config = config;
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, root.path()).unwrap();
+        let hub = Hub::new(config, store);
+        *hub.probe_only.lock().unwrap() = Some(Default::default());
+        assert_eq!(*hub.usage_limits.lock().unwrap(), UsageLimits::default());
+
+        for expected in [
+            UsageWarningsConfig {
+                context_tokens: Some(1_000_000),
+                subagents_per_hour: Some(0),
+                autocompact_cap: Some(false),
+            },
+            UsageWarningsConfig::default(),
+        ] {
+            let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+            changed.usage_warnings = expected.clone();
+            changed.save().unwrap();
+
+            hub.reload_catalog().await.unwrap();
+            assert_eq!(*hub.usage_limits.lock().unwrap(), expected.limits());
+            let current = hub.config.read().await;
+            assert_eq!(current.usage_warnings, expected);
+            current.save().unwrap();
+            drop(current);
+
+            let saved: Config = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            assert_eq!(
+                saved.usage_warnings, expected,
+                "daemon save must retain the reloaded thresholds"
+            );
         }
     }
 }

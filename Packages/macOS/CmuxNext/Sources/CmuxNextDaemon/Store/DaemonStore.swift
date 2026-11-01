@@ -35,7 +35,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var savedOpenGroups: Set<TabGroupID> = []
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
-    public internal(set) var connectionState: DaemonConnectionState = .connecting
+    public internal(set) var connectionState: DaemonConnectionState = .connecting { didSet { dropGrace.note(oldValue, connectionState) } }
+    public let dropGrace = DaemonDropGrace()
     /// Counts connection changes (connected, disconnected, shut down), so a
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
@@ -118,6 +119,14 @@ public final class DaemonStore: StateResourceQueries {
     var workspacesByKey: [WorkspaceKey: WorkspaceModel] { index.workspacesByKey }
     var tabGroupsByID: [TabGroupID: TabGroupModel] { index.tabGroupsByID }
     @ObservationIgnored public internal(set) var agents = AgentRoster()
+    /// Presence that arrived before its tab was indexed (an agent hook right after its terminal is
+    /// created, a restored session, a hook replayed on reconnect). No snapshot carries presence, so
+    /// the tab takes it from here when it is indexed (`prime`). Live-only like the tabs': a clear
+    /// drops it (`clearPresence`), and it holds at most ``heldPresenceLimit`` surfaces.
+    @ObservationIgnored var heldPresence: [SurfaceID: AgentPresence] = [:]
+    /// The most surfaces whose presence is held for a tab not indexed yet.
+    static let heldPresenceLimit = 256
+    var heldPresenceCount: Int { heldPresence.count }
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
@@ -131,9 +140,12 @@ public final class DaemonStore: StateResourceQueries {
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
     @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
     /// Stand-in pane handles a pending create names as its target (a New Column or split pressed on
-    /// a create still in flight), by handle: the stand-in's public pane id, under which the
-    /// daemon's pane takes it over with a new handle (``daemonHandle(showing:)``).
-    @ObservationIgnored var standInTargets: [PaneID: String] = [:]
+    /// a create still in flight, a Ctrl-` on Cmd-N's pane), by handle: what made the stand-in, by
+    /// which the daemon's pane that takes it over is found (``daemonHandle(showing:)``).
+    @ObservationIgnored var standInTargets: [PaneID: StandInOrigin] = [:]
+    /// Creates waiting for the daemon's pane of a stand-in whose own create is in flight
+    /// (``daemonTarget(_:)``), resumed by the reconcile that resolves them.
+    @ObservationIgnored var standInWaits: [StandInWait] = []
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false
@@ -359,15 +371,24 @@ public final class DaemonStore: StateResourceQueries {
         for (surface, tab) in tabsBySurface { tab.setAgent(self.agents.bySurface[surface]) }
     }
 
-    /// Records a completed handshake before its `.connected` event drains,
-    /// so capability checks right after connect see this daemon.
+    /// Records a completed handshake before its `.connected` event drains, so capability checks right after connect see this daemon.
     public func noteHandshake(_ identity: DaemonIdentity) {
         if self.identity != identity { self.identity = identity }
     }
 
-    /// Marks the connection permanently failed (incompatible daemon).
+    /// Marks the connection failed: no retry can fix it, or it outlived the startup deadline (`DaemonStartupState.showsFailure`).
     public func markFailed(_ message: String) {
         connectionState = .failed(message)
+    }
+
+    /// A remote machine's reconnect spent its timed retries and waits for an event only
+    /// (`DaemonConnection.observeRetriesSpent`): its header reads offline, not connecting (HQ
+    /// #4877 G4). Cleared by the next connect and by a new attempt.
+    public private(set) var retriesSpent = false
+
+    public func noteRetriesSpent(_ spent: Bool) {
+        if spent, case .connected = connectionState { return }
+        if retriesSpent != spent { retriesSpent = spent }
     }
 
     // MARK: Derived state
@@ -431,6 +452,7 @@ public final class DaemonStore: StateResourceQueries {
     /// What a tab learns when it is indexed: its agent and its observed folder.
     private func prime(_ tab: TabModel) {
         if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
+        if let presence = heldPresence.removeValue(forKey: tab.surface) { tab.setPresence(presence) }
         tab.setObservedCwd(directories.directory(for: tab.surface))
     }
 

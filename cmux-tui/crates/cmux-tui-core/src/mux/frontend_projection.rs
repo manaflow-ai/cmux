@@ -5,7 +5,18 @@ use super::*;
 impl Mux {
     /// The terminal registry revision without reading every terminal row:
     /// the registry lock is held for one indexed read.
+    /// The committed terminal registry revision (`identify`, every
+    /// `list-workspaces` reply). One committed value: it is read on the
+    /// registry's read-only connection, with no registry lock, which writes
+    /// hold across their commits. A registry with no reader (in memory),
+    /// or a failed read, reads under the registry.
     pub fn terminal_registry_revision(&self) -> anyhow::Result<u64> {
+        if let Some(Ok(revision)) = self
+            .registry_connection
+            .read_committed(crate::workspace_registry::current_terminal_revision)
+        {
+            return Ok(revision);
+        }
         self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).terminal_revision()
     }
 
@@ -79,6 +90,9 @@ impl Mux {
             projection,
         )?;
         if !commit.replayed {
+            // The write added a `projection_mutations` ledger row and
+            // publishes no journal event: journal maintenance bounds it.
+            self.journal_maintenance_control.note_change();
             self.emit(MuxEvent::FrontendProjectionChanged {
                 frontend: frontend.to_string(),
                 scope: scope.to_string(),

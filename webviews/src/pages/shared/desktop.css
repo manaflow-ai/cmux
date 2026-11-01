@@ -38,6 +38,11 @@
   --ds-glass-plain-blur: blur(20px) saturate(1.4);
   --ds-glass-lens-tint: 40%;
   --ds-glass-lens-blur: blur(6px) saturate(1.3);
+  /* A select's menu over a dense settings row (Leo 2026-10-30: the Check Every slider and its
+     "3600" read through the Update Channel menu): more frost and a stronger tint, still glass
+     (below the surface roles' near-opaque 0.9). leo-workspace design/settings.md, "Glass". */
+  --ds-glass-menu-tint: 78%;
+  --ds-glass-menu-blur: blur(32px) saturate(1.6);
   --ds-glass-edge: var(--cmux-hairline);
   /* The theme accent: the text color by default (no system blue), the theme's hue with
      appearance.accent. */
@@ -201,7 +206,7 @@ a {
   -webkit-user-drag: none;
 }
 
-/* Opt-in content selection: the I-beam over its text (a clickable thing in it still shows the hand,
+/* Opt-in content selection: the I-beam over its text (a clickable thing in it shows the arrow,
    below; zero specificity, so it never beats a surface's own cursor). */
 .selectable,
 .selectable * {
@@ -231,16 +236,22 @@ input[type="range"] {
   cursor: default;
 }
 
-/* Everything clickable shows the pointing hand, its label and icons too; a disabled one keeps the
-   arrow (Leo 2026-10-21: "LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO
-   CLICKABLE"; this replaces the R139 arrow on buttons and links). Zero specificity (:where), so a
-   surface's own cursor still wins: text in a field, a resize or drag cursor, zoom-in on an image.
-   A surface never sets `default` or `auto` on a clickable element (clickable-cursor.test.ts); a
-   clickable div gets a role instead of a cursor rule.
-   What is inside a clickable thing takes its cursor (`inherit`, not `pointer`): the hand inside
-   selectable text, where `.selectable *` would give its label the I-beam, and a surface's own
-   cursor on the clickable thing too, so a sent or queued image's thumbnail keeps the button's
-   zoom-in. This rule comes first so a clickable thing nested in another still gets the hand. */
+/* Everything clickable shows the arrow, its label and icons too, as in a native macOS app (user
+   2026-10-30: "change all pointers back to cursor-default"; this replaces Leo's 2026-10-21 pointing
+   hand). Zero specificity (:where), so a surface's own meaningful cursor still wins: text in a
+   field, a resize or drag cursor, zoom-in on an image. No sheet sets `cursor: pointer`
+   (clickable-cursor.test.ts, scripts/cmux-next/check-default-cursor.py).
+   What is inside a clickable thing takes its cursor (`inherit`): the arrow inside selectable text,
+   where `.selectable *` would give its label the I-beam, and a surface's own cursor on the
+   clickable thing too, so a sent or queued image's thumbnail keeps the button's zoom-in. This rule
+   comes first so a clickable thing nested in another still gets the arrow.
+   What is inside any label takes the label's cursor too: a choice's arrow (the label's own rule
+   below), a locked choice's arrow, a field label's I-beam in selectable text. A field inside keeps
+   the text cursor (its own rule outranks this one). Never `label:has(...) *` here, nor any `:has()`
+   before a combinator whose last compound has no class or attribute (`*`, `:not(...)`): Chromium
+   then restyles the whole page on every node inserted anywhere under the elements it tracks for
+   `:has()`, about 850 elements per streamed row or rail tick in the agent pane
+   (pane-has-restyle.browser.test.ts). */
 :where(
     button,
     a[href],
@@ -256,8 +267,7 @@ input[type="range"] {
     [role="checkbox"],
     [role="radio"],
     summary,
-    label[for],
-    label:has(input[type="checkbox"], input[type="radio"])
+    label
   )
   * {
   cursor: inherit;
@@ -281,7 +291,14 @@ input[type="range"] {
     label:has(input[type="checkbox"], input[type="radio"]),
     select
   ) {
-  cursor: pointer;
+  cursor: default;
+}
+/* The user agent sheet gives a link the hand (`:link, :visited { cursor: pointer }`): the same
+   selector here (one pseudo-class, as specific as it, so a surface's class rule still wins) gives
+   it the arrow, in any engine's cascade. */
+:link,
+:visited {
+  cursor: default;
 }
 input:is(
     [type="checkbox"],
@@ -292,17 +309,18 @@ input:is(
     [type="color"],
     [type="file"]
   ) {
-  cursor: pointer;
+  cursor: default;
 }
-/* A disabled thing never shows the hand, whatever a surface's rule for it says, nor does anything
+/* A disabled thing never shows a surface's own cursor, whatever a surface's rule for it says, nor does anything
    in it: a disabled control, anything aria-disabled (ARIA disables its descendants too), and a
    disabled fieldset except its first legend (HTML leaves that legend enabled; what is disabled on
    its own in it still is) and the links and other clickables in it, which still work. Nor does a
    locked choice's label (no `for`, a disabled field inside and no enabled one: Cloud's locked
    memory sizes), apart from a link or button in it. CSS cannot follow `for` to its control, so a
-   `for` label keeps the hand. A surface that shows another cursor there (`not-allowed`) says so
+   `for` label keeps the arrow. A surface that shows another cursor there (`not-allowed`) says so
    with !important on a :disabled rule. Inert content takes no pointer input at all (a sheet's
-   background, a closing popup), so it and everything in it keep the arrow too. */
+   background, a closing popup), so it and everything in it keep the arrow too. The locked label's
+   contents take its arrow by inheritance (the label rule above), not through a `label:has(...) *`. */
 [inert],
 [inert] *,
 [aria-disabled="true"],
@@ -314,11 +332,7 @@ fieldset:disabled > :not(legend:first-of-type):not(:is(a[href], button, input, s
 fieldset:disabled > :not(legend:first-of-type) :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *),
 label:not([for]):has(:is(input, select, textarea):disabled):not(
     :has(:is(input:not([type="hidden"]), select, textarea):enabled)
-  ),
-label:not([for]):has(:is(input, select, textarea):disabled):not(
-    :has(:is(input:not([type="hidden"]), select, textarea):enabled)
-  )
-  :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *) {
+  ) {
   cursor: default !important;
 }
 
@@ -610,7 +624,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-queue-lead-center: calc(22px * var(--cmux-interface-scale, 1)); /* Leading glyph center from the left edge. */
   --grid-queue-text: calc(44px * var(--cmux-interface-scale, 1)); /* Text start from the left edge. */
   --grid-queue-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
-  --grid-composer-box: calc(44px * var(--cmux-interface-scale, 1)); /* One-line composer height. */
+  --grid-composer-block-inset: calc(10px * var(--cmux-interface-scale, 1)); /* Control inset from the top and bottom of a one-line composer. */
+  --grid-composer-box: calc(48px * var(--cmux-interface-scale, 1)); /* One-line composer height. */
   --grid-composer-radius: calc(12px * var(--cmux-interface-scale, 1)); /* Composer corner radius. */
   --grid-composer-quiet-row-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Gap below composer box. */
   --grid-composer-quiet-row-height: calc(28px * var(--cmux-interface-scale, 1)); /* Quiet row height. */
@@ -682,6 +697,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 :root {
   --cmux-spinner-period: 900ms;
   --cmux-breath-period: 2.4s;
+  --cmux-shimmer-period: 2.8s;
 }
 @keyframes cmux-spin {
   to {
@@ -702,18 +718,22 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 /* SPINNERS-OFF-MAIN: the Thinking line's shimmer (ShimmerText.tsx) as two transform loops the
    compositor runs: the masked band crosses the line, its lit words move back by as much. */
 @keyframes cmux-shimmer-band {
-  from {
+  0%,
+  10% {
     transform: translateX(-100%);
   }
-  to {
+  45%,
+  100% {
     transform: translateX(100%);
   }
 }
 @keyframes cmux-shimmer-lit {
-  from {
+  0%,
+  10% {
     transform: translateX(100%);
   }
-  to {
+  45%,
+  100% {
     transform: translateX(-100%);
   }
 }
@@ -725,4 +745,13 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   to {
     background-position: -50% 0;
   }
+}
+/* Hidden pages own no running animation loop; visible styles are unchanged. */
+:root[data-cmux-page-hidden],
+:root[data-cmux-page-hidden] *,
+:root[data-cmux-page-hidden]::before,
+:root[data-cmux-page-hidden]::after,
+:root[data-cmux-page-hidden] *::before,
+:root[data-cmux-page-hidden] *::after {
+  animation-play-state: paused !important;
 }

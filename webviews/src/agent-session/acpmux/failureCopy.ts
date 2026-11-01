@@ -7,6 +7,7 @@ export type FailureKind =
   | "trust-pending"
   | "trust-untrusted"
   | "no-team-account"
+  | "needs-credits"
   | "rate-limited"
   | "unreachable"
   | "invalid-key"
@@ -35,6 +36,12 @@ export type FailureRoute = {
 /// way out is an account added for the team, with the `cr add <agent>` the refusal names.
 const NO_TEAM_ACCOUNT = /needs a team account on this machine|account is shared with this Cloud machine's team/i;
 const ADD_COMMAND = /\bcr add (?:codex|claude|opencode)\b/;
+/// The cmux model router refused the call for want of credits or a plan (backend inference/route.ts:
+/// 402 `inference.plan_required` or `credits.insufficient`). Its Messages endpoint passes on only the
+/// message text, so the router's own two sentences (backend inference/route.ts) or its codes are the
+/// signal; any other text that merely mentions cmux credits is not.
+const NEEDS_CREDITS =
+  /AI models need cmux credits, your own API key, or a paid plan|Not enough cmux credits for this call|\binference\.plan_required\b|\bcredits\.insufficient\b/i;
 /// The conversation outgrew the model's context window: Claude's "Prompt is too long", OpenAI's
 /// `context_length_exceeded` and "maximum context length", Codex's "exceeds the context window".
 /// Sending the same prompt into the same history fails the same way, so its way out is Compact
@@ -45,6 +52,12 @@ const RATE =
   /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable/i;
 const UNREACHABLE =
   /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|fetch failed|socket hang up|connection (?:refused|reset|closed|error)|could not (?:connect|resolve)|network (?:error|is unreachable)|\bunreachable\b|timed out/i;
+/// The connection-drop words acpmux retries by itself (`hub/turn_errors.rs` `says_connection_dropped`)
+/// that UNREACHABLE lacks. Codex's commonest network failure is "stream disconnected before completion:
+/// error sending request for url (…)" (cmuxterm-hq#4879, finding 10). Like acpmux (`is_transport_error`),
+/// they count only when no sign-in or key is named beside them. Not "broken pipe": an agent that quit.
+const DROPPED =
+  /stream disconnected|error sending request|connection (?:aborted|lost)|upstream connect error|premature close|other side closed|gateway timeout/i;
 const INVALID_KEY =
   /invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:is )?(?:missing|not set|not found|invalid)|no api key|(?:ANTHROPIC|OPENAI)_API_KEY/i;
 const SUBSCRIPTION =
@@ -81,6 +94,8 @@ const SPAWN_FAILED =
 /// acpmux's typed reasons (`errorCode`), by the words in them: the kind its text would give, when
 /// the text says less.
 const TYPED: readonly [RegExp, FailureKind][] = [
+  // The cmux model router's own codes, when they reach the turn typed.
+  [/inference\.plan_required|credits\.insufficient/i, "needs-credits"],
   [/context|too[_.-]?long/i, "context-full"],
   [/disk|no[_.-]?space|enospc/i, "disk-full"],
   [/tailscale|tailnet/i, "tailscale"],
@@ -118,6 +133,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (/\btrust\.untrusted\b/i.test(message)) return "trust-untrusted";
   // Before capacity and sign-in: neither waiting, another model nor a sign-in fixes it.
   if (NO_TEAM_ACCOUNT.test(message) && ADD_COMMAND.test(message)) return "no-team-account";
+  // Before capacity and keys: the router's words name an API key and its 402 reads as quota.
+  if (NEEDS_CREDITS.test(message)) return "needs-credits";
   if (DISK_FULL.test(message)) return "disk-full";
   // Before capacity: a refused request's body can name the quota it was measured against.
   if (CONTEXT_FULL.test(message)) return "context-full";
@@ -132,6 +149,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (TAILSCALE.test(message) && !answered && (dialFailed || UNREACHABLE.test(words) || TAILNET_DOWN.test(words)))
     return "tailscale";
   if (UNREACHABLE.test(words)) return "unreachable";
+  const signIn = [INVALID_KEY, SUBSCRIPTION, AUTH, MISSING_CREDENTIAL, EXPIRED_CREDENTIAL].some((re) => re.test(words));
+  if (DROPPED.test(words) && !signIn) return "unreachable";
   const via = failureVia(message, route);
   // A signed-out Claude CLI says "Invalid API key · Please run /login": its way out is the login.
   if (INVALID_KEY.test(message) && !(SUBSCRIPTION.test(message) && !via)) return "invalid-key";
@@ -148,7 +167,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
 }
 
 /// The way out a failure's card offers first: send the prompt again, move to another model (with
-/// Retry after it), or compact a chat that outgrew its context window (with Retry after it). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
+/// Retry after it), compact a chat that outgrew its context window, or sign the agent in again
+/// (each with Retry after it, for once that is done). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
 /// Whether a failed turn offers cmux's own route, CodeRouter, beside Switch model (Lawrence
 /// 2026-10-23: "good opportunity for upsell here"): a key, sign-in or capacity failure that another
 /// route fixes. Never on a chat CodeRouter already serves (sending it there again does nothing), and
@@ -158,19 +178,21 @@ export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean
   return kind === "invalid-key" || kind === "subscription-login" || kind === "auth" || kind === "rate-limited";
 }
 
-export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "compact" | undefined {
+export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "compact" | "sign-in" | undefined {
   switch (kind) {
     case "context-full":
       return "compact";
-    case "rate-limited":
+    case "subscription-login":
+    case "auth":
+      return "sign-in";
+    // Capacity passes: Continue (or Retry) leads, Switch model beside it (Lawrence 2026-10-29: "should
+    // have a try again/continue type button here").
     case "invalid-key":
     case "proxy-auth":
       return "switch-model";
     case "trust-pending":
     case "trust-untrusted":
     case "no-team-account":
-    case "subscription-login":
-    case "auth":
       return undefined;
     default:
       return "retry";
@@ -198,6 +220,8 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("trust.notTrustedNoPrompts");
     case "no-team-account":
       return t("turn.failure.noTeamAccount", { harness, command: (message && ADD_COMMAND.exec(message)?.[0]) ?? "" });
+    case "needs-credits":
+      return t("turn.failure.needsCredits", { harness });
     case "rate-limited":
       return t("turn.failure.rateLimited", { harness });
     case "unreachable":

@@ -65,6 +65,9 @@ fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     let url = text(tab, "url");
     let cwd = text(tab, "cwd");
     let closed_kind = match item.get("kind")?.as_str()? {
+        "tab" if text(tab, "kind").as_deref() == Some("conversation") => {
+            ClosedKind::ConversationTab
+        }
         "tab" if text(tab, "kind").as_deref() == Some("browser") => ClosedKind::BrowserTab,
         "tab" => ClosedKind::TerminalTab,
         "screen" => ClosedKind::Screen,
@@ -115,5 +118,23 @@ fn decimal(value: &Value) -> Option<i64> {
     match value {
         Value::String(text) => text.parse().ok(),
         other => other.as_i64(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closed_chat_keeps_conversation_kind_in_merged_history() {
+        for (kind, expected) in
+            [("conversation", ClosedKind::ConversationTab), ("browser", ClosedKind::BrowserTab)]
+        {
+            let item = serde_json::json!({"id":"closed_chat","kind":"tab","closed_at_ms":1,
+                "screens":[{"tabs":[{"kind":kind,"url":"about:blank","agent_session":{"session":"sess-closed","harness":"codex"}}]}]});
+            let entry = closed_entry(&item).unwrap();
+            assert_eq!(entry.closed_kind, Some(expected));
+            assert_eq!(entry.id, "closed:daemon:closed_chat");
+        }
     }
 }

@@ -4,7 +4,10 @@ import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 import Observation
+import OSLog
 import UIKit
+
+private let modelLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 
 /// The terminal screen's state, shared by the UIKit controller (surface,
 /// scrolling, keyboard tracking) and the SwiftUI chrome (toolbar, composer,
@@ -12,6 +15,8 @@ import UIKit
 @MainActor
 @Observable
 public final class TerminalModel {
+    /// Recovery supplied by the shell: retries the owning Mac and its attach.
+    public var reconnect: (@MainActor () async -> Void)?
     public let session: any TerminalSession
     public let artifactSource: any ArtifactSource
 
@@ -317,6 +322,46 @@ public final class TerminalModel {
         keyBar(.chord(letter))
     }
 
+    /// Clear Screen and Scrollback can run now: on a Mac terminal while it is attached
+    /// (as on the Mac, a full-screen app is left as it is), else as Ctrl-L.
+    public var canClearScreenAndScrollback: Bool {
+        session.clearsHistory ? connectionState.isAttached : true
+    }
+
+    /// The Mac's Clear Screen and Scrollback (Cmd-K): the Mac's daemon clears the terminal,
+    /// so its scrollback goes on the Mac and on every phone (`clear-history`). A session
+    /// with no Mac behind it gets Ctrl-L.
+    public func clearScreenAndScrollback() {
+        guard session.clearsHistory else { return sendControl("l") }
+        let session = session
+        Task { @MainActor in
+            do {
+                try await session.clearHistory()
+            } catch {
+                // Nothing changed on the Mac (an inline program's input reaches into the
+                // history, the link dropped): the person feels it did not clear.
+                modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+        }
+    }
+
+    /// A web link tapped in the terminal: a cmux browser tab beside it in the workspace
+    /// (the page sets it, like the Mac's Cmd-click); without one, Safari. Not observed: the
+    /// page sets it while SwiftUI builds it.
+    @ObservationIgnored public var linkOpener: (@MainActor (URL) -> Void)?
+
+    /// Opens a web link the person tapped: a cmux browser tab, or (`external`) Safari.
+    public func openLink(_ url: URL, external: Bool = false) {
+        if !external, let linkOpener { return linkOpener(url) }
+        UIApplication.shared.open(url)
+    }
+
+    /// Find… (the page menu, Cmd-F): the find bar over the terminal's rows.
+    public func showFind() {
+        controller?.presentFind()
+    }
+
     #if DEBUG
     /// DEBUG: the controller's layout and viewport state, for demo timelines.
     public var debugState: String { controller?.debugState ?? "-" }
@@ -457,6 +502,15 @@ public final class TerminalModel {
     func clearAttachmentError() { attachmentError = nil }
 
     // MARK: Key bar
+
+    #if DEBUG
+    /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
+    public func demoArm(_ modifier: TerminalStickyModifiers.Modifier) {
+        guard let surface = controller?.surface else { return }
+        surface.tapSticky(modifier)
+        sticky = surface.input.sticky
+    }
+    #endif
 
     func keyBar(_ key: KeyBarKey) {
         guard let surface = controller?.surface else { return }

@@ -1,0 +1,34 @@
+{
+  "title": "A focused New Tab page",
+  "settings": null,
+  "launch_args": [],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "New Tab page, focused",
+      "cmux": [
+        "tab",
+        "new-page",
+        "--focus"
+      ],
+      "wait": 2.5,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/TabActionCatalog.swift:59-63 (cli `tab new-page`; --focus: cli/app.rs run_action)"
+    },
+    {
+      "title": "Select tab 2 (the New Tab) in case --focus left it in the background",
+      "cmux": [
+        "action",
+        "run",
+        "selectSurfaceByNumber",
+        "--index",
+        "2"
+      ],
+      "wait": 2,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/TabActionCatalog.swift:285-289",
+      "optional": "the tab may already be selected"
+    }
+  ]
+}

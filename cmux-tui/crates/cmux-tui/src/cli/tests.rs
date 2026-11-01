@@ -251,7 +251,7 @@ mod remote_cli_docs {
         let missing = action_names()
             .into_iter()
             .filter_map(|name| name.strip_prefix("cloud ").map(str::to_owned))
-            .filter(|name| !CLOUD_HELP.contains(name))
+            .filter(|name| !cloud_help::overview(false).contains(name))
             .collect::<Vec<_>>();
         assert!(missing.is_empty(), "cloud help omitted catalog actions: {missing:?}");
     }
@@ -263,9 +263,9 @@ mod remote_cli_docs {
         let args =
             strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
         assert!(app::parse(&args).is_ok());
-        assert!(CLOUD_HELP.contains("cloud <action>"));
+        assert!(cloud_help::overview(false).contains("cloud <action>"));
         assert!(AGENT_HELP.contains("agent open-tab"));
-        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
+        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]"));
     }
 
     #[test]
