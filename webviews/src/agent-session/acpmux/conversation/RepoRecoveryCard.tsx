@@ -50,8 +50,8 @@ export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): Repo
   const rawArgs = retry && typeof retry === "object" ? (retry as { args?: unknown }).args : undefined;
   const args = rawArgs && typeof rawArgs === "object" ? rawArgs as Record<string, unknown> : undefined;
   const safeArgs =
-    typeof args?.session === "string" && typeof args.repo === "string"
-      ? { session: args.session, repo: args.repo }
+    typeof args?.repo === "string"
+      ? { repo: args.repo, ...(typeof args.ref === "string" ? { ref: args.ref } : {}) }
       : undefined;
   return {
     code,
@@ -74,14 +74,13 @@ export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): Repo
   };
 }
 
-export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
+export function RepoRecoveryCard({ recovery, session }: { recovery: RepoRecovery; session?: string }) {
   const [state, setState] = useState<"idle" | "waiting" | "retrying" | "done" | "failed">("idle");
   const [choice, setChoice] = useState<string>();
   const mounted = useRef(true);
   useEffect(() => () => {
     mounted.current = false;
   }, []);
-  const session = recovery.retry?.args.session;
   const connect = () => {
     if (!recovery.installUrl) return;
     window.open(recovery.installUrl, "_blank", "noopener,noreferrer");
@@ -95,15 +94,15 @@ export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
           return;
         }
         setState("retrying");
-        return postNative(recovery.retry!.action, recovery.retry!.args).then((value) => typedFailure(value));
+        return postNative(recovery.retry!.action, { ...recovery.retry!.args, session }).then((value) => typedFailure(value));
       })
       .then(() => mounted.current && setState("done"), () => mounted.current && setState("failed"));
   };
   const select = (repo: string) => {
     setChoice(repo);
-    if (!recovery.retry) return;
+    if (!recovery.retry || typeof session !== "string") return;
     setState("retrying");
-    void postNative(recovery.retry.action, { ...recovery.retry.args, repo }).then((value) => typedFailure(value))
+    void postNative(recovery.retry.action, { ...recovery.retry.args, session, repo }).then((value) => typedFailure(value))
       .then(() => setState("done"), () => setState("failed"));
   };
 

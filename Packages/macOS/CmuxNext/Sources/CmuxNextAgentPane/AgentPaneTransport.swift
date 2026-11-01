@@ -99,6 +99,8 @@ import CmuxNextCompat
     private(set) var remoteWire = false
     /// The current remote chat's host reader, installed from the same wire that carries its ACP.
     var remoteImageLoader: (@Sendable (String) async throws -> Data)?
+    /// Cloud repository actions use the current machine/attachment daemon frame connection.
+    public var cloudRepository: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)?
     /// A `session/new` took the person's send gesture: the first `session/prompt` on that
     /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
     /// that gesture; on this Mac it needs none but carries one it finds.
@@ -260,8 +262,12 @@ import CmuxNextCompat
         let wire = connection.remote?.makeWire()
         if let wire {
             remoteImageLoader = { path in try await wire.loadRemoteImage(path) }
+            cloudRepository = { method, params, timeout in
+                try await wire.cloudRepository(method: method, params: params, timeout: timeout)
+            }
         } else {
             remoteImageLoader = nil
+            cloudRepository = nil
         }
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()

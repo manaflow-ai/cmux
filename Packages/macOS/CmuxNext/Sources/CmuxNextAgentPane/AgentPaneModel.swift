@@ -476,11 +476,9 @@ public final class AgentPaneModel {
             return await onCloudHandoffTurn(session)
         case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
         case .cloudRepository(let request):
-            guard let machineSocketPath = transport.acpmuxSocket ?? transport.socketPath,
-                  let localSocketPath = transport.socketPath else {
-                return AgentPaneReply.failure(code: "cloud_repo.unavailable", message: "Cloud repository service unavailable.")
-            }
-            return await request.reply(localSocketPath: localSocketPath, machineSocketPath: machineSocketPath, remoteChat: remoteChat, sessionID: sessionId)
+            return await request.reply(localSocketPath: transport.socketPath ?? "", machineSocketPath: transport.acpmuxSocket ?? transport.socketPath ?? "",
+                                       remoteChat: remoteChat, sessionID: sessionId,
+                                       request: transport.cloudRepository)
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
             if request.action == "update", !transport.gestures.consume() {

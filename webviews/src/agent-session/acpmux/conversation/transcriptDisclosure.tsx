@@ -79,6 +79,13 @@ const DisclosureSession = createContext<string>(DEFAULT_SESSION);
 /** The chat's transcript view (transcriptView.ts), read once here for every row under it. */
 const ViewContext = createContext<TranscriptView>("normal");
 
+/// The session id owned by the transcript containing the current row. Native recovery actions
+/// use this page-owned value rather than accepting a session id from tool output.
+export const useTranscriptSessionId = (): string | undefined => {
+  const session = useContext(DisclosureSession);
+  return session === DEFAULT_SESSION ? undefined : session;
+};
+
 /// The chat a transcript's disclosure id belongs to, whose view the chat menu sets: a subagent's
 /// transcript (`<chat>:subagent:<id>`) and a replay (`replay:<chat>`) follow their chat's view.
 export function viewChat(sessionId: string | undefined): string | undefined {

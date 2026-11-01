@@ -14,11 +14,17 @@ public nonisolated protocol AcpmuxPaneWire: Sendable {
     func cancel(code: Int, reason: String)
     /// Reads one image from a remote chat's owning host. Local socket wires have no such route.
     func loadRemoteImage(_ path: String) async throws -> Data
+    /// Sends a cmux-tui Cloud repository action on the owning daemon connection.
+    func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data
 }
 
 public extension AcpmuxPaneWire {
     func loadRemoteImage(_ path: String) async throws -> Data {
         throw AgentSessionRemoteError(code: "remote.unsupported", message: "remote media is unavailable")
+    }
+
+    func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
+        throw AgentSessionRemoteError(code: "remote.unsupported", message: "Cloud repository actions are unavailable")
     }
 }
 

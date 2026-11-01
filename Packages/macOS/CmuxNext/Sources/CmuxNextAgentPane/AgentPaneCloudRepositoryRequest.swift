@@ -69,18 +69,30 @@ public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
 
     /// Forwards a validated action. Typed repository failures are successful daemon results and
     /// remain in `value`, so the web card can render the next action without treating it as transport failure.
-    func reply(localSocketPath: String, machineSocketPath: String, remoteChat: Bool, sessionID: String?) async -> [String: Any] {
+    func reply(localSocketPath: String, machineSocketPath: String, remoteChat: Bool, sessionID: String?,
+               request: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)? = nil) async -> [String: Any] {
         guard remoteChat || method == "cloud.repo.local" || method == "cloud.repo.sync" else {
             return AgentPaneReply.failure(code: "unavailable", message: "Cloud repository actions require a Cloud chat.")
+        }
+        if method != "cloud.repo.local", method != "cloud.repo.sync" {
+            let requestedSession = params.objectValue?["session"]?.stringValue
+            guard let sessionID, requestedSession == sessionID else {
+                return AgentPaneReply.failure(code: "cloud_repo.session_mismatch", message: "Cloud repository action does not belong to this chat.")
+            }
         }
         do {
             let sendable = params.sendableObject as! [String: any Sendable]
             let deadline: Duration? = method == "cloud.repo.wait_github" ? .seconds(65) : .seconds(120)
-            let socketPath = method == "cloud.repo.local" ? localSocketPath : machineSocketPath
-            let value = try await AcpmuxStatusClient.call(socketPath: socketPath, method: method, params: sendable, deadline: deadline, detailed: true)
+            guard let request else {
+                return AgentPaneReply.failure(code: "cloud_repo.unavailable", message: "Cloud repository service unavailable.")
+            }
+            let data = try await request(method, sendable, deadline)
+            let value = (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             return AgentPaneReply.success(value)
-        } catch let error as AcpmuxRPCError {
-            return AgentPaneReply.failure(code: error.name ?? "cloud_repo.failed", message: error.message)
+        } catch let error as AgentSessionRemoteError {
+            return AgentPaneReply.failure(code: error.code, message: error.message)
+        } catch let error as AgentSessionAttachError {
+            return AgentPaneReply.failure(code: error.code, message: error.message)
         } catch {
             return AgentPaneReply.failure(code: "cloud_repo.unavailable", message: "Cloud repository service unavailable.")
         }

@@ -266,6 +266,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         return try await client.media(path: path)
     }
 
+    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
+        guard let client = state.withLock({ $0.client }) else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
+        }
+        return try await client.cloudRepository(method: method, params: params, timeout: timeout)
+    }
+
     /// What a setting frame asks for; nil when a value is missing or not text.
     enum Setting: Sendable, Equatable {
         case model(String)
