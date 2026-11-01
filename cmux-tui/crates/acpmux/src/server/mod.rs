@@ -1491,11 +1491,13 @@ async fn serve_connection_from(
         }
     }
     conn.ended.send_replace(true);
-    for session in hub.sessions() {
-        session.abandon_prepared_connection(&conn.id);
-    }
-    for (_, cancel) in conn.preparation_cancels.lock().unwrap_or_else(|e| e.into_inner()).drain() {
+    let preparations: Vec<_> =
+        conn.preparation_cancels.lock().unwrap_or_else(|e| e.into_inner()).drain().collect();
+    for (session, cancel) in preparations {
         cancel.send_replace(true);
+        if let Ok(session) = hub.resolve(&session) {
+            session.abandon_prepared_connection(&conn.id);
+        }
     }
     // Cancellation has to reach the hub even when ordinary notifications are
     // still draining. Its worker is bounded independently and must never be
