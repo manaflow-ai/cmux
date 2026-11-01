@@ -37,7 +37,8 @@ export function retryUploadLater(
   };
   function input(event: Event) {
     if (done || !event.isTrusted) return;
-    if (event.type === "keydown" && ((event as KeyboardEvent).key === "Enter" || (event as KeyboardEvent).repeat)) return;
+    if (event.type === "keydown" && ((event as KeyboardEvent).key === "Enter" || (event as KeyboardEvent).repeat))
+      return;
     stop();
     // After the host recorded this key or click: the try begins with it.
     setTimeout(again, 0);

@@ -96,7 +96,10 @@ test("a send made while a pasted video uploads waits for it, then goes once with
 });
 
 test("a failed upload is tried again on its own; its chip never shows Retry when that works", async () => {
-  const answers: UploadResult[] = [{ error: "Couldn't send the file to gcp-codex-lane-2." }, { paths: ["/remote/clip.mp4"] }];
+  const answers: UploadResult[] = [
+    { error: "Couldn't send the file to gcp-codex-lane-2." },
+    { paths: ["/remote/clip.mp4"] },
+  ];
   let calls = 0;
   const handle = mount(async () => {
     calls += 1;
@@ -104,10 +107,13 @@ test("a failed upload is tried again on its own; its chip never shows Retry when
   });
   let shownFailed = false;
   await act(() => void handle.current!.attach([mp4()], true));
-  await until(() => {
-    if (handle.current!.pending.some((chip) => chip.failed)) shownFailed = true;
-    return handle.current!.attachments.length === 1;
-  }, (UPLOAD_RETRY_DELAY_MS / 5) * 3);
+  await until(
+    () => {
+      if (handle.current!.pending.some((chip) => chip.failed)) shownFailed = true;
+      return handle.current!.attachments.length === 1;
+    },
+    (UPLOAD_RETRY_DELAY_MS / 5) * 3,
+  );
   expect(calls).toBe(2);
   expect(shownFailed).toBe(false);
   expect(handle.current!.pending).toEqual([]);
@@ -169,10 +175,20 @@ test("the first try again goes on its own; the last waits for the person's key o
   const { doc, fire, count } = fakeDocument();
   let again = 0;
   let gaveUp = 0;
-  retryUploadLater(0, () => (again += 1), () => (gaveUp += 1), doc);
+  retryUploadLater(
+    0,
+    () => (again += 1),
+    () => (gaveUp += 1),
+    doc,
+  );
   await tick(UPLOAD_RETRY_DELAY_MS + 50);
   expect(again).toBe(1);
-  retryUploadLater(UPLOAD_AUTO_RETRIES - 1, () => (again += 1), () => (gaveUp += 1), doc);
+  retryUploadLater(
+    UPLOAD_AUTO_RETRIES - 1,
+    () => (again += 1),
+    () => (gaveUp += 1),
+    doc,
+  );
   // Return is the send's own gesture: it never starts an upload.
   fire("keydown", { key: "Enter" });
   await tick(5);
@@ -183,10 +199,20 @@ test("the first try again goes on its own; the last waits for the person's key o
   expect(count()).toBe(0);
   expect(gaveUp).toBe(0);
   // Its tries spent: Retry shows at once.
-  retryUploadLater(UPLOAD_AUTO_RETRIES, () => (again += 1), () => (gaveUp += 1), doc);
+  retryUploadLater(
+    UPLOAD_AUTO_RETRIES,
+    () => (again += 1),
+    () => (gaveUp += 1),
+    doc,
+  );
   expect(gaveUp).toBe(1);
   // A chip removed while its try waits stops listening.
-  const stop = retryUploadLater(UPLOAD_AUTO_RETRIES - 1, () => (again += 1), () => (gaveUp += 1), doc);
+  const stop = retryUploadLater(
+    UPLOAD_AUTO_RETRIES - 1,
+    () => (again += 1),
+    () => (gaveUp += 1),
+    doc,
+  );
   stop();
   fire("pointerdown");
   await tick(5);
