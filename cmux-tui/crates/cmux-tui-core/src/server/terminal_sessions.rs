@@ -28,7 +28,8 @@ pub(super) struct TerminalSessions {
 
 impl TerminalSessions {
     /// Whether the peer a peer key names runs in one of the session's
-    /// terminals.
+    /// terminals (tests; the accept loop asks ``terminal_of_peer``).
+    #[cfg(test)]
     pub(super) fn contains_peer(&self, mux: &Mux, peer_key: Option<&str>) -> bool {
         self.terminal_of_peer(mux, peer_key).is_some()
     }
