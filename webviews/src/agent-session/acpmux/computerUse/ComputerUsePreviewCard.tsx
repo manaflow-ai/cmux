@@ -8,7 +8,7 @@
 // left corner) hides the card for that session. The host owns the card; a close hides it here at
 // once, before the host's next push. It eases in, and when it goes it plays a short exit first
 // (cardMotion.ts); a new frame shows once it has decoded, so the stream never blanks.
-// With the Inspector open, the card sits directly under it (inspector/underInspector.ts) and keeps
+// With Session Info open, the card sits directly under it (session-info/underSessionInfo.ts) and keeps
 // its own room there.
 // While it runs, the agent's cursor shows where the helper draws it on screen (the window stream
 // has no cursor of its own): the helper's own cursor, drawn the same (cursorArt.tsx) and at the
@@ -16,7 +16,7 @@
 import { useState, type CSSProperties } from "react";
 import { useT } from "../i18n";
 import { Check, Close } from "../conversation/icons";
-import { useUnderInspectorRoom } from "../inspector/underInspector";
+import { useUnderSessionInfoRoom } from "../session-info/underSessionInfo";
 import { useLeavingCard, useLoadedFrame } from "./cardMotion";
 import { AgentCursorArt, cursorStyle } from "./cursorArt";
 import { closeComputerUsePreview, computerUsePreviewTitle, type ComputerUsePreview } from "./computerUsePreview";
@@ -35,7 +35,7 @@ export function ComputerUsePreviewCard({
   const [card, setCard] = useState<HTMLDivElement | null>(null);
   const { card: shown, leaving } = useLeavingCard(preview, card);
   const frame = useLoadedFrame(shown?.frame);
-  useUnderInspectorRoom(card);
+  useUnderSessionInfoRoom(card);
   if (!shown) return null;
   // The app's name is in the label only; with no name and no window title, the label names none
   // (never "Unknown app").
@@ -89,7 +89,7 @@ export function ComputerUsePreviewCard({
           onClose(shown.session);
         }}
       >
-        <Close size={10} />
+        <Close size={12} />
       </button>
     </div>
   );

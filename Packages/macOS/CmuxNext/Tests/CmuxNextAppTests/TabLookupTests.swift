@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextHistory
@@ -124,6 +125,32 @@ struct TabLookupTests {
         #expect(fixture.services.locateTab(model: fixture.remoteTab) == nil)
         #expect(fixture.services.locateTab(model: replacement.0)?.1 === replacement.1)
     }
+    /// A remote tab's menu is built, titled and resolved on its own machine, not refused as
+    /// ambiguous or read from this Mac's tab with the same id (cmuxterm-hq#5338).
+    @Test func aRemoteTabMenuResolvesItsOwnMachinesTab() throws {
+        let fixture = try Fixture()
+        let pinned = TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "Forked tab", pinned: true)
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [pinned])])
+        fixture.remote.daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Forked", screens: [screen])]))
+        let remoteTab = try #require(fixture.remote.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+        try #require(remoteTab.id == fixture.localTab.id && remoteTab.pinned && !fixture.localTab.pinned)
+        AppActions.bind(fixture.services)
+        let context = AppActionContext(services: fixture.services)
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: remoteTab.id))
+        #expect(context.targetTab(remoteTab.id, invocation) == nil, "an unscoped id two machines share stays ambiguous")
+        invocation.targetMachineID = fixture.remote.machineID
+        #expect(context.targetTab(remoteTab.id, invocation)?.0 === remoteTab)
+        invocation.targetMachineID = MachineRegistry.localID
+        #expect(context.targetTab(remoteTab.id, invocation)?.0 === fixture.localTab)
+
+        let menu = PaneController.tabMenu(remoteTab.id, tab: remoteTab, keepsTab: false,
+                                          sameKind: NewTabKind.of(remoteTab.id, tab: remoteTab, services: fixture.services),
+                                          registry: fixture.services.registry, machineID: fixture.remote.machineID)
+        func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(items) }
+        let pin = try #require(items(menu).first { ActionRegistry.menuRun(of: $0)?.id == "palette.toggleTabPin" })
+        #expect(pin.title == PinStrings.unpinTab, "the remote pinned tab's row read \(pin.title)")
+    }
+
     /// A history record carries its machine even when its tab id is duplicated by a fork.
     @Test func historyResumeUsesTheRemoteMachinePaneForDuplicateTabIDs() throws {
         let fixture = try Fixture()

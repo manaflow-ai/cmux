@@ -2,6 +2,7 @@
 @testable import CmuxNextApp
 import CmuxNextCloud
 import Foundation
+import Observation
 import Testing
 
 /// What stays in the App of a `cloud.startChat` send: the account and list checks, the folder it may
@@ -26,6 +27,74 @@ struct CloudStartChatMachineTests {
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: [nil, nil], listCurrent: true) }
     }
 
+    /// Proof run on a fresh staging machine (2026-11-01): its image's older cmux-tui refused the
+    /// copy with `machine_outdated` and the first send failed with "Update the machine". That answer
+    /// (about the machine, never this Mac's side) updates the machine and copies again; nothing else does.
+    @Test func onlyTheMachinesOutdatedRefusalUpdatesItBeforeCopyingAgain() async throws {
+        let outdated = CloudOutdatedMachine.code
+        #expect(CloudMoveStrings.outdatedCode == outdated)
+        let read = { (answer: CloudMoveCLI.Answer) -> (ok: Bool, errorCode: String?, side: String?) in (answer.ok, answer.errorCode, answer.side) }
+        for (first, updates) in [(CloudMoveCLI.Answer(ok: false, errorCode: outdated), true),
+                                 (.init(ok: false, errorCode: outdated, side: "target"), true),
+                                 (.init(ok: false, errorCode: outdated, side: "source"), false),
+                                 (.init(ok: false, errorCode: "sync_failed"), false), (.init(ok: true), false)] {
+            for updated in [true, false] {
+                let link = Link()
+                var sockets: [String] = [], asked = 0
+                let answer = try await CloudOutdatedMachine.copy(socket: { link.socket }, link: { link.key }, notConnected: CancellationError(),
+                                                                 relink: .seconds(5)) { (socket: String) async throws -> CloudMoveCLI.Answer in
+                    sockets.append(socket)
+                    return sockets.count == 1 ? first : CloudMoveCLI.Answer(ok: true)
+                } answer: { read($0) } update: {
+                    asked += 1
+                    link.restart()
+                    return updated
+                }
+                #expect(asked == (updates ? 1 : 0))
+                #expect(sockets == (updates && updated ? ["link-1.sock", "link-2.sock"] : ["link-1.sock"]))
+                #expect(answer == (updates && updated ? CloudMoveCLI.Answer(ok: true) : first))
+            }
+        }
+    }
+
+    /// Capture at ff3f8c9b (2026-11-01): the update restarted the machine's daemon and its link came back on a new
+    /// socket a moment after the update returned. The second copy waits for the new link instead of failing with
+    /// "cannot connect to …/cmux-link-….sock: No such file or directory", and nothing copies while not connected.
+    @Test func theCopyAfterAnUpdateWaitsForTheMachinesNewLink() async throws {
+        let link = Link(), outdated = CloudMoveCLI.Answer(ok: false, errorCode: CloudOutdatedMachine.code)
+        var sockets: [String] = []
+        let answer = try await CloudOutdatedMachine.copy(socket: { link.socket }, link: { link.key }, notConnected: CancellationError(),
+                                                         relink: .seconds(30)) { (socket: String) async throws -> CloudMoveCLI.Answer in
+            sockets.append(socket)
+            return sockets.count == 1 ? outdated : CloudMoveCLI.Answer(ok: true)
+        } answer: { ($0.ok, $0.errorCode, $0.side) } update: {
+            link.drop()
+            Task { @MainActor in link.restart() }
+            return true
+        }
+        #expect(sockets == ["link-1.sock", "link-2.sock"])
+        #expect(answer == CloudMoveCLI.Answer(ok: true))
+        let gone = Link()
+        gone.drop()
+        await #expect(throws: CancellationError.self) {
+            _ = try await CloudOutdatedMachine.copy(socket: { gone.socket }, link: { gone.key }, notConnected: CancellationError()) { (_: String) async throws in
+                Issue.record("copied while not connected")
+                return CloudMoveCLI.Answer(ok: true)
+            } answer: { ($0.ok, $0.errorCode, $0.side) } update: { true }
+        }
+    }
+
+    /// A machine's daemon link as the copy sees it: its socket and handshake key, observable, both
+    /// gone while the daemon restarts.
+    @MainActor @Observable fileprivate final class Link {
+        private(set) var generation: Int? = 1
+        var socket: String? { generation.map { "link-\($0).sock" } }
+        var key: String? { generation.map { "key-\($0)" } }
+        private var last = 1
+        func drop() { generation = nil }
+        func restart() { last += 1; generation = last }
+    }
+
     /// The plan reads the send under its account and Mac workspace, only the machines the account's list
     /// named, and the ones made since (kept for a pin, never picked).
     /// Router review at f766845: a machine the server destroyed may stay in the store after the list dropped it. It is
@@ -34,7 +103,20 @@ struct CloudStartChatMachineTests {
         let machines = [CloudMachine(id: "vm-listed"), CloudMachine(id: "vm-new", status: .provisioning),
                         CloudMachine(id: "vm-destroyed", status: .destroyed), CloudMachine(id: "vm-failed", status: .failed),
                         CloudMachine(id: "vm-deleting", status: .deleting)]
-        #expect(CloudStartChat.stored(machines, listed: ["vm-listed"]) == ["vm-new"])
+        #expect(machines.keptForPin(listed: ["vm-listed"]) == ["vm-new"])
+    }
+
+    /// A listed machine's plan entry: its id, title, shown status and link, the known slug and pause reason, and its
+    /// chat count only when connected (a disconnected machine's entry has no `chats` key).
+    @Test func aListedMachinesPlanEntryNamesWhatThePickReads() {
+        let machine = CloudMachine(id: "vm-a", status: .paused, displayName: "Chats", slug: "kind-aqua", pauseReason: .idle)
+        let connected = machine.startChatPlanEntry(connected: true, chats: 2)
+        #expect(connected["id"] as? String == "vm-a" && connected["title"] as? String == "Chats")
+        #expect(connected["status"] as? String == "paused" && connected["connected"] as? Bool == true)
+        #expect(connected["slug"] as? String == "kind-aqua" && connected["pause_reason"] as? String == "idle")
+        #expect(connected["chats"] as? Int == 2 && connected["created_by"] == nil)
+        let away = CloudMachine(id: "vm-b").startChatPlanEntry(connected: false, chats: nil)
+        #expect(away["connected"] as? Bool == false && away["chats"] == nil && away["slug"] == nil && away["pause_reason"] == nil)
     }
 
     @Test func thePlanRequestCarriesTheSendItsAccountWorkspaceAndTheListedMachines() throws {
@@ -52,6 +134,14 @@ struct CloudStartChatMachineTests {
         let unsigned = try #require(try JSONSerialization.jsonObject(with: Data(signedOut.utf8)) as? [String: Any])
         #expect(unsigned["user"] == nil)
         #expect(unsigned["workspace"] == nil)
+        #expect(unsigned["credential_on_stdin"] as? Bool == false)
+        // Zero-setup hot start: the folder, the chosen environment and that the token is on stdin.
+        let hot = CloudStartChat.planRequest(key: "K", account: [Self.me, nil], workspace: nil, user: Self.me, machines: [],
+                                             local: "/Users/me/src/paint", stored: [], environment: "env_0123456789abcdef01234567", access: true)
+        let ensure = try #require(try JSONSerialization.jsonObject(with: Data(hot.utf8)) as? [String: Any])
+        #expect(ensure["local"] as? String == "/Users/me/src/paint")
+        #expect(ensure["environment"] as? String == "env_0123456789abcdef01234567")
+        #expect(ensure["credential_on_stdin"] as? Bool == true)
     }
 
     /// A folder the page named is copied only as the pane checked it.
@@ -131,4 +221,21 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true, appServerLink: true) == "unavailable")
         #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false, appServerLink: true) == "not_signed_in")
     }
+
+    /// A repick finds the picked machine by its id, else by the name acpmux lists it under (title or
+    /// slug, any case), and never guesses between two of the same name.
+    @Test func aRepickFindsThePickedMachineByIdOrByName() {
+        let machines: [(id: String, title: String, slug: String?)] = [
+            (id: "m_sr2", title: "sr2-tunnel-probe", slug: nil),
+            (id: "m_zesty", title: "Zesty Indigo Lemur", slug: "zesty-indigo-lemur"),
+            (id: "m_a", title: "twin", slug: nil), (id: "m_b", title: "twin", slug: nil),
+        ]
+        #expect(CloudStartChat.machineID(for: .init(machine: "m_zesty", name: nil), in: machines) == "m_zesty")
+        #expect(CloudStartChat.machineID(for: .init(machine: "m_gone", name: nil), in: machines) == nil)
+        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "zesty-indigo-lemur"), in: machines) == "m_zesty")
+        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "SR2-tunnel-probe"), in: machines) == "m_sr2")
+        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "twin"), in: machines) == nil)
+        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "nobody"), in: machines) == nil)
+    }
 }
+

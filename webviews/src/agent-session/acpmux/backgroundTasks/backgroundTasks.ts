@@ -10,7 +10,7 @@
 // the panel folds under "N finished". The group's counts line ("39 tasks, 3 failed") counts both.
 //
 // All of it is derived from acpmux's snapshot: the rows and `subagentViews` (subagentFold.ts), the
-// process registry's commands (inspector/processes.ts `backgroundCommands`) and the started chats
+// process registry's commands (session-info/processes.ts `backgroundCommands`) and the started chats
 // (started/startedSessions.ts). Nothing here is kept by hand; the panel's own state is which groups
 // the person cleared (`dismissed`) and which are open.
 //
@@ -27,7 +27,7 @@
 // on its line, as in the workflow pane (summary/WorkflowSideTab.tsx): acpmux stops a run, not one
 // agent of it, so a workflow's agents carry no stop button of their own.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import type { BackgroundCommand } from "../inspector/processes";
+import type { BackgroundCommand } from "../session-info/processes";
 import type { StartedSession } from "../started/startedSessions";
 import { subagentsIn } from "../subagents/subagentRows";
 import type { Subagent } from "../subagents/subagentFold";

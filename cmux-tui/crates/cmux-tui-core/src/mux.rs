@@ -305,6 +305,7 @@ mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
 use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
+mod incognito_terminals;
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
@@ -336,6 +337,7 @@ use agent_hook_errors::{
 pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
     agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
+    is_agent_chat_top, release_agent_chat_role,
 };
 pub use column_move::{ColumnMoveDirection, ColumnMoveError};
 pub use dock_columns::PINNED_COLUMN_CODE;
@@ -493,6 +495,9 @@ type ScreenCreatedHook = Box<dyn FnOnce(SurfaceId) + Send>;
 pub struct Mux {
     /// The journal writer's only lock; declared first to drop first (see `RegistryConnection`).
     pub(crate) registry_connection: Arc<crate::workspace_registry::RegistryConnection>,
+    /// The control socket actually bound at startup, including an explicit
+    /// --socket path. Internal clients must not reconstruct it from session.
+    pub(crate) bound_socket_path: OnceLock<std::path::PathBuf>,
     /// Serializes durable commits and their projection; lock order: registry, connection, state.
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
     pub(crate) session_public_id: SessionPublicId,
@@ -668,6 +673,10 @@ pub struct Mux {
     journal_ingress: crate::journal_ingress::JournalIngressSender,
     /// Terminal output, outside the journal (output_store.rs).
     pub(crate) output_store: crate::output_store::OutputStore,
+    /// Keys of the incognito (ephemeral) workspaces this run created
+    /// (incognito_terminals.rs): a terminal created with its workspace
+    /// spawns before the workspace's row is published.
+    incognito_workspace_keys: Mutex<HashSet<String>>,
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,

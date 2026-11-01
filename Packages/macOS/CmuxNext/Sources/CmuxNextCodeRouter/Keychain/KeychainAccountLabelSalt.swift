@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 import CryptoKit
 public import Foundation
 import Security
@@ -11,8 +11,12 @@ public struct KeychainAccountLabelSalt: AccountLabelSaltProviding {
     public let service: String
     static let account = "salt"
 
-    public init(service: String) {
+    /// The app's one guard of the Keychain UI switch.
+    let loginKeychain: LoginKeychain
+
+    public init(service: String, loginKeychain: LoginKeychain) {
         self.service = service
+        self.loginKeychain = loginKeychain
     }
 
     public static func service(bundleID: String?) -> String {
@@ -43,7 +47,7 @@ public struct KeychainAccountLabelSalt: AccountLabelSaltProviding {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         // No UI: an item another signature of this bundle id made is refused, never prompted for.
-        let status = LoginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
+        let status = loginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw ProviderKeyStoreError(status: status) }
         return data

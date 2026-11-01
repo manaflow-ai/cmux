@@ -248,7 +248,7 @@ export const env = createEnv({
     CMUX_APNS_KEY_P8: z.string().min(1).optional(),
     CMUX_APNS_KEY_ID: z.string().min(1).optional(),
     CMUX_APNS_TEAM_ID: z.string().min(1).optional(),
-    // cmux Founder's Edition welcome email (Stripe webhook -> Resend). Optional:
+    // Legacy purchase welcome email (Stripe webhook -> Resend). Optional:
     // the /api/stripe/founders-welcome route returns "not configured" until the
     // webhook signing secret is set. CMUX_FOUNDERS_FROM_EMAIL overrides the
     // sender (defaults to austin@manaflow.ai) so the verified Resend domain can

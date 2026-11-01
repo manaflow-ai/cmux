@@ -37,7 +37,7 @@ final class NewTabButtonView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         fillLayer.cornerRadius = Metrics.tabCornerRadius
-        fillLayer.cornerCurve = .continuous
+        fillLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         fillLayer.actions = ["bounds": NSNull(), "position": NSNull()]
         glyphLayer.fillColor = nil
         glyphLayer.lineWidth = Metrics.space1 * 0.7

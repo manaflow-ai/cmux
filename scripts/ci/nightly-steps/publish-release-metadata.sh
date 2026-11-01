@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # nightly.yml publish-nightly: "Publish verified nightly release metadata". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# nightly-next commits change .github/workflows relative to main, and
+# GitHub refuses the Actions token any release create/update that targets
+# such a commit. nightly-next therefore publishes its release metadata
+# with the release App token; other channels keep the Actions token.
 set -euo pipefail
 {
   printf "Automated %s build for \`%s\` from \`%s\`.\n" "$CHANNEL" "$BUILD_SHORT_SHA" "$REF_NAME"

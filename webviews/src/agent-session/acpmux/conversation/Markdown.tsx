@@ -11,6 +11,8 @@ import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
 import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
 import { CodeBlock } from "./CodeBlock";
+import { InlinePreview } from "./InlinePreview";
+import { inlinePreviewKind } from "./previewDocument";
 import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
@@ -20,6 +22,7 @@ import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
+import { fenceStep } from "./fenceRule";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
@@ -232,7 +235,7 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       lines[i].trim() &&
       !/^(#{1,6})\s/.test(lines[i]) &&
       !FOOTNOTE_DEF.test(lines[i]) &&
-      !/^\s*```/.test(lines[i]) &&
+      fenceStep(0, lines[i]) === 0 &&
       !/^\s*\$\$/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
       !interruptsParagraph(lines[i])
@@ -449,7 +452,7 @@ export function linkKind(href: string): "github" | "citation" | "file" | "web" {
 
 export const linkIcon = (href: string) => {
   const kind = linkKind(href);
-  if (kind === "github") return <GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />;
+  if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
   if (kind === "file") return <FileDoc size={16} className="cv-link__icon" />;
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
@@ -507,7 +510,7 @@ function linkedGithubText(
         <UrlChip
           key={`${key}-${index}`}
           href={reference.href}
-          icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+          icon={<GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />}
         >
           {reference.text}
         </UrlChip>
@@ -979,6 +982,11 @@ function Block({
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
       if (render) return <RenderCard call={render} actions={trailing} />;
+      // A closed ```html or ```svg fence draws as its document in a sandboxed frame (InlinePreview.tsx);
+      // an open one stayed plain code above, so nothing renders mid-stream.
+      const preview = block.open ? undefined : inlinePreviewKind(block.lang, block.code);
+      if (preview)
+        return <InlinePreview key={block.code} kind={preview} code={block.code} lang={block.lang} actions={trailing} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} actions={trailing} />;
       return <CodeBlock code={block.code} lang={block.lang} actions={trailing} />;
     }

@@ -2,6 +2,17 @@
   "about": "Which source paths make up each UI surface, and the design spec that surface follows (one spec per surface, in leo-workspace design/<surface>.md). scripts/ci/pr_design_spec_check.py warns, never fails, when a pull request changes a surface's paths and its description does not cite the spec. leo-workspace tools/prior_art.py reads this map to list a surface's open and recently merged PRs before work starts. A path is a file or a directory (everything under it). Tests and gallery files are left out: changing them changes no design. Keep paths current when files move; the check warns about a mapped path that no longer exists.",
   "version": 1,
   "surfaces": {
+    "cloud-environment": {
+      "spec": "leo-workspace design/cloud.md",
+      "aliases": ["cloud environment", "setup script", "network secrets"],
+      "paths": [
+        "webviews/src/pages/cloud/EnvironmentSheet.tsx",
+        "webviews/src/pages/cloud/EnvironmentFields.tsx",
+        "webviews/src/pages/cloud/environment.css",
+        "webviews/src/pages/cloud/environmentModel.ts",
+        "webviews/src/pages/cloud/environmentStore.ts"
+      ]
+    },
     "model-picker": {
       "spec": "leo-workspace design/model-picker.md",
       "checklist": "design/model-picker.md#checklist",
@@ -21,28 +32,46 @@
       "paths": [
         "webviews/src/agent-session/acpmux/EnvironmentPicker.tsx",
         "webviews/src/agent-session/acpmux/environments.ts",
-        "webviews/src/agent-session/acpmux/ComposerContext.tsx"
+        "webviews/src/agent-session/acpmux/ComposerContext.tsx",
+        "webviews/src/agent-session/acpmux/ComposerContext.gallery.tsx",
+        "webviews/test/environment-picker.test.tsx"
       ]
     },
     "composer": {
       "spec": "leo-workspace design/composer.md",
-      "aliases": ["composer", "prompt box"],
+      "aliases": ["composer", "prompt box", "bottom stack"],
       "paths": [
         "webviews/src/agent-session/acpmux/Composer.tsx",
         "webviews/src/agent-session/acpmux/ComposerBox.tsx",
         "webviews/src/agent-session/acpmux/ComposerFoot.tsx",
         "webviews/src/agent-session/acpmux/ComposerPickers.tsx",
+        "webviews/src/agent-session/acpmux/ComposerPlusMenu.tsx",
+        "webviews/src/agent-session/acpmux/composerPlusRegistry.ts",
         "webviews/src/agent-session/acpmux/composerChrome.tsx",
         "webviews/src/agent-session/acpmux/composerControls.css",
         "webviews/src/agent-session/acpmux/composerFooterShared.css",
         "webviews/src/agent-session/acpmux/composerLook.css",
-        "webviews/src/agent-session/acpmux/composerStates.css"
+        "webviews/src/agent-session/acpmux/composerStates.css",
+        "webviews/src/agent-session/acpmux/HostError.tsx",
+        "webviews/src/agent-session/acpmux/hostLine.ts",
+        "webviews/src/agent-session/acpmux/hostRetry.ts",
+        "webviews/src/agent-session/acpmux/bottomStack.css"
+      ]
+    },
+    "running-tray": {
+      "spec": "leo-workspace design/running-tray.md",
+      "aliases": ["running tray", "subagent tray", "running in background"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/subagents/SubagentTray.tsx",
+        "webviews/src/agent-session/acpmux/subagents/subagents.css"
       ]
     },
     "session-rail": {
       "spec": "leo-workspace design/session-rail.md",
       "aliases": ["session rail", "prompt rail", "thread minimap", "rail ticks"],
-      "paths": ["webviews/src/agent-session/acpmux/threadMinimap/"]
+      "paths": [
+        "webviews/src/agent-session/acpmux/threadMinimap/"
+      ]
     },
     "feature-tips": {
       "spec": "leo-workspace design/feature-tips.md",
@@ -83,7 +112,15 @@
         "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
         "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
         "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
-        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx"
+        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.css",
+        "webviews/src/agent-session/acpmux/conversation/IncomingMessageCard.tsx",
+        "webviews/src/agent-session/acpmux/conversation/SentMessageLine.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css",
+        "webviews/src/agent-session/acpmux/conversation/TranscriptActivityRow.css",
+        "webviews/src/agent-session/acpmux/started/StartedSessionCard.tsx"
       ]
     },
     "settings": {
@@ -99,6 +136,29 @@
         "webviews/src/ui/Select.tsx"
       ]
     },
+    "menus": {
+      "spec": "leo-workspace design/menus.md",
+      "aliases": ["menu", "menus", "context menu", "right-click menu", "dropdown", "checkmark", "menu glass"],
+      "paths": [
+        "webviews/src/ui/Menu.tsx",
+        "webviews/src/ui/ContextMenu.tsx",
+        "webviews/src/ui/popupSurface.css",
+        "webviews/src/ui/ui.css",
+        "webviews/src/pages/shared/PageMenu.tsx",
+        "webviews/src/pages/shared/pageBase.css",
+        "webviews/scripts/check-menu-gutters.ts",
+        "schemas/menu-metrics/menu-metrics.json"
+      ]
+    },
+    "chat-header": {
+      "spec": "leo-workspace design/chat-header.md",
+      "aliases": ["chat header", "chat title", "title menu", "header tools"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/header/ThreadTitle.tsx",
+        "webviews/src/agent-session/acpmux/header/header.css",
+        "webviews/src/agent-session/acpmux/header/chatRows.ts"
+      ]
+    },
     "session-info": {
       "spec": "leo-workspace design/session-info.md",
       "aliases": [
@@ -107,7 +167,22 @@
         "session panel"
       ],
       "paths": [
-        "webviews/src/agent-session/acpmux/inspector"
+        "webviews/src/agent-session/acpmux/session-info"
+      ]
+    },
+    "artifacts": {
+      "spec": "leo-workspace design/artifacts.md",
+      "aliases": ["artifact", "artifacts", "inline preview", "html preview", "svg preview", "render card"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/conversation/InlinePreview.tsx",
+        "webviews/src/agent-session/acpmux/conversation/previewDocument.ts",
+        "webviews/src/agent-session/acpmux/conversation/ArtifactPanel.tsx",
+        "webviews/src/agent-session/acpmux/conversation/OpenPreview.tsx",
+        "webviews/src/agent-session/acpmux/conversation/artifactPreview.ts",
+        "webviews/src/agent-session/acpmux/conversation/artifactSandbox.ts",
+        "webviews/src/agent-session/acpmux/conversation/artifactVersions.ts",
+        "webviews/src/agent-session/acpmux/conversation/RenderCard.tsx",
+        "webviews/src/agent-session/acpmux/conversation/renderCall.ts"
       ]
     }
   }
