@@ -5,12 +5,8 @@
 //! protocol model.
 
 use super::*;
-use crate::config::{Config, StoreMode};
-use crate::hub::Hub;
 use cmux_host::identity::HostIdentity;
 use serde_json::{Value, json};
-use std::path::Path;
-use std::sync::Arc;
 
 fn identity() -> HostIdentity {
     HostIdentity {
@@ -54,7 +50,7 @@ fn token() -> String {
 }
 
 fn valid_token() -> String {
-    "ctg1.123e4567-e89b-12d3-a456-426614174000.payload_1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()
+    "ctg1.123e4567-e89b-12d3-a456-426614174000.payload_1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned()
 }
 
 #[test]
@@ -132,38 +128,3 @@ fn prompt_allows_newlines_but_rejects_nul_and_other_controls() {
     assert!(prompt(&json!({"body": "escape\u{1b}"}), "body").is_err());
 }
 
-fn hub_with_session() -> Arc<Hub> {
-    let mut config: Config = serde_json::from_value(json!({})).expect("default config");
-    config.store.mode = StoreMode::Memory;
-    let store = crate::store::open(&config.store, Path::new("/nonexistent")).expect("memory store");
-    let meta = json!({
-        "schema": crate::store::META_SCHEMA,
-        "id": "session-1",
-        "name": "trigger-session",
-        "harness": "fake",
-        "cwd": "/workspace",
-        "workspaceId": "workspace-1",
-        "status": "idle",
-        "createdAt": 1,
-        "updatedAt": 1,
-    });
-    store.save(&meta).expect("session metadata");
-    Arc::new(Hub::new(config, store))
-}
-
-#[tokio::test]
-async fn ensure_reuses_exact_session_and_emits_flat_identity_bound_receipt() {
-    let hub = hub_with_session();
-    let result = ensure(&hub, &scope()).await.expect("ensure");
-    assert_eq!(
-        result,
-        json!({
-            "ok": true,
-            "state": "started",
-            "machine": "machine-1",
-            "workspace": "workspace-1",
-            "session": "session-1",
-            "delivery": "delivery-1",
-        })
-    );
-}

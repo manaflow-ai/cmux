@@ -296,14 +296,14 @@ async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError>
         }));
     }
     let session = hub
-        .new_session(crate::hub::NewRequest {
+        .new_session_with_id(crate::hub::NewRequest {
             harness: Some(scope.harness.clone()),
             name: Some(scope.session.clone()),
             cwd: Some(PathBuf::from(&scope.cwd)),
             workspace_id: Some(scope.workspace.clone()),
             remote: true,
             ..Default::default()
-        })
+        }, Some(scope.session.clone()))
         .await?;
     hub.start_in_mode(
         false,
@@ -322,6 +322,9 @@ async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError>
 async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Value, RpcError> {
     let session = bound_session(hub, scope)?;
     let prior = hub.trigger_delivery(&session, &scope.delivery);
+    if prior.get("error").is_some() {
+        return Err(RpcError::new(-32001, "trigger delivery journal is unavailable"));
+    }
     if prior.get("promptHash").and_then(Value::as_str).is_some_and(|hash| hash != scope.prompt_hash)
     {
         return Err(RpcError::new(-32001, "trigger delivery prompt does not match prior delivery"));
