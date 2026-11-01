@@ -425,3 +425,34 @@ fn a_queued_remote_command_is_judged_again_when_it_runs() {
     assert_eq!(tabs(&mux), before, "no tab opened");
     mux.shutdown();
 }
+
+#[test]
+fn an_incognito_workspace_named_like_a_key_never_stops_the_phones_typing() {
+    let mux = test_mux();
+    let app = app(&mux);
+    create(&mux, &app, "enter", true);
+    let normal = create(&mux, &app, "normal-space", false);
+    let normal_id = mux.with_state(|state| {
+        state.workspaces.iter().find(|w| w.public_id.as_str() == normal).unwrap().id
+    });
+    let opened = line(
+        &mux,
+        &app,
+        json!({"id": "ns", "cmd": "new-screen", "workspace": normal_id, "cols": 60, "rows": 8,
+               "shell_args": ["-c", "sleep 30"], "env": {"SHELL": "/bin/sh"}}),
+    );
+    assert_eq!(opened["ok"], true, "{opened}");
+    let surface = mux.with_state(|state| {
+        let workspace = state.workspaces.iter().find(|w| w.id == normal_id).unwrap();
+        let pane = workspace.screens[0].active_pane;
+        state.panes[&pane].tabs[0]
+    });
+    let phone = phone(&mux);
+    let typed = line(
+        &mux,
+        &phone,
+        json!({"id": "k", "cmd": "send-key", "surface": surface, "keys": ["enter"]}),
+    );
+    assert_eq!(typed["ok"], true, "the phone's Enter must reach a normal terminal: {typed}");
+    mux.shutdown();
+}
