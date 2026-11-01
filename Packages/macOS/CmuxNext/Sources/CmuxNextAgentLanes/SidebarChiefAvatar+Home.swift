@@ -1,5 +1,5 @@
-import CmuxNextHome
-import CmuxNextSidebar
+public import CmuxNextHome
+public import CmuxNextSidebar
 
 extension SidebarChiefAvatar {
     /// The same face Home resolved for this Chief; the unchanged default is its CH monogram.
