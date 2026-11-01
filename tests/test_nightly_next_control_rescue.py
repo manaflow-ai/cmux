@@ -34,6 +34,9 @@ class ControlRescueTests(unittest.TestCase):
         self.assertFalse(rescue.control_started([
             {"name": "request", "status": "queued", "runner_id": 0, "runner_name": None},
         ]))
+        self.assertFalse(rescue.control_started([
+            {"name": "request", "status": "cancelled", "conclusion": "cancelled", "runner_id": 0},
+        ]))
         self.assertTrue(rescue.control_started([
             {"name": "request", "status": "completed", "conclusion": "success", "runner_id": 0,
              "started_at": "2026-11-01T00:00:00Z"},
