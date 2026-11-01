@@ -115,4 +115,36 @@ private final class FakeController: TerminalSharingSurfaceControlling {
         store.unregister(controller, surfaceID: id)
         #expect(store.snapshot(for: id) == nil)
     }
+
+    @Test func olderGenerationCannotReplaceTheAuthoritativeSnapshot() {
+        let store = TerminalSharingStore()
+        let id = UUID()
+        let currentState = TerminalSizingState(
+            generation: 8,
+            cols: 118,
+            rows: 38,
+            reason: .latest,
+            owners: ["mac:1"],
+            policy: .latest,
+            participants: []
+        )
+        var staleState = currentState
+        staleState.generation = 7
+        staleState.cols = 72
+        let current = TerminalSharingSnapshot(
+            state: currentState,
+            selfParticipantID: "mac:1",
+            isCloud: false
+        )
+        let stale = TerminalSharingSnapshot(
+            state: staleState,
+            selfParticipantID: "mac:1",
+            isCloud: false
+        )
+
+        store.publish(current, surfaceID: id)
+        store.publish(stale, surfaceID: id)
+
+        #expect(store.snapshot(for: id) == current)
+    }
 }
