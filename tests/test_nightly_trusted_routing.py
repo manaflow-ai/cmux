@@ -136,17 +136,18 @@ class NightlyTrustedRouting(unittest.TestCase):
                          'blacksmith-16vcpu-ubuntu-2404')
         self.assertEqual(decide(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
 
-    def test_only_the_nightly_pickers_read_the_next_build_runner(self):
+    def test_only_the_nightly_routes_read_the_next_build_runner(self):
         readers = sorted(path.name for path in (ROOT / '.github/workflows').glob('*.y*ml')
                          if 'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER' in path.read_text()
                          and 'CMUX_CI_RUNNER_VARIABLES' not in path.read_text())
         self.assertEqual(readers, ['nightly.yml'])
         uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
-        # Nightlies never use Blacksmith (Lawrence, 2026-10-30): these jobs' last fallback is the owned nightly
-        # slot (then the owned side lane), never a Blacksmith label.
-        # decide's attempt 1 asks for the nightly slot first, then Blacksmith Linux (test_decide_*).
+        # decide and the lightweight routes use the nightly slot; the three secret-free Mac
+        # jobs also read it for the bounded attempt-2 retry added in #29847. OwnedVerify in
+        # test_nightly_sign_runner.py checks that retry and its later overflow destinations.
         self.assertEqual(uses, ['decide', 'generate-nightly-deltas', 'sign-nightly-identity-legacy',
-                                'verify-nightly-identity-legacy'])
+                                'signer-dmg-image', 'verify-final-dmg-nightly',
+                                'verify-nightly-identity-legacy', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's.
         self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
