@@ -1,7 +1,7 @@
 //! The one workspace order. With the sidebar document (`sidebar-doc-v1`),
 //! `workspace.list` (no `order`, or `order: personal`) lists this machine's workspaces in the document's display
 //! order: section by section (Pinned before the machine sections), each
-//! group's members in place right after the group. A live workspace the
+//! group's members (nested groups' too) in place right after the group. A live workspace the
 //! document does not place yet goes where `workspaces.newPlacement` puts a
 //! new one. The reply shape stays the same; only the array order changes.
 //! `workspace.list {order: session}` keeps the session order, and so does
@@ -68,9 +68,18 @@ pub(crate) fn order_in(doc: &Doc, local: &str) -> DocumentOrder {
                 };
             }
             push(&mut ids, item);
+            // Every member, nested groups' too, at its group's place.
             if item.body.is_group() {
-                for member in doc.list(&section.id, Some(item.id.as_str())) {
+                let mut groups = vec![doc.list(&section.id, Some(item.id.as_str()))];
+                while let Some(members) = groups.last_mut() {
+                    let Some(member) = members.next() else {
+                        groups.pop();
+                        continue;
+                    };
                     push(&mut ids, member);
+                    if member.body.is_group() {
+                        groups.push(doc.list(&section.id, Some(member.id.as_str())));
+                    }
                 }
             }
         }

@@ -222,21 +222,29 @@ impl Mux {
                 } else {
                     None
                 };
-                self.effect_create_workspace_terminal(
-                    intent,
-                    optional_owned_string(fields, "name")?,
-                    TerminalEffectOptions {
-                        argv,
-                        cwd: optional_owned_string(fields, "cwd")?,
-                        name: optional_owned_string(fields, "terminal_name")?,
-                        created_screen_name: None,
-                        size: effect_cell_size(fields)?,
-                        // Internal owner jobs retain their terminal view.
-                        // Generic workspace.create still rejects this field
-                        // at catalog admission, preserving its public shape.
-                        on_exit: effect_on_exit(fields)?,
-                    },
-                )
+                let options = TerminalEffectOptions {
+                    argv,
+                    cwd: optional_owned_string(fields, "cwd")?,
+                    name: optional_owned_string(fields, "terminal_name")?,
+                    created_screen_name: None,
+                    size: effect_cell_size(fields)?,
+                    // Internal owner jobs retain their terminal view.
+                    // Generic workspace.create still rejects this field
+                    // at catalog admission, preserving its public shape.
+                    on_exit: effect_on_exit(fields)?,
+                };
+                let name = optional_owned_string(fields, "name")?;
+                let create = || self.effect_create_workspace_terminal(intent, name, options);
+                // The stored `placement` (#29875), so a creation run again
+                // after a restart still goes where its request named.
+                let placement = fields
+                    .get("placement")
+                    .and_then(Value::as_str)
+                    .and_then(crate::user_settings::NewWorkspacePlacement::from_wire);
+                match placement {
+                    Some(placement) => placement.scoped(create),
+                    None => create(),
+                }
                 .map(|created| created.path)
             }
             ResourceOperation::WorkspaceClose => {

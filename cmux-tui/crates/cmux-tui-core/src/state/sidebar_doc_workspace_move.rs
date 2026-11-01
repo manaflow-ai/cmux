@@ -7,16 +7,18 @@
 //! document's display order). The workspace keeps its place kind: it stays in
 //! its section and in its group, so a move never pins, unpins or regroups it
 //! (`workspace group add|remove` and `sidebar pin` do that). Among its
-//! siblings it goes before the first one that lists at `index` or later (a
-//! group lists at its first member), else last. The home workspace stays
-//! first: it is never an anchor and is never moved.
+//! siblings on its own side (archived items stay last, a group's pinned
+//! members first) it goes before the first one that lists at `index` or
+//! later (a group lists at its first member), else last. The home workspace
+//! stays first: it is never an anchor and is never moved. An app section's
+//! items are its provider's and do not move.
 //!
 //! The document move commits after the session move, under a key derived
 //! from the request's, so a retried request replays both.
 
 use std::collections::HashMap;
 
-use cmux_layout_reducer::sidebar_doc::{Doc, Item, Op, Target, WorkspaceRef};
+use cmux_layout_reducer::sidebar_doc::{Doc, Item, Op, SectionKind, Target, WorkspaceRef};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -43,6 +45,11 @@ pub(crate) fn move_ops(
     let Some(item) = doc.workspace_item(&WorkspaceRef::new(local, workspace)) else {
         return Vec::new();
     };
+    // An app section's items are its provider's: the reducer refuses a move there.
+    if doc.section(&item.section).is_none_or(|section| matches!(section.kind, SectionKind::App { .. }))
+    {
+        return Vec::new();
+    }
     let order = order_in(doc, local);
     // Ranks without the moved workspace: `index` is where it ends up.
     let rank: HashMap<&str, usize> = order
@@ -72,7 +79,14 @@ pub(crate) fn move_ops(
             reference.session_id == local && Some(reference.workspace_id.as_str()) == home
         })
     };
-    let siblings: Vec<&Item> = doc.list(&item.section, item.parent.as_deref()).collect();
+    // The reducer keeps archived items last and a group's pinned members
+    // first: the move is among the siblings on the item's own side.
+    let same_side = |sibling: &&Item| {
+        sibling.archived() == item.archived()
+            && (item.parent.is_none() || sibling.pinned_in_group() == item.pinned_in_group())
+    };
+    let siblings: Vec<&Item> =
+        doc.list(&item.section, item.parent.as_deref()).filter(same_side).collect();
     let anchor = siblings
         .iter()
         .filter(|sibling| sibling.id != item.id && !is_home(sibling))

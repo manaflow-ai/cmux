@@ -102,6 +102,65 @@ fn a_move_keeps_a_grouped_workspace_in_its_group() {
     mux.shutdown();
 }
 
+/// A workspace's sidebar item: its id, section and parent group item.
+fn item_of(mux: &Arc<Mux>, workspace: &str) -> (String, String, Option<String>) {
+    mux.read_registry_state(|connection| {
+        let local = crate::state::values::local_registry_id(connection)?;
+        crate::state::sidebar_doc_store::with_doc(connection, |doc| {
+            let item = doc
+                .workspace_item(&cmux_layout_reducer::sidebar_doc::WorkspaceRef::new(
+                    &local, workspace,
+                ))
+                .expect("the workspace has a sidebar item");
+            Ok((item.id.clone(), item.section.clone(), item.parent.clone()))
+        })
+    })
+    .unwrap()
+}
+
+/// A workspace in a group inside a group moves among that inner group's
+/// members, and stays there.
+#[test]
+fn a_move_reorders_a_nested_group_member() {
+    let session = Session::new("move-doc-nested");
+    let mux = session.open();
+    let _bottom = crate::user_settings::NewWorkspacePlacement::Bottom.set_for_test();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let c = empty_workspace(&mux, "c");
+    let work = mutate(&mux, "workspace_group.create", json!({"name": "Work"}), "group-work")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for (workspace, key) in [(&b, "b-in-work"), (&c, "c-in-work")] {
+        mutate(&mux, "workspace.place", json!({"workspace": workspace, "group": work}), key);
+    }
+    let (b_item, section, outer) = item_of(&mux, &b);
+    let (c_item, _, _) = item_of(&mux, &c);
+    let outer = outer.expect("b is in Work");
+    send(
+        &mux,
+        "sidebar.group.create",
+        json!({"name": "Inner", "items": [b_item, c_item],
+               "to": {"section": section, "parent": outer}}),
+        Some("inner"),
+    )
+    .unwrap();
+    let inner = item_of(&mux, &c).2.expect("c is in Inner");
+    assert_ne!(inner, outer, "c is not in the nested group");
+    let ids = [a.as_str(), b.as_str(), c.as_str()];
+    assert_eq!(shown(&mux, &ids), ids, "the nested members list at their group's place");
+
+    mutate(&mux, "workspace.move", json!({"workspace": c, "index": 0}), "c-top");
+    assert_eq!(
+        shown(&mux, &ids),
+        [a.as_str(), c.as_str(), b.as_str()],
+        "c is not first in its nested group"
+    );
+    assert_eq!(item_of(&mux, &c).2, Some(inner), "the move took c out of its nested group");
+    mux.shutdown();
+}
+
 #[test]
 fn a_create_with_placement_top_shows_first_under_a_bottom_setting() {
     let session = Session::new("create-placement-top");

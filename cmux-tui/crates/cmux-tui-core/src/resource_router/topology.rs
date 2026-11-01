@@ -282,18 +282,12 @@ fn create_workspace(
 fn create_placement(
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Option<crate::user_settings::NewWorkspacePlacement>, ResourceError> {
-    use crate::user_settings::NewWorkspacePlacement;
-    Ok(match optional_string(fields, "placement")?.as_deref() {
-        None => None,
-        Some("top") => Some(NewWorkspacePlacement::Top),
-        Some("after_current") => Some(NewWorkspacePlacement::AfterCurrent),
-        Some("bottom") => Some(NewWorkspacePlacement::Bottom),
-        Some(other) => {
-            return Err(validation_error(
-                "placement must be top, after_current or bottom",
-                json!({"field":"placement","value":other}),
-            ));
-        }
+    let Some(value) = optional_string(fields, "placement")? else { return Ok(None) };
+    crate::user_settings::NewWorkspacePlacement::from_wire(&value).map(Some).ok_or_else(|| {
+        validation_error(
+            "placement must be top, after_current or bottom",
+            json!({"field":"placement","value":value}),
+        )
     })
 }
 
