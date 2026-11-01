@@ -1256,7 +1256,20 @@
   border-radius: 7px;
   background: color-mix(in srgb, var(--cv-fg) 7.5%, var(--cmux-surface-solid, var(--agent-page-bg, var(--acpmux-base))));
   opacity: 0;
-  transition: opacity var(--agent-motion-hover, 120ms) ease-out;
+}
+/* The corner actions take the transcript's shared hover fade (transcript-hover-fade.test.ts):
+   out quickly at rest, in after a beat under the pointer, at once for keyboard focus. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-codeblock--corner .cv-codeblock__header {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-codeblock--corner:hover .cv-codeblock__header,
+  .cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__header {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-codeblock--corner:focus-within .cv-codeblock__header {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
 }
 .cv-codeblock--corner:hover .cv-codeblock__header,
 .cv-codeblock--corner:focus-within .cv-codeblock__header,
