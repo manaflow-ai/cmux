@@ -55,6 +55,7 @@ it("ignores client-selected metadata and follows all discovery and membership pa
       expect(url.searchParams.get("user_id")).toBe(stackUser)
       return Response.json(url.searchParams.has("cursor") ? { items: [team], pagination: { next_cursor: null } } : { items: [{ id: tenant, client_metadata: { cmuxVmPersonalTenant: marker }, client_read_only_metadata: { cmuxVmPersonalTenant: marker } }], pagination: { next_cursor: "next" } })
     }
+    expect(url.pathname).toBe("/api/v1/team-member-profiles")
     expect(url.searchParams.get("team_id")).toBe(tenant)
     return Response.json(url.searchParams.has("cursor") ? { items: [{ user_id: "another-user" }], pagination: { next_cursor: null } } : { items: [{ user_id: stackUser }], pagination: { next_cursor: "members-next" } })
   })!

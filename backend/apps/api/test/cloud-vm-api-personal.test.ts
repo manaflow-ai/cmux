@@ -138,6 +138,19 @@ it("does not resend a successful create when its membership confirmation fails",
   expect(t.creates()).toBe(1)
 })
 
+it("becomes ready on the next ensure once the members read answers, even with the ledger backed off for an hour", async () => {
+  const t = await fixture()
+  const listed = t.stack.members
+  t.stack.members = async () => { throw new PersonalTenantIdentityError(true, { call: "members", status: 404 }) }
+  for (let i = 0; i < 12; i++) expect(await ensure(t.personal)).toHaveProperty("status", "pending")
+  const ledger = await inDO(teamStub(t.personal), async (instance) => new PersonalTenantStore(instance.sqlStore).read())
+  expect(ledger).toMatchObject({ phase: "creating" })
+  expect(ledger!.nextAt! - Date.now()).toBeGreaterThan(30 * 60_000)
+  t.stack.members = listed
+  expect(await ensure(t.personal)).toMatchObject({ status: "ready", target: { tenant: STACK_TEAM } })
+  expect(t.creates()).toBe(1)
+})
+
 it("keeps stale retries from reopening an already-sent or completed reservation", async () => {
   const t = await fixture()
   await inDO(teamStub(t.personal), async (instance) => {
