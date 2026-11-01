@@ -250,11 +250,18 @@ impl ProcessTable {
                 // A logged row can correct its tool-call ID. Repoint the old key to
                 // its next occurrence, if any; this exceptional correction may scan.
                 match self.processes.iter().position(|p| p.tool_call_id == old_tool) {
-                    Some(next) => { self.by_tool.insert(old_tool, next); }
-                    None => { self.by_tool.remove(&old_tool); }
+                    Some(next) => {
+                        self.by_tool.insert(old_tool, next);
+                    }
+                    None => {
+                        self.by_tool.remove(&old_tool);
+                    }
                 }
             }
-            self.by_tool.entry(new_tool).and_modify(|first| *first = (*first).min(at)).or_insert(at);
+            self.by_tool
+                .entry(new_tool)
+                .and_modify(|first| *first = (*first).min(at))
+                .or_insert(at);
         } else {
             self.insert(process);
         }

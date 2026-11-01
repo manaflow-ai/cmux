@@ -47,6 +47,41 @@ nonisolated enum AgentChatCopyActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "network", surfaces: [.palette], requires: focusedChat, targets: [.pane],
                 surfacePlan: guiClipboard
             ),
+            ActionDescriptor(
+                id: "agentChat.copySessionFilePaths",
+                title: String(localized: "action.agentChat.copySessionFilePaths", defaultValue: "Copy Session File Paths", bundle: .module),
+                keywords: ["agent", "chat", "session", "files", "paths", "claude.json", "settings.json", "config.toml", "transcript", "jsonl", "copy"],
+                category: .agents, symbol: "doc.on.doc", surfaces: [.palette], requires: focusedChat, targets: [.pane],
+                surfacePlan: guiClipboard
+            ),
+            ActionDescriptor(
+                id: "agentChat.copyTranscriptFile",
+                title: String(localized: "action.agentChat.copyTranscriptFile", defaultValue: "Copy Transcript File", bundle: .module),
+                keywords: ["agent", "chat", "session", "transcript", "jsonl", "rollout", "raw", "claude", "codex", "copy"],
+                category: .agents, symbol: "doc.plaintext", surfaces: [.palette], requires: focusedChat, targets: [.pane],
+                surfacePlan: guiClipboard
+            ),
+            ActionDescriptor(
+                id: "agentChat.copyHarnessConfigFile",
+                title: String(localized: "action.agentChat.copyHarnessConfigFile", defaultValue: "Copy Harness Config File", bundle: .module),
+                keywords: ["agent", "chat", "harness", "config", "claude.json", "config.toml", "claude", "codex", "json", "copy"],
+                category: .agents, symbol: "gearshape", surfaces: [.palette], requires: focusedChat, targets: [.pane],
+                surfacePlan: guiClipboard
+            ),
+            ActionDescriptor(
+                id: "agentChat.copyHarnessSettingsFile",
+                title: String(localized: "action.agentChat.copyHarnessSettingsFile", defaultValue: "Copy Harness Settings File", bundle: .module),
+                keywords: ["agent", "chat", "harness", "settings", "settings.json", "claude", "json", "copy"],
+                category: .agents, symbol: "slider.horizontal.3", surfaces: [.palette], requires: focusedChat, targets: [.pane],
+                surfacePlan: guiClipboard
+            ),
+            ActionDescriptor(
+                id: "agentChat.copyAcpmuxSessionFile",
+                title: String(localized: "action.agentChat.copyAcpmuxSessionFile", defaultValue: "Copy acpmux Session File", bundle: .module),
+                keywords: ["agent", "chat", "acpmux", "session", "session.json", "json", "record", "copy"],
+                category: .agents, symbol: "curlybraces", surfaces: [.palette], requires: focusedChat, targets: [.pane],
+                surfacePlan: guiClipboard
+            ),
         ]
     }
 }

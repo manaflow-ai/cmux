@@ -248,7 +248,7 @@ enum CloudHandlers {
             if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
             return false
         }
-        if !(await current()), await !CloudMove.holds(within: limit, until: current) {
+        if !(await current()), await !CloudWait.holds(within: limit, until: current) {
             throw ActionFailure(message: CloudStrings.notConnected)
         }
         return store.workspaces.first?.id
@@ -385,7 +385,7 @@ enum CloudHandlers {
         session.attach(origin: connectOrigin(for: invocation))
         guard session.resuming else { return }
         let daemon = session.daemon
-        _ = await CloudMove.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
+        _ = await CloudWait.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
         if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
     }
