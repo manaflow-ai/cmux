@@ -31,7 +31,7 @@ public final class SidebarChatHistoryFeed {
     /// Follows the setting, acpmux's windows, the lanes, every machine's live tabs and the
     /// user's pins from now on; a row opens its chat with `open` (the app's Open Chat path).
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel],
-                      liveTabs: (@MainActor @Sendable () -> [TabModel])? = nil, localHost: String?,
+                      liveTabs: (@escaping @MainActor @Sendable () -> [TabModel])? = nil, localHost: String?,
                       open: @escaping @MainActor (String) -> Void, windows: AcpmuxChatWindows,
                       lanes: AgentLaneStore = .shared, history: SidebarChatHistory = .shared) {
         guard task == nil else { return }
