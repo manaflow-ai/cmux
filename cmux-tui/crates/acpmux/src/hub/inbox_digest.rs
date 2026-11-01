@@ -409,6 +409,7 @@ impl Hub {
             blocks: blocks.clone(),
             display_parts: None,
             control,
+            cloud_mobile: false,
             trust_gate: false,
             provenance: Some(provenance.clone()),
             agent: Some(SENDER.to_owned()),

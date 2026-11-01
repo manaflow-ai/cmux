@@ -115,7 +115,10 @@ pub(super) fn control_of(
         return Control::Web;
     }
     match origin {
-        super::Origin::Local if params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile") => {
+        super::Origin::Local
+            if params.pointer("/_meta/acpmux/via").and_then(Value::as_str)
+                == Some("cloud-mobile") =>
+        {
             // The cmux-tui native agent-session adapter stamps this marker
             // only for its authenticated Cloud mobile carrier prompt. Keep
             // the prompt under the Web asking policy while retaining the
@@ -562,7 +565,20 @@ fn family_of(m: &crate::store::SessionMeta) -> String {
 }
 
 /// Whether a session's mode asks: none reported, or listed for its family.
-async fn mode_asks(hub: &std::sync::Arc<crate::hub::Hub>, m: &crate::store::SessionMeta) -> bool {
+fn is_cloud_mobile(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile")
+}
+
+/// Whether a session's mode asks. Cloud-mobile prompts use the narrow phone
+/// mode set even though an authenticated Codex Web client normally gets the bridge's any-mode exception.
+async fn mode_asks(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    m: &crate::store::SessionMeta,
+    cloud_mobile: bool,
+) -> bool {
+    if cloud_mobile {
+        return hub.cloud_mobile_mode_asks(m);
+    }
     hub.any_mode_for_web(m) || hub.web_modes().session_asks(m)
 }
 
@@ -605,6 +621,7 @@ pub(super) async fn settle_web_session_mode(
     hub: &std::sync::Arc<crate::hub::Hub>,
     s: &std::sync::Arc<crate::hub::Session>,
     peer: bool,
+    cloud_mobile: bool,
 ) -> Result<(), RpcError> {
     // The Codex bridge takes any mode from an authenticated Web connection
     // (`any_mode_for_web`), but a session the Web STARTS begins in a mode
@@ -613,7 +630,7 @@ pub(super) async fn settle_web_session_mode(
     // one an enrolled peer starts under deny-all, in the policy's `read-only`
     // (`hub/policy_mode.rs` `bridge_settle_modes`), whose sandbox refuses
     // every write.
-    if hub.any_mode_for_web(&s.meta()) {
+    if !cloud_mobile && hub.any_mode_for_web(&s.meta()) {
         let settled = hub.bridge_settle_modes(s, peer).await;
         let asks = |m: &crate::store::SessionMeta| {
             crate::web_modes::mode_of(m).is_some_and(|mode| settled.contains(&mode))
@@ -632,14 +649,14 @@ pub(super) async fn settle_web_session_mode(
         hub.restore_web_control(s);
         return Ok(());
     }
-    if mode_asks(hub, &s.meta()).await {
+    if mode_asks(hub, &s.meta(), cloud_mobile).await {
         return Ok(());
     }
     let Some(default) = asking_modes(hub, &family_of(&s.meta())).await.into_iter().next() else {
         let _ = hub.kill(s, true).await;
         return Err(no_reviewed_asking_mode());
     };
-    if hub.set_mode(s, &default).await.is_err() || !mode_asks(hub, &s.meta()).await {
+    if hub.set_mode(s, &default).await.is_err() || !mode_asks(hub, &s.meta(), cloud_mobile).await {
         let _ = hub.kill(s, true).await;
         return Err(no_reviewed_asking_mode());
     }
@@ -768,6 +785,7 @@ async fn web_starts_asking(
 ) -> Result<(), RpcError> {
     // A remote chain never resumes a local harness session (REMOTE-FLOOR v3).
     let web = control == crate::hub::Control::Web;
+    let cloud_mobile = web && is_cloud_mobile(params);
     // A session whose caller asked for the VM boundary this machine takes
     // (`hub/vm_boundary.rs`): the owner's peer daemon's session with no policy
     // stays without one, and `requests.rs` starts it approve-all.
@@ -854,11 +872,11 @@ async fn web_starts_asking(
             if !(draft && not_asking) {
                 return Err(e);
             }
-            settle_web_session_mode(hub, &t, false).await?;
-        } else if draft && hub.any_mode_for_web(&t.meta()) {
+            settle_web_session_mode(hub, &t, false, cloud_mobile).await?;
+        } else if draft && !cloud_mobile && hub.any_mode_for_web(&t.meta()) {
             // A new Codex bridge target starts asking too (a Web connection
             // may switch it later, as any bridge session).
-            settle_web_session_mode(hub, &t, false).await?;
+            settle_web_session_mode(hub, &t, false, cloud_mobile).await?;
         }
         return hub.web_control_check(&t, control);
     }
@@ -945,7 +963,7 @@ async fn web_starts_asking(
     }
     let default = hub.config.read().await.permission_policy;
     let policy = meta.permission_policy.as_deref().and_then(|p| p.parse().ok()).unwrap_or(default);
-    if !asking_policy(policy) || !mode_asks(hub, &meta).await {
+    if !asking_policy(policy) || !mode_asks(hub, &meta, cloud_mobile).await {
         return Err(RpcError::invalid_params(format!(
             "{m} from a remote WebSocket connection is refused: the session's policy or mode does not ask"
         )));
