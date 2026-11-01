@@ -311,6 +311,9 @@ def runner_label_errors(runs_on: str) -> list[str]:
 # job that runs on a reused owned machine by design and still holds a secret there: each needs
 # its secret moved to a separate job on an ephemeral label, as #27622 did for the dogfood capture.
 SECRET_RUNNER_EXCEPTIONS = {
+    ("nightly.yml", "promote-nightly-next"):
+        "pick-nightly-promotion-runner's terminal controller admission and signing-runner-claim.sh "
+        "prove the owned reservation or a recorded 180-second no-start Blacksmith overflow",
     ("nightly.yml", "generate-nightly-deltas"):
         "pick-classic-sign-runner's output, which names only Blacksmith macOS labels "
         "(classic_nightly_build_runner.py), else the literal Blacksmith fallback",
@@ -327,7 +330,8 @@ SECRET_RUNNER_EXCEPTIONS = {
         "(it seeds their DerivedData)",
 }
 APP_KEY_RUNNER_EXCEPTIONS = {key: why for key, why in SECRET_RUNNER_EXCEPTIONS.items()
-                             if key == ("nightly.yml", "generate-nightly-deltas")}
+                             if key in (("nightly.yml", "generate-nightly-deltas"),
+                                        ("nightly.yml", "promote-nightly-next"))}
 # A secret a job reads: `${{ secrets.X }}` (not the job's own GITHUB_TOKEN), `secrets[...]`, or
 # `secrets: inherit` into a reusable workflow. Context names are case-insensitive.
 SECRET_MARKER = re.compile(

@@ -1628,8 +1628,8 @@ check_no_self_hosted_fleet_runners() {
   # main-only selector in this job alone, without exempting other fleet labels
   # or allowing secrets onto the shared nightly pool. RC and forks keep their
   # existing cloud routes; untrusted workflow triggers cannot use this exception.
-  local nightly_bootstrap_line
-  nightly_bootstrap_line="$(python3 - "$ROOT_DIR/.github/workflows/nightly.yml" <<'PYTHON'
+  local nightly_bootstrap_lines
+  nightly_bootstrap_lines="$(python3 - "$ROOT_DIR/.github/workflows/nightly.yml" <<'PYTHON'
 import json
 import re
 import sys
@@ -1651,7 +1651,6 @@ if isinstance(events, str):
     events = [events]
 if not events or not set(events) <= {"push", "schedule", "workflow_dispatch"}:
     sys.exit(0)
-job = (document.get("jobs") or {}).get("decide") or {}
 selector = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "github.ref == 'refs/heads/main' && "
             "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
@@ -1660,11 +1659,12 @@ selector = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
             "'blacksmith-2vcpu-ubuntu-2404' }}")
-if job.get("runs-on") != selector or "environment" in job:
-    sys.exit(0)
-if re.search(r"\bsecrets\b|create-github-app-token|\bprivate-key\b",
-             json.dumps([document.get("env"), job]), re.IGNORECASE):
-    sys.exit(0)
+picker_selector = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                   "github.ref == 'refs/heads/main' && "
+                   "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+                   "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
+                   "'glaeda-nightly-std-xcode-26.6' }}")
+jobs = document.get("jobs") or {}
 # Source positions bind the exemption to this job's runs-on, not another
 # job that happens to spell the same selector. Duplicate keys fail closed.
 def mapping(node):
@@ -1676,9 +1676,20 @@ def mapping(node):
     return values
 
 root = mapping(yaml.compose(text, Loader=yaml.BaseLoader))
-node = mapping(mapping(root["jobs"])["decide"])["runs-on"]
-if node.start_mark.line == node.end_mark.line:
-    print(f"{path}:{node.start_mark.line + 1}:")
+for name in ("decide", "pick-nightly-promotion-runner"):
+    job = jobs.get(name) or {}
+    expected = picker_selector if name == "pick-nightly-promotion-runner" else selector
+    if job.get("runs-on") != expected or "environment" in job:
+        continue
+    if re.search(r"\bsecrets\b|create-github-app-token|\bprivate-key\b",
+                 json.dumps([document.get("env"), job]), re.IGNORECASE):
+        continue
+    try:
+        node = mapping(mapping(root["jobs"])[name])["runs-on"]
+    except (KeyError, ValueError):
+        continue
+    if node.start_mark.line == node.end_mark.line:
+        print(f"{path}:{node.start_mark.line + 1}:")
 PYTHON
 )" || return 1
   local hits="" line content content_without_allowed
@@ -1689,7 +1700,11 @@ PYTHON
   # before matching the value so the checkout path (which contains "cmux") can
   # never match the bare `cmux` label.
   while IFS= read -r line; do
-    [[ -n "$nightly_bootstrap_line" && "$line" == "$nightly_bootstrap_line"* ]] && continue
+    if [[ -n "$nightly_bootstrap_lines" ]]; then
+      while IFS= read -r nightly_bootstrap_line; do
+        [[ -n "$nightly_bootstrap_line" && "$line" == "$nightly_bootstrap_line"* ]] && continue 2
+      done <<< "$nightly_bootstrap_lines"
+    fi
     content="${line#*:*:}"
     if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"

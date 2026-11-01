@@ -495,13 +495,41 @@ jobs:
   # decideNewest() also decides the newest request GitHub evicted from this
   # queue (found by run title and the eviction annotation, hence checks: read)
   # whose commit contains this request's, through the same guard.
+  pick-nightly-promotion-runner:
+    if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux' && (contains(inputs.promote_nightly_next_sha, 'tick:') || github.triggering_actor != 'github-actions[bot]')
+    # Main-only portable bootstrap. The shared owned pool does not release
+    # credentials; promotion waits for a unique exclusive admission below.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || 'glaeda-nightly-std-xcode-26.6' }}
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    outputs:
+      runner: ${{ steps.admit.outputs.runner }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/nightly_promotion_admission.py
+            scripts/ci/fleet_admission_transport.py
+            .github/runners.json
+          sparse-checkout-cone-mode: false
+      - name: Admit an exclusive promotion runner
+        id: admit
+        env:
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+        run: python3 scripts/ci/nightly_promotion_admission.py
+
   promote-nightly-next:
+    needs: pick-nightly-promotion-runner
     # The cadence (promote-nightly-next.mjs decideRequest): a landing's request (github-actions[bot], no "tick:")
     # never enters the promote queue, where it could evict the 30-minute tick's waiting request.
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux' && (contains(inputs.promote_nightly_next_sha, 'tick:') || github.triggering_actor != 'github-actions[bot]')
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ needs.pick-nightly-promotion-runner.outputs.runner }}
     # One header-directed quota-reset wait (at most 65m), then the guard/move.
     timeout-minutes: 75
     permissions:
@@ -524,10 +552,15 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: |
+            scripts/ci/signing-runner-claim.sh
+            scripts/ci/glaeda-signing-hooks.txt
             scripts/ci/promote-nightly-next.mjs
             scripts/ci/nightly_next_train.py
             .github/release-surface.txt
           sparse-checkout-cone-mode: false
+
+      - name: Verify exclusive claim before release credentials
+        run: bash scripts/ci/signing-runner-claim.sh
 
       # Reads in the promotion decision use the quota-isolated route App when
       # available. The release App below still owns the protected branch move;
@@ -590,6 +623,10 @@ jobs:
             core.setOutput('decision', JSON.stringify(decision));
             if (decision.action === 'refuse') core.setFailed(decision.reason);
             else core.notice(`${decision.action}: ${decision.reason}`);
+
+      - name: Recheck exclusive claim after the promotion decision
+        if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && steps.decide.outputs.dry_run != 'true'
+        run: bash scripts/ci/signing-runner-claim.sh
 
       - name: Mint release App token
         id: app-token

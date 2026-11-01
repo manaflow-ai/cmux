@@ -991,7 +991,6 @@ def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallba
     jobs = yaml.safe_load(WORKFLOW)["jobs"]
     for name in (
         "decide",
-        "promote-nightly-next",
         "await-release-surface-ack",
         "promote-nightly-next-acked",
         "resolve-nightly-cmux-tui-client",
@@ -1003,6 +1002,7 @@ def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallba
         runner = str(jobs[name]["runs-on"])
         assert "blacksmith-2vcpu-ubuntu-2404" in runner, name
         assert runner != "ubuntu-24.04", name
+    assert jobs["promote-nightly-next"]["runs-on"] == "${{ needs.pick-nightly-promotion-runner.outputs.runner }}"
     probe = yaml.safe_load((ROOT / ".github/workflows/nightly-tag-permission-probe.yml").read_text())
     assert "blacksmith-2vcpu-ubuntu-2404" in str(probe["jobs"]["probe"]["runs-on"])
     for workflow in ("nightly-next-tick.yml", "nightly-next-feed-watch.yml"):
