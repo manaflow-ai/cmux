@@ -26,8 +26,9 @@ extension SidebarWorkspaceSnapshotTests {
     }
 
     @Test func presentationKeyChangesWhenAgentActivityVisibilityChanges() {
-        let hidden = Self.presentationKey(showsAgentActivity: false)
-        let visible = Self.presentationKey(showsAgentActivity: true)
+        let workspaceId = UUID()
+        let hidden = Self.presentationKey(workspaceId: workspaceId, showsAgentActivity: false)
+        let visible = Self.presentationKey(workspaceId: workspaceId, showsAgentActivity: true)
 
         #expect(hidden != visible)
         #expect(!hidden.showsAgentActivity)
