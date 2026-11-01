@@ -19,6 +19,7 @@ import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
 import { cleanText, mcpCall } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { WriteLabel, writeCall } from "./WriteLabel";
@@ -55,7 +56,8 @@ export function toolIcon(kind?: string): ReactNode {
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
 export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  // Closed, or open in the Verbose transcript view.
+  const [open, setOpen] = useRowDisclosure(item.tool?.id);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
   const [reveal, setReveal] = useState(0);
   useFindReveal(

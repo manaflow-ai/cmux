@@ -1,6 +1,666 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "chatMenu.transcriptView": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض السجل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaz transkripta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transskriptvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkriptansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript view"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista de la transcripción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affichage de la transcription"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista trascrizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "トランスクリプト表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទិដ្ឋភាពប្រតិចារិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화 기록 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkripsjonsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Widok transkrypcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visualização da transcrição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вид стенограммы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มุมมองบันทึกการสนทนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Döküm görünümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вигляд стенограми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ xem bản ghi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对话记录视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對話記錄檢視"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.normal": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عادي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធម្មតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보통"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обычный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звичайний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bình thường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.thinking": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التفكير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razmišljanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tænkning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razonamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réflexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ragionamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការគិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "생각"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tenkning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Myślenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raciocínio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размышления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การคิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düşünme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Міркування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suy nghĩ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.verbose": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفصّل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausführlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbose"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detallado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Détaillé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dettagliato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លម្អិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자세히"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szczegółowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detalhado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подробный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayrıntılı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Детальний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chi tiết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "详细"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.makeDefault": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اجعل {view} الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi {view} kao zadano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gør {view} til standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view} als Standard festlegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make {view} the default"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar {view} de forma predeterminada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Définir {view} par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta {view} come predefinito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view}をデフォルトにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ {view} ជាលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view}을(를) 기본값으로 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjør {view} til standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustaw {view} jako domyślny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tornar {view} o padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сделать «{view}» по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้ง {view} เป็นค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view} varsayılan olsun"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зробити «{view}» типовим"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt {view} làm mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将{view}设为默认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將{view}設為預設"
+          }
+        }
+      }
+    },
     "switch.action.shareWithMe": {"comment":"Agent pane: a teammate's Cloud machine refused the chat; grant yourself chats on it (team admins)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Share with Me"}},"ar":{"stringUnit":{"state":"needs_review","value":"شاركه معي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Podijeli sa mnom"}},"da":{"stringUnit":{"state":"needs_review","value":"Del med mig"}},"de":{"stringUnit":{"state":"needs_review","value":"Mit mir teilen"}},"es":{"stringUnit":{"state":"needs_review","value":"Compartir conmigo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Partager avec moi"}},"it":{"stringUnit":{"state":"needs_review","value":"Condividi con me"}},"ja":{"stringUnit":{"state":"needs_review","value":"自分と共有"}},"km":{"stringUnit":{"state":"needs_review","value":"ចែករំលែកជាមួយខ្ញុំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"나와 공유"}},"nb":{"stringUnit":{"state":"needs_review","value":"Del med meg"}},"pl":{"stringUnit":{"state":"needs_review","value":"Udostępnij mi"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Compartilhar comigo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Поделиться со мной"}},"th":{"stringUnit":{"state":"needs_review","value":"แชร์ให้ฉัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Benimle paylaş"}},"uk":{"stringUnit":{"state":"needs_review","value":"Поділитися зі мною"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chia sẻ với tôi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"与我共享"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"與我共享"}}}},
     "switch.action.askOwner": {"comment":"Agent pane: copy a request asking the machine's owner to share it","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ask the Owner"}},"ar":{"stringUnit":{"state":"needs_review","value":"اطلب من المالك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pitaj vlasnika"}},"da":{"stringUnit":{"state":"needs_review","value":"Spørg ejeren"}},"de":{"stringUnit":{"state":"needs_review","value":"Besitzer fragen"}},"es":{"stringUnit":{"state":"needs_review","value":"Pedir al propietario"}},"fr":{"stringUnit":{"state":"needs_review","value":"Demander au propriétaire"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiedi al proprietario"}},"ja":{"stringUnit":{"state":"needs_review","value":"オーナーに依頼"}},"km":{"stringUnit":{"state":"needs_review","value":"សួរម្ចាស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"소유자에게 요청"}},"nb":{"stringUnit":{"state":"needs_review","value":"Spør eieren"}},"pl":{"stringUnit":{"state":"needs_review","value":"Poproś właściciela"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pedir ao dono"}},"ru":{"stringUnit":{"state":"needs_review","value":"Попросить владельца"}},"th":{"stringUnit":{"state":"needs_review","value":"ขอจากเจ้าของ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sahibine sor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Попросити власника"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hỏi chủ sở hữu"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请求所有者"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請求擁有者"}}}},
     "switch.share.forbidden": {"comment":"Agent pane: Share with Me was refused because the person is neither the machine's creator nor a team admin","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only the machine's creator or a team admin can share it. Ask the owner to share it with you."}},"ar":{"stringUnit":{"state":"needs_review","value":"لا يمكن مشاركة الجهاز إلا لمنشئه أو لمسؤول الفريق. اطلب من المالك مشاركته معك."}},"bs":{"stringUnit":{"state":"needs_review","value":"Mašinu može podijeliti samo njen kreator ili administrator tima. Zamolite vlasnika da je podijeli s vama."}},"da":{"stringUnit":{"state":"needs_review","value":"Kun maskinens opretter eller en teamadministrator kan dele den. Bed ejeren om at dele den med dig."}},"de":{"stringUnit":{"state":"needs_review","value":"Nur wer die Maschine erstellt hat oder ein Team-Admin kann sie teilen. Bitte den Besitzer, sie mit dir zu teilen."}},"es":{"stringUnit":{"state":"needs_review","value":"Solo quien creó la máquina o un administrador del equipo puede compartirla. Pide al propietario que la comparta contigo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Seul le créateur de la machine ou un administrateur de l'équipe peut la partager. Demandez au propriétaire de la partager avec vous."}},"it":{"stringUnit":{"state":"needs_review","value":"Solo chi ha creato la macchina o un amministratore del team può condividerla. Chiedi al proprietario di condividerla con te."}},"ja":{"stringUnit":{"state":"needs_review","value":"このマシンを共有できるのは作成者かチーム管理者だけです。オーナーに共有を依頼してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"មានតែអ្នកបង្កើតម៉ាស៊ីន ឬអ្នកគ្រប់គ្រងក្រុមប៉ុណ្ណោះដែលអាចចែករំលែកវាបាន។ សូមស្នើម្ចាស់ឱ្យចែករំលែកវាជាមួយអ្នក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 기기는 만든 사람이나 팀 관리자만 공유할 수 있습니다. 소유자에게 공유를 요청하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Bare den som opprettet maskinen eller en teamadministrator kan dele den. Be eieren om å dele den med deg."}},"pl":{"stringUnit":{"state":"needs_review","value":"Maszynę może udostępnić tylko jej twórca lub administrator zespołu. Poproś właściciela, aby ci ją udostępnił."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Só quem criou a máquina ou um administrador da equipe pode compartilhá-la. Peça ao dono para compartilhá-la com você."}},"ru":{"stringUnit":{"state":"needs_review","value":"Поделиться машиной может только её создатель или администратор команды. Попросите владельца поделиться ею с вами."}},"th":{"stringUnit":{"state":"needs_review","value":"มีเพียงผู้สร้างเครื่องหรือผู้ดูแลทีมเท่านั้นที่แชร์เครื่องนี้ได้ ขอให้เจ้าของแชร์ให้คุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makineyi yalnızca onu oluşturan kişi veya bir ekip yöneticisi paylaşabilir. Sahibinden makineyi sizinle paylaşmasını isteyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Поділитися машиною може лише її творець або адміністратор команди. Попросіть власника поділитися нею з вами."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chỉ người tạo máy hoặc quản trị viên nhóm mới chia sẻ được máy này. Hãy nhờ chủ sở hữu chia sẻ với bạn."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"只有这台机器的创建者或团队管理员可以共享它。请让所有者与你共享。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"只有這台機器的建立者或團隊管理員可以共享它。請擁有者與你共享。"}}}},
@@ -212127,7 +212787,6 @@
     },
     "trust.continueWithoutFolderLabel": {"comment":"Folder trust: action to continue without a project","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue without folder"}},"ar":{"stringUnit":{"state":"translated","value":"المتابعة دون مجلد"}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi bez foldera"}},"da":{"stringUnit":{"state":"translated","value":"Fortsæt uden mappe"}},"de":{"stringUnit":{"state":"translated","value":"Ohne Ordner fortfahren"}},"es":{"stringUnit":{"state":"translated","value":"Continuar sin carpeta"}},"fr":{"stringUnit":{"state":"translated","value":"Continuer sans dossier"}},"it":{"stringUnit":{"state":"translated","value":"Continua senza cartella"}},"ja":{"stringUnit":{"state":"translated","value":"フォルダなしで続行"}},"km":{"stringUnit":{"state":"translated","value":"បន្តដោយគ្មានថត"}},"ko":{"stringUnit":{"state":"translated","value":"폴더 없이 계속"}},"nb":{"stringUnit":{"state":"translated","value":"Fortsett uten mappe"}},"pl":{"stringUnit":{"state":"translated","value":"Kontynuuj bez folderu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Continuar sem pasta"}},"ru":{"stringUnit":{"state":"translated","value":"Продолжить без папки"}},"th":{"stringUnit":{"state":"translated","value":"ดำเนินการต่อโดยไม่มีโฟลเดอร์"}},"tr":{"stringUnit":{"state":"translated","value":"Klasör olmadan devam et"}},"uk":{"stringUnit":{"state":"translated","value":"Продовжити без папки"}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục không có thư mục"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在没有文件夹的情况下继续"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在沒有資料夾的情況下繼續"}}}},
     "trust.continueWithoutFolder": {"comment":"Folder trust: continue after declining access","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue without folder context: project hooks and config won't load. Only draft text is copied. Attachments are not carried; they stay in the original chat."}},"ar":{"stringUnit":{"state":"translated","value":"المتابعة دون سياق المجلد: لن تُحمّل إعدادات المشروع وخطافاته. يُنسخ نص المسودة فقط. لا تُنقل المرفقات؛ وتبقى في المحادثة الأصلية."}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi bez konteksta foldera: postavke i hookovi projekta se neće učitati. Kopira se samo tekst nacrta. Prilozi se ne prenose; ostaju u izvornom razgovoru."}},"da":{"stringUnit":{"state":"translated","value":"Fortsæt uden mappekontekst: projektets hooks og konfiguration indlæses ikke. Kun kladdeteksten kopieres. Vedhæftninger flyttes ikke; de bliver i den oprindelige chat."}},"de":{"stringUnit":{"state":"translated","value":"Ohne Ordnerkontext fortfahren: Projekt-Hooks und -Konfiguration werden nicht geladen. Nur der Entwurfstext wird kopiert. Anhänge werden nicht übertragen; sie bleiben im ursprünglichen Chat."}},"es":{"stringUnit":{"state":"translated","value":"Continuar sin contexto de carpeta: no se cargarán los hooks ni la configuración del proyecto. Solo se copia el texto del borrador. Los archivos adjuntos no se transfieren; permanecen en el chat original."}},"fr":{"stringUnit":{"state":"translated","value":"Continuer sans contexte de dossier : les hooks et la configuration du projet ne seront pas chargés. Seul le texte du brouillon est copié. Les pièces jointes ne sont pas transférées ; elles restent dans la conversation d’origine."}},"it":{"stringUnit":{"state":"translated","value":"Continua senza contesto della cartella: hook e configurazione del progetto non verranno caricati. Viene copiato solo il testo della bozza. Gli allegati non vengono trasferiti e restano nella chat originale."}},"ja":{"stringUnit":{"state":"translated","value":"フォルダのコンテキストなしで続行：プロジェクトのフックと設定は読み込まれません. 下書きのテキストのみコピーされます。添付ファイルは引き継がれず、元のチャットに残ります。"}},"km":{"stringUnit":{"state":"translated","value":"បន្តដោយគ្មានបរិបទថត៖ hooks និងការកំណត់គម្រោងនឹងមិនត្រូវបានផ្ទុកទេ. មានតែអត្ថបទព្រាងប៉ុណ្ណោះដែលត្រូវបានចម្លង។ ឯកសារភ្ជាប់មិនត្រូវបានផ្ទេរទេ ហើយនៅក្នុងការជជែកដើម។"}},"ko":{"stringUnit":{"state":"translated","value":"폴더 컨텍스트 없이 계속: 프로젝트 훅과 구성을 불러오지 않습니다. 초안 텍스트만 복사됩니다. 첨부 파일은 전달되지 않고 원래 채팅에 남습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Fortsett uten mappekontekst: prosjektets hooks og konfigurasjon lastes ikke inn. Bare utkastteksten kopieres. Vedlegg overføres ikke; de blir i den opprinnelige chatten."}},"pl":{"stringUnit":{"state":"translated","value":"Kontynuuj bez kontekstu folderu: hooki i konfiguracja projektu nie zostaną załadowane. Kopiowany jest tylko tekst wersji roboczej. Załączniki nie są przenoszone; pozostają w pierwotnym czacie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Continuar sem contexto da pasta: os hooks e a configuração do projeto não serão carregados. Apenas o texto do rascunho é copiado. Os anexos não são transferidos; permanecem no chat original."}},"ru":{"stringUnit":{"state":"translated","value":"Продолжить без контекста папки: хуки и конфигурация проекта не загрузятся. Копируется только текст черновика. Вложения не переносятся и остаются в исходном чате."}},"th":{"stringUnit":{"state":"translated","value":"ดำเนินการต่อโดยไม่มีบริบทโฟลเดอร์: จะไม่โหลด hooks และการตั้งค่าโปรเจกต์. คัดลอกเฉพาะข้อความร่าง ไฟล์แนบจะไม่ถูกย้ายและยังคงอยู่ในแชทเดิม"}},"tr":{"stringUnit":{"state":"translated","value":"Klasör bağlamı olmadan devam et: proje kancaları ve yapılandırması yüklenmeyecek. Yalnızca taslak metni kopyalanır. Ekler aktarılmaz; özgün sohbette kalır."}},"uk":{"stringUnit":{"state":"translated","value":"Продовжити без контексту папки: хуки та конфігурацію проєкту не буде завантажено. Копіюється лише текст чернетки. Вкладення не переносяться й залишаються у вихідному чаті."}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục không có ngữ cảnh thư mục: hook và cấu hình dự án sẽ không được tải. Chỉ sao chép văn bản nháp. Tệp đính kèm không được chuyển và vẫn ở trong cuộc trò chuyện gốc."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在没有文件夹上下文的情况下继续：不会加载项目钩子和配置. 仅复制草稿文本。附件不会转移，仍保留在原聊天中。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在沒有資料夾內容的情況下繼續：不會載入專案掛鉤和設定. 僅複製草稿文字。附件不會轉移，仍保留在原聊天中。"}}}},
-
     "trust.notNow": {
       "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
       "extractionState": "manual",
