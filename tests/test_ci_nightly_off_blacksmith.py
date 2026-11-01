@@ -50,9 +50,8 @@ BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
 })
 
-# Secret-free publication bookkeeping and the advisory visual verdicts use the
-# same pooled picker. They must not regress to a hosted or literal runner when
-# a new control is added to nightly.yml.
+# Secret-free late bookkeeping and advisory verdicts have no fresh fleet lease.
+# Only these centrally declared light jobs may bootstrap on hosted Linux.
 PUBLICATION_POOL_JOBS = (
     "visual-gate-nightly-verdict", "report-visual-gate-nightly",
     "nightly-identity-legacy-published", "report-nightly-failure",
@@ -314,22 +313,17 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertIn("decide", jobs)
         self.assertNotIn("decide", BLACKSMITH_LINUX_ONLY_DEBT)
 
-    def test_publication_controls_use_the_pool_picker(self) -> None:
-        """Publication bookkeeping has a fleet-first route and no runner pin.
-
-        These jobs carry no release key. The picker may select an owned mini and
-        gives a bounded Blacksmith fallback, while a direct hosted or one-label
-        runs-on would strand the feed behind paid capacity.
-        """
+    def test_publication_controls_use_declared_light_routing_without_stale_dependencies(self) -> None:
+        import json
         import yaml
         jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
         for name in PUBLICATION_POOL_JOBS:
             with self.subTest(job=name):
-                runs_on = str(jobs[name].get("runs-on", ""))
-                self.assertIn("needs.pick-nightly-build-runner.outputs.", runs_on)
-                self.assertNotRegex(runs_on, r"^\s*(?:ubuntu|macos|blacksmith)-")
-                self.assertIn("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'", runs_on)
-                self.assertNotIn("CI_TRUSTED_RUNNER", runs_on)
+                self.assertIn(f"nightly.yml#{name}", declared)
+                self.assertNotIn("pick-nightly-build-runner", jobs[name]["needs"])
+                self.assertNotIn("needs.pick-nightly-build-runner.outputs.", jobs[name]["runs-on"])
+                self.assertNotIn("environment", jobs[name])
 
     def test_no_job_takes_a_mac_only_while_the_overflow_switch_is_on(self) -> None:
         """The overflow switch never sends a job to a macOS label it would not take otherwise.
