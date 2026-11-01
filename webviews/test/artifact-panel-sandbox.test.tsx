@@ -223,3 +223,17 @@ test("the gallery's passive frame runs only its own nonce'd guard script, and le
     scope.location = previous;
   }
 });
+
+test("the passive frame is never sent a handler the inert rewrite exposed", async () => {
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const code = `<img src="data:," title="href='x' onerror='for(;;){}'">`;
+  act(() => root!.render(<ArtifactPanel artifact={{ kind: "html", lang: "html", code }} onClose={() => {}} />));
+  const frame = host.querySelector("iframe");
+  const html = frame ? sentDocument(frame) : undefined;
+  if (html !== undefined) {
+    const template = dom.window.document.createElement("template");
+    template.innerHTML = html;
+    for (const element of template.content.querySelectorAll("*"))
+      for (const attribute of element.attributes) expect(attribute.name).not.toStartWith("on");
+  }
+});

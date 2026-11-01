@@ -247,3 +247,24 @@ test("links that leave the document point nowhere, so no engine resolves their h
     for (const attribute of element.attributes)
       if (/^(xlink:)?href$/i.test(attribute.name)) expect(attribute.value).not.toContain(".invalid");
 });
+
+/// Markup that carries no script as written, whose link text sits where a careless rewrite would
+/// close an attribute early and expose what follows (router review of cmux#31174).
+const BREAKOUTS = [
+  `<img src="data:," title="href='x' onerror='for(;;){}'">`,
+  `<img src="data:," title='href="x" onerror="for(;;){}"'>`,
+  `<p title="a xlink:href='y' onclick='1'">p</p>`,
+  `<svg><a title="href=z onload=1"><text>t</text></a></svg>`,
+  `<img src="data:," alt="x/href='q' onerror='1'" title="http-equiv='refresh' onerror='1'">`,
+];
+
+test("making a document inert never makes it scripted: no rewrite opens an attribute", async () => {
+  const { artifactNeedsRun } = await import("../src/agent-session/acpmux/conversation/artifactSandbox");
+  for (const code of BREAKOUTS) {
+    expect(artifactNeedsRun(code)).toBe(false);
+    const html = inlinePreviewHtml("html", code);
+    expect(artifactNeedsRun(html)).toBe(false);
+    for (const element of parse(html).querySelectorAll("*"))
+      for (const attribute of element.attributes) expect(attribute.name).not.toStartWith("on");
+  }
+});
