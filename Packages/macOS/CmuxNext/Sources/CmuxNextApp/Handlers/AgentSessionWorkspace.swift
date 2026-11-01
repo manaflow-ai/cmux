@@ -3,6 +3,7 @@ import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextSidebar
 import Foundation
 
@@ -102,13 +103,15 @@ enum AgentSessionWorkspace {
         let shownName = name ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
         let instant = group != nil || refused ? nil
             : tabs.showWorkspace(key, name: shownName, index: nil, cwd: nil, token: nil, session: (session, host, true), on: daemon, repair: repair)
+        // In the active window's lane (Close Workspace's), so a close of the stand-in pressed before the daemon answers closes what it made.
+        let created = instant.map { instant in WorkspaceLanes.shared.createInBackground(in: services.windows.active?.state.id) { try await instant.confirm(DaemonConnection.lateReplyDeadline()) } }
         return Task { @MainActor in
             do {
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
                 // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
-                if let instant { _ = try await instant.confirm(DaemonConnection.lateReplyDeadline()) }
+                if let created { _ = try await created.value }
                 let tab = if let instant { tabs.resolve(instant.tabKey) } else {
                     try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { created in
                         try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true, on: daemon, tabs: tabs)

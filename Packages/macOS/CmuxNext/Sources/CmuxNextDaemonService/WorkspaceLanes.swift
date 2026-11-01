@@ -75,6 +75,16 @@ public final class WorkspaceLanes {
         return try await task.value
     }
 
+    /// Starts `body`, a create of a workspace that no close pressed in
+    /// `window` takes as its newest (an agent's or a script's background
+    /// open), after the window's earlier operations. A close of that
+    /// workspace queued after it (Close Workspace, a row's close) runs once it
+    /// has, so it closes what the daemon made instead of failing on a
+    /// workspace the daemon does not have yet and leaving it to come back.
+    public func createInBackground(in window: String?, _ body: @escaping @MainActor () async throws -> String) -> Task<String, Error> {
+        enqueue(window ?? "", body)
+    }
+
     /// Runs `body` after the window's earlier operations (a close of a
     /// workspace the window shows); the task ends when it has.
     @discardableResult
