@@ -60,6 +60,10 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     private(set) var contentHeight: CGFloat = 0
     /// Space under the last row.
     var trailingGap: CGFloat = 24 { didSet { if trailingGap != oldValue { markDirty(max(items.count - 1, 0)) } } }
+    /// Whether a cell's measurement can be the row's height now: false while a disclosure change
+    /// waits for the list's reload (a SwiftUI row reads its disclosures itself, so its cell may
+    /// already draw the new state while its layout item is still the old one's).
+    var measuresSettle: () -> Bool = { true }
     /// The reader follows the newest row: a row above that changes height does not move
     /// what they see (the controller keeps the bottom in place instead).
     var followsBottom: () -> Bool = { true }
@@ -178,6 +182,14 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         prepareIfNeeded()
     }
 
+    override class var layoutAttributesClass: AnyClass { ChatRowAttributes.self }
+
+    /// The revision and disclosures of row `id` as laid out now (its cell is configured with them).
+    func shownState(of id: String) -> ChatRowAttributes.Shown? {
+        guard let row = index[id], row < items.count else { return nil }
+        return .init(revision: items[row].revision, fold: items[row].fold)
+    }
+
     override var collectionViewContentSize: CGSize { CGSize(width: width, height: contentHeight) }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
@@ -211,7 +223,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     }
 
     private func attributes(_ row: Int) -> UICollectionViewLayoutAttributes {
-        let attributes = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: row, section: 0))
+        let attributes = ChatRowAttributes(forCellWith: IndexPath(item: row, section: 0))
         attributes.frame = CGRect(x: 0, y: tops[row], width: width, height: heights[row])
         return attributes
     }
@@ -222,8 +234,19 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
                                          withOriginalAttributes original: UICollectionViewLayoutAttributes) -> Bool {
         let row = preferred.indexPath.item
         guard row < items.count else { return false }
-        measurements += 1
         let item = items[row]
+        measurements += 1
+        // Only a measurement of what the row shows now is kept as its height for that state. A
+        // cell configured with another state (the layout pass between installing a row's new state
+        // and reconfiguring its cell) measured the old state, which was kept for the new one and
+        // given to the cell as its known height. While a disclosure change waits for the list's
+        // reload, a SwiftUI row may already draw its new state under the old state's item. Either
+        // is laid out as drawn, and not kept: the cell's reconfigure, or its content's own change,
+        // sizes it again.
+        guard let shown = (preferred as? ChatRowAttributes)?.shown, shown.revision == item.revision, shown.fold == item.fold,
+              measuresSettle() else {
+            return abs(preferred.size.height - heights[row]) > 0.25
+        }
         measured[item.id, default: RowHeights()].record(Measured(revision: item.revision, fold: item.fold, width: width,
                                                                  height: preferred.size.height))
         return abs(preferred.size.height - heights[row]) > 0.25
@@ -243,6 +266,28 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
             context.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
         }
         return context
+    }
+}
+
+/// A row's layout attributes, and, from its cell's sizing pass, the state the cell drew when it
+/// measured (`ChatTranscriptLayout.shouldInvalidateLayout(forPreferredLayoutAttributes:)`).
+final class ChatRowAttributes: UICollectionViewLayoutAttributes {
+    struct Shown: Equatable {
+        var revision: Int
+        var fold: Int
+    }
+
+    var shown: Shown?
+
+    override func copy(with zone: NSZone? = nil) -> Any {
+        let copy = super.copy(with: zone)
+        (copy as? ChatRowAttributes)?.shown = shown
+        return copy
+    }
+
+    override func isEqual(_ object: Any?) -> Bool {
+        guard let other = object as? ChatRowAttributes, other.shown == shown else { return false }
+        return super.isEqual(object)
     }
 }
 
@@ -277,6 +322,9 @@ final class ChatTranscriptCollectionView: UICollectionView {
 /// A transcript row's cell: SwiftUI content (`ChatRowView`) that measures its own height.
 @MainActor
 final class ChatRowCell: UICollectionViewCell {
+    /// The row's revision and disclosures this cell draws (set when configured): what its
+    /// measurements are of.
+    var shown: ChatRowAttributes.Shown?
     /// The row's height measured before at a width for what it shows now (set when configured).
     /// It stands in for the first sizing pass after a configure only: a later pass comes from the
     /// content itself changing size, which is measured.
@@ -290,6 +338,12 @@ final class ChatRowCell: UICollectionViewCell {
             self.known = nil
             if abs(known.width - attributes.size.width) < 0.5, abs(known.height - attributes.size.height) < 0.5 { return attributes }
         }
+        // The hosted view applies a new configuration, and a disclosure change its views read
+        // themselves, in its own layout pass. Measured before it (the sizing pass right after a
+        // reconfigure), it reported its old or a half-applied drawing, which was kept as the
+        // row's height for the new state; its later update did not always size the cell again.
+        contentView.setNeedsLayout()
+        contentView.layoutIfNeeded()
         guard let fitted = attributes.copy() as? UICollectionViewLayoutAttributes else { return attributes }
         #if DEBUG
         let start = CACurrentMediaTime()
@@ -299,6 +353,7 @@ final class ChatRowCell: UICollectionViewCell {
             CGSize(width: attributes.size.width, height: UIView.layoutFittingCompressedSize.height),
             withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
         fitted.size = CGSize(width: attributes.size.width, height: max(1, ceil(size.height)))
+        (fitted as? ChatRowAttributes)?.shown = shown
         return fitted
     }
 }
@@ -409,6 +464,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         lookup.showAll = { [weak self] id in self?.showAll(id) }
         collectionView.prefetchDataSource = self
         layout.followsBottom = { [weak surface] in surface?.following ?? true }
+        layout.measuresSettle = { [weak self] in !(self?.disclosuresPending ?? false) }
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
         collectionView.selfSizingInvalidation = .enabledIncludingConstraints
@@ -992,6 +1048,7 @@ final class ChatRowLookup {
         shownNative[id] = false
         shownPool[id] = "H:" + row.hostedReuseKey
         cell.known = layout?.knownHeight(of: id)
+        cell.shown = layout?.shownState(of: id)
         cell.setFindMarked(id == findMarked)
         #if DEBUG
         let start = CACurrentMediaTime()
