@@ -40,8 +40,11 @@ type PaneWindow = Window & {
   cmuxAcpmuxDebug?: { pickFolder(cwd: string): unknown };
 };
 /// How long the host takes to answer `workspace.useFolder`: long enough for a newer request to
-/// replace the send's before its reply lands.
-const FOLDER_DELAY_MS = 1200;
+/// replace the send's before its reply lands. The play picks relay right after Return settles (a few
+/// frames), and it throws if the send started first, so a delay too short to race fails loudly. The
+/// play waits it out three times (the send, the newer pick, the next Return), so it stays short:
+/// 1200 ms kept the state at about 3.5 s, past its 2 s ready-time budget (ready-budgets.ts).
+const FOLDER_DELAY_MS = 400;
 
 /// The New Tab field is the Markdown field (#29659): typing goes to its editor, and its draft is its
 /// handle's plain text.
