@@ -156,7 +156,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onAction?(id: string): void;
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
-  onOpenChat?(key: string): void;
+  onOpenChat?(key: string): void | Promise<unknown>;
   /// Open in terminal from an All chats row's right-click menu.
   onOpenChatInTerminal?(key: string): void;
   onViewChat?(key: string): void;
