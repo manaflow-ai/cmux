@@ -74,11 +74,26 @@ export function rememberReadAhead(sessionId: string, tail: KeptTail): void {
 /// crosses to the host: a hover is a guess a person made, where the recent-chats pass is the page's
 /// own. Bounded as every hand-over is (`writeHostTail`), and by the host's 20 chats. False when the
 /// page holds no tail of the chat.
-export function shareReadAhead(sessionId: string): boolean {
+///
+/// Never older than what the host holds: another tab may have handed the host a newer read of the
+/// chat since this page read it, and a hover must not put an older transcript in its place (the
+/// next tab would draw fewer messages until its attach answers). So the host's copy is read first,
+/// and this page's goes over only when its newest record is at least as new.
+export async function shareReadAhead(sessionId: string): Promise<boolean> {
   const tail = keptTail(sessionId);
   if (!tail) return false;
+  const held = await callHost<unknown>("chat.tail.get", { sessionId }).then(tailFromHost, () => undefined);
+  if (held && newestSeq(held) > newestSeq(tail)) return false;
+  // This page read or forgot the chat meanwhile: that is what it stands behind now.
+  if (keptTail(sessionId) !== tail) return false;
   writeHostTail(sessionId, tail);
   return true;
+}
+
+function newestSeq(tail: KeptTail): number {
+  let newest = 0;
+  for (const event of tail.events) newest = Math.max(newest, event.seq);
+  return newest;
 }
 
 /// Keeps `tail` for this chat's next open, here and in the app host.

@@ -6,7 +6,7 @@
 //
 //   - a hover must REST on a row for HOVER_DWELL_MS, so a pointer passing over rows on its way
 //     somewhere reads none of them. One timer at a time: the next hover, a hover that left
-//     (no session), a low-power Mac and the client's close each cancel it;
+//     (no session), Low Power Mode (also turning on mid-dwell) and the client's close cancel it;
 //   - a chat read for a hover is not read again for HOVER_REFIRE_MS (the pointer leaving a row and
 //     coming back, a jittery pointer between two rows). The chats remembered for that are the
 //     HOVER_RECENT most recent, so the map never grows with the sidebar;
@@ -60,9 +60,11 @@ export class HoverPrefetch {
   /// still waiting out its dwell.
   hover(sessionId: string | undefined, options: HoverOptions = {}): void {
     if (this.stopped) return;
-    if (sessionId === this.pending && sessionId !== undefined) return;
+    // Low Power Mode first: it cancels a dwell on this same row too (the host sends it on again
+    // when the Mac turns Low Power Mode on, AgentPaneView+HoverPrefetch.swift).
+    if (options.lowPower || !sessionId) return this.cancel();
+    if (sessionId === this.pending) return;
     this.cancel();
-    if (!sessionId || options.lowPower) return;
     const firedAt = this.fired.get(sessionId);
     if (firedAt !== undefined && this.clock.now() - firedAt < HOVER_REFIRE_MS) return;
     this.pending = sessionId;

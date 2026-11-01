@@ -9,7 +9,8 @@
 //   - a rested hover reads the chat once and the host holds it; a new tab on it draws before its
 //     attach answers;
 //   - a pointer passing over rows reads none of them (dwell), and only the row it stops on is read;
-//   - a hover back on a chat read moments ago reads nothing again (dedupe);
+//   - a hover back on a chat read moments ago reads nothing again (dedupe), and a hover never puts
+//     an older copy over a newer one the host holds;
 //   - Low Power Mode, a hover that left and the client's close each cancel a waiting hover;
 //   - the policy's own bounds: one timer, the HOVER_RECENT chats remembered (eviction).
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
@@ -231,6 +232,40 @@ describe("sidebar hover prefetch, through the page on screen", () => {
     expect([...host.tails.keys()]).toEqual([CHATS[2]]);
   });
 
+  /// The Codex review of ea872ad4: a hover on a chat this page read ahead earlier, while another tab
+  /// has since handed the host a newer read of it, must not put the page's older copy over the
+  /// host's. The next tab would draw fewer messages until its attach answered.
+  test("a hover never replaces a newer host copy with this page's older one", async () => {
+    const shown = await worker();
+    const chat = CHATS[1]!;
+    shown.client.hoverPrefetch(chat);
+    await rest();
+    expect(shown.daemon.reads.get(chat)).toBe(1);
+    // Another tab read the chat on since: the host's copy now ends two records later.
+    const newer = structuredClone(host.tails.get(chat));
+    const last = newer.events.at(-1);
+    newer.events.push(
+      { ...last, seq: last.seq + 1, kind: "user_message", dir: "mux", msg: { text: "A newer question." } },
+      { ...last, seq: last.seq + 2 },
+    );
+    host.tails.set(chat, newer);
+    // The pointer comes back to the row past the refire window: no read is needed (this page's
+    // read is fresh by its own clock), and its older copy must not go over the host's.
+    (shown.client as unknown as { hoverReads: { fired: Map<string, number> } }).hoverReads.fired.clear();
+    shown.client.hoverPrefetch(undefined);
+    shown.client.hoverPrefetch(chat);
+    await rest();
+    expect(shown.daemon.reads.get(chat)).toBe(1);
+    expect(host.tails.get(chat).events.length).toBe(newer.events.length);
+
+    // And a new tab on the chat draws the newer copy.
+    resetKeptTailsForTests();
+    const opened = page(chat, { hold: true });
+    await flush();
+    expect(text(opened.last())).toContain("A newer question.");
+    void opened.client.then((client) => client.close());
+  });
+
   test("a hover back on a chat read moments ago reads nothing again", async () => {
     const shown = await worker();
     shown.client.hoverPrefetch(CHATS[1]);
@@ -357,6 +392,20 @@ describe("the hover policy (hoverPrefetch.ts)", () => {
     advance(HOVER_DWELL_MS);
     expect(read.slice(before)).toEqual(["chat-0"]);
     expect(policy.remembered).toBe(HOVER_RECENT);
+  });
+
+  test("Low Power Mode on the same row cancels its waiting dwell", () => {
+    const { clock, advance, pending } = manualClock();
+    const read: string[] = [];
+    const policy = new HoverPrefetch((id) => read.push(id), clock);
+    policy.hover("b");
+    policy.hover("b", { lowPower: true });
+    expect(pending()).toBe(0);
+    // And the host's cancel when the Mac turns Low Power Mode on (no row).
+    policy.hover("c");
+    policy.hover(undefined, { lowPower: true });
+    advance(HOVER_DWELL_MS * 2);
+    expect(read).toEqual([]);
   });
 
   test("cancel: no session, Low Power Mode and stop leave no timer and read nothing", () => {

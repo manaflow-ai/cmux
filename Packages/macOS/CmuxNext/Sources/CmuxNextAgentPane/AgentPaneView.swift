@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -507,6 +508,10 @@ public final class AgentPaneView: NSView {
         }
         applyTheme()
     }
+
+    /// Low Power Mode turning on cancels a sidebar hover the page still waits on (`forwardHover`);
+    /// made on the first hover, released with the view.
+    var hoverPowerWatch: LowPowerModeObservation?
 
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in

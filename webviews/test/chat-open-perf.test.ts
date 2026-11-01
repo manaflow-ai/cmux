@@ -809,8 +809,11 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
             (window as unknown as { navigatedAt: number }).navigatedAt = performance.now();
             return;
           }
+          // raf-read: an init script on a page with no painted-frames hook yet; it reads only whether the
+          // tail's line is in the DOM, the same way for both arms, so the frame it lands on is no bias.
           requestAnimationFrame(look);
         };
+        // raf-read: as above.
         requestAnimationFrame(look);
       }, marker ?? null);
     };
