@@ -195,7 +195,10 @@ final class ProcessRun: Sendable {
         case .merge:
             stderrConfigured = posix_spawn_file_actions_adddup2(&actions, output.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
         case .separate:
-            stderrConfigured = posix_spawn_file_actions_adddup2(&actions, errorPipe!.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+            // .separate always creates errorPipe above; a missing pipe fails the configured guard below.
+            stderrConfigured = errorPipe.map {
+                posix_spawn_file_actions_adddup2(&actions, $0.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+            } ?? EBADF
         }
         let stdinConfigured: Int32
         if let input {
