@@ -10,11 +10,24 @@ public protocol WorkspaceHibernationHost: AnyObject {
     func hibernationResidents() -> [WorkspaceHibernationResident]
     /// The workspaces shown in a window now (with `sidebar.multiView` companions and the workspace under a top page).
     func hibernationShownWorkspaces() -> Set<String>
+    /// The spaces (rooms) the open windows show now: a change can hide a space without changing the shown workspaces.
+    func hibernationShownSpaces() -> Set<String>
     /// `workspaces.hibernation.*`.
     func hibernationPolicy() -> WorkspaceHibernationPlanner.Policy
     /// Frees `workspace`'s memory: unmounts it in every window, destroys its terminal surfaces,
     /// discards its pages and lets its chat pages go (each page's own checks may keep it).
     func hibernate(workspace: String)
+}
+
+extension WorkspaceHibernationHost {
+    /// No spaces: one implicit space every window shows.
+    public func hibernationShownSpaces() -> Set<String> { [] }
+}
+
+/// What the shown-set follow watches: the shown workspaces and the shown spaces.
+nonisolated struct WorkspaceHibernationShownState: Equatable, Sendable {
+    var workspaces: Set<String>
+    var spaces: Set<String>
 }
 
 /// The one-shot deadline the coordinator plans its next pass with (the App passes a `DemandTimer`;
@@ -82,6 +95,9 @@ public final class WorkspaceHibernation {
     /// When each workspace was last shown, or first seen (never idle on arrival).
     private var lastShown: [String: Date] = [:]
     private var shown: Set<String> = []
+    private var shownSpaces: Set<String> = []
+    /// When the armed deadline fires (nil: none armed by this coordinator), so a re-arm never postpones it.
+    private var dueAt: Date?
     /// Hibernated and not shown since.
     public private(set) var hibernated: Set<String> = []
     /// The memory pressure it plans for.
@@ -108,10 +124,14 @@ public final class WorkspaceHibernation {
 
     /// Follows the shown workspaces and the setting, and schedules the first pass.
     public func start() {
-        // task-owner: the shown-workspaces follow; cancelled in stop()
+        // task-owner: the shown-workspaces and shown-spaces follow; cancelled in stop()
         follows.append(Task { @MainActor [weak self] in
-            for await shown in ObservationStream({ [weak self] in self?.host.hibernationShownWorkspaces() ?? [] }) {
-                self?.noteShown(shown)
+            for await state in ObservationStream({ [weak self] in
+                WorkspaceHibernationShownState(workspaces: self?.host.hibernationShownWorkspaces() ?? [],
+                                               spaces: self?.host.hibernationShownSpaces() ?? [])
+            }) {
+                self?.noteShown(state.workspaces)
+                self?.noteShownSpaces(state.spaces)
             }
         })
         // task-owner: the settings follow; cancelled in stop()
@@ -128,17 +148,35 @@ public final class WorkspaceHibernation {
     public func stop() {
         follows.forEach { $0.cancel() }
         follows = []
-        deadline.cancel()
+        cancelDeadline()
     }
 
     /// The shown workspaces changed: one that left starts its idle clock, one that came back is awake.
+    /// One that left plans a pass within a minute (``replanSoon()``).
     public func noteShown(_ current: Set<String>) {
         let time = now()
         for id in shown.symmetricDifference(current) { lastShown[id] = time }
         for id in current { hibernated.remove(id) }
         let left = !shown.subtracting(current).isEmpty
         shown = current
-        if left, !deadline.isScheduled { schedulePass(after: .seconds(Int64(WorkspaceHibernationPlanner.minimumRecheck))) }
+        if left { replanSoon() }
+    }
+
+    /// The shown spaces changed (a window switched space, opened or closed): a space no window shows any
+    /// more puts its workspaces on the shorter hidden-space clock, so plan a pass within a minute.
+    public func noteShownSpaces(_ current: Set<String>) {
+        let hid = !shownSpaces.subtracting(current).isEmpty
+        shownSpaces = current
+        if hid { replanSoon() }
+    }
+
+    /// Arms a pass a minute out unless one is already due sooner. The pending deadline was planned on the old
+    /// shown set and can be later than a newly hidden space's clock; an earlier one is never postponed, so
+    /// switching back and forth cannot starve a pass.
+    private func replanSoon() {
+        let delay = WorkspaceHibernationPlanner.minimumRecheck
+        if deadline.isScheduled, let dueAt, dueAt <= now().addingTimeInterval(delay) { return }
+        schedulePass(after: .seconds(Int64(delay)))
     }
 
     /// Memory pressure changed: a higher level shortens the idle time, so plan now.
@@ -150,6 +188,7 @@ public final class WorkspaceHibernation {
 
     /// Plans and hibernates what is due, then arms the deadline for the next one.
     public func pass() {
+        dueAt = nil
         let time = now()
         let residents = host.hibernationResidents()
         let live = Set(residents.map(\.workspace))
@@ -177,7 +216,7 @@ public final class WorkspaceHibernation {
         if let next = plan.nextCheck {
             schedulePass(after: .milliseconds(Int64(max(next.timeIntervalSince(time), 1) * 1000)))
         } else {
-            deadline.cancel()
+            cancelDeadline()
         }
     }
 
@@ -206,6 +245,13 @@ public final class WorkspaceHibernation {
     }
 
     private func schedulePass(after delay: Duration) {
+        let (seconds, attoseconds) = delay.components
+        dueAt = now().addingTimeInterval(TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18)
         deadline.schedule(after: delay) { @MainActor [weak self] in self?.pass() }
+    }
+
+    private func cancelDeadline() {
+        dueAt = nil
+        deadline.cancel()
     }
 }
