@@ -88,6 +88,34 @@ jobs:
           permission-actions: read
           permission-contents: read
 
+      - name: Checkout the gh token wrapper from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: .gh-tooling
+          sparse-checkout: scripts/ci/gh_app_token.sh
+          sparse-checkout-cone-mode: false
+
+      # The App's own budget runs out too: runs 41245804266 and 41245954158
+      # (2026-10-31 21:55Z and 21:59Z) failed in "Resolve the source run" with
+      # "API rate limit exceeded for installation" on the minted token, and
+      # nothing fell back. scripts/ci/gh_app_token.sh sends each github.token
+      # call as the App first, retries a refused one with github.token, and
+      # backs off when both are refused, so one spent budget no longer fails
+      # the handoff. The steps below pass github.token for the wrapper to swap.
+      - name: Send this job's gh calls as the read App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        # The 30-minute job timeout leaves room for 10 minutes of backoff.
+        run: |
+          if [ -f .gh-tooling/scripts/ci/gh_app_token.sh ]; then
+            bash .gh-tooling/scripts/ci/gh_app_token.sh --install
+            echo "GH_BUDGET_WAIT_MAX_SECONDS=600" >> "$GITHUB_ENV"
+          fi
+
       # SOURCE_SHA is the commit the source run built: a dev daily run of
       # cmux-next.yml on feat-cmux-next whose name carries the SHA it was asked
       # for (cmux-next.yml fails a run whose checkout is not that SHA).
@@ -98,7 +126,7 @@ jobs:
       # 20:23Z on 2026-10-30 failed here (run 41122647270).
       - name: Resolve the source run
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -126,7 +154,7 @@ jobs:
       - name: Require a successful app-producing job
         id: source-gate
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -151,7 +179,7 @@ jobs:
         id: source-artifact
         if: steps.source-gate.outputs.eligible == 'true'
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -201,7 +229,7 @@ jobs:
         env:
           APP_PATH: ${{ steps.unpack.outputs.app }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
-          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -290,11 +318,15 @@ jobs:
   # tip-dmg-build, also secret-free, takes `dmg_label`: the same owned pool,
   # but only when it has two machines free now, so it never queues behind
   # verify on one mini; otherwise it stays on Blacksmith macOS.
+  # Only the std class (--owned-classes std): both jobs download the 188 MB
+  # signed app, which took 736-974 s on the light pool's minis (24 h to
+  # 2026-10-30), so verify ran 895 s median there against 41 s on std and
+  # 71 of 90 light runs hit its 15 minute limit.
   runner:
     needs: sign
     if: needs.sign.outputs.signed == 'true'
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 7
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
     # and the owned runners through the routing App's own budget.
@@ -312,6 +344,8 @@ jobs:
       cloud: ${{ steps.cloud.outputs.cloud }}
       alternate: ${{ steps.cloud.outputs.alternate }}
       attempt: ${{ steps.cloud.outputs.attempt }}
+      # 'true' when every Blacksmith macOS 26 label shows dead: `cloud` then starts nothing.
+      cloud_dead: ${{ steps.cloud.outputs.dead }}
     steps:
       # Only main's own dispatch of this workflow (the sign job's condition)
       # is offered an owned Mac, and only on its first attempt.
@@ -364,6 +398,8 @@ jobs:
         timeout-minutes: 2
         env:
           SNAPSHOT_TOKEN: ${{ github.token }}
+          # Its `_dead` marks and live macos_26 member (classic_nightly_build_runner.py).
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           FIRST: 6vcpu
           ENABLED: '0'
         run: python3 scripts/ci/classic_nightly_build_runner.py
@@ -380,6 +416,10 @@ jobs:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          # Its `_dead` marks: a marked label has no free slot (simple_pool_picker.state_from()), so with
+          # every Blacksmith macOS 26 label dead verify and tip-dmg-build wait on the owned fleet
+          # (--wait-owned) instead of queuing on a label that starts nothing (run 41250674182).
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           # The only Blacksmith label verify and tip-dmg-build fall back to (their
           # runs-on; test_cmux_next_dev_tip_feed.py keeps the three equal). Free
           # room on another label (macOS 15) is none for them.
@@ -396,6 +436,7 @@ jobs:
               --owned-slots "$OWNED_SLOTS" \
               --pr-xcode-app "$PR_XCODE_APP" \
               --blacksmith-labels "$BLACKSMITH_LABELS" \
+              --owned-classes std \
               "${@:2}"
           }
           # Two machines free: verify and tip-dmg-build both take the owned
@@ -1010,7 +1051,7 @@ jobs:
     # after checking its sha256 against this job's output.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Build the signer
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1228,7 +1269,7 @@ jobs:
     # so an older build can never overwrite a newer one.
     environment: release
     # Linux: only R2 writes are left here.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1408,7 +1449,10 @@ jobs:
     # DMG, signed, with no deltas for this build.
     continue-on-error: true
     needs: [sign, tip-dmg, tip, runner]
-    if: ${{ !cancelled() && needs.sign.outputs.build != '' && needs.tip.outputs.written == 'true' }}
+    # It holds the Sparkle key, which its script writes to a temporary file, so it stays on Blacksmith (a
+    # fresh VM) and never takes a reused owned Mac. With every Blacksmith macOS 26 label dead it skips:
+    # the feed already has the full DMG, and run 41249342756's tip-deltas queued on a dead label for hours.
+    if: ${{ !cancelled() && needs.sign.outputs.build != '' && needs.tip.outputs.written == 'true' && needs.runner.outputs.cloud_dead != 'true' }}
     # No concurrency group (a group replaces a pending run, which the dev-build
     # rule forbids): the feed write is a compare-and-swap that adds deltas only
     # to this build's item while it is still the newest.

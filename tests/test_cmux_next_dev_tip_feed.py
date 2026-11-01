@@ -197,6 +197,10 @@ fallbacks = {job["runs-on"].rsplit("'", 2)[-2] for job in (build_job, jobs["veri
 check(fallbacks == {pick["env"]["BLACKSMITH_LABELS"].rsplit("'", 2)[-2]}
       and '--blacksmith-labels "$BLACKSMITH_LABELS"' in pick["run"],
       "the pick counts Blacksmith room only on verify's and tip-dmg-build's own fallback label")
+# Both jobs download the 188 MB signed app: the light pool's minis took 736-974 s for it (24 h to
+# 2026-10-30), so the pick names or waits on the std class only.
+check("--owned-classes std" in pick["run"],
+      "the pick keeps verify and tip-dmg-build off the light owned class (its download is too slow)")
 build_steps = [step for step in build_job["steps"] if isinstance(step, dict)]
 fresh = [i for i, step in enumerate(build_steps) if 'rm -rf "$dir"' in str(step.get("run", ""))
          and '"$RUNNER_TEMP/' in str(step.get("run", ""))]

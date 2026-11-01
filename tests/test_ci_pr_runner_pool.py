@@ -2063,6 +2063,44 @@ class RootRunners(unittest.TestCase):
                            "--wait-owned", "--blacksmith-labels", mac26], env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
         self.assertEqual(output.getvalue().strip(), mac26)
 
+    def test_owned_classes_keep_the_pick_off_other_owned_classes(self):
+        """cmux-next-dev-daily.yml's verify and tip-dmg-build: std only; a free light pool is no room for them."""
+        picker = e2e_pool.simple_pool_picker
+        mac26 = picker.BLACKSMITH[1]
+        std, light = "glaeda-std-xcode-26.6", "glaeda-light-xcode-26.6"
+        state = picker.State(
+            jobs=2, owned_enabled=True, wait_on_owned=True,
+            owned=(picker.Pool(std, 42, 42, 3, free=0), picker.Pool(light, 2, 0, 0, free=2)),
+            blacksmith=(picker.Pool(picker.BLACKSMITH[0], 5, 5, 3), picker.Pool(mac26, 10, 0, 4, stalled=True)))
+
+        def label(current, *extra):
+            with unittest.mock.patch.object(picker, "observe", return_value=current), \
+                 unittest.mock.patch("sys.stdout", io.StringIO()) as output:
+                e2e_pool.main(["--requested", "auto", "--owned", "1", "--pr-xcode-app", PR_XCODE, "--jobs", "2",
+                               "--wait-owned", "--blacksmith-labels", mac26, *extra],
+                              env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+            return output.getvalue().strip()
+        # Unrestricted, the free light pool takes both jobs.
+        self.assertEqual(label(state), light)
+        # std only: the busy std pool is waited on, never the light one.
+        self.assertEqual(label(state, "--owned-classes", "std"), std)
+        # With Blacksmith room on the jobs' own label, std-only takes Blacksmith over the free light pool.
+        room = dataclasses.replace(state, blacksmith=(state.blacksmith[0], picker.Pool(mac26, 10, 2, 0)))
+        self.assertEqual(label(room, "--owned-classes", "std"), mac26)
+        # A free std pool is still taken first.
+        free_std = dataclasses.replace(state, owned=(picker.Pool(std, 42, 30, 0, free=12), state.owned[1]))
+        self.assertEqual(label(free_std, "--owned-classes", "std"), std)
+        self.assertEqual(picker.owned_class(light), "light")
+        self.assertEqual(picker.owned_class("glaeda-root-std-xcode-26.6"), "std")
+        self.assertEqual(picker.owned_class(mac26), "")
+
+    def test_owned_classes_refuses_an_unknown_class(self):
+        with unittest.mock.patch("sys.stderr", io.StringIO()) as err, self.assertRaises(SystemExit) as done:
+            e2e_pool.main(["--requested", "auto", "--owned-classes", "standard"],
+                          env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+        self.assertEqual(done.exception.code, 2)
+        self.assertIn("not an owned class: standard", err.getvalue())
+
     def test_ui_auto_route_skips_simple_picker_and_uses_gui_label(self):
         """A media tour's auto pick must reach the UI-aware E2E picker."""
         with unittest.mock.patch.object(
@@ -3986,8 +4024,14 @@ class IOSWiring(unittest.TestCase):
                                                  "compile_seconds", "package_seconds", "upload_seconds"})
 
         seed = jobs["ios-simulator-cache-seed"]
+        # An ephemeral Blacksmith Linux VM: the bounded LINUX_RUNNER pick (4, 16 or 32 vCPU, else 4), so a
+        # 4 vCPU stall moves it and no variable value reaches a reused machine.
         self.assertEqual(seed["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}")
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
+                         "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
+                         "'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\","
+                         "\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) "
+                         "&& vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
         self.assertEqual(seed["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
         self.assertEqual(seed["needs"], ["ios-simulator-build"])
         # As the step ran: only after a successful build, only on a main seed_cache run.

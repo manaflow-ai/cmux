@@ -501,7 +501,8 @@ jobs:
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    # One header-directed quota-reset wait (at most 65m), then the guard/move.
+    timeout-minutes: 75
     permissions:
       contents: read
       actions: read
@@ -539,6 +540,7 @@ jobs:
           script: |
             const fs = require('fs');
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
+            github.hook.wrap('request', guard.quotaResetRetry({ core }));
             const { owner, repo } = context.repo;
             // The dispatch already has its maximum of inputs, so a dry run is
             // the "dry-run:" prefix on the SHA, and the 30-minute tick's
@@ -1216,6 +1218,8 @@ jobs:
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
+          # Its `_dead` marks and live macos_26 member (classic_nightly_build_runner.py).
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
           TRUSTED_RUNNER: ${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
           ENABLED: ${{ needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && '1' || '0' }}
@@ -1693,6 +1697,8 @@ jobs:
         timeout-minutes: 2
         env:
           SNAPSHOT_TOKEN: ${{ github.token }}
+          # Its `_dead` marks and live macos_26 member (classic_nightly_build_runner.py).
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           FIRST: 6vcpu
           ENABLED: '0'
         run: python3 scripts/ci/classic_nightly_build_runner.py

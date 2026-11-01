@@ -3,11 +3,17 @@
 
 Read the existing web/app/lib/indexnow.ts configuration as JSON on stdin.
 No CRON_SECRET or independently synchronized GitHub credential is involved.
+
+The workflow runs on a schedule, so with --state PATH this keeps the
+(url, lastmod) pairs it last submitted and submits only pairs not in that file.
+A page is sent again only when its lastmod changes, not on every run.
 """
 from __future__ import annotations
 
+import argparse
 from datetime import datetime, timedelta, timezone
 import json
+from pathlib import Path
 import re
 import sys
 import time
@@ -40,6 +46,11 @@ def request(url: str, *, data: bytes | None = None) -> tuple[int, bytes]:
 
 
 def select_urls(xml: bytes, lookback_hours: int, now: datetime | None = None) -> list[str]:
+    return list(dict.fromkeys(url for url, _ in select_entries(xml, lookback_hours, now)))
+
+
+def select_entries(xml: bytes, lookback_hours: int, now: datetime | None = None) -> list[tuple[str, str]]:
+    """The (url, lastmod) pairs in the lookback window, in sitemap order, deduplicated."""
     try:
         root = ET.fromstring(xml)
     except ET.ParseError as error:
@@ -61,13 +72,13 @@ def select_urls(xml: bytes, lookback_hours: int, now: datetime | None = None) ->
         if date.tzinfo is None:
             date = date.replace(tzinfo=timezone.utc)
         if date <= now:
-            entries.append((url, date))
+            entries.append((url, date, modified))
     if not entries:
         return []
     # Match the web notifier's content-relative window, including delayed
     # deployments. Reading the public sitemap excludes unshipped main changes.
-    earliest = max(date for _, date in entries) - timedelta(hours=lookback_hours)
-    return list(dict.fromkeys(url for url, date in entries if date >= earliest))
+    earliest = max(date for _, date, _ in entries) - timedelta(hours=lookback_hours)
+    return list(dict.fromkeys((url, modified) for url, date, modified in entries if date >= earliest))
 
 
 def submit_batches(config: dict, urls: list[str]) -> dict:
@@ -91,7 +102,24 @@ def submit_batches(config: dict, urls: list[str]) -> dict:
     return {"submitted": submitted, "batches": batch_count, "status": statuses[-1] if statuses else 0}
 
 
-def run(config: dict) -> dict:
+def load_state(path: Path | None) -> set[tuple[str, str]]:
+    if path is None or not path.exists():
+        return set()
+    try:
+        pairs = json.loads(path.read_text())["submitted"]
+        return {(str(url), str(modified)) for url, modified in pairs}
+    except (ValueError, KeyError, TypeError) as error:
+        # A damaged marker costs one resubmission of the window, never a failure.
+        print(f"Ignoring unreadable IndexNow state {path}: {error}", file=sys.stderr)
+        return set()
+
+
+def save_state(path: Path, entries: list[tuple[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"submitted": [list(entry) for entry in entries]}, indent=0) + "\n")
+
+
+def run(config: dict, state_path: Path | None = None) -> dict:
     key = config["key"]
     if not isinstance(key, str) or not re.fullmatch(r"[a-zA-Z0-9-]{8,128}", key):
         raise ValueError("Invalid IndexNow public key")
@@ -106,15 +134,24 @@ def run(config: dict) -> dict:
     if deployed_key.decode("utf-8").strip() != key:
         raise ValueError("Deployed IndexNow key does not match the configured public key")
     _, sitemap = request(f"{ORIGIN}/sitemap.xml")
-    urls = select_urls(sitemap, lookback)
-    if not urls:
-        return {"submitted": 0, "status": 0}
-    return submit_batches(config, urls)
+    entries = select_entries(sitemap, lookback)
+    already = load_state(state_path)
+    urls = list(dict.fromkeys(url for url, modified in entries if (url, modified) not in already))
+    result = submit_batches(config, urls) if urls else {"submitted": 0, "status": 0}
+    # Written only after every batch succeeded, and only the current window, so
+    # the marker stays as small as the window and a failed run retries next time.
+    if state_path is not None and set(entries) != already:
+        save_state(state_path, entries)
+        result["stateChanged"] = True
+    return result
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--state", type=Path, help="JSON file of the (url, lastmod) pairs already submitted")
+    args = parser.parse_args()
     try:
-        print(json.dumps(run(json.load(sys.stdin))))
+        print(json.dumps(run(json.load(sys.stdin), args.state)))
     except (ValueError, KeyError, OSError) as error:
         print(f"IndexNow notification failed: {error}", file=sys.stderr)
         sys.exit(1)

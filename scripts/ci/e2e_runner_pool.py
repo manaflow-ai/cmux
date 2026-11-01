@@ -575,7 +575,15 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--blacksmith-labels", default="",
                         help="comma-separated Blacksmith labels the caller's jobs can run on; an auto pick "
                              "counts free room and returns a Blacksmith label only among these (default: all)")
+    parser.add_argument("--owned-classes", default="",
+                        help="comma-separated owned classes (std, light, xl) an auto pick may name or wait on "
+                             "(default: all); cmux-next-dev-daily.yml keeps its download-bound jobs off light")
     args = parser.parse_args(argv)
+    classes = {name.strip() for name in args.owned_classes.split(",") if name.strip()}
+    unknown = sorted(classes - set(simple_pool_picker.RUN_CLASSES))
+    if unknown:
+        parser.error(f"--owned-classes: not an owned class: {', '.join(unknown)} "
+                     f"(one of {', '.join(simple_pool_picker.RUN_CLASSES)})")
 
     # Auto choices use the shared live rule. Explicit labels retain the
     # workflow's direct-request contract and its validation below.
@@ -609,6 +617,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             # (run 40449661622 queued on a stalled macOS 26 label behind a free macOS 15 one).
             state = dataclasses.replace(state, blacksmith=tuple(
                 pool for pool in state.blacksmith if pool.label in usable))
+        if classes:
+            # --owned-classes (cmux-next-dev-daily.yml: std). Its verify and tip-dmg-build each download
+            # the 188 MB signed app; the light pool's minis took 736-974 s for that against about 15 s on
+            # a std mini (24 h to 2026-10-30), so verify ran 895 s median there against 41 s and 71 of 90
+            # hit its 15 minute limit. A pool of another class is neither picked nor waited on.
+            state = dataclasses.replace(state, owned=tuple(
+                pool for pool in state.owned if simple_pool_picker.owned_class(pool.label) in classes))
         choice = simple_pool_picker.pick(state)
         print(f"pool pick: {choice.label or 'default'} ({choice.reason})", file=sys.stderr)
         print(choice.label or args.variable or SMALL_RUNNER)

@@ -60,8 +60,17 @@ sign_text = sign_job.group(1) if sign_job else ""
 check("id: read-token" in sign_text and "private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}" in sign_text
       and "permission-actions: read" in sign_text and "permission-actions: write" not in sign_text,
       "the signer must read the source run with the read-only manaflow-glaeda-route token")
-check("GH_TOKEN: ${{ github.token }}" not in sign_text,
-      "every signer source-run read must try the App token before GITHUB_TOKEN")
+# The reads pass github.token and gh_app_token.sh sends each as the App first,
+# falling back to github.token on a refusal (runs 41245804266, 41245954158 failed
+# when the App's own budget ran out and a bare App token had no fallback).
+check("bash .gh-tooling/scripts/ci/gh_app_token.sh --install" in sign_text
+      and "GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}" in sign_text
+      and "GH_FALLBACK_TOKEN: ${{ github.token }}" in sign_text,
+      "every signer source-run read must try the App token, then GITHUB_TOKEN, through gh_app_token.sh")
+check("steps.read-token.outputs.token ||" not in sign_text,
+      "a signer read that passes the App token itself gets no GITHUB_TOKEN fallback")
+check(sign_text.find("gh_app_token.sh --install") < sign_text.find("- name: Resolve the source run"),
+      "the gh token wrapper must be installed before the first source-run read")
 check("- name: Wait for the API budget before publishing" in publish_text,
       "the release writes must wait for the shared budget instead of failing on it")
 for call in ("ghw release upload", "ghw release edit", 'ghw api "repos/$GH_REPO/compare/'):

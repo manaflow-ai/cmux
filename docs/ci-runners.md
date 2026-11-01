@@ -1024,6 +1024,13 @@ malformed `RUNNER_POOLS` is rewritten from these declarations, never crashed
 on. Jobs already queued on a dead member keep that label (GitHub binds it when
 it creates the job); moving them is the queue janitor's dead-label re-dispatch
 (with #27114), whose re-run reads the pool's new member.
+`LINUX_RUNNER` predates the pools and most Linux `runs-on` still read it
+(`vars.LINUX_RUNNER || ...`), so each pass also writes the linux pool's live
+member to it, unless the overflow switch's record is set or it holds a value
+that is not a Blacksmith label. On 2026-10-31 it still named
+`blacksmith-4vcpu-ubuntu-2404`, a size outside the set that had stopped
+starting jobs, and about 520 jobs waited on it. `--check` fails while it names
+a label outside the linux pool.
 With no evidence at all (no probe health yet, no snapshot) it marks nothing
 dead: it fails closed and never retires a member on a guess. A pool not marked
 `hosted` never resolves to a GitHub-hosted label, whatever is dead.
