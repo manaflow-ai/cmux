@@ -777,12 +777,23 @@ impl StartCopy {
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
         let started_at = now_millis();
         let answer = self.run_copy(ledger, push);
-        let (state, phase) = if answer["ok"] == json!(true) {
-            ("done", if answer["copied"] == json!(false) { "cached" } else { "complete" })
+        let (state, phase) = if answer.get("ok").and_then(Value::as_bool) == Some(true) {
+            (
+                "done",
+                if answer.get("copied").and_then(Value::as_bool) == Some(false) {
+                    "cached"
+                } else {
+                    "complete"
+                },
+            )
         } else {
             (
                 "failed",
-                if answer["error_code"] == json!("ledger_failed") { "ledger" } else { "copy" },
+                if answer.get("error_code").and_then(Value::as_str) == Some("ledger_failed") {
+                    "ledger"
+                } else {
+                    "copy"
+                },
             )
         };
         copy_progress(answer, state, phase, started_at, now_millis())
