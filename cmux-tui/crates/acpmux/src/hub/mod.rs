@@ -219,6 +219,9 @@ mod turn_git;
 mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
+pub mod background_turn;
+#[cfg(all(test, unix))]
+mod trigger_quiet_tests;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
@@ -330,6 +333,8 @@ pub(super) struct PendingPermission {
 
 #[derive(Debug, Clone)]
 pub struct TurnInfo {
+    /// Admitted Cloud trigger provenance, never client-supplied local metadata.
+    pub trigger: bool,
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
@@ -1243,6 +1248,7 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             harness_turn: AtomicBool::new(false),
+            background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),

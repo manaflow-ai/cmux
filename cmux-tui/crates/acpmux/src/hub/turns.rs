@@ -431,7 +431,10 @@ impl Hub {
             && running.is_some()
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
             && super::inbox::persons_prompt_waits(session);
+        let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
+        let trigger_held = trigger || running.as_ref().is_some_and(|t| t.trigger);
         let steer_now = steer
+            && !trigger_held
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
             && !capped
@@ -582,8 +585,10 @@ impl Hub {
         }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         // Another agent's message shows as its sender and words (`prompt_line.rs`).
-        let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
+        let trigger = crate::prompt_provenance::is_trigger(run.provenance.as_ref());
+        let mut turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
             .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()));
+        turn.trigger = trigger;
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
@@ -637,12 +642,14 @@ impl Hub {
         }
         {
             let mut m = session.meta.lock().unwrap();
-            m.last_prompt = Some(short_text(&line, 200));
-            drafts::clear_sent_draft(&mut m, &text);
-            // Titled by the sender's words, never the envelope they came in.
-            let words = super::prompt_line::prompt_words(&text, client, provenance.as_ref());
-            super::titles::set_fallback_title(&mut m, &words);
-            m.preview = Some(String::new());
+            if !trigger {
+                m.last_prompt = Some(short_text(&line, 200));
+                drafts::clear_sent_draft(&mut m, &text);
+                // Titled by the sender's words, never the envelope they came in.
+                let words = super::prompt_line::prompt_words(&text, client, provenance.as_ref());
+                super::titles::set_fallback_title(&mut m, &words);
+                m.preview = Some(String::new());
+            }
             // The sender of a chat's first turn is its delegator (`inbox.rs`): named once the
             // turn starts, so a prompt refused before it names none, and over one a message the
             // inbox took while this first work waited to start named. Its own sender, not a
@@ -672,6 +679,9 @@ impl Hub {
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
+        if trigger {
+            self.start_trigger_background(session, &turn_id);
+        }
         if !waiting {
             // Started at once: only prompts a failed turn holds can wait under its key.
             if let Some(key) = supersede.as_deref() {
@@ -774,7 +784,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate}),
+                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "trigger": trigger}),
             )
             .seq;
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
@@ -832,7 +842,9 @@ impl Hub {
         // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
         Self::hold_stalled_count(session);
         // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
-        self.clear_deferred_unread(session);
+        if !trigger {
+            self.clear_deferred_unread(session);
+        }
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
@@ -1092,7 +1104,7 @@ impl Hub {
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
         let cut = match (&result, detached) {
             // A turn its agent runs on with carried steers was not cut.
-            (Err(e), false) if carried.is_none() => Some(super::auto_resume::CutTurn {
+            (Err(e), false) if carried.is_none() && !trigger => Some(super::auto_resume::CutTurn {
                 // A family message's continuation speaks for its sender (`is_family`).
                 from: run
                     .provenance
@@ -1337,7 +1349,7 @@ impl Hub {
                     let stopped =
                         stop.as_str() == Some("cancelled") || (was_stopping && !carries_on);
                     let status = if stopped { "cancelled" } else { "completed" };
-                    let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
+                    let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
                     if let Some(o) = msg.as_object_mut() {
                         o.extend(self.turn_error_fields(session, None));
                         // acpmux ended a turn whose agent did not answer the cancel (`cancel`).
@@ -1370,7 +1382,7 @@ impl Hub {
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }
-                    let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
+                    let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
                     if let Some(o) = msg.as_object_mut() {
                         let agent_error =
                             (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
@@ -1396,6 +1408,9 @@ impl Hub {
         };
         // Its harness wrote the turn's spend: read it (`usage_view.rs`).
         self.refresh_usage_stats_of(session);
+        if trigger {
+            self.end_trigger_background(session, turn_id);
+        }
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
         // started still runs (a background subagent, a working sub-session) the task is not
@@ -1486,6 +1501,8 @@ impl Hub {
         joined: &super::digest::DigestTurn,
     ) {
         let turn = session.meta().turn_count;
+        let trigger = session.turn().is_some_and(|t| t.trigger && t.turn_id == turn_id);
+        self.end_trigger_background(session, turn_id);
         *session.turn.lock().unwrap() = None;
         // It no longer reads `stopping`: a Stop that came while its agent started (`cancel.rs`)
         // ends it as stopped, also when the start then failed.
@@ -1504,7 +1521,7 @@ impl Hub {
                 "turn_end",
                 json!({"stopReason": stop, "turnId": turn_id, "turnSeq": 0}),
             );
-            let msg = json!({"status": "cancelled", "stopReason": stop, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
+            let msg = json!({"status": "cancelled", "stopReason": stop, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
             self.record_last_turn(session, &msg);
             self.append(session, "mux", "turn_result", msg);
             self.reset_stream(session);
@@ -1530,7 +1547,7 @@ impl Hub {
         self.append(session, "mux", "turn_error", record);
         // `errorText` as a started turn's failure has it: its `lastTurn` and its parent's
         // `turn_ended` say why.
-        let mut msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
+        let mut msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
         if let Some(o) = msg.as_object_mut() {
             o.extend(typed);
         }
@@ -1578,7 +1595,9 @@ impl Hub {
             }
         }
         self.lane_report_record_result(&session.id, turn_result);
-        session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+        if turn_result.get("trigger") != Some(&Value::Bool(true)) {
+            session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+        }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
     }
