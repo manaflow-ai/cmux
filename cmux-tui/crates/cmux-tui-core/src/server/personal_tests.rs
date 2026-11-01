@@ -259,6 +259,32 @@ fn sessions_register_import_once_and_forget() {
     assert_eq!(listed["pins"], json!([]));
 }
 
+#[test]
+fn repeated_session_puts_emit_no_personal_changed() {
+    let mux = personal_mux();
+    let request = json!({"cmd":"put-session","session_id":"remote-1","machine_name":"build-box",
+        "session_name":"main","transport":{"kind":"ssh","host":"build-box"},
+        "capabilities":["profiles-v1"]});
+    let first = run(&mux, request.clone()).unwrap();
+    assert_eq!(first["created"], true);
+    let before = revision(&mux);
+    let events = mux.subscribe();
+    for _ in 0..16 {
+        let repeated = run(&mux, request.clone()).unwrap();
+        assert_eq!(repeated["created"], false);
+        assert_eq!(repeated["session"], first["session"]);
+    }
+    assert_eq!(revision(&mux), before);
+    assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::PersonalChanged { .. })));
+    let mut changed = request;
+    changed["machine_name"] = json!("renamed-box");
+    let updated = run(&mux, changed).unwrap();
+    assert_eq!(updated["session"]["machine_name"], "renamed-box");
+    assert_eq!(updated["created"], false);
+    assert_eq!(revision(&mux), before + 1);
+    assert!(events.try_iter().any(|event| matches!(event, MuxEvent::PersonalChanged { .. })));
+}
+
 /// The app records each connected session with the capabilities its
 /// `identify` returned (SessionRegistrar). This daemon's own list must be
 /// accepted as it is: a refused `put-session` leaves the machine out of the
