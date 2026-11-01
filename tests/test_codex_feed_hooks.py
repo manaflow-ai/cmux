@@ -1007,8 +1007,12 @@ def codex_hook_commands(hooks: dict) -> list[str]:
 
 
 def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path) -> None:
-    cases = [(True, None), (False, None), (None, None), (1, None), ("true", None), (True, False)]
-    for index, (recorded_network, explicit_network) in enumerate(cases):
+    cases = [
+        (True, None, False), (False, None, False), (None, None, False),
+        (1, None, False), ("true", None, False), (True, False, False),
+        (True, False, True),
+    ]
+    for index, (recorded_network, explicit_network, compact_override) in enumerate(cases):
         case = root / f"codex-network-policy-{index}"
         home, state, codex_home = case / "home", case / "state", case / "codex"
         for directory in (home, state, codex_home):
@@ -1028,7 +1032,8 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
         ]) + "\n", encoding="utf-8")
         arguments = ["codex", "resume", session_id]
         if explicit_network is not None:
-            arguments += ["-c", f"sandbox_workspace_write.network_access={str(explicit_network).lower()}"]
+            override = f"sandbox_workspace_write.network_access={str(explicit_network).lower()}"
+            arguments += [f"-c{override}"] if compact_override else ["-c", override]
         record = {
             "sessionId": session_id, "workspaceId": FAKE_WORKSPACE_ID, "surfaceId": FAKE_SURFACE_ID,
             "cwd": str(case), "transcriptPath": str(transcript), "startedAt": captured_at,
@@ -1064,7 +1069,10 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
             raise AssertionError("network-policy fixture published no resume binding")
         published = publications[-1]
         actual = published.get("launch_command", {}).get("arguments", [])
-        network_args = [arg for arg in actual if arg.startswith("sandbox_workspace_write.network_access=")]
+        network_args = [
+            arg.removeprefix("-c") for arg in actual
+            if arg.removeprefix("-c").startswith("sandbox_workspace_write.network_access=")
+        ]
         effective = explicit_network if explicit_network is not None else recorded_network
         expected = [f"sandbox_workspace_write.network_access={str(effective).lower()}"] if type(effective) is bool else []
         if network_args != expected:
