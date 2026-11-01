@@ -5,6 +5,7 @@ Set RUNNER_POOL_POLICY_ROOT to the main checkout used by the workflow.
 import datetime as dt
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import unittest
@@ -18,6 +19,22 @@ POLICY_ROOT = os.environ.get("RUNNER_POOL_POLICY_ROOT")
 NOW = dt.datetime(2026, 11, 1, 12, tzinfo=dt.timezone.utc)
 SMALL = "blacksmith-4vcpu-ubuntu-2404"
 LARGE = "blacksmith-16vcpu-ubuntu-2404"
+
+
+class SecretRouteBoundary(unittest.TestCase):
+    def test_routing_keys_never_follow_the_secretless_pool(self):
+        root = Path(__file__).resolve().parents[1]
+        for name, job in (("ci.yml", "changes"), ("cmux-next-ios-kit.yml", "runner")):
+            with self.subTest(workflow=name, job=job):
+                text = (root / ".github/workflows" / name).read_text()
+                block = text.split(f"\n  {job}:\n", 1)[1]
+                route = next(line for line in block.splitlines() if line.startswith("    runs-on:"))
+                self.assertNotIn("RUNNER_POOLS", route)
+                self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", route)
+                match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
+                self.assertIsNotNone(match)
+                self.assertEqual(set(json.loads(match[1])), {SMALL, LARGE, "blacksmith-8vcpu-ubuntu-2404"})
+                self.assertTrue(route.endswith("|| 'blacksmith-8vcpu-ubuntu-2404' }}"))
 
 
 @unittest.skipUnless(POLICY_ROOT, "set RUNNER_POOL_POLICY_ROOT to main's checked-out policy")
