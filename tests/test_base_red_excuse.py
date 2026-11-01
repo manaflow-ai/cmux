@@ -1122,7 +1122,7 @@ class LargeEvidenceOutput(unittest.TestCase):
             def __new__(cls, args, stdout, stderr):
                 return Process(stdout, stderr)
 
-        with unittest.mock.patch.object(excuse.subprocess, "Popen", Popen):
+        with unittest.mock.patch.object(excuse._evidence.subprocess, "Popen", Popen):
             output = excuse._evidence.GitHub().run(["api", "evidence"])
         self.assertEqual(len(output), len(payload))
 

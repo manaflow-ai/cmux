@@ -66,7 +66,7 @@ class GitHub:
                 process.wait()
                 raise Refused("GitHub evidence request exceeded 90 seconds") from None
             if output.tell() > MAX_OUTPUT or errors.tell() > MAX_OUTPUT:
-                raise Refused("GitHub evidence exceeds the 32 MiB limit")
+                raise Refused("GitHub evidence exceeds the 64 MiB limit")
             output.seek(0)
             errors.seek(0)
             if process.returncode:
