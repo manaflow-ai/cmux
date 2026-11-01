@@ -1,6 +1,7 @@
 // cmux-web-test-timeout: 300
-// Session Info never moves the chat around it (design/session-info.md rule 1; Leo, 2026-10-31: "why is
-// the session info thing still pushing my layout when it doesnt need to???"). Every element outside
+// Session Info never moves the chat around it when it does not need to (design/session-info.md rule 1;
+// Leo, 2026-10-31: "why is the session info thing still pushing my layout when it doesnt need to???";
+// where the gutter cannot hold it, it pushes, Leo 2026-11-01). Every element outside
 // the panel keeps its box while the panel opens, while it slides in, while its content changes (a
 // section folds or unfolds), and after it closes again: the transcript, the composer's stack, the
 // header and its tools, the thread rail, the minimap and the scroll bar. Measured in the default
@@ -207,7 +208,13 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             await close(page);
             await settle(page);
             const closing = await moved(page);
-            expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
+            // Where the right gutter holds the panel (1600px) nothing else moves at all. Narrower, it
+            // pushes the chat left as it opens and back as it closes (Leo, 2026-11-01: "why does the
+            // session info not push the layout left ever anymore"), and its content changing still
+            // moves nothing.
+            if (width >= 1600)
+              expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
+            else expect({ pushed: opening.length > 0, content }).toEqual({ pushed: true, content: [] });
           } finally {
             await page.close();
           }

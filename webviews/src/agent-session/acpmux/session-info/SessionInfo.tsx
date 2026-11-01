@@ -198,7 +198,8 @@ export function chatContentOverflow(shell: HTMLElement, paneWidth: number, colum
     const { right, width } = element.getBoundingClientRect();
     if (width > 0) reach = Math.max(reach, right - left);
   }
-  return Math.max(0, Math.ceil(reach - end));
+  // Under half a pixel is the shell's sub-pixel offset, not content under the panel.
+  return Math.max(0, Math.floor(reach - end + 0.5));
 }
 
 /// Whether Session Info shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
@@ -727,7 +728,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     wide,
     overflow,
   );
-  const overChat = !push && sessionInfoOverChat(paneWidth, width + overflow, column, wide);
+  // A handoff review's form has its own gutter: the rows' reading does not apply to it.
+  const overChat = !push && sessionInfoOverChat(paneWidth, width + (wide ? 0 : overflow), column, wide);
   // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT).
   const popover = sessionInfoPopover(paneHeight, overChat);
   // Over the chat in a taller pane, the card stops above the composer's stack: its height, followed
