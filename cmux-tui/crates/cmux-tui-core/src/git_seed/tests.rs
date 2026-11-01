@@ -582,3 +582,80 @@ fn a_clone_only_start_checks_out_the_default_branch_or_a_tag() {
     let status = seed(&world, &clone_params(&folder, None));
     assert_eq!(status["error_code"], "seed.folder_not_empty", "{status}");
 }
+
+/// git bundle leaves out a seed ref already behind a prerequisite: with
+/// nothing unpushed, `refs/cmux-seed/head` is not in the bundle. The
+/// machine takes the shas from the params.
+#[test]
+fn a_seed_with_nothing_unpushed_has_no_head_ref_in_its_bundle() {
+    let world = World::new("nounpushed");
+    write(&world.mac.join("a"), "a\nonly the work tree\n");
+    write(&world.mac.join("new"), "untracked\n");
+    let snapshot = world.snapshot("one", &[&world.base]);
+    assert_eq!(snapshot.head, world.base);
+    let heads = git(&world.home.path, &["bundle", "list-heads", snapshot.bundle.to_str().unwrap()]);
+    assert!(!heads.contains("refs/cmux-seed/head"), "{heads}");
+    let folder = world.home.join("project");
+    let status = seed(&world, &world.start_params(&folder, &snapshot));
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(state(&folder), state(&world.mac));
+    assert_eq!(git(&folder, &["rev-parse", "refs/cmux-seed/head"]), world.base);
+}
+
+/// A delta where only the work tree changed: the bundle carries no head and
+/// no index ref (both are prerequisites).
+#[test]
+fn a_delta_of_only_the_work_tree_applies() {
+    let world = World::new("worktreedelta");
+    write(&world.mac.join("a"), "a\nstaged\n");
+    git(&world.mac, &["add", "a"]);
+    let first = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &first))["state"], "done");
+    write(&world.mac.join("b"), "b\nwork only\n");
+    let mac = &world.mac;
+    // Same HEAD and same index: reuse the first INDEX commit, as the Mac
+    // side does when the staged tree is unchanged.
+    let temp = world.home.path.join("two.index");
+    let git_dir = PathBuf::from(git(mac, &["rev-parse", "--absolute-git-dir"]));
+    std::fs::copy(git_dir.join("index"), &temp).unwrap();
+    git_env(mac, &["add", "-A"], &[("GIT_INDEX_FILE", &temp)]);
+    let tree = git_env(mac, &["write-tree"], &[("GIT_INDEX_FILE", &temp)]);
+    let work = git(mac, &["commit-tree", &tree, "-p", &first.index, "-m", "work"]);
+    git(mac, &["update-ref", "refs/cmux-seed/work", &work]);
+    let bundle = world.home.path.join("two.bundle");
+    let not_first_work = format!("^{}", first.work);
+    let not_index = format!("^{}", first.index);
+    git(
+        mac,
+        &[
+            "bundle",
+            "create",
+            "-q",
+            bundle.to_str().unwrap(),
+            "refs/cmux-seed/head",
+            "refs/cmux-seed/index",
+            "refs/cmux-seed/work",
+            &not_first_work,
+            &not_index,
+        ],
+    );
+    let heads = git(&world.home.path, &["bundle", "list-heads", bundle.to_str().unwrap()]);
+    assert!(heads.contains("refs/cmux-seed/work"), "{heads}");
+    assert!(!heads.contains("refs/cmux-seed/index"), "{heads}");
+    let second = Snapshot {
+        bundle,
+        head_ref: first.head_ref,
+        head: first.head,
+        index: first.index,
+        work,
+        stash: None,
+    };
+    let mut params = world.start_params(&folder, &second);
+    params["since"] = first.work.clone().into();
+    params["base"] = first.work.into();
+    std::fs::remove_dir_all(&world.remote).unwrap();
+    let status = seed(&world, &params);
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(state(&folder), state(mac));
+}
