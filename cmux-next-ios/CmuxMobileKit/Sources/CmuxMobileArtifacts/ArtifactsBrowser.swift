@@ -228,14 +228,22 @@ final class ArtifactGridMotion {
 struct ArtifactTile: View {
     let artifact: TerminalArtifact
     let source: any ArtifactSource
-    /// Starts from the cache, so a tile scrolled back into view draws its thumbnail at once.
+    /// Starts from this Mac/account's cache, so a tile scrolled back into
+    /// view draws its own thumbnail immediately.
     @State private var thumbnail: ArtifactThumbnail?
     @Environment(\.displayScale) private var displayScale
+
+    private var cacheTaskID: String {
+        guard let scope = source.thumbnailCacheScope, !scope.isEmpty else {
+            return "uncached:\(artifact.kind.rawValue):\(artifact.id)"
+        }
+        return ArtifactMemo<ArtifactThumbnail>.key(artifact, scope: scope) as String
+    }
 
     init(artifact: TerminalArtifact, source: any ArtifactSource) {
         self.artifact = artifact
         self.source = source
-        _thumbnail = State(initialValue: ArtifactThumbnail.cache.cached(artifact) ?? nil)
+        _thumbnail = State(initialValue: ArtifactThumbnail.cache.cached(artifact, scope: source.thumbnailCacheScope) ?? nil)
     }
 
     var body: some View {
@@ -259,9 +267,12 @@ struct ArtifactTile: View {
         }
         .accessibilityElement(children: .combine)
         // Keyed as the cache is: a new order keeps the thumbnail, an edit makes a new one.
-        .task(id: ArtifactMemo<ArtifactThumbnail>.key(artifact) as String) {
+        .task(id: cacheTaskID) {
             guard artifact.kind != .link else { return }
-            if let cached = ArtifactThumbnail.cache.cached(artifact) {
+            // SwiftUI may retain a tile while its source changes from Mac A to
+            // Mac B. Discard the old visible image before looking up B's key.
+            thumbnail = nil
+            if let cached = ArtifactThumbnail.cache.cached(artifact, scope: source.thumbnailCacheScope) {
                 thumbnail = cached
                 return
             }
