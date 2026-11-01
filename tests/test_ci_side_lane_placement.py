@@ -1087,6 +1087,24 @@ class CmuxNextWiring(unittest.TestCase):
                                  overflow(name, placed=False))
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
 
+    def test_same_repo_pr_tests_never_use_a_console_gui_label(self):
+        """PR test jobs use the generic picker route; display coverage is advisory on PRs."""
+        jobs = self.workflow()["jobs"]
+        context = self.context(runner=STD)
+        outputs = context["needs"][self.PLACEMENT]["outputs"]
+        outputs.update(gui_runner=GUI, session_runner=GUI, placed_attempt="1")
+        for name in GUI_JOBS:
+            with self.subTest(job=name):
+                self.assertEqual(evaluate(jobs[name]["runs-on"], context), STD)
+                self.assertEqual(evaluate(jobs[name]["env"]["CMUX_NEXT_RUNNER"], context), STD)
+        # A placement with no generic route still uses non-display overflow, never the GUI fallback.
+        overflow = self.context(runner="")
+        overflow["needs"][self.PLACEMENT]["outputs"].update(
+            runner="", deferred_runner="", gui_runner=GUI, session_runner=GUI,
+            gui_overflow=FALLBACK, placed_attempt="1")
+        for name in GUI_JOBS:
+            self.assertEqual(evaluate(jobs[name]["runs-on"], overflow), FALLBACK, name)
+
     def test_missing_gui_label_uses_blacksmith_instead_of_a_dead_gui_queue(self):
         jobs = self.workflow()["jobs"]
         context = self.context(runner=STD)
