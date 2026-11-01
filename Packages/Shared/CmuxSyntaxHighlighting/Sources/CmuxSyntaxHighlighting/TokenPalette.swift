@@ -32,6 +32,12 @@ public struct TokenPalette: Sendable, Equatable {
     public let indentGuide: TokenColor
     /// Opacity for ``indentGuide`` (0...1).
     public let indentGuideAlpha: Double
+    /// Gutter stripe for a line the git base does not contain.
+    public let gitAdded: TokenColor
+    /// Gutter stripe for a line that replaced a git base line.
+    public let gitModified: TokenColor
+    /// Gutter stripe marking where git base lines were deleted.
+    public let gitDeleted: TokenColor
 
     /// Dark palette for `#0A0A0A` / `#171717` surfaces.
     public static let cmuxDark = TokenPalette(
@@ -47,7 +53,10 @@ public struct TokenPalette: Sendable, Equatable {
         currentLine: TokenColor(red: 0x00, green: 0x91, blue: 0xFF),
         currentLineAlpha: 0.12,
         indentGuide: TokenColor(red: 0xA3, green: 0xA3, blue: 0xA3),
-        indentGuideAlpha: 0.35
+        indentGuideAlpha: 0.35,
+        gitAdded: TokenColor(red: 0x3F, green: 0xB9, blue: 0x50),
+        gitModified: TokenColor(red: 0x58, green: 0xA6, blue: 0xFF),
+        gitDeleted: TokenColor(red: 0xF8, green: 0x51, blue: 0x49)
     )
 
     /// Light palette for `#FAFAFA` / `#F5F5F5` surfaces.
@@ -64,7 +73,10 @@ public struct TokenPalette: Sendable, Equatable {
         currentLine: TokenColor(red: 0x00, green: 0x88, blue: 0xFF),
         currentLineAlpha: 0.10,
         indentGuide: TokenColor(red: 0x73, green: 0x73, blue: 0x73),
-        indentGuideAlpha: 0.40
+        indentGuideAlpha: 0.40,
+        gitAdded: TokenColor(red: 0x1A, green: 0x7F, blue: 0x37),
+        gitModified: TokenColor(red: 0x09, green: 0x69, blue: 0xDA),
+        gitDeleted: TokenColor(red: 0xCF, green: 0x22, blue: 0x2E)
     )
 
     /// Color assigned to `role` in this palette.
