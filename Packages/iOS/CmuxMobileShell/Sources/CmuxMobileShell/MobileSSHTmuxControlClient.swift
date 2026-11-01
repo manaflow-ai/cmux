@@ -7,6 +7,8 @@ protocol MobileSSHTmuxControlTransport: AnyObject, Sendable {
     var events: AsyncStream<SSHSessionEvent> { get }
     func write(_ data: Data) async throws
     func close() async
+    func abort()
+    func abort(afterWriting data: Data)
 }
 
 extension SSHSessionChannel: MobileSSHTmuxControlTransport {}
@@ -111,10 +113,33 @@ final class MobileSSHTmuxControlClient {
         let grouped = session + groupedSessionMarker + UUID().uuidString.prefix(8).lowercased()
         let command = startCommand(tmux: tmux, session: session, grouped: grouped)
         let channel = try await connection.openSession(environment: ["LANG": "en_US.UTF-8"], start: .exec(command))
+        return try await open(session: session, groupedSessionName: grouped, channel: channel)
+    }
+
+    /// Completes the control handshake over an already-open channel.
+    /// The provider uses the connection overload; this seam keeps handshake
+    /// cancellation testable with a deterministic control transport.
+    static func open(
+        session: String,
+        groupedSessionName: String,
+        channel: any MobileSSHTmuxControlTransport
+    ) async throws -> MobileSSHTmuxControlClient {
+        let grouped = groupedSessionName
         let client = MobileSSHTmuxControlClient(sessionName: session, groupedSessionName: grouped, channel: channel)
         client.startPump()
         // Learn the geometry of every pane before any seed needs it.
-        let lines = try await client.command("list-panes -s -F '#{window_id} #{pane_id} #{pane_width}x#{pane_height}'")
+        let lines: [Data]
+        do {
+            lines = try await withTaskCancellationHandler {
+                try await client.command("list-panes -s -F '#{window_id} #{pane_id} #{pane_width}x#{pane_height}'")
+            } onCancel: {
+                Task { @MainActor in client.abort() }
+            }
+        } catch {
+            client.abort()
+            if Task.isCancelled { throw CancellationError() }
+            throw error
+        }
         for line in lines {
             let fields = String(decoding: line, as: UTF8.self).split(separator: " ")
             guard fields.count == 3,
@@ -297,6 +322,16 @@ final class MobileSSHTmuxControlClient {
         _ = try? await command("kill-session -t \(Self.quoteForTmux("=" + groupedSessionName))")
         await channel.close()
         finish()
+    }
+
+    /// Aborts an opening or failed handshake without waiting for tmux to reply.
+    /// Cancellation uses this path because a stalled control command cannot
+    /// be allowed to keep the SSH channel alive.
+    func abort() {
+        guard !isClosed else { return }
+        finish()
+        let command = "kill-session -t \(Self.quoteForTmux("=" + groupedSessionName))\n"
+        channel.abort(afterWriting: Data(command.utf8))
     }
 
     // MARK: Stream
