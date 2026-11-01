@@ -643,7 +643,7 @@ class SnapshotReadToken(unittest.TestCase):
     # pull requests, outside the environment).
     # decide places early controls through the same read-only routing App.
     KEYED_JOBS = {"decide", "pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly",
-                  "build-nightly-app"}
+                  "build-nightly-app", "pick-legacy-identity-runner"}
 
     def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
         for name in self.PICKERS:
