@@ -11,9 +11,10 @@ public nonisolated struct HomeChiefPetSetting {
     public static let configPath = ["home", "chiefPetEnabled"]
     public static let mascotPath = ["home", "chiefPetMascot"]
     /// The characters' ids in the picker's order (`ChiefPetMascot`, webviews `ChiefMascot`): Series 1
-    /// without the orbs, Mochi, Series 2, then the orbs. A pick is kept by id, so the order moves no
+    /// without the orbs, the animated sets, Series 2, then the orbs. A pick is kept by id, so the order moves no
     /// one's character, and the default stays orb wherever it sits in the list.
     public static let mascots = ["fox", "machine", "machine-cyan", "machine-blue", "moon", "moon-blue", "mochi",
+                                 "captain", "sprout", "bolt",
                                  "fox-arctic", "machine-violet", "machine-gold", "moon-rose", "orb", "orb-spark", "orb-hood"]
     public static let defaultMascot = "orb"
 

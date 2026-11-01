@@ -1179,12 +1179,13 @@
    model chip's color as the quiet chip has it (Leo 2026-10-18, #21744): its "!" mark names the risk
    without the menu, and the menu keeps the warning color where the mode is chosen. */
 .acpmux-composer-foot {
-  --acpmux-row-inset: 8px;
+  --acpmux-row-inset: var(--grid-composer-inset);
   --acpmux-row-gap: 0px;
   --acpmux-row-group-gap: 0px;
-  --acpmux-row-edge: 14px;
-  min-height: 28px;
-  /* The foot gap (grid.md 5.1, Leo 2026-10-29: "hm i still feel like we could go lower tho"). */
+  --acpmux-row-edge: var(--grid-composer-quiet-row-text);
+  min-height: var(--grid-composer-quiet-row-height);
+  /* design/grid.md 5.1: the quiet row stands one foot gap under the box (Leo 2026-10-29: "hm i still
+     feel like we could go lower tho"). */
   margin-top: var(--grid-gap-foot);
   /* Claude Code's row sits at the window's bottom edge with about 8 px under it (Leo 2026-10-21: too
      much space at the bottom compared to Claude Code). The floating dock's composer adds nothing
@@ -1318,7 +1319,7 @@
 /* The box's corner, which the trust bar in the stack over it shares. */
 .acpmux-composer-box[data-composer-grid],
 .acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid]) {
-  --acpmux-composer-radius: 11px;
+  --acpmux-composer-radius: var(--grid-composer-radius);
 }
 /* The bar is the grid's own items, not one box in it: styles.css gives .acpmux-composer-bar a flex
    row with the same specificity, so this names the bar too and wins by order (the diagnostics in

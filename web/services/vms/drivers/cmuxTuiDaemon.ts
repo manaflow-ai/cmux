@@ -329,6 +329,10 @@ WantedBy=default.target
     cmuxTuiLayoutSelector(),
     `if [ "$CMUX_TUI_LAYOUT" = user ] && command -v loginctl >/dev/null 2>&1; then loginctl enable-linger "$CMUX_TUI_USER"; fi`,
     `if [ "$CMUX_TUI_LAYOUT" = user ]; then`,
+    // Linger enables persistence but does not start a user manager on a fresh
+    // image. Start that manager before waiting for its bus, otherwise the
+    // first `systemctl --user` call races a manager that has never spawned.
+    `systemctl start "user@$(id -u "$CMUX_TUI_USER").service" >/dev/null 2>&1 || true`,
     `i=0; while [ "$i" -lt 30 ] && [ ! -S "/run/user/$(id -u "$CMUX_TUI_USER")/bus" ]; do i=$((i + 1)); sleep 1; done; test -S "/run/user/$(id -u "$CMUX_TUI_USER")/bus"`,
     `mkdir -p "$CMUX_TUI_HOME/.config/systemd/user"`,
     `cat > "$CMUX_TUI_HOME/.config/systemd/user/acpmux.service" <<'ACPMUX_UNIT'`,

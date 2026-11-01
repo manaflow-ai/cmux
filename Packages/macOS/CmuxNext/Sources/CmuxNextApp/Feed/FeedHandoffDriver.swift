@@ -196,6 +196,9 @@ final class FeedHandoffDriver {
             note("adopt \(item.id) failed: \(Self.describe(error))")
             return false
         }
+        // An unlisted normal workspace can be placed into an incognito window while the adopt is in flight
+        // (#31309): check again now it has committed, and withdraw the item when it is no longer a normal window's.
+        guard policy().frozenContent(for: item) != nil else { return await withdraw(item) }
         do {
             _ = try await daemon.done(item.id, Self.home)
         } catch {
@@ -210,7 +213,8 @@ final class FeedHandoffDriver {
     }
 
     /// A frozen item that may not leave now (an incognito window's, #31210): `feed.adopt.cancel`, then the
-    /// daemon takes it back (`cancelled: true`) or records the earlier adopt that committed (`cancelled: false`).
+    /// daemon takes it back (`cancelled: true`) or records the earlier adopt that committed (`cancelled: false`), whose
+    /// cloud copy is archived first.
     /// Returns false when the pass should stop, as `adopt` does.
     private func withdraw(_ item: FeedLocalItem) async -> Bool {
         let body: [String: Any] = ["op": "feed.adopt.cancel", "params": ["key": "adopt:\(item.id)"],
@@ -226,6 +230,23 @@ final class FeedHandoffDriver {
         } catch {
             note("withdraw \(item.id) failed: \(Self.describe(error))")
             return false
+        }
+        // `cancelled: false`: an earlier adopt committed (a crashed run's, or one that raced a move into an
+        // incognito window, #31309). Archive the cloud copy, which also clears its pending iPhone push, before the
+        // daemon records the move; a failure leaves the item handing off, and the next pass withdraws it again.
+        if !cancelled, let install = installID() {
+            let archive: [String: Any] = ["op": "feed.archive",
+                                          "params": ["items": [Self.cloudID(install: install, local: item.id)]],
+                                          "idempotency_key": "adopt.archive:\(item.id)", "origin": "script"]
+            do {
+                _ = try await owner("v1/ops", archive)
+            } catch FeedServiceError.owner(let code, _) {
+                note("withdraw \(item.id): archive refused: \(code)")
+                if Self.stopCodes.contains(code) || code.hasPrefix("auth.") { return false }
+            } catch {
+                note("withdraw \(item.id): archive failed: \(Self.describe(error))")
+                return false
+            }
         }
         do {
             _ = try await cancelled ? daemon.abort(item.id) : daemon.done(item.id, Self.home)
