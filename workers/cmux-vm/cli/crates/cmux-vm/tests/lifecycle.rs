@@ -2766,3 +2766,66 @@ async fn a_kept_run_reports_pull_archives_it_could_not_remove() {
     server.verify().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A server that counts the creates a `run` makes and refuses each, so a run
+/// that gets past its argument checks stops at the create.
+async fn refusing_creates(creates: u64) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "error": { "code": "forbidden", "message": "refused by the test" }
+        })))
+        .expect(creates)
+        .mount(&server)
+        .await;
+    server
+}
+
+#[tokio::test]
+async fn run_refuses_a_command_over_the_env_value_limit_before_creating_a_vm() {
+    // The API limits an env value to 32 KiB counted as JavaScript string
+    // length (UTF-16 code units); the whole command goes in one.
+    let under = refusing_creates(2).await;
+    let out = cli(&under, &["run", "--", &"x".repeat(32 * 1024)]).await;
+    assert_ne!(out.code, exit::USAGE, "{}", out.stderr);
+    // Two UTF-16 units each: 16 Ki of them is exactly the limit.
+    let out = cli(&under, &["run", "--", &"\u{1F600}".repeat(16 * 1024)]).await;
+    assert_ne!(out.code, exit::USAGE, "{}", out.stderr);
+    under.verify().await;
+
+    let over = refusing_creates(0).await;
+    let out = cli(&over, &["run", "--", &"x".repeat(32 * 1024 + 1)]).await;
+    assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    assert!(out.stderr.contains("32 KiB"), "{}", out.stderr);
+    let out = cli(&over, &["run", "--", &"\u{1F600}".repeat(16 * 1024 + 1)]).await;
+    assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    // Several words are quoted one by one; the quoted line is what counts.
+    let half = "it's".repeat(4 * 1024);
+    let out = cli(&over, &["run", "--", "echo", &half, &half]).await;
+    assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    over.verify().await;
+}
+
+#[tokio::test]
+async fn run_refuses_a_pull_list_over_the_exec_command_limit_before_creating_a_vm() {
+    // Every --pull path is named twice in one guest exec command, which the
+    // API limits to 64 KiB.
+    let paths: Vec<String> = (0..1000).map(|i| format!("out/{i:036}")).collect();
+    let mut args = vec!["run".to_owned()];
+    for path in &paths {
+        args.extend(["--pull".to_owned(), path.clone()]);
+    }
+    args.extend(["--".to_owned(), "true".to_owned()]);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let over = refusing_creates(0).await;
+    let out = cli(&over, &args).await;
+    assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    assert!(out.stderr.contains("--pull"), "{}", out.stderr);
+    over.verify().await;
+
+    let under = refusing_creates(1).await;
+    let out = cli(&under, &["run", "--pull", &paths[0], "--", "true"]).await;
+    assert_ne!(out.code, exit::USAGE, "{}", out.stderr);
+    under.verify().await;
+}
