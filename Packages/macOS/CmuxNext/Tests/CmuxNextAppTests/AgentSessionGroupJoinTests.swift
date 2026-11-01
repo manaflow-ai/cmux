@@ -111,5 +111,34 @@ import Testing
         ])]
         #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: "gui push", in: rows) == WorkspaceID("l"))
         #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: "GUI push", in: rows) == WorkspaceID("u"))
+
+        // Across windows (each sidebar lists only its own rows): a later window's exact group beats an earlier
+        // window's case variant, as exact matching alone found it before.
+        let first = [SidebarSection(kind: .machine(Self.local), nodes: [
+            .group(SidebarGroup(id: GroupID("upper"), name: "GUI push", workspaces: [Self.row("u", title: "pane-motion")])),
+        ])]
+        let second = [SidebarSection(kind: .machine(Self.local), nodes: [
+            .group(SidebarGroup(id: GroupID("lower"), name: "gui push", workspaces: [Self.row("l", title: "pane-motion")])),
+        ])]
+        #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: "gui push", inEach: [first, second]) == WorkspaceID("l"))
+        #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: "Gui Push", inEach: [first, second]) == WorkspaceID("u"))
+
+        // An exactly named group without the row gets a new row in it (nil here), not a case variant's row.
+        let noRow = [SidebarSection(kind: .machine(Self.local), nodes: [
+            .group(SidebarGroup(id: GroupID("upper"), name: "GUI push", workspaces: [Self.row("u", title: "pane-motion")])),
+            .group(SidebarGroup(id: GroupID("lower"), name: "gui push", workspaces: [Self.row("o", title: "other")])),
+            .workspace(Self.row("n")),
+        ])]
+        #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: "gui push", in: noRow) == nil)
+        #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: "gui push", inEach: [noRow, first]) == nil)
+
+        // A name with outer spaces that a group has exactly is found exactly, not trimmed onto another group.
+        let padded = [SidebarSection(kind: .machine(Self.local), nodes: [
+            .group(SidebarGroup(id: GroupID("plain"), name: "GUI push", workspaces: [Self.row("a", title: "pane-motion")])),
+            .group(SidebarGroup(id: GroupID("padded"), name: "GUI push ", workspaces: [Self.row("b", title: "pane-motion")])),
+            .workspace(Self.row("n")),
+        ])]
+        #expect(SidebarEdits.group(named: "GUI push ", accepting: WorkspaceID("n"), in: padded) == GroupID("padded"))
+        #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: "GUI push ", in: padded) == WorkspaceID("b"))
     }
 }

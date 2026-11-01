@@ -51,8 +51,9 @@ enum AgentSessionWorkspace {
         if let givenGroup, !SidebarEdits.validGroupName(givenGroup) {
             throw ActionFailure(message: "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\"")
         }
-        // Outer spaces are not part of the label: a new group gets the trimmed name.
-        let group = givenGroup?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Looked up as given, so a group whose name has outer spaces is still found exactly; a new group gets
+        // the trimmed name (`join`).
+        let group = givenGroup
         let parent = invocation.callerAgentSession.flatMap { caller in
             Self.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
                 AgentSessionRef(host: $0.record.host, session: $0.record.session)
@@ -93,7 +94,7 @@ enum AgentSessionWorkspace {
         let windows = services.windows
         // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
         if let group, let name,
-           let row = windows.controllers.lazy.compactMap({ SidebarEdits.predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
+           let row = SidebarEdits.predecessor(named: name, inGroup: group, inEach: windows.controllers.map(\.sidebar.model.sections)) {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
         // Placed like Cmd-N (`workspaces.newPlacement`, cx-caoh), then into the named `group`, else below the caller's grouped row.
@@ -193,6 +194,7 @@ enum AgentSessionWorkspace {
             sidebar.handle(.move(ids, toGroup: target))
             return
         }
-        sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false)
+        // Outer spaces are not part of the label.
+        sidebar.groupFlow.newGroup(of: ids, name: name.trimmingCharacters(in: .whitespacesAndNewlines), byUser: false)
     }
 }

@@ -19,7 +19,7 @@ public extension SidebarEdits {
     /// `canMove`: a machine row's group holds that machine's workspaces), in any section and
     /// either organization; nil when none may. Only the first group of that name was tried before, so a
     /// row it could not hold got a new group of that name each time (nine "GUI push · lanes", 2026-10-22).
-    /// A group of exactly that name wins; failing that, one whose name is the same label (`sameGroupName`).
+    /// A group of exactly that name wins; only when none is listed, one whose name is the same label (`sameGroupName`).
     static func group(named name: String, accepting id: WorkspaceID, in sections: [SidebarSection]) -> GroupID? {
         let groups = { (exact: Bool) -> GroupID? in
             for section in sections {
@@ -29,9 +29,11 @@ public extension SidebarEdits {
             }
             return nil
         }
-        // Then the same label typed another way ("gui push", "GUI push "), so a variant joins the group the
-        // person meant instead of making a stray one beside it.
-        return groups(true) ?? groups(false)
+        // Only when no group of exactly that name is listed: the same label typed another way ("gui push",
+        // "GUI push "), so a variant joins the group the person meant instead of making a stray one beside it.
+        // A listed exact group that cannot hold the workspace still gets a new group of that name, as before.
+        if let exact = groups(true) { return exact }
+        return listsGroup(exactly: name, in: [sections]) ? nil : groups(false)
     }
 
     /// Whether two group names are one label: equal once outer whitespace is trimmed, ignoring case.
@@ -45,14 +47,37 @@ public extension SidebarEdits {
     /// Only this Mac's rows: the chat opens on this Mac's daemon, so another machine's row is never reused.
     /// As in `group(named:accepting:in:)`, a group of exactly that name wins over the same label typed another way.
     static func predecessor(named name: String, inGroup group: String, in sections: [SidebarSection]) -> WorkspaceID? {
+        predecessor(named: name, inGroup: group, inEach: [sections])
+    }
+
+    /// `predecessor(named:inGroup:in:)` across several sidebars (every window lists only its own workspaces):
+    /// a group of exactly that name in any of them wins over the same label typed another way in an earlier one.
+    static func predecessor(named name: String, inGroup group: String, inEach sidebars: [[SidebarSection]]) -> WorkspaceID? {
         let rows = { (exact: Bool) -> WorkspaceID? in
-            for section in sections {
-                for case let .group(listed) in section.nodes where exact ? listed.name == group : sameGroupName(listed.name, group) {
-                    if let row = listed.workspaces.first(where: { $0.title == name && $0.machineID == .local }) { return row.id }
+            for sections in sidebars {
+                for section in sections {
+                    for case let .group(listed) in section.nodes where exact ? listed.name == group : sameGroupName(listed.name, group) {
+                        if let row = listed.workspaces.first(where: { $0.title == name && $0.machineID == .local }) { return row.id }
+                    }
                 }
             }
             return nil
         }
-        return rows(true) ?? rows(false)
+        // A listed group of exactly that name without the row gets a new row in it, as before; the same label
+        // typed another way is tried only when no sidebar lists a group of exactly that name.
+        if let exact = rows(true) { return exact }
+        return listsGroup(exactly: group, in: sidebars) ? nil : rows(false)
+    }
+
+    /// Whether any of these sidebars lists a group named exactly `name`.
+    private static func listsGroup(exactly name: String, in sidebars: [[SidebarSection]]) -> Bool {
+        sidebars.contains { sections in
+            sections.contains { section in
+                section.nodes.contains { node in
+                    if case let .group(group) = node { return group.name == name }
+                    return false
+                }
+            }
+        }
     }
 }
