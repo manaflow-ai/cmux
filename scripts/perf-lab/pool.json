@@ -1,0 +1,30 @@
+{
+  "schema": "cmux-perf-lab-pool-v1",
+  "label": "perf-lab",
+  "notes": [
+    "The 6 lab hosts (plans/cmux-next/perf-lab-DESIGN.md section 3, task p12-perf-process-130). Host names follow decision D4; host-setup.sh checks each host's chip and memory against its host_class.",
+    "class is the shard_map.json class; host_class is the series host class (store.host_class: chip/memory/Hz). refresh_ms and env_job are recorded by task 160 from perf-lab.sh --env-only.",
+    "builders build bench artifacts (task 234); they never measure and are not lab hosts.",
+    "privileged lists the only commands the bench user may run with sudo when host-setup.sh --grant-privileged ran (decision D3); callers run exactly these argv. powermetrics samples 600 times at 1 s and ends by itself after 10 min (a caller stops it sooner with SIGINT), so a killed job never leaves a root sampler running; host_env.py refuses a host where one still runs."
+  ],
+  "hosts": [
+    {"name": "cmux17", "role": "waterfall", "class": "m6", "host_class": "apple-m6/16gb/120hz", "shard": 0, "refresh_ms": null, "env_job": null},
+    {"name": "cmux18", "role": "waterfall", "class": "m6", "host_class": "apple-m6/16gb/120hz", "shard": 1, "refresh_ms": null, "env_job": null},
+    {"name": "cmux21", "role": "pinpoint", "class": "m6", "host_class": "apple-m6/16gb/120hz", "refresh_ms": null, "env_job": null},
+    {"name": "cmux24", "role": "pinpoint", "class": "m6", "host_class": "apple-m6/16gb/120hz", "refresh_ms": null, "env_job": null},
+    {"name": "cmux20-bench", "role": "waterfall", "class": "cmux20-bench", "host_class": "apple-m6/16gb/120hz", "shard": 0, "refresh_ms": null, "env_job": null},
+    {"name": "aws-m4pro-9", "role": "waterfall", "class": "aws-m4pro", "host_class": "apple-m4-pro/48gb/120hz", "shard": 0, "refresh_ms": null, "env_job": null}
+  ],
+  "builders": [
+    {"name": "aws-m4pro-7"},
+    {"name": "aws-m4pro-8"}
+  ],
+  "wpr": {
+    "repo": "https://chromium.googlesource.com/webpagereplay",
+    "commit": "7ed888744ce019687980074a909b6588db7da971"
+  },
+  "privileged": {
+    "purge": ["/usr/sbin/purge"],
+    "powermetrics": ["/usr/bin/powermetrics", "--samplers", "cpu_power,gpu_power,ane_power", "-i", "1000", "-n", "600", "-f", "plist"]
+  }
+}

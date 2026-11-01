@@ -28,6 +28,11 @@ Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# SCRATCH MEASUREMENT REF ONLY (perfx/keys-held A/B, never lands): `--suite=first5s`, the first 5 s of typing after
+# each open key (first-5s-typing.py, from cp/first-keys-held-measure2 a12a02f898f, on its own bench_launch_f5s.py).
+if "--suite=first5s" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-5s-typing.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first5s"])
 from bench_launch import BenchApp, require_gui_session  # noqa: E402
 
 # `--suite=launch-check`: only launch the app, wait for its socket and a window, quit (bench_launch.py check): is

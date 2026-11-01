@@ -1,0 +1,26 @@
+{
+  "id": "idle-budget",
+  "tier": "T2",
+  "description": "Idle wakeups, threads, energy, GPU, disk, network and log lines per process kind and their sums (idle-budget.py in shipping measurement mode, its perf cron rows): the launch window, hidden, minimized and with 15 static tabs behind one shown Chromium tab, each settled then measured with no input; and each session's failed count, light session.",
+  "command": ["scripts/cmux-next/idle-budget.py", "--sessions", "light,light-hidden,minimized,tabs-static"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "idle_budget\\.[a-z-]+\\..+\\.(wakeups_per_s|wakeups_max|main_wakes_per_s)", "unit": "per_s",
+     "better": "lower"},
+    {"name": "idle_budget\\.[a-z-]+\\..+\\.(threads|threads_max|log_lines)", "unit": "count", "better": "lower"},
+    {"name": "idle_budget\\.[a-z-]+\\..+\\.(energy_mw_billed|energy_mw_cpu)", "unit": "mW", "better": "lower"},
+    {"name": "idle_budget\\.[a-z-]+\\..+\\.gpu_ms_per_s", "unit": "ms", "better": "lower"},
+    {"name": "idle_budget\\.[a-z-]+\\..+\\.disk_bytes_per_s", "unit": "bytes_per_s", "better": "lower"},
+    {"name": "idle_budget\\.[a-z-]+\\..+\\.network_bytes", "unit": "bytes", "better": "lower"},
+    {"name": "idle_budget\\.[a-z-]+\\.failed", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1100,
+  "needs": ["debug:debug.cef", "debug:debug.energy", "debug:debug.hangs", "debug:debug.layers",
+            "debug:debug.shipping_mode", "debug:debug.wakeups", "debug:debug.webui", "debug:debug.window_list",
+            "file:scripts/cmux-next/idle-budget.json", "file:scripts/cmux-next/tab_pages.py"],
+  "owner": "Performance Lead",
+  "component": "Energy>Idle"
+}

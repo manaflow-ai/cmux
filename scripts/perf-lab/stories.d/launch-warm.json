@@ -1,0 +1,25 @@
+{
+  "id": "launch-warm",
+  "tier": "T0",
+  "description": "Warm launch x5, empty profile: process start to each launch mark and the first content (the first live terminal frame or the agent New Tab page, whichever draws first), and runs that never sent a mark (the perf cron's launch part).",
+  "command": ["scripts/cmux-next/bench-startup.py", "--profile", "empty", "--mode", "warm", "--runs", "5", "--timeout", "20"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "launch\\.warm\\.first_window_frame_committed", "unit": "ms", "better": "lower",
+     "target_ref": {"target": "launch.warm"}},
+    {"name": "launch\\.warm\\.first_content", "unit": "ms", "better": "lower"},
+    {"name": "launch\\.warm\\.did_finish_launching_end", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-cron.py", "key": "LAUNCH_BUDGETS/did_finish_launching_end"}},
+    {"name": "launch\\.warm\\.sidebar_rows_shown", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-cron.py", "key": "LAUNCH_BUDGETS/sidebar_rows_shown"}},
+    {"name": "launch\\.warm\\.[a-z_]+\\.missing_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 2,
+  "seconds": 120,
+  "needs": [],
+  "owner": "Performance Lead",
+  "component": "Launch",
+  "perf_cron_part": "launch"
+}

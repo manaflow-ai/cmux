@@ -1,0 +1,18 @@
+{
+  "id": "sidebar-drag-live",
+  "tier": "T2",
+  "description": "Live proof of the sidebar document drag engine (sidebar-v2-drag-live.py): held drags through debug.mouse across Pinned, groups, custom sections and links, Cmd-Z after each, and the order after a relaunch; how far each held drag's mirror FFI calls are from the two it must make (0 when right) and the failed steps, light session.",
+  "command": ["scripts/cmux-next/sidebar-v2-drag-live.py"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "sidebar_drag_live\\.(ffi_calls_off_contract|failed_steps)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 480,
+  "needs": ["debug:debug.sidebar_rows", "debug:debug.mouse", "debug:debug.toast", "debug:debug.menu_item",
+            "debug:debug.window_snapshot", "debug:debug.sidebar_filter", "debug:debug.surfaces"],
+  "owner": "a590",
+  "component": "Sidebar>Drag"
+}

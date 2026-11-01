@@ -1,0 +1,22 @@
+{
+  "id": "palette-open-webkit",
+  "tier": "T1",
+  "description": "Command Palette (Cmd-Shift-P) and Go to Workspace (Cmd-P) open, WebKit arm (F12): key-down to the committed first frame and its stages, from a terminal, a WebKit page, a Markdown file and Home (palette-open-stages.py). The Chromium arm is palette-open.",
+  "command": ["scripts/cmux-next/palette-open-stages.py", "--engines", "webkit", "--no-gate", "--story", "palette-open-webkit"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "(terminal|webkit|markdown|home)\\.(cmd-shift-p|cmd-p)\\.key", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/palette\\..*/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/palette\\..*/floor"}},
+    {"name": "(terminal|webkit|markdown|home)\\.(cmd-shift-p|cmd-p)\\.(input|model|panel|present|commit|rpc)",
+     "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 150,
+  "needs": ["debug:debug.timings", "debug:debug.key", "debug:debug.tab_drag"],
+  "hot_paths": ["palette-key"],
+  "owner": "Performance Lead",
+  "component": "Palette>Open"
+}
