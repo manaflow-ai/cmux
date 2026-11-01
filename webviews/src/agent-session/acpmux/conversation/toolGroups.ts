@@ -2,7 +2,7 @@
 // under one line ("Ran 3 commands", "Read 4 files", "Edited App.tsx +12 -3"), messages to
 // other agents (an `acpmux send` among them) and calls to the cmux-subsessions tools as cards,
 // and everything else as its own row.
-import { pathKey, type AcpmuxActivity } from "../model";
+import { pathKey, type AcpmuxActivity, type AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -13,6 +13,7 @@ import { isCmuxExec } from "./cmuxExec";
 import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
+import { isFoldedRun } from "./toolRunSummary";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -385,4 +386,53 @@ export function toolDuration(t: Translate, tool: Tool): string | undefined {
 /// The last path component, for "Edited App.tsx".
 export function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
+}
+
+/// A folded run's entries in stretches: a coordination card (a message, a sub-session started,
+/// messaged or waited on) stays in sight, its own stretch, and the work between cards folds under
+/// its own summary line ("Edited a file, read 6 files, ran 4 commands") once it holds two calls in
+/// more than one entry, so one card never leaves the whole run spread out as a list
+/// (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). A run that is not folded
+/// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
+export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
+
+export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunStretch[] {
+  const stretches: RunStretch[] = [];
+  let current: RunStretch | undefined;
+  const close = () => {
+    if (current) current.fold = current.groups.length > 1 && isFoldedRun(current.items);
+    current = undefined;
+  };
+  groups.forEach((group, at) => {
+    const items = "items" in group ? group.items : [group.item];
+    if (row.foldRun === true && staysInSight(group)) {
+      close();
+      stretches.push({ from: at, groups: [group], items, fold: false });
+      return;
+    }
+    if (!current) stretches.push((current = { from: at, groups: [], items: [], fold: false }));
+    current.groups.push(group);
+    current.items.push(...items);
+  });
+  close();
+  if (row.foldRun !== true) for (const stretch of stretches) stretch.fold = false;
+  return stretches;
+}
+
+/// An entry a folded run keeps in sight beside its summary lines: a coordination card, or a file
+/// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with
+/// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
+/// collapsing i mean"); the turn's edited-files card lists them once it ends.
+export function staysInSight(group: ToolGroup): boolean {
+  if (
+    group.type === "message" ||
+    group.type === "send" ||
+    group.type === "subsession" ||
+    group.type === "subsessionGroup" ||
+    group.type === "dispatch"
+  )
+    return true;
+  // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
+  // stays in sight all the same.
+  return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
 }

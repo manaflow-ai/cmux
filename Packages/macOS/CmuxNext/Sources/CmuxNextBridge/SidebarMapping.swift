@@ -195,11 +195,14 @@ public struct SidebarMapping {
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = Self.shortenedPath(tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
                 // The hover card's tab rows show each tab's own folder and status; a New Tab page shows neither.
-                return SidebarTab(id: TabID(tab.id), title: title,
-                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
-                                  folder: isNewTabPage ? nil : tab.cwd.flatMap { $0.isEmpty ? nil : shorten($0) },
-                                  state: isNewTabPage ? .idle : state)
+                var listed = SidebarTab(id: TabID(tab.id), title: title,
+                                        kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
+                                        brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
+                                        folder: isNewTabPage ? nil : tab.cwd.flatMap { $0.isEmpty ? nil : shorten($0) },
+                                        state: isNewTabPage ? .idle : state)
+                // Its chat's running subagents and commands, which the tab row counts.
+                (listed.subagentsRunning, listed.commandsRunning) = Self.running(tab)
+                return listed
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`); a

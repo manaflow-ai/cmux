@@ -268,3 +268,35 @@ test("ignores stale open failures across navigation, collapse, and retry", async
   expect(store.getSnapshot().selected).toBeUndefined();
   expect(store.getSnapshot().notice).toBeUndefined();
 });
+
+test("a path that neither the page nor the host could copy says so", async () => {
+  const { FilesStore } = await import("../src/pages/files/store");
+  const { CLIPBOARD_WRITE } = await import("../src/pages/files/types");
+  const { MockFilesProvider, sampleTree } = await import("../src/pages/files/mockProvider");
+  const { pageError } = await import("../src/pages/shared/pageClient");
+  const provider = new MockFilesProvider(structuredClone(sampleTree));
+  const baseCall = provider.call.bind(provider);
+  const writes: string[] = [];
+  let hostFails = true;
+  provider.call = (async (op: string, params: unknown) => {
+    if (op !== CLIPBOARD_WRITE) return baseCall(op, params);
+    writes.push((params as { text: string }).text);
+    if (hostFails) throw pageError("test.clipboard_denied", "Clipboard access was denied");
+    return undefined;
+  }) as typeof provider.call;
+  const store = new FilesStore(provider, async () => {
+    throw new Error("page clipboard refused");
+  });
+  await store.start();
+
+  await store.copy("src/main.ts");
+  expect(writes).toEqual(["src/main.ts"]);
+  expect(store.getSnapshot().notice).toBe("Clipboard access was denied");
+
+  // Another selection clears the notice, and a copy the host takes leaves none.
+  store.select("src/store.ts");
+  expect(store.getSnapshot().notice).toBeUndefined();
+  hostFails = false;
+  await store.copy("src/store.ts");
+  expect(store.getSnapshot().notice).toBeUndefined();
+});

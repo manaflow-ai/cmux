@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
@@ -9,6 +10,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
+import CmuxNextCloud
 import CmuxNextCompat
 public import CmuxNextComputerUse
 import CmuxNextControl
@@ -487,6 +489,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
     private(set) lazy var chatQuoteOpeners = ChatQuoteOpeners()
+    /// This Mac's acpmux session lanes: the turn-state watch writes them, readers look a session up by id.
+    let agentLanes = AgentLaneStore.shared
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
     /// Relays the Chats index and editor sources into the daemon's project list.
@@ -510,9 +514,15 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
+    /// The bundled `cmux` (`<Resources>/bin/cmux`): asking for it makes no file call on the main thread.
+    let bundledCLI: BundledExecutable
     /// The last quit's agent pages and chat composers, read off the main thread since the launch began, and
     /// this app's peer-route approver key (``PeerApprovalsApp/approver()``, made at launch; nil in tests).
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake, peerApprover: AgentPanePeerApprover?
+    /// The agent panes' state files (unsent drafts, scroll places): one writer per file; quit waits for them.
+    let agentPaneStateFiles: AgentPaneStateFiles
+    /// The state files a quit's deadline ended before they saved, told at the next launch.
+    let agentPaneStateLoss: AgentPaneStateLoss
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -536,10 +546,14 @@ final class AppServices {
     init(environment: AppEnvironment, keyWindowSource: @escaping @MainActor () -> NSWindow?, appActiveSource: @escaping @MainActor () -> Bool, heldKeyReplay: @escaping HeldKeyReplay,
          launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil) {
+         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
+         agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
         self.work = work
+        bundledCLI = BundledExecutable(resources: Bundle.main.resourceURL, name: "cmux", work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
+        self.agentPaneStateFiles = agentPaneStateFiles
+        agentPaneStateLoss = AgentPaneStateLoss(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         // Before the updater's What's New tracker writes its record: an install that ran before
         // never sees the Browser tip (AgentPaneFeatureTipRecords.settleInstall).
@@ -549,8 +563,8 @@ final class AppServices {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
-        // A cmux-tui that stays alive but never answers restarts by itself (`UnresponsiveOwnerWatch`).
-        daemon.recovery.restartsUnresponsiveOwner = { DaemonTunables.restartUnresponsiveCmuxTUI.value }
+        // The automatic restart's toggle, and Restart cmux-tui over content while the daemon is gone (restore fuzz h2).
+        daemon.installRecovery()
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
@@ -842,6 +856,22 @@ final class AppServices {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
         return nil
+    }
+
+    /// A quit deadline's end: it names and records the state files still saving (a paired-phones save is
+    /// marked, and the next launch clears its seal), then ends the process (`AgentPaneStateLoss`).
+    func quitDeadlineEnd() -> @Sendable () -> Void {
+        agentPaneStateLoss.deadlineEnd(files: agentPaneStateFiles, alsoCutOff: { [watch = iphone.pairedQuitWatch] in watch.markCutOffIfSaving() })
+    }
+
+    /// The quit's state-file saves (the agent panes' drafts and scroll places, the paired phones' list),
+    /// awaited together holding no thread and with no limit of their own: the quit awaits them after its
+    /// deadline is armed, and that deadline records what was still saving (``quitDeadlineEnd()``).
+    func stateFilesDrained() async {
+        let files = agentPaneStateFiles
+        async let panes: Void = files.drained()
+        await iphone.pairedSavesDrained()
+        await panes
     }
 }
 

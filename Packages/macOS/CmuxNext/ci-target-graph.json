@@ -924,6 +924,7 @@
         "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
+        "CmuxNextFiles",
         "CmuxNextLayout",
         "CmuxNextWakeups"
       ],
@@ -966,6 +967,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
+        "CmuxNextIcons",
         "CmuxNextTestSupport",
         "CmuxNextWakeupsTestSupport"
       ],
@@ -1447,6 +1449,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextErrorJournal",
+        "CmuxNextFiles",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -1799,6 +1802,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebarActions",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextDesignTokens",
         "CmuxNextSidebar"
       ],
       "packages": []

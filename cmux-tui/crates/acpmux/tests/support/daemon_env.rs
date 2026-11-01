@@ -30,6 +30,8 @@
 //!   daemon's home or a chat's folder, and the daemon refuses to start an
 //!   agent in the user's home folder unless a person picks it;
 //! - `TMPDIR`: the test process's temp directory (macOS: the per-user one);
+//! - `ACPMUX_SESSION_CPU_CLASS=normal`: a stand-in harness keeps its normal CPU class (see
+//!   [`vars`]);
 //! - `ACPMUX_AGENT_LAUNCH=deny`: no agent starts at all (cx-9ettq). A test
 //!   that drives a stand-in agent (fake_agent.py, fake_claude.py) opts out
 //!   with [`Agents::StandIn`]; it keeps the bare PATH, so only its stand-in
@@ -358,6 +360,11 @@ pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, Stri
     if agents == Agents::Deny {
         env.push(("ACPMUX_AGENT_LAUNCH".into(), "deny".into()));
     }
+    // Stand-in harnesses at normal CPU class once their start is over, not the product's
+    // background default (`cpu_class.rs`): they time their turns with short sleeps, and at
+    // background class on a loaded fleet Mac (load 13 to 21 on 10 performance cores) a Codex-steer
+    // turn did not end in 18 to 30 s. `tests/cpu_class.rs` sets background itself.
+    env.push((acpmux::cpu_class::ENV.into(), "normal".into()));
     env
 }
 

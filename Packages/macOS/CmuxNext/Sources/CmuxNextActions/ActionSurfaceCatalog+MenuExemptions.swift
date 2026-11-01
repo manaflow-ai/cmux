@@ -81,7 +81,7 @@ nonisolated extension ActionSurfaceCatalog {
             "simulatorToggleSoftwareKeyboard", "agentPane.searchChats", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
             "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview", "markdownSave",
             "markdownLink", "markdownBack", "markdownForward", "markdownReload", "markdownResetTableWidths", "markdownGoToTop",
-            "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
+            "toggleFileEditorWordWrap", "toggleFileEditorMinimap", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "filePreviewRevealInFiles", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
             "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",
             "diffViewerGoToTop", "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile", "fileEditorGotoLine", "fileEditorReplace", "fileEditorAction",
@@ -162,7 +162,9 @@ nonisolated extension ActionSurfaceCatalog {
             "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
             "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
             "palette.copyWorkspaceIDAndRef", "workspace.showResources", "palette.openWorkspacePullRequests",
-            "workspace.setRemoteLocalhost"],
+            "workspace.setRemoteLocalhost",
+            // The tab menu's Move folder already holds Move Tab to Workspace…; a space list there would bloat it.
+            "tab.moveToSpace"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],

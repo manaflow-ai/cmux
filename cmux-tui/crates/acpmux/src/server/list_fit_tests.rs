@@ -16,10 +16,9 @@ use tokio::sync::mpsc;
 const ROWS: usize = 1000;
 const BIG: &str = "peer-chat-big";
 const LOCAL: &str = "local-long-title";
-const BIG_BYTES: usize = crate::hub::reply_fit::REPLY_BYTES + (1 << 20);
 
-/// A hub with a chat of its own titled above the reply budget, and mirroring `ROWS` chats of 20 KB
-/// each from its peer, plus one oversized row: the list and that one row are each past the limit.
+/// A hub with a chat of its own titled with 16 MiB, and mirroring `ROWS` chats of 20 KB each
+/// from its peer, plus one of 16 MiB: the list and that one row are each past the limit.
 async fn big_hub() -> Arc<crate::hub::Hub> {
     big_hub_with(Vec::new()).await
 }
@@ -31,7 +30,7 @@ async fn big_hub_with(extra: Vec<Value>) -> Arc<crate::hub::Hub> {
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let meta = serde_json::from_value(json!({
-        "schema": crate::store::META_SCHEMA, "id": LOCAL, "name": LOCAL, "title": "t".repeat(BIG_BYTES),
+        "schema": crate::store::META_SCHEMA, "id": LOCAL, "name": LOCAL, "title": "t".repeat(16 << 20),
         "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
     }))
     .unwrap();
@@ -46,7 +45,7 @@ async fn big_hub_with(extra: Vec<Value>) -> Arc<crate::hub::Hub> {
     };
     let mut list: Vec<Value> =
         (0..ROWS).map(|i| row(format!("peer-chat-{i}"), i, 20_000)).collect();
-    list.push(row(BIG.to_owned(), ROWS / 2, BIG_BYTES));
+    list.push(row(BIG.to_owned(), ROWS / 2, 16 << 20));
     list.extend(extra);
     let mut settled = peer.settled();
     for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
@@ -181,7 +180,7 @@ async fn a_trimmed_row_still_goes_to_a_peer_masked() {
     let mut prompt = format!("run {head} then ");
     prompt.push_str(&"p".repeat(1004 - prompt.len()));
     prompt.push_str(&cut);
-    prompt.push_str(&"q".repeat(BIG_BYTES));
+    prompt.push_str(&"q".repeat(16 << 20));
     let row = json!({"sessionId": "secret-chat", "harness": "claude", "lastSeq": 3,
         "cwd": "/work", "status": "idle", "updatedAt": 99_999, "lastPrompt": prompt});
     let hub = big_hub_with(vec![row]).await;

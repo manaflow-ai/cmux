@@ -17,6 +17,11 @@ name = "acpmux"
 path = "src/main.rs"
 
 [features]
+default = ["build-id"]
+# The stamped build id (acpmux-build-id) as the default of `hub::build()`.
+# The cmux-tui binary turns it off and installs the same value at start, so
+# a new stamp does not recompile this crate (acpmux-build-id docs).
+build-id = ["dep:acpmux-build-id"]
 tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
 
 [target.'cfg(unix)'.dependencies]
@@ -24,11 +29,13 @@ cmux-tailnet = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
 [dependencies]
+acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
 cmux-chat-index.workspace = true
+cmux-palette-ranker.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
 cmux-link.workspace = true

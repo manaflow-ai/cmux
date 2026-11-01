@@ -16,6 +16,7 @@ import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents
 import { sessionStatus } from "../session-info/ChildSessionRows";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
+import { startedChatsOutsideSubsessions } from "./startedChatsOutsideSubsessions";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { ChatToolsControl } from "./SourcesAddMenu";
 import type { SummaryCardControl } from "./cardState";
@@ -133,6 +134,13 @@ export function SummaryCard({
   const galleryRow = useRef<HTMLElement | null>(null);
   const summary = useMemo(() => (open ? sessionSummary(rows, undefined, cwd) : undefined), [open, rows, cwd]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
+  const subsessionRows = subsessions?.rows ?? NO_SUBSESSIONS;
+  // An open card can include thousands of started chats and sub-sessions. Index their IDs
+  // once per list change instead of searching every sub-session for every started chat.
+  const children = useMemo(
+    () => (drawn ? startedChatsOutsideSubsessions(sessions?.list ?? NO_SESSIONS, subsessionRows) : NO_SESSIONS),
+    [drawn, sessions?.list, subsessionRows],
+  );
   const registry = background ?? NO_REGISTRY;
   const running = background?.running ?? NO_TASKS;
   // The open card merges the registry with every transcript task; a folded one, the running ones.
@@ -165,6 +173,10 @@ export function SummaryCard({
     const away = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || panel.current?.contains(target)) return;
+      // Capture runs before a child menu's outside-press handler. Let that layer consume this
+      // dismissal; its trigger belongs to this card even though its popup is portalled.
+      if (panel.current?.querySelector('[data-menu][data-popup-open], [aria-haspopup="menu"][aria-expanded="true"]'))
+        return;
       // The card's own menus (Sources' +, SourcesAddMenu.tsx) draw in the page's portal, outside it.
       if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery, .acpmux-summary-menu")) return;
       close();
@@ -190,11 +202,6 @@ export function SummaryCard({
       <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline" />
     ) : null;
   }
-  const subsessionRows = subsessions?.rows ?? NO_SUBSESSIONS;
-  // A started chat that is also a sub-session shows once, as its sub-session row.
-  const children = (sessions?.list ?? NO_SESSIONS).filter(
-    (child) => !subsessionRows.some((row) => row.sessionId === child.sessionId),
-  );
   const count = (status: string) =>
     agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
     subsessionRows.filter(
