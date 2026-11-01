@@ -110,7 +110,7 @@ Servers advertising `viewport-column-resize-v1` include `viewport_base_width` wh
 
 `columns` lists the horizontal viewport columns in order while viewport layout is active and is omitted otherwise. `id` is the column's stable id (also `after_column` in `move-tab-to-column`), `width` its fraction of the frontend viewport, and `layout` the split tree inside it.
 
-Servers advertising `dock-columns-v1` add `dock` to a column pinned with `set-column-dock` and omit it for a scrolling column. `edge` is the viewport edge the frontend keeps the column at while the other columns scroll. With `mode:"docked"` the column's width is taken out of the scrolling area; with `mode:"overlay"` it floats above the scrolling columns. A screen has at most one docked column per edge and always at least one scrolling column. `columns` keeps the stored order, so a client without the capability renders a docked column in place. The flag moves with the column, persists across daemon restarts, is restored by `undo-layout`, and disappears with the column. A new column is never docked unless `move-tab-to-column` names `dock`. When removing columns would leave only docked columns, the server clears their flags; when the screen collapses to one column, `columns` is omitted. With `dock-column-role-v1`, `dock.role` names what the column is for (`"agent_chat"`: the agent chat column of cmux next); it is omitted when unset, kept with the pin, and dropped when the column is unpinned or pinned again without one.
+Servers advertising `dock-columns-v1` add `dock` to a column pinned with `set-column-dock` and omit it for a scrolling column. `edge` is the viewport edge the frontend keeps the column at while the other columns scroll. With `mode:"docked"` the column's width is taken out of the scrolling area; with `mode:"overlay"` it floats above the scrolling columns. A screen has at most one docked column per edge and always at least one scrolling column. `columns` keeps the stored order, so a client without the capability renders a docked column in place. The flag moves with the column, persists across daemon restarts, is restored by `undo-layout`, and disappears with the column. A new column is never docked unless `move-tab-to-column` names `dock`. When removing columns would leave only docked columns, the server clears their flags; when the screen collapses to one column, `columns` is omitted. With `dock-column-role-v1`, `dock.role` names what the column is for (`"agent_chat"`: the agent chat column of cmux next); it is omitted when unset, kept with the pin, and dropped when the column is unpinned or pinned again without one. The agent chat column keeps its chat as its top pane: every new pane in it (a split, a row, an auto-layout append, an edge drop) is refused with `dock-column-agent-chat`, except, with `dock-column-split-down-v1`, a split toward `down` of a pane in a column that is not pinned, which adds that pane below it (Cmd-Shift-D).
 
 Servers advertising `permanent-dock-v1` accept `permanent: true` in `set-column-dock` and then report `"permanent": true` in that column's `dock` (omitted while false; a record or client without the capability reads the column as an ordinary docked one). A permanent column stays docked on its edge for every client: its `mode` may change, and a later `set-column-dock` that omits `permanent` keeps it. An undock, a move to another edge, another column taking that edge, or any close, move or undo that would remove the column from its workspace (closing its pane, closing the last scrolling column beside it, moving its last tab out) is refused with `error_code` or `reason_code` `"dock-column-permanent"`. Closing the whole workspace, or a terminal in it exiting, is not refused. The flag is never cleared.
 
@@ -2018,7 +2018,7 @@ the tab (and carries `transaction`), then the `layout-changed` that places it;
 `pane` never lists the tab and no `tab-added` is sent. The optional
 `pane_id` is the caller-minted public id of the new pane, as on `split`
 (`split-client-keys-v1`), and is refused when it exists or ever existed. A
-refused `split` (an agent chat dock holds one pane) creates no tab. The key
+refused `split` (an agent chat dock takes a new pane only below, by a split toward `down`) creates no tab. The key
 names the source and the target (`pane` or `workspace`, and `split`); the same key with
 another one fails with `idempotency.conflict`. Concurrent requests with one
 key create one tab. The CLI has no verb for it.
@@ -7770,6 +7770,43 @@ becomes the lease's account: every later `cloud-*` event carries it as
 `account`, `cloud-session-status` names it as `participant`, and open
 subscriptions reconnect to carry it. Same admission as `cloud-inbox-list`.
 
+### cloud-environment
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-environment` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-environments-v1` |
+
+The cloud environment editor uses the existing Cloud transport on an off-loop
+request worker. Only the verified native app may call it. The app supplies
+`platform_origin` from its existing platform resolver and `access_token`, its
+cmux install JWT with team authorization. The page never supplies or sees either.
+No Home session lease is needed or modified. Redirects are disabled. The platform
+owns validation, authorization, storage and default locking.
+
+Required fields: `platform_origin`, `access_token`, `action` and `params` (object).
+The origin must be an HTTPS `*.debussy.workers.dev` deployment without a port,
+or HTTP loopback, with no userinfo, query, fragment or non-root path.
+Actions and their params:
+
+- `list`, `{}`: `GET /v1/cloud-environments`, answers an array.
+- `get`, `{id}`: `GET /v1/cloud-environments/{id}`, answers the environment.
+- `update`, `{id, patch}`: `PATCH /v1/cloud-environments/{id}`, answers the saved
+  environment. The patch accepts `name`, `setup_script`, `env_vars`, `set_secrets`,
+  `remove_secrets` and `network`. Null and empty values reach the owner unchanged.
+- `derive`, `{repo, ref?, environment?}`: `POST /v1/environments/derive`, answers
+  the derived setup including `setup.script`.
+
+Ids are 1–128 ASCII letters, digits, underscores or hyphens. No action accepts an
+arbitrary path, header, scope or account. Secret values are write-only: replies
+retain only each secret's `name` and `updated_at`; diagnostics redact params and
+the install token. Upstream error messages are sanitized.
+The app requires the Save click for `update`. Platform `cloud_environment.*`
+refusals preserve their code; invalid fields fail before an HTTP call. Neither
+this command nor its reads change focus. CLI/MCP use requires the person's own
+API authorization; this native forwarding command never grants it to agents.
+
 ### cloud-conversation-thread
 
 | Field | Value |
@@ -9499,6 +9536,24 @@ agent runs. The app checks the person's gesture (and its full-access rule)
 before it sends one; an app without the capability says the pick needs that
 machine's cmux-tui updated.
 
+### agent-session-login
+
+`agent-session-login-v1` (advertised with `agent-session-attach-v1`): a Cloud
+chat's own sign-in on this machine, from the app's sign-in card. On an attached
+tab, `{id, cmd:"agent-session-login", surface, op, ...}` sends acpmux's
+`_acpmux/agent_login/<op>`: `op:"start"` with `agent` (`claude` or `codex`)
+sends `{agent, sessionId}`; `op:"finish"` with `login_id` and optionally Claude's `code`
+sends `{loginId, sessionId, code?}` and may wait up to 15 minutes (Codex waits
+for the person's approval); `op:"api_key"` with `agent` and `key` sends `{agent,
+key, sessionId}`; `op:"cancel"` with `login_id` sends `{loginId,
+sessionId}`. `sessionId` is always the tab's own session. acpmux's result comes back unchanged; its
+refusal comes back as an answer, `{refused:{reason}}` with its `data.reason`
+(`unsupported` from an acpmux without the method). A missing or oversized field,
+another agent, another `op` or any other param is `agent_session.bad_request`.
+An observation attachment gets `agent_session.read_only`, and a teammate's or
+link guest's attachment `agent_session.not_trusted`: only the chat's owner signs
+its agent in. The code and key are never logged.
+
 ### agent-session-proxy-bind, agent-session-of
 
 A shared chat (`cmux host share`, chat multiplayer) reaches a teammate through
@@ -10028,6 +10083,15 @@ and gives the chat back. A chat under peer control keeps its
 permission policy and mode and runs its queue at once, so it lands only on
 a Mac, an SSH host or a personal (owner) Cloud VM; under web control
 acpmux also requires a policy and mode that ask.
+
+A running turn: `agent-transfer-begin {interrupt: true}` stops it, and this
+daemon's acpmux queues its continuation first, so the turn goes on where the
+chat lands, or here if the move does not happen
+(`agent-transfer-continues-v1`). `cmux link agent move --interrupt` asks for
+the Stop only from a source that lists that capability; an older one would
+stop the turn for good, so there the begin is refused while the turn runs. A
+chat that is compacting is refused too (`transfer.busy`): a Stop then would
+withdraw its queued prompts.
 
 A receive id is not tied to the connection that made it: another trusted
 local connection of the same user may write, finish or abort it (the pump

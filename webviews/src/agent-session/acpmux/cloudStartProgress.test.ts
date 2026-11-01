@@ -67,3 +67,74 @@ test("a start with no project carries home, and the agent's name for the opening
   });
   expect(cloudStartBegun("k", "hi", "/Users/me/paint").home).toBeUndefined();
 });
+
+// The Swift bridge nests seed_* timestamps under clone; they must not start
+// the machine or harness clocks, including on failed and cached copies.
+test("forwarded copy timestamps stay on the clone row", () => {
+  for (const [state, phase] of [
+    ["done", "complete"],
+    ["done", "cached"],
+    ["failed", "copy"],
+  ] as const) {
+    const pushed = cloudStartPushed(begun(), {
+      key: "k-1",
+      step: "folder",
+      clone: { state, phase, startedAt: 1000, finishedAt: 3500 },
+    });
+    expect(pushed?.clone).toEqual({ state, phase, startedAt: 1000, finishedAt: 3500 });
+    expect(pushed?.machineStartedAt).toBeUndefined();
+    expect(pushed?.harnessStartedAt).toBeUndefined();
+  }
+});
+
+test("a copy's files and bytes, its fallback and an https install link reach the clone row", () => {
+  const pushed = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    clone: {
+      state: "running",
+      phase: "copy",
+      fallback: "seed.needs_github",
+      install_url: "https://github.com/apps/cmux/installations/new",
+      progress: { received_bytes: 10, bytes_total: 20, files_done: 1, files_total: 2 },
+    },
+  });
+  expect(pushed?.clone).toEqual({
+    state: "running",
+    phase: "copy",
+    fallback: "seed.needs_github",
+    installUrl: "https://github.com/apps/cmux/installations/new",
+    progress: { receivedBytes: 10, bytesTotal: 20, filesDone: 1, filesTotal: 2 },
+  });
+  // The final answer keeps why the seed copied; it does not repeat it.
+  const ended = cloudStartPushed(pushed, { key: "k-1", step: "folder", clone: { state: "done", phase: "complete" } });
+  expect(ended?.clone).toEqual({
+    state: "done",
+    phase: "complete",
+    fallback: "seed.needs_github",
+    installUrl: "https://github.com/apps/cmux/installations/new",
+  });
+  const unsafe = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    clone: { state: "running", install_url: "javascript:alert(1)" },
+  });
+  expect(unsafe?.clone?.installUrl).toBeUndefined();
+});
+
+test("forwards the environment id and setup ran or cached state", () => {
+  const ran = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    environmentId: "denv_0123456789abcdef01234567",
+    setup: { state: "done", started_at: 1000, finished_at: 3500 },
+  });
+  expect(ran?.environmentId).toBe("denv_0123456789abcdef01234567");
+  expect(ran?.setup).toEqual({ state: "done", startedAt: 1000, finishedAt: 3500 });
+
+  const cached = cloudStartPushed(begun(), {
+    key: "k-1",
+    setup: { state: "done", status: "ready" },
+  });
+  expect(cached?.setup).toEqual({ state: "done", status: "ready" });
+});

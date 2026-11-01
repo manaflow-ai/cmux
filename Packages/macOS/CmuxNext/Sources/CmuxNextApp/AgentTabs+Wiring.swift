@@ -3,8 +3,10 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFloating
 import CmuxNextHomeEngine
+import enum CmuxNextLayout.ChatColumnPlacement
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
 
@@ -110,8 +112,12 @@ extension AgentTabStore {
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, daemons: services.acpmuxDaemons,
-                                 updates: services.daemonUpdates, peerApprover: services.peerApprover)
+                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources),
+                                 daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
+        tabs.cloudRepositoryLocal = { [weak services] in
+            guard let services else { throw DaemonError.notConnected }
+            return try await services.daemon.cloudRepositoryLocal()
+        }
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the
             // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or
@@ -247,6 +253,19 @@ extension AgentTabStore {
                 }
             }
         }
+        // The header's Terminal and Browser on the chat's right (Leo, 2026-10-31): a tab in the pane holding that kind,
+        // else a split below, never a third column. A lone chat, Home's dock and an offline daemon keep their split's route (false).
+        tabs.openTool = { [weak services] chat, kind, cwd in
+            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let source = services.paneController(for: pane) else { return false }
+            switch ChatColumnPlacement.resolve(from: source, services: services) { case .dockChat, .besideDock: return false; case .here, .tab: break }
+            // As their splits did: a browser keeps its address bar focused through the move; with Ghostty's
+            // `split-inherit-working-directory = false` (the header passes no folder) a terminal starts in the home folder.
+            let start = cwd ?? NewTerminalStart.uninherited(.split, services: services, daemon: source.daemon, besides: nil)
+            return services.linkOpener.open(from: source, besideChat: true, kind: kind, focusing: kind == .browser ? .addressBar : .content) { target, placed in
+                guard kind == .browser else { guard target.daemon.connection != nil else { return false }; target.newTerminalTab(cwd: start, daemonResolvesCwd: true, placementOwner: placed != nil, then: placed); return true }
+                return target.newBrowserTab(placementOwner: placed != nil, then: placed)
+            }
+        }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
@@ -366,6 +385,7 @@ extension AgentTabStore {
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.linksHost = AgentTabStore.registryHost(of: daemon)
+            host.servesLogin = daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
@@ -478,6 +498,8 @@ extension AgentTabStore {
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
+        tabs.onPageBuilt = { [weak services] key in services?.cache.hibernation?.agentPages?.pageBuilt(key) }
+        tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.holdAwake(held) }
         services.madeAgentTabs = tabs
         return tabs
     }

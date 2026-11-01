@@ -58,6 +58,11 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
     public var linkedFailure: (any Error)?
     /// False: no local pane, so a login or logout opens nothing.
     public var opensTabs = true
+    /// Optional async tab opener for exercising delayed workspace creation.
+    @ObservationIgnored public var openProviderTab: ((ReauthPlan) async -> Bool)?
+    /// Optional gate before a detection result is produced. Tests use this to
+    /// reproduce a refresh completing after a local login has started.
+    @ObservationIgnored public var beforeDetect: (() async -> Void)?
     public private(set) var calls: [String] = []
 
     public init() {
@@ -65,6 +70,7 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
     }
 
     public func detect() async -> [ProviderDetection] {
+        if let beforeDetect { await beforeDetect() }
         calls.append("detect")
         let found = Dictionary(uniqueKeysWithValues: detections.map { ($0.provider, $0) })
         return AIProvider.allCases.map { found[$0] ?? .missing($0) }
@@ -144,8 +150,9 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
     }
 
     @discardableResult
-    public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) -> Bool {
+    public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) async -> Bool {
         calls.append(plan == provider.signOutPlan ? "signOut:\(provider.rawValue)" : "reauth:\(provider.rawValue)")
+        if let openProviderTab { return await openProviderTab(plan) }
         return opensTabs
     }
 

@@ -308,13 +308,13 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
             const open = await fit(panel);
             cards.push({ height, ...open });
             if (height !== 520) continue;
-            // Open Context, then fold it: the card ends at its sections again, shorter by just its rows.
+            // Context starts open (Leo, 2026-11-01); fold it: the card ends at its sections again,
+            // shorter by just its rows.
             const context = panel.locator('section[data-section="context"]');
             const frame = () =>
               page.evaluate(
                 () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
               );
-            await context.locator(".ui-disclosure-trigger").click();
             const rows = context.locator(".ui-disclosure-panel");
             await rows.waitFor({ timeout: 5_000 });
             await frame();

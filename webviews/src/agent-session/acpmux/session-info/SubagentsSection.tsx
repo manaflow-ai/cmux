@@ -19,6 +19,7 @@ const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { useAgentProgress } from "../subagents/agentProgressStore";
 import { isRepeatedAgentKind } from "../subagents/AgentIdentity";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
@@ -237,6 +238,7 @@ export function SubagentsSection({
         name={item.name}
         detail={item.detail}
         progress={item.progress}
+        progressAgent={item.agent}
         status={item.status}
         state={item.state}
         working={item.working}
@@ -247,23 +249,7 @@ export function SubagentsSection({
         depth={item.depth}
         onOpen={item.open}
         wave={inWave ? wave[index] : undefined}
-        card={
-          <span className="acpmux-agent-card">
-            <span className="acpmux-agent-card__name">{item.name}</span>
-            <span className="acpmux-agent-card__state" data-status={item.status}>
-              {[
-                item.state,
-                item.time,
-                item.kind,
-                item.progress,
-                item.status === "running" || item.status === "waiting" ? item.detail : undefined,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
-            {item.task && item.task !== item.name && <span className="acpmux-agent-card__task">{item.task}</span>}
-          </span>
-        }
+        card={<AgentCard item={item} />}
       />
     </li>
   );
@@ -301,5 +287,26 @@ export function SubagentsSection({
         </>
       )}
     </div>
+  );
+}
+
+function AgentCard({ item }: { item: Line }) {
+  const progress = useAgentProgress(item.agent) ?? item.progress;
+  return (
+    <span className="acpmux-agent-card">
+      <span className="acpmux-agent-card__name">{item.name}</span>
+      <span className="acpmux-agent-card__state" data-status={item.status}>
+        {[
+          item.state,
+          item.time,
+          item.kind,
+          progress,
+          item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </span>
+      {item.task && item.task !== item.name && <span className="acpmux-agent-card__task">{item.task}</span>}
+    </span>
   );
 }

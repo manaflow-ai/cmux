@@ -177,7 +177,7 @@ final class CloudService {
         machineAPI = configuration.linkSource == .appServer
             ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                             teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-                                            machineIO: CloudMachineIO(binary: LocalServerSource.bundledCLI(), cloudRoot: paths.root))
+                                            machineIO: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
             : api
         let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build

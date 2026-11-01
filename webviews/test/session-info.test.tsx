@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
-import { act, useState, type ReactNode } from "react";
+import { act, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
@@ -49,6 +49,7 @@ import { openSourceFile } from "../src/agent-session/acpmux/session-info/Sources
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -127,18 +128,27 @@ function Pane({
   sessions,
   onPanelRender,
   rerenderOnScroll = false,
+  cloudRepositoryAvailable,
+  cloudMachineID,
 }: {
   snapshot: AcpmuxSnapshot;
   onOpenOutput: (path: string) => void;
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
   onPanelRender?: () => void;
   rerenderOnScroll?: boolean;
+  cloudRepositoryAvailable?: boolean;
+  cloudMachineID?: string;
 }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const [scrollFrame, setScrollFrame] = useState(0);
+  const sessionInfoSnapshot = useMemo(
+    () => ({ ...snapshot, summary: withCloudMachineSummary(snapshot.summary, cloudMachineID) }),
+    [snapshot, cloudMachineID],
+  );
   const sessionInfo = useSessionInfo({
-    snapshot,
+    snapshot: sessionInfoSnapshot,
     machineName: "Studio",
+    cloudRepositoryAvailable,
     shell,
     onOpenOutput,
     onRender: onPanelRender,
@@ -335,14 +345,12 @@ test("Session Info opens with a first chat: its environment, context use and out
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
   expect(rows.map((row) => row.textContent)).toContain("main");
 
-  // Context: 48K of 200K is 24% with a bar, folded until asked; then, as Claude Code desktop's, the
-  // percent used with the tokens, a bar, and the used and free parts with their shares.
-  const context = section(container, "context")!;
-  expect(meta(context)).toContain("24%");
-  expect(context.querySelector(".acpmux-session-info-meter")).not.toBeNull();
-  expect(context.textContent).not.toContain("tokens");
-  await click(head(context));
+  // Context: 48K of 200K is 24% with a bar, open from the start (Leo, 2026-11-01: "context tho is
+  // pretty good i think to keep expanded by default?"): as Claude Code desktop's, the percent used
+  // with the tokens, a bar, and the used and free parts with their shares.
   const open = section(container, "context")!;
+  expect(meta(open)).toContain("24%");
+  expect(open.querySelector(".acpmux-session-info-meter")).not.toBeNull();
   expect(open.querySelector(".acpmux-session-info-context__total")?.textContent).toBe("24% used48K / 200K");
   const bar = open.querySelector<HTMLElement>('.acpmux-session-info-context__bar [data-part="used"]');
   expect(bar?.style.width).toBe("24%");
@@ -368,6 +376,54 @@ test("Session Info opens with a first chat: its environment, context use and out
   expect(sessionInfoState().open).toBe(false);
 });
 
+test("Session Info derives Cloud from the host handshake when the summary has no kind or peer", async () => {
+  const container = installDom(true);
+  const summaryWithoutMachineKind = { ...chat([]).summary! };
+  delete summaryWithoutMachineKind.hostKind;
+  delete summaryWithoutMachineKind.peer;
+  delete summaryWithoutMachineKind.host;
+  const realCloudShape: AcpmuxSnapshot = {
+    ...chat([]),
+    summary: { ...summaryWithoutMachineKind, sessionId: "cloud-session" },
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <Pane snapshot={realCloudShape} onOpenOutput={noop} cloudMachineID="cloud-machine-id" cloudRepositoryAvailable />,
+    );
+  });
+  const environment = section(container, "environment")!;
+  expect(environment.querySelector("li[data-machine]")?.textContent).toContain("Studio");
+  expect(environment.textContent).toContain("Default");
+  expect(environment.textContent).toContain("Add repository…");
+
+  await act(async () => {
+    root!.render(<Pane snapshot={realCloudShape} onOpenOutput={noop} cloudRepositoryAvailable={false} />);
+  });
+  expect(section(container, "environment")?.textContent).not.toContain("Add repository…");
+  expect(section(container, "environment")?.textContent).not.toContain("Default");
+});
+
+test("Session Info keeps a summary without a Cloud machine id local", async () => {
+  const container = installDom(true);
+  const summaryWithoutMachineKind = { ...chat([]).summary! };
+  delete summaryWithoutMachineKind.hostKind;
+  delete summaryWithoutMachineKind.peer;
+  const localShape: AcpmuxSnapshot = {
+    ...chat([]),
+    summary: { ...summaryWithoutMachineKind, sessionId: "local-session", host: "Studio" },
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Pane snapshot={localShape} onOpenOutput={noop} cloudRepositoryAvailable />);
+  });
+  const environment = section(container, "environment")!;
+  expect(environment.querySelector<HTMLElement>("li[data-machine]")?.dataset.machine).toBe("local");
+  expect(environment.querySelector("li[data-machine]")?.textContent).toContain("Studio");
+  expect(environment.textContent).not.toContain("Add repository…");
+  expect(environment.textContent).not.toContain("Default");
+});
+
 test("open, closed, folds and width are this pane's, and another pane's change never reaches it", async () => {
   // Leo, 2026-10-25: "it opens and closes on the other side too when you do one... they should all be
   // individual per pane".
@@ -375,14 +431,14 @@ test("open, closed, folds and width are this pane's, and another pane's change n
   await render(container, localChat);
   await click(head(section(container, "context")!));
   await click(toggle(container)!);
-  // The same pane drawn again (a chat shown again) keeps its state: closed, Context open.
+  // The same pane drawn again (a chat shown again) keeps its state: closed, Context folded.
   await act(async () => root!.unmount());
   root = undefined;
   await render(container, localChat);
   expect(panel(container)).toBeNull();
   await click(toggle(container)!);
-  expect(section(container, "context")!.textContent).toContain("48K / 200K");
-  expect(sessionInfoState().sections.context).toBe(true);
+  expect(section(container, "context")!.textContent).not.toContain("48K / 200K");
+  expect(sessionInfoState().sections.context).toBe(false);
   await click(toggle(container)!);
 
   // Another pane opens its own: this one stays closed.

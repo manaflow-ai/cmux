@@ -1085,6 +1085,34 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
     { isWorking: true },
   );
 
+/// A running turn whose first run did one kind of work, two web fetches, between two messages: its
+/// collapsed line keeps that kind's glyph, the globe.
+const oneKindRunChat = () =>
+  chat(
+    [
+      user("Check what the two retry guides say, then run the tests.", 3),
+      assistant("I'll read both guides first.", 2.9),
+      activity(
+        [
+          tool("Fetch https://example.com/retries", "fetch", "completed"),
+          tool("Fetch https://example.com/backoff", "fetch", "completed"),
+        ],
+        2.8,
+      ),
+      assistant("Both guides cap retries at three with jittered backoff. Next I run the tests.", 2.5),
+      activity(
+        [
+          tool("bun test src/net", "execute", "in_progress", {
+            command: "bun test src/net",
+            startedAt: minutesAgo(0.2),
+          }),
+        ],
+        0.3,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
 /// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
 const mcpTool = (name: string, args: unknown, output: string) =>
@@ -1366,6 +1394,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/PromptDelivery.tsx#FailedSendsContext",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
+    "agent-session/acpmux/conversation/icons.tsx#MultiTool",
     "agent-session/acpmux/PermissionCard.tsx",
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
@@ -2130,8 +2159,12 @@ export default agentPaneEntry({
       ),
     },
     "collapsed-run": {
-      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the glyph of its main kind (the pencil when it edited). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
+      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the several-tools glyph (four rings joined by a diagonal). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
       snapshot: collapsedRunChat(),
+    },
+    "collapsed-run-one-kind": {
+      note: "A collapsed run of one kind of work (two web fetches) keeps that kind's glyph, the globe.",
+      snapshot: oneKindRunChat(),
     },
     "collapsed-run-open": {
       note: "The same line opened: the rows it holds, drawn as they are on their own.",
@@ -2503,7 +2536,13 @@ export default agentPaneEntry({
       note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
       height: 1100,
       snapshot: chat(
-        [user("Stop the watcher, check the issues and run the tests.", 1), activity(ENVELOPE_TOOLS, 0.8)],
+        // The reply under the calls keeps every call a row: with nothing after it, the live line
+        // would hold the last finished call instead.
+        [
+          user("Stop the watcher, check the issues and run the tests.", 1),
+          activity(ENVELOPE_TOOLS, 0.8),
+          assistant("The watcher is stopped and the tests pass.", 0.5),
+        ],
         { isWorking: true },
       ),
       play: async (ctx) => {
