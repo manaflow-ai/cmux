@@ -74,6 +74,15 @@ impl App {
     }
 
     fn report_client_focus(&mut self) {
+        // Navigation reports each focus change here, including changes back
+        // to the original surface. Cancel at the first change so returning
+        // later cannot revive a completed creation's deferred selection.
+        if self
+            .pending_completed_selection
+            .is_some_and(|pending| self.active_surface() != pending.focus_at_completion)
+        {
+            self.pending_completed_selection = None;
+        }
         let Some(focus) = self.current_client_focus() else { return };
         match self.reported_focus {
             None => self.reported_focus = Some(focus),

@@ -1,7 +1,10 @@
 import Foundation
 
 /// Secret bytes travel only in writeFile's body. Exec carries a private staging path, never a
-/// token. The image's own policy and launchers remain authoritative; shared/old images fail closed.
+/// token. A login goes only where the caller's attach answer says they own the machine
+/// (``CloudCredentialTransfer`` checks it before and after the login) and where the guest is an
+/// owner machine too: on a team guest every member's terminal runs as the same Unix user and could
+/// read it. The image's launchers stay authoritative; shared and old images fail closed.
 nonisolated enum CloudCredentialInstaller {
     static let preflight = #"""
         set -eu

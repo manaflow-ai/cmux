@@ -48,6 +48,7 @@ nonisolated struct OmnibarStep {
         case .showFullURLsChanged(let full): showFullURLsChanged(full)
         case .searchEngineChanged: if state.phase == .editing { refreshSuggestions(keepSelection: true) }
         case .pasteAndGo(let text): pasteAndGo(text)
+        case .dropped(let text): dropped(text)
         }
     }
 
@@ -177,6 +178,29 @@ nonisolated struct OmnibarStep {
         }
         leaveKeyword(restoreText: false)
         commit(url, .currentTab)
+    }
+
+    /// `OmniboxViewViews::PerformDrop`: the dropped text replaces the box's text (`SetUserText`),
+    /// all selected; it loads nothing. Whitespace collapses (`CollapseWhitespace`) and
+    /// `javascript:` is stripped (`omnibox::StripJavascriptSchemas`).
+    mutating func dropped(_ text: String) {
+        guard state.hasFocus, !state.isComposing else {
+            handled = false
+            return
+        }
+        let cleaned = OmnibarRules.droppedText(text)
+        guard !cleaned.isEmpty else {
+            handled = false
+            return
+        }
+        leaveKeyword(restoreText: false)
+        state.phase = .editing
+        state.elided = false
+        state.popup = .init()
+        state.edit = .init(userText: cleaned, selection: Self.all(cleaned), suppressCompletion: true)
+        state.lastEditKind = nil
+        state.editHasPaste = true
+        query()
     }
 
     /// Loads `url` and ends editing; the chrome returns focus to the page

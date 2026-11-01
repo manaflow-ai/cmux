@@ -4,6 +4,7 @@ import CmuxNextBrowser
 @testable import CmuxNextApp
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CmuxNextTestSupport
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -16,7 +17,7 @@ import UniformTypeIdentifiers
 /// gets Open as Text wherever its Open is: the shared file menu (Home attachments and file
 /// links), the Files pane and the Files sidebar. Every row runs one path: ``LinkOpener`` with
 /// `asText`, which ``FilePageOpener`` routes to the code editor page.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct FileOpenAsTextTests {
     struct NoApps: FileAppsProviding {
         func openWithList(forFileNamed name: String, isDirectory: Bool) async -> OpenWithList { OpenWithList(defaultApp: nil, apps: []) }
@@ -31,6 +32,9 @@ struct FileOpenAsTextTests {
         ("index.html", FilePageOpener.Route.renderedPage, FilePageOpener.Route.editor),
         ("logo.svg", .renderedPage, .editor),
         ("README.md", .markdown, .editor),
+        ("notes.mdown", .editor, .editor),
+        ("notes.mkd", .editor, .editor),
+        ("notes.mkdn", .editor, .editor),
         ("main.swift", .editor, .editor),
         ("shot.png", .preview, .preview),
     ])
@@ -58,6 +62,18 @@ struct FileOpenAsTextTests {
         #expect(FileOpenKind.sourceFile(ofPage: "file:///tmp/site/shot.png") == nil)
         #expect(FileOpenKind.sourceFile(ofPage: "file:///tmp/site/README.md") == nil)
         #expect(FileOpenKind.sourceFile(ofPage: nil) == nil)
+    }
+
+    /// Open as Page (`file.openAsPage`, u18462): a code editor tab showing HTML, SVG or Markdown
+    /// names the file it renders; a file cmux shows only as text has none.
+    @Test func openAsPageFindsTheRenderableFileAnEditorShows() {
+        for name in ["index.html", "page.htm", "logo.SVG", "README.md"] {
+            #expect(FileOpenKind.renderedFile(ofSource: Self.url(name)) == Self.url(name), "\(name)")
+        }
+        #expect(FileOpenKind.renderedFile(ofSource: Self.url("main.swift")) == nil)
+        #expect(FileOpenKind.renderedFile(ofSource: Self.url("shot.png")) == nil)
+        #expect(FileOpenKind.renderedFile(ofSource: URL(string: "https://example.com/index.html")) == nil)
+        #expect(FileOpenKind.renderedFile(ofSource: nil) == nil)
     }
 
     @Test(arguments: ["sidebar-clean-cmux.png", "wide.jpg", "poster.webp", "document.pdf"])
