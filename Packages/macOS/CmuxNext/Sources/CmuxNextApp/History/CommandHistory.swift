@@ -179,6 +179,7 @@ final class CommandHistory {
     /// after `since` (nil: all).
     func delete(since: Date?) {
         for machine in mirrors.keys { mirrors[machine]?.remove(startedSince: since) }
+        suggestionStore.replace(mirrors.values.flatMap(\.commands))
         let selection: DeleteTerminalCommandsRequest.Selection = since.map { .startedSince($0) } ?? .all
         for daemon in daemons() {
             let machine = daemon.machineID
@@ -191,6 +192,7 @@ final class CommandHistory {
     /// Deletes one command in its daemon.
     func delete(_ command: TerminalCommand) {
         mirrors[command.machine]?.remove(ids: [command.id])
+        suggestionStore.replace(mirrors.values.flatMap(\.commands))
         guard let daemon = daemons().first(where: { $0.machineID == command.machine }) else { return }
         let id = String(command.id)
         let machine = command.machine

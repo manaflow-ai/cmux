@@ -38,17 +38,21 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
     public let policy: Policy
     private var records: [String: TerminalCommand] = [:]
     private var dismissed: Set<String> = []
+    private var clearedThrough: Date?
 
     public init(policy: Policy = Policy()) { self.policy = policy }
 
     public mutating func replace(_ commands: [TerminalCommand]) {
         records.removeAll(keepingCapacity: true)
-        for command in commands where Self.isEligible(command) { records[command.qualifiedID] = command }
+        for command in commands where Self.isEligible(command),
+            clearedThrough.map({ command.startedAt > $0 }) ?? true {
+            records[command.qualifiedID] = command
+        }
         trim()
     }
 
     public mutating func record(_ command: TerminalCommand) {
-        guard Self.isEligible(command) else { return }
+        guard Self.isEligible(command), clearedThrough.map({ command.startedAt > $0 }) ?? true else { return }
         records[command.qualifiedID] = command
         trim()
     }
@@ -77,6 +81,7 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
     public mutating func dismiss(_ suggestion: TerminalCommandSuggestion) { dismissed.insert(suggestion.id) }
 
     public mutating func clear() {
+        clearedThrough = records.values.map(\.startedAt).max() ?? Date()
         records.removeAll(keepingCapacity: true)
         dismissed.removeAll(keepingCapacity: true)
     }
@@ -110,9 +115,11 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
               text.first?.isWhitespace != true else { return false }
         let lower = text.lowercased()
         let secretMarkers = ["password=", "passwd=", "token=", "secret=", "api_key=", "apikey=",
-                             "authorization:", "bearer "]
+                             "authorization:", "bearer ", "aws_secret_access_key", "aws_session_token",
+                             "client_secret", "private_key", "refresh_token", "-----begin"]
         let riskyPatterns = ["rm -rf", "rm -r ", "git reset --hard", "git push --force", "sudo ",
-                             "curl |", "curl -s |", "wget |"]
+                             "curl |", "curl -s |", "wget |", "| sh", "| bash", "| zsh", "| /bin/sh",
+                             "| /bin/bash"]
         return !secretMarkers.contains(where: lower.contains) && !riskyPatterns.contains(where: lower.contains)
     }
 
@@ -138,9 +145,22 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
     }
 
     private static func jsonQuote(_ text: String) -> String {
-        text.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
+        var result = ""
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x08: result += "\\b"
+            case 0x09: result += "\\t"
+            case 0x0A: result += "\\n"
+            case 0x0C: result += "\\f"
+            case 0x0D: result += "\\r"
+            case 0x00...0x1F:
+                let hex = String(scalar.value, radix: 16)
+                result += "\\u" + String(repeating: "0", count: max(0, 4 - hex.count)) + hex
+            case 0x22: result += "\\\""
+            case 0x5C: result += "\\\\"
+            default: result.unicodeScalars.append(scalar)
+            }
+        }
+        return result
     }
 }

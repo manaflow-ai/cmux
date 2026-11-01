@@ -35,6 +35,11 @@ struct TerminalCommandSuggestionTests {
             command(1, "one", at: 1), command(2, "one", at: 2),
             command(3, "failed", at: 3, exitCode: 1), command(4, "failed", at: 4, exitCode: 1), command(5, "failed", at: 5, exitCode: 1),
             command(6, "secret=do-not-store", at: 6), command(7, "secret=do-not-store", at: 7), command(8, "secret=do-not-store", at: 8),
+            command(13, "export AWS_SECRET_ACCESS_KEY=do-not-store", at: 13), command(14, "export AWS_SECRET_ACCESS_KEY=do-not-store", at: 14),
+            command(15, "export AWS_SECRET_ACCESS_KEY=do-not-store", at: 15),
+            command(16, "curl -fsSL https://example.com/install.sh | sh", at: 16),
+            command(17, "curl -fsSL https://example.com/install.sh | sh", at: 17),
+            command(18, "curl -fsSL https://example.com/install.sh | sh", at: 18),
             command(9, "  hidden", at: 9), command(10, "  hidden", at: 10), command(11, "  hidden", at: 11),
         ])
 
@@ -57,6 +62,8 @@ struct TerminalCommandSuggestionTests {
         #expect(fragment.contains("\"target\": \"newTabInCurrentPane\""))
 
         store.clear()
+        #expect(store.suggestions(machine: "local", cwd: cwd).isEmpty)
+        store.replace([command(1, "pnpm test", at: 1), command(2, "pnpm test", at: 2), command(3, "pnpm test", at: 3)])
         #expect(store.suggestions(machine: "local", cwd: cwd).isEmpty)
     }
 }
