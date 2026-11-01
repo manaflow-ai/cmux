@@ -78,7 +78,7 @@ def code_lines(path: Path):
 
 
 class NightlyPooledRoutingTests(unittest.TestCase):
-    def test_resolver_and_recovery_default_to_fleet_without_current_placement(self) -> None:
+    def test_resolver_and_recovery_use_overflow_without_current_placement(self) -> None:
         import yaml
         from test_nightly_trusted_routing import evaluate, parse_expression
         jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
@@ -91,7 +91,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                "needs.decide.outputs.early_attempt": placement_attempt,
                                "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}
                     with self.subTest(job=name, attempt=attempt, placement=placement_attempt):
-                        self.assertEqual(evaluate(expression, context), "cmux-fleet-linux-x64")
+                        self.assertEqual(evaluate(expression, context), "blacksmith-16vcpu-ubuntu-2404")
                         context["needs.decide.outputs.track"] = "nightly"
                         self.assertEqual(evaluate(expression, context), "blacksmith-16vcpu-ubuntu-2404")
                         context["github.repository_owner"] = "fork-owner"

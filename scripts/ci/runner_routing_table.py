@@ -102,8 +102,8 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
         return "its runs-on is not one expression"
     terms = [term.strip() for term in value_terms(expressions[0])]
     # Early nightly admission owns fleet/mini/overflow selection and validates
-    # the per-job lease. Missing or stale outputs must retain the declared JIT
-    # pool, never select paid work without a no-start receipt.
+    # the per-job lease. Missing or stale outputs must use measured overflow,
+    # never queue on a generic pool whose registration is unknown.
     if nightly and re.search(r"needs\.decide\.outputs\.early_(?!(?:linux|mini)_runner)[a-z_]+_runner", runs_on):
         alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
         if alternatives[0] == "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'":
@@ -114,8 +114,10 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
         # Other tracks retain their prior route outside this guarded branch.
         admitted = _unwrap(gated[1])
         admitted_terms = value_terms(admitted)
-        if admitted_terms[-1] != "'cmux-fleet-linux-x64'" or any(BLACKSMITH_LINUX.match(t) for t in admitted_terms):
-            return "early admission must fall back to fleet Linux without a paid literal"
+        if len(admitted_terms) != 1 or not re.fullmatch(r"needs\.decide\.outputs\.early_[a-z_]+_runner", admitted_terms[0]):
+            return "early admission must use only its verified runner output"
+        if not alternatives[-1:] or alternatives[-1] not in ("'blacksmith-16vcpu-ubuntu-2404'", "'blacksmith-32vcpu-ubuntu-2404'"):
+            return "early admission must retain measured Linux overflow"
         if "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)" not in admitted:
             return "early admission must consume only its own attempt"
         return ""
