@@ -38,9 +38,15 @@ terminal with 10,000 lines of history, one connection attached to it as a
 byte mirror (`attach-surface`, read as fast as it comes), and a control
 connection that resizes it with `resize-surface` in bursts of 24 steps,
 back to back ("burst") and one step every 8 ms ("drag", a 120 Hz divider
-drag), 5 bursts each. It reports each step's round trip, the `resized`
-events the mirror got per burst, and the time from the burst's last reply
-to the mirror's `resized` of the final grid ("settle"). `--resize-rounds`
+drag), 5 bursts each. It reports each step's request round trip
+("step": for a hosted terminal `resize-surface` replies once the size
+reached the terminal host, so a step mostly waits for the geometry lock
+while the previous step is applied, in a hosted terminal while its reader
+installs the host's replay), the
+`resized` events the mirror got per burst, and the time from sending a
+burst's last step to the mirror's `resized` of the final grid ("settle").
+A settle miss, a stream end (`detached`, `overflow`) or a refused resize
+fails the run. `--resize-rounds` (default 4, so 20 bursts per case)
 repeats the 5 bursts.
 
 Usage:
@@ -547,6 +553,9 @@ class Bench:
                     elif msg.get("event") == "resized":
                         with lock:
                             resized.append((time.perf_counter(), msg.get("cols"), msg.get("rows")))
+                    elif msg.get("event") in ("detached", "overflow"):
+                        # Either ends the mirror's stream: every later number would be wrong.
+                        raise RuntimeError(f"the byte mirror's stream ended: {msg!r}")
             except Exception as e:  # noqa: BLE001
                 if not stop.is_set():
                     errors.append(repr(e))
@@ -565,16 +574,18 @@ class Bench:
                 base = 100 + (round_index % 2) * steps
                 with lock:
                     before = len(resized)
+                last_sent = None
                 for step in range(steps):
-                    started = time.perf_counter()
-                    must(c.call("resize-surface", surface=surface, cols=base + step, rows=40),
-                         "resize-surface")
-                    step_ms.append((time.perf_counter() - started) * 1000)
-                    if interval:
-                        time.sleep(max(0.0, interval - (time.perf_counter() - started)))
-                last_reply = time.perf_counter()
+                    if step and interval:
+                        time.sleep(max(0.0, interval - (time.perf_counter() - last_sent)))
+                    last_sent = time.perf_counter()
+                    reply = must(c.call("resize-surface", surface=surface, cols=base + step, rows=40),
+                                 "resize-surface")
+                    step_ms.append((time.perf_counter() - last_sent) * 1000)
+                    if reply.get("accepted") is False:
+                        raise RuntimeError(f"resize-surface was not applied: {reply!r}")
                 final = (base + steps - 1, 40)
-                deadline = last_reply + 10
+                deadline = time.perf_counter() + 10
                 settled = None
                 while time.perf_counter() < deadline:
                     with lock:
@@ -590,7 +601,7 @@ class Bench:
                 if settled is None:
                     errors.append(f"{case} burst {round_index}: the mirror never got {final}")
                 else:
-                    settle_ms.append(max(0.0, (settled - last_reply) * 1000))
+                    settle_ms.append((settled - last_sent) * 1000)
                 time.sleep(0.1)  # the pause between two drags
             res[f"{case}-step"] = stats(step_ms)
             res[f"{case}-settle"] = stats(settle_ms)
@@ -607,6 +618,7 @@ class Bench:
         if errors:
             res["errors"] = errors[:5]
         self.result["scenarios"][name] = res
+        failed = res.get("errors")
         for metric, s in res.items():
             if metric.endswith("resized-per-burst"):
                 print(f"PERF-DAEMON {name} {metric} n={s['n']} mean={s['mean']} min={s['min']} "
@@ -616,6 +628,9 @@ class Bench:
             else:
                 print(f"PERF-DAEMON {name} {metric} n={s['n']} p50={s.get('p50_ms')} p95={s.get('p95_ms')} "
                       f"p99={s.get('p99_ms')} max={s.get('max_ms')}", flush=True)
+        if failed:
+            # The numbers above are printed for diagnosis; the run fails.
+            raise RuntimeError(f"{name}: {failed}")
 
     def scenario(self, name, workspaces, terminals, busy):
         log("scenario", name, workspaces, terminals)
@@ -648,7 +663,7 @@ def main():
     ap.add_argument("--load-seconds", type=float, default=60.0)
     ap.add_argument("--agent-cli", type=int, choices=(0, 1), default=1,
                     help="1: each fake agent also runs `cmux workspace list` once per turn; 0: hooks only")
-    ap.add_argument("--resize-rounds", type=int, default=1,
+    ap.add_argument("--resize-rounds", type=int, default=4,
                     help="resize-mirror: how many times to run its 5 bursts per case")
     args = ap.parse_args()
     b = Bench(args)
