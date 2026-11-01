@@ -157,12 +157,15 @@ class RoutingTableTests(unittest.TestCase):
             cases = (("${{ secrets.GLAEDA_ROUTE_APP_KEY }}", False),
                      ("${{ secrets['GLAEDA_ROUTE_APP_KEY'] }}", False),
                      ("${{ secrets['APPLE_SIGNING_CERTIFICATE'] }}", True),
+                     ("${{ format('}}{0}', secrets['APPLE_SIGNING_CERTIFICATE']) }}", True),
+                     ("${{ format('it''s }}{0}', secrets.NEW_CREDENTIAL) }}", True),
                      ("${{ secrets.NEW_CREDENTIAL }}", True),
                      ("${{ secrets['NEW_CREDENTIAL'] }}", True),
                      ("${{ secrets[vars.KEY_NAME] }}", True),
                      ("${{ toJSON(secrets) }}", True),
                      ("${{ secrets.* }}", True),
-                     ("${{ 'secrets.NEW_CREDENTIAL' }}", False))
+                     ("${{ 'secrets.NEW_CREDENTIAL' }}", False),
+                     ("${{ needs.build.outputs.secrets }}", False))
             for value, forbidden in cases:
                 for inherited in (False, True):
                     with self.subTest(value=value, inherited=inherited):
@@ -175,7 +178,7 @@ class RoutingTableTests(unittest.TestCase):
                         (workflows / "nightly.yml").write_text(yaml.safe_dump(document, sort_keys=False, width=10000))
                         problems, allowed = table.hosted_light_policy(policy, workflows)
                         self.assertEqual(any("nightly.yml#picker" in p for p in problems), forbidden, problems)
-                        report_forbidden = inherited and value != "${{ 'secrets.NEW_CREDENTIAL' }}"
+                        report_forbidden = inherited and value not in ("${{ 'secrets.NEW_CREDENTIAL' }}", "${{ needs.build.outputs.secrets }}")
                         self.assertEqual(any("nightly.yml#report" in p for p in problems), report_forbidden, problems)
                         self.assertEqual(len(allowed), 2 - int(forbidden) - int(report_forbidden))
 

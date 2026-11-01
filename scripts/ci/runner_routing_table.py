@@ -366,6 +366,26 @@ def iter_jobs(workflows: Path = WORKFLOWS) -> Iterable[tuple[Job, bool]]:
 
 
 
+def action_expressions(text: str) -> Iterable[str]:
+    """GitHub expressions, whose quoted strings may contain the closing token."""
+    offset = 0
+    while (start := text.find("${{", offset)) >= 0:
+        index, quoted = start + 3, False
+        while index < len(text):
+            if text[index] == "'":
+                if quoted and text[index:index + 2] == "''":
+                    index += 2
+                    continue
+                quoted = not quoted
+            elif not quoted and text[index:index + 2] == "}}":
+                yield text[start + 3:index]
+                offset = index + 2
+                break
+            index += 1
+        else:
+            raise ValueError("unterminated GitHub expression")
+
+
 def referenced_secrets(value: Any) -> set[str]:
     """Literal secret references in expressions; reject dynamic/context-wide access."""
     if isinstance(value, dict):
@@ -375,12 +395,12 @@ def referenced_secrets(value: Any) -> set[str]:
     if not isinstance(value, str):
         return set()
     names: set[str] = set()
-    for expression in EXPRESSION.findall(value):
+    for expression in action_expressions(value):
         # Keep quoted literals whole so text that merely says secrets.NAME is
         # not a credential access. GitHub escapes a quote by doubling it.
         tokens = re.findall(r"'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_]*|[^\s]", expression)
         for index, token in enumerate(tokens):
-            if token.lower() != "secrets":
+            if token.lower() != "secrets" or index > 0 and tokens[index - 1] == ".":
                 continue
             tail = tokens[index + 1:]
             if len(tail) >= 2 and tail[0] == "." and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", tail[1]):
