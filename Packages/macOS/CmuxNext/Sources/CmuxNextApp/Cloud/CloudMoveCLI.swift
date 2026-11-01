@@ -30,6 +30,8 @@ nonisolated struct CloudMoveCLI: Sendable {
         /// Optional git-seed/environment progress returned by Cloud start-chat copy.
         var seedState: String?
         var seedPhase: String?
+        var seedStartedAt: Double?
+        var seedFinishedAt: Double?
         var seedReceivedBytes: Int?
         var seedObjects: Int?
         var seedTotalObjects: Int?
@@ -172,6 +174,8 @@ nonisolated struct CloudMoveCLI: Sendable {
                             // state/phase belong to the copy transport.
                             seedState: object["seed_state"] as? String,
                             seedPhase: object["seed_phase"] as? String,
+                            seedStartedAt: object["seed_started_at"] as? Double,
+                            seedFinishedAt: object["seed_finished_at"] as? Double,
                             seedReceivedBytes: object["received_bytes"] as? Int,
                             seedObjects: object["objects"] as? Int,
                             seedTotalObjects: object["total_objects"] as? Int,

@@ -32,9 +32,9 @@ function setupStatus(setup: CloudStartupSetup | undefined): ChecklistStatus | un
   return "pending";
 }
 
-function cloneDetail(operation: CloudStartupOperation | undefined): string | undefined {
+function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate): string | undefined {
   if (!operation) return undefined;
-  const parts = [operation.phase];
+  const parts = [operation.phase === "cached" ? t("cloudStartup.cached") : operation.phase];
   const progress = operation.progress;
   if (progress?.objects !== undefined && progress.totalObjects !== undefined) parts.push(`${progress.objects}/${progress.totalObjects} objects`);
   if (progress?.receivedBytes !== undefined) parts.push(`${Math.round(progress.receivedBytes / 1024)} KB`);
@@ -53,7 +53,7 @@ export function startupChecklist(start: CloudStartProgress, t: Translate = (key,
   const hasRepository = start.hasRepository ?? (Boolean(start.repository || start.folder || start.clone) && !start.home);
   const cloneStatus = operationStatus(start.clone);
   const stoppedCloneStatus = start.state === "failed" && failedStep !== "clone" && cloneStatus === "running" ? "pending" : cloneStatus;
-  const clone: ChecklistStep = { id: "clone", label: t("cloudStartup.clone"), status: !hasRepository ? "skipped" : failedStep === "clone" ? "error" : stoppedCloneStatus ?? (oldStep > 1 ? "done" : oldStep === 1 ? "running" : "pending"), duration: elapsed(start.clone?.startedAt, start.clone?.finishedAt, now), ...((cloneDetail(start.clone) || start.clone?.error) ? { detail: cloneDetail(start.clone) || start.clone?.error } : {}) };
+  const clone: ChecklistStep = { id: "clone", label: t("cloudStartup.clone"), status: !hasRepository ? "skipped" : failedStep === "clone" ? "error" : stoppedCloneStatus ?? (oldStep > 1 ? "done" : oldStep === 1 ? "running" : "pending"), duration: elapsed(start.clone?.startedAt, start.clone?.finishedAt, now), ...((cloneDetail(start.clone, t) || start.clone?.error) ? { detail: cloneDetail(start.clone, t) || start.clone?.error } : {}) };
   const hasScript = start.setup?.hasScript;
   const setupState = setupStatus(start.setup);
   const stoppedSetupState = start.state === "failed" && failedStep !== "setup" && setupState === "running" ? "pending" : setupState;

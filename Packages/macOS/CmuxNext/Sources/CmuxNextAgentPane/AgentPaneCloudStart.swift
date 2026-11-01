@@ -205,7 +205,8 @@ extension AgentPaneCloudStart {
     /// step it is on (`machine`, `folder`, `opening`), the folder it copies, and the machine and its
     /// size once known, keyed by the page's send so a card for another start ignores it.
     @MainActor public func progress(_ step: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
-                                    cloneState: String? = nil, clonePhase: String? = nil, cloneReceivedBytes: Int? = nil,
+                                    cloneState: String? = nil, clonePhase: String? = nil,
+                                    cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil, cloneReceivedBytes: Int? = nil,
                                     cloneObjects: Int? = nil, cloneTotalObjects: Int? = nil, setupStatus: String? = nil,
                                     setupLogTail: String? = nil,
                                     machineStartedAt: Double? = nil, machineFinishedAt: Double? = nil,
@@ -218,6 +219,8 @@ extension AgentPaneCloudStart {
         var cloneFields: [String: JSONValue] = [:]
         if let cloneState { cloneFields["state"] = .string(cloneState) }
         if let clonePhase { cloneFields["phase"] = .string(clonePhase) }
+        if let cloneStartedAt { cloneFields["startedAt"] = .number(cloneStartedAt) }
+        if let cloneFinishedAt { cloneFields["finishedAt"] = .number(cloneFinishedAt) }
         var cloneProgress: [String: JSONValue] = [:]
         if let cloneReceivedBytes { cloneProgress["received_bytes"] = .number(Double(cloneReceivedBytes)) }
         if let cloneObjects { cloneProgress["objects"] = .number(Double(cloneObjects)) }

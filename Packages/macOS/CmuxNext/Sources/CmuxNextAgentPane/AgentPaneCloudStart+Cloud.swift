@@ -12,6 +12,8 @@ extension AgentPaneCloudStart {
         public var size: String?
         public var cloneState: String?
         public var clonePhase: String?
+        public var cloneStartedAt: Double?
+        public var cloneFinishedAt: Double?
         public var cloneReceivedBytes: Int?
         public var cloneObjects: Int?
         public var cloneTotalObjects: Int?
@@ -23,13 +25,15 @@ extension AgentPaneCloudStart {
         public var harnessFinishedAt: Double?
 
         public init(name: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
-                    cloneState: String? = nil, clonePhase: String? = nil, cloneReceivedBytes: Int? = nil,
+                    cloneState: String? = nil, clonePhase: String? = nil,
+                    cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil, cloneReceivedBytes: Int? = nil,
                     cloneObjects: Int? = nil, cloneTotalObjects: Int? = nil, setupStatus: String? = nil,
                     setupLogTail: String? = nil, machineStartedAt: Double? = nil, machineFinishedAt: Double? = nil,
                     harnessStartedAt: Double? = nil, harnessFinishedAt: Double? = nil) {
             (self.name, self.folder, self.machine, self.size) = (name, folder, machine, size)
             (self.cloneState, self.clonePhase, self.cloneReceivedBytes, self.cloneObjects, self.cloneTotalObjects) =
                 (cloneState, clonePhase, cloneReceivedBytes, cloneObjects, cloneTotalObjects)
+            (self.cloneStartedAt, self.cloneFinishedAt) = (cloneStartedAt, cloneFinishedAt)
             (self.setupStatus, self.setupLogTail) = (setupStatus, setupLogTail)
             (self.machineStartedAt, self.machineFinishedAt, self.harnessStartedAt, self.harnessFinishedAt) =
                 (machineStartedAt, machineFinishedAt, harnessStartedAt, harnessFinishedAt)
@@ -40,6 +44,7 @@ extension AgentPaneCloudStart {
     @MainActor public func progress(_ step: Step, to view: AgentPaneView) {
         progress(step.name, folder: step.folder, machine: step.machine, size: step.size,
                  cloneState: step.cloneState, clonePhase: step.clonePhase,
+                 cloneStartedAt: step.cloneStartedAt, cloneFinishedAt: step.cloneFinishedAt,
                  cloneReceivedBytes: step.cloneReceivedBytes, cloneObjects: step.cloneObjects,
                  cloneTotalObjects: step.cloneTotalObjects, setupStatus: step.setupStatus,
                  setupLogTail: step.setupLogTail, machineStartedAt: step.machineStartedAt,

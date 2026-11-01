@@ -384,18 +384,60 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     assert_eq!(*count.borrow(), 2);
 }
 
+/// A copy cannot report machine boot or harness startup: both are outside its lifetime.
+fn assert_copy_timings(answer: &Value) {
+    let started = answer["seed_started_at"].as_f64().expect("copy start timestamp");
+    let finished = answer["seed_finished_at"].as_f64().expect("copy finish timestamp");
+    assert!(started > 0.0);
+    assert!(finished >= started);
+    for key in
+        ["machine_started_at", "machine_finished_at", "harness_started_at", "harness_finished_at"]
+    {
+        assert!(answer.get(key).is_none(), "copy must not report {key}");
+    }
+}
+
 #[test]
-fn copy_answer_emits_namespaced_seed_state_and_host_timings() {
+fn copy_answer_reports_clone_timing_only() {
     let dir = scratch();
     let path = ledger_in(dir.path());
     let copy = copy_of("/Users/me/src/paint", "");
     let answer = copy.run(&path, &|_: &Path, _: &Path, _: &str| Ok(()));
     assert_eq!(answer["seed_state"], json!("done"));
     assert_eq!(answer["seed_phase"], json!("complete"));
-    let machine_started = answer["machine_started_at"].as_f64().expect("machine start timestamp");
-    let machine_finished = answer["machine_finished_at"].as_f64().expect("machine finish timestamp");
-    assert!(machine_finished >= machine_started);
-    assert_eq!(answer["harness_started_at"], answer["machine_finished_at"]);
+    assert_copy_timings(&answer);
+
+    let cached = copy.run(&path, &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"));
+    assert_eq!(cached["seed_state"], json!("done"));
+    assert_eq!(cached["seed_phase"], json!("cached"));
+    assert_eq!(cached["copied"], json!(false));
+    assert_copy_timings(&cached);
+}
+
+#[test]
+fn failed_copy_and_ledger_answers_finish_the_clone_clock() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "");
+    let failed = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
+        Err(("sync_failed".into(), "copy refused".into()))
+    });
+    assert_eq!(failed["ok"], json!(false));
+    assert_eq!(failed["seed_state"], json!("failed"));
+    assert_eq!(failed["seed_phase"], json!("copy"));
+    assert_eq!(failed["error"], json!("copy refused"));
+    assert_copy_timings(&failed);
+
+    // A regular file cannot contain a ledger directory.
+    let file = dir.path().join("not-a-directory");
+    std::fs::write(&file, "file").unwrap();
+    let failed = copy.run(&file.join("ledger.json"), &|_: &Path, _: &Path, _: &str| {
+        panic!("cannot copy without a ledger")
+    });
+    assert_eq!(failed["ok"], json!(false));
+    assert_eq!(failed["seed_state"], json!("failed"));
+    assert_eq!(failed["seed_phase"], json!("ledger"));
+    assert_copy_timings(&failed);
 }
 
 #[test]

@@ -140,19 +140,25 @@ fn refused(code: &str, error: impl std::fmt::Display) -> Value {
 }
 
 fn now_millis() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|value| value.as_secs_f64() * 1_000.0).unwrap_or_default()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs_f64() * 1_000.0)
+        .unwrap_or_default()
 }
 
-/// Add clone state and host-observed timing boundaries to a copy answer.
-fn copy_progress(mut answer: Value, state: &str, phase: &str, started_at: f64, finished_at: Option<f64>) -> Value {
+/// Copy timing belongs to the clone row, never machine creation or harness startup.
+fn copy_progress(
+    mut answer: Value,
+    state: &str,
+    phase: &str,
+    started_at: f64,
+    finished_at: f64,
+) -> Value {
     if let Some(object) = answer.as_object_mut() {
         object.insert("seed_state".into(), json!(state));
         object.insert("seed_phase".into(), json!(phase));
-        object.insert("machine_started_at".into(), json!(started_at));
-        if let Some(finished_at) = finished_at {
-            object.insert("machine_finished_at".into(), json!(finished_at));
-            object.insert("harness_started_at".into(), json!(finished_at));
-        }
+        object.insert("seed_started_at".into(), json!(started_at));
+        object.insert("seed_finished_at".into(), json!(finished_at));
     }
     answer
 }
@@ -373,9 +379,25 @@ impl StartCopy {
             }
             finished
         }) {
-            Ok(Some(chat)) => return copy_progress(json!({"ok": true, "chat": chat, "copied": false}), "done", "cached", started_at, Some(now_millis())),
+            Ok(Some(chat)) => {
+                return copy_progress(
+                    json!({"ok": true, "chat": chat, "copied": false}),
+                    "done",
+                    "cached",
+                    started_at,
+                    now_millis(),
+                );
+            }
             Ok(None) => {}
-            Err(error) => return copy_progress(refused("ledger_failed", format!("{error:#}")), "failed", "ledger", started_at, None),
+            Err(error) => {
+                return copy_progress(
+                    refused("ledger_failed", format!("{error:#}")),
+                    "failed",
+                    "ledger",
+                    started_at,
+                    now_millis(),
+                );
+            }
         }
         let mut last = ("sync_failed".to_string(), "no work root to copy to".to_string());
         for root in &self.work_roots {
@@ -385,10 +407,20 @@ impl StartCopy {
                     return match Ledger::update(ledger, |pins| {
                         pins.record_copy(&chat, &send, &self.machine, &place);
                     }) {
-                        Ok(()) => {
-                            copy_progress(json!({"ok": true, "chat": chat, "folder": folder, "copied": true}), "done", "complete", started_at, Some(now_millis()))
-                        }
-                        Err(error) => copy_progress(refused("ledger_failed", format!("{error:#}")), "failed", "ledger", started_at, None),
+                        Ok(()) => copy_progress(
+                            json!({"ok": true, "chat": chat, "folder": folder, "copied": true}),
+                            "done",
+                            "complete",
+                            started_at,
+                            now_millis(),
+                        ),
+                        Err(error) => copy_progress(
+                            refused("ledger_failed", format!("{error:#}")),
+                            "failed",
+                            "ledger",
+                            started_at,
+                            now_millis(),
+                        ),
                     };
                 }
                 Err(failure) => {
@@ -401,7 +433,7 @@ impl StartCopy {
                 }
             }
         }
-        copy_progress(refused(&last.0, last.1), "failed", "copy", started_at, None)
+        copy_progress(refused(&last.0, last.1), "failed", "copy", started_at, now_millis())
     }
 }
 
