@@ -226,8 +226,9 @@ class PhoneUI:
                   "-x", str((left + right) / 2), "-y", str((top + bottom) / 2)] +
                  (["--down", "--up", "--delay", "0.08"] if press else ["--tap-style", "simulator"]))
 
-    def named(self, text):
-        self.tap(self.control(lambda n: n.get("type") == "Button" and label(n) == text, text))
+    def named(self, text, what="Cloud control"):
+        # `text` is a manifest/UI value; never use it as a failure description.
+        self.tap(self.control(lambda n: n.get("type") == "Button" and label(n) == text, what))
 
     def launch(self, args):
         self.run(self.simctl + ["terminate", self.udid, self.bundle], check=False)
@@ -271,7 +272,7 @@ class PhoneUI:
 
     def select_mac(self, rig_name):
         self.tap(self.control(self.is_mac_picker, "relay Mac picker"), press=True)
-        self.named(rig_name)
+        self.named(rig_name, "Cloud machine")
 
     @staticmethod
     def is_mac_picker(node):
@@ -335,12 +336,12 @@ def run_cloud_leg(proof, *, root, mac_env, email, rpc, phone_log, simctl, udid, 
         raise ProofFailure("Simulator notification permission is denied; no permission bypass is used")
     if state == "Not set":
         ui.tap(row)
-        ui.named("Allow")
+        ui.named("Allow", "notification permission")
         ui.wait(lambda: (permission() or (None, None))[1] == "On", "notification authorization")
     ui.launch(["-cmux-mobile-tab", "home"])
-    ui.named("Cloud chats")
+    ui.named("Cloud chats", "Cloud chats entry")
     ui.select_mac(rig_name)
-    ui.named(proof["machine_name"])
+    ui.named(proof["machine_name"], "Cloud machine")
     ui.tap(ui.control(lambda n: n.get("type") == "Button" and
                       (label(n) == proof["session_name"] or label(n).startswith(proof["session_name"] + ",")
                        or label(n).startswith(proof["session_name"] + "\n")), "Cloud session"))
@@ -349,7 +350,7 @@ def run_cloud_leg(proof, *, root, mac_env, email, rpc, phone_log, simctl, udid, 
     shot("phone-cloud-history")
     ui.tap(ui.control(lambda n: n.get("AXUniqueId") == "chat.composer.field", "Cloud composer"))
     ui.run(["axe", "type", prompt, "--udid", udid])
-    ui.named("Send")
+    ui.named("Send", "Cloud send button")
     ui.reply(expected)
     shot("phone-cloud-reply")
 

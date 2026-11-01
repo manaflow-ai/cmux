@@ -172,6 +172,19 @@ class UIProofTests(unittest.TestCase):
         with self.assertRaises(proof.ProofFailure):
             UI([], "sim", "bundle", {}).reply("fresh-answer")
 
+    def test_manifest_machine_name_is_not_failure_description(self):
+        class UI(proof.PhoneUI):
+            def find(self, predicate):
+                return []
+
+            def wait(self, check, what, seconds=60):
+                raise proof.ProofFailure(f"missing {what}")
+
+        secret_name = "private-machine-name"
+        with self.assertRaisesRegex(proof.ProofFailure, "Cloud machine") as failure:
+            UI([], "sim", "bundle", {}).named(secret_name, "Cloud machine")
+        self.assertNotIn(secret_name, str(failure.exception))
+
     def test_visible_marker_and_wrong_assistant_clipboard_cannot_pass(self):
         class UI(proof.PhoneUI):
             def tree(self):
