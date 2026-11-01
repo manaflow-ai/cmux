@@ -515,7 +515,7 @@ fn allowed(writes: &[RegWrite]) -> Option<Vec<Option<String>>> {
     Some(ok)
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct ChatModel {
     id: Option<String>,
     role: Option<Role>,
@@ -552,7 +552,7 @@ impl ChatModel {
 
 /// What a restart check finds for one chat's prompts, from its queue (JSON) and its
 /// `user_message` records (`ran`).
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct PromptVerdict {
     /// Accepted, no removal sent, neither queued nor run: lost.
     lost: Vec<String>,
@@ -572,6 +572,18 @@ impl PromptVerdict {
     fn settled(&self) -> bool {
         self.lost.is_empty() && self.back.is_empty() && self.cut.is_empty()
     }
+}
+
+/// Whether a restart check reads a chat's prompts again after read `attempt` (0-based) gave
+/// `now`, the read before it having given `before`.
+fn read_again(attempt: usize, now: &PromptVerdict, before: Option<&PromptVerdict>) -> bool {
+    let _ = before;
+    !now.settled() && attempt < 5
+}
+
+/// Whether a restart check counts this chat as a checked draft.
+fn counts_as_draft_check(c: &ChatModel) -> bool {
+    allowed(&c.drafts).is_some() && c.draft_written
 }
 
 fn classify_prompts(c: &ChatModel, queue: &str, ran: &str) -> PromptVerdict {
@@ -1197,10 +1209,10 @@ fn check(daemon: &mut Daemon, model: &Model) -> (Vec<Finding>, Vec<Seen>) {
             seen.draft = Some(d.clone());
         }
         // Drafts: promised durable.
+        if counts_as_draft_check(c) {
+            checked("drafts", 1);
+        }
         if let Some(ok) = allowed(&c.drafts) {
-            if c.draft_written {
-                checked("drafts", 1);
-            }
             let now = draft;
             match now {
                 Ok(now) if !ok.contains(&now) => {
@@ -1242,6 +1254,7 @@ fn check(daemon: &mut Daemon, model: &Model) -> (Vec<Finding>, Vec<Seen>) {
         // Accepted prompts: still queued, or ran. Removed ones: neither queued nor run since.
         // A prompt may move from the queue to its turn between the two reads: read again.
         let mut verdict = PromptVerdict::default();
+        let mut before: Option<PromptVerdict> = None;
         for attempt in 0..6 {
             let queue = match client.get("_acpmux/info", json!({"sessionId": id})) {
                 Ok(v) => v["queue"].to_string(),
@@ -1258,9 +1271,10 @@ fn check(daemon: &mut Daemon, model: &Model) -> (Vec<Finding>, Vec<Seen>) {
                 }
             };
             verdict = classify_prompts(c, &queue, &ran);
-            if verdict.settled() || attempt == 5 {
+            if !read_again(attempt, &verdict, before.as_ref()) {
                 break;
             }
+            before = Some(verdict.clone());
             std::thread::sleep(Duration::from_millis(300));
         }
         checked("prompts", c.accepted.len());
@@ -1825,7 +1839,9 @@ fn fuzz_g_oracle_a_cut_or_timed_out_request_can_stall() {
     ]);
     assert_eq!(found.len(), 2, "{found:?}");
     let model = Mutex::new(Model::default());
-    let sent = Instant::now() - Duration::from_millis(2_500);
+    let sent = Instant::now()
+        .checked_sub(Duration::from_millis(2_500))
+        .expect("a monotonic clock 2.5 s old");
     model.lock().unwrap().killed_at = Some(sent + Duration::from_millis(2_400));
     let ms = cut_ms(&model, sent);
     assert!((2_350..=2_450).contains(&ms), "a cut request waited until the kill, not {ms} ms");
@@ -1893,8 +1909,11 @@ fn fuzz_g_oracle_two_daemons_with_one_tag_get_two_homes() {
 #[test]
 fn fuzz_g_oracle_a_request_cut_by_a_self_exit_keeps_its_wait() {
     let model = Mutex::new(Model::default());
-    let sent = Instant::now() - Duration::from_millis(2_500);
-    model.lock().unwrap().killed_at = Some(sent - Duration::from_secs(10));
+    let sent = Instant::now()
+        .checked_sub(Duration::from_millis(2_500))
+        .expect("a monotonic clock 2.5 s old");
+    model.lock().unwrap().killed_at = sent.checked_sub(Duration::from_secs(10));
+    assert!(model.lock().unwrap().killed_at.is_some(), "the monotonic clock is not 12.5 s old");
     let ms = cut_ms(&model, sent);
     assert!(ms >= 2_400, "a cut request with an older kill counted {ms} ms");
 }
@@ -1919,5 +1938,22 @@ fn fuzz_g_oracle_a_chat_with_no_draft_set_is_no_draft_check() {
     settle(&mut m, &[seen], Instant::now());
     let c = &m.chats[&1];
     assert!(allowed(&c.drafts).is_some(), "the rebased register has an acknowledged write");
-    assert!(!c.draft_written, "a chat with no draft_set would count as a draft check");
+    assert!(!counts_as_draft_check(c), "a chat with no draft_set counts as a draft check");
+    let mut written = c.clone();
+    written.draft_written = true;
+    assert!(counts_as_draft_check(&written), "a chat with a draft_set is no draft check");
+}
+
+/// Review of #30647, item 1: two reads in a row that agree end the re-read, also when they
+/// show a cut removal; only a changing read is read again.
+#[test]
+fn fuzz_g_oracle_two_agreeing_reads_end_the_reread() {
+    let landed = || PromptVerdict { cut: vec!["p1".into()], ..PromptVerdict::default() };
+    assert!(read_again(0, &landed(), None), "one read of a cut removal is not enough");
+    assert!(!read_again(1, &landed(), Some(&landed())), "two equal reads were read again");
+    let moved = PromptVerdict { kept: vec!["p1".into()], ..PromptVerdict::default() };
+    assert!(!read_again(1, &moved, Some(&landed())), "a settled read was read again");
+    let lost = PromptVerdict { lost: vec!["p2".into()], ..PromptVerdict::default() };
+    assert!(read_again(1, &lost, Some(&landed())), "a changed read was not read again");
+    assert!(!read_again(5, &lost, Some(&landed())), "the sixth read is the last");
 }
