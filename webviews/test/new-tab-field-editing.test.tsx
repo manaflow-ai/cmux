@@ -9,6 +9,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -18,6 +19,8 @@ const keys = [
   "HTMLElement",
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
+  "MutationObserver",
+  "getSelection",
   "Element",
   "getComputedStyle",
   "requestAnimationFrame",
@@ -46,7 +49,7 @@ beforeAll(() => {
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
     // The suggestions' Popover (Base UI and Floating UI) reads these.
-    Node: window.Node,
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
@@ -165,7 +168,7 @@ test("the omnibar's editing keys stay the field's", async () => {
     expect({ key, modifiers, taken: event.defaultPrevented }).toEqual({
       key,
       modifiers,
-      taken: modifiers.ctrlKey === true && key !== "k",
+      taken: modifiers.ctrlKey === true && key === "a",
     });
   }
   expect(selected()).toBe(0);

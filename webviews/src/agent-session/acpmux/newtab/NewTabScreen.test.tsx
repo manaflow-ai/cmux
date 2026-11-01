@@ -10,6 +10,7 @@ import type { SavedEnvironment } from "../environments";
 import type { RunMode } from "../sandboxRun";
 import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
+import { inlineToken, type ComposerAttachment } from "../attachments";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -392,6 +393,7 @@ test("a chosen document uses the New Tab upload path and becomes sendable", asyn
       />,
     );
   });
+  await promptField();
   const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
   const file = new dom!.window.File(["hello"], "notes.txt", { type: "text/plain" });
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
@@ -428,6 +430,7 @@ test("with Run as Sandboxed, a send goes to the sandbox, not a new chat, with it
       />,
     );
   });
+  await promptField();
   const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
   const file = new dom!.window.File(["hello"], "notes.txt", { type: "text/plain" });
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
@@ -531,6 +534,7 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
     });
   const field = () => promptValue();
   await act(async () => root!.render(page(true)));
+  await promptField();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
   // Typing on the page (outside the field) goes nowhere while the start is out.
   await typeOnPage("x");
@@ -655,12 +659,16 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => root!.render(<main />));
   expect(left).toEqual([]);
   await act(async () => root!.render(page()));
+  await promptField();
   const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
   const file = new dom!.window.File(["hello"], "notes.txt", { type: "text/plain" });
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   await act(async () => root!.render(<main />));
-  expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+  const attachment = (left[0]?.[1] as ComposerAttachment[])[0]!;
+  expect(left).toEqual([
+    [inlineToken(attachment.id), [expect.objectContaining({ path: "/tmp/notes.txt", inline: true })]],
+  ]);
 });
 
 test("keeps a changed machine choice while browse settles, then permits retry", async () => {

@@ -459,9 +459,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // Plain omnibar input still needs the browser's editing shortcuts. The rich keymap that
     // normally provides these is removed with formatting shortcuts in plain mode.
     "Mod-a": selectAll,
-    "Ctrl-a": selectAll,
-    "Ctrl-e": () => true,
-    "Ctrl-k": () => true,
+    "Shift-Enter": (state, dispatch, editorView) => !lines.current || baseKeymap.Enter!(state, dispatch, editorView),
     "Mod-z": undo,
     "Shift-Mod-z": redo,
     "Mod-y": redo,
