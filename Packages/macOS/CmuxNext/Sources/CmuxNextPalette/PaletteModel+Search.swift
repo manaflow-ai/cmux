@@ -145,10 +145,12 @@ extension PaletteModel {
             deliver([PaletteResultSection(section: .results, rows: [PaletteRow(item: item, highlights: [], score: 0)])],
                     to: state, generation: generation)
         case .list(let page):
+            followSources(state, page: page)
             if let queryResults = page.queryResults {
                 searchQueryResults(state, results: queryResults, generation: generation)
                 return
             }
+            askContributions(state, page: page)
             // A typed query searches every row: the open's deferred providers load first.
             if !state.query.allSatisfy(\.isWhitespace), deferredLoads.contains(where: { $0.state === state }) {
                 flushDeferredLoads()
@@ -272,13 +274,26 @@ extension PaletteModel {
     func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false,
                  complete: Bool = true) {
         guard pages[state.levelID] === state, state.generation == generation else { return }
+        // The contributed answers join the ranked rows (`PaletteContributedAnswers`): an older query's answer
+        // shows only as a stand-in that navigation never selects, and a held query's rows are not final.
+        state.rankedSections = sections
+        state.rankedGeneration = generation
+        state.rankedProvisional = provisional
+        state.rankedComplete = complete
+        let joined = Self.joined(sections, state: state)
+        state.deliveredAnswerFingerprint = Self.answerFingerprint(state)
+        let held = joined.held
+        let sections = joined.shown
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
-        if shownLevelID == state.levelID { display(sections) }
-        send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
-                      isFinal: complete && !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
-                      provisional: provisional))
+        if shownLevelID == state.levelID {
+            queryFrames.delivered(final: complete && !provisional, answerRows: state.currentAnswers.reduce(0) { $0 + $1.rows.count })
+            display(sections)
+        }
+        send(.results(levelID: state.levelID, generation: generation, rows: navRows(joined.selectable), replace: true,
+                      isFinal: complete && !provisional && !held && state.pendingProviders.isEmpty,
+                      emptyQuerySelection: state.emptyQuerySelection, provisional: provisional || held))
     }
 
     /// What navigation needs from the rows.
