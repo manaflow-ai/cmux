@@ -23,15 +23,17 @@ for arg in "$@"; do
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
+[[ "$seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "seconds= must be a number" >&2; exit 2; }
 out="$here/.build/fresh-home-launch"
 rm -rf "$out" && mkdir -p "$out"
 src="$here"
 if [[ -n "$ref" && "$ref" != "$(git rev-parse HEAD)" ]]; then
   [[ "$ref" =~ ^[0-9a-f]{40}$ ]] || { echo "ref= must be a 40-hex commit" >&2; exit 2; }
   git cat-file -e "$ref^{commit}" 2>/dev/null || git fetch --quiet --depth 1 origin "$ref" || { echo "cannot fetch $ref" >&2; exit 3; }
-  src="$(mktemp -d)/src"
-  git worktree add --quiet --detach "$src" "$ref" || exit 3
-  trap 'git -C "$here" worktree remove --force "$src" >/dev/null 2>&1 || true' EXIT
+  scratch="$(mktemp -d)"
+  src="$scratch/src"
+  git worktree add --quiet --detach "$src" "$ref" || { rm -rf "$scratch"; exit 3; }
+  trap 'git -C "$here" worktree remove --force "$src" >/dev/null 2>&1; rm -rf "$scratch"' EXIT
 fi
 cd "$src"
 sha="$(git rev-parse HEAD)"
@@ -67,10 +69,12 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   tar -czf "$out/report.tgz" -C "$out" reload.log
   exit 3
 fi
-python3 -I scripts/ci/fresh_home_launch_smoke.py --app "$app" --seconds "$seconds" --out "$out/smoke"
+# The harness and the teardown come from this script's checkout, never the launched ref's (which
+# may predate them); the teardown also runs when the step is killed mid-smoke.
+trap 'python3 "$here/scripts/cmux-next/tag_teardown.py" "$app" >/dev/null 2>&1; [ -n "${scratch:-}" ] && { git -C "$here" worktree remove --force "$src" >/dev/null 2>&1; rm -rf "$scratch"; }' EXIT
+python3 -I "$here/scripts/ci/fresh_home_launch_smoke.py" --app "$app" --seconds "$seconds" --out "$out/smoke"
 status=$?
-python3 scripts/cmux-next/tag_teardown.py "$app" >/dev/null 2>&1 || true
-case $status in 0) verdict=passed ;; 1) verdict=failed ;; *) verdict=cannot-run ;; esac
+case $status in 0) verdict=passed ;; 1) verdict=failed ;; *) verdict=cannot-run; status=3 ;; esac
 echo "FRESH-HOME verdict $verdict commit $sha (exit $status)"
 tar -czf "$out/report.tgz" -C "$out" .
 exit $status
