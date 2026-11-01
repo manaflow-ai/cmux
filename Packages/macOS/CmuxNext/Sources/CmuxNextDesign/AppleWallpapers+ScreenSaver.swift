@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The person's screen saver as a background (Leo: "use my screensaver stuff"): the aerial macOS
@@ -18,12 +19,12 @@ extension AppleWallpapers {
     }
 
     /// The moving wallpaper that is the screen saver; nil when the screen saver is not an aerial
-    /// (a classic `.saver`, a photo slideshow) or the index can't be read. Nonisolated and async:
+    /// (a classic `.saver`, a photo slideshow) or the index can't be read. `@concurrent`:
     /// it reads files, never on the main thread.
     /// - Parameters:
     ///   - index: The wallpaper store's index.
     ///   - fileManager: Lists the aerials.
-    public nonisolated func screenSaver(index: URL = AppleWallpapers.storeIndex, fileManager: FileManager = .default) async -> BackdropSelection? {
+    @concurrent public nonisolated func screenSaver(index: URL = AppleWallpapers.storeIndex, fileManager: FileManager = .default) async -> BackdropSelection? {
         guard let data = try? Data(blockingContentsOf: index) else { return nil }
         let ids = Self.screenSaverStrings(in: data)
         guard !ids.isEmpty else { return nil }
