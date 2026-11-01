@@ -181,18 +181,6 @@ pub(crate) fn clean_command(text: &str) -> Option<String> {
     Some(trimmed[..end].trim_end().to_owned())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::clean_command;
-
-    #[test]
-    fn leading_space_commands_are_not_recorded() {
-        assert_eq!(clean_command(" pnpm test"), None);
-        assert_eq!(clean_command("\tpnpm test"), None);
-        assert_eq!(clean_command("pnpm test"), Some("pnpm test".to_owned()));
-    }
-}
-
 /// [`CommandScreen`] over a live terminal.
 pub(crate) struct TerminalCommandScreen<'a>(pub(crate) &'a mut ghostty_vt::Terminal);
 
@@ -203,5 +191,17 @@ impl CommandScreen for TerminalCommandScreen<'_> {
 
     fn cwd(&mut self) -> Option<String> {
         self.0.pwd().as_deref().and_then(command_cwd)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_command;
+
+    #[test]
+    fn leading_space_commands_are_not_recorded() {
+        assert_eq!(clean_command(" pnpm test"), None);
+        assert_eq!(clean_command("\tpnpm test"), None);
+        assert_eq!(clean_command("pnpm test"), Some("pnpm test".to_owned()));
     }
 }
