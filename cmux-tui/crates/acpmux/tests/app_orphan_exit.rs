@@ -70,12 +70,21 @@ fn app_socket(dir: &Path) -> PathBuf {
 }
 
 /// The bundle's acpmux as a daemon on its own home and socket, once it is
-/// ready (it has read its bundle by then).
+/// ready (it has read its bundle by then). Its store is on disk, as the app
+/// runs it: a NIGHTLY or Release daemon is watched only when a stop keeps its
+/// chats (`App::watched`), which a memory store without agent hosts does not.
 fn start_daemon(dir: &Path, bundle: &Path) -> Child {
+    start_daemon_with(dir, bundle, &[])
+}
+
+/// [`start_daemon`] with `extra` arguments to `daemon run` (`--memory`).
+fn start_daemon_with(dir: &Path, bundle: &Path, extra: &[&str]) -> Child {
     let mut cmd = Command::new(bundle.join("Contents/Resources/bin/acpmux"));
     daemon_env::apply(&mut cmd, dir, daemon_env::Agents::Deny, &[]);
     let mut child = cmd
-        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .args(["daemon", "run"])
+        .args(extra)
+        .args(["--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", dir.join("h"))
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
         .env("CMUX_SOCKET_PATH", app_socket(dir))
@@ -289,6 +298,21 @@ fn app_orphan_exit_stops_a_release_daemon_whose_binary_is_replaced() {
         stopped,
         "the Release daemon kept running {STOPS_WITHIN:?} after an update replaced it"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A NIGHTLY daemon on a memory store (no agent hosts) is never stopped, even
+/// with its app deleted: a stop would lose every chat it holds.
+#[cfg(target_os = "macos")]
+#[test]
+fn app_orphan_exit_never_stops_a_nightly_daemon_on_a_memory_store() {
+    let dir = scratch("orpm");
+    let bundle = bundle(&dir, "cmux NIGHTLY", "com.cmuxterm.app.nightly");
+    let mut daemon = start_daemon_with(&dir, &bundle, &["--memory"]);
+    std::fs::remove_dir_all(&bundle).unwrap();
+    let stopped = exits_within(&mut daemon, KEEPS_FOR);
+    stop(&mut daemon);
+    assert!(!stopped, "a NIGHTLY daemon on a memory store stopped and lost its chats");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

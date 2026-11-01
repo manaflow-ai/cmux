@@ -2,7 +2,8 @@ import CmuxNextCompat
 
 /// Bounded waits on main-actor state for the Cloud flows.
 @MainActor
-public enum CloudWait {
+public struct CloudWait {
+    public init() {}
     /// Whether `condition` holds within `limit`: an observation, bounded by a one-shot deadline.
     public static func holds(within limit: Duration, until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         if condition() { return true }

@@ -239,7 +239,7 @@ public final class AgentTurnStateFeed {
             turns.apply(session: session, sessionName: sessionName, state: state, lastMessage: lastMessage, muted: muted, title: title,
                         generatedTitle: generatedTitle, detail: detail, source: source)
             turns.setStartedBy(startedBy, session: session, source: source)
-            if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
+            if lanes.lanes[session] != lane { lanes.set(session, lane) }
             if deleted, !isMirror { Self.purged?(session) }
             if let peer, !isMirror { peerSessionChanged?(peer.name, peer.stale) }
         case .usage(let numbers, let next):

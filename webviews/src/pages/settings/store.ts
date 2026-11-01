@@ -8,6 +8,7 @@
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
+import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
   appearanceKeys,
   captureAppearance,
@@ -210,7 +211,7 @@ export class SettingsStore {
       this.listen("cmux.settings.devices.changed", (devices) =>
         this.queryClient.setQueryData(settingsKeys.devices, devices),
       ),
-      // A machine's update failing while Updates shows (its toast's Details opens it) shows in
+      // A machine's update failing while Updates shows (its toast's Details shows the reason in the toast) shows in
       // the Channels card's row at once, in every channel's read.
       this.listen("cmux.settings.channels.machines.changed", (machines) =>
         this.queryClient.setQueriesData<ChannelsState | null>(
@@ -846,6 +847,13 @@ export class SettingsStore {
       .filter((target) => target.customized && !state.rows.get(target.key)?.managed)
       .map((target) => ({ ...target, value: state.rows.get(target.key)?.default, customized: false }));
     return this.applyAppearanceStep(t("settingsPage.history.resetDefaults"), defaults);
+  }
+
+  /** Applies a preset (the window's Opacity and Material, every surface back on the window's
+   * opacity) as one undoable step, "Preset → Frosted". */
+  async applyAppearancePreset(preset: AppearancePreset): Promise<boolean> {
+    const label = t("settingsPage.history.change", t("settingsPage.presets.title"), t(preset.nameKey));
+    return this.applyAppearanceStep(label, presetTargets(this.getSnapshot(), preset));
   }
 
   /** Applies `targets` as one recorded step named `label`; true when the owner took every write. */

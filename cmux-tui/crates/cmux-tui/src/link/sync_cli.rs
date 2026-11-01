@@ -42,6 +42,12 @@ mod names;
 mod place;
 mod pull;
 mod remote;
+mod seed_pull;
+
+/// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
+pub(super) use seed_pull::{
+    SeedBase, SeedPulled, failure_code as seed_pull_failure_code, is_sha, seed_pull,
+};
 mod skips;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -244,6 +250,12 @@ pub(super) fn pull_into(socket: &Path, local: &Path, remote_root: &str) -> Back 
     }
 }
 
+/// Whether `error` is the machine daemon's own refusal (an `ok: false`
+/// answer), not a connection that failed.
+pub(super) fn is_refusal(error: &anyhow::Error) -> bool {
+    remote::refusal_code(error).is_some()
+}
+
 /// The error code of a failed push.
 pub(super) fn push_failure_code(error: &anyhow::Error) -> String {
     push_failure(error).0
@@ -293,6 +305,43 @@ pub(super) fn copy_file_with_progress(
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
     write_with_progress(&mut remote, target, &file, progress).map(|_| ())
+}
+
+/// Uploads the regular file at `local` (never through a symlink) to
+/// `target` on the machine as 0600, making its folder; `progress` hears the
+/// bytes read so far as the parts go (`cmux link seed push`'s bundle).
+pub(super) fn upload(
+    socket: &Path,
+    local: &Path,
+    target: &str,
+    progress: &mut dyn FnMut(u64),
+) -> anyhow::Result<()> {
+    struct Counted<R> {
+        inner: R,
+        read: std::rc::Rc<std::cell::Cell<u64>>,
+    }
+    impl<R: std::io::Read> std::io::Read for Counted<R> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            let read = self.inner.read(buffer)?;
+            self.read.set(self.read.get() + read as u64);
+            Ok(read)
+        }
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(local)
+        .with_context(|| format!("cannot read {}", local.display()))?;
+    if !file.metadata()?.is_file() {
+        anyhow::bail!("{} is not a regular file", local.display());
+    }
+    let read = std::rc::Rc::new(std::cell::Cell::new(0));
+    let mut reader = Counted { inner: file, read: read.clone() };
+    let mut remote = Remote::connect(socket)?;
+    let (parent, _) = remote::split(target)?;
+    remote.mkdir_all(parent)?;
+    remote.write_with_progress(target, &mut reader, 0o600, &mut || progress(read.get()))?;
+    Ok(())
 }
 
 /// Deletes the folder at `path` on the machine whose daemon `socket`

@@ -14,6 +14,7 @@ import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp, proofSegment } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { upstreamName } from "./naming.ts";
+import { makeDurableMeshCreate } from "./live-mesh-create.ts";
 import { type CreatedNetwork, type CreatedRule, type CreatedTunnel, type TunnelInfo, UpstreamMesh, type UpstreamMeshService } from "./mesh.ts";
 
 const NetworkBody = Schema.Struct({ id: UpstreamId, cidr: Schema.optional(Schema.NullOr(Schema.String)) });
@@ -36,6 +37,10 @@ const VmNetworks = Schema.Struct({
   vpcs: Schema.optional(Schema.Array(Schema.Struct({ ipv4: Schema.optional(Schema.NullOr(Schema.String)) }))),
   networks: Schema.optional(Schema.Array(Schema.Struct({ ipv4: Schema.optional(Schema.NullOr(Schema.String)) }))),
 });
+
+const VmMemberNetwork = Schema.Struct({ vpc: Schema.String, vpcId: Schema.optional(Schema.NullOr(Schema.String)), ipv4: Schema.optional(Schema.NullOr(Schema.String)) });
+const VmMemberView = Schema.Struct({ id: Schema.String,
+  vpcs: Schema.optional(Schema.Array(VmMemberNetwork)), networks: Schema.optional(Schema.Array(VmMemberNetwork)) });
 
 const RuleBody = Schema.Struct({ id: Schema.String });
 
@@ -111,6 +116,7 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
     http.json(operation, "DELETE", `/v5/tunnels/${path(id)}`).pipe(Effect.asVoid);
 
   return {
+    ...makeDurableMeshCreate(config, (created) => networks.add(created)),
     createNetwork: (mesh, _proofs, options) =>
       http
         .json("createNetwork", "POST", "/v5/vpcs", { displayName: upstreamName(config.environment, options.tenantId, mesh.value), cidr: options.cidr })
@@ -187,6 +193,20 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
           Effect.flatMap(decodeAs(VmNetworks, "attachVm")),
           Effect.map((body) => ({ ipv4: (body.vpcs ?? body.networks ?? [])[0]?.ipv4 ?? null })),
         ),
+    readVmAddress: (_mesh, _vm, { ownsMesh, ownsVm }) =>
+      http.json("readVmAddress", "GET", `/v5/vms/${proofSegment(ownsVm)}`).pipe(
+        Effect.flatMap(decodeAs(VmMemberView, "readVmAddress")),
+        Effect.flatMap((body) => {
+          const entries = body.vpcs ?? body.networks;
+          if (body.id !== upstreamIdOf(ownsVm) || entries === undefined || entries.length > 1
+            || (body.vpcs !== undefined && body.networks !== undefined && JSON.stringify(body.vpcs) !== JSON.stringify(body.networks))
+            || entries.some((entry) => entry.vpcId != null && entry.vpcId !== entry.vpc)) {
+            return Effect.fail(new UpstreamError({ operation: "readVmAddress", status: null }));
+          }
+          const member = entries[0];
+          return Effect.succeed({ ipv4: member?.vpc === upstreamIdOf(ownsMesh) ? member.ipv4 ?? null : null });
+        }),
+      ),
     detachVm: (_vm, { ownsVm }) => http.json("detachVm", "PUT", `/v5/vms/${proofSegment(ownsVm)}/networks`, { networks: [] }).pipe(Effect.asVoid),
 
     createRule: (mesh, _source, _destination, proofs, matcher) =>

@@ -74,6 +74,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/peers": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
+        "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),

@@ -101,6 +101,11 @@ struct WorkspaceHoverCardContent: Equatable {
                      options: WorkspaceHoverCardOptions, timeline: [SidebarTimelineEntry], looked: Date? = nil,
                      pullRequests: SidebarPullRequestBadge? = nil, home: String = NSHomeDirectory()) -> Self {
         var card = facts(workspace, machine: machine, now: now, pullRequests: pullRequests, home: home, showsGit: options.showsGit)
+        // Keep the hover card in step with the row: a local host plus the same
+        // session title is metadata without information and gets no fact row.
+        card.facts.removeAll { fact in
+            WorkspaceRowContent.nonRedundantDetail(fact.text, title: workspace.title) == nil
+        }
         if let looked, let text = sinceLooked(timeline, after: looked) {
             card.facts.insert(Fact(icon: .historyRecent, text: text, kind: sinceLookedKind), at: 0)
         }

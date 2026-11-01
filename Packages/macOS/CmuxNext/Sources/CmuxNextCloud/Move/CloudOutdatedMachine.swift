@@ -3,9 +3,10 @@
 ///
 /// A new machine's image may carry an older cmux-tui than the app, and the automatic update its
 /// first handshake queued may not have run yet. A chat start's copy (`cmux link start-chat copy`)
-/// refused that way updates the machine to the app's own build and copies once more (``copy(_:answer:update:)``),
+/// refused that way updates the machine to the app's own build and copies once more, on its new link (``copy(socket:link:notConnected:relink:_:answer:update:)``),
 /// instead of failing the person's first send with "Update the machine".
-public enum CloudOutdatedMachine {
+public struct CloudOutdatedMachine {
+    public init() {}
     /// The CLIs' error code for a daemon too old for the verb.
     public static let code = "machine_outdated"
 
@@ -15,14 +16,25 @@ public enum CloudOutdatedMachine {
         !ok && errorCode == code && side != "source"
     }
 
-    /// Runs `copy`; when its answer (read by `answer`) is the machine's older daemon refusing it
-    /// (``updatesBeforeCopyingAgain(ok:errorCode:side:)``) and `update` updated the machine (true),
-    /// runs it once more. Otherwise the first answer stands: nothing else updates the machine.
-    public static func copy<Answer>(_ copy: () async throws -> Answer, answer: (Answer) -> (ok: Bool, errorCode: String?, side: String?),
-                                    update: () async -> Bool) async throws -> Answer {
-        let first = try await copy()
+    /// Runs `copy` on the machine's link socket (`socket`, nil when not connected: `notConnected` is thrown); when
+    /// its answer (read by `answer`) is the machine's older daemon refusing it (``updatesBeforeCopyingAgain(ok:errorCode:side:)``)
+    /// and `update` updated the machine (true), runs it once more. Otherwise the first answer stands: nothing else updates it.
+    ///
+    /// The update restarts the machine's daemon and its link comes back on a new socket: copying again on the
+    /// first one failed with "cannot connect to …/cmux-link-….sock: No such file or directory" (capture at
+    /// ff3f8c9b, 2026-11-01). So the second copy waits, up to `relink`, for `link` (the connection's handshake
+    /// key) to change from what it was before the update, and reads the socket again.
+    @MainActor
+    public static func copy<Answer>(socket: () async -> String?, link: @escaping @MainActor @Sendable () -> String?, notConnected: any Error,
+                                    relink: Duration = .seconds(90), _ copy: (String) async throws -> Answer,
+                                    answer: (Answer) -> (ok: Bool, errorCode: String?, side: String?), update: () async -> Bool) async throws -> Answer {
+        guard let path = await socket() else { throw notConnected }
+        let before = link()
+        let first = try await copy(path)
         let read = answer(first)
         guard updatesBeforeCopyingAgain(ok: read.ok, errorCode: read.errorCode, side: read.side), await update() else { return first }
-        return try await copy()
+        _ = await CloudWait.holds(within: relink) { link().map { $0 != before } ?? false }
+        guard let again = await socket() else { throw notConnected }
+        return try await copy(again)
     }
 }
