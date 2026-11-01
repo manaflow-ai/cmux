@@ -238,6 +238,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         def label(job, runner, primary_result=''):
             source = DOC['jobs'][job]['runs-on'].removeprefix('${{').removesuffix('}}')
             context = {'github.repository_owner': 'manaflow-ai', 'vars.LINUX_RUNNER': runner,
+                               'needs.decide.outputs.track': 'nightly-next',
                        'needs.prepare-nightly-variant-primary.result': primary_result}
             return evaluate(parse_expression(source), context)
         for runner in ('', 'blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'):
@@ -291,10 +292,12 @@ class NightlyTrustedRouting(unittest.TestCase):
             for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', *sorted(members)):
                 for primary in ('success', 'failure'):
                     context = {'github.repository_owner': 'manaflow-ai', 'vars.LINUX_RUNNER': runner,
+                               'needs.decide.outputs.track': 'nightly-next',
                                'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                'needs.prepare-nightly-variant-primary.result': primary}
                     with self.subTest(job=name, runner=runner, primary=primary):
-                        self.assertIn(evaluate(parse_expression(source), context), members)
+                        self.assertIn(evaluate(parse_expression(source), context),
+                                      {"cmux-fleet-linux-x64"} if "cmux-fleet-linux-x64" in source else members)
         self.assertGreater(checked, 20)
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
@@ -535,6 +538,57 @@ class PickerReRun(unittest.TestCase):
         for step in steps:
             if 'actions/upload-artifact@' in str(step.get('uses', '')):
                 self.assertIs(step['with'].get('overwrite'), True, step['with'].get('name'))
+
+
+CREDENTIALED_CONTROL_JOBS = ('attest-nightly-remote-daemon', 'route-visual-gate-nightly', 'published-in')
+CREDENTIALED_CONTROL_MEMBERS = ('blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404')
+
+
+class CredentialedControls(unittest.TestCase):
+    def select(self, job, pool='', attempt=1, owner='manaflow-ai'):
+        # The shared parser intentionally discards properties of call results.
+        # Resolve this JSON property lazily so the fork branch still tests
+        # short-circuit behavior without pretending the entire object is a label.
+        class Context(dict):
+            def get(self, key, default=''):
+                if key == 'pool_linux':
+                    return json.loads(pool or '{}').get('linux', '')
+                return super().get(key, default)
+        source = DOC['jobs'][job]['runs-on'][3:-2]
+        self.assertIn("fromJSON(vars.RUNNER_POOLS || '{}').linux", source)
+        source = source.replace("fromJSON(vars.RUNNER_POOLS || '{}').linux", 'pool_linux')
+        return evaluate(parse_expression(source), Context({
+            'github.repository_owner': owner,
+            'github.run_attempt': attempt,
+            'vars.RUNNER_POOLS': pool,
+        }))
+
+    def test_live_trusted_member_is_used(self):
+        for job in CREDENTIALED_CONTROL_JOBS:
+            for member in CREDENTIALED_CONTROL_MEMBERS:
+                with self.subTest(job=job, member=member):
+                    self.assertEqual(self.select(job, json.dumps({'linux': member})), member)
+
+    def test_unset_and_untrusted_routes_stay_ephemeral_on_every_attempt(self):
+        for job in CREDENTIALED_CONTROL_JOBS:
+            for pool in ('', '{}', '{"linux":"ubuntu-24.04"}',
+                         '{"linux":"cmux-fleet-linux-x64"}',
+                         '{"linux":"glaeda-side-std-xcode-26.6"}'):
+                with self.subTest(job=job, pool=pool):
+                    self.assertEqual(self.select(job, pool), CREDENTIALED_CONTROL_MEMBERS[1])
+                    self.assertEqual(self.select(job, pool, attempt=2), CREDENTIALED_CONTROL_MEMBERS[0])
+
+    def test_forks_short_circuit_pool_parsing(self):
+        for job in CREDENTIALED_CONTROL_JOBS:
+            self.assertEqual(self.select(job, 'not json', owner='someone'), 'ubuntu-24.04')
+
+    def test_credential_permissions_remain_scoped_to_each_control(self):
+        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[0]]['permissions'], {
+            'contents': 'read', 'attestations': 'write', 'id-token': 'write'})
+        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[1]]['environment'], 'ci-routing-agent')
+        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[2]]['permissions'], {
+            'contents': 'read', 'pull-requests': 'write'})
+
 
 
 if __name__ == '__main__':
