@@ -387,7 +387,8 @@
   font-variant-numeric: tabular-nums;
 }
 .ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-group-label, .acpmux-menu-header) {
-  padding: var(--ds-space-1) calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset)) var(--ds-space-1) var(--ui-row-padding-inline);
+  padding-block: var(--ds-space-1);
+  padding-inline: var(--ui-row-padding-inline) calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
 }
 .ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) .ui-separator {
   margin: var(--ds-space-1) calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
