@@ -4,7 +4,9 @@
 // to its commit, its PRs and the changes since the installed build; every text is the host's.
 // Picking a slower channel the running build is not on shows the way back: Go Back restarts
 // once into the build this Mac kept from it (the host's rollback path), or a line says the
-// running build stays until that channel passes it.
+// running build stays until that channel passes it. Every other build (older or newer, kept or
+// not, never the pulled ones) has a Switch, shown while the pointer is on its row: one restart into
+// it, downloaded first unless kept (Leo: "be able to hot swap your dev build for any other dev build").
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useSettingsState, useStore } from "../context";
@@ -12,8 +14,20 @@ import { channelsQuery } from "../sectionQueries";
 import type { ChannelBuild, ChannelMachines, ChannelSwitch, ChannelTrack, ChannelsState } from "../ops";
 
 function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsState["labels"] }) {
+  const store = useStore();
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const switchTo = () => {
+    setBusy(true);
+    setFailure(null);
+    void store.channelsSwitchBuild(build.build).then((why) => {
+      // Success quits the app into the build; only a refusal comes back.
+      setBusy(false);
+      setFailure(why);
+    });
+  };
   return (
-    <div className="row" data-channel-build={build.build} data-health={build.health}>
+    <div className="row channel-build" data-channel-build={build.build} data-health={build.health}>
       <div className="row-main">
         <div className="row-label">
           <div className="row-title selectable">{build.version}</div>
@@ -43,6 +57,7 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
             )}
           </div>
           {build.pulled_reason && <div className="row-error">{build.pulled_reason}</div>}
+          {failure && <div className="row-error">{failure}</div>}
         </div>
         <div className="row-control">
           {build.installed && (
@@ -55,6 +70,18 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
             <span className={build.health === "held" || build.health === "pulled" ? "badge badge-warning" : "badge"}>
               {build.health_title}
             </span>
+          )}
+          {build.switch && labels.switch && (
+            <button
+              type="button"
+              className="button channel-switch"
+              data-channel-switch-build={build.build}
+              data-busy={busy ? "" : undefined}
+              disabled={busy}
+              onClick={switchTo}
+            >
+              {labels.switch}
+            </button>
           )}
         </div>
       </div>
