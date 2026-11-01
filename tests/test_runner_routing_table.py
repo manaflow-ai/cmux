@@ -118,6 +118,29 @@ class RoutingTableTests(unittest.TestCase):
             policy.write_text(json.dumps({"job_classes": {}, "hosted_light_jobs": {}}))
             self.assertEqual(table.hosted_light_policy(policy, workflows), ([], []))
 
+    def test_hosted_light_policy_checks_inherited_workflow_environment(self):
+        import yaml
+        route = "${{ github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflows = root / "workflows"
+            workflows.mkdir()
+            policy = root / "runners.json"
+            policy.write_text(json.dumps({"job_classes": {"portable-checks": {"needs": "any"}},
+                "hosted_light_jobs": {"nightly.yml#decide": {"class": "portable-checks", "reason": "routing"}}}))
+            workflow = {"jobs": {"decide": {"runs-on": route, "environment": "ci-routing-agent",
+                                           "steps": [{"run": "python3 decide.py"}]}}}
+            for value, forbidden in (("${{ secrets.CMUX_RELEASE_APP_KEY }}", True),
+                                     ("${{ secrets.APPLE_SIGNING_CERTIFICATE }}", True),
+                                     ("${{ secrets.GLAEDA_ROUTE_APP_KEY }}", False),
+                                     ("production", False)):
+                with self.subTest(inherited_value=value):
+                    (workflows / "nightly.yml").write_text(yaml.safe_dump(
+                        {**workflow, "env": {"INHERITED_KEY": value}}, sort_keys=False, width=10000))
+                    problems, allowed = table.hosted_light_policy(policy, workflows)
+                    self.assertEqual(bool(problems), forbidden, problems)
+                    self.assertEqual(len(allowed), 0 if forbidden else 1)
+
     def test_the_tree_classifies_every_macos_job(self) -> None:
         self.assertEqual(table.check(), [])
 
