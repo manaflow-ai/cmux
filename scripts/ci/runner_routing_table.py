@@ -90,6 +90,28 @@ NIGHTLY_SLOT = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER$")
 BLACKSMITH_LINUX = re.compile(r"^'blacksmith-\d+vcpu-ubuntu-2404'$")
 
 
+def nightly_reservation(term: str) -> bool:
+    """The explicit all-nightly reservation, restricted to NEXT and attempt one.
+
+    This exception is not a general permission to route a variable before fleet
+    admission. The exact label is enabled only after its managed runner enrolls.
+    """
+    parts = [part.strip() for part in _split_top(term, "&&")]
+    return (len(parts) == 5 and parts[0] == "github.repository == 'manaflow-ai/cmux'"
+            and parts[1] in ("needs.decide.outputs.track == 'nightly-next'",
+                             "github.ref == 'refs/heads/nightly-next'")
+            and parts[2:] == ["github.run_attempt == 1",
+                             "vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'",
+                             "vars.CI_NIGHTLY_ONLY_RUNNER"])
+
+
+def has_nightly_reservation(runs_on: str) -> bool:
+    text = json.loads(runs_on) if runs_on.startswith('"') else runs_on
+    expressions = EXPRESSION.findall(text)
+    return len(expressions) == 1 and any(nightly_reservation(part.strip())
+                                        for part in _split_top(expressions[0].strip(), "||"))
+
+
 def portable_order(runs_on: str, nightly: bool = False) -> str:
     """Why a portable job's runs-on is out of the routing order, or "".
 
@@ -108,6 +130,8 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
         alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
         if alternatives[0] == "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'":
             alternatives = alternatives[1:]
+        if alternatives and nightly_reservation(alternatives[0]):
+            alternatives = alternatives[1:]
         gated = [part.strip() for part in _split_top(alternatives[0], "&&")]
         if len(gated) != 2 or gated[0] != "needs.decide.outputs.track == 'nightly-next'":
             return "early admission must be the first route for the NEXT track"
@@ -122,6 +146,8 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
             return "early admission must consume only its own attempt"
         return ""
     if nightly:
+        if has_nightly_reservation(runs_on):
+            return "" if BLACKSMITH_LINUX.match(terms[-1]) else "the nightly reservation lost its fallback"
         mini = next((i for i, term in enumerate(terms) if NIGHTLY_MINI.search(term) or NIGHTLY_SLOT.search(term)), None)
         if mini is None:
             return "it does not read needs.build-nightly-app.outputs.light_mini_runner (or the nightly slot)"
@@ -412,6 +438,8 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
             if alternatives and alternatives[0] == fork:
                 alternatives = alternatives[1:]
+            if path.name == "nightly.yml" and alternatives and nightly_reservation(alternatives[0]):
+                alternatives = alternatives[1:]
             text = " || ".join(alternatives)
             if re.search(r"(?<![a-z-])macos-", text):
                 problems.append(f"hosted_light_jobs[{key!r}] never permits hosted macOS")
@@ -484,7 +512,8 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
         elif entry.get("placement_followup") and not bypass:
             problems.append(f"{job.key} no longer bypasses placement; remove its placement_followup")
         # A bypass is already one pin, recorded by its placement_followup.
-        pin = not bypass and not job.from_picker
+        reserved = job.key.startswith("nightly.yml#") and has_nightly_reservation(job.runs_on)
+        pin = not bypass and not job.from_picker and not reserved
         if pin and not entry.get("picker_followup"):
             problems.append(
                 f"{job.key} runs on macOS from a fixed label (no picker output can be its runs-on value), so "
