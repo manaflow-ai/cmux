@@ -192,14 +192,7 @@ function inboxNotice(message: LaneNoticePayload): LaneNotice {
   const preview = threads.length
     ? [...new Set(threads.map((thread) => thread.sender).filter(Boolean))].join(", ")
     : firstSentence(message.text);
-  // Keep the harness preamble and thread suffixes out of the presentation payload. The transcript
-  // renders each delivery row; retaining the raw wrapper here lets secondary consumers accidentally
-  // put that boilerplate back on screen.
-  const body = threads
-    .map((thread) => thread.messages?.map((delivery) => delivery.text).join("\n\n") || thread.preview || "")
-    .filter(Boolean)
-    .join("\n\n");
-  return { kind: "inbox", preview, body, ...(threads.length ? { threads } : {}) };
+  return { kind: "inbox", preview, body: message.text.trim(), ...(threads.length ? { threads } : {}) };
 }
 
 export function laneNotice(message: LaneNoticePayload): LaneNotice | undefined {

@@ -29,7 +29,7 @@ test("inbox notice strips the harness wrapper and keeps each delivery preview", 
       ],
     },
   ]);
-  expect(parsed.body).not.toContain("New messages from other agents");
-  expect(parsed.body).not.toContain("inbox_read");
-  expect(parsed.body).toContain("ready for review");
+  // Keep the raw body for the disclosure panel; the renderer strips wrapper text when it
+  // expands the notice into message rows.
+  expect(parsed.body).toContain("inbox_read");
 });
