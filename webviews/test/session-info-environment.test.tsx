@@ -340,7 +340,7 @@ test("Environment Save also handles a synchronous callback failure", async () =>
 test("what the chat was granted is listed last, each with Revoke", async () => {
   const base = chat(scratchRows);
   const revoked: string[] = [];
-  const environment = await renderInspector({
+  const environment = await renderSessionInfo({
     summary: { ...base.summary!, cwd: SCRATCHPAD, branch: undefined, worktree: undefined },
     machineName: "studio-mac",
     rows: scratchRows,
