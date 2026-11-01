@@ -221,9 +221,10 @@ export function judgeStep(
   const failMs = checks.longFrameFailMs?.value ?? DEFAULT_CHECKS.longFrameFailMs;
   const shiftMax = checks.layoutShiftMax?.value ?? DEFAULT_CHECKS.layoutShiftMax;
   const settleMax = checks.settleMaxMs?.value;
-  // A wait is the page loading what it waits for: nothing in it is judged here. Its shift is still
-  // measured and scored, against the state's row in gallery health's shift baseline
-  // (scripts/gallery-matrix/shift-baseline.ts), so a wait that starts shifting fails there.
+  // A wait is the page loading what it waits for: its moves, shift and frames are not judged here
+  // (an entry's popupLayer check still is). Its shift is still measured and scored against the
+  // state's row in gallery health's shift baseline (scripts/gallery-matrix/shift-baseline.ts), so a
+  // wait that starts shifting past its row fails there.
   const waiting = measured.action === "wait";
   for (const move of waiting ? [] : measured.anchorMoves)
     if (move.delta > movePx) problems.push(`anchor ${move.anchor} moved ${move.delta.toFixed(1)} px (limit ${movePx})`);
