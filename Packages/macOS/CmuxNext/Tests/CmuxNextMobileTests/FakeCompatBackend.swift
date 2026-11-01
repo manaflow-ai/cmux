@@ -30,6 +30,9 @@ final class FakeCompatBackend: MobileCompatBackend, @unchecked Sendable {
     }
     func renameTab(_ surface: SurfaceID, to name: String) async throws {}
     func closeTerminal(_ terminal: TerminalID) async throws {}
+    func chatSessions(limit: UInt64?, cursor: String?, status: String?) async throws -> JSONValue { .object(["sessions": .array([])]) }
+    func chatHistory(sessionID: String, afterSeq: UInt64?, beforeSeq: UInt64?, limit: UInt64?, kinds: [String]?) async throws -> JSONValue { .object(["session": .object([:]), "events": .array([])]) }
+    func chatSend(sessionID: String, text: String, promptID: String) async throws -> JSONValue { .object(["accepted": .bool(true), "prompt_id": .string(promptID)]) }
 
     func attach(_ tab: TabSnapshot, generation: DaemonGeneration?, size: CellSize) async throws
         -> any MobileCompatTerminalChannel {

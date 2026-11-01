@@ -93,10 +93,47 @@ public actor MobileCompatSession {
             return try await workspaceAction(request)
         case "mobile.surface.focus":
             return .object(["focused": .bool(true)])
+        case "mobile.chat.sessions":
+            return try await chatSessions(request)
+        case "mobile.chat.history":
+            return try await chatHistory(request)
+        case "mobile.chat.send":
+            return try await chatSend(request)
         default:
             if let result = try await dispatchTerminal(request) { return result }
             throw MobileRPCError.methodNotFound(request.method)
         }
+    }
+
+    private func chatSessions(_ request: MobileRPCRequest) async throws -> JSONValue {
+        let limit = request.params["limit"].flatMap(Self.uint)
+        let cursor = request.params["cursor"]?.stringValue
+        let status = request.params["status"]?.stringValue
+        return try await backend.chatSessions(limit: limit, cursor: cursor, status: status)
+    }
+
+    private func chatHistory(_ request: MobileRPCRequest) async throws -> JSONValue {
+        guard let sessionID = request.string("session_id")?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionID.isEmpty else {
+            throw MobileRPCError.invalidParams("session_id is required")
+        }
+        let kinds = request.params["kinds"]?.arrayValue?.compactMap(\.stringValue)
+        return try await backend.chatHistory(sessionID: sessionID, afterSeq: request.params["after_seq"].flatMap(Self.uint),
+                                             beforeSeq: request.params["before_seq"].flatMap(Self.uint),
+                                             limit: request.params["limit"].flatMap(Self.uint), kinds: kinds)
+    }
+
+    private func chatSend(_ request: MobileRPCRequest) async throws -> JSONValue {
+        guard let sessionID = request.string("session_id")?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionID.isEmpty,
+              let text = request.string("text"), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let promptID = request.string("prompt_id")?.trimmingCharacters(in: .whitespacesAndNewlines), !promptID.isEmpty else {
+            throw MobileRPCError.invalidParams("session_id, text and prompt_id are required")
+        }
+        return try await backend.chatSend(sessionID: sessionID, text: text, promptID: promptID)
+    }
+
+    private static func uint(_ value: JSONValue) -> UInt64? {
+        guard case .number(let number) = value, number.isFinite, number >= 0, number.rounded() == number else { return nil }
+        return UInt64(number)
     }
 
     // MARK: Events

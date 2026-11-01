@@ -14,6 +14,9 @@ public protocol MobileCompatBackend: Sendable {
     func send(_ surface: SurfaceID, bytes: Data, paste: Bool) async throws
     func renameTab(_ surface: SurfaceID, to name: String) async throws
     func closeTerminal(_ terminal: TerminalID) async throws
+    func chatSessions(limit: UInt64?, cursor: String?, status: String?) async throws -> JSONValue
+    func chatHistory(sessionID: String, afterSeq: UInt64?, beforeSeq: UInt64?, limit: UInt64?, kinds: [String]?) async throws -> JSONValue
+    func chatSend(sessionID: String, text: String, promptID: String) async throws -> JSONValue
     /// Opens a dedicated byte-mode attachment (vt-state then live output).
     func attach(_ tab: TabSnapshot, generation: DaemonGeneration?, size: CellSize) async throws
         -> any MobileCompatTerminalChannel
