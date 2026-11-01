@@ -278,13 +278,14 @@ if "--suite=cef-api30" in sys.argv:
     argv = sys.argv[1:]
     value = lambda name: next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a == name), None)
     app, tag, out = value("--app"), value("--tag"), value("--out") or "/tmp/cmux-next-cef-api30"
-    want = next((a.split("=", 1)[1] for a in argv if a.startswith("--parts=")), "verify-on-hid,verify-on,verify-off,ab,resize")
+    want = next((a.split("=", 1)[1] for a in argv if a.startswith("--parts=")), "verify-on-hid,verify-on,verify-off,split,ab,resize")
     table = {
         "verify-on-hid": ["cef-layer-verify.py", "--mode", "on"],
         "verify-on": ["cef-layer-verify.py", "--mode", "on", "--input", "debug"],
         "verify-off": ["cef-layer-verify.py", "--mode", "off", "--input", "debug"],
         "ab": ["cef-layer-ab.py"],
         "resize": ["cef-resize-sync-bench.py", "--label", "api30"],
+        "split": ["split-resize-bench.py", "--variants=live,hold,synced,resizeSync,live-hosted,resizeSync-hosted"],
     }
     results = {}
     for name in want.split(","):
