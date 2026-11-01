@@ -24,12 +24,31 @@ nonisolated enum AgentPaneVideoInfo {
     static let tolerance = CMTime(seconds: 0.5, preferredTimescale: 600)
     /// JPEG quality of the poster and frames.
     static let quality = 0.8
+    /// The longest side of a frame the page picked (`video.frames`): large enough that an agent
+    /// reads a screen recording's text (Leo, 2026-11-01: "i feel like cmux-next should give u better
+    /// tools to deal with this kind of thing").
+    static let pickedSide = 1280
+    /// The most frames one `video.frames` asks for.
+    static let maximumPicked = 16
+    /// How far from the asked time a picked frame may be: a scene's first frame is near its cut.
+    static let pickedTolerance = CMTime(seconds: 0.1, preferredTimescale: 600)
+    /// A probe's grid: the video drawn as this many gray cells a side, one byte each, for the page
+    /// to find its scene changes (videoFramePick.ts). Its shape is ignored; only change counts.
+    static let probeGrid = 24
+    /// The fewest and most probes a video gives (two a second between them).
+    static let probeRange = 12...48
 
     struct Frame: Equatable, Sendable {
         /// Where in the video the frame is, in milliseconds.
         var atMs: Int
         /// Its JPEG, base64 (encoded with the read, off the main actor).
         var jpeg: String
+    }
+
+    struct Probe: Equatable, Sendable {
+        var atMs: Int
+        /// ``probeGrid``² gray bytes, row by row, base64.
+        var cells: String
     }
 
     struct Info: Equatable, Sendable {
@@ -40,14 +59,16 @@ nonisolated enum AgentPaneVideoInfo {
         /// The first key frame's JPEG, base64, at most ``posterSide`` on its longest side.
         var poster: String
         var frames: [Frame]
+        var probes: [Probe] = []
 
         /// The page's answer: the poster as a `data:` URL, each frame's JPEG as base64 for an
-        /// image block.
+        /// image block, each probe's cells as base64.
         var reply: [String: Any] {
             [
                 "durationMs": durationMs, "width": width, "height": height,
                 "poster": "data:image/jpeg;base64," + poster,
                 "frames": frames.map { ["atMs": $0.atMs, "data": $0.jpeg] },
+                "probes": probes.map { ["atMs": $0.atMs, "cells": $0.cells] },
             ]
         }
     }
@@ -87,7 +108,76 @@ nonisolated enum AgentPaneVideoInfo {
             frames.append(Frame(atMs: Int((min(max(at, 0), seconds) * 1000).rounded()), jpeg: data.base64EncodedString()))
         }
         guard let first, let poster = scaled(first, toFit: posterSide).flatMap(jpeg) else { return nil }
-        return Info(durationMs: Int((seconds * 1000).rounded()), width: width, height: height, poster: poster.base64EncodedString(), frames: frames)
+        let probes = await Self.probes(asset, duration: seconds)
+        return Info(durationMs: Int((seconds * 1000).rounded()), width: width, height: height, poster: poster.base64EncodedString(),
+                    frames: frames, probes: probes)
+    }
+
+    /// The times of a video's probes: two a second, within ``probeRange``, spread as ``frameTimes(duration:count:)``.
+    static func probeTimes(duration: Double) -> [Double] {
+        guard duration.isFinite, duration > 0 else { return [] }
+        let count = min(max(Int((duration * 2).rounded(.up)), probeRange.lowerBound), probeRange.upperBound)
+        return frameTimes(duration: duration, count: count)
+    }
+
+    /// Small gray probes of `asset` (``Probe``), for the page's scene pick. A probe that does not
+    /// decode is left out.
+    static func probes(_ asset: AVAsset, duration: Double) async -> [Probe] {
+        let times = probeTimes(duration: duration)
+        guard times.count > 1 else { return [] }
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: probeGrid * 4, height: probeGrid * 4)
+        // Near the asked time, so a probe never jumps to a sync frame seconds away and hides a cut.
+        let tolerance = CMTime(seconds: min(0.25, duration / Double(times.count) / 2), preferredTimescale: 600)
+        generator.requestedTimeToleranceBefore = tolerance
+        generator.requestedTimeToleranceAfter = tolerance
+        var probes: [Probe] = []
+        for time in times {
+            guard let frame = try? await generator.image(at: CMTime(seconds: time, preferredTimescale: 600)),
+                  let cells = grayCells(frame.image, side: probeGrid) else { continue }
+            let at = frame.actualTime.seconds.isFinite ? frame.actualTime.seconds : time
+            probes.append(Probe(atMs: Int((min(max(at, 0), duration) * 1000).rounded()), cells: cells.base64EncodedString()))
+        }
+        return probes
+    }
+
+    /// `image` drawn as `side`×`side` gray bytes, row by row.
+    static func grayCells(_ image: CGImage, side: Int) -> Data? {
+        var bytes = [UInt8](repeating: 0, count: side * side)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side,
+                                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            context.interpolationQuality = .medium
+            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        return drawn ? Data(bytes) : nil
+    }
+
+    /// The frames of the video at `file` at `times` (milliseconds, the page's pick), at most
+    /// ``pickedSide`` on their longest side, in the order asked; nil when it is not a video
+    /// AVFoundation can show. A time that does not decode is left out.
+    @concurrent static func frames(_ file: URL, at times: [Int]) async -> [Frame]? {
+        guard isRegularFile(file) else { return nil }
+        let asset = AVURLAsset(url: file, options: [AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue])
+        guard let duration = try? await asset.load(.duration), duration.seconds.isFinite, duration.seconds > 0,
+              (try? await asset.loadTracks(withMediaType: .video).first) != nil else { return nil }
+        let seconds = duration.seconds
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: pickedSide, height: pickedSide)
+        generator.requestedTimeToleranceBefore = pickedTolerance
+        generator.requestedTimeToleranceAfter = pickedTolerance
+        var frames: [Frame] = []
+        for ms in times.prefix(maximumPicked) {
+            let time = min(max(Double(ms) / 1000, 0), seconds)
+            guard let frame = try? await generator.image(at: CMTime(seconds: time, preferredTimescale: 600)),
+                  let data = jpeg(frame.image) else { continue }
+            let at = frame.actualTime.seconds.isFinite ? frame.actualTime.seconds : time
+            frames.append(Frame(atMs: Int((min(max(at, 0), seconds) * 1000).rounded()), jpeg: data.base64EncodedString()))
+        }
+        return frames
     }
 
     /// Whether `file` is a regular file (not a folder named like a movie, nor a pipe).
@@ -214,6 +304,16 @@ extension AgentPaneModel {
         await AgentPaneVideoInfo.discard(copy)
         guard let info, !chatIsElsewhere else { return Self.replyFailure(.mediaRefused) }
         return AgentPaneReply.success(info.reply)
+    }
+
+    /// `video.frames {src, times}`: the video's frames at the times the page picked from its probes
+    /// (``AgentPaneVideoInfo/frames(_:at:)``), read from its copy, which is then removed.
+    func videoFrames(_ src: String, times: [Int]) async -> [String: Any] {
+        guard let copy = await videoSnapshot(src) else { return Self.replyFailure(.mediaRefused) }
+        let frames = await AgentPaneVideoInfo.frames(copy, at: times)
+        await AgentPaneVideoInfo.discard(copy)
+        guard let frames, !chatIsElsewhere else { return Self.replyFailure(.mediaRefused) }
+        return AgentPaneReply.success(["frames": frames.map { ["atMs": $0.atMs, "data": $0.jpeg] }])
     }
 
     /// `video.quickLook {src}`: plays the video's copy in Quick Look, on the person's click. The click

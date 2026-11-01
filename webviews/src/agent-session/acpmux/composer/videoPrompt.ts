@@ -1,5 +1,6 @@
 // What an agent gets for an attached video: its link, then a note naming the video and the time of
-// each frame, then the frames as image blocks in that order (Leo, 2026-11-01, after a 16 s mp4 went
+// each frame, then each frame as a one-line label with its time (and whether a scene starts there)
+// and its image block (Leo, 2026-11-01, after a 16 s mp4 went
 // to Claude Code as its path alone and the agent ran ffmpeg to see it: "i feel like cmux-next should
 // give u better tools to deal with this kind of thing"). An agent cannot watch a video; the frames
 // the host read on attach (`video.info`, videoAttachments.ts) are what it looks at. The note and the
@@ -40,6 +41,23 @@ export function isVideoFrameName(name: string | undefined): boolean {
   return typeof name === "string" && FRAME_NAME.test(name);
 }
 
+/// The label that goes before a frame's image: its name, and where a scene starts, so.
+export function frameLabel(video: string, atMs: number, scene: boolean): string {
+  // l10n-allow: text for the agent, sent in the prompt, not UI.
+  return scene ? `${frameName(video, atMs)} (new scene)` : frameName(video, atMs);
+}
+
+const FRAME_LABEL = /\.(mov|mp4|m4v) frame at \d+(:\d{2}){1,2}\.\d( \(new scene\))?$/i;
+/// Whether `text` is a frame's label (`frameLabel`).
+export function isFrameLabel(text: string): boolean {
+  return FRAME_LABEL.test(text);
+}
+
+/// Whether a prompt's text block (or line) went to the agent only: a frames note or a frame's label.
+export function isFrameText(text: string): boolean {
+  return isFramesNote(text) || isFrameLabel(text);
+}
+
 /// The note that comes before a video's frames: one line, so the bubble can leave it out whole.
 export function framesNote(video: string, durationMs: number, width: number, height: number, times: number[]) {
   const at = times.map(frameTime).join(", ");
@@ -69,12 +87,10 @@ export function videoFrameBlocks(attachment: ComposerAttachment): PromptBlock[] 
         video.frames.map((frame) => frame.atMs),
       ),
     },
-    ...video.frames.map((frame): PromptBlock => ({
-      type: "image",
-      mimeType: "image/jpeg",
-      data: frame.data,
-      name: frameName(attachment.name, frame.atMs),
-    })),
+    ...video.frames.flatMap((frame): PromptBlock[] => [
+      { type: "text", text: frameLabel(attachment.name, frame.atMs, frame.scene === true) },
+      { type: "image", mimeType: "image/jpeg", data: frame.data, name: frameName(attachment.name, frame.atMs) },
+    ]),
   ];
 }
 
@@ -85,17 +101,18 @@ export function withoutFrames(chips: ComposerAttachment[]): ComposerAttachment[]
   return chips.map((chip) => (chip.video?.frames.length ? { ...chip, video: { ...chip.video, frames: [] } } : chip));
 }
 
-/// A sent prompt's row without its videos' frames and frames notes, which went to the agent only:
-/// its images, its recorded parts, and the trailing note lines of its text (a strip prompt's
-/// attachments, and so their notes, come after its text and pastes, so no paste range moves).
+/// A sent prompt's row without its videos' frames, frames notes and frame labels, which went to the
+/// agent only: its images, its recorded parts, and the note and label lines of its text. With paste
+/// ranges only its last lines go (a strip prompt's attachments, and so their notes, come after its
+/// text and pastes, so no range moves); without, every such line goes (a video placed mid-text).
 export function withoutVideoFrames<
-  Row extends { text?: string; images?: PromptImage[]; inlineParts?: PromptContentPart[] },
+  Row extends { text?: string; images?: PromptImage[]; inlineParts?: PromptContentPart[]; pasted?: unknown[] },
 >(row: Row): Row {
   const images = row.images?.filter((image) => !isVideoFrameName(image.name));
   const parts = row.inlineParts?.filter((part) =>
-    part.kind === "image" ? !isVideoFrameName(part.name) : !(part.kind === "text" && isFramesNote(part.text)),
+    part.kind === "image" ? !isVideoFrameName(part.name) : !(part.kind === "text" && isFrameText(part.text)),
   );
-  const text = row.text === undefined ? undefined : withoutFramesNotes(row.text);
+  const text = row.text === undefined ? undefined : withoutFramesNotes(row.text, !row.pasted?.length);
   if (images?.length === row.images?.length && parts?.length === row.inlineParts?.length && text === row.text)
     return row;
   return {
@@ -106,10 +123,14 @@ export function withoutVideoFrames<
   };
 }
 
-/// `text` without the frames notes on its last lines.
-export function withoutFramesNotes(text: string): string {
+/// `text` without the frames notes and frame labels on its last lines, or on any line (`anywhere`).
+export function withoutFramesNotes(text: string, anywhere = false): string {
   const lines = text.split("\n");
+  if (anywhere) {
+    const kept = lines.filter((line) => !isFrameText(line));
+    return kept.length === lines.length ? text : kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "");
+  }
   let end = lines.length;
-  while (end > 0 && isFramesNote(lines[end - 1]!)) end -= 1;
+  while (end > 0 && isFrameText(lines[end - 1]!)) end -= 1;
   return end === lines.length ? text : lines.slice(0, end).join("\n").replace(/\n+$/, "");
 }

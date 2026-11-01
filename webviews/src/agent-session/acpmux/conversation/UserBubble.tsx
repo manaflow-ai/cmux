@@ -51,7 +51,7 @@ export function UserBubble({
 }) {
   // A video's frames and their note went to the agent only; the bubble draws the video's tile.
   const row = useMemo(() => withoutVideoFrames(given), [given]);
-  const text = useMemo(() => withoutFramesNotes(givenText), [givenText]);
+  const text = useMemo(() => withoutFramesNotes(givenText, !given.pasted?.length), [givenText, given.pasted]);
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);

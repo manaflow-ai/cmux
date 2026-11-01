@@ -7,24 +7,36 @@
 // videoPrompt.ts, which comes with the sent bubble's tile). A send made while a read is out waits
 // for it a few seconds at most (VIDEO_INFO_DEADLINE_MS); a chip whose read failed or timed out
 // stays a file chip and goes as its path alone.
+//
+// Then the frames the agent sees (Leo, 2026-11-01: "i feel like cmux-next should give u better tools
+// to deal with this kind of thing"): the answer's probes pick the times (videoFramePick.ts: each
+// scene change, even spacing between), and the host decodes those frames at 1280 px
+// (`video.frames`). They replace the answer's four even frames on the chip, within the same
+// deadline; past it, or from an older host, the four go.
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { callChipHost } from "../chips/host";
 import { parseVideoTranscript } from "./videoTranscript";
+import { fitFrames, MAX_FRAMES as MAX_PICKED, parseProbes, pickFrameTimes } from "./videoFramePick";
+
+/// One frame the agent gets: its time, its JPEG (base64), and whether a scene starts there.
+export type VideoFrame = { atMs: number; data: string; scene?: true };
 
 /// What the host answers for a video (AgentPaneVideoInfo.Info). `poster` is a JPEG `data:` URL of at
-/// most 320 px; `frames` are base64 JPEGs of at most 1024 px, spread over the video, each with its time.
+/// most 320 px; `frames` are base64 JPEGs of at most 1024 px, spread over the video, each with its
+/// time, until the picked frames (`video.frames`, at most 1280 px) replace them (`picked`).
 export type VideoInfo = {
   durationMs: number;
   width: number;
   height: number;
   poster: string;
-  frames: { atMs: number; data: string }[];
+  frames: VideoFrame[];
+  picked?: true;
 };
 
 /// The movies the host reads (AgentPaneReplyPaths.videoExtensions).
 const VIDEO_PATH = /\.(mov|mp4|m4v)$/i;
-/// The most frames a chip keeps, whatever the host says.
+/// The most of the answer's own frames a chip keeps, whatever the host says.
 const MAX_FRAMES = 8;
 /// How long a send waits for a video's read before it goes without the frames.
 export const VIDEO_INFO_DEADLINE_MS = 5_000;
@@ -37,15 +49,17 @@ export function isVideoAttachment(attachment: ComposerAttachment): attachment is
 
 const positive = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value > 0;
 
-/// The host's `video.info` answer, checked; undefined for anything else (a refusal, an older host).
+/// The host's `video.info` answer (or a chip's video carried with a sent prompt, its picked frames
+/// and scene marks kept), checked; undefined for anything else (a refusal, an older host).
 export function parseVideoInfo(value: unknown): VideoInfo | undefined {
   const raw = value as Partial<Record<keyof VideoInfo, unknown>> | null | undefined;
   if (!raw || !positive(raw.durationMs) || !positive(raw.width) || !positive(raw.height)) return undefined;
   if (typeof raw.poster !== "string" || !raw.poster.startsWith("data:image/jpeg;base64,")) return undefined;
-  const frames = (Array.isArray(raw.frames) ? raw.frames : []).flatMap((frame: unknown) => {
-    const { atMs, data } = (frame ?? {}) as { atMs?: unknown; data?: unknown };
+  const picked = raw.picked === true;
+  const frames = (Array.isArray(raw.frames) ? raw.frames : []).flatMap((frame: unknown): VideoFrame[] => {
+    const { atMs, data, scene } = (frame ?? {}) as { atMs?: unknown; data?: unknown; scene?: unknown };
     return typeof atMs === "number" && Number.isFinite(atMs) && atMs >= 0 && typeof data === "string" && data
-      ? [{ atMs, data }]
+      ? [{ atMs, data, ...(picked && scene === true ? { scene: true as const } : {}) }]
       : [];
   });
   return {
@@ -53,16 +67,22 @@ export function parseVideoInfo(value: unknown): VideoInfo | undefined {
     width: Math.round(raw.width),
     height: Math.round(raw.height),
     poster: raw.poster,
-    frames: frames.slice(0, MAX_FRAMES),
+    frames: frames.slice(0, picked ? MAX_PICKED : MAX_FRAMES),
+    ...(picked ? { picked: true as const } : {}),
   };
 }
 
 /// The reads out now, by chip id (each read its own token), so a chip draws its busy tile wherever it
 /// shows; a read that ends clears only its own token, never a later read of the same chip. `info` is
-/// the video's own read (`video.info`, the tile spins); `transcript` its speech's (`video.transcript`,
-/// videoTranscript.ts), which the send waits for too but which draws nothing.
-type Kind = "info" | "transcript";
-let busy: Readonly<Record<Kind, ReadonlyMap<string, symbol>>> = { info: new Map(), transcript: new Map() };
+/// the video's own read (`video.info`, the tile spins); `frames` its picked frames' (`video.frames`)
+/// and `transcript` its speech's (`video.transcript`, videoTranscript.ts), which the send waits for
+/// too but which draw nothing.
+type Kind = "info" | "frames" | "transcript";
+let busy: Readonly<Record<Kind, ReadonlyMap<string, symbol>>> = {
+  info: new Map(),
+  frames: new Map(),
+  transcript: new Map(),
+};
 const listeners = new Set<() => void>();
 function setBusy(kind: Kind, id: string, token: symbol, on: boolean) {
   const reading = busy[kind];
@@ -84,9 +104,9 @@ export function useVideoReading(id: string): boolean {
   return useSyncExternalStore(subscribe, busyNow, busyNow).info.has(id);
 }
 
-/// A read out now: the chip object it was asked for (its answer goes on that chip only; a transcript's
-/// on the chip that holds `video`, the answer it follows), and while the send still waits for it, its
-/// deadline.
+/// A read out now: the chip object it was asked for (its answer goes on that chip only; picked
+/// frames and a transcript on the chip that holds `video`, the answer they follow), and while the
+/// send still waits for it, its deadline.
 type Read = {
   kind: Kind;
   chip: ComposerAttachment & { path: string };
@@ -109,45 +129,83 @@ function drop(reads: Map<symbol, Read>, token: symbol) {
   reads.delete(token);
 }
 
-/// Whether read `read` may still land: its chip (for a transcript, the chip holding its video) is staged.
-function stillStaged(read: Read, staged: ReadonlySet<ComposerAttachment>, attachments: readonly ComposerAttachment[]) {
+/// The host's own answer a chip's video came from: a video whose picked frames replaced the answer's
+/// is still that answer, so a transcript asked of it is neither dropped nor asked again.
+const pickedFrom = new WeakMap<VideoInfo, VideoInfo>();
+export function answerOf(video: VideoInfo): VideoInfo {
+  return pickedFrom.get(video) ?? video;
+}
+
+/// The answer's frames replaced by `picked`, the frames the host decoded at the page's times, each
+/// marked where a scene starts; the answer itself when none came.
+export function withPickedFrames(
+  video: VideoInfo,
+  answer: unknown,
+  scenes: ReadonlySet<number> = new Set(),
+): VideoInfo {
+  const raw = (answer as { frames?: unknown } | null | undefined)?.frames;
+  const frames = (Array.isArray(raw) ? raw : []).flatMap((frame: unknown): VideoFrame[] => {
+    const { atMs, data } = (frame ?? {}) as { atMs?: unknown; data?: unknown };
+    return typeof atMs === "number" && Number.isFinite(atMs) && atMs >= 0 && typeof data === "string" && data
+      ? [{ atMs, data, ...(scenes.has(atMs) ? { scene: true as const } : {}) }]
+      : [];
+  });
+  const fitted = fitFrames(frames.slice(0, MAX_PICKED));
+  if (!fitted.length) return video;
+  const next: VideoInfo = { ...video, frames: fitted, picked: true };
+  pickedFrom.set(next, answerOf(video));
+  return next;
+}
+
+/// Whether read `read` may still land: its chip (for picked frames or a transcript, the chip holding
+/// the answer they follow) is staged.
+function stillStaged(read: Read, staged: ReadonlySet<ComposerAttachment>) {
   if (read.kind === "info") return staged.has(read.chip);
-  return staged.size > 0 && attachments.some((chip) => chip.id === read.chip.id && chip.video === read.video);
+  for (const chip of staged)
+    if (chip.id === read.chip.id && chip.video && answerOf(chip.video) === read.video) return true;
+  return false;
 }
 
 /// Reads the video of each staged video chip that has none yet, while `enabled` (a chat on this Mac,
-/// whose files the host may read), and puts it on the chip; then the speech in it (`video.transcript`),
-/// which goes on the chip as its `transcript`. Answers how many staged chips are still being read, for
-/// the send's wait (useSendWhenAttached): a transcript is waited for only while the video's own
-/// deadline (VIDEO_INFO_DEADLINE_MS from its attach) lasts, and a later one still goes on a chip not
-/// yet sent. A read's answer goes only on the chip object it was asked for, while that object is still
-/// staged and the chat still on this Mac: a chip removed (or removed and added again, a new object with
-/// the same id), the chat turning remote or another chat's chips, and the composer going away end it,
-/// and a refusal or the deadline ends the wait.
+/// whose files the host may read), and puts it on the chip; then the frames picked from its probes
+/// (`video.frames`), which replace the answer's frames on the chip, and the speech in it
+/// (`video.transcript`), which goes on the chip as its `transcript`. Answers how many staged chips are
+/// still being read, for the send's wait (useSendWhenAttached): picked frames and a transcript are
+/// waited for only while the video's own deadline (VIDEO_INFO_DEADLINE_MS from its attach) lasts, and
+/// later ones still go on a chip not yet sent. A read's answer goes only on the chip object it was
+/// asked for, while that object is still staged and the chat still on this Mac: a chip removed (or
+/// removed and added again, a new object with the same id), the chat turning remote or another chat's
+/// chips, and the composer going away end it, and a refusal or the deadline ends the wait.
 export function useVideoInfo(
   attachments: readonly ComposerAttachment[],
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   enabled: boolean,
 ): number {
   /// The chips asked (each chip object once: one added again, or replaced without its video, is a
-  /// new object and is asked again), the videos whose speech was asked (each answer once), when each
-  /// chip's read started (its transcript's wait ends at that read's deadline), and the reads this
-  /// composer has out.
+  /// new object and is asked again), each answer's probes and picked scene times, the answers whose
+  /// frames were asked and those whose speech was asked (each once), when each chip's read started
+  /// (its frames' and transcript's waits end at that read's deadline), and the reads this composer
+  /// has out.
   const asked = useRef(new WeakSet<ComposerAttachment>());
+  const picks = useRef(new WeakMap<VideoInfo, ReturnType<typeof pickFrameTimes>>());
+  const framed = useRef(new WeakSet<VideoInfo>());
   const heard = useRef(new WeakSet<VideoInfo>());
   const since = useRef(new Map<string, number>());
   const out = useRef(new Map<symbol, Read>());
   const shown = useSyncExternalStore(subscribe, busyNow, busyNow);
+  /// What is left of chip `id`'s deadline, in milliseconds.
+  const left = (id: string) => (since.current.get(id) ?? -Infinity) + VIDEO_INFO_DEADLINE_MS - Date.now();
   useEffect(() => {
     const reads = out.current;
     const requested = asked.current;
+    const asking = framed.current;
     const listened = heard.current;
     return () => {
       // Activity can tear down effects while retaining this hook's state. Retry only reads that
       // were interrupted; a settled response has already left `reads` and remains marked asked.
-      for (const [token, { chip, video }] of reads) {
-        if (video) listened.delete(video);
-        else requested.delete(chip);
+      for (const [token, { kind, chip, video }] of reads) {
+        if (!video) requested.delete(chip);
+        else (kind === "frames" ? asking : listened).delete(video);
         drop(reads, token);
       }
     };
@@ -156,17 +214,47 @@ export function useVideoInfo(
     const reads = out.current;
     const staged = new Set(enabled ? attachments : []);
     for (const [token, read] of reads) {
-      if (stillStaged(read, staged, attachments)) continue;
+      if (stillStaged(read, staged)) continue;
       drop(reads, token);
       // Asked again if it comes back (the chat back on this Mac).
-      if (read.video) heard.current.delete(read.video);
+      if (read.video) (read.kind === "frames" ? framed : heard).current.delete(read.video);
       else asked.current.delete(read.chip);
     }
     if (!enabled) return;
     for (const chip of attachments) {
       if (!isVideoAttachment(chip)) continue;
-      if (chip.video) {
-        if (!chip.transcript && !heard.current.has(chip.video)) listen(chip, chip.video);
+      const video = chip.video;
+      const times = video ? picks.current.get(video) : undefined;
+      if (video && times?.length && !video.picked && !framed.current.has(video)) {
+        // The answer is on the chip: its picked frames, within what is left of its deadline.
+        framed.current.add(video);
+        const token = Symbol(chip.id);
+        const wait = left(chip.id);
+        const read: Read = { kind: "frames", chip, video };
+        if (wait > 0) {
+          setBusy("frames", chip.id, token, true);
+          read.deadline = setTimeout(() => settle(reads, token), wait);
+        }
+        reads.set(token, read);
+        const scenes = new Set(times.filter((pick) => pick.scene).map((pick) => pick.atMs));
+        void callChipHost("video.frames", { src: chip.path, times: times.map((pick) => pick.atMs) }).then(
+          (answer) => {
+            if (!reads.has(token)) return;
+            drop(reads, token);
+            const next = withPickedFrames(video, answer, scenes);
+            if (next === video) return;
+            setAttachments((current) =>
+              current.map((staged) =>
+                staged.id === chip.id && staged.video === video ? { ...staged, video: next } : staged,
+              ),
+            );
+          },
+          // An older host, or a refusal: the answer's own frames go.
+          () => drop(reads, token),
+        );
+      }
+      if (video) {
+        if (!chip.transcript && !heard.current.has(answerOf(video))) listen(chip, answerOf(video));
         continue;
       }
       if (asked.current.has(chip)) continue;
@@ -186,6 +274,8 @@ export function useVideoInfo(
           drop(reads, token);
           const video = parseVideoInfo(answer);
           if (!video) return;
+          const probes = parseProbes(answer);
+          if (probes?.length) picks.current.set(video, pickFrameTimes(video.durationMs, probes));
           setAttachments((current) =>
             current.includes(chip)
               ? current.map((staged) => (staged === chip ? { ...staged, video } : staged))
@@ -203,11 +293,11 @@ export function useVideoInfo(
     function listen(chip: ComposerAttachment & { path: string }, video: VideoInfo) {
       heard.current.add(video);
       const token = Symbol(chip.id);
-      const left = VIDEO_INFO_DEADLINE_MS - (Date.now() - (since.current.get(chip.id) ?? -Infinity));
+      const wait = left(chip.id);
       const read: Read = { kind: "transcript", chip, video };
-      if (left > 0) {
+      if (wait > 0) {
         setBusy("transcript", chip.id, token, true);
-        read.deadline = setTimeout(() => settle(reads, token), left);
+        read.deadline = setTimeout(() => settle(reads, token), wait);
       }
       reads.set(token, read);
       void callChipHost("video.transcript", { src: chip.path }).then(
@@ -218,7 +308,9 @@ export function useVideoInfo(
           if (!transcript) return;
           setAttachments((current) =>
             current.map((staged) =>
-              staged.id === chip.id && staged.video === video ? { ...staged, transcript } : staged,
+              staged.id === chip.id && staged.video && answerOf(staged.video) === video
+                ? { ...staged, transcript }
+                : staged,
             ),
           );
         },
@@ -229,17 +321,14 @@ export function useVideoInfo(
   // Include reads that the effect is about to start. On Activity reveal, a parent's setup
   // continuation can send before the store update from that effect causes another render; and a video
   // whose read just answered is about to be heard.
-  const now = Date.now();
-  return attachments.filter(
-    (chip) =>
-      shown.info.has(chip.id) ||
-      shown.transcript.has(chip.id) ||
-      (enabled &&
-        isVideoAttachment(chip) &&
-        (chip.video
-          ? !chip.transcript &&
-            !heard.current.has(chip.video) &&
-            now - (since.current.get(chip.id) ?? -Infinity) < VIDEO_INFO_DEADLINE_MS
-          : !asked.current.has(chip))),
-  ).length;
+  return attachments.filter((chip) => {
+    if (shown.info.has(chip.id) || shown.frames.has(chip.id) || shown.transcript.has(chip.id)) return true;
+    if (!enabled || !isVideoAttachment(chip)) return false;
+    if (!chip.video) return !asked.current.has(chip);
+    if (left(chip.id) <= 0) return false;
+    const framing =
+      !chip.video.picked && Boolean(picks.current.get(chip.video)?.length) && !framed.current.has(chip.video);
+    const hearing = !chip.transcript && !heard.current.has(answerOf(chip.video));
+    return framing || hearing;
+  }).length;
 }

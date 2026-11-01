@@ -12,6 +12,7 @@ import {
 import { translate } from "./i18n";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
+import { isFrameText, isVideoFrameName } from "./composer/videoPrompt";
 /// `placed`: the composer put the prompt's attachments in its text (`inlinePrompt`), so this part
 /// sits in the composer's order; acpmux keeps it (hub/prompt_images.rs) and the sent bubble draws
 /// only such a prompt in its recorded order (conversation/UserBubble.tsx). A prompt sent in the
@@ -228,6 +229,9 @@ export async function restoreInline(
   const attachments: ComposerAttachment[] = [];
   let input = "";
   for (const [index, part] of (row.inlineParts ?? []).entries()) {
+    // A video's frames, note and labels: its chip carries its frames again (composer/videoPrompt.ts).
+    if (part.kind === "text" && isFrameText(part.text)) continue;
+    if (part.kind === "image" && isVideoFrameName(part.name)) continue;
     if (part.kind === "text") {
       input += part.text;
       continue;

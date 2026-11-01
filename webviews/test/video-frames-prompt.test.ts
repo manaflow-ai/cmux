@@ -11,10 +11,11 @@ import { intakeFiles } from "../src/agent-session/acpmux/composer/intakeFiles";
 import { isVideoAttachment, parseVideoInfo } from "../src/agent-session/acpmux/composer/videoAttachments";
 import {
   frameTime,
-  isFramesNote,
+  isFrameText,
   withoutFramesNotes,
   withoutVideoFrames,
 } from "../src/agent-session/acpmux/composer/videoPrompt";
+import { restoreInline } from "../src/agent-session/acpmux/inlinePrompt";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { fitPromptBudget } from "../src/agent-session/acpmux/promptBudget";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -116,13 +117,17 @@ test("a Chat Uploads mp4 sent to a Claude Code chat carries its frames, each nam
     type: "text",
     text: "Frames from the video screen-demo.mp4 (0:16, 1920×1080), in order, at: 0:02.0, 0:06.0, 0:10.0, 0:14.0.",
   });
+  // Each frame: its label with its time, then its image.
   expect(blocks.slice(link + 2)).toEqual(
-    FRAMES.map((frame) => ({
-      type: "image",
-      mimeType: "image/jpeg",
-      data: frame.data,
-      name: `screen-demo.mp4 frame at ${frameTime(frame.atMs)}`,
-    })),
+    FRAMES.flatMap((frame) => [
+      { type: "text", text: `screen-demo.mp4 frame at ${frameTime(frame.atMs)}` },
+      {
+        type: "image",
+        mimeType: "image/jpeg",
+        data: frame.data,
+        name: `screen-demo.mp4 frame at ${frameTime(frame.atMs)}`,
+      },
+    ]),
   );
   // The bubble shows the prompt and the video, not the note.
   chat.snapshot();
@@ -138,7 +143,7 @@ test("a chat whose agent takes no images gets the video's link without its frame
   const blocks = prompts[0]!.prompt as Block[];
   expect(blocks.some((block) => block.type === "resource_link")).toBe(true);
   expect(blocks.some((block) => block.type === "image")).toBe(false);
-  expect(blocks.some((block) => block.type === "text" && isFramesNote(block.text!))).toBe(false);
+  expect(blocks.some((block) => block.type === "text" && isFrameText(block.text!))).toBe(false);
 });
 
 test("a video the host could not read goes as its link, as before", async () => {
@@ -180,4 +185,50 @@ test("the sent bubble leaves out the frames and the note acpmux echoes, and keep
   expect(shown.inlineParts?.map((part) => part.kind)).toEqual(["text", "file"]);
   // A person's own line that only looks like it, mid-text, stays.
   expect(withoutFramesNotes(`${note}\nand this`)).toBe(`${note}\nand this`);
+});
+
+test("a picked frame where a scene starts says so in its label", async () => {
+  const chip = await uploadedVideo();
+  const frames = [{ atMs: 7200, data: btoa("cut"), scene: true as const }];
+  const picked = { ...chip, video: { ...chip.video!, frames, picked: true as const } };
+  const blocks = promptBlocks("look", [picked]) as Block[];
+  const texts = blocks.filter((block) => block.type === "text").map((block) => block.text);
+  expect(texts).toContain("screen-demo.mp4 frame at 0:07.2 (new scene)");
+});
+
+test("a video placed mid-text: its note and labels leave Copy and Edit wherever they sit", () => {
+  const note = "Frames from the video clip.mov (0:04, 640×360), in order, at: 0:01.0.";
+  const row = {
+    id: "user-2",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: `before\n${note}\nclip.mov frame at 0:01.0 (new scene)\nafter`,
+  } as AcpmuxRow;
+  expect(withoutVideoFrames(row).text).toBe("before\nafter");
+  // With paste ranges, only the last lines go: no range moves.
+  expect(withoutVideoFrames({ ...row, pasted: [{ start: 0, end: 6 }] } as AcpmuxRow).text).toBe(row.text);
+});
+
+test("Edit after a reload rebuilds the video's chip, never its frames, note or labels", async () => {
+  const note = "Frames from the video clip.mov (0:04, 640×360), in order, at: 0:01.0.";
+  const row = {
+    id: "user-3",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "look",
+    inlineParts: [
+      { kind: "text", text: "look " },
+      { kind: "file", name: "clip.mov", uri: "file:///tmp/clip.mov", placed: true },
+      { kind: "text", text: note },
+      { kind: "text", text: "clip.mov frame at 0:01.0" },
+      { kind: "image", id: "d".repeat(64), mimeType: "image/jpeg", name: "clip.mov frame at 0:01.0" },
+    ],
+  } as AcpmuxRow;
+  let reads = 0;
+  const restored = await restoreInline(row, "look", async () => (reads++, { mimeType: "image/jpeg", data: "x" }));
+  expect(reads).toBe(0);
+  expect(restored.attachments.map((chip) => [chip.kind, chip.name])).toEqual([["link", "clip.mov"]]);
+  expect(restored.input).not.toContain("Frames from the video");
 });

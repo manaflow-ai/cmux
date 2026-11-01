@@ -50,7 +50,7 @@ import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
-import { isFramesNote, withoutFrames } from "./composer/videoPrompt";
+import { isFrameText, isVideoFrameName, withoutFrames, withoutFramesNotes } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
@@ -612,15 +612,20 @@ function queuedEntry(
   inlineParts?: PromptContentPart[],
   retry?: SubagentRetryNotice,
 ): QueuedPrompt {
+  // A video's frames, its note and its labels went to the agent only (composer/videoPrompt.ts).
+  const shownImages = images?.filter((image) => !isVideoFrameName(image.name));
+  const parts = inlineParts?.filter((part) =>
+    part.kind === "image" ? !isVideoFrameName(part.name) : !(part.kind === "text" && isFrameText(part.text)),
+  );
   return {
     id,
-    prompt,
+    prompt: withoutFramesNotes(prompt),
     ...(next ? { next } : {}),
     ...(sending ? { sending } : {}),
-    ...(images?.length ? { images: [...images] } : {}),
+    ...(shownImages?.length ? { images: [...shownImages] } : {}),
     ...(message ? { message } : {}),
     ...(author ? { author } : {}),
-    ...(inlineParts?.length ? { inlineParts } : {}),
+    ...(parts?.length ? { inlineParts: parts } : {}),
     ...(retry && !message && !author ? { retry } : {}),
   };
 }
@@ -6364,7 +6369,7 @@ export class AcpmuxDirectClient {
       ? blocks.reduce(
           (shown, block) => {
             // A video's frames note is the agent's; the bubble draws the video's tile.
-            if (block.type !== "text" || isFramesNote(block.text)) return shown;
+            if (block.type !== "text" || isFrameText(block.text)) return shown;
             if (shown.text) shown.text += "\n";
             const start = shown.text.length;
             shown.text += block.text;
