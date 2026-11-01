@@ -387,6 +387,7 @@ impl Cut {
 }
 
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
+#[cfg(test)]
 fn continue_text(
     prompts: &[String],
     tools: &[UnfinishedTool],

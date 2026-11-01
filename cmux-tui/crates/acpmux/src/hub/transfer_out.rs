@@ -234,6 +234,21 @@ impl Hub {
                 return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
             }
             carried = self.log_continuation(session, &running, super::auto_resume::Cut::Move);
+            // Its place at the head, as a record of its own: a guarded target drops the
+            // provenance that would put it there (`transfer_guard.rs` `guarded_record`).
+            if let Some(id) = &carried {
+                let order: Vec<String> = std::iter::once(id.clone())
+                    .chain(
+                        session
+                            .queue
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .iter()
+                            .map(|q| q.prompt_id.clone()),
+                    )
+                    .collect();
+                self.append(session, "mux", "queue_order", json!({"promptId": id, "order": order}));
+            }
             match &carried {
                 Some(id) => self.cancel_turn_for_replacement(session, &running, id).await,
                 None => self.cancel_turn(session, &running).await,
