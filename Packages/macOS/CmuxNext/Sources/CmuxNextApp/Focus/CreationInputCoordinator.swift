@@ -131,6 +131,7 @@ final class CreationInputCoordinator {
     /// script or agent run without `focus`), which leaves the keys where they are.
     func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
+        defer { router?.newTabInputCoordinator.creationTookKeys(in: window) } // the newer intent: a New Tab hold's keys come here, in order
         return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab)
     }
 
