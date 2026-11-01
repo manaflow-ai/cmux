@@ -18,7 +18,9 @@ Steps (`do`):
                                          cannot reach it): run it with run.py --whole-host
   quit_speed     {count?, how?}          COUNT quit-and-reopen cycles (default quit-keep), each timed from the new
                                          process's main(): last frame, window frame, interactive, quit-to-gone;
-                                         speed.json
+                                         every cmux-tui daemon's identify (pid, build_commit, build_id) before and
+                                         after each cycle; a cycle with a daemon not of the bundle's build is
+                                         `not_run`; speed.json
   quit_why       {}                      evidence after the checks: the app's quit and daemon log lines since the real
                                          key (log show --info), the daemon_version_handoff mark, the daemon pid now
   real_quit      {ask_wait?, mark?, env?}      a REAL Cmd-Q (CuaDriver hotkey to the key window), then: when the app shows
@@ -355,6 +357,53 @@ def cond_scrollback_whole(j, want, cache):
     return True, detail
 
 
+def _identify(sock):
+    """The daemon's own `identify` on its socket: {pid, build_commit, build_id}, or {error}."""
+    import socket as _socket
+    try:
+        with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as conn:
+            conn.settimeout(5)
+            conn.connect(sock)
+            conn.sendall(b'{"id":1,"cmd":"identify"}\n')
+            buf = b""
+            while True:
+                chunk = conn.recv(1 << 16)
+                if not chunk:
+                    break
+                buf += chunk
+                for line in buf.split(b"\n"):
+                    try:
+                        reply = json.loads(line)
+                    except ValueError:
+                        continue
+                    if reply.get("id") == 1 and "ok" in reply:
+                        data = reply.get("data") or {}
+                        return {k: data.get(k) for k in ("pid", "build_commit", "build_id")}
+    except OSError as error:
+        return {"error": str(error)[-120:]}
+    return {"error": "no identify reply"}
+
+
+def daemon_builds(j):
+    """Every cmux-tui daemon (`--headless`) the app's bundle runs, plus the one the app is connected to, each read
+    by its own `identify` (measured, not assumed: cmux-ad 01:25Z), and the bundle's own cmux-tui build commit."""
+    socks = {}
+    for row in j.app.bundle_processes(j.app.pid):
+        found = re.search(r"--socket[ =](\S+)", row["command"]) if "--headless" in row["command"] else None
+        if found:
+            socks[found.group(1)] = row["pid"]
+    connected = j.app.daemon_socket()
+    if connected:
+        socks.setdefault(connected, None)
+    out = [dict(_identify(sock), socket=sock[-40:], connected=sock == connected) for sock in socks]
+    bundled = D.subprocess.run([j.app.bundle.rstrip("/") + "/Contents/Resources/bin/cmux-tui", "--version"],
+                               capture_output=True, text=True, timeout=10).stdout
+    found = re.search(r"\(([0-9a-fA-F]{7,})", bundled)
+    commit = found.group(1) if found else None
+    ok = bool(out) and commit is not None and all(d.get("build_commit") == commit for d in out)
+    return {"daemons": out, "bundled_commit": commit, "of_build_under_test": ok}
+
+
 def step_quit_speed(j, step):
     """QUIT P0 speed: COUNT quit-and-reopen cycles of kind HOW (default quit-keep: the File menu's Quit, Keep
     Sessions, no dialog), each through ext_restore's restore_relaunch (the visible panes sampled from the new
@@ -376,6 +425,7 @@ def step_quit_speed(j, step):
     import ext_restore
     rows = []
     for index in range(int(step.get("count", 3))):
+        daemons_before = daemon_builds(j)
         record = ext_restore.step_restore_relaunch(j, {"how": step.get("how", "quit-keep")})
         r = getattr(j, "restore", None) or {}
         trace_file = j.out / "restore-trace.json"
@@ -415,11 +465,16 @@ def step_quit_speed(j, step):
                      "window_frame_ms": sub(r.get("first_window_frame_committed")),
                      "interactive_ms": None if censored else max(live), "censored": censored,
                      "visible_terminals": visible, "samples": r.get("samples"), "blank_pane_samples": r.get("blank_pane_samples"),
-                     "occluded": occluded, "socket_ms": r.get("socket_ms"), "main_start_ms": main})
+                     "occluded": occluded, "socket_ms": r.get("socket_ms"), "main_start_ms": main,
+                     # A cycle whose daemons are not all of the build under test is not run (cmux-ad 01:25Z).
+                     "daemons_before": daemons_before, "daemons_after": daemon_builds(j)})
+        rows[-1]["not_run"] = not (rows[-1]["daemons_before"]["of_build_under_test"]
+                                   and rows[-1]["daemons_after"]["of_build_under_test"])
         (j.out / "speed.json").write_text(json.dumps({"how": step.get("how", "quit-keep"), "rows": rows}, indent=1) + "\n")
     return {"rows": rows, "summary": {"cycles": len(rows), "censored": sum(1 for x in rows if x["censored"]),
                                       "frames_censored": sum(1 for x in rows if x["frames_censored"]),
-                                      "occluded": sum(1 for x in rows if x["occluded"])}}
+                                      "occluded": sum(1 for x in rows if x["occluded"]),
+                                      "not_run_daemon_build": sum(1 for x in rows if x["not_run"])}}
 
 
 STEPS = {"quit_state": step_quit_state, "quit_speed": step_quit_speed, "real_quit": step_real_quit, "require_whole_host": step_require_whole_host,
