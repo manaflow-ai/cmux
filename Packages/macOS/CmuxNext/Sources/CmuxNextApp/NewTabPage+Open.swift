@@ -11,6 +11,8 @@ import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
+import enum CmuxNextLayout.ChatColumnPlacement
+import struct CmuxNextLayout.MainPaneLayout
 
 extension InternalPageID {
     /// The native New Tab page (`tabs.nativeNewTabPage`, ``NativeNewTabView``).
@@ -103,18 +105,22 @@ extension NewTabPage {
         fillPaletteActions(services)
     }
 
-    /// Lists the Commands palette's actions (~30 ms on the main thread) for the New Tab pages that
-    /// show without them, on the frame after the one that shows the page, so Cmd-T never waits for
-    /// them. The web pages take them in place (``AgentPaneView/refreshNewTabActions(_:)``).
+    /// Lists the Commands palette's actions (30-50 ms on the main thread) for the New Tab pages that
+    /// show without them, on the frame after the one that shows the page, so Cmd-T and Cmd-N never
+    /// wait for them. The web pages take them in place (``AgentPaneView/refreshNewTabActions(_:)``);
+    /// a page with no view yet (Cmd-N's first page before its pane shows it) takes them into its
+    /// stored page, so the view made from it later lists them. One pass per call, no repeat.
     static func fillPaletteActions(_ services: AppServices) {
         closeFrame.scheduleFrame {
             closeFrame.scheduleFrameFromMain { [weak services] in
                 guard let services else { return }
                 let tabs = services.agentTabs
                 let views = tabs.newTabPages.keys.compactMap { tabs.views[$0] }.filter { $0.model.newTab?.omnibar.actions.isEmpty == true }
-                guard !views.isEmpty else { return }
+                let unshown = tabs.newTabPages.filter { tabs.views[$0.key] == nil && $0.value.page.omnibar.actions.isEmpty }.map(\.key)
+                guard !views.isEmpty || !unshown.isEmpty else { return }
                 let actions = paletteActions(services)
                 for view in views { view.refreshNewTabActions(actions) }
+                for key in unshown { tabs.newTabPages[key]?.page.omnibar.actions = actions }
             }
         }
     }
@@ -135,14 +141,26 @@ extension NewTabPage {
         if let refusal = MacScreenPages.pairingLinkRefusal(for: request.text) { return services.registry.refuse(refusal) }
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
-        let close: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
+        // A page beside a lone chat, the main pane: the pick takes the page's place, then the chat docks left and the
+        // pick's pane is the column on its right, as for a link (Leo 2026-10-30: "not to fucking open it up in the
+        // main fucking pane").
+        let docksChat = !keep && Self.docksChat(pane)
+        let close: @MainActor (SurfaceID) -> Void = { [weak pane] surface in
             guard !keep else { return }
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
+            if docksChat, let pane { MainPaneLayout.dockChat(of: pane, keeping: surface, focus: true, services: services) }
         }
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
         // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
         // `newTab.picksFollowLinks` lands it where links do (Lawrence 2026-10-19).
-        if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
+        // A page in the chat dock, the main pane: the pick opens in the strip beside it, whatever else the dock
+        // holds (Leo 2026-10-30: "not to fucking open it up in the main fucking pane"). A setup action's `keep`
+        // (Log In, Update, Open in Terminal) goes there too and leaves the page or chat in place.
+        if ChatColumnPlacement.pagePick(from: pane) != nil,
+           case .beside(let closesPage) = ChatColumnPlacement.DockPick.resolve(hasStrip: true, keep: keep) {
+            return Self.openBeside(key, with: request, cwd: cwd, from: pane, closesPage: closesPage)
+        }
+        if !keep, Self.opensBeside(key, in: pane, kind: request.kind) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, onMachine: pane.daemon.machineID, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:
@@ -174,18 +192,19 @@ extension NewTabPage {
     /// with another tab (a lone page has nothing to keep in view, so it is replaced in place), and it is no split's (a split's page, which lists Open
     /// Tabs, fills the pane the person just made, NewTabPage.split). `mainPane` false for a chat pick:
     /// main pane layout keeps chats out of the column right of the chat dock (NewChatPlacement).
-    static func opensBeside(_ key: String, in pane: PaneController, mainPane: Bool = true) -> Bool {
+    static func opensBeside(_ key: String, in pane: PaneController, kind: AgentPaneTabKind? = nil, mainPane: Bool = true) -> Bool {
         let tabs = pane.services.agentTabs, page = tabs.resolve(key)
         guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
-        return pane.services.linkOpener.target(from: pane, mainPane: mainPane) != .pane(pane.layoutPaneID)
+        return pane.services.linkOpener.target(from: pane, mainPane: mainPane, kind: kind?.rightColumnKind) != .pane(pane.layoutPaneID)
     }
 
-    /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens through
+    /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens in `strip`, else through
     /// ``LinkOpener`` (the pane on the right, else a new split), then the page closes.
-    private static func openBeside(_ key: String, with request: AgentPaneOpenTab, cwd: String?, from pane: PaneController) {
+    private static func openBeside(_ key: String, with request: AgentPaneOpenTab, cwd: String?, from pane: PaneController,
+                                   closesPage: Bool = true) {
         let services = pane.services
-        let closePage = closingPage(key, in: pane)
-        services.linkOpener.open(from: pane) { target, placed in
+        let closePage = closesPage ? closingPage(key, in: pane) : {}
+        let make: LinkOpener.Make = { target, placed in
             let landed: @MainActor (SurfaceID) -> Void = { surface in
                 placed?(surface)
                 closePage()
@@ -208,11 +227,19 @@ extension NewTabPage {
                 return false
             }
         }
+        services.linkOpener.open(from: pane, kind: request.kind.rightColumnKind, make)
+    }
+
+    /// Whether a pick on a page beside a lone chat (the main pane) docks the chat left once it lands, so the
+    /// pick's pane is the column on its right, as for a link from the chat.
+    static func docksChat(_ pane: PaneController) -> Bool {
+        MainPaneLayout.isOn(services: pane.services)
+            && ChatColumnPlacement.resolve(from: pane, services: pane.services, ignoringPages: true) == .dockChat
     }
 
     /// The address a browser pick of the page goes to: a search, a cmux/Chromium page, or the typed
     /// destination (typos fixed).
-    private static func browserURL(_ request: AgentPaneOpenTab, services: AppServices) -> URL? {
+    static func browserURL(_ request: AgentPaneOpenTab, services: AppServices) -> URL? {
         let resolver = services.cache.suggestionEngine.resolver
         let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return request.search
@@ -296,7 +323,7 @@ extension NewTabPage {
         NativeNewTabActions(
             submit: { [weak pane] text, kind, search in
                 guard let pane else { return }
-                submitNative(text, kind: kind, search: search, cwd: cwd, in: pane)
+                guard submitNative(text, kind: kind, search: search, cwd: cwd, in: pane) else { return }
                 closingPage(key, in: pane)()
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
@@ -307,19 +334,44 @@ extension NewTabPage {
     /// What a native submit opens: an empty field makes the kind as it is; a terminal runs the text; a
     /// browser opens an address or searches; an agent's text goes through `newTab.submit` (a prompt, or a
     /// URL or `!command` typed there).
-    private static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in pane: PaneController) {
+    static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch (kind, trimmed.isEmpty) {
-        case (.terminal, _): pane.newTerminalTab(cwd: cwd, typing: command(trimmed) ?? nil)
-        case (.browser, true): _ = pane.newBrowserTab()
-        case (.agent, true): _ = pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
+        if let refusal = MacScreenPages.pairingLinkRefusal(for: trimmed) {
+            page.services.registry.refuse(refusal)
+            return false
+        }
+        guard let request = NewTabSubmit.nativeRequest(text: trimmed, kind: kind, search: search, cwd: cwd,
+                                                       resolver: page.services.cache.suggestionEngine.resolver) else { return false }
+        let chatPlacement = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page)
+        if request.kind.opensBesideChat && chatPlacement { return servicesOpenNativeTool(request, from: page) }
+        switch (request.kind, request.text.isEmpty) {
+        case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: nativeTerminalTyping(request))
+        case (.browser, true): return page.newBrowserTab()
+        case (.agent, true): return page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
         case (.browser, false), (.agent, false):
-            // A browser's words are searched; an agent's go out as a prompt.
-            let reads = NewTabSubmit.plan(text: trimmed, search: search, agent: nil, resolver: pane.services.cache.suggestionEngine.resolver)
-            var searches = search
-            if kind == .browser, case .chat = reads { searches = true }
-            let arguments: [String: ActionValue] = ["text": .string(trimmed), "search": .bool(searches)]
-            _ = pane.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.pane.id), arguments: arguments, origin: .user))
+            let arguments: [String: ActionValue] = ["text": .string(request.text), "search": .bool(request.search)]
+            return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user))
+        }
+        return true
+    }
+
+    /// Explicit Terminal Run appends a newline; a Browser-mode !command only types its text.
+    static func nativeTerminalTyping(_ request: AgentPaneOpenTab) -> String? {
+        request.run ? command(request.text) ?? nil : (request.text.isEmpty ? nil : request.text)
+    }
+
+    private static func servicesOpenNativeTool(_ request: AgentPaneOpenTab, from page: PaneController) -> Bool {
+        let services = page.services
+        return services.linkOpener.open(from: page, kind: request.kind.rightColumnKind) { target, placed in
+            switch request.kind {
+            case .terminal:
+                let typing = nativeTerminalTyping(request)
+                target.newTerminalTab(cwd: request.cwd, typing: typing, placementOwner: placed != nil) { surface in placed?(surface) }; return true
+            case .browser:
+                let url = browserURL(request, services: services)
+                return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url), background: placed != nil, placementOwner: placed != nil) { surface in placed?(surface) }
+            case .agent: return false
+            }
         }
     }
 }

@@ -7,6 +7,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -24,6 +26,10 @@ const keys = [
   "customElements",
   "MutationObserver",
   "ResizeObserver",
+  "getSelection",
+  "KeyboardEvent",
+  "InputEvent",
+  "FocusEvent",
 ] as const;
 const added: string[] = [];
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
@@ -46,16 +52,18 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     localStorage: window.localStorage,
     customElements: window.customElements,
-    MutationObserver: window.MutationObserver,
     // The composer's footer row fits its chips to its width (composerRowFit.ts) on every New Tab.
     ResizeObserver: (window as unknown as { ResizeObserver: unknown }).ResizeObserver,
+    KeyboardEvent: window.KeyboardEvent,
+    InputEvent: window.InputEvent,
+    FocusEvent: window.FocusEvent,
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   // Pierre's registered elements (App's diff view) read their own DOM constructors at import time.
   for (const key of Object.getOwnPropertyNames(window))
@@ -111,14 +119,18 @@ test("Return on a New Tab asks the agent on the model its chip names", async () 
       ),
     );
     const chip = host.querySelector(".acpmux-model-name")?.textContent ?? "";
-    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+    for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const handle = field.acpmuxMarkdownField!;
     await act(async () => {
-      setValue.call(field, "fix the flaky upload test");
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      handle.focus();
+      handle.type("fix the flaky upload test");
     });
+    expect(handle.value()).toBe("fix the flaky upload test");
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
     await act(async () => {
-      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     });
     const asked = calls.find((call) => call.method === "chat.new")?.params;
     const models = BUNDLED_MODEL_CATALOG.harnesses.find((entry) => entry.id === "claude")!.models;
@@ -138,6 +150,9 @@ test("Return on a New Tab asks the agent on the model its chip names", async () 
 });
 
 test("New Tab preflights its selected harness and keeps a refused draft", async () => {
+  // The test above started a chat on Claude: that is the last pick now (lastPick.ts), which a New
+  // Tab's harness follows over the app's remembered agent. This page has none.
+  window.localStorage.clear();
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -173,17 +188,17 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
       ),
     );
     expect(queries).toEqual([{ target: { harness: "codex" } }]);
-    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-    await act(async () => {
-      setter.call(field, "keep this draft");
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
-    });
+    const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+    for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const handle = field.acpmuxMarkdownField!;
+    handle.writeText("keep this draft", "keep this draft".length, "keep this draft".length);
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
     await act(async () =>
-      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+      editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
     );
     expect(asks).toEqual([]);
-    expect(field.value).toBe("keep this draft");
+    expect(handle.plainText()).toBe("keep this draft");
     expect(host.querySelector("[role=alert]")?.textContent).toContain("expired");
   } finally {
     await act(async () => root.unmount());
@@ -224,21 +239,35 @@ async function newTabPage(options: { auth?: unknown; onAsk?: (...args: unknown[]
       </QueryClientProvider>,
     ),
   );
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const handle = field.acpmuxMarkdownField!;
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   const type = async (text: string) =>
     act(async () => {
-      setter.call(field, text);
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      handle.writeText(text, text.length, text.length);
     });
   await type("fix the flaky upload test");
   const pressReturn = async () =>
     act(async () =>
-      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+      editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
     );
   const status = () => host.querySelector(".nt-composer output.acpmux-composer-remote-note")?.textContent;
   const alert = () => host.querySelector(".nt-composer [role=alert]")?.textContent;
-  return { root, field, asks, type, pressReturn, status, alert };
+  return {
+    root,
+    field: {
+      get value() {
+        return handle.plainText();
+      },
+    },
+    asks,
+    type,
+    pressReturn,
+    status,
+    alert,
+  };
 }
 
 const READY = { state: "ready", source: "authCheck", evidenceAt: 1, harness: "codex", host: null };

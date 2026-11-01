@@ -22,6 +22,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case dividerHitWidth
     case panelCornerRadius
     case chromeFontSize
+    /// Tab titles' text size, apart from `chromeFontSize` (which sizes all chrome); unset follows it.
+    case tabFontSize
     /// The unified titlebar height (cmux-browser's header height reads the same key).
     case titlebarHeight
 }
@@ -66,7 +68,7 @@ public final class DesignSettings {
     /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
     public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
         let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
-        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)');"
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.userScale)');"
             + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
@@ -322,6 +324,7 @@ public final class DesignSettings {
         case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
+        case .tabFontSize: 10...18
         case .titlebarHeight: 24...56
         }
     }
