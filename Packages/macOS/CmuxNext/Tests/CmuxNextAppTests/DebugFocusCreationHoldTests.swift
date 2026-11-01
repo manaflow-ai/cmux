@@ -43,7 +43,7 @@ struct DebugFocusCreationHoldTests {
     }
 
     /// The `windows` entry of `report` for window `id`.
-    private static func focusWindow(_ report: JSONValue, id: String) -> [String: JSONValue]? {
+    private static func focusWindow(_ report: CmuxNextSettings.JSONValue, id: String) -> [String: CmuxNextSettings.JSONValue]? {
         guard case .object(let root) = report, case .array(let windows)? = root["windows"] else { return nil }
         for case .object(let window) in windows where window["id"] == .string(id) { return window }
         return nil
