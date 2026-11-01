@@ -338,6 +338,9 @@ jobs:
       label: ${{ steps.pool.outputs.label }}
       # The owned label for tip-dmg-build too (two machines free), or empty.
       dmg_label: ${{ steps.pool.outputs.dmg_label }}
+      # The owned label verify and tip-dmg-build take on a re-run while every Blacksmith macOS 26 label shows dead
+      # (cloud_dead), or empty: a re-run never queues on a label that starts nothing (run 41261942674).
+      owned: ${{ steps.pool.outputs.owned }}
       # The Blacksmith macOS 26 label whose queue moves (6 vCPU first, then 12; never empty when
       # read), for the Mac jobs that do not take an owned Mac, and the other one for a re-run, so a
       # re-run never queues again on the label that stalled (classic_nightly_build_runner.py).
@@ -424,6 +427,9 @@ jobs:
           # runs-on; test_cmux_next_dev_tip_feed.py keeps the three equal). Free
           # room on another label (macOS 15) is none for them.
           BLACKSMITH_LABELS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.cloud.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}
+          # 'true' when every Blacksmith macOS 26 label shows dead (the cloud step): verify and tip-dmg-build
+          # then wait on the owned fleet whatever the pick says (run 41261942674 queued on a dead label).
+          CLOUD_DEAD: ${{ steps.cloud.outputs.dead }}
         run: |
           set -uo pipefail
           pick() {
@@ -446,7 +452,16 @@ jobs:
           # 40445038889's tip-dmg-build queued 25 min on Blacksmith for 3 min
           # of work. Otherwise Blacksmith has room: verify alone may take an
           # owned Mac, and tip-dmg-build takes Blacksmith macOS.
+          # The owned pool the configuration names (no API read), for a dead Blacksmith macOS 26.
+          owned="$(pick 1 --owned-fallback)" || owned=""
+          case "$owned" in glaeda-*) ;; *) owned="" ;; esac
           label="$(pick 2 --wait-owned)" || label=""
+          if [ "${CLOUD_DEAD:-}" = "true" ] && [ -n "$owned" ]; then
+            case "$label" in
+              glaeda-*) ;;
+              *) echo "Every Blacksmith macOS 26 label shows dead (picker said '${label:-nothing}'); verify and tip-dmg-build wait on $owned."; label="$owned" ;;
+            esac
+          fi
           case "$label" in
             glaeda-*) dmg_label="$label" ;;
             *)
@@ -463,6 +478,7 @@ jobs:
           esac
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "dmg_label=$dmg_label" >> "$GITHUB_OUTPUT"
+          echo "owned=$owned" >> "$GITHUB_OUTPUT"
           [ -z "$label" ] || echo "Runner: $label for verify${dmg_label:+ and tip-dmg-build} (a re-run takes Blacksmith macOS 26)"
 
       # ci-owned-pool-rescue.yml's sweeper watches a run with these markers and
@@ -512,7 +528,7 @@ jobs:
     needs: [sign, runner]
     # The runner job is only a placement: its failure keeps Blacksmith.
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -522,7 +538,7 @@ jobs:
       APP_NAME: cmux NEXT DEV
       APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip
       # An owned Mac carries only the lane's Xcode pin, which its label names.
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.runner.outputs.label != '' && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ (github.run_attempt == 1 && needs.runner.outputs.label != '' || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned != '') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -918,7 +934,7 @@ jobs:
     # takes Blacksmith. It runs no bundle code (ditto and hdiutil only), so the bundle-code guard's rule 6 (its OWNED_VERIFY_JOBS
     # exception) does not apply; bundle code added here would fail that rule
     # on this runs-on.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -939,7 +955,7 @@ jobs:
       # Builds the feed keeps; tip-deltas gives the newest deltas from the others.
       TIP_KEEP: "3"
       # An owned Mac carries only the lane's Xcode pin, which its label names.
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.runner.outputs.dmg_label != '' && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ (github.run_attempt == 1 && needs.runner.outputs.dmg_label != '' || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned != '') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
