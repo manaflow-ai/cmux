@@ -356,10 +356,17 @@ public final class AgentTurnStateStore {
         return record(session)
     }
 
-    /// Whether a chat of `host` has its facts here: this Mac's or a mirrored acpmux's.
+    /// Whether a chat of `host` has its facts here: this Mac's or a mirrored acpmux's. Every
+    /// Chief home on this Mac (the default one and each named Chief, `chief:<own home id>`) runs
+    /// its subagents in the one Chief acpmux that the mirrored watch reads, so any Chief host
+    /// counts once that watch exists; a session id another machine's Chief holds has no record.
     private func isMirrored(_ host: String) -> Bool {
         host == localHost || mirroredHosts.contains(host)
+            || (!mirroredHosts.isEmpty && host.hasPrefix(Self.chiefHostPrefix))
     }
+
+    /// The start of every Chief home's tab host (`ChiefHome.tabHostPrefix`).
+    private nonisolated static let chiefHostPrefix = "chief:"
 
     // MARK: Writes (the watch feed)
 

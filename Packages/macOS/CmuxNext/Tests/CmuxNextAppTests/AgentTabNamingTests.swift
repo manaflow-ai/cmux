@@ -106,6 +106,28 @@ struct AgentTabNamingTests {
         #expect(turns.title(for: subagent) == "ACP agent tab names")
     }
 
+    /// A named Chief's subagent tab names that Chief's own home id, not the default home's the
+    /// watch mirrors, yet runs in the same acpmux: without its title the workspace stayed `workspace-N`.
+    @Test func aNamedChiefsSubagentReadsItsTitleFromTheChiefWatch() {
+        let turns = AgentTurnStateStore()
+        turns.localHost = Self.localHost
+        turns.mirroredHosts = [Self.chiefHost]
+        turns.replace(states: AgentTurnStates(), lastMessages: [:], muted: [], titles: ["c1": "Omnibar alignment"],
+                      generatedTitles: ["c1": "Omnibar alignment"], details: [:], source: Self.chiefHost)
+        let named = AgentSessionRef(host: "chief:9d99fda0", session: "c1")
+        #expect(turns.title(for: named) == "Omnibar alignment")
+        #expect(turns.generatedTitle(for: named) == "Omnibar alignment")
+        #expect(turns.title(for: AgentSessionRef(host: "install:elsewhere", session: "c1")) == nil,
+                "another machine's chat still has no facts here")
+    }
+
+    @Test func aChiefHostHasNoFactsBeforeAnyChiefWatch() {
+        let turns = AgentTurnStateStore()
+        turns.localHost = Self.localHost
+        turns.replace(states: AgentTurnStates(), lastMessages: [:], muted: [], titles: ["c1": "Title"], details: [:])
+        #expect(turns.title(for: AgentSessionRef(host: "chief:9d99fda0", session: "c1")) == nil)
+    }
+
     // MARK: Machine badge
 
     @Test func aTreeOnThisMacWearsNoMachineBadgeAndAPairedServerDoes() throws {
