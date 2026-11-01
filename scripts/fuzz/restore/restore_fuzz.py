@@ -1155,6 +1155,33 @@ def tree_bytes(path):
     return total
 
 
+def detach_stale_images():
+    """Detaches fzdisk images an earlier run of this harness left mounted under this slot's HOME (a run whose
+    driver ended before its teardown). Only volumes named fzdisk mounted inside the slot HOME."""
+    home = (APP.env.get("HOME") or "").rstrip("/") + "/"
+    out = subprocess.run(["/sbin/mount"], capture_output=True, text=True).stdout
+    found = []
+    for line in out.splitlines():
+        m = re.match(r"^(/dev/disk\S+) on (.+) \(hfs", line)
+        if not m or not m.group(2).startswith(home):
+            continue
+        info = subprocess.run(["/usr/sbin/diskutil", "info", m.group(1)], capture_output=True, text=True).stdout
+        if re.search(r"Volume Name:\s+fzdisk\s*$", info, re.M):
+            found.append(m.group(2))
+    for mountpoint in found:
+        done = subprocess.run(["/usr/bin/hdiutil", "detach", "-force", mountpoint], capture_output=True, text=True)
+        say(f"  diskfull: stale fzdisk image at {mountpoint}: detach exit {done.returncode}")
+        orig = mountpoint + ".fz-orig"
+        if done.returncode == 0 and os.path.isdir(orig):
+            try:
+                os.rmdir(mountpoint)
+                os.rename(orig, mountpoint)
+                say("  diskfull: original state dir of the earlier run restored")
+            except OSError as error:
+                say(f"  diskfull: WARNING could not restore {orig}: {error}")
+    return found
+
+
 def setup_diskfull():
     """Moves the daemon's state dir onto a bounded image at the same path, then fills it. None, or the reason it
     could not (the run is then harness-invalid: NOVERDICT)."""
@@ -1296,6 +1323,13 @@ def main():
     signal.signal(signal.SIGTERM, _end_on_signal)
     signal.signal(signal.SIGHUP, _end_on_signal)
     APP = App()
+    if detach_stale_images():
+        # The app's daemon ran on the stale image: stop this build and start it again on the real state dir.
+        stop_build_processes()
+        if not APP.relaunch():
+            say("RESTORE-FUZZ SUMMARY seed=none chaos=none iterations=0 judged=0 not_run=0 violations=0 chaos_lost=0 "
+                "harness_invalid=1 (the app did not come back after a stale image was detached)")
+            sys.exit(75)
     targets = [t for t in opts.targets.split(",") if t in ("app", "daemon", "acpmux")]
     if "acpmux" in targets and not APP.acpmux_pids():
         say("no acpmux daemon of this build runs now; acpmux kills are judged only when one runs")
