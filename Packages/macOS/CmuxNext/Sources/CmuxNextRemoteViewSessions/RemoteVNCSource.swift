@@ -182,12 +182,12 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
 
     public func statusUpdates() -> AsyncStream<RemoteViewStatus> {
         let (stream, continuation) = AsyncStream.makeStream(of: RemoteViewStatus.self, bufferingPolicy: .bufferingNewest(4))
-        let current = state.withLock { state in
+        state.withLock { state in
             state.statuses?.finish()
             state.statuses = continuation
-            return state.status
+            // The first snapshot and later updates have one ordered publication path.
+            _ = continuation.yield(state.status)
         }
-        continuation.yield(current)
         return stream
     }
 
