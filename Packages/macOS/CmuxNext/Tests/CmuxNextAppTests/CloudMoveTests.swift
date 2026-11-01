@@ -14,7 +14,7 @@ import Testing
 /// chat tab, sent as the CLI sends it (`action.run`, `cli: true`, origin `cli`, a `tab:` target)
 /// to the app's real action registry. This Mac is a real cmux-tui daemon; the Cloud machine is a
 /// second real daemon reached the way the app reaches a machine's link socket
-/// (`DaemonService.start(remote:)` on a ``CloudMachineSession``). `cmux link sync push` and
+/// (`DaemonService.start(remote:)` on a ``CloudMachineSession``). `cmux link seed push` and
 /// `cmux link agent move` are a stand-in `cmux` that records its arguments and answers their
 /// JSON lines as the case asks; the Rust suites cover those CLIs against daemons (link_sync.rs,
 /// link_agent_move.rs, cloud_move_journey.rs).
@@ -31,9 +31,11 @@ struct CloudMoveTests {
             let moved = try await move.read()
 
             let synced = move.workRoot.appendingPathComponent(moved.folderName).path
-            #expect(moved.calls.first == ["link", "sync", "push", "--socket", move.vmSocket, move.project.path, synced])
+            #expect(moved.calls.first == ["link", "seed", "push", "--socket", move.vmSocket, move.project.path, synced])
             #expect(moved.calls.dropFirst().first == ["link", "agent", "move", "--from-socket", moved.macSocket, "--surface", String(moved.surface),
-                                                     "--to-socket", move.vmSocket, "--cwd", synced, "--vm-kind", "none"],
+                                                     "--to-socket", move.vmSocket, "--cwd", synced, "--interrupt",
+                                                     "--sync", "seed", "--sync-socket", move.vmSocket, "--sync-local", move.project.path,
+                                                     "--sync-remote", synced, "--vm-kind", "none"],
                     "no link said this caller owns the machine: the pump says so, and the machine refuses")
             #expect(moved.calls.count == 2)
             // The machine shows the chat: bound to the moved session through that machine's store.
@@ -47,6 +49,19 @@ struct CloudMoveTests {
             // This Mac's tab is gone (its chat closed with the move), with nothing left to retry.
             #expect(!moved.macStillHasTab)
             #expect(move.services.cloud.moveRetries[move.key] == nil)
+        }
+    }
+
+    /// A CLI run whose daemon command reports an event sequence (here a rename of the chat tab) answers once a
+    /// snapshot shows that sequence, never at its deadline. A move whose window-record save (a focus move) joined
+    /// its run waited out the whole minute on aws-m4pro-8, where that save opened inside the run.
+    @Test func aCLIRunThatSendsADaemonCommandAnswersOnceTheSnapshotShowsIt() async throws {
+        try await Self.withMove("moves") { move in
+            let started = ContinuousClock.now
+            let error = await move.cli("tab rename", args: ["name": .string("Renamed Chat")])
+            let took = ContinuousClock.now - started
+            #expect(error == nil, "cmux tab rename: \(error.map { "\($0.code) \($0.message)" } ?? "")")
+            #expect(took < .seconds(10), "the run answered after \(took), not once its rename showed")
         }
     }
 
@@ -182,7 +197,7 @@ struct CloudMoveTests {
             while move.calls().count < 2, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
             let after = await move.toolCards(waiting: false)?.first.flatMap { Self.text($0, "text") }
             let again = try #require(move.calls().dropFirst().first, "Retry did not run the move again: \(move.calls()); card: \(after ?? "none")")
-            #expect(Array(again.prefix(5)) == ["link", "sync", "push", "--socket", move.vmSocket], "Retry ran somewhere else: \(again)")
+            #expect(Array(again.prefix(5)) == ["link", "seed", "push", "--socket", move.vmSocket], "Retry ran somewhere else: \(again)")
         }
     }
 
@@ -248,7 +263,7 @@ struct CloudMoveTests {
                 let deadline = ContinuousClock.now + .seconds(origin == .cli ? 30 : 10)
                 while move.calls().count < before + 2, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
                 let ran = move.calls().dropFirst(before).map { Array($0.prefix(3)) }
-                if origin == .cli { #expect(ran == [["link", "sync", "push"], ["link", "agent", "move"]], "\(ran)") }
+                if origin == .cli { #expect(ran == [["link", "seed", "push"], ["link", "agent", "move"]], "\(ran)") }
                 // The stop's own bookkeeping, after its last call.
                 try? await Task.sleep(for: .milliseconds(300))
             }
@@ -265,7 +280,7 @@ struct CloudMoveTests {
             let moved = try await move.read()
             let calls = Array(moved.calls.dropFirst(before))
             #expect(calls.first == ["link", "machine", "update", "--socket", move.vmSocket], "\(calls)")
-            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "sync", "push"], ["link", "agent", "move"]], "\(calls)")
+            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "seed", "push"], ["link", "agent", "move"]], "\(calls)")
             #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "the chat did not move after the update")
             #expect(!moved.macStillHasTab)
         }
@@ -420,6 +435,12 @@ struct CloudMoveTests {
                         "target": .string("tab:" + tabID), "args": .object(["path": .string(project.path)])])
         }
 
+        /// `cmux <action>` on the chat tab, as the CLI sends it; its error when it stopped.
+        func cli(_ action: String, args: [String: CmuxNextSettings.JSONValue] = [:]) async -> ControlError? {
+            await send(["action": .string(action), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
+                        "target": .string("tab:" + tabID), "args": .object(args)])
+        }
+
         /// `action` as the chat's own agent runs it from its shell: the CLI names the agent's session
         /// as the caller (`CMUX_AGENT_SESSION`) and no target. Its error when it was refused.
         func runAsAgent(_ action: String = "cloud move") async -> ControlError? {
@@ -457,14 +478,7 @@ struct CloudMoveTests {
         }
 
         private static func send(_ services: AppServices, _ params: [String: CmuxNextSettings.JSONValue]) async -> ControlError? {
-            let bridge = RegistryControlBridge(registry: services.registry)
-            let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
-                                                                 processID: getpid()),
-                                       executor: bridge, settings: nil,
-                                       configuration: ControlRouter.Configuration(requestDeadline: .seconds(60)))
-            router.updateCatalog(RegistryControlBridge.catalog(from: services.registry))
-            if case .failure(let error) = await router.handle(ControlRequest(id: "1", method: "action.run", params: params)) { return error }
-            return nil
+            await CloudCLIActionRun(services: services)(params)
         }
 
         /// The stand-in CLI's calls so far, each as its arguments; not `link access` (a moved chat's
@@ -609,7 +623,7 @@ struct CloudMoveTests {
     }
 
     /// A stand-in `cmux`: records each call's arguments (unit-separated). Like the real sync,
-    /// `link sync push` creates the synced folder (not in `tabFailed`, so the machine's terminal
+    /// `link seed push` creates the synced folder (not in `tabFailed`, so the machine's terminal
     /// can't start there; in `syncTimeout` it outlives the CLI timeout); `link agent move`
     /// answers as `mode` says. A move that answers ok also leaves what the machine daemon's own
     /// `agent-transfer-finish` would: the landed chat's record (`agent-transfer-landed.json` next
@@ -623,7 +637,7 @@ struct CloudMoveTests {
             for arg in "$@"; do line="$line$(printf '\\037')$arg"; done
             printf '%s\\n' "${line#?}" >> '\(log.path)'
             case "$1 $2 $3" in
-            "link sync push")
+            "link seed push")
                 [ '\(mode)' = syncTimeout ] && exec sleep 30
                 if [ '\(mode)' = syncOutdated ]; then
                     echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without fs-v1; update the machine","error_code":"machine_outdated"}'

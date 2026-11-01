@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextMacScreen
 import CmuxNextRemoteView
 import CmuxNextSettings
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import CmuxScreenKit
 import CmuxTheme
@@ -36,6 +37,7 @@ private func devicePane(_ name: String = "Studio") -> MacScreenPane {
 }
 
 /// Mac Screen tabs: the record, scrolling.
+@Suite(.closesItsWindows)
 struct MacScreenRecordTests {
     @Test func homeRecordRoundTrips() throws {
         #expect(MacScreenRecord.homeURL.absoluteString == "cmux://mac-screen")
@@ -60,6 +62,7 @@ struct MacScreenRecordTests {
 /// Link pairing is gone: the store keeps only device names, and its first
 /// load removes the old link pairings (Keychain items) once.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenStoreTests {
     /// A file from a build with link pairing: the cleanup runs once, the old fields go.
     @Test func theFirstLoadRemovesLinkPairingsOnce() async throws {
@@ -96,6 +99,7 @@ struct MacScreenStoreTests {
 
 /// A pairing link pasted or typed in an address bar is refused with a word,
 /// and never searched (it carried a room secret).
+@Suite(.closesItsWindows)
 struct MacScreenAddressTests {
     @Test(arguments: [
         "cmux-vnc://pair?signal=https://s.example&room=00112233445566778899aabbccddeeff&secret=abcdefghijklmnopqrstuvwxyzABCDEF0123&name=Mac",
@@ -145,6 +149,7 @@ struct MacScreenAddressTests {
     }
 }
 
+@Suite(.closesItsWindows)
 struct MacScreenScrollTests {
     @Test func wheelLinesPassThrough() {
         var scroll = MacScreenScroll()
@@ -162,6 +167,7 @@ struct MacScreenScrollTests {
 
 /// Settings > Development exists only in DEV builds: every route to it (section, focused key)
 /// opens the default page elsewhere.
+@Suite(.closesItsWindows)
 struct MacScreenDevelopmentSettingsRouteTests {
     @Test func developmentRoutesOnlyInDevBuilds() {
         #expect(SettingsWindowService.route(section: .development, setting: nil, devBuild: true) == "#/settings/development")
@@ -177,6 +183,7 @@ struct MacScreenDevelopmentSettingsRouteTests {
 /// synthetic events (accessibility tools, automation) post `rightMouseDown`
 /// with button number 0, which read as a left click on the remote Mac.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenRightClickTests {
     private func event(_ type: NSEvent.EventType) throws -> NSEvent {
         try #require(NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
@@ -194,6 +201,7 @@ struct MacScreenRightClickTests {
 /// browser page: its route names only the record ("home", "device:<id>"), and
 /// a tab restored on an old link record says links are no longer supported.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenPageTabTests {
     private func makePages() -> MacScreenPages {
         MacScreenPages(store: makeStore().0, work: BackgroundWork())
@@ -291,7 +299,7 @@ struct MacScreenPageTabTests {
 
 /// Every Mac Screen surface draws in its tab's theme scope and follows Settings > Appearance live
 /// (it used system styling: `.bar`, control background, system status colors).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct MacScreenThemeTests {
     private func paint(_ scope: ThemeScope, background: UInt32, foreground: UInt32) throws {
         let input = ThemeInput(background: ThemeRGB(hex: background), foreground: ThemeRGB(hex: foreground))
@@ -344,6 +352,7 @@ struct MacScreenThemeTests {
 
 /// A stalled connection shows Reconnecting at once, not a frozen picture.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenPaneConnectTests {
     @Test func aStalledStreamShowsReconnecting() {
         #expect(MacScreenPaneModel.connectedCard(hasFrame: true, stalled: false) == nil)
@@ -353,6 +362,7 @@ struct MacScreenPaneConnectTests {
 }
 
 /// The connecting card says "Reconnecting…" only after the tab has shown the Mac once.
+@Suite(.closesItsWindows)
 struct MacScreenConnectingCardTests {
     @Test func firstConnectSaysConnecting() {
         #expect(MacScreenPaneModel.connectingCard(isReconnecting: true, everConnected: false) == .connecting(reconnecting: false))
@@ -366,6 +376,7 @@ struct MacScreenConnectingCardTests {
 
 /// A Mac screen never takes the keyboard until the person clicks the picture.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenOpenKeyboardTests {
     @Test func aNewScreenStartsReleased() {
         let pane = devicePane("Keys")
@@ -377,6 +388,7 @@ struct MacScreenOpenKeyboardTests {
 
 /// The screen takes input only while it is live with no card.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenCardInputTests {
     @Test func onlyALiveScreenWithNoCardTakesInput() {
         #expect(MacScreenPaneView.takesInput(gate: .open, card: nil))
@@ -413,6 +425,7 @@ struct MacScreenCardInputTests {
 /// 120 Hz streaming: the pane tells its session how fast its display
 /// refreshes, and the stats line shows the agreed rate next to the measured one.
 @MainActor
+@Suite(.closesItsWindows)
 struct MacScreenFrameRateTests {
     @Test func thePaneReportsItsDisplayRateToTheSession() {
         let pane = devicePane()

@@ -44,10 +44,12 @@ import {
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
   CMUX_TUI_STATE_RESERVATION_BYTES,
+  DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE,
   DEVBOX_DESKTOP_INSTALLS,
   DEVBOX_INSTANCE_ID_COMMAND,
   DEVBOX_MACHINE_HEALTH_REARM_COMMAND,
   DEVBOX_MACHINE_HEALTH_RESUME_COMMAND,
+  devboxAgentDesktopVersion,
   devboxAgentPins,
   devboxBubblewrapCheckCommand,
   devboxMachineHealthRearmProblems,
@@ -115,6 +117,7 @@ const CHECKS: readonly string[] = [
   "jq -e '.DefaultSearchProviderSearchURL | test(\"duckduckgo\")' /etc/opt/chrome/policies/managed/cmux.json >/dev/null && echo chrome-ddg-policy-ok",
   "grep -q AGENT_BROWSER_EXECUTABLE_PATH /etc/profile.d/cmux-media.sh && echo media-profile-ok",
   "cua-driver --version",
+  `test "$(agent-desktop --version)" = "agent-desktop ${devboxAgentDesktopVersion()}" && echo agent-desktop-pinned`,
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
   // Prove the current upstream binary is selected and can sandbox as cmux.
   devboxBubblewrapCheckCommand(),
@@ -241,6 +244,9 @@ const desktopChecks = (): readonly string[] => [
   // The accessibility bus itself answers a client (the registry activates on demand).
   `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'gdbus introspect --session --dest org.a11y.Bus --object-path /org/a11y/bus >/dev/null && gdbus call --address "$AT_SPI_BUS_ADDRESS" --dest org.a11y.atspi.Registry --object-path /org/a11y/atspi/accessible/root --method org.a11y.atspi.Accessible.GetChildren >/dev/null')} && echo accessibility-bus-answers`,
   `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "cua-driver doctor")} 2>&1 | tee /tmp/cua-doctor.txt | grep -q 'X11 connection: connected' && grep -q 'AT-SPI: bus address present' /tmp/cua-doctor.txt && ! grep -q 'accessibility bus not reachable' /tmp/cua-doctor.txt && rm -f /tmp/cua-doctor.txt && echo cua-driver-sees-desktop`,
+  // agent-desktop reads the desktop's accessibility tree: a snapshot of a
+  // window it launched (DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE).
+  `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE)} && echo agent-desktop-sees-desktop`,
   "ghostty +version | head -1",
   `test -f '${DEVBOX_DESKTOP_HOME}/.config/google-chrome/First Run' && echo chrome-first-run-ok`,
   "test -s /etc/cmux/icons/google-chrome.png && test -s /etc/cmux/icons/thunar.png && test -s /etc/cmux/icons/ghostty.png && echo dock-icons-ok",

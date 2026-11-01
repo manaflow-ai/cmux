@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
@@ -7,7 +8,7 @@ import CmuxNextDesignTokens
 /// Review of #19830: a dialog field's themed box must act like a field. A click in its padding
 /// focuses the input, and the box shows focus in the theme's focus ring while the input edits (the
 /// group editors' field does the same), back to the hairline when editing ends.
-@MainActor @Suite(.serialized) struct ThemedFieldBoxTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ThemedFieldBoxTests {
     private static func dialog() throws -> (NSWindow, CmuxDialogView, ThemeScope) {
         let input = ThemeInput(background: ThemeRGB(hex: 0x2B1650), foreground: ThemeRGB(hex: 0xF4E3FF))
         let scope = ThemeScope(level: .room)

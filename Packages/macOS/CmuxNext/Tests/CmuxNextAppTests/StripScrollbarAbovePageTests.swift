@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 @testable import CmuxNextLayout
 import Testing
 import CmuxNextWakeupsTestSupport
@@ -11,7 +12,7 @@ import CmuxNextWakeupsTestSupport
 /// the window's own views: a page at the bottom of the strip hid the thumb and took its clicks. The
 /// fork leaves a page's occlusion rects uncovered and sends the mouse there to the window, so the
 /// shown thumb must be one of them, and only while it shows.
-@MainActor @Suite struct StripScrollbarAbovePageTests {
+@MainActor @Suite(.closesItsWindows) struct StripScrollbarAbovePageTests {
     /// The app's window with a page filling it and the strip scrollbar along its bottom, as the
     /// layout places them (the band is in the page's superview).
     struct Strip {
@@ -43,6 +44,14 @@ import CmuxNextWakeupsTestSupport
 
         /// The thumb's band in the page's coordinates, or nil when there is none.
         var thumb: CGRect? { bar.thumbRect.map { page.convert($0, from: bar) } }
+
+        /// Closes the window and the overlay panel its `WindowOverlayHost` keeps (closing the window
+        /// only orders that panel out).
+        func tearDown() {
+            let panel = WindowOverlayHost.existingHost(for: window)?.panel
+            window.closeAfterTest()
+            panel?.close()
+        }
     }
 
     static func same(_ a: CGRect, _ b: CGRect) -> Bool {
@@ -51,6 +60,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func theShownThumbIsAHoleInThePageAndFollowsTheScroll() throws {
         let strip = Strip()
+        defer { strip.tearDown() }
         strip.show(.always)
         let thumb = try #require(strip.thumb, "a strip wider than its viewport has a thumb")
         #expect(strip.holes.contains { Self.same($0, thumb) }, "the page leaves the thumb uncovered: \(strip.holes), thumb \(thumb)")
@@ -64,6 +74,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func aHiddenScrollbarLeavesThePageWhole() {
         let strip = Strip()
+        defer { strip.tearDown() }
         strip.show(.always)
         strip.show(.off)
         #expect(strip.holes.isEmpty, "the scrollbar setting is off: \(strip.holes)")
@@ -81,9 +92,10 @@ import CmuxNextWakeupsTestSupport
 
 /// A screen switch or an empty workspace hides the view holding the bar, not the bar (review of
 /// #20759): the old screen's thumb left a hole in the page, the new screen's had none.
-@MainActor @Suite struct StripScrollbarHiddenScreenTests {
+@MainActor @Suite(.closesItsWindows) struct StripScrollbarHiddenScreenTests {
     @Test func aHiddenScreenLeavesNoHoleAndShowsItsThumbAgain() throws {
         let strip = StripScrollbarAbovePageTests.Strip()
+        defer { strip.tearDown() }
         // The bar in its screen's view, as `ScreenContentView` holds it.
         let screen = NSView(frame: strip.page.frame)
         strip.page.superview?.addSubview(screen)

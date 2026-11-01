@@ -38,15 +38,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
     private let openedURLs = OpenedURLDelivery()
-    /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
-    private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
-        self?.services?.crashRecovery.applicationWillTerminate()
-        AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-        allowBlocking(.terminate) { AgentPaneStateFile.flushAll() }
-        self?.services?.home.applicationWillTerminate()
-    }, save: { [weak self] in
-        await self?.services?.home.flushCacheForQuit()
-    })
+    /// A second quit signal's exit (`QuitSignal`): the Home cache's and the state files' last writes, bounded, then the end.
+    private lazy var forcedQuitExit = Self.secondSignalExit { [weak self] in self?.services }
+
+    /// The exit's steps: `prepare` waits on no disk, so the deadline is armed at once; the state files' queued
+    /// saves are awaited beside the Home cache's write, after it (tests inject the deadline and the end).
+    static func secondSignalExit(_ services: @escaping @MainActor () -> AppServices?, armDeadline: ((Duration) -> Void)? = nil,
+                                end: (@MainActor () -> Void)? = nil) -> ForcedQuitExit {
+        ForcedQuitExit(prepare: {
+            services()?.crashRecovery.applicationWillTerminate()
+            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
+            services()?.home.applicationWillTerminate()
+        }, save: {
+            guard let services = services() else { return }
+            async let files: Void = services.stateFilesDrained()
+            await services.home.flushCacheForQuit()
+            await files
+        }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
+    }
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
     /// person's pending-input check and task signposts. Built here, the composition root, and
@@ -123,10 +132,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
-        let services = AppServices(environment: environment, keyWindowSource: { NSApp.keyWindow }, appActiveSource: { NSApp.isActive }, work: launchReads.work, mainWork: mainWork,
+        let services = AppServices(environment: environment, keyWindowSource: { NSApp.keyWindow }, appActiveSource: { NSApp.isActive },
+                                   heldKeyReplay: { event, _, _ in NSApp.sendEvent(event) }, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
         #if DEBUG
         services.windowRecord.watchLaunch() // `--record-launch`: before the first window is made
         #endif
@@ -163,10 +175,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
-        // The daemon update's one failure toast: Details opens Settings > Updates, which lists the machines.
-        DaemonUpdateBoard.shared.openDetails = { [weak services] in
-            try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/updates")
-        }
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -180,8 +188,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // An App Store request made while no window existed shows in this window (S22).
             if let apps = services?.apps, apps.isStoreWaiting { Task { @MainActor in apps.windowDidShowContent() } }
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
-            if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts {
-                Task { @MainActor in await RecoveryNotice.show(store: drafts, in: window) }
+            // And a chat's unsent text the last quit's deadline ended before it saved (AgentPaneStateLoss).
+            if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts, let services {
+                Task { @MainActor in
+                    await RecoveryNotice.show(store: drafts, in: window)
+                    await services.agentPaneStateLoss.showNotices(in: window, pairedSealCleared: { await services.iphone.pairedSealClearedForCutOff() })
+                }
             }
             CATransaction.setCompletionBlock { [weak self] in
                 MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
@@ -229,7 +241,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preference: { [weak services] in
                 services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
-            keyRouter: services.keyRouter)
+            keyRouter: services.keyRouter) { [weak services] page in
+            // A pane's own Chromium page (the applier's childWindowTab; not a nested one, the Home dock's Channels) attached after it showed: the focus model applies again (W1, W4).
+            let pane = page.window.flatMap { window in services?.windows.owner(of: window) }?.content?.panes.values.first { pane in (page.chromiumPage as? CEFPageChromiumPage).map { pane.currentContent?.childWindowTab === $0.tab } == true }
+            if let pane, pane.workspace?.isParked == false { pane.workspace?.focus.send(.contentPresented(pane: pane.paneKey)) }
+            return pane != nil
+        }
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
@@ -314,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let acpmux = QuitAgents.environment(services)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
-        services.mobile.follow(settings, launch: services.environment.launch)
+        services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
@@ -523,8 +540,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.editorPages.terminate()
         // Design mode's Home composer files left by cards still in a draft (BrowserDesignModeTempFiles).
         BrowserDesignModeController.tempFiles.removeAll()
-        // The agent panes' state files (unsent drafts, scroll places) save off the main thread.
-        allowBlocking(.terminate) { AgentPaneStateFile.flushAll() }
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
         cloudContext?.cancel()

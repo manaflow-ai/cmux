@@ -17,8 +17,8 @@ extension SidebarBridge {
         // document (its owner of record) the value. No round trip and no rebuild (state-ownership-DESIGN.md).
         if case let .toggleCollapse(.group(group)) = intent, SidebarDocWiring.isActive, let doc = SidebarDocStore.current,
            let shown = model.group(group)?.isCollapsed {
-            rows.foldShown(group, collapsed: !shown)
-            doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.dropFold(group) }
+            rows.edits.foldShown(group, collapsed: !shown)
+            doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.edits.dropFold(group) }
             return
         }
         if CloudCreationRows.handle(intent, bridge: self, state: state) || SidebarDocWiring.handle(intent, bridge: self) { return }
@@ -36,15 +36,15 @@ extension SidebarBridge {
             case .pinned, .custom: // a custom section lists only on the sidebar document, which took the intent above
                 let unpinned = ids.filter { services.machines.workspace(id: $0.rawValue)?.0.pinned != true }
                 guard !unpinned.isEmpty else { return resync() }
-                model.apply(intent)
-                return sendPinned(unpinned, true)
+                return sendPinned(unpinned, true, edit: rows.edits.add(intent), for: intent)
             case .machine(let machine):
                 let target = services.machines.daemon(machine: machine.rawValue)
                 let leaving = ids.filter { id in
                     guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue) else { return false }
                     return workspace.pinned && daemon === target
                 }
-                if !leaving.isEmpty { sendPinned(leaving, false) }
+                // The reorder's own pending edit (below) shows the rows leaving Pinned.
+                if !leaving.isEmpty { sendPinned(leaving, false, edit: nil, for: .setPinned(leaving, false)) }
             }
         }
         if usesPersonalOrganization, PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
@@ -57,22 +57,13 @@ extension SidebarBridge {
             services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
         case let .selectTab(_, tab):
             _ = services.revealTab(tab.rawValue)
-        case let .closeTab(_, tab):
-            // A middle-click on a listed tab: Close Tab on that tab alone (an explicit target is never widened to the
-            // strip's selection), the tab strip's middle-click path, so Reopen Closed (Cmd-Shift-T) brings it back.
-            _ = services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.rawValue), origin: .user))
-        case .moveTab:
-            // Tab drags are committed by TabDragSession. Keep this intent
-            // conservative until a sidebar-only tab move has a daemon
-            // transaction path of its own.
-            resync()
         case .reorder(let ids, let position):
             // A pending edit, as on the personal path: each command's echo shows no step between.
-            SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.add(intent), bridge: self)
+            SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.edits.add(intent), bridge: self)
         case .rename(let id, let name):
             model.apply(intent)
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
-            command("rename-workspace", on: daemon, intent: .renameWorkspace(key: key, name: name)) { c in _ = try await c.renameWorkspace(key, to: name) }
+            command("rename-workspace", on: daemon, for: intent, change: .renameWorkspace(key: key, name: name)) { c in _ = try await c.renameWorkspace(key, to: name) }
         case .close(let ids):
             // The row's close button is an entrypoint of `closeWorkspace`,
             // so it asks the same confirmation and ends the terminals too.
@@ -80,6 +71,11 @@ extension SidebarBridge {
             if ids.count > 1 { return WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services) }
             for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
         case .newWorkspace(let machine, let group):
+            // The plain "+" in a local window: the person's New Workspace, as Cmd-N (the Cloud toggle applies).
+            if machine == nil, group == nil, state.machineID == MachineRegistry.localID {
+                services.registry.perform("newTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .window, id: state.id), origin: .user))
+                return
+            }
             // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
             // new workspace in it (its top under the default `top`).
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
@@ -96,7 +92,7 @@ extension SidebarBridge {
                 let resource = daemon.store.stateResourceID(workspace: key)
                 // A store intent (#25657): the color stays through every live recompute until the reply settles it,
                 // and a refusal takes it back; without it the next recompute showed the old color until the echo.
-                command("set-workspace-metadata", on: daemon, intent: .setWorkspaceColor(key: key, color: color?.rawValue)) { c in try await c.state.setWorkspaceIdentity(key, resource: resource, color: update) }
+                command("set-workspace-metadata", on: daemon, for: intent, change: .setWorkspaceColor(key: key, color: color?.rawValue)) { c in try await c.state.setWorkspaceIdentity(key, resource: resource, color: update) }
             }
         case .toggleCollapse, .createGroup, .move, .renameGroup, .setGroupColor, .ungroup, .reorderGroup:
             // Workspace groups are personal (the home session's
@@ -105,9 +101,12 @@ extension SidebarBridge {
             if !organizationQueue.hold(intent, local: services.machines.local) { refuseOrganization() }
         case .closeGroup(let group):
             let members = (model.group(group)?.workspaces ?? []).compactMap { services.machines.workspace(id: $0.id.rawValue) }
-            model.apply(intent)
             // One gesture, one closed group per daemon: one Reopen Closed brings the group's workspaces back.
-            WorkspaceClose.close(members) { daemon, label, body in command(label, on: daemon, body) }
+            var closes: [(label: String, daemon: DaemonService, body: DaemonCommandBody)] = []
+            WorkspaceClose.close(members) { daemon, label, body in closes.append((label, daemon, body)) }
+            // A pending edit until every close is in its store (#26382): the rows leave in this turn and no live
+            // recompute shows them again; a failed close brings back what did not close and says why.
+            rows.send(rows.edits.add(intent), closes, failed: saveFailed(intent))
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
@@ -118,10 +117,9 @@ extension SidebarBridge {
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
-            command("move-profile", on: services.machines.local) { c in try await c.moveProfile(id, to: index) }
+            command("move-profile", on: services.machines.local, for: intent) { c in try await c.moveProfile(id, to: index) }
         case .setPinned(let ids, let pinned):
-            model.apply(intent)
-            sendPinned(ids, pinned)
+            sendPinned(ids, pinned, edit: rows.edits.add(intent), for: intent)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .installUpdate, .downloadUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
@@ -147,16 +145,20 @@ extension SidebarBridge {
         }
     }
 
-    /// `set-workspace-metadata` with the pin, per owning daemon. A daemon
-    /// without `workspace-pin-v1` keeps the row where it was.
-    private func sendPinned(_ ids: [SidebarWorkspaceID], _ pinned: Bool) {
-        for (daemon, key) in keys(ids) {
-            guard daemon.supports(DaemonCapabilities.workspacePin) else {
-                resync()
-                continue
-            }
-            command("set-workspace-metadata", on: daemon) { c in _ = try await c.setWorkspaceMetadata(key, pinned: pinned) }
+    /// `set-workspace-metadata` with the pin, per owning daemon, for `intent`. `edit` (the pending edit that shows the
+    /// pin, #26382) holds until every daemon's store has it, or a failure takes it back and says why. A daemon without
+    /// `workspace-pin-v1` gets nothing and says so: its rows go back where they were when the edit settles.
+    private func sendPinned(_ ids: [SidebarWorkspaceID], _ pinned: Bool, edit: SidebarPendingEdits.Token?, for intent: SidebarIntent) {
+        let owners = keys(ids), failed = saveFailed(intent)
+        let commands = owners.filter { $0.0.supports(DaemonCapabilities.workspacePin) }.map { daemon, key in
+            (label: "set-workspace-metadata", daemon: daemon, body: { c in _ = try await c.setWorkspaceMetadata(key, pinned: pinned) } as DaemonCommandBody)
         }
+        if commands.count < owners.count { failed(ActionWorkFailure(RefusalStrings.needsDaemonCapability(DaemonCapabilities.workspacePin))) }
+        guard !commands.isEmpty else {
+            rows.edits.settle(edit)
+            return resync()
+        }
+        rows.send(edit, commands, failed: failed)
     }
 
     /// Each workspace's owning daemon and durable key, in order.
@@ -172,6 +174,17 @@ extension SidebarBridge {
         let pairs = keys(ids)
         guard let daemon = pairs.first?.0, pairs.allSatisfy({ $0.0 === daemon }) else { return nil }
         return (daemon, pairs.map(\.1))
+    }
+
+    /// What a failed save of `intent` does (#26382): the rows show their owner's state again, and the person sees
+    /// why where refusals show ("<change> did not apply: <reason>", `SidebarIntent.saveAction`).
+    func saveFailed(_ intent: SidebarIntent) -> @MainActor (ActionWorkFailure) -> Void {
+        { [weak self] failure in
+            guard let self else { return }
+            resync()
+            let action = intent.saveAction
+            services.registry.reportFailure(of: ActionID(rawValue: action.id), title: action.title, failure)
+        }
     }
 
     /// Refuses an organization intent that personal state cannot take.
@@ -198,15 +211,16 @@ extension SidebarBridge {
         groupFlow.openPendingEditor()
     }
 
-    /// Sends one command, shown at once through the store's intent log when
-    /// it has an `intent`; a failure re-syncs the sidebar.
-    private func command(_ label: String, on daemon: DaemonService, intent: Intent? = nil,
+    /// Sends one command for `intent`, shown at once through the store's intent log when it has a store
+    /// `change`; a failure re-syncs the sidebar and says why (#26382).
+    private func command(_ label: String, on daemon: DaemonService, for intent: SidebarIntent, change: Intent? = nil,
                          _ body: @escaping DaemonCommandBody) {
-        // The intent goes in the store in this turn, with the row's own update, so no recompute between shows the old value.
-        let send = intent.map { daemon.intendNow(label, $0, transaction: .generate(), body) }
-        Task { [weak self, services] in
-            let ok = if let send { await send() != nil } else { await daemon.request(label, body) != nil }
-            if !ok { withExtendedLifetime(services) { self?.resync() } }
+        // The change goes in the store in this turn, with the row's own update, so no recompute between shows the old value.
+        let send = change.map { daemon.intentSender(label, $0, body) }, failed = saveFailed(intent)
+        // task-owner: one sidebar command; reports its failure
+        Task { [services] in
+            let failure = if let send { await send() } else { await daemon.failure(label, body) }
+            if let failure { withExtendedLifetime(services) { failed(failure) } }
         }
     }
 }

@@ -11,11 +11,14 @@ public import CoreGraphics
 ///   the title, so a narrow selected tab is icon and x only;
 /// - a tab narrower than the minimum inactive width (closing, growing in)
 ///   shows nothing.
-/// Differences: the x shows only on the hovered tab (nxdog9), and a hovered
-/// tab shows it from `TabStripMetrics.faviconCloseWidth`, where the favicon
-/// and the x both fit whole, not from Helium's 56 pt of contents. The
-/// selected tab also keeps it once its contents are narrower than Chromium's
-/// close-button threshold, where it costs no title text.
+/// Differences: a pinned tab keeps its centered icon on hover and never shows
+/// an x; it closes from its right-click menu (Lawrence msg 19392: "hover on
+/// pinned tab should not have close button, should only be able to close in
+/// right click"; takes back HQ #4743's hover swap). A crowded inactive tab
+/// swaps its centered icon for the x on hover until both the icon and the x
+/// fit; the icon stays put when both fit (nxdog9, Lawrence 2026-10-20).
+/// A selected tab keeps its existing close once it is narrower than Chromium's
+/// close-button threshold, where the x costs no title text.
 public struct TabChromeVisibility: Hashable, Sendable {
     public var showsIcon: Bool
     public var showsTitle: Bool
@@ -35,6 +38,7 @@ public struct TabChromeVisibility: Hashable, Sendable {
         metrics: TabStripMetrics = .standard
     ) -> TabChromeVisibility {
         if isPinned {
+            // The pinned icon owns the one centered slot, hovered or not: no x (Lawrence msg 19392).
             return TabChromeVisibility(showsIcon: true, showsTitle: false, showsClose: false, centersContent: true)
         }
         // Narrower than an icon-only tab (Chrome's inactive minimum, 32; an opening or closing tab): nothing
@@ -44,22 +48,33 @@ public struct TabChromeVisibility: Hashable, Sendable {
         let roomy = contents >= metrics.closeMinContentsWidth
         let wantsClose: Bool
         switch style {
-        // A hovered inactive tab also shows its x once the favicon and the x both fit whole (Lawrence
-        // 2026-10-20: the default minimum width is that room), where Helium waits for 56 of contents.
-        case .chrome: wantsClose = isSelected ? (isHovered || !roomy) : (isHovered && (roomy || width + 0.5 >= metrics.faviconCloseWidth))
+        // Inactive crowded tabs put the close in the icon's center on hover.
+        // Once there is room for both, the icon keeps its original position.
+        // The selected tab's existing at-rest narrow close is preserved.
+        case .chrome: wantsClose = isSelected ? (isHovered || !roomy) : isHovered
         case .compact: wantsClose = isHovered
         }
         // A tab that cannot close (Home's tab, `pinned-dock-v1`) never shows its x.
         let showsClose = wantsClose && isClosable
         var available = contents
         if showsClose { available -= metrics.closeButtonSize + metrics.titleCloseSpacing }
-        // The selected tab drops its icon when the x leaves no room;
-        // an inactive tab centers its icon instead (it has no x then).
+        // When the x leaves no room, it takes the centered icon slot
+        // (including a hovered crowded inactive tab). With no x, the icon stays.
         let iconFits = available >= metrics.iconSize
         let showsIcon = iconFits || !showsClose
         let titleWidth = available - metrics.iconSize - metrics.iconTitleSpacing
         let showsTitle = iconFits && titleWidth >= metrics.titleMinVisibleWidth
         return TabChromeVisibility(showsIcon: showsIcon, showsTitle: showsTitle, showsClose: showsClose, centersContent: !showsTitle)
+    }
+
+    /// One close-button origin for the painted layer and the pre-hover AX target.
+    /// When the icon yields its sole slot, the x is centered; with both visible,
+    /// it remains in the trailing track. A hidden x has no origin.
+    func closeButtonOriginX(pillWidth: CGFloat, metrics m: TabStripMetrics) -> CGFloat? {
+        guard showsClose else { return nil }
+        return showsIcon || !centersContent
+            ? pillWidth - m.contentTrailingInset - m.closeButtonSize
+            : (pillWidth - m.closeButtonSize) / 2
     }
 
     /// The form at each width of a width path (an open, a close, a selection change, a reflow), from

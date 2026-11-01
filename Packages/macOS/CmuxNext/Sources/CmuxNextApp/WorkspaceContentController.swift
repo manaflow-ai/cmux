@@ -398,6 +398,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             let apps = services.apps
             Task { apps.windowDidShowContent() }
         }
+        // So does a link from another app that waited for a workspace made to hold it (#27897):
+        // the workspace shows before its first pane mounts.
+        if panes.count == 1, !services.externalOpen.pending.isEmpty {
+            let open = services.externalOpen
+            Task { open.flush() }
+        }
         return controller.view
     }
 

@@ -115,6 +115,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "harness codex-runtime",
+        &[
+            ("Download the pinned Codex release", "acpmux harness codex-runtime install"),
+            ("See whether the managed Codex is ready", "acpmux harness codex-runtime status"),
+        ],
+    ),
+    (
+        "harness codex-runtime install",
+        &[(
+            "Download and verify the pinned official Codex release (opt in; a Codex on PATH still wins)",
+            "acpmux harness codex-runtime install",
+        )],
+    ),
+    (
+        "harness codex-runtime status",
+        &[(
+            "Print the managed Codex version, path and readiness",
+            "acpmux harness codex-runtime status",
+        )],
+    ),
+    (
         "harness reload",
         &[("Make the daemon read the profile files again", "acpmux harness reload")],
     ),

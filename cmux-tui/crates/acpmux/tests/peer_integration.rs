@@ -2150,10 +2150,10 @@ async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// No message on a peer link is larger than one frame every acpmux reads (16 MiB). At
+/// No message on a peer link is larger than one frame every acpmux reads (31 MiB). At
 /// 2026-10-21 06:23Z a 32.8 MB reply from huge-blue reset cosmic-gray's link with its 29 chats:
 /// a history read with no `maxBytes`, 5000 records of a chat with long tool outputs. Here a
-/// 33 MB prompt pushed over the link fails alone, with an error; a 60 MB history comes in a page
+/// 33 MB prompt pushed over the link fails alone, with an error; a 72 MB history comes in a page
 /// that fits, and a record too large for any message comes as a stub; the link never drops.
 #[tokio::test]
 async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
@@ -2163,7 +2163,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     cfg.store.mode = StoreMode::Local;
     cfg.store.segment_bytes = 64 * 1024 * 1024;
 
-    // B owns a chat of 40 tool outputs of 1 MB, then one of 20 MB, written straight to its store:
+    // B owns a chat of 40 tool outputs of 1 MB, then one of 32 MB, written straight to its store:
     // no hub runs the chat before B, so no other record lands after them.
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
     let id = uuid::Uuid::now_v7().to_string();
@@ -2193,7 +2193,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     for _ in 0..40 {
         output(1024 * 1024);
     }
-    output(20 * 1024 * 1024);
+    output(32 * 1024 * 1024);
     let last = seq;
     let b = Hub::new(cfg.clone(), store);
     let _ = b.person.install_spawn_key(PERSON_KEY);
@@ -2219,12 +2219,12 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     let att =
         ca.call(method::MUX_ATTACH, json!({"session": "b/big", "limit": 5000})).await.unwrap();
     let wire = serde_json::to_string(&att).unwrap().len();
-    assert!(wire < 16 * 1024 * 1024, "the history page was {} MiB", wire >> 20);
+    assert!(wire <= acpmux::rpc::MAX_MESSAGE_BYTES, "the history page was {} MiB", wire >> 20);
     assert_eq!(att["peer"], "b");
     assert_eq!(att["hasMore"], true, "60 MB of history came in one page");
     let events = att["events"].as_array().unwrap();
     assert_eq!(events.last().unwrap()["seq"], last, "the page ends on the latest record");
-    // The 20 MB record, too large for any message, is a stub that says what it left out.
+    // The 32 MB record, too large for one JSON-RPC message, is a stub that says what it left out.
     let omitted = &events.last().unwrap()["msg"]["_meta"]["acpmux"]["omitted"];
     assert!(omitted["bytes"].as_u64().unwrap() > 20 * 1024 * 1024, "{omitted}");
 
@@ -2236,7 +2236,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     ca.call(method::MUX_ATTACH, json!({"session": "b/live", "limit": 1})).await.unwrap();
     cb.call(
         method::SESSION_PROMPT,
-        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:16"}]}),
+        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:32"}]}),
     )
     .await
     .unwrap();

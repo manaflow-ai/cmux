@@ -138,6 +138,18 @@ def test_portable_guard_runner_and_tests_are_linux_control_plane_only() -> None:
     ), (paths, actual)
 
 
+def test_portable_placement_input_keeps_the_guard_tests_linux_only() -> None:
+    # cmux-next-guards.yml may pass a free mini as guard_tests_runner; the guard
+    # tests that job names stay off the macOS and Release lanes.
+    runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+               "inputs.guard_tests_runner != '' && inputs.guard_tests_runner || "
+               "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+    assert module.is_plainly_linux_runner(runs_on)
+    assert not module.is_plainly_linux_runner(runs_on.replace("guard_tests_runner", "other_runner"))
+    actual = module.classify_files(["tests/test_ci_nightly_push_throttle.py"])
+    assert actual.macos is False and actual.release_build is False, actual
+
+
 def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
     paths = [
         "scripts/ci/run_ci_guards.py",

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence msg 11983: "make sure sidebar has blue, orange/yellow for needs attention, and red for errors".
@@ -9,7 +10,7 @@ import Testing
 /// is an error. A group header, open or collapsed, rolls up its subtree's most urgent state: red, then orange,
 /// then blue. Measured on the real ``SidebarView``: each row's visible status glyph and the color its
 /// indicator draws, in light and dark. Each case prints a `STATUSCOLOR|` line so a fleet log shows them.
-@MainActor @Suite(.serialized) struct SidebarStatusColorTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarStatusColorTests {
     enum Meaning: String, CustomStringConvertible {
         case unread, attention, error
         var description: String { rawValue }
@@ -184,6 +185,8 @@ import Testing
             #expect(SidebarGroup(id: GroupID("g"), name: "g", workspaces: members).statusRollUp(collapsed: false) == .waiting)
         }
         #expect(SidebarGroup(id: GroupID("g"), name: "g", workspaces: [unread]).statusRollUp(collapsed: false) == .success)
+        let zeroUnread = ws("zero", unread: .count(0))
+        #expect(SidebarGroup(id: GroupID("g"), name: "g", workspaces: [zeroUnread]).statusRollUp(collapsed: false) == .idle)
         let working = ws("b", activity: .working)
         // A collapsed header keeps its loading spinner when nothing needs the user; an open one leaves it to its rows.
         #expect(SidebarGroup(id: GroupID("g"), name: "g", workspaces: [working]).statusRollUp(collapsed: true) == .working)

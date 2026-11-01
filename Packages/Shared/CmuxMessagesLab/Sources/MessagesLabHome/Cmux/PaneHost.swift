@@ -819,6 +819,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
             if openLink(hit, at: p) { return }
             // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).
             if quoteClicked(hit, at: p) { return }
+            // cmux: an agent-message fold or notes row opens or closes (HomeStore.toggleAgentMessages).
+            if intents?.agentRowClicked(hit.row.ref.messageId) == true { return }
             switch hit.row.part {
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
             // cmux: a video plays or pauses in its bubble (opening it in an

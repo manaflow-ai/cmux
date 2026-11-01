@@ -1,6 +1,268 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "store.feature.automationsSidebarItem.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الأتمتة في الشريط الجانبي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatizacije u bočnoj traci"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatiseringer i sidepanelet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatisierungen in der Seitenleiste"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automations in Sidebar"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatizaciones en la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatisations dans la barre latérale"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automazioni nella barra laterale"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドバーの自動化"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ស្វ័យប្រវត្តិកម្មក្នុងរបារចំហៀង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사이드바의 자동화"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatiseringer i sidefeltet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatyzacje na pasku bocznym"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automações na barra lateral"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматизации на боковой панели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ระบบอัตโนมัติในแถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kenar çubuğunda otomasyonlar"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматизації на бічній панелі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tự động hóa trên thanh bên"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "边栏中的自动化"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "側邊欄中的自動化"
+          }
+        }
+      }
+    },
+    "store.feature.automationsSidebarItem.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مطالباتك وأوامرك المجدولة على هذا الـ Mac وcmux Cloud، مع الإخفاقات أولًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaši zakazani upiti i naredbe na ovom Macu i u cmux Cloudu, neuspjeli prvi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dine planlagte prompts og kommandoer på denne Mac og i cmux Cloud, med fejl først."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine geplanten Prompts und Befehle auf diesem Mac und in cmux Cloud, Fehler zuerst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your scheduled prompts and commands on this Mac and cmux Cloud, with failures first."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus prompts y comandos programados en este Mac y en cmux Cloud, con los fallos primero."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos prompts et commandes planifiés sur ce Mac et dans cmux Cloud, les échecs en premier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I tuoi prompt e comandi pianificati su questo Mac e in cmux Cloud, prima quelli non riusciti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Mac と cmux Cloud のスケジュール済みプロンプトとコマンド。失敗したものが先頭に表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជម្រុញ និងពាក្យបញ្ជាដែលបានកំណត់ពេលរបស់អ្នកនៅលើ Mac នេះ និង cmux Cloud ដោយការបរាជ័យនៅមុនគេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Mac과 cmux Cloud에 예약된 프롬프트와 명령. 실패한 항목이 먼저 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Planlagte ledetekster og kommandoer på denne Macen og i cmux Cloud, med feil først."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zaplanowane polecenia i prompty na tym Macu i w cmux Cloud, najpierw nieudane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seus prompts e comandos agendados neste Mac e no cmux Cloud, com as falhas primeiro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запланированные запросы и команды на этом Mac и в cmux Cloud; сбои показываются первыми."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "พรอมต์และคำสั่งที่ตั้งเวลาไว้บน Mac เครื่องนี้และ cmux Cloud โดยแสดงรายการที่ล้มเหลวก่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac'teki ve cmux Cloud'daki zamanlanmış istemleriniz ve komutlarınız, önce başarısız olanlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заплановані запити й команди на цьому Mac і в cmux Cloud; збої показано першими."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lời nhắc và lệnh đã lên lịch trên máy Mac này và cmux Cloud, các mục lỗi hiển thị trước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Mac 和 cmux Cloud 上计划的提示和命令，失败的排在前面。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 Mac 和 cmux Cloud 上排程的提示和指令，失敗的排在前面。"
+          }
+        }
+      }
+    },
     "store.feature.category.appearance" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14685,129 +14947,471 @@
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "يتوفر %@ تحديثًا"
+          "variations" : {
+            "plural" : {
+              "zero" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "لا تتوفر تحديثات (%lld)"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "يتوفر تحديث واحد (%lld)"
+                }
+              },
+              "two" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "يتوفر تحديثان (%lld)"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "تتوفر %lld تحديثات"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "يتوفر %lld تحديثًا"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "يتوفر %lld تحديث"
+                }
+              }
+            }
           }
         },
         "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dostupno ažuriranja: %@"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostupno je %lld ažuriranje"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostupna su %lld ažuriranja"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostupno je %lld ažuriranja"
+                }
+              }
+            }
           }
         },
         "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ opdateringer tilgængelige"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld opdatering tilgængelig"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld opdateringer tilgængelige"
+                }
+              }
+            }
           }
         },
         "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ Updates verfügbar"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld Update verfügbar"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld Updates verfügbar"
+                }
+              }
+            }
           }
         },
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ updates available"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld update available"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld updates available"
+                }
+              }
+            }
           }
         },
         "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ actualizaciones disponibles"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld actualización disponible"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld de actualizaciones disponibles"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld actualizaciones disponibles"
+                }
+              }
+            }
           }
         },
         "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ mises à jour disponibles"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld mise à jour disponible"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld de mises à jour disponibles"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld mises à jour disponibles"
+                }
+              }
+            }
           }
         },
         "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ aggiornamenti disponibili"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld aggiornamento disponibile"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld di aggiornamenti disponibili"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld aggiornamenti disponibili"
+                }
+              }
+            }
           }
         },
         "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@件のアップデートがあります"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld件のアップデートがあります"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld件のアップデートがあります"
+                }
+              }
+            }
           }
         },
         "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "មានបច្ចុប្បន្នភាព %@"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "មានបច្ចុប្បន្នភាព %lld"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "មានបច្ចុប្បន្នភាព %lld"
+                }
+              }
+            }
           }
         },
         "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@개 업데이트 가능"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld개 업데이트 가능"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld개 업데이트 가능"
+                }
+              }
+            }
           }
         },
         "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ oppdateringer tilgjengelig"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld oppdatering tilgjengelig"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld oppdateringer tilgjengelig"
+                }
+              }
+            }
           }
         },
         "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dostępnych aktualizacji: %@"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostępna aktualizacja: %lld"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostępne aktualizacje: %lld"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostępnych aktualizacji: %lld"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Dostępnych aktualizacji: %lld"
+                }
+              }
+            }
           }
         },
         "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ atualizações disponíveis"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld atualização disponível"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld de atualizações disponíveis"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld atualizações disponíveis"
+                }
+              }
+            }
           }
         },
         "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Доступно обновлений: %@"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно обновление: %lld"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно обновления: %lld"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно обновлений: %lld"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно обновлений: %lld"
+                }
+              }
+            }
           }
         },
         "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "มีการอัปเดต %@ รายการ"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "มีการอัปเดต %lld รายการ"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "มีการอัปเดต %lld รายการ"
+                }
+              }
+            }
           }
         },
         "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ güncelleme mevcut"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld güncelleme mevcut"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld güncelleme mevcut"
+                }
+              }
+            }
           }
         },
         "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Доступно оновлень: %@"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступне оновлення: %lld"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно оновлення: %lld"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно оновлень: %lld"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Доступно оновлень: %lld"
+                }
+              }
+            }
           }
         },
         "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Có %@ bản cập nhật"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Có %lld bản cập nhật"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Có %lld bản cập nhật"
+                }
+              }
+            }
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "有 %@ 项更新"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "有 %lld 项更新"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "有 %lld 项更新"
+                }
+              }
+            }
           }
         },
         "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "有 %@ 項更新"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "有 %lld 項更新"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "有 %lld 項更新"
+                }
+              }
+            }
           }
         }
       }

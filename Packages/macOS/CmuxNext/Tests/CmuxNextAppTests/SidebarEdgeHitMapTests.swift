@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// What a click lands on around the sidebar's edge facing the content, where the resize band and
@@ -10,7 +11,7 @@ import Testing
 /// window's frame view, so it measures the shipped routing, not a model of it. It also writes the
 /// map over a render of the window in light and dark (`artifacts/sidebar-hitmap/hitmap.png`, git-ignored) for the
 /// before/after shots: red takes a resize, blue the scroller.
-@MainActor @Suite(.serialized) struct SidebarEdgeHitMapTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarEdgeHitMapTests {
     enum Target: Equatable { case resize, scroller, other }
 
     struct Fixture {

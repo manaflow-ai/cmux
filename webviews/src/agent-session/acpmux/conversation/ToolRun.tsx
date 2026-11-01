@@ -9,8 +9,10 @@ import { ChevronRight, Globe, Magnifier, Pencil, Spinner, TerminalSquare, ToolGr
 import { isFailed, isRunning } from "./toolGroups";
 import { mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useToolRunLook } from "../toolRunLook";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
+import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { EditCounts, useEditTotals } from "./EditCounts";
 import { ToolLabel } from "./ToolVerb";
 
 /// The summary's glyph: its main kind of work's, with searches and reads both as the magnifier.
@@ -41,7 +43,11 @@ export function ToolRun({
 }) {
   const t = useT();
   const look = useToolRunLook();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  // The Verbose transcript view opens the run to its calls; Thinking opens a run that holds a
+  // thought, so the thought it opens is on screen.
+  const thinking = useTranscriptViewContext() === "thinking";
+  const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
@@ -58,6 +64,9 @@ export function ToolRun({
     }),
     [t, items],
   );
+  // The lines the run's edits added and removed, on its summary line as Claude Code desktop puts
+  // them (Leo 2026-10-30: "i like claude code they put the number overarching too").
+  const totals = useEditTotals(items);
   const pencil = look === "pencil" || look === "quiet-pencil";
   const quiet = look === "quiet" || look === "quiet-pencil";
   return (
@@ -71,8 +80,11 @@ export function ToolRun({
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : runIcon(pencil ? "edited" : main)}</span>
-        <span className="cv-tool__text" data-find-skip>
-          <ToolLabel text={summary} />
+        <span className={totals ? "cv-tool__text has-counts" : "cv-tool__text"} data-find-skip>
+          <span className="cv-tool__summary">
+            <ToolLabel text={summary} />
+          </span>
+          {totals && <EditCounts totals={totals} />}
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight

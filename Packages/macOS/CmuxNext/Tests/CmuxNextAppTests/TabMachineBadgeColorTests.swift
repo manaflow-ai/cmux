@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// A remote tab's machine badge keeps today's quiet look (textTertiary) until the person picks a
 /// color for that machine (`appearance.machineColors`); then it draws the pick. Read from the strip
 /// as drawn (the badge layer's text color).
-@MainActor @Suite(.serialized) struct TabMachineBadgeColorTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabMachineBadgeColorTests {
     /// The badge's color and textTertiary, both in the cell's theme scope, sRGB.
     static func badge(picks: MachineColorOverrides) throws -> (badge: NSColor, tertiary: NSColor) {
         ThemeScope.app.store.setMachineColors(picks)
@@ -15,7 +16,7 @@ import Testing
         let strip = TabStripView(model: TabStripModel(tabs: [item], selectedID: item.id))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: TabStripView.preferredHeight), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.contentView = strip
         window.orderFrontRegardless()
         strip.layoutSubtreeIfNeeded()

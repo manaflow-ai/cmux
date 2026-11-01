@@ -5,16 +5,20 @@
 // the moving stripe. Both loops are `transform` only (conversation.css `cmux-shimmer-band` /
 // `cmux-shimmer-lit`, on the shared clock), so the page's main thread paints nothing per frame; the
 // old shimmer moved a text-clipped gradient's `background-position`, which repainted the words every
-// frame. The lit copy is CSS generated content (`content: attr(data-text)`) inside an aria-hidden
-// band: the DOM holds the words once, so the line reads, copies and finds them once.
+// frame. The lit copy is aria-hidden inside the band; plain text uses CSS generated content and
+// timed rows provide matching label/time slots with generated text, so readers see each word once.
+
+import type { ReactNode } from "react";
 
 /// `text` with the shimmer layers (the band shows only while loops run; otherwise the words alone).
-export function ShimmerText({ text }: { text: string }) {
+export function ShimmerText({ text, baseText = text, lit }: { text: string; baseText?: string; lit?: ReactNode }) {
   return (
     <>
-      <span className="cv-shimmer__base">{text}</span>
+      <span className="cv-shimmer__base">{baseText}</span>
       <span className="cv-shimmer__band" aria-hidden="true">
-        <span className="cv-shimmer__lit" data-text={text} />
+        <span className="cv-shimmer__lit" data-text={lit ? undefined : text}>
+          {lit}
+        </span>
       </span>
     </>
   );

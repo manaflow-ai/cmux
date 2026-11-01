@@ -45,6 +45,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if first != "automation" && first != "automations" {
         return None;
     }
+    // `automation show-page` is the app's `automations.show` (it opens the Automations page): the
+    // app action fallback runs it.
+    if rest.first().is_some_and(|verb| verb == "show-page") {
+        return None;
+    }
     let output = global.output;
     Some(match dispatch(rest, &global) {
         Ok(code) => code,

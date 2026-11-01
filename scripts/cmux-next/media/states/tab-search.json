@@ -1,0 +1,19 @@
+{
+  "title": "Search Tabs palette capture",
+  "windows": [{"name": "tab-search", "class": "PalettePanel"}],
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Create the capture workspace", "cmux": ["workspace", "new", "--name", "Palette capture"], "wait": 1},
+    {"title": "First new tab", "cmux": ["tab", "new-page"], "wait": 1},
+    {"title": "Second new tab", "cmux": ["tab", "new-page"], "wait": 1},
+    {
+      "title": "Open Search Tabs",
+      "rpc": {
+        "method": "action.run",
+        "params": {"action": "tab.search", "focus": true, "origin": "script"}
+      },
+      "record": "file",
+      "wait": 2
+    }
+  ]
+}

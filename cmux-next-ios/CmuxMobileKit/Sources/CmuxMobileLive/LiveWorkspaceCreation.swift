@@ -433,10 +433,10 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// Claude's own trust answer counts too, so a Claude chat gets that second way.
     nonisolated static func trustSteps(folder: String, agent: String = "Claude", family: String = "claude") -> String {
         guard family == "claude" else {
-            return "\(agent) hasn't been trusted in \(folder) yet. On the Mac, open this workspace in cmux and choose Trust when it asks, "
+            return "\(agent) isn't trusted in \(folder). On the Mac, open this workspace in cmux and choose Trust when it asks, "
                 + "then start the chat again."
         }
-        return "\(agent) hasn't been trusted in \(folder) yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
+        return "\(agent) isn't trusted in \(folder). Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
             + "Or 2. Here, open this workspace's terminal, type claude, press Return, choose \u{201C}Yes, I trust this folder\u{201D}, then type /exit. "
             + "Then start the chat again."
     }

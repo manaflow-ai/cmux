@@ -23,6 +23,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,6 +31,8 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from test_nightly_trusted_routing import evaluate, parse_expression
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 
 # Linear feat-cmux-next history, oldest first. nightly-next starts at BASE.
@@ -195,16 +198,11 @@ def move_condition() -> str:
 
 
 def substitute(text: str, sha: str) -> str:
-    """Evaluate the expressions this test understands for a promotion request."""
-    text = re.sub(
-        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*(?:\|\|\s*github\.event_name\s*==\s*'schedule'\s*&&\s*format\('[^']*',\s*github\.event\.schedule\)\s*)?"
-        r"(?:\|\|\s*inputs\.nightly_next_unsigned_run\s*&&\s*format\('[^']*',\s*inputs\.nightly_next_unsigned_run,\s*inputs\.nightly_next_unsigned_attempt\)\s*)?\|\|\s*''\s*\}\}",
-        lambda match: match.group(1).replace("{0}", sha),
-        text,
-    )
-    text = re.sub(r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*\}\}", sha, text)
-    assert "${{" not in text, f"unsupported expression: {text}"
-    return text
+    """Evaluate the actual expression, including inactive NEXT admission branches."""
+    context = {"inputs.promote_nightly_next_sha": sha, "github.repository": "manaflow-ai/cmux",
+               "github.ref": "refs/heads/main", "github.event_name": "workflow_dispatch"}
+    return re.sub(r"\$\{\{(.*?)\}\}",
+                  lambda match: str(evaluate(parse_expression(match.group(1)), context)), text, flags=re.S)
 
 
 def concurrency_group(sha: str) -> str:

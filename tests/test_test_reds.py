@@ -37,7 +37,17 @@ def failed(name):
     return f"✘ Test {name} recorded an issue at X.swift:1:2: Expectation failed"
 
 
+def failed_suite(name):
+    return f"✘ Suite {name} recorded an issue at {name}.swift:12:13: Issue recorded"
+
+
 SUMMARY = "✔ Test run with 40 tests in 3 suites passed after 1.0 seconds."
+
+
+def step(script):
+    """The runner's echo of a `run:` step, as a job log shows it before the step's output."""
+    return [f"##[group]Run {script}", script, "shell: /usr/bin/bash -e {0}", "env:", "  GITHUB_REPO_NAME: o/r",
+            "##[endgroup]"]
 ABORT = ("error: Process '/x/swiftpm-testing-helper --test-bundle-path /x/CmuxNextPackageTests.xctest' exited with "
          "unexpected signal code 6")
 
@@ -171,6 +181,18 @@ class EchoedStepScripts(unittest.TestCase):
 
 
 class PerTest(unittest.TestCase):
+    def test_suite_teardown_issue_is_a_failing_suite(self):
+        found = reds.read(log(failed_suite("SidebarGroupHoverCardTests"),
+                              "✘ Suite SidebarGroupHoverCardTests failed after 0.2 seconds with 1 issue."))
+        self.assertEqual(found.failed, {"SidebarGroupHoverCardTests"})
+
+    def test_quoted_suite_teardown_issue_is_a_failing_suite(self):
+        found = reds.read(log(
+            '✘ Suite "Cloud sidebar Ports status controls" recorded an issue at Cloud.swift:1:2: Issue recorded',
+            '✘ Suite "Cloud sidebar Ports status controls" failed after 0.2 seconds with 1 issue.',
+        ))
+        self.assertEqual(found.failed, {"Cloud sidebar Ports status controls"})
+
     def test_swift_test_summary_fixture_signal_text_is_not_a_crash(self):
         fixture = log(
             "scripts/cmux-next/tests/swift-test-summary.test.sh:148: "
@@ -336,6 +358,43 @@ class PerTest(unittest.TestCase):
                 verdict = reds.classify(log(*whole, line), log(*whole), "cmux-next swift test")
                 self.assertTrue(verdict.own)
                 self.assertIn(f"signal {signal}", verdict.reasons[0])
+
+    def test_a_kill_inside_a_step_that_passed_is_not_a_crash(self):
+        # cmuxterm-hq run 41195277420, Fleet tests (job 124520995516): scripts/test-reload-cloud-terminate-app.sh kills
+        # the children it starts and passes; a later step's unittest fails the same way on the base. The step's
+        # `Killed` lines read as "the test process crashed (signal 9)", so no red in the job was ever excused.
+        killer = ["PASS: the quit is waited for, a second SIGTERM follows the timeout, and nothing is SIGKILLed",
+                  "scripts/test-reload-cloud-terminate-app.sh: line 12: 34013 Killed                  perl -e 'sleep 300'",
+                  "scripts/test-reload-cloud-terminate-app.sh: line 12: 34020 Killed                  \"$other_exe\" 300"]
+        red = ["F.", "=" * 70, "FAIL: test_b (fleet_client_test.WaitTest.test_b)", "-" * 70, "Ran 2 tests in 0.1s", "",
+               "FAILED (failures=1)", "##[error]Process completed with exit code 1."]
+        job = log(*step("bash scripts/test-reload-cloud-terminate-app.sh"), *killer,
+                  *step("python3 -m unittest discover -s build-fleet -p 'fleet_client_test.py'"), *red)
+        self.assertEqual(reds.read(job).crashes, [])
+        verdict = reds.classify(job, job, "Fleet tests")
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ["test_b (fleet_client_test.WaitTest.test_b)"])
+        # The same kill in the step that failed, or in the last step (it may be the one that died), is a crash.
+        for job in (log(*step("python3 -m unittest"), *killer, *red),
+                    log(*step("bash a.sh"), "ok", *step("python3 -m unittest"), *red[:-1], *killer),
+                    log(*step("bash a.sh"), *killer, "::error::a.sh: the tagged app survived",
+                        *step("python3 -m unittest"), *red)):
+            with self.subTest(job=job[-200:]):
+                verdict = reds.classify(job, job, "Fleet tests")
+                self.assertTrue(verdict.own)
+                self.assertIn("crashed (signal 9)", verdict.reasons[0])
+
+    def test_a_fault_inside_a_step_that_passed_is_still_a_crash(self):
+        # Only a signal someone sent is the step's own business; a segfault or SwiftPM's signal line is a crash.
+        red = ["FAIL: test_b (m.T.test_b)", "Ran 1 test in 0.1s", "FAILED (failures=1)",
+               "##[error]Process completed with exit code 1."]
+        for line in ("run.sh: line 3: 4242 Segmentation fault      ./helper",
+                     "error: exited with unexpected signal code 6"):
+            with self.subTest(line):
+                job = log(*step("bash run.sh"), line, *step("python3 -m unittest"), *red)
+                verdict = reds.classify(job, job, "Fleet tests")
+                self.assertTrue(verdict.own)
+                self.assertIn("crashed", verdict.reasons[0])
 
     def test_a_tools_error_line_is_not_a_unittest_run(self):
         pip = log("ERROR: Could not find a version that satisfies the requirement foo")

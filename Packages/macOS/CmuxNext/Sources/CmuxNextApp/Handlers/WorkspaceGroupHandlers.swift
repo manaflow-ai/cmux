@@ -63,7 +63,7 @@ enum WorkspaceGroupHandlers {
             // Every grouped row of the selection the right-clicked row belongs to.
             let grouped = try WindowMembershipHandlers.workspaces(invocation, context).compactMap(context.services.workspace(id:))
                 .filter { (try? WorkspaceVerbHandlers.group(of: $0, context)) != nil }
-            for workspace in grouped { context.ungroupPersonal(workspace) }
+            removeFromGroups(grouped, context)
         })
         ActionTargetVisibility.hide("removeWorkspaceFromGroup", in: registry) { (try? context.workspace($0).model).map { (try? WorkspaceVerbHandlers.group(of: $0, context)) == nil } ?? false }
         ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { ((try? WindowMembershipHandlers.workspaces($0, context).count) ?? 0) < 2 }
@@ -299,6 +299,37 @@ enum WorkspaceGroupHandlers {
 
     private static func createGroup(named name: String, members: [SidebarWorkspaceID], byUser: Bool, _ context: AppActionContext) throws {
         try context.sidebar().groupFlow.newGroup(of: members, name: name, byUser: byUser)
+    }
+
+    /// Takes `workspaces` out of their groups as one move of their rows per section (#26382): they leave in this turn,
+    /// the way a drag out of a group does, and the same path saves them (and brings them back, saying why, when the
+    /// save fails). They go, in tree order, after the loose rows when the sidebar lists those first (before its first
+    /// unpinned group), else just below the first one's group. A workspace no sidebar shows in a machine section's
+    /// group takes the personal write alone (a row in Pinned would be pinned by a move there).
+    private static func removeFromGroups(_ workspaces: [WorkspaceModel], _ context: AppActionContext) {
+        var moves: [(sidebar: SidebarBridge, section: Int, ids: [SidebarWorkspaceID])] = []
+        for workspace in workspaces {
+            let id = SidebarWorkspaceID(workspace.id)
+            guard let sidebar = try? WorkspaceVerbHandlers.sidebar(showing: workspace, context),
+                  let at = SidebarEdits.locate(id, in: sidebar.model.sections), at.child != nil,
+                  sidebar.model.sections.dropFirst(at.section).first?.id != .pinned else {
+                context.ungroupPersonal(workspace)
+                continue
+            }
+            if let index = moves.firstIndex(where: { $0.sidebar === sidebar && $0.section == at.section }) {
+                moves[index].ids.append(id)
+            } else {
+                moves.append((sidebar, at.section, [id]))
+            }
+        }
+        for (sidebar, s, ids) in moves {
+            let sections = sidebar.model.sections
+            guard let section = sections.dropFirst(s).first, let first = SidebarEdits.treeOrder(ids, in: sections).first,
+                  let at = SidebarEdits.locate(first, in: sections) else { continue }
+            let firstUnpinnedGroup = section.nodes.firstIndex { if case let .group(group) = $0 { !group.isPinned } else { false } }
+            let index = sidebar.model.ungroupedFirst ? firstUnpinnedGroup ?? section.nodes.count : at.node + 1
+            sidebar.handle(.reorder(ids, to: DropPosition(section: section.id, index: index)))
+        }
     }
 
     /// Sends a sidebar intent for the targeted group.

@@ -74,6 +74,11 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.showSearchButton`: the footer's Search button after the profile avatar
     /// (plans/cmux-next/sidebar-search.md). On by default; off hides the button only.
     public var showSearchButton = true
+    /// `sidebar.showNewWorkspaceChooser`: the titlebar's chevron beside the + that opens the New
+    /// Workspace chooser. Off by default (Lawrence 2026-10-30: "by default i dont want to have
+    /// workspace titlebar dropdowns at all, i just want to have linear list of workspaces"): the +
+    /// stands alone, and its right-click menu still holds the same chooser.
+    public var showNewWorkspaceChooser = false
     /// `sidebar.noFade`: the whole left sidebar shows with no edge fade, and the bottom profile and
     /// search bar hides (Lawrence 2026-10-26). Off by default: the edges fade and the bar shows.
     public var noFade = false
@@ -99,6 +104,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all
     /// workspace colors"). On by default.
     public var showColors = true
+    /// `workspaceColors.indicatorStyle` (#25653): a workspace's color as its row's dot (the
+    /// default), a leading rail or the whole row's fill. `showColors` off draws none of them.
+    public var workspaceColorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// `sidebar.showLocalMachine`: with more than one machine listed, this Mac's workspace rows
     /// carry its machine mark too. Off by default (Leo 2026-10-20): only another machine's rows
     /// are marked, since that is the news; this Mac is where a row runs unless it says otherwise.

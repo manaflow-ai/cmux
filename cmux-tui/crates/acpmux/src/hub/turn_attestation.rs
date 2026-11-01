@@ -37,7 +37,7 @@ impl Hub {
         let mut started = false;
         let mut ended = false;
         self.store
-            .scan_strict(id, seq - 1, &mut |r| {
+            .scan_strict(id, seq.saturating_sub(1), &mut |r| {
                 if r.dir == "mux" {
                     let same_turn = r.msg.get("turnId").and_then(Value::as_str) == Some(&turn_id);
                     if r.seq == seq && r.kind == "turn_started" && same_turn {

@@ -546,6 +546,27 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   message (a JSON value) is one write in each direction. A message above
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
+- `cloud-directory` (link protocol 2): no arguments; one JSON data frame
+  `{"machines":[{"machine_id","team_id","name"}]}` followed by `eof`.
+  Hostd obtains this list from the signed-in Mac app's authenticated owner
+  CloudLinkSession objects. Carrier paths and ownership markers are never sent
+  to the phone; conflicting duplicate machine/team entries are omitted.
+- `cloud-acpmux` (link protocol 2): `{"machine_id","team_id"}`. Hostd
+  resolves exactly one current owner link from the app. This socket is already
+  the Cloud app server's daemon carrier; no second `link.dial` or service hello
+  is sent. Rust hostd requires `identify.data.capabilities` to advertise
+  `cloud-mobile-chat-v1` before marking its connection with that capability.
+  A successful `set-client-info` reply alone is insufficient. It discovers the VM's stored
+  agent tabs, and translates the phone's ACP requests to scoped native
+  `agent-session-*` commands. ACP pages and records keep their original sequence
+  numbers. Text prompts answer on durable acceptance; cancel and history paging
+  are supported. Approval answers, mode changes and arbitrary daemon commands
+  are refused. Every prompt first refreshes the session summary and requires
+  Claude `default`/`plan` or Codex `ask`, plus enforcement policy `ask`; missing
+  or unknown fields fail closed. This preflight supplements the required VM
+  implementation: authenticated owner checks and an atomic asking-mode floor
+  through dispatch, queued prompts and the active turn. It cannot replace that
+  enforcement or prove the actual Codex bridge profile from a mode name.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
   Any size: data frames until `eof`, up to the size the file had when it was opened. A host
   before 2026-10-28 refuses a file over 64 MiB with `too_large`.
@@ -735,6 +756,8 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
   (`surface`, below).
   `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
+  `cloud-directory-v1` and `cloud-acpmux-v1` (2026-11-01): the host can list
+  and drive authenticated owner Cloud machines through the Mac carrier.
 - `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
   string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
   then `[::1]`. Data frames are the connection's bytes in each direction;
@@ -1092,11 +1115,14 @@ APNs.
   characters), only the ids, `kind`, `state` and texts cut to 20 characters
   stay.
 - Banner text: question "<Agent> asks" / the question; permission "<Agent>
-  needs permission" / the title; completed "<Agent> finished" / the last
-  `tail` line; failed "<Agent> stopped with an error" / `body` or the last
-  line; chief "Chief" / `body`; terminal "Terminal · <workspace>" /
-  "<title>: <body>" (a program never chooses the banner's title). Subtitle
-  "<workspace or place> · <Mac>".
+  wants to act on <Mac>" / the title, as the Mac's approval prompt for a
+  streaming device ("<device> wants to control this Mac"); completed
+  "<Agent> finished" / the last `tail` line; failed "<Agent> stopped with an
+  error" / `body` or the last line; chief "Chief" / `body`; terminal
+  "Terminal · <workspace>" / "<title>: <body>" (a program never chooses the
+  banner's title). Subtitle "<workspace or place> · <Mac>"; for a permission
+  only "<workspace or place>" (the Mac is in the title). The phone writes the
+  same text for a sealed push (`PushBanner`, `ApprovalBanner`).
 - `previews: false` (the phone turned Show previews off): the 0.11 banner
   text ("Claude has a question", body the Mac's name) and no subtitle; the
   `cmuxMobile` fields stay, so the buttons still work after unlock.

@@ -58,14 +58,6 @@
   font-size: 12px;
   color: var(--cv-text-muted);
 }
-/* The kind of agent beside its name (Explore, general-purpose): quiet, not a second title. */
-.cv-subagent__kind {
-  margin-left: 8px;
-  font-weight: 400;
-  font-size: var(--text-detail);
-  color: var(--cv-text-muted);
-  letter-spacing: var(--text-detail--letter-spacing);
-}
 .cv-subagents__time,
 .cv-subagent__time {
   flex: none;
@@ -135,12 +127,28 @@ button.cv-subagent > :last-child {
   flex: none;
   color: var(--cv-text-muted);
 }
-/* A running subagent's line with its stop button at the line's right end, after the time. */
+/* A running subagent's line with its stop button after the time. A line that opens keeps its chevron
+   last, at the line's end, so a running line's chevron sits on the same x as an ended line's; Stop
+   goes between the time and the chevron, as in the running tray (Leo, 2026-10-31: "and of course
+   align this right side's chevrons"). The time makes room for Stop (24px) and one gap. */
 .cv-subagent-stoppable {
+  --cv-subagent-inset: 14px;
+  --cv-subagent-gap: 10px;
   position: relative;
 }
-.cv-subagent-stoppable > .cv-subagent {
-  padding-right: 48px;
+.cv-subagent-stoppable > .cv-subagent > .cv-subagent__time {
+  margin-right: calc(24px + var(--cv-subagent-gap));
+}
+.cv-subagent-stoppable > button.cv-subagent + .cv-subagent__stop {
+  right: calc(var(--cv-subagent-inset) + 12px + var(--cv-subagent-gap));
+}
+/* The summary card's rows (summary.css): an 8px inset and gap, 40px tall. */
+.acpmux-summary-subagent-rows .cv-subagent-stoppable {
+  --cv-subagent-inset: 8px;
+  --cv-subagent-gap: 8px;
+}
+.acpmux-summary-subagent-rows .cv-subagent-stoppable > .cv-subagent__stop {
+  top: 8px;
 }
 .cv-subagent__stop {
   appearance: none;
@@ -177,6 +185,21 @@ button.cv-subagent > :last-child {
 .cv-subagent__stop[data-state="failed"],
 .cv-subagent__stop[data-state="failed"]:hover:not(:disabled) {
   color: var(--agent-status-failure);
+}
+/* A transcript row's Stop shows only while its own row is hovered or holds focus, at once, with
+   no fade (as Session Info's grant Revoke and the pull request chips' x do): a group of running
+   agents does not repeat a lit Stop on every row. At rest it is transparent, not hidden, so Tab
+   still reaches it and the time beside it does not move; the row takes no new highlight, only
+   the button lights on its own hover. A disabled Stop stays dimmed while shown. */
+.cv-subagent-stoppable > .cv-subagent__stop {
+  opacity: 0;
+  transition: none;
+}
+.cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop {
+  opacity: 1;
+}
+.cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop:disabled {
+  opacity: 0.5;
 }
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
    8px above and below. A click goes back to the parent's view. */
@@ -371,7 +394,15 @@ button.cv-subagent > :last-child {
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
 }
+/* The dot's slot: a harness mark (size 9) or the toned dot below, either at the same size. */
+.acpmux-agents-list__mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .acpmux-agents-list__dot {
+  display: block;
   flex: none;
   width: 9px;
   height: 9px;
@@ -431,12 +462,16 @@ button.cv-subagent > :last-child {
   container-type: inline-size;
   container-name: running-tray;
   --acpmux-tray-time-width: calc(80px * var(--cmux-interface-scale, 1));
-  --acpmux-tray-status-width: 96px;
-  --acpmux-tray-stop-width: 24px;
+  --acpmux-tray-stop-width: var(--acpmux-composer-control, 28px);
+  --acpmux-tray-status-width: 74px;
+  --acpmux-tray-gap: var(--acpmux-composer-action-gap, 4px);
+  --acpmux-tray-inset: var(--acpmux-composer-inset, calc(8px * var(--cmux-interface-scale, 1)));
+  /* The one trailing column every chevron ends in: the header's, each line's and View all's. */
+  --acpmux-tray-chevron-width: var(--acpmux-composer-control, 28px);
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--acpmux-composer-radius, 11px);
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   color: var(--agent-text);
@@ -460,6 +495,7 @@ button.cv-subagent > :last-child {
    the stack never scrolls the transcript. */
 .acpmux-running-tray__list {
   --acpmux-tray-lines: 5;
+  scroll-padding-block: 2px;
   flex: 0 1 auto;
   min-height: 0;
   max-height: calc(var(--acpmux-tray-lines) * var(--ui-row-height, 28px));
@@ -472,6 +508,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-look="tall"] .acpmux-running-tray__list {
   --acpmux-tray-lines: 8;
 }
+
 /* The `sectioned` look: a hairline between what runs and what ended, and ended lines dim. */
 .acpmux-running-tray[data-look="sectioned"] li:not([data-finished]) + li[data-first-finished] {
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
@@ -491,9 +528,9 @@ button.cv-subagent > :last-child {
   height: var(--ui-row-height, 28px);
 }
 .acpmux-running-tray__head {
+  padding-inline: var(--acpmux-tray-inset);
   height: var(--ui-row-height, 28px);
 }
-.acpmux-running-tray__time,
 .acpmux-running-tray .acpmux-agent-line__time {
   box-sizing: border-box;
   flex: 0 0 var(--acpmux-tray-time-width);
@@ -502,47 +539,116 @@ button.cv-subagent > :last-child {
   text-align: right;
   white-space: nowrap;
 }
-.acpmux-running-tray__status,
-.acpmux-running-tray .acpmux-agent-line__status {
-  box-sizing: border-box;
-  flex: 0 0 var(--acpmux-tray-status-width);
-  min-width: var(--acpmux-tray-status-width);
+/* Status has its own fixed track after the time. Workflow progress stays beside the title. */
+.acpmux-running-tray .acpmux-agent-line__meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--ds-space-1, 4px);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.acpmux-running-tray .acpmux-summary-text > .acpmux-agent-line__stats {
+  margin-inline-start: var(--acpmux-tray-gap);
+  color: var(--agent-muted);
 }
 .acpmux-running-tray .acpmux-summary-agent__state {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
-  width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.acpmux-running-tray__stop-slot {
+/* A quiet line's state word, for screen readers only: the glyph says done or running. */
+.acpmux-agent-line__sr {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* After the title (trayRowLook "inline"): the meta and the time follow the title, no trailing
+   column; the chevron keeps the line's end. */
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-summary-text {
+  flex: 0 1 auto;
+}
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__meta {
+  justify-content: flex-start;
+}
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__time {
+  flex: 0 0 auto;
+  min-width: 0;
+  text-align: start;
+}
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__stop-track {
+  margin-inline-start: auto;
+}
+/* Nothing runs: what ended sits over the composer as quiet lines, with no card around them (Leo,
+   2026-10-31, on one finished line in a bordered card: "why is this still so ass in latest
+   nightly"). */
+.acpmux-running-tray[data-settled] {
+  background: none;
+  box-shadow: none;
+}
+/* The header (Leo's collapsed strip, 2026-10-31: the time floated in a column of its own far from
+   the words it belongs to): the counts take only their width, the elapsed time follows them as quiet
+   meta one gap later, and the chevron ends the row in the trailing column the lines' chevrons and
+   View all's end in. A long title truncates; the time never does. */
+.acpmux-running-tray__head > .acpmux-running-tray__title {
+  flex: 0 1 auto;
+}
+.acpmux-running-tray__time {
+  flex: 1 0 auto;
+  text-align: left;
+  white-space: nowrap;
+}
+.acpmux-running-tray__time:empty {
+  margin-left: -8px;
+}
+.acpmux-running-tray__status,
+.acpmux-running-tray .acpmux-agent-line__chevron,
+.acpmux-running-tray .acpmux-agent-line__chevron-track {
   box-sizing: border-box;
-  flex: 0 0 var(--acpmux-tray-stop-width);
-  min-width: var(--acpmux-tray-stop-width);
+  flex: 0 0 var(--acpmux-tray-chevron-width);
+  width: var(--acpmux-tray-chevron-width);
+  margin: 0;
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
 }
+/* A line's trailing tracks, in order: its time, its state, Stop's track (empty where it has no Stop,
+   so nothing moves), then the chevron's. */
+.acpmux-running-tray .acpmux-agent-line__stop-track {
+  flex: 0 0 var(--acpmux-tray-stop-width);
+}
+/* Stop is a button of its own, so it lies outside the line's button, over the line's Stop track: in
+   the row's box, on its centre line (Leo's open tray, 2026-10-31: each Stop hung below and right of
+   its line). It spans the row so taller wide rows keep all trailing controls centered together.
+   Narrow rows place it over their separate controls line below the title. */
 .acpmux-running-tray .acpmux-agent-line__stop-slot {
   box-sizing: border-box;
   position: absolute;
   top: 0;
-  right: 8px;
-  bottom: 0;
+  right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
+  height: 100%;
   width: var(--acpmux-tray-stop-width);
   min-width: var(--acpmux-tray-stop-width);
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   pointer-events: none;
 }
 .acpmux-running-tray .acpmux-agent-line__stop-slot > button {
+  position: static;
+  top: auto;
+  right: auto;
+  margin: 0;
   pointer-events: auto;
+  width: var(--acpmux-tray-stop-width);
+  height: var(--ui-row-height, 28px);
 }
 /* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
 .acpmux-running-tray__head + .acpmux-running-tray__fold > .acpmux-running-tray__list {
@@ -561,13 +667,15 @@ button.cv-subagent > :last-child {
 }
 /* The overflow control for ended cards, dim beside what runs. */
 .acpmux-running-tray__finished {
+  padding-inline: var(--acpmux-tray-inset);
   color: var(--agent-muted);
 }
 .acpmux-running-tray__finished > svg {
+  margin-inline: calc((var(--acpmux-tray-chevron-width) - 14px) / 2);
   flex: none;
 }
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
-   stop button (SubagentGroup.tsx, inspector/TasksSection.tsx). */
+   stop button (SubagentGroup.tsx, session-info/TasksSection.tsx). */
 .acpmux-agent-line {
   position: relative;
   display: flex;
@@ -579,79 +687,93 @@ button.cv-subagent > :last-child {
   min-width: 0;
 }
 /* Progress is a second line and may wrap for long counts or narrow panes. Keep the compact
-   28px row when it fits, but let both the tray and Inspector row grow instead of clipping it. */
+   28px row when it fits, but let both the tray and Session Info row grow instead of clipping it. */
 .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
   height: auto;
   min-height: 28px;
   align-items: flex-start;
   padding-block: 4px;
 }
+/* One leading title track, then fixed duration, status, Stop and chevron tracks. */
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
-  /* Reserve the final track while keeping the stop control outside the button. */
-  padding-left: calc(8px + var(--acpmux-tray-indent, 0px));
-  padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--acpmux-tray-time-width) var(--acpmux-tray-status-width) var(--acpmux-tray-stop-width) var(--acpmux-tray-chevron-width);
+  column-gap: var(--acpmux-tray-gap);
+  align-items: center;
+  padding-inline: var(--acpmux-tray-inset);
+}
+.acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
+  grid-area: 1 / 1;
+  margin-left: var(--acpmux-tray-indent, 0px);
+  justify-self: start;
+  width: 14px;
+}
+.acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
+  grid-area: 1 / 1;
+  min-width: 0;
+  margin-left: calc(14px + var(--acpmux-line-icon-gap, 8px) + var(--acpmux-tray-indent, 0px));
+}
+.acpmux-running-tray .acpmux-agent-line__time {
+  grid-area: 1 / 2;
+}
+.acpmux-running-tray .acpmux-agent-line__meta {
+  grid-area: 1 / 3;
+  width: 100%;
+  max-width: none;
+  justify-content: flex-start;
+}
+.acpmux-running-tray .acpmux-agent-line__stop-track {
+  grid-area: 1 / 4;
+  width: var(--acpmux-tray-stop-width);
+}
+.acpmux-running-tray .acpmux-agent-line__stop-slot > button {
+  scroll-margin-block: 2px;
+}
+.acpmux-running-tray :is(.acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
+  grid-area: 1 / 5;
 }
 .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop {
   position: static;
   flex: none;
   margin: 0;
 }
-.acpmux-agent-line > .acpmux-agent-line__stop-slot > .acpmux-chat-inspector-stop {
+.acpmux-agent-line > .acpmux-agent-line__stop-slot > .acpmux-session-info-stop {
   margin: 0;
 }
-/* A narrow tray cannot fit the title, duration and controls on one line. Give every row the
-   same two-line layout: title above, intact duration and status beside Stop below. Query the
-   tray itself so split panes and gallery frames follow the same rule. */
+/* Narrow rows put their title above the same right-aligned controls. */
 @container running-tray (max-width: 400px) {
-  .acpmux-running-tray__head,
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
+    /* At the smallest split widths, only the status track contracts. The track remains the
+       same width on every row; duration and the composer-aligned controls never get pushed out. */
+    --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
     position: relative;
-    display: grid;
-    grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr) var(--acpmux-tray-stop-width);
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
-    column-gap: 4px;
     row-gap: 0;
     height: calc(2 * var(--ui-row-height, 28px));
-    padding: 0 8px;
+    padding-block: 0;
   }
-  /* Progress can wrap above the controls without sharing their track. */
   .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     align-items: center;
   }
-  .acpmux-running-tray__head > .acpmux-lineage__icon,
   .acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
     position: absolute;
+    grid-area: auto;
     top: 7px;
-    left: calc(8px + var(--acpmux-tray-indent, 0px));
+    left: var(--acpmux-tray-inset);
   }
-  .acpmux-running-tray__head > .acpmux-summary-text,
   .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
-    grid-row: 1;
-    margin-left: calc(22px + var(--acpmux-tray-indent, 0px));
   }
-  .acpmux-running-tray__time,
-  .acpmux-running-tray .acpmux-agent-line__time {
-    grid-column: 1;
-    grid-row: 2;
-  }
-  .acpmux-running-tray__status,
-  .acpmux-running-tray .acpmux-agent-line__status {
-    grid-column: 2;
-    grid-row: 2;
-    min-width: 0;
-    gap: 4px;
-  }
-  .acpmux-running-tray__stop-slot {
-    grid-column: 3;
+  .acpmux-running-tray :is(.acpmux-agent-line__time, .acpmux-agent-line__meta, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
     grid-row: 2;
   }
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
     top: auto;
     bottom: 0;
     height: var(--ui-row-height, 28px);
+    transform: translateY(-0.5px);
   }
 }
 /* Quiet at rest. The line is the tray's main control, so its wash covers the whole line
@@ -659,16 +781,24 @@ button.cv-subagent > :last-child {
    no line hover. */
 .acpmux-running-tray .acpmux-summary-row,
 .acpmux-running-tray .acpmux-summary-link:is(:hover, :active),
-.acpmux-running-tray :is(.acpmux-chat-inspector-stop, .cv-subagent__stop):is(:hover, :active) {
+.acpmux-running-tray :is(.acpmux-session-info-stop, .cv-subagent__stop):is(:hover, :active) {
   border-radius: 0;
   background: none;
 }
+/* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
 .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
 .acpmux-running-tray .acpmux-running-tray__head:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
 }
-.acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-chat-inspector-stop):enabled {
+.acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-session-info-stop):enabled {
   cursor: default;
+}
+/* A line's state icon and its title keep the row's one icon gap (.acpmux-summary-row's 8px), never
+   touching (cmux#28875); the narrow layout's title margin reads it. */
+.acpmux-running-tray,
+.acpmux-agent-line {
+  --acpmux-line-icon-gap: 8px;
 }
 /* What the line is ("Command", "Subagent"), dim before its name. */
 .acpmux-agent-line__kind {
@@ -694,7 +824,7 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   color: var(--agent-tone-ink);
 }
-/* A line's hover card (the Inspector's Subagents): its name, then its state, time and what it does
+/* A line's hover card (Session Info's Subagents): its name, then its state, time and what it does
    now, then its task, dim; a failed one's state in the danger color. */
 .ui-card.acpmux-agent-card__popup {
   max-width: min(320px, calc(100vw - 24px));
@@ -755,7 +885,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray[data-placement="after-latest-message"] {
   flex: none;
-  margin: 0 var(--cv-inset) 8px;
+  margin: 0 var(--cv-inset-end, var(--cv-inset)) var(--acpmux-stack-gap, 0px) var(--cv-inset);
 }
 .acpmux-agent-card__state[data-status="failed"] {
   color: var(--agent-status-failure);
@@ -777,21 +907,47 @@ button.cv-subagent > :last-child {
 }
 /* The line and, on hover or focus, its Restart (SubagentDoneLine.tsx), the hover row's compact
    button (conversation/MessageActions.tsx): hidden, it keeps its room, so pointing moves nothing. */
-.cv-subagent-done-row {
+/* The row keeps the tool rows' gap and trailing column (conversation.css `.cv-tool`): the line's
+   button as wide as its words, its hover buttons after it, then the duration pushed to the
+   trailing column and the chevron in the disclosure slot, on the same x as every tool row's. */
+.cv-tool.cv-subagent-done-row {
+  position: relative;
+  isolation: isolate;
   display: flex;
-  align-items: center;
   min-width: 0;
 }
+.cv-subagent-done::before {
+  /* The line's one button owns the full row: its hit area reaches the duration and chevron while
+     those columns remain inert visual markers, so the row has no second navigation control. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-backdrop);
+}
 .cv-subagent-done-row > .cv-subagent-done {
+  grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr);
   width: auto;
   min-width: 0;
   flex: 0 1 auto;
+}
+.cv-subagent-done-row > .cv-subagent-done__trail {
+  flex: none;
+  margin-inline-start: auto;
+}
+.cv-subagent-done-row > .cv-tool__chevron {
+  flex: none;
+  pointer-events: none;
+}
+.cv-subagent-done-row > .cv-tool__chevron.is-idle {
+  visibility: hidden;
+}
+.cv-subagent-done-row[data-state="failed"] .cv-subagent-done__time {
+  color: var(--agent-status-failure);
 }
 .cv-subagent-done__actions {
   display: inline-flex;
   align-items: center;
   flex: none;
-  margin-inline-start: 4px;
   opacity: 0;
 }
 /* They fade as a message's hover row does (conversation.css --cv-actions-*, #23769). */
@@ -860,12 +1016,29 @@ button.cv-subagent > :last-child {
 
 /* ---------- The tray's motion (trayMotion.tsx, Leo 2026-10-26: "following along with the exact
    same things as everything else") ---------- */
-/* The card's entrance and its kept copy's exit. Shipped: the new message's own (the gallery's other
-   arms, trayMotion.experiment.ts, live in gallery/fixtures/trayMotionArms.css only): a live transcript row's cv-enter (conversation.css) on the same
-   tokens, and what leaves on --agent-motion-out. */
+/* The card's entrance and its kept copy's exit. Shipped: the new message's own opacity-only arrival
+   (the gallery's other arms, trayMotion.experiment.ts, live in gallery/fixtures/trayMotionArms.css
+   only), and what leaves on --agent-motion-out. */
 .acpmux-running-tray {
-  --acpmux-tray-enter: cv-enter var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  /* The tray's box is part of the transcript's dock. Its arrival must not move visible rows; the
+     dock and VirtualTranscript settle their measured height in one frame, then the ink fades in. */
+  --acpmux-tray-enter: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
   --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
+  /* A line that joins the open list arrives as a live transcript row does: opacity only, so the
+     dock can reserve its measured height without moving the rows already on screen. The attribute
+     stays: SubagentTray.tsx listens for the line's animationend through it, and trayMotion.tsx's
+     leaving copy holds it where it is drawn. */
+  --acpmux-tray-line-enter: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+}
+.acpmux-running-tray__list > li[data-enter] {
+  animation: var(--acpmux-tray-line-enter);
+}
+/* Reduce Motion keeps the same opacity-only arrival (conversation.css cv-enter-fade); the tray marks
+   no arrival then (SubagentTray.tsx), so this only keeps the two in step if one is marked. */
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-running-tray__list > li[data-enter] {
+    animation: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  }
 }
 /* The bottom stack's own rise-on-mount (bottomStack.css) played on every mount, a chat switch too:
    the tray enters only when it appears in a chat that showed without it. */
@@ -916,13 +1089,11 @@ button.cv-subagent > :last-child {
 @keyframes acpmux-tick-in {
   from {
     opacity: 0;
-    translate: 0 0.4em;
   }
 }
 @keyframes acpmux-tick-out {
   to {
     opacity: 0;
-    translate: 0 -0.4em;
   }
 }
 

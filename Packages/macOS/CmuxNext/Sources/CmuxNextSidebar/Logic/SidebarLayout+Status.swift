@@ -48,19 +48,9 @@ nonisolated extension SidebarLayout {
                 rows.append(SidebarRow(
                     key: .workspace(member.ws.id), y: y, height: h, section: member.section.id,
                     group: nil, siblingIndex: member.index, parentIndex: nil, isLastInGroup: false,
-                    isCollapsed: false, childCount: 0, groupColor: nil,
-                    tabDisclosure: o.disclosure(member.ws), content: content
+                    isCollapsed: false, childCount: 0, groupColor: nil, content: content
                 ))
                 y += h + m.rowSpacing
-                guard o.listsTabs(member.ws) else { continue }
-                for tab in member.ws.tabs {
-                    rows.append(SidebarRow(
-                        key: .tab(member.ws.id, tab.id), y: y, height: m.tabRowHeight, section: member.section.id,
-                        group: nil, workspace: member.ws.id, siblingIndex: 0, parentIndex: nil,
-                        isLastInGroup: false, isCollapsed: false, childCount: 0, groupColor: nil, tabKind: tab.kind
-                    ))
-                    y += m.tabRowHeight + m.rowSpacing
-                }
             }
             // The next status group follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
         }

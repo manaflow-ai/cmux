@@ -24,7 +24,8 @@ public final class AutomationsPage {
     public private(set) var rows: [AutomationRow] = []
     /// The row whose detail shows.
     public var selection: AutomationRow.ID?
-    /// Why a source could not load (signed out of Cloud, no runner), per source.
+    /// Why a source could not load, per source: the ``AutomationsPageHost/SourceError`` code
+    /// (`automation.signed_out`, `feature.disabled`, `no_cli`, `cli_failed`), else `unreachable`.
     public private(set) var problems: [AutomationRow.Target: String] = [:]
 
     @ObservationIgnored private let local: @Sendable () async throws -> Data
@@ -56,11 +57,11 @@ public final class AutomationsPage {
         var problems: [AutomationRow.Target: String] = [:]
         switch await mine {
         case let .success(data): next += AutomationRow.local(data)
-        case let .failure(error): problems[.thisMac] = String(describing: error)
+        case let .failure(error): problems[.thisMac] = (error as? AutomationsPageHost.SourceError)?.code ?? "unreachable"
         }
         switch await theirs {
         case let .success(data): next += AutomationRow.cloud(data)
-        case let .failure(error): problems[.cloud] = String(describing: error)
+        case let .failure(error): problems[.cloud] = (error as? AutomationsPageHost.SourceError)?.code ?? "unreachable"
         }
         rows = next
         self.problems = problems

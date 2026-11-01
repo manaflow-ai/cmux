@@ -62,8 +62,10 @@
 use cmux_json::JsonSet as _;
 
 // A turn a daemon restart cut off is continued from the restored queue.
+pub(super) mod reset_hint;
 #[path = "restart_resume.rs"]
 mod restart_resume;
+pub(in crate::hub) use restart_resume::Cut;
 mod restore;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
@@ -209,6 +211,7 @@ pub(super) struct CutTurn<'a> {
     pub control: Control,
     pub trust_gate: bool,
     pub error: &'a str,
+    pub not_before: Option<u64>,
 }
 
 /// A waiting continuation's timer: its mark going wakes it (`Drop`), so Stop, close or a turn
@@ -398,17 +401,51 @@ impl TurnInfo {
         control: Control,
     ) -> Self {
         TurnInfo {
+            trigger: false,
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
-            masked_preview: super::session::masked_preview(text, 200),
+            masked_preview: String::new(),
             turn_id: turn_id.to_owned(),
             prompt_id: prompt_id.to_owned(),
             turn_seq: 0,
             control,
             doing: Default::default(),
+            notice: false,
+            persons: false,
         }
+        .shown_as(&super::prompt_line::prompt_line(text, client, None))
     }
+
+    /// The turn, marked as one the person's own prompt started, or not ([`TurnInfo::persons`]).
+    pub(super) fn by_person(mut self, persons: bool) -> Self {
+        self.persons = persons;
+        self
+    }
+
+    /// The turn with `line` as the line its prompt leaves on the summary (`prompt_line.rs`): a
+    /// prompt's turn names it from the prompt's provenance (`turns.rs`), which `prompted` lacks.
+    pub(super) fn shown_as(mut self, line: &str) -> Self {
+        self.show(line);
+        self
+    }
+
+    /// The turn with `notice` as whether its prompt is acpmux's notice (`TurnInfo::notice`).
+    pub(super) fn noticed(mut self, notice: bool) -> Self {
+        self.notice = notice;
+        self
+    }
+
+    /// Sets the line its prompt leaves on the summary ([`TurnInfo::shown_as`]): masked, then cut
+    /// to 200 characters. A line it gave comes back the same (`promptLine` on a restart).
+    pub(super) fn show(&mut self, line: &str) {
+        self.masked_preview = shown_line(line);
+    }
+}
+
+/// `line` as a turn's summary shows it ([`TurnInfo::show`]): its secrets masked, then cut.
+pub(super) fn shown_line(line: &str) -> String {
+    super::session::masked_preview(line, 200)
 }
 
 impl Hub {
@@ -524,7 +561,7 @@ impl Hub {
         let (root, done) = split_attempt(cut.prompt_id);
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
-        let (control, trust_gate) = (cut.control, cut.trust_gate);
+        let (control, trust_gate, not_before) = (cut.control, cut.trust_gate, cut.not_before);
         let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
@@ -544,17 +581,29 @@ impl Hub {
                 return;
             };
             let attempt = done + 1;
-            let delay = staggered(delay, &session.id);
+            let now = super::now_ms();
+            let limits = session.meta().usage_limits;
+            let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
+            let next_at =
+                now.saturating_add(staggered(delay, &session.id)).max(reset.unwrap_or(now));
+            let delay = next_at.saturating_sub(now);
             let retry = RetrySummary {
                 attempt: attempt as u64,
                 of: delays.len() as u64,
                 reason,
-                next_at: super::now_ms().saturating_add(delay),
+                next_at,
                 prompt_id: root.clone(),
                 turn_id: turn_id.clone(),
             };
             let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
             msg.set("delayMs", json!(delay));
+            msg.set("error", json!(error));
+            msg.set("control", json!(control.as_str()));
+            msg.set("trustGate", json!(trust_gate));
+            msg.set("notBefore", json!(not_before));
+            if let Some(from) = &from {
+                msg.set("from", json!(from));
+            }
             // Tests only: pause a retry before its wait is set.
             #[cfg(test)]
             {
@@ -586,6 +635,7 @@ impl Hub {
                 control,
                 trust_gate,
                 error: &error,
+                not_before: None,
             };
             hub.auto_resume(&session, cut, attempt).await;
         });
@@ -628,6 +678,20 @@ impl Hub {
     /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
         is_pending(session.auto_resume.lock().as_ref())
+    }
+
+    /// An explicit (non-restart) shutdown: a retry that waits, or one only the journal holds yet,
+    /// is stopped; a chat whose turn runs or is ending is left alone, so the next daemon still
+    /// continues the turn the shutdown cut (`restart_resume.rs`).
+    pub(super) fn stop_retry_at_shutdown(&self, session: &Session) {
+        let cut = session.turn().is_some()
+            || matches!(
+                session.auto_resume.lock().as_ref(),
+                Some(Mark::Ending(_) | Mark::Stopping(_))
+            );
+        if !cut {
+            self.stop_auto_resume(session);
+        }
     }
 
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or
@@ -912,7 +976,10 @@ impl Hub {
     ) {
         // Transfer replacement can leave this old task alive after the returning journal
         // takes its id. It must neither fire nor record a skip in that new journal.
-        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+        // Once a shutdown began (a restart too) it never fires either: starts are fenced, so
+        // it would end as a shutdown failure that supersedes the saved schedule. Its wait
+        // stays durable, and the next daemon restores it (`restore.rs`).
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) || self.shutting_down() {
             return;
         }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
@@ -980,8 +1047,12 @@ impl Hub {
     ) {
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         self.clear_fired(session, cut_turn);
+        // Read before the retry lock: scheduling takes the shutdown plan, then this lock
+        // (`before_shutdown`, `set_retry`), so never the other way round.
+        let fenced = self.shutting_down()
+            && !self.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
         let _pending = session.auto_resume.lock();
-        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) || fenced {
             return;
         }
         #[cfg(test)]
