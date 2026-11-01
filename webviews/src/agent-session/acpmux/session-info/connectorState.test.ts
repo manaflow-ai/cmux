@@ -7,31 +7,21 @@ describe("summarizeConnectors", () => {
       kind: "loaded",
       count: 1,
     });
-    expect(
-      summarizeConnectors([{ status: "connected" }, { status: "connected" }]),
-    ).toEqual({
+    expect(summarizeConnectors([{ status: "connected" }, { status: "connected" }])).toEqual({
       kind: "loaded",
       count: 2,
     });
   });
 
   test("surfaces reconnect before a loaded count", () => {
-    expect(
-      summarizeConnectors([
-        { status: "connected" },
-        { status: "failed" },
-        { status: "pending" },
-      ]),
-    ).toEqual({
+    expect(summarizeConnectors([{ status: "connected" }, { status: "failed" }, { status: "pending" }])).toEqual({
       kind: "reconnect",
       count: 1,
     });
   });
 
   test("surfaces pending servers while the harness is still loading", () => {
-    expect(
-      summarizeConnectors([{ status: "connected" }, { status: "pending" }]),
-    ).toEqual({
+    expect(summarizeConnectors([{ status: "connected" }, { status: "pending" }])).toEqual({
       kind: "connecting",
       count: 1,
     });

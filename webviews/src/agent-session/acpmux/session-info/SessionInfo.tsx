@@ -1156,7 +1156,6 @@ export function SessionInfo({
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const connectorSummary = summarizeConnectors(mcp);
-  const reconnect = connectorSummary.kind === "reconnect" ? connectorSummary.count : 0;
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has had subagents or sub-sessions, or whose running limit
   // someone set (its own, an ancestor's, the workspace's or the settings'): a chat that never used

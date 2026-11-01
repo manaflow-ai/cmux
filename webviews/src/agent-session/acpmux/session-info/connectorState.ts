@@ -10,14 +10,10 @@ export type ConnectorSummary =
   | { kind: "connecting"; count: number }
   | { kind: "loaded"; count: number };
 
-export function summarizeConnectors(
-  servers: readonly { status?: ConnectorStatus }[],
-): ConnectorSummary {
+export function summarizeConnectors(servers: readonly { status?: ConnectorStatus }[]): ConnectorSummary {
   const failed = servers.filter((server) => server.status === "failed").length;
   if (failed > 0) return { kind: "reconnect", count: failed };
-  const pending = servers.filter(
-    (server) => server.status === "pending",
-  ).length;
+  const pending = servers.filter((server) => server.status === "pending").length;
   if (pending > 0) return { kind: "connecting", count: pending };
   return { kind: "loaded", count: servers.length };
 }

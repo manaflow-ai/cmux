@@ -604,14 +604,6 @@ export default componentEntry<Props>({
       props: full,
       play: checkTopBlockAlignment,
     },
-    "connectors-loaded": {
-      note: "Connector inventory variant: two MCP servers loaded by the attached harness read as \"2 loaded\". This deliberately does not claim provider authentication or resource authorization.",
-      props: { ...full, summary: { ...summary, mcpServers: [{ name: "github", status: "connected" as const }, { name: "linear", status: "connected" as const }] } },
-    },
-    "connectors-connecting": {
-      note: "Connector inventory variant: one MCP server is still loading, so the head says \"1 connecting\" rather than a green connected count.",
-      props: { ...full, summary: { ...summary, mcpServers: [{ name: "github", status: "pending" as const }] } },
-    },
     "workflow-running": {
       note: "Chosen: the live workflow row keeps the agent name above its truncating model label, puts its current action beneath, and keeps state and elapsed time aligned on the right. Running work uses a spinner; finished and failed work use status marks; queued work uses an outline.",
       props: workflowProps("running"),
@@ -712,11 +704,20 @@ export default componentEntry<Props>({
       },
     },
     "connectors-loaded": {
-      note: "Connector inventory variant: two MCP servers loaded by the attached harness read as \"2 loaded\". This deliberately does not claim provider authentication or resource authorization.",
-      props: { ...full, summary: { ...summary, mcpServers: [{ name: "github", status: "connected" as const }, { name: "linear", status: "connected" as const }] } },
+      note: 'Connector inventory variant: two MCP servers loaded by the attached harness read as "2 loaded". This deliberately does not claim provider authentication or resource authorization.',
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          mcpServers: [
+            { name: "github", status: "connected" as const },
+            { name: "linear", status: "connected" as const },
+          ],
+        },
+      },
     },
     "connectors-connecting": {
-      note: "Connector inventory variant: one MCP server is still loading, so the head says \"1 connecting\" rather than a green connected count.",
+      note: 'Connector inventory variant: one MCP server is still loading, so the head says "1 connecting" rather than a green connected count.',
       props: { ...full, summary: { ...summary, mcpServers: [{ name: "github", status: "pending" as const }] } },
     },
     "context-connectors-open": {
