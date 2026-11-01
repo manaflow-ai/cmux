@@ -725,8 +725,6 @@ button.cv-subagent > :last-child {
     top: 7px;
     left: var(--acpmux-tray-inset);
   }
-  /* The title starts past the 14px icon and the row's icon gap, as on one line (the button's 8px
-     padding is the icon's own left). */
   .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
   }
