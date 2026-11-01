@@ -138,6 +138,11 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
     var takeSpare: (() -> AgentPaneView?)?
+    /// Tab `key` got a page (built or adopted from the spare), drawn or not: a page built while its
+    /// tab does not draw starts its hidden clock (`AgentPageHibernation.pageBuilt`).
+    var onPageBuilt: ((String) -> Void)?
+    /// Every page is asked what it holds now (true), or that ended (false) (`AgentPageHibernation.holdAwake`).
+    var onCollectingPages: ((Bool) -> Void)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
     let retirer = AgentPageRetirer()
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
@@ -238,8 +243,13 @@ final class AgentTabStore {
     var wakeStates: [String: AgentPaneWakeState] = [:]
     /// What the chat pages held at the last quit, for each tab's first page at launch (``AgentPaneRelaunchWake``).
     var relaunchWake = AgentPaneRelaunchWake(file: nil)
-    /// What every chat holds for the next launch (the quit's window step).
-    func relaunchWakeStates() async -> [String: AgentPaneWakeState] { await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab) }
+    /// What every chat holds for the next launch (the quit's window step). Pages that froze while
+    /// hidden thaw first and stay awake until it is collected: a frozen page answers nothing.
+    func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
+        onCollectingPages?(true)
+        defer { onCollectingPages?(false) }
+        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
+    }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
@@ -415,6 +425,7 @@ final class AgentTabStore {
            seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
             adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
+            onPageBuilt?(key)
             return spare
         }
         let model = AgentPaneModel(
@@ -454,6 +465,7 @@ final class AgentTabStore {
         }
         views[key] = view
         track(key, in: store)
+        onPageBuilt?(key)
         return view
     }
 

@@ -1718,6 +1718,45 @@ let package = Package(
         self.assertEqual(self.remote_head(), before)
         self.assertIn("needs a tryIt action/deeplink or a docs link", output)
 
+    def test_a_pushed_highlight_that_is_not_utf8_is_refused_as_the_release_notary_test_fails_it(self):
+        # The release-notary test opens each highlight as strict UTF-8: a Latin-1 byte is a test error there, so the
+        # hook refuses it too, naming the file (review of #31260).
+        before = self.remote_head()
+        path = self.repo / self.HIGHLIGHTS / "continue-retry.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.HIGHLIGHT_WITH_DOCS.replace("Retry asks again", "Retry asks the caf\u00e9 again")
+                         .encode("latin-1"))
+        self.commit("adds a Latin-1 highlight")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: is not UTF-8 text", output)
+
+    def test_a_validator_warning_on_stderr_does_not_turn_a_refusal_into_a_pass(self):
+        # The validator's result is read from its own file, never from its output: a warning it prints (a future
+        # SyntaxWarning) must not make the check fail open (review of #31260).
+        digest = self.repo / "scripts/whats-new/digest.py"
+        digest.write_text(digest.read_text() + "\nimport sys\nprint('digest: a warning', file=sys.stderr)\n"
+                          "print('digest: a note')\n")
+        self.commit("the validator prints a warning when it loads")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight with no docs link")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: entries[0] (continue-retry): "
+                      "needs a tryIt action/deeplink or a docs link", output)
+        self.assertNotIn("were not validated", output)
+
 
 
 class SwiftFormatCacheTests(unittest.TestCase):
