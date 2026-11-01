@@ -461,6 +461,21 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)
 
+    def test_nightly_next_control_jobs_use_fleet_picker_then_light_hosted(self) -> None:
+        """Cadence control jobs must never pin a dead Blacksmith Linux label.
+
+        CI_CONTROL_RUNNER is the live fleet-picker result; hosted Ubuntu is the
+        permitted light-job fallback when no live fleet label is available.
+        """
+        expected = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CONTROL_RUNNER || 'ubuntu-24.04' }}"
+        for name, job in (("nightly-next-tick.yml", "request"), ("nightly-next-feed-watch.yml", "watch")):
+            text = (WORKFLOWS / name).read_text(encoding="utf-8")
+            body = text[text.index(f"\n  {job}:\n") + 1:]
+            match = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE)
+            self.assertIsNotNone(match, name)
+            self.assertEqual(match.group(1), expected)
+            self.assertNotIn("blacksmith-2vcpu-ubuntu-2404", body.split("\n  ", 2)[0])
+
     def test_no_workflow_reads_the_retired_decide_runner_variable(self) -> None:
         """CI_NIGHTLY_DECIDE_RUNNER named a Blacksmith pool and is deleted."""
         for path in sorted(WORKFLOWS.glob("*.yml")):
