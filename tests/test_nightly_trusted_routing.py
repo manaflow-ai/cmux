@@ -108,14 +108,15 @@ class NightlyTrustedRouting(unittest.TestCase):
             job = DOC['jobs'][name]
             self.assertIn('decide', job['needs'])
             expr = parse_expression(job['runs-on'].removeprefix('${{').removesuffix('}}'))
-            for owner in ('manaflow-ai', 'fork'):
+            for owner, repository in (('manaflow-ai', 'manaflow-ai/cmux'),
+                                      ('manaflow-ai', 'manaflow-ai/other'), ('fork', 'fork/cmux')):
                 for track in ('nightly-next', 'nightly', ''):
                     for attempt in (1, 2, 3):
                         for activation in (dedicated, '', 'glaeda-trusted-next-nightly',
                                            'glaeda-runner-unserved', 'macos-26', 'ubuntu-24.04'):
                             for overflow in ('', 'blacksmith-16vcpu-ubuntu-2404'):
                                 context = {
-                                    'github.repository_owner': owner,
+                                    'github.repository_owner': owner, 'github.repository': repository,
                                     'github.run_attempt': attempt,
                                     'needs.decide.outputs.track': track,
                                     'vars.CI_NIGHTLY_ONLY_RUNNER': activation,
@@ -123,7 +124,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                                 }
                                 expected = ('ubuntu-24.04' if owner != 'manaflow-ai' or attempt == 1
                                             else overflow or 'blacksmith-32vcpu-ubuntu-2404')
-                                if owner == 'manaflow-ai' and track == 'nightly-next' and attempt == 1 and activation == dedicated:
+                                if repository == 'manaflow-ai/cmux' and track == 'nightly-next' and attempt == 1 and activation == dedicated:
                                     expected = dedicated
                                 with self.subTest(job=name, **context):
                                     self.assertEqual(evaluate(expr, context), expected)
