@@ -440,7 +440,8 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, retryable: false, message: expect.stringContaining("resize refused") })
     expect(await rpc.shape(c, machine)).toEqual({ ok: true, value: target })
     // A provider call that did not answer stays pending: retries answer indeterminate, never a second intent.
-    await stub.fakeControl({ fail_next: 1 } as never)
+    // Two misses: the shape read before the intent, then the resize call itself.
+    await stub.fakeControl({ fail_next: 2 } as never)
     expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, code: "mutation.indeterminate", retryable: true })
     expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, code: "mutation.indeterminate", retryable: true })
     await stub.fakeControl({ advance_ms: 60_000 })
