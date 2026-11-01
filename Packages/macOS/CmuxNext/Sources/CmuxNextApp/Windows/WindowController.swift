@@ -41,6 +41,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
     private var previewFeaturesObservation: Task<Void, Never>?
+    private var touchBarObservation: Task<Void, Never>?
+    private var cmuxTouchBar: CmuxTouchBar?
     /// The room theme: every workspace without its own theme. The window's
     /// own chrome (sidebar, titlebar, backdrop) draws in the shown
     /// workspace's colors at any light/dark, so it matches the content beside
@@ -112,6 +114,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
         window.delegate = self
+        installTouchBar()
         window.focus = focus
         focus.applier = focusApplier
         focus.window = window
@@ -137,6 +140,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         startupObservation?.cancel()
         previewFeaturesObservation?.cancel()
+        touchBarObservation?.cancel()
         roomObservation?.cancel()
         roomBrowserProfileObservation?.cancel()
         state.roomBrowserProfileOf = nil
@@ -149,6 +153,33 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // Last: a host the steps above made for the closing window (the overlay layer is made on
         // first use) closes its panel too, since it came after the close that tears hosts down.
         if let window { WindowOverlayHost.windowIsClosing(window) }
+    }
+
+    private func installTouchBar() {
+        let enabled = services.settings?.snapshot.touchBar ?? CmuxConfigSnapshot.touchBarFallback
+        setTouchBar(enabled: enabled)
+        guard let settings = services.settings else { return }
+        touchBarObservation = Task { [weak self, weak settings] in
+            guard let settings else { return }
+            await settings.waitForLoad(atLeast: 1)
+            for await enabled in ObservationStream({ settings.snapshot.touchBar }) {
+                self?.setTouchBar(enabled: enabled)
+            }
+        }
+    }
+
+    private func setTouchBar(enabled: Bool) {
+        guard let window else { return }
+        if enabled {
+            if cmuxTouchBar == nil {
+                cmuxTouchBar = CmuxTouchBar { [weak services] action, invocation in
+                    services?.registry.perform(ActionID(rawValue: action), invocation: invocation) ?? false
+                }
+            }
+            window.touchBar = cmuxTouchBar?.touchBar
+        } else {
+            window.touchBar = nil
+        }
     }
 
     /// Preview pages are removed immediately when Labs is switched off,
@@ -486,7 +517,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // A panel over this window has the keys: no Ghostty keybind below (`KeyRouter.overlayHasKeys`).
         if !isKeyWindow, let focus, KeyRouter.overlayHasKeys(focus.state) { return false }
-        if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
+        if let keyRouter, let focus, let controller = windowController as? WindowController, keyRouter.routeContentKeyEquivalent(event, focus: focus.state, facts: keyRouter.facts(in: self, controller: controller)) { return true }
         return super.performKeyEquivalent(with: event)
     }
 

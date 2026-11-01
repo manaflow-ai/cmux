@@ -41,3 +41,20 @@ test("the spinner brings its own hidden dot and turning ring, not only conversat
   expect(conversation).not.toMatch(/^\.cv-spinner__dot \{/m);
   expect(conversation).not.toMatch(/\.cv-spinner \{\s*animation: cmux-spin /);
 });
+
+// The agent working-state mark is the settled thin arc turning smoothly, never the macOS activity
+// indicator's segmented spokes stepping round (#29903 swapped them in; Leo 2026-11-01: "why the f***
+// did you make the spinner into this????").
+test("agent work draws the settled turning arc, never stepping spokes", async () => {
+  const working = renderToStaticMarkup(<Spinner />);
+  expect(working).toContain("cv-spinner__arc");
+  expect(working).not.toContain("cv-spinner__spokes");
+  expect(working).not.toContain("<line");
+  expect(renderToStaticMarkup(<Spinner loading />)).toContain("cv-spinner__arc");
+  const dir = import.meta.dir;
+  for (const sheet of ["spinner.css", "conversation.css"]) {
+    const css = await Bun.file(`${dir}/${sheet}`).text();
+    expect(css).not.toMatch(/\.cv-spinner\[data-working\][^{]*\{[^}]*steps\(/);
+    expect(css).not.toContain("cv-spinner__spokes");
+  }
+});
