@@ -60,7 +60,7 @@ afterAll(() => {
   }
 });
 
-type Message = { id?: number; method: string; params?: Record<string, unknown> };
+type Message = { id?: number; method: string; params?: Record<string, unknown>; beforeList?: boolean };
 
 const SESSION = "peer-chat";
 const OTHER = "local-chat";
@@ -133,6 +133,8 @@ class Daemon {
   /// Runs once at the first request after an attach was answered (the reads that follow it).
   afterAttach: (() => void) | undefined;
   private attachAnswered = false;
+  /// Whether the chat list was answered yet.
+  private listed = false;
   readonly asked: Message[] = [];
 
   constructor() {
@@ -145,6 +147,9 @@ class Daemon {
   send(raw: string): void {
     const message = JSON.parse(raw) as Message;
     if (message.id === undefined) return;
+    // An attach the pane asks with the chat list, before it knows the chat runs on a machine
+    // (direct.ts `askEarly`): the open drops it for a peer chat and attaches as these tests script.
+    if (message.method === "_acpmux/attach" && !this.listed) message.beforeList = true;
     this.asked.push(message);
     const commandRead =
       message.method === "_acpmux/events" &&
@@ -226,12 +231,31 @@ class Daemon {
     });
   }
 
+  private answerBeforeList(message: Message): void {
+    if (this.down)
+      return this.reply(message.id, {
+        error: { code: -32603, message: "peer_unreachable: huge-blue", data: { reason: "peer_unreachable" } },
+      });
+    const page = this.log.slice(-3);
+    this.reply(message.id, {
+      result: {
+        session: this.summary(),
+        events: page,
+        hasMore: page.length < this.log.length,
+        lastSeq: this.log.at(-1)?.seq ?? 0,
+      },
+    });
+  }
+
   private reply(id: number | undefined, body: Record<string, unknown>) {
     this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id, ...body }) });
   }
 
   private answer(message: Message): void {
     const p = message.params ?? {};
+    // The scripted attach (its hooks, refusals and replies below) is the one the open asks of the
+    // chat as listed; one asked with the list is answered as the machine is, and changes nothing.
+    if (message.beforeList && p.sessionId !== OTHER) return this.answerBeforeList(message);
     if (message.method === "_acpmux/attach") this.attachAnswered = true;
     else if (this.attachAnswered && this.afterAttach) {
       const hook = this.afterAttach;
@@ -242,6 +266,7 @@ class Daemon {
       return this.reply(message.id, {
         result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } },
       });
+    if (message.method === "_acpmux/watch") this.listed = true;
     if (message.method === "_acpmux/watch")
       return this.reply(message.id, {
         result: { sessions: [this.summary(), ...(this.other ? [this.otherSummary()] : [])] },
@@ -900,7 +925,8 @@ test("an attach reply of the session before a recreation is dropped and the sess
   const shown = text(tab.last());
   expect(shown).toContain("new 3.");
   expect(shown).not.toContain("old ");
-  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(2);
+  // The attaches the open asks of the chat as listed (not one asked with the list, `beforeList`).
+  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach" && !m.beforeList).length).toBe(2);
 });
 
 test("a select's attach that a reconnect took over leaves the copy on screen when it fails", async () => {
@@ -963,7 +989,8 @@ test("an attach reply that comes after the session moved to another machine is r
   const shown = text(tab.last());
   expect(shown).toContain("vm 3.");
   expect(shown).not.toContain("old ");
-  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(2);
+  // The attaches the open asks of the chat as listed (not one asked with the list, `beforeList`).
+  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach" && !m.beforeList).length).toBe(2);
 });
 
 test("a session recreated and back at once takes the old copy off screen before it is read", async () => {

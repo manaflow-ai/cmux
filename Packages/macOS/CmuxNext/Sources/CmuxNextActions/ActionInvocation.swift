@@ -48,6 +48,8 @@ public nonisolated enum ActionOrigin: String, Sendable, Hashable, CaseIterable {
 /// CLI `--target`, or nil for "the focused one") and the collected arguments.
 public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var target: ActionTargetRef?
+    /// Namespace of a native menu's target. It identifies its owner, never grants authority.
+    public var targetMachineID: String?
     public var arguments: [String: ActionValue]
     /// In-app runs are the user's; the control socket sets its caller's.
     public var origin: ActionOrigin
@@ -115,6 +117,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var allowsViewChange: Bool {
         origin == .user || focusRequested || arguments["focus"]?.boolValue == true
     }
+
+    /// A person asked for this run (a click, the palette, a key, a `cmux` command): only such a
+    /// run may take over a remote session another daemon holds (HQ #4877 G5).
+    public var isPersonsRequest: Bool { origin == .user || origin == .cli }
 
     public subscript(_ name: String) -> ActionValue? {
         arguments[name]

@@ -52,16 +52,20 @@ extension BrowserPageScripts {
         return wrap(find(selector) + """
         const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
         if (!(el instanceof W.HTMLInputElement) || String(el.type).toLowerCase() !== 'file') { return { error: 'Element is not a file input: ' + raw, code: 'not_file_input' }; }
+        // One id names one upload: a second start with an active id is refused.
+        if (\(uploadTargets).has(\(literal(id)))) { return { error: 'Upload id is already active', code: 'upload_id_in_use' }; }
         const uploads = el.__cmuxUploads || (el.__cmuxUploads = new Map());
         const state = { files: [\(files.map { "{ name: \(literal($0.name)), type: \(literal($0.type)), parts: [] }" }.joined(separator: ", "))], at: cmuxAt(el) };
         uploads.set(\(literal(id)), state);
+        \(uploadTargets).set(\(literal(id)), el);
         return { value: { started: true }, at: state.at };
         """)
     }
 
-    /// Appends one base64 chunk to the file at `index` in a started upload.
+    /// Appends one base64 chunk to the file at `index` in a started upload. `selector` is only for the
+    /// caller's symmetry: the input is the one ``startUpload`` recorded for `id`.
     static func uploadChunk(_ selector: String, id: String, index: Int, base64: String) -> String {
-        wrap(find(selector) + """
+        wrap(uploadTarget(id) + """
         const state = el && el.__cmuxUploads && el.__cmuxUploads.get(\(literal(id)));
         const file = state && state.files.at(\(index));
         if (!file) { return { error: 'Upload is not active', code: 'upload_not_started' }; }
@@ -74,10 +78,10 @@ extension BrowserPageScripts {
     /// Builds the files from their chunks, assigns them to the input and fires
     /// the same events as the old single-evaluation fallback.
     static func finishUpload(_ selector: String, id: String) -> String {
-        wrap(find(selector) + """
-        const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+        wrap(uploadTarget(id) + """
         const state = el && el.__cmuxUploads && el.__cmuxUploads.get(\(literal(id)));
         if (!state) { return { error: 'Upload is not active', code: 'upload_not_started' }; }
+        const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
         const dt = new W.DataTransfer();
         for (const f of state.files) dt.items.add(new W.File(f.parts, f.name, { type: f.type }));
         el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
@@ -85,6 +89,7 @@ extension BrowserPageScripts {
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
         el.__cmuxUploads.delete(\(literal(id)));
+        \(uploadTargets).delete(\(literal(id)));
         return { value: { files: Array.from(el.files).map((f) => f.name) }, at: cmuxAt(el) };
         """)
     }
@@ -92,9 +97,20 @@ extension BrowserPageScripts {
     /// Discards a partially streamed upload after an evaluation or file read
     /// fails.
     static func cancelUpload(_ selector: String, id: String) -> String {
-        wrap(find(selector) + """
+        wrap(uploadTarget(id) + """
+        \(uploadTargets).delete(\(literal(id)));
         if (el && el.__cmuxUploads) el.__cmuxUploads.delete(\(literal(id)));
         return { value: { cancelled: true } };
         """)
+    }
+
+    /// The page's upload-id-to-input map. ``startUpload`` resolves the selector once and records its
+    /// input here; chunks, completion and cleanup find the input by upload id, never by the selector,
+    /// so a snapshot that moves an `eN` ref mid-upload cannot send them to another element.
+    static let uploadTargets = "(window.__cmuxUploadTargets || (window.__cmuxUploadTargets = new Map()))"
+
+    /// Binds `el` (and `cmuxAt`) to the input `startUpload` recorded for `id`, or `null` when none is.
+    static func uploadTarget(_ id: String) -> String {
+        "const el = \(uploadTargets).get(\(literal(id))) || null;\n" + measure
     }
 }

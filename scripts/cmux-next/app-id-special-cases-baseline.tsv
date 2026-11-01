@@ -1,0 +1,21 @@
+# path	app id literals	(check-app-id-special-cases.py; the count only goes down)
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/RemoteMachinesSidebar.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Apps/CodeRouterPageTab.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/CodeRouterPageProvider.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarBridge+Sections.swift	2
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarRows.swift	2
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/TopPages/TopPageRoute.swift	2
+Packages/macOS/CmuxNext/Sources/CmuxNextApps/Operations/AgentMemorySearchHandler.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/AppStoreListing.swift	2
+Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkKey.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextCompat/FirstPartyPages.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Apps/CloudCredentialRelay.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift	2
+Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDevServer.swift	2
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarLayoutDocument+RailMigration.swift	5
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarLayoutDocument.swift	2
+cmux-tui/crates/cmux-layout-reducer/src/sidebar_layout.rs	2
+cmux-tui/crates/cmux-tui-core/src/apps/store.rs	1
+cmux-tui/crates/cmux-tui/src/config/machines.rs	1
+cmux-tui/crates/cmux-tui/src/machine_agent/mod.rs	1

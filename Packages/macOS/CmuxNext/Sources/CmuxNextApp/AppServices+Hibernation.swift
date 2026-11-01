@@ -14,7 +14,7 @@ extension AppServices {
     func startHibernation(settings: SettingsController) {
         let hibernation = BrowserHibernation(cache: cache, memoryPressure: memoryPressure)
         cache.hibernation = hibernation
-        hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
+        hibernation.isPinned = { [weak self] key in self?.locateTabOnAnyMachine(key)?.0.pinned ?? false }
         hibernation.onPressureChange = { [weak self] level in self?.memoryPressureDidChange(level) }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in

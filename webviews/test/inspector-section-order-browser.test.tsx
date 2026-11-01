@@ -108,7 +108,11 @@ await requireBrowserLane("inspector-section-order-browser.test.tsx", async () =>
 
   describe("Session Info's six-dot handles", () => {
     test("every section has one", () => {
-      expect(markup.match(/acpmux-chat-inspector-section__handle/g)?.length).toBe(7);
+      // Counted against the sections the full gallery draws, so a new section (Sources, #25208)
+      // needs no edit here.
+      const sections = markup.match(/<section class="acpmux-chat-inspector-section"/g)?.length ?? 0;
+      expect(sections).toBeGreaterThanOrEqual(8);
+      expect(markup.match(/acpmux-chat-inspector-section__handle/g)?.length).toBe(sections);
     });
 
     test("before any hover the panel's pixels are the panel's without them", async () => {
@@ -132,7 +136,37 @@ await requireBrowserLane("inspector-section-order-browser.test.tsx", async () =>
       }
     });
 
-    test("hovering a section shows its handle in the left padding, and nothing moves", async () => {
+    test("the default order draws the three blocks: 6px inside a block, none where it runs, 8px, a hairline, 8px between", async () => {
+      const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
+      try {
+        await show(page);
+        const geometry = await page.evaluate(() => {
+          const box = (id: string) => document.querySelector(`[data-slot="${id}"]`)!.getBoundingClientRect();
+          const rule = (id: string) => {
+            const before = getComputedStyle(document.querySelector(`[data-slot="${id}"]`)!, "::before");
+            return before.content !== "none";
+          };
+          return {
+            about: [box("context").top - box("environment").bottom, box("connectors").top - box("context").bottom],
+            made: box("sources").top - box("changes").bottom,
+            between: [box("changes").top - box("connectors").bottom, box("subagents").top - box("outputs").bottom],
+            rules: ["environment", "context", "changes", "sources", "subagents", "tasks"].map(rule),
+          };
+        });
+        expect(geometry.about).toEqual([0, 0]);
+        expect(geometry.made).toBeCloseTo(6, 1);
+        // This page has no desktop.css, so the hairline is its 0.5px fallback.
+        for (const gap of geometry.between) expect(gap).toBeCloseTo(16.5, 1);
+        // The hairline over the first section of each block but the first, and nowhere else.
+        expect(geometry.rules).toEqual([false, false, true, false, true, false]);
+      } finally {
+        await page.close();
+      }
+    });
+
+    // Leo, 2026-10-31: "ok we can click and drag but my screenshots were literally claude code having
+    // it on the fucking right".
+    test("hovering a section shows its handle in the right padding, right of its title, and nothing moves", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         await show(page);
@@ -154,9 +188,17 @@ await requireBrowserLane("inspector-section-order-browser.test.tsx", async () =>
             .getBoundingClientRect();
           const body = document.querySelector(".acpmux-chat-inspector__body")!.getBoundingClientRect();
           const section = document.querySelector('section[data-section="outputs"]')!.getBoundingClientRect();
-          return { inBody: handle.left >= body.left - 0.5, beforeSection: handle.right <= section.left + 0.5 };
+          const title = document
+            .querySelector('section[data-section="outputs"] .acpmux-chat-inspector-section__title')!
+            .getBoundingClientRect();
+          return {
+            inBody: handle.right <= body.right + 0.5,
+            afterSection: handle.left >= section.right - 0.5,
+            rightOfTitle: handle.left > title.right,
+            titleAtTextColumn: Math.round(title.left - section.left),
+          };
         });
-        expect(inside).toEqual({ inBody: true, beforeSection: true });
+        expect(inside).toEqual({ inBody: true, afterSection: true, rightOfTitle: true, titleAtTextColumn: 8 });
       } finally {
         await page.close();
       }

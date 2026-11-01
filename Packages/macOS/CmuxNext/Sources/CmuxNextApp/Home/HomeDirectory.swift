@@ -7,9 +7,8 @@ import Foundation
 import Observation
 
 /// The people and Chiefs behind the Home page's New Message and New Chief
-/// (home-messaging.md 4.2 and 16): the members of every team the user is in
-/// (UserDO `user.teams.list`, then each TeamDO's `team.members.list`) and the
-/// user's Chiefs (UserDO `chief.*`).
+/// (home-messaging.md 4.2 and 16): the members of the active team (its TeamDO's
+/// `team.members.list`; one team at a time) and the user's Chiefs (UserDO `chief.*`).
 /// Reads and writes go to the API Worker as the signed-in user through
 /// `call` (`FeedService.call`, whose origin is `FeedService.apiBaseURL`,
 /// `CMUX_NEXT_FEED_API_URL` overrides it), like Add Server's pairing.
@@ -40,28 +39,33 @@ final class HomeDirectory {
     @ObservationIgnored private let teamCall: TeamCall?
     /// The signed-in account's Worker user id (`CloudIdentity.workerUserID`), left out of the contacts.
     @ObservationIgnored private let me: @MainActor () -> String?
+    /// The active team's Worker team id (`ActiveTeam`, `CloudIdentity.workerTeamID`), or nil before one loads.
+    @ObservationIgnored private let activeTeam: @MainActor () -> String?
 
-    init(call: @escaping Call, teamCall: TeamCall? = nil, me: @escaping @MainActor () -> String?) {
+    init(call: @escaping Call, teamCall: TeamCall? = nil, activeTeam: @escaping @MainActor () -> String? = { nil },
+         me: @escaping @MainActor () -> String?) {
         self.call = call
         self.teamCall = teamCall
+        self.activeTeam = activeTeam
         self.me = me
     }
 
     /// Reads the team and the Chiefs again each time the signed-in session changes: `session` is
-    /// a key of the account and its teams, nil while signed out or while the stored sign-in is
-    /// still being restored at launch. Home's first read runs before that restore ends and fails
-    /// as signed out, so without this the team stayed unlisted until a New Message was opened.
-    /// Signing out (nil) or another account drops the last account's team at once.
+    /// a key of the account, its active team and its teams (`user|team|teams`), nil while signed
+    /// out or while the stored sign-in is still being restored at launch. Home's first read runs
+    /// before that restore ends and fails as signed out, so without this the team stayed unlisted
+    /// until a New Message was opened. Signing out (nil), another account or another active team
+    /// (Switch Active Team) drops the last team's people at once: Home lists one team at a time.
     func follow(session: @escaping @MainActor @Sendable () -> String?) {
         sessionWatch?.cancel()
         // task-owner: lives as long as the directory (HomeService's); event-driven (Observation)
         sessionWatch = Task { [weak self] in
-            var account: Substring?
+            var scope: [Substring]?
             for await key in ObservationStream(session) {
                 guard let self else { return }
-                let next = key?.split(separator: "|", maxSplits: 1).first
-                if next != account { teamMembers = [] }
-                account = next
+                let next = key.map { Array($0.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).prefix(2)) }
+                if next != scope { teamMembers = [] }
+                scope = next
                 if key != nil { await refresh() }
             }
         }
@@ -70,40 +74,32 @@ final class HomeDirectory {
     @ObservationIgnored private var sessionWatch: Task<Void, Never>?
 
     /// Reads the team members and the Chiefs again; a read that fails keeps
-    /// the last list (signed out, offline).
+    /// the last list (signed out, offline). A read that lands after the active team changed is
+    /// dropped: the newer team's read replaces it.
     func refresh() async {
-        if let members = await readTeamMembers() { teamMembers = members }
+        let team = activeTeam()
+        if let members = await readTeamMembers(team: team), activeTeam() == team { teamMembers = members }
         await refreshChiefs()
     }
 
-    /// The members of the personal team and of each shared team `user.teams.list` names, each
-    /// person once. Home chats are not team-scoped and the Worker's reach rule checks every
-    /// team of the user, so a teammate from any team can be messaged. A team whose role may not
-    /// list members (a guest), or whose read fails, is left out; nil when no team could be read.
-    private func readTeamMembers() async -> [HomeContact]? {
+    /// The members of the active team (the user, 2026-10-29: "should only show for a team at a
+    /// time… no multi team"), each person once; with no active team yet, the personal team's.
+    /// `user.teams.list` runs first because it mirrors a Stack team its webhook never synced
+    /// (72ca5bb), so a new team's members are there to read. A team whose role may not list
+    /// members (a guest), or whose read fails, gives nil: never another team's people.
+    private func readTeamMembers(team: String?) async -> [HomeContact]? {
         let body: [String: Any] = ["op": "team.members.list", "params": ["limit": 200]]
-        var lists: [[HomeContact]] = []
-        if let personal = try? Self.value(try await call("v1/read", body)) { lists.append(Self.members(from: personal, excluding: me())) }
-        if let teamCall,
-           let teams = try? Self.value(try await call("v1/read", ["op": "user.teams.list", "params": [String: Any]()])) {
-            for team in Self.sharedTeams(from: teams) {
-                guard let value = try? Self.value(try await teamCall("v1/read", body, team)) else { continue }
-                lists.append(Self.members(from: value, excluding: me()))
-            }
+        let value: Any?
+        if let team, let teamCall {
+            _ = try? await call("v1/read", ["op": "user.teams.list", "params": [String: Any]()])
+            guard let read = try? Self.value(try await teamCall("v1/read", body, team)) else { return nil }
+            value = read
+        } else {
+            guard let read = try? Self.value(try await call("v1/read", body)) else { return nil }
+            value = read
         }
-        guard !lists.isEmpty else { return nil }
         var seen = Set<ParticipantID>()
-        return lists.joined().filter { seen.insert($0.id).inserted }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-
-    /// The shared (not personal) team ids of a `user.teams.list` value.
-    static func sharedTeams(from value: Any?) -> [String] {
-        let list = (value as? [String: Any])?["teams"] as? [[String: Any]] ?? []
-        return list.compactMap { team in
-            guard let id = team["id"] as? String, !id.isEmpty, team["kind"] as? String != "personal" else { return nil }
-            return id
-        }
+        return Self.members(from: value, excluding: me()).filter { seen.insert($0.id).inserted }
     }
 
     func refreshChiefs() async {

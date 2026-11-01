@@ -213,6 +213,17 @@ export const environmentBuildResult = (config: CloudConfig, state: CloudState, s
   const error = r.ok ? null : { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "the build failed" }
   const writes: Array<RowWrite> = [upsertLedger({ ...l, state: r.ok ? "done" : "failed", attempts: l.attempts + 1, error, provider_id: r.provider_id ?? l.provider_id, updated_at: ctx.now }, stored.n)]
   let s = next(state, { pending: withoutPending(state, l.key) })
+  // Atomically transfer both recorded names to cleanup when the build settles. Immediate deletion
+  // is best effort; even an uncertain boot can have created a VM. Until this commit the pending
+  // build owns recovery, so an alarm never deletes a builder while setup/snapshot is still running.
+  for (const name of [l.provider_name, ...(l.env_warm ? [l.env_warm] : [])]) {
+    const key = `env-cleanup:${name}`
+    const cleanup: LedgerRow = { transport: l.transport ?? "direct", key, op: "env_cleanup", machine: l.machine, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
+    // Ordered ledger rows need distinct positions, including multiple rows in one
+    // commit. Reserve a revision for each cleanup before any snapshot retirement.
+    s = next(s, { pending: { ...s.pending, [key]: { machine: l.machine, due_at: ctx.now } } })
+    writes.push(upsertLedger(cleanup, s.rev))
+  }
   const snap = l.snapshot ? ctx.rows?.get<SnapshotRow>(TABLE_SNAPSHOT, l.snapshot) : undefined
   const envStored = l.environment ? environmentRow(ctx.rows, l.environment) : undefined
   const t = r.env_build?.timings

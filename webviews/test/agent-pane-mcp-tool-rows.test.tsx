@@ -129,7 +129,9 @@ for (const [harness, call] of [
   test(`${harness}: an opened MCP call shows its request and response pretty-printed, without internal context`, async () => {
     await render([call("r1", "read_thread", { threadId: THREAD }, readOutput)]);
     await click(toggles()[0]!);
-    const blocks = [...host.querySelectorAll(".cv-mcp-call__body")].map((node) => node.textContent ?? "");
+    const blocks = [...host.querySelectorAll(".cv-mcp-call__body, .cv-tool-output")].map(
+      (node) => node.textContent ?? "",
+    );
     expect(blocks).toHaveLength(2);
     expect(blocks[0]).toBe(`{\n  "threadId": "${THREAD}"\n}`);
     // The text block's JSON string is parsed, not shown escaped.
@@ -139,6 +141,62 @@ for (const [harness, call] of [
     expect(blocks[1]).not.toContain('\\"');
     expect(host.textContent).not.toContain("in-app-browser-context");
     expect(host.textContent).not.toContain("ambient UI state");
+  });
+
+  for (const reason of ["Read the file before changing it.", ""]) {
+    test(`${harness}: an opened hook-blocked MCP call shows its reason without the envelope (${reason || "no reason"})`, async () => {
+      const item = call(
+        "blocked",
+        "read_thread",
+        { threadId: THREAD },
+        `PreToolUse:read_thread hook error: [guard.sh]: Blocked: ${reason}`,
+      );
+      item.tool!.status = "failed";
+      await render([item]);
+      expect(host.textContent).toContain("blocked by hook");
+      expect(host.textContent).not.toContain("PreToolUse");
+      if (reason) expect(host.textContent).not.toContain(reason);
+      await click(toggles()[0]!);
+      const details = host.querySelector(".cv-mcp-call")!;
+      expect(details.textContent).toContain("blocked by hook");
+      expect(details.textContent).toContain(THREAD);
+      expect(details.textContent).not.toContain("PreToolUse");
+      expect(details.textContent).not.toContain("guard.sh");
+      expect(details.textContent).not.toContain("Blocked:");
+      if (reason) expect(details.textContent).toContain(reason);
+      else expect(details.querySelector(".cv-tool-output")).toBeNull();
+      const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
+      expect(activityText(item)).not.toContain("PreToolUse");
+      expect(activityText(item)).not.toContain("guard.sh");
+      if (reason) expect(activityText(item)).toContain(reason);
+    });
+  }
+
+  test(`${harness}: a successful MCP response quoting a hook block stays intact`, async () => {
+    const output = "PreToolUse:read_thread hook error: Blocked: example from documentation";
+    await render([call("quoted", "read_thread", { threadId: THREAD }, output)]);
+    await click(toggles()[0]!);
+    expect(host.querySelector(".cv-mcp-call")!.textContent).toContain(output);
+    expect(host.textContent).not.toContain("blocked by hook");
+  });
+
+  test(`${harness}: a Markdown MCP result shares full-read expansion, Raw, and Find formatting`, async () => {
+    const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
+    const text = `${"## Sample section\n\nRead every line.\n\n".repeat(15)}The **service** is healthy.`;
+    const item = call(
+      "markdown",
+      "web_read",
+      { url: "https://example.test/guide" },
+      JSON.stringify({ content: [{ type: "text", text: `\x1b[32m${text}\x1b[0m` }] }),
+    );
+    await render([item]);
+    await click(toggles()[0]!);
+    expect(host.querySelector(".cv-tool-output__markdown h2")?.textContent).toBe("Sample section");
+    expect([...host.querySelectorAll("button")].some((node) => node.textContent === "Show all 61 lines")).toBe(true);
+    expect([...host.querySelectorAll("button")].some((node) => node.textContent?.trim() === "Raw")).toBe(true);
+    expect(activityText(item)).toContain("The service is healthy.");
+    const { menuPartAt } = await import("../src/agent-session/acpmux/conversation/menuParts");
+    expect(menuPartAt(host.querySelector(".cv-tool-output-card"))?.output).toBe(text);
   });
 
   test(`${harness}: a send group opens to one row per call, each opening to its own request`, async () => {
@@ -151,7 +209,9 @@ for (const [harness, call] of [
     await click(toggles()[0]!);
     expect(labels()).toEqual(["Sent 2 messages", "Sent a message", "Sent a message"]);
     await click(toggles()[2]!);
-    const blocks = [...host.querySelectorAll(".cv-mcp-call__body")].map((node) => node.textContent ?? "");
+    const blocks = [...host.querySelectorAll(".cv-mcp-call__body, .cv-tool-output")].map(
+      (node) => node.textContent ?? "",
+    );
     expect(blocks[0]).toContain('"message": "two"');
     expect(host.textContent).not.toContain('"message": "one"');
   });
@@ -166,7 +226,7 @@ test("a non-MCP call's output also drops injected internal context", async () =>
     },
   ]);
   await click(toggles()[0]!);
-  expect(host.querySelector(".cv-tool-output")?.textContent).toBe("page text");
+  expect(host.querySelector(".cv-tool-output__markdown")?.textContent).toBe("page text");
 });
 
 test("output that only names an internal tag keeps the text after it", async () => {
@@ -175,7 +235,7 @@ test("output that only names an internal tag keeps the text after it", async () 
     {
       kind: "tool",
       text: "Read",
-      tool: { id: "f2", title: "Read tags.ts", kind: "fetch", status: "completed", output: source },
+      tool: { id: "f2", title: "Read tags.ts", kind: "read", status: "completed", output: source },
     },
   ]);
   await click(toggles()[0]!);
@@ -223,4 +283,37 @@ test("only id-named arguments resolve to titles, and a message names its recipie
   expect(mcpTarget({ server: "s", tool: "read_thread", args: { thread_id: "x1" } }, names)).toBe("Coordination hub");
   expect(mcpTarget({ server: "s", tool: "send_email", args: { subject: "Re: lunch", to: "Sam" } }, names)).toBe("Sam");
   expect(mcpTarget({ server: "s", tool: "send_email", args: { subject: "Re: lunch" } }, names)).toBeUndefined();
+});
+
+test("a hook-blocked cmux_exec call uses the same clean MCP details", async () => {
+  const item = claudeCall(
+    "blocked-exec",
+    "cmux_exec",
+    { code: "return 1;" },
+    "PreToolUse:cmux_exec hook error: Blocked: Run the checks first.",
+  );
+  item.tool!.title = "mcp__cmux__cmux_exec";
+  item.tool!.status = "failed";
+  await render([item]);
+  await click(toggles()[0]!);
+  expect(host.querySelector(".cv-mcp-call")!.textContent).toContain("blocked by hook");
+  expect(host.textContent).toContain("Run the checks first.");
+  expect(host.textContent).not.toContain("PreToolUse");
+  const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  expect(activityText(item)).toContain("Run the checks first.");
+  expect(activityText(item)).not.toContain("PreToolUse");
+});
+test("three running MCP calls keep activity only in their group header", async () => {
+  const items = [1, 2, 3].map((n) => {
+    const item = claudeCall(`spinner-mcp-${n}`, "read_thread", { threadId: THREAD });
+    return { ...item, tool: { ...item.tool!, status: "in_progress" } };
+  });
+  await render(items);
+  expect(toggles()).toHaveLength(1);
+  await click(toggles()[0]!);
+  expect(host.querySelectorAll(".cv-tool-group button.cv-tool")).toHaveLength(3);
+  expect(host.querySelectorAll(".cv-tool-group .cv-spinner")).toHaveLength(0);
+  expect(host.querySelectorAll(".cv-spinner")).toHaveLength(1);
+  await render([items[0]!]);
+  expect(host.querySelectorAll(".cv-spinner")).toHaveLength(1);
 });

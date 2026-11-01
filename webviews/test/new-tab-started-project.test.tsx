@@ -113,7 +113,9 @@ async function startChat(
     runShell: noop,
     ...(options.startsHere === false ? { startsHere: () => false } : {}),
   });
-  actions.onAsk("claude", "fix the flaky upload test", picked, undefined, options.noProject);
+  await Promise.resolve(
+    actions.onAsk("claude", "fix the flaky upload test", picked, undefined, options.noProject),
+  ).catch(() => undefined);
   // The start settles, and what follows it runs.
   await starting.catch(() => undefined);
   await Promise.resolve();
@@ -300,4 +302,52 @@ test("a project list that answered empty accepts no chat or started folder", asy
   const classic = await classicTab({ home: HOME, cwd: HOME, knownProjects: null, startedProject: PICKED });
   expect(classic.chip).not.toContain("atlas");
   expect(classic.folder).toBe(HOME);
+});
+
+test("classic New Tab keeps Add project open while a native browse is pending", async () => {
+  const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
+  let resolveBrowse!: (cwd: string | undefined) => void;
+  const browse = () => new Promise<string | undefined>((resolve) => (resolveBrowse = resolve));
+  act(() => root?.unmount());
+  root = (await import("react-dom/client")).createRoot(host);
+  await act(async () =>
+    root!.render(
+      <NewTabPage
+        snapshot={noChat()}
+        projects={[{ cwd: PICKED, label: "atlas" }]}
+        onBrowseProject={browse}
+        onSubmit={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    ),
+  );
+  const pressOption = async (label: string) => {
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (element) => element.textContent?.trim() === label,
+    );
+    expect(option, `missing option ${label}`).toBeTruthy();
+    await act(async () =>
+      option!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0, detail: 1 })),
+    );
+  };
+  const openNativeBrowse = async () => {
+    const trigger = host.querySelector<HTMLButtonElement>(".acpmux-context-chip.acpmux-project-button")!;
+    await act(async () => {
+      trigger.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+      trigger.click();
+    });
+    await pressOption("New project");
+    await pressOption("This Mac");
+    await pressOption("Local folder");
+    await act(async () => Promise.resolve());
+  };
+
+  await openNativeBrowse();
+  expect(resolveBrowse).toBeTypeOf("function");
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click());
+  await openNativeBrowse();
+  expect(document.querySelector(".acpmux-add-project-dialog")).not.toBeNull();
+  await act(async () => resolveBrowse("/work/late"));
+  expect(document.querySelector(".acpmux-add-project-dialog")).not.toBeNull();
 });

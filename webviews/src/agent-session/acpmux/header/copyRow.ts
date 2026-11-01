@@ -1,5 +1,6 @@
 // The chat menu's Copy submenu, as in ChatGPT: the chat's link, the last answer, the whole chat as
-// Markdown (each prompt a quote, each answer as written, turns split by a rule), and its session id.
+// Markdown (each prompt a quote, each answer as written, turns split by a rule), and its session id;
+// Save as Markdown writes that same Markdown to a file the person picks.
 import { type Translate, translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { SHORTCUT_ACTIONS } from "../shortcuts";
@@ -10,6 +11,7 @@ export function copyRow(
   copy: (text: string) => void,
   t: Translate = translate,
   copyFullConversation?: () => Promise<string | null>,
+  saveMarkdown?: () => void,
 ): Exclude<ChatMenuItem, "separator"> | undefined {
   const { link, rows, sessionId } = chat;
   // The menu's rows are read on every render: only check here, build the text on selection.
@@ -38,6 +40,8 @@ export function copyRow(
         });
       },
     });
+  if (answered && saveMarkdown)
+    children.push({ key: "saveMarkdown", label: t("chatMenu.saveMarkdown"), onSelect: saveMarkdown });
   if (sessionId)
     children.push({ key: "copySessionId", label: t("chatMenu.copySessionId"), onSelect: () => copy(sessionId) });
   if (!children.length) return undefined;

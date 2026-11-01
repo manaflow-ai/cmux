@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "bun:test";
 
 import { STRIPE_WEBHOOK_EVENT_TYPES } from "../services/billing/stripeWebhook";
 
-const scriptsDir = join(import.meta.dir, "..", "scripts", "stripe");
+const scriptsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "stripe");
 
 function provisionedEventTypes(): string[] {
   const script = readFileSync(join(scriptsDir, "provision-catalog.sh"), "utf8");

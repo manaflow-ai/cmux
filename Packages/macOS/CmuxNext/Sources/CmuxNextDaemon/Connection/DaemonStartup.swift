@@ -78,6 +78,7 @@ public struct DaemonStartup: Sendable {
                 await onFailure(failure)
                 if isPermanent(failure) { return nil }
                 if ownerIsRestoring(failure) { pacer.reset() }
+                if failure.isBusyRefusal { pacer.refusedBusy() }
                 guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
             }
         }
@@ -89,15 +90,24 @@ public struct DaemonStartup: Sendable {
             var identity: DaemonIdentity?
             do {
                 DaemonLaunchTimings.shared.mark("daemon.connect_start")
-                identity = try await connection.start()
+                // The service owns this startup task. If teardown cancels it before the
+                // connection is adopted, close the attempt so its endpoint provider cannot
+                // keep launching a daemon after shutdown has joined the service task.
+                identity = try await withTaskCancellationHandler {
+                    try await connection.start()
+                } onCancel: {
+                    // concurrency-allow: cancellation cleanup is actor-isolated and joined by closeAndWait.
+                    Task { await connection.close() }
+                }
                 DaemonLaunchTimings.shared.mark("daemon.handshake_end")
             } catch {
-                await connection.close()
+                await connection.closeAndWait()
                 if Task.isCancelled { return nil }
                 let failure = (error as? DaemonError) ?? .launchFailed(String(describing: error))
                 await onFailure(failure)
                 if isPermanent(failure) { return nil }
                 if ownerIsRestoring(failure) { pacer.reset() }
+                if failure.isBusyRefusal { pacer.refusedBusy() }
             }
             if let identity { return (connection, identity) }
             guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }

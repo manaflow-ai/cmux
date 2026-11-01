@@ -20,6 +20,7 @@ import Testing
         var byName = 0
         var codes = 0
         var clouds = 0
+        var installRequests = 0
         var copied: [String] = []
 
         func services() -> AddDeviceServices {
@@ -35,7 +36,8 @@ import Testing
                 addByName: { [self] in byName += 1 },
                 enterCode: { [self] in codes += 1 },
                 newCloudMachine: { [self] in clouds += 1 },
-                copy: { [self] in copied.append($0) })
+                copy: { [self] in copied.append($0) },
+                installTailscale: { [self] in installRequests += 1 })
         }
     }
 
@@ -113,6 +115,22 @@ import Testing
         let model = AddDeviceModel(services: fake.services())
         await model.begin(way: .network)
         #expect(model.networkProblem == "Tailscale is not installed on this machine.")
+    }
+
+    @Test func missingTailscaleOffersAnExplicitInstallAction() async {
+        let fake = Fake()
+        fake.listing = Self.listing(available: [], up: false)
+        let model = AddDeviceModel(services: fake.services())
+        await model.begin(way: .network)
+        #expect(model.canInstallTailscale)
+        #expect(fake.installRequests == 0)
+        #expect(!model.perform(.installTailscale), "keep the card open")
+        #expect(fake.installRequests == 1)
+        fake.listing = Self.listing(available: [])
+        await model.begin(way: .network)
+        #expect(!model.canInstallTailscale)
+        #expect(!model.perform(.installTailscale))
+        #expect(fake.installRequests == 1)
     }
 
     @Test func pickingAComputerHandsItToAddMachineAndCloses() async throws {

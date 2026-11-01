@@ -1,20 +1,23 @@
 import AppKit
 import CmuxNextDesign
+import MessagesLabHome
 
 /// The top of the empty Chief conversation (`HomeFirstRunView`): the Chief's face, large, over two
 /// lines that say what the Chief does today: it takes what you want done, does quick things
 /// itself, hands longer work to agents in workspaces of their own, and reports back here. Leo
 /// 2026-10-19: the old screen did not say what was there. The face is the header's (the
-/// profile's picture or text, else 🫡, `HomeChiefAvatar.headerText`), set by the host.
+/// profile's picture or text, else the name's iMessage-style monogram, `MonogramAvatar`), set by the host.
 /// `HomeTunables.firstRunHero` (Debug Settings > Home) hides it, for the rows-only panel.
 final class HomeFirstRunHero: NSView {
     /// The profile's picture, drawn as the layer's contents.
     let picture = NSView()
-    /// The text face when there is no picture: the profile's letters or emoji, else 🫡.
+    /// The text face when there is no picture: the profile's emoji (letters draw as the monogram).
     let glyph = ChromeLabel(labelWithString: "")
     let title = ChromeLabel(labelWithString: HomeStrings.firstRunHeroTitle)
     let body = ChromeLabel(wrappingLabelWithString: HomeStrings.firstRunHeroBody)
     private var scale: CGFloat = 1
+    /// The monogram drawn as the picture when there is no picture and no emoji; nil otherwise.
+    private(set) var monogram: MonogramAvatar?
 
     static let pictureSide: CGFloat = 72
     static let glyphSize: CGFloat = 56
@@ -30,11 +33,11 @@ final class HomeFirstRunHero: NSView {
         glyph.font = .systemFont(ofSize: Self.glyphSize)
         glyph.alignment = .center
         glyph.setAccessibilityElement(false)
-        title.font = .systemFont(ofSize: TypeScale.title, weight: TypeScale.emphasis)
+        title.font = .systemFont(ofSize: TypeScale.Base.title, weight: TypeScale.emphasis)
         title.alignment = .center
         title.lineBreakMode = .byTruncatingTail
         title.setAccessibilityRole(.staticText)
-        body.font = .systemFont(ofSize: TypeScale.detail)
+        body.font = .systemFont(ofSize: TypeScale.Base.detail)
         body.alignment = .center
         body.maximumNumberOfLines = 0
         body.setAccessibilityRole(.staticText)
@@ -46,23 +49,38 @@ final class HomeFirstRunHero: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
-    /// The Chief's face: its picture, else its text. Neither draws none (the space stays, so the
-    /// panel does not jump).
-    func setAvatar(picture image: NSImage?, text: String?) {
-        picture.layer?.contents = image
-        picture.isHidden = image == nil
-        glyph.stringValue = image == nil ? text ?? "" : ""
-        glyph.isHidden = image != nil || text == nil
+    /// The Chief's face: its picture, else its emoji, else the monogram of its letters or of `name`
+    /// ("Chief" is CH; an empty name is the default Chief's CH).
+    func setAvatar(picture image: NSImage?, text: String?, name: String) {
+        let letters = image == nil && (text.map(MonogramAvatar.isMonogram) ?? true)
+        monogram = !letters ? nil : text.map(MonogramAvatar.init(initials:))
+            ?? (name.isEmpty ? MonogramAvatar(initials: HomeChiefAvatar.defaultText) : MonogramAvatar(name: name))
+        picture.layer?.contents = image ?? monogramImage()
+        picture.isHidden = image == nil && monogram == nil
+        glyph.stringValue = image == nil && monogram == nil ? text ?? "" : ""
+        glyph.isHidden = !picture.isHidden || text == nil
         needsLayout = true
+    }
+
+    /// The monogram at the face's size in this view's appearance; nil without one.
+    private func monogramImage() -> NSImage? {
+        let light = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) != .darkAqua
+        return monogram?.image(side: Self.pictureSide * scale, light: light)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if monogram != nil { picture.layer?.contents = monogramImage() }
     }
 
     func applyScale(_ scale: CGFloat) {
         guard self.scale != scale else { return }
         self.scale = scale
+        if monogram != nil { picture.layer?.contents = monogramImage() }
         // The face is a picture-sized emoji, not body text: it scales with the picture.
         glyph.font = .systemFont(ofSize: Self.glyphSize * scale)
-        title.font = .systemFont(ofSize: TypeScale.title * scale, weight: TypeScale.emphasis)
-        body.font = .systemFont(ofSize: TypeScale.detail * scale)
+        title.font = .systemFont(ofSize: TypeScale.Base.title * scale, weight: TypeScale.emphasis)
+        body.font = .systemFont(ofSize: TypeScale.Base.detail * scale)
         invalidateIntrinsicContentSize()
         needsLayout = true
     }
