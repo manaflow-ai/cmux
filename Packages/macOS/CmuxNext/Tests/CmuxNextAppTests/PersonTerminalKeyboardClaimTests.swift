@@ -268,4 +268,29 @@ struct PersonTerminalKeyboardClaimTests {
             #expect(!recorded, "the failed create's claim outlived its failure")
         }
     }
+
+    /// The person's claimed create fails while its hold cannot end by itself (another creation of the hold still waits
+    /// for its focus), so the hold ends at its limit: the window's focus still applies again, so the keys the person
+    /// types next reach what the window shows (review of 93a487c33f8: the merge read the hold's end, and a forced end
+    /// does not say a creation failed, so no focus applied and the next keys went nowhere).
+    @Test func aFailedClaimedCreateThatEndsAtTheLimitStillAppliesTheWindowsFocus() async throws {
+        try await Self.withWindow { h in
+            let coordinator = h.services.keyRouter.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(100)
+            @MainActor func presented() -> Int { h.controller.focus.recent.filter { $0.hasPrefix("contentPresented(") }.count }
+            let before = presented()
+            let ticket = try #require(coordinator.beginWorkspace(in: h.controller), "a person's new terminal opened no key hold")
+            // Another creation of the same hold, under the newest intent, whose focus never lands: the hold cannot end by itself.
+            let generation = h.controller.focus.state.generation
+            let other = try #require(coordinator.begin(in: h.window, generation: generation), "the other creation opened no hold")
+            h.controller.focus.send(.expect(.tab("never-made"), target: .content, generation: generation))
+            coordinator.resolve(other, landed: true, in: h.window)
+            coordinator.resolve(ticket, workspace: nil, in: h.window) // the claimed create failed
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
+            let end = coordinator.lastHoldEnd(in: h.window)
+            try #require(end == .limitReached, "the hold did not end at its limit (the test does not reach a forced end): \(String(describing: end))")
+            let after = presented()
+            #expect(after > before, "the failed claimed create's hold ended at its limit and the window's focus did not apply again: \(h.controller.focus.recent)")
+        }
+    }
 }
