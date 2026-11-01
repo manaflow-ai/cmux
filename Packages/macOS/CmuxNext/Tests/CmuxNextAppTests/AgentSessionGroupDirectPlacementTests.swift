@@ -78,7 +78,7 @@ struct AgentSessionGroupDirectPlacementTests {
         #expect(windows.pendingPlacements["c-new"]?.then == nil)
     }
 
-    private static func group(of id: String, in sections: [SidebarSection]) -> String? {
+    private static func group(of id: String, in sections: [CmuxNextSidebar.SidebarSection]) -> String? {
         for section in sections {
             for node in section.nodes {
                 if case let .group(group) = node, group.workspaces.contains(where: { $0.id.rawValue == id }) { return group.id.rawValue }
