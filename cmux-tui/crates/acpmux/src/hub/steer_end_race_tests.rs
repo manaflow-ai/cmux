@@ -5,7 +5,25 @@ use std::time::Duration;
 
 const WAIT: Duration = Duration::from_secs(20);
 
+/// PROBE (scratch): this process's own Darwin background state and its main QoS class, so the
+/// starter's class ("normal" means the starter's) is known.
+#[cfg(target_os = "macos")]
+fn own_class(label: &str) {
+    // SAFETY: getpriority with PRIO_DARWIN_PROCESS on this process (who 0); no preconditions.
+    let bg = unsafe {
+        libc::getpriority(4 /* PRIO_DARWIN_PROCESS */, 0)
+    };
+    // SAFETY: qos_class_self has no preconditions.
+    let qos = unsafe { libc::qos_class_self() } as u32;
+    // SAFETY: getpriority(PRIO_PROCESS, 0) reads this process's nice value.
+    let nice = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
+    eprintln!("BGPROBE {label} own darwin_bg={bg} qos=0x{qos:x} nice={nice}");
+}
+#[cfg(not(target_os = "macos"))]
+fn own_class(_label: &str) {}
+
 fn loadavg(label: &str) {
+    own_class(label);
     let out = std::process::Command::new("/usr/sbin/sysctl").args(["-n", "vm.loadavg"]).output();
     let text =
         out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned()).unwrap_or_default();
