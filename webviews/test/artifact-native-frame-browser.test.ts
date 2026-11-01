@@ -11,7 +11,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { chromium, webkit, type Browser } from "playwright";
-import { nativePassiveHtml, passiveDocument } from "../src/agent-session/acpmux/conversation/previewDocument";
+import { inertDocument, nativePassiveHtml } from "../src/agent-session/acpmux/conversation/previewDocument";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("artifact-native-frame-browser.test.ts", async () => {
@@ -91,15 +91,16 @@ await requireBrowserLane("artifact-native-frame-browser.test.ts", async () => {
     for (const name of Object.keys(hosts) as (keyof typeof hosts)[])
       test(`${engine}, ${name} host: a passive document's handlers never run, and the height still reports`, async () => {
         for (const code of DOCUMENTS) {
-          const inert = passiveDocument(code);
-          expect(inert).toBeDefined();
-          const messages = await draw(engine, name, nativePassiveHtml(inert!));
+          // As the pane makes it (inertDocument; in the pane artifactNeedsRun's template parse passes
+          // these, while this runner, with no DOM, falls back to its stricter source check).
+          const inert = inertDocument(code);
+          const messages = await draw(engine, name, nativePassiveHtml(inert));
           expect(messages.some((message) => message.type === "probe-ran")).toBe(false);
           expect(messages.some((message) => message.type === "cmux-render-size")).toBe(true);
           // The control: the same inert document without that policy does run its handler there, so
           // this harness sees one when it runs (the hole the router review found on cmux#31174).
           if (code !== DOCUMENTS[0]) continue;
-          const control = await draw(engine, name, inert!);
+          const control = await draw(engine, name, inert);
           expect(control.some((message) => message.type === "probe-ran")).toBe(true);
         }
       });
