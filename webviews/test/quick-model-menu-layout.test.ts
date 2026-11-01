@@ -609,13 +609,14 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     // Leo 2026-11-01: "i also don't like the way this composer has so much space between stuff
     // surely we can get more compact horizontally" / "see claude code has that".
     const widths: Record<string, number> = {};
+    const gaps: Record<string, number> = {};
     for (const variant of ["width-fit", "width-wide"]) {
       const page = await open(variant, 900, 640);
       try {
         widths[variant] = (await bounds(page, ".acpmux-quick-menu")).width;
-        if (variant === "width-fit") {
-          // The widest shown name ends close to its row's ⌘N key: no wide empty band between.
-          const gap = await page.evaluate(() => {
+        {
+          // The widest shown name to its row's ⌘N key: the band between them.
+          gaps[variant] = await page.evaluate(() => {
             const gaps = [...document.querySelectorAll(".acpmux-quick-model-effort")].flatMap((row) => {
               const name = row.querySelector(".acpmux-menu-label")?.getBoundingClientRect();
               const key = row.querySelector(".ui-menu-shortcut")?.getBoundingClientRect();
@@ -623,13 +624,14 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
             });
             return Math.min(...gaps);
           });
-          expect(gap).toBeLessThan(160);
         }
       } finally {
         await page.close();
       }
     }
     expect(widths["width-fit"]!).toBeLessThan(widths["width-wide"]! - 40);
+    // The band shrinks by the width the fixed menu added, so effort and ⌘N sit close to the name.
+    expect(gaps["width-fit"]!).toBeLessThan(gaps["width-wide"]! - 100);
   });
 
   test("one tab per harness: Claude and Codex routes are Account choices, never tabs", async () => {
