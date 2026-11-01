@@ -31,14 +31,24 @@ pub struct ConnectionLease {
     stats: Arc<ConnectionStats>,
     hung_up: AtomicBool,
     peer_closed: Option<PeerClosed>,
+    /// Also holds a terminal slot (`ConnectionStats::try_claim_terminal`,
+    /// #27698), given back with the main slot; inside, the terminal it came
+    /// from (nil when unknown).
+    terminal: Option<Option<u32>>,
 }
 
 impl ConnectionLease {
-    /// The lease of a slot `stats.try_claim` just gave. With `peer_closed`, the
-    /// slot is taken back when the client hangs up before the connection ends.
-    pub fn new(stats: Arc<ConnectionStats>, peer_closed: Option<PeerClosed>) -> Arc<Self> {
+    /// The lease of a slot `stats.try_claim` just gave (and, with `terminal`, a
+    /// terminal slot `stats.try_claim_terminal` gave). With `peer_closed`, the
+    /// slots are taken back when the client hangs up before the connection ends.
+    pub fn new(
+        stats: Arc<ConnectionStats>,
+        peer_closed: Option<PeerClosed>,
+        terminal: Option<Option<u32>>,
+    ) -> Arc<Self> {
         let watched = peer_closed.is_some();
-        let lease = Arc::new(Self { stats, hung_up: AtomicBool::new(false), peer_closed });
+        let lease =
+            Arc::new(Self { stats, hung_up: AtomicBool::new(false), peer_closed, terminal });
         if watched {
             let mut leases = lease.stats.leases.lock().unwrap_or_else(PoisonError::into_inner);
             leases.retain(|lease| lease.strong_count() > 0);
@@ -59,6 +69,9 @@ impl Drop for ConnectionLease {
             self.stats.hung_up.fetch_sub(1, Ordering::AcqRel);
         } else {
             self.stats.release();
+            if let Some(client) = self.terminal {
+                self.stats.release_terminal(client);
+            }
         }
     }
 }
@@ -95,6 +108,9 @@ impl ConnectionStats {
                 continue;
             }
             self.release();
+            if let Some(client) = lease.terminal {
+                self.release_terminal(client);
+            }
             freed += 1;
         }
         self.reclaimed.fetch_add(freed, Ordering::Relaxed);

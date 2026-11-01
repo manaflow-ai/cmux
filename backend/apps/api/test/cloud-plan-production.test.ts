@@ -79,6 +79,10 @@ describe("Cloud plan entitlements in the production config", () => {
     expect(teamPlan(config, null)).toBeNull()
   })
 
+  it("CLOUD_ALLOWED_TEAMS \"*\" gives no stub plan in production", () => {
+    expect(teamPlan(productionWith({ CLOUD_ALLOWED_TEAMS: "*" }, {}), "team_unpaid")).toBeNull()
+  })
+
   it("an unknown plan id is no plan", () => {
     expect(teamPlan(productionWith({}, { team_x: "enterprise" }), "team_x")).toBeNull()
   })

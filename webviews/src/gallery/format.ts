@@ -208,8 +208,8 @@ export type AgentPaneVariant = VariantBase & {
   /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
    *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
   display?: Record<string, unknown>;
-  /** Labs workflows (Settings `workflowLabs`, off by default) on, as the app's `workflowLabs` push
-   *  sends it: a Claude workflow's transcript card and its Session Info panel. */
+  /** Claude workflows (on by default; false as the app's `workflowLabs` push would send it turns
+   *  them off): a Claude workflow's transcript card and its Session Info panel. */
   workflowLabs?: boolean;
   /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
    *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
@@ -230,6 +230,8 @@ export type MarkdownPageVariant = VariantBase & {
   themeCSS?: string;
   /** Other files links may name (and the empty state's recents). */
   files?: Record<string, string>;
+  /** Opens find (the `find` page command, Cmd-F) with this query once the document shows. */
+  find?: string;
 };
 
 /** One file of a diff fixture: the text before (absent for a new file) and after (absent when deleted). */
@@ -244,6 +246,8 @@ export type DiffPageVariant = VariantBase & {
   files?: DiffFixtureFile[];
   repoRoot?: string;
   baseRef?: string;
+  /** A machine error while the loaded diff remains visible. */
+  fingerprintError?: { code: string; message: string };
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */

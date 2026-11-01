@@ -212,6 +212,27 @@ pub trait AgentPort: Send + Sync {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String>;
+    /// [`Self::start_prompt`] as agent `from`'s message
+    /// (`_meta.acpmux.fromAgent`): the Chief's tell to another acpmux
+    /// session (brain/session_tell.rs).
+    fn start_agent_prompt(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        from: &str,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        let _ = from;
+        self.start_prompt(session, blocks, prompt_id, signals)
+    }
+    /// Every acpmux session (`_acpmux/sessions`).
+    fn list_sessions(&self) -> Result<Vec<SessionSummary>, String> {
+        Err("listing sessions is not supported".into())
+    }
+    /// Stops routing `session`'s signals, leaving the session as it is (a
+    /// session the Chief only told, brain/session_tell.rs).
+    fn forget_route(&self, _session: &str) {}
     /// The session's recorded events after `after`, oldest first.
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String>;
     /// Stops routing the session's signals and removes the session.
@@ -1103,6 +1124,12 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
     meta
 }
 
+/// How long Chief waits on `session/new`: past acpmux's own start deadline (`agent_start`, 90 s
+/// unless its config sets another), twice, since acpmux tries a start that failed at background
+/// CPU class once more, so acpmux's error arrives. That error says what the agent process was
+/// doing (alive or not, its CPU class, run and CPU time), not a bare "no answer".
+pub const SESSION_NEW_DEADLINE: Duration = Duration::from_secs(200);
+
 /// `session/new` with acpmux's name, harness, policy, model and preset.
 pub fn new_session(
     client: &RpcClient,
@@ -1111,9 +1138,10 @@ pub fn new_session(
 ) -> Result<String, String> {
     let mut meta = session_meta(spec, preset);
     let request = |meta: &Value| {
-        client.request(
+        client.request_within(
             "session/new",
             json!({"cwd": spec.cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
+            SESSION_NEW_DEADLINE,
         )
     };
     let result = match request(&meta) {
@@ -1167,6 +1195,46 @@ pub fn new_session(
     Ok(id)
 }
 
+impl Acpmux {
+    /// Sends `session/prompt` with `_meta.acpmux` = `meta`; the session's
+    /// signals and the answer go to `signals`.
+    fn prompt_with_meta(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        meta: Value,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        let client = self.client()?;
+        self.turns
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                session.to_owned(),
+                TurnRoute {
+                    tx: signals.clone(),
+                    spoke: false,
+                },
+            );
+        let answer = client.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": meta}}),
+        );
+        std::thread::Builder::new()
+            .name("acpmux-prompt".into())
+            .spawn(move || {
+                let done = match answer.recv() {
+                    Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
+                    Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
+                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
+                };
+                let _ = signals.send(done);
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
 impl AgentPort for Acpmux {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
         let ready = self
@@ -1200,33 +1268,30 @@ impl AgentPort for Acpmux {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String> {
-        let client = self.client()?;
+        self.prompt_with_meta(session, blocks, json!({"promptId": prompt_id}), signals)
+    }
+
+    fn start_agent_prompt(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        from: &str,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        let meta = json!({"promptId": prompt_id, "fromAgent": from, "class": "question"});
+        self.prompt_with_meta(session, blocks, meta, signals)
+    }
+
+    fn list_sessions(&self) -> Result<Vec<SessionSummary>, String> {
+        sessions(&*self.client()?)
+    }
+
+    fn forget_route(&self, session: &str) {
         self.turns
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(
-                session.to_owned(),
-                TurnRoute {
-                    tx: signals.clone(),
-                    spoke: false,
-                },
-            );
-        let answer = client.start(
-            "session/prompt",
-            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id}}}),
-        );
-        std::thread::Builder::new()
-            .name("acpmux-prompt".into())
-            .spawn(move || {
-                let done = match answer.recv() {
-                    Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
-                    Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
-                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
-                };
-                let _ = signals.send(done);
-            })
-            .map_err(|e| e.to_string())?;
-        Ok(())
+            .remove(session);
     }
 
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {

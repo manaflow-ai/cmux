@@ -168,4 +168,21 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
         expect(chosen.checkGap, "the check sits in its own column, clear of the name").toBeGreaterThanOrEqual(6);
         await page.close();
       });
+  for (const [engine] of engines)
+    for (const theme of ["Catppuccin Mocha", "Apple System Colors Light"])
+      test(`${engine}, ${theme}: Retry stays revealed until its menu closes`, async () => {
+        const page = await open(engine, 560, theme);
+        try {
+          await page.mouse.move(4, 4);
+          await eased(page);
+          const button = page.locator('button[aria-label="Retry with another model"]');
+          expect(await button.getAttribute("data-popup-open")).toBe("");
+          expect(await page.locator(".cv-user__actions").evaluate((node) => getComputedStyle(node).opacity)).toBe("1");
+          await page.keyboard.press("Escape");
+          await page.waitForFunction(() => !document.querySelector(".cv-turn-retry-menu[data-popup-open]"));
+          expect(await button.getAttribute("data-popup-open")).toBeNull();
+        } finally {
+          await page.close();
+        }
+      });
 });
