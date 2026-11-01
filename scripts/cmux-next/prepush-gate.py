@@ -243,23 +243,30 @@ HIGHLIGHTS_DIR = "release-notes/next/highlights/"
 HIGHLIGHTS_CODE = ("scripts/whats-new/digest.py", "scripts/whats-new/validate.py")
 HIGHLIGHTS_HINT = ("Fix the highlight: add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, "
                    "240 characters (release-notes/next/WRITING.md).")
-# Run in its own interpreter: argv[1] holds digest.py and validate.py, then pairs of (file name, path to its text).
-# Each file is judged alone, as test_the_repository_highlights_validate judges it; a file digest.parse refuses is
-# its ValueError. One JSON object {name: [problem, ...]} on stdout.
+# Run in its own interpreter: argv[1] holds digest.py and validate.py, argv[2] is the result file, then pairs of
+# (file name, path to its text). Each file is judged alone, as test_the_repository_highlights_validate judges it: read
+# as strict UTF-8 like the test's open() (a file it cannot decode is a test error there, so a finding here), and a file
+# digest.parse refuses is its ValueError. The result, one JSON object {name: [problem, ...]}, goes to the result file,
+# never to stdout or stderr: a warning the validator prints cannot hide it (review of #31260).
 HIGHLIGHTS_PROGRAM = """\
 import json, sys
 sys.path.insert(0, sys.argv[1])
 import digest
 out = {}
-pairs = sys.argv[2:]
+pairs = sys.argv[3:]
 for name, path in zip(pairs[0::2], pairs[1::2]):
-    with open(path, encoding="utf-8", errors="replace") as f:
-        text = f.read()
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except UnicodeDecodeError as error:
+        out[name] = [f"is not UTF-8 text ({error}); the release-notary test cannot read it"]
+        continue
     try:
         out[name] = list(digest.entry_problems(digest.parse(name, text)))
     except ValueError as error:
         out[name] = [str(error)]
-print(json.dumps(out))
+with open(sys.argv[2], "w", encoding="utf-8") as f:
+    json.dump(out, f)
 """
 # The validator names the made-up nightly document it wraps one entry in; the finding names the file instead.
 HIGHLIGHTS_DOCUMENT = re.compile(r"^[^\s:]+\.json: ")
@@ -927,10 +934,13 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
             for index, p in enumerate(files):
                 (work / f"{index}.md").write_bytes(blobs[f"{head}:{p}"] or b"")
                 args += [Path(p).name, str(work / f"{index}.md")]
-            code, out = run([sys.executable, "-I", "-c", HIGHLIGHTS_PROGRAM, str(work), *args], work, timeout=60)
-            if code != 0:
+            result = work / "result.json"
+            code, out = run([sys.executable, "-I", "-c", HIGHLIGHTS_PROGRAM, str(work), str(result), *args], work,
+                            timeout=60)
+            # The exit code and the result file are the answer; the output is only for the warning below.
+            if code != 0 or not result.is_file():
                 raise ValueError(f"exit {code}: {out.strip().splitlines()[-1] if out.strip() else 'no output'}")
-            problems = json.loads(out.strip().splitlines()[-1])
+            problems = json.loads(result.read_text(encoding="utf-8"))
     except (Exception, SystemExit) as error:  # noqa: BLE001 - fail open: CI's release-notary test still runs it
         log(f"prepush-gate: WARNING: the What's New highlights were not validated ({type(error).__name__}: {error}); "
             "run python3 scripts/whats-new/test_digest.py before pushing a highlight.")
