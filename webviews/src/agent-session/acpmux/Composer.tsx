@@ -58,10 +58,14 @@ import {
   applyCommand,
   fastModeState,
   isFastCommand,
-  matchCommands,
-  slashQuery,
+  shownName,
+  slashMatches,
+  useSlashNames,
+  withSkillDollars,
+  withoutSkillDollars,
   type SlashCommand,
   type SlashMatch,
+  type SlashTrigger,
 } from "./slashCommands";
 import { commandWaitsForTurn } from "./cliOnlyCommands";
 import { BoltIcon } from "./BoltIcon";
@@ -117,6 +121,7 @@ import { composerPlusRegistry, type ComposerPlusExtension } from "./composerPlus
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
+import type { RepickMachine } from "./cloudRepick";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -346,6 +351,8 @@ type Props = {
   onProject?(cwd: string, peer?: string): void;
   /// A new chat's machine was picked where no folder of it is known: the chat starts there.
   onComputer?(computer: string): void;
+  /// A Cloud chat whose first send has not run: another Cloud machine picked moves it there (see ComposerContext).
+  onRepick?(machine: RepickMachine): Promise<boolean>;
   projectChoices?: Project[];
   /// A chat on another machine: that machine's own folders (`project.list`), for its folder menu.
   machineFolders?: Project[];
@@ -446,6 +453,7 @@ export function Composer({
   localPaths,
   onProject,
   onComputer,
+  onRepick,
   projectChoices,
   machineFolders,
   onBrowseProject,
@@ -524,6 +532,8 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
+  /// The `/word` the prompt's caret ends (MarkdownField `onSlash`), which opens the menu.
+  const [slash, setSlash] = useState<SlashTrigger | undefined>();
   // The @ picker (MentionMenu.tsx): the row moved to, by its key, and the prompt text Esc closed it on.
   const [mentionActive, setMentionActive] = useState<string | undefined>();
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
@@ -806,7 +816,9 @@ export function Composer({
         suppressedAttachmentCarry.current = undefined;
       },
       restore(restoredText, restoredAttachments) {
-        const restored = bindMarks(restoredText, restoredAttachments);
+        // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
+        // as `/$name`: it is typed `/name` here, and send writes the `$` again.
+        const restored = bindMarks(withoutSkillDollars(restoredText), restoredAttachments);
         restoredText = restored.text;
         restoredAttachments = restored.attachments;
         // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
@@ -1147,9 +1159,14 @@ export function Composer({
       : undefined;
   // A prompt ↑ brought back keeps its arrows for history: a / command or @ mention in it opens no menu.
   const recalling = prompts.showing(() => field.current?.agentText(text) ?? text);
-  const query = slashQuery(text, caret);
-  const open = query !== undefined && dismissed !== text && !recalling;
-  const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
+  // A `/word` at the prompt's start lists every command; one after a space or line break further
+  // on lists those the agent reads anywhere (slashCommands.ts slashMatches), and opens only on a
+  // match: mid-prompt, `/tmp` with nothing to offer is the person's text, not an empty menu.
+  const typedSlash = slash !== undefined && dismissed !== text && !recalling ? slash : undefined;
+  const query = typedSlash?.query;
+  const matches = useMemo(() => (typedSlash ? slashMatches(commands ?? [], typedSlash) : []), [commands, typedSlash]);
+  const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
+  const slashNames = useSlashNames(commands);
 
   useEffect(() => setActive(0), [query]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
@@ -1218,6 +1235,11 @@ export function Composer({
   const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
   const pick = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
+    // In place, over the typed `/word`, the text around it kept; the field reports the edit.
+    if (field.current?.insertCommand(shownName(command))) {
+      field.current.focus();
+      return;
+    }
     const next = applyCommand(text, caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
@@ -1226,7 +1248,7 @@ export function Composer({
   const pickFromPlus = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
     const existing = field.current?.value() ?? text;
-    const next = `/${command.name} ${existing}`;
+    const next = `/${shownName(command)} ${existing}`;
     pendingCaret.current = next.length;
     edit(next, next.length);
     field.current?.focus();
@@ -1277,7 +1299,9 @@ export function Composer({
     const draftText = unwrapped();
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
-    const inText = placeInline((field.current?.agentText(draftText) ?? draftText).trim(), attachments, {
+    // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
+    const typedText = withSkillDollars(field.current?.agentText(draftText) ?? draftText, commands);
+    const inText = placeInline(typedText.trim(), attachments, {
       dropped: (id) => pending.some((chip) => chip.id === id),
     });
     // A slash command reads from the words' start, wherever the attachments sit: it goes first and
@@ -1561,7 +1585,7 @@ export function Composer({
   // command or a pasted path), or on a command already typed in full that takes no arguments.
   const returnSends = () => {
     const typedInFull =
-      matches[selected]?.command.name === query &&
+      (matches[selected] ? shownName(matches[selected].command) : undefined) === query &&
       (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
     return !open || matches.length === 0 || typedInFull;
   };
@@ -2067,6 +2091,7 @@ export function Composer({
       {...(runMode ? { runMode } : {})}
       environments={environments}
       {...(onComputer ? { onComputer } : {})}
+      {...(onRepick ? { onRepick } : {})}
       onProject={
         onProject &&
         ((cwd, peer) => {
@@ -2268,6 +2293,8 @@ export function Composer({
           onReturnInput: stablePromptCallbacks.onReturnInput,
           onCompositionChange: stablePromptCallbacks.onCompositionChange,
           onUnplacedQuotes: stablePromptCallbacks.onUnplacedQuotes,
+          slashNames,
+          onSlash: setSlash,
         }}
         attachments={attachments}
         pending={pending}
@@ -2556,7 +2583,7 @@ function SlashMenu({
                 )
               ) : (
                 <>
-                  /<Highlighted name={match.command.name} ranges={match.ranges} />
+                  /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
                 </>
               )}
             </span>

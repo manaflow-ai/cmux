@@ -168,6 +168,11 @@ export default agentPaneEntry({
       ready: { draft: "Check the grid lines" },
       snapshot: row(),
     },
+    "grid-draft-lines": {
+      note: "A two-line draft keeps its text column on the composer's 44px grid line while the controls stay on the last line.",
+      snapshot: row(),
+      ready: { draft: "First line of the draft\nSecond line of the draft" },
+    },
     "long-model": {
       note: "A long model name: it shows whole while the row has room and is the last label to shorten.",
       snapshot: { ...row({ model: LONG_MODEL }), catalog: longCatalog },

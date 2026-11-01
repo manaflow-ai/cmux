@@ -28,6 +28,7 @@ import { recordedPromptParts } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+import { SourceBadge, useSourceLabel, withSourceLabel } from "../composer/SourceBadge";
 import {
   ForkButton,
   forkWithFeedback,
@@ -38,6 +39,7 @@ import {
   ROW_ICON,
 } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
+import { skillDollarsOf, withSkillDollars, withoutSkillDollars } from "../slashCommands";
 
 /// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
 /// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
@@ -63,10 +65,12 @@ export function UserBubble({
   text: string;
   pending?: (actions: ReactNode) => ReactNode;
 }) {
-  // A video's frames and their note went to the agent only; the bubble draws the video's tile.
-  const row = useMemo(() => withoutVideoFrames(given), [given]);
+  // A video's frames and their note went to the agent only; the bubble draws the video's tile. A
+  // Codex skill reads `/name` as typed, not `/$name` as sent (slashCommands.ts withoutSkillDollars):
+  // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
+  const row = useMemo(() => shownSkills(withoutVideoFrames(given)), [given]);
   const text = useMemo(
-    () => withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+    () => withoutSkillDollars(withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length)),
     [givenText, given],
   );
   const t = useT();
@@ -77,7 +81,7 @@ export function UserBubble({
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
-  const resend = row.resend ?? row.text ?? text;
+  const resend = given.resend ?? given.text ?? givenText;
   // Only a recorded companion relation or an exact retained original path proves that a
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
   // The ordered bubble below skips them by the same rule.
@@ -130,7 +134,9 @@ export function UserBubble({
         onCancel={() => setEditing(false)}
         onSend={async (value) => {
           if (!edit || through === undefined) return;
-          if (await edit.send(row.id, through, value)) setEditing(false);
+          // The skills it named go as `/$name` again; the App writes any other skill so too.
+          const sent = withSkillDollars(value, skillDollarsOf(given.text ?? givenText));
+          if (await edit.send(row.id, through, sent)) setEditing(false);
         }}
       />
     );
@@ -243,6 +249,22 @@ export function UserBubble({
   );
 }
 
+/// `row` with its prompt text and placed text parts as the bubble reads them (`withoutSkillDollars`);
+/// `row` itself when it names no Codex skill.
+function shownSkills(row: AcpmuxRow): AcpmuxRow {
+  const sent = [row.text, ...(row.inlineParts ?? []).map((part) => (part.kind === "text" ? part.text : ""))];
+  if (!sent.some((text) => text?.includes("/$"))) return row;
+  return {
+    ...row,
+    ...(row.text !== undefined && { text: withoutSkillDollars(row.text) }),
+    ...(row.inlineParts && {
+      inlineParts: row.inlineParts.map((part) =>
+        part.kind === "text" ? { ...part, text: withoutSkillDollars(part.text) } : part,
+      ),
+    }),
+  };
+}
+
 /// The paths of the originals a prompt's images kept (an image the composer converted sends its
 /// original file after it).
 function imageOriginals(row: AcpmuxRow): ReadonlySet<string> {
@@ -312,6 +334,8 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // Bytes the row holds (this pane's own send) draw at once; acpmux cannot read a composer id.
   const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
   const [failed, setFailed] = useState<string>();
+  // The app it came from, at the thumbnail's top-right corner (composer/SourceBadge.tsx).
+  const from = useSourceLabel(image.source);
   if (shown.status === "missing") return null;
   const width = sentImageWidth(shown);
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
@@ -348,18 +372,26 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
       }}
     />
   );
-  if (!openImage) return thumbnail;
-  return (
+  const opened = openImage ? (
     <button
       type="button"
       /* The image drags out as a file (conversation/dragOut.ts). */
       draggable
-      /* tooltip-allow: an image thumbnail shows no name */ title={label}
+      /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}
       aria-label={label || t("image.view")}
       onClick={() => openImage(src, label)}
     >
       {thumbnail}
     </button>
+  ) : (
+    thumbnail
+  );
+  if (!image.source) return opened;
+  return (
+    <span className="cv-user__sourced">
+      {opened}
+      <SourceBadge source={image.source} />
+    </span>
   );
 });
 
