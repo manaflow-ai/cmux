@@ -175,6 +175,21 @@ export function usePullRequestAnswer(given: string | undefined, open: boolean): 
   return answer;
 }
 
+/**
+ * The state of the pull request at `url` ("open", "merged", …) for its chip's mark, from what the
+ * host already has: one cached-only ask when the chip first draws (`askPullRequest`, never a
+ * GitHub read), then whatever a hover card or Session Info's read brings in. Undefined until then.
+ */
+export function usePullRequestState(given: string | undefined): string | undefined {
+  const url = useTranscriptReadOnly() ? undefined : given;
+  const read = () => (url ? answers.get(url)?.pullRequest?.state : undefined);
+  const state = useSyncExternalStore(subscribe, read, read);
+  useEffect(() => {
+    if (url && !answers.has(url)) askPullRequest(url);
+  }, [url]);
+  return state || undefined;
+}
+
 /** Tests start from nothing. */
 export function resetPullRequestStore(): void {
   answers.clear();

@@ -132,9 +132,25 @@ test("a bare #N in a reply links to the pull request and opens its card", async 
   expect(card).not.toBeNull();
   expect(card!.textContent).toContain(TITLE);
   expect(card!.textContent).toContain(`${REPO}#634`);
+  // The chip's own ask reads the host's cache only (its mark's colour); the card's is the read.
   expect(view.calls.filter((call) => call.method === "pr.inspect")).toEqual([
+    { method: "pr.inspect", params: { url: URL, cached: true } },
     { method: "pr.inspect", params: { url: URL } },
   ]);
+});
+
+// Leo 2026-10-23, of a merged pull request's blue chip: "I feel like this should be purple". The
+// chip's mark takes its state from the host's cache, before any hover and without a GitHub read.
+test("a pull request chip carries its state for its mark's colour", async () => {
+  const view = await render("Landed in (#634).", REPO);
+  const chip = view.element.querySelector<HTMLAnchorElement>("a.cv-chip.is-ref")!;
+  await view.hover(chip);
+  expect(chip.dataset.prState).toBe("open");
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new globalThis.URL("../src/agent-session/acpmux/chips/chips.css", import.meta.url), "utf8");
+  expect(css).toMatch(
+    /\.cv-chip\.is-ref\[data-pr-state="merged"\] \.cv-chip__icon--gh \{\s*color: var\(--agent-status-merged\);/,
+  );
 });
 
 test("a reference in a code span or a code block is not a link", async () => {
