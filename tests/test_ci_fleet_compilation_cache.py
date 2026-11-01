@@ -100,6 +100,15 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn("CODE_SIGNING_ALLOWED=NO", args)
         self.assertEqual(args[-1], "build")
 
+    def test_warmer_and_pr_release_use_the_same_cache_settings(self):
+        nightly = (ROOT / ".github/workflows/nightly.yml").read_text()
+        ci_macos = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+        warmer = nightly.split("      - name: Refresh universal nightly compilation cache\n", 1)[1].split("      - name:", 1)[0]
+        release = ci_macos.split("      - name: Build app (Release)\n", 1)[1].split("      - name:", 1)[0]
+        for step in (warmer, release):
+            self.assertIn("bash scripts/ci/fleet-compilation-cache.sh", step)
+            self.assertIn('"${fleet_cache_settings[@]}"', step)
+
 
 if __name__ == "__main__":
     unittest.main()
