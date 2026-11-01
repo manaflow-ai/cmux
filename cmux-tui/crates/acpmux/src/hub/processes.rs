@@ -590,7 +590,7 @@ impl Hub {
 
     /// Optional byte-bounded process-list pages, scoped to one session. The caller
     /// passes the last id it received, never a numeric offset that can shift.
-    pub fn list_processes_page(
+    pub(crate) fn list_processes_page(
         &self,
         session: &Session,
         limit: usize,
