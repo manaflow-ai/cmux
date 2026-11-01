@@ -182,6 +182,22 @@ def nightly_next_build_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+NIGHTLY_ONLY_VARIABLE = "CI_NIGHTLY_ONLY_RUNNER"
+NIGHTLY_ONLY_LABEL = "glaeda-nightly-only-m4pro"
+
+
+def nightly_only_reason(label: str) -> str | None:
+    """Why the explicit all-nightly reservation is not allowed, or None when off.
+
+    nightly.yml reads this only for the exact NEXT attempt-1 preparation route.
+    The variable stays empty until the managed M4 Pro runner and its hook are
+    enrolled; no other owned or hosted label is accepted.
+    """
+    if not label or label == NIGHTLY_ONLY_LABEL:
+        return None
+    return f"`{label}` is not the exact dedicated nightly label ({NIGHTLY_ONLY_LABEL})"
+
+
 FAST_LANE_VARIABLE = "CI_FAST_LANE_RUNNER"
 FAST_LANE_PREFIX = "glaeda-fast-"
 
@@ -332,7 +348,7 @@ def forbidden_reason(label: str) -> str | None:
 # a GitHub-hosted Mac. Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE
 # SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO".
 NO_HOSTED_MAC_VARIABLES = frozenset({
-    "CI_CONTROL_RUNNER", "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER",
+    "CI_CONTROL_RUNNER", "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_NIGHTLY_ONLY_RUNNER", "CI_SIDE_LANE_RUNNER",
     "LINUX_RUNNER",
     "RUNNER_POOLS",
     "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
@@ -399,6 +415,8 @@ def drifted_runner_variables(
             reason = side_lane_reason(value.strip())
         elif name == NIGHTLY_NEXT_BUILD_VARIABLE:
             reason = nightly_next_build_reason(value.strip())
+        elif name == NIGHTLY_ONLY_VARIABLE:
+            reason = nightly_only_reason(value.strip())
         elif name == FAST_LANE_VARIABLE:
             reason = fast_lane_reason(value.strip())
         elif name == SESSION_LANE_VARIABLE:

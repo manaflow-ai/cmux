@@ -260,6 +260,18 @@ class NightlyNextBuildVariable(unittest.TestCase):
                 self.assertTrue(drifted_runner_variables({name: label}))
 
 
+class NightlyOnlyVariable(unittest.TestCase):
+    def test_only_the_exact_reserved_m4_pro_label_is_allowed(self) -> None:
+        name = "CI_NIGHTLY_ONLY_RUNNER"
+        for label in ("", "glaeda-nightly-only-m4pro"):
+            with self.subTest(label=label):
+                self.assertEqual(drifted_runner_variables({name: label}), [])
+        for label in ("glaeda-nightly-only", "glaeda-nightly-std-xcode-26.6", "blacksmith-6vcpu-macos-26",
+                      "macos-26", "glaeda-unregistered"):
+            with self.subTest(label=label):
+                self.assertTrue(drifted_runner_variables({name: label}))
+
+
 class SideLaneVariable(unittest.TestCase):
     def test_only_an_owned_side_label_is_allowed_beyond_the_policy(self) -> None:
         # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER are the picker-less side lanes' whole runs-on.
