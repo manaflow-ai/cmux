@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo's nightly (c78e7b2, 2026-10-21): a chat's header tools sat in the pane's tab row, but the
@@ -9,7 +10,7 @@ import Testing
 /// so in a pane narrower than twice the tools its empty space ran under them; a press there is the
 /// strip's, and in the top row empty strip space moves the window (`TabStripView.titlebarPress`).
 /// Whatever the pane's width, while the chat lies under the row the strip ends where its tools begin.
-@MainActor @Suite(.serialized) struct TabRowToolsStayClickableTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabRowToolsStayClickableTests {
     /// A chat that draws `need` points of tools in the row whenever the pane offers it, as the page does.
     final class RowChat: NSView, PaneTabRowSharing {
         let need: CGFloat

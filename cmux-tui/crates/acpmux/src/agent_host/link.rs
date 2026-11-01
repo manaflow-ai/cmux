@@ -402,6 +402,16 @@ pub async fn connect_with_max(record: HostRecord, resume_after: u64, max: u16) -
 
 #[cfg(unix)]
 async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect> {
+    // Debug builds only: `ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX` makes this daemon speak at most that
+    // protocol, so a host it finds can refuse it (`0`: every host does), as a host of a build it
+    // cannot speak to does. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(max) = std::env::var("ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+    {
+        return connect_inner_max(record, resume_after, max).await;
+    }
     connect_inner_max(record, resume_after, PROTOCOL_MAX).await
 }
 

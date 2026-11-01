@@ -27,7 +27,7 @@ struct Target {
 /// its own argv, and every Codex-family ACP profile, through the real `codex`
 /// (the adapter's `CODEX_PATH`, else `codex` on the login PATH).
 fn targets(harnesses: &BTreeMap<String, HarnessProfile>) -> Vec<Target> {
-    let codex = || crate::config::which("codex");
+    let codex = crate::managed_codex::codex_binary;
     harnesses
         .iter()
         .filter_map(|(name, profile)| {
@@ -194,7 +194,7 @@ impl Hub {
                 return;
             }
         };
-        tracing::info!(agent = %harness, models = models.len(), ms = started.elapsed().as_millis() as u64, "live model list");
+        tracing::info!(agent = %harness, models = models.len(), ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), "live model list");
         self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).remove(&harness);
         if let Some(key) = program.as_deref().and_then(CacheKey::of) {
             let (name, list) = (harness.clone(), models.clone());

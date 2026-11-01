@@ -16,6 +16,7 @@
 //
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
+import { batchLaneNotices } from "./laneNoticeBatches";
 import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
 
 /// The group's row id: one while any message waits.
@@ -100,6 +101,6 @@ export function pendingMessagesRow(
       .join("\n\n"),
     untyped: true,
     joined: members.map((row) => row.id),
-    pendingMessages: { rows: members },
+    pendingMessages: { rows: members, displayRows: batchLaneNotices(members) },
   };
 }

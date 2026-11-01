@@ -249,7 +249,11 @@ pub(super) fn now_ms() -> u64 {
 impl Supervisor {
     pub fn new(config: Config, router: Box<dyn OpRouter>, fetcher: Box<dyn Fetcher>) -> Arc<Self> {
         let config_state_dir = config.state_dir.clone();
+        // Taken before the read (see `PrintsBefore`): a local app saved
+        // during it is read again once the watch starts.
+        let local_before = super::local_reload::PrintsBefore::take(&config.sources);
         let catalog = catalog::load(&config.sources);
+        let local_prints = local_before.of(&config.sources, &catalog);
         let mut mirror = load_mirror(config.state_dir.as_deref());
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
         for (dir, issue) in &catalog.rejected {
@@ -327,7 +331,7 @@ impl Supervisor {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
         }
         supervisor.start_always_servers();
-        supervisor.start_local_watch();
+        supervisor.start_local_watch(local_prints);
         supervisor
     }
 
@@ -373,7 +377,7 @@ impl Supervisor {
             .into_iter()
             .map(|id| {
                 let mut row = entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id));
-                row["instance"] = self.instance_json(id);
+                row.set("instance", self.instance_json(id));
                 row
             })
             .collect();

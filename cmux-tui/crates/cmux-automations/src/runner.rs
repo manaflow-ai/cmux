@@ -43,16 +43,6 @@ pub struct TickReport {
     pub errors: Vec<(String, String)>,
 }
 
-fn hostname() -> Option<String> {
-    let mut buf = [0u8; 256];
-    // SAFETY: gethostname writes at most `buf.len()` bytes into `buf`.
-    if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } != 0 {
-        return None;
-    }
-    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    String::from_utf8(buf[..end].to_vec()).ok()
-}
-
 fn start_run(
     store: &Store,
     mut run: Run,
@@ -66,7 +56,7 @@ fn start_run(
         late_seconds: run.late_seconds,
     };
     run.started_at = Some(now);
-    run.runner = hostname();
+    run.runner = crate::sys::hostname();
     match exec.start(&job) {
         Ok(pid) => {
             run.state = RunState::Running;
