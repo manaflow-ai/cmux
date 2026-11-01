@@ -139,6 +139,20 @@ enum RemoteStrings {
         return String(format: String(localized: "remote.failure.cause", defaultValue: "cmux on %1$@ stopped: %2$@. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine, cause)
     }
 
+    /// The machine's raw failure (ssh's own words, or the install or link
+    /// error) for Copy SSH Error; nil when it has none.
+    static func sshError(_ session: SSHMachineSession) -> String? {
+        let text: String? = switch session.linkStatus {
+        case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
+             .installFailed(let message), .failed(let message): message
+        case .needsInstall(let need): needText(need, session)
+        case .connecting, .connected, .reconnecting: session.daemonFailure?.error ?? session.lastError
+        case .offline, .installing: session.lastError
+        }
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
+    }
+
     /// The one-time notice of a browser tab opened in another machine's
     /// workspace: the page renders and runs on this Mac (cx-2cob slice 1a).
     static func browserRunsOnThisMac(_ machine: String) -> String {
