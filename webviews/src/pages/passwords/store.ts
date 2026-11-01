@@ -53,7 +53,10 @@ export class PasswordsStore {
   private generation = 0;
   private stops: Array<() => void> = [];
   private started = false;
-  private followingChanges = false;
+  /** The change subscription, from the first ask until it fails or the page stops. */
+  private changes?: Promise<void>;
+  /** Bumped by `stop()`, so a subscription still in flight can tell it is stale. */
+  private epoch = 0;
 
   constructor(
     private readonly client: PageClient | null,
@@ -108,20 +111,30 @@ export class PasswordsStore {
     await this.reload();
   }
 
-  /** Follows the app's `cmux.passwords.changed`; once, however many starts ask. */
-  private async followChanges(client: PageClient): Promise<void> {
-    if (this.followingChanges) return;
-    const stop = await client.subscribe<ChangedEvent>(PasswordOps.changed, (event) => {
-      if (event.profile === undefined || event.profile === this.snapshot.profile) void this.reload();
+  /** Follows the app's `cmux.passwords.changed`; one subscription, however many starts and reconnects ask. */
+  private followChanges(client: PageClient): Promise<void> {
+    if (this.changes) return this.changes;
+    const epoch = this.epoch;
+    const subscribing = (async () => {
+      const stop = await client.subscribe<ChangedEvent>(PasswordOps.changed, (event) => {
+        if (event.profile === undefined || event.profile === this.snapshot.profile) void this.reload();
+      });
+      // The page stopped (or stopped and started) while this was in flight: it is not this run's.
+      if (epoch !== this.epoch || !this.started) return stop();
+      this.stops.push(stop);
+    })();
+    this.changes = subscribing;
+    // A failed subscription is not kept: the next start or reconnect asks again.
+    subscribing.catch(() => {
+      if (this.changes === subscribing) this.changes = undefined;
     });
-    if (!this.started) return stop();
-    this.followingChanges = true;
-    this.stops.push(stop);
+    return subscribing;
   }
 
   stop(): void {
     this.started = false;
-    this.followingChanges = false;
+    this.epoch += 1;
+    this.changes = undefined;
     for (const stop of this.stops) stop();
     this.stops = [];
   }

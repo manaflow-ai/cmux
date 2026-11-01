@@ -75,3 +75,42 @@ test("a start that failed while the link was down finishes when the link returns
   expect(reads.filter((op) => op === PasswordOps.list).length).toBe(before + 1);
   stop();
 });
+
+test("a reconnect while the first change subscription is pending subscribes once", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((done) => (release = done));
+  let changeSubscriptions = 0;
+  let activeChanges = 0;
+  const listeners = new Map<string, (data: unknown, seq: number) => void>();
+  const client = {
+    call: async (op: string) =>
+      op === PasswordOps.state
+        ? { profiles: [{ id: "default", name: "Default" }], profile: "default", sections: { passwords: false } }
+        : null,
+    subscribe: async (stream: string, onEvent: (data: unknown, seq: number) => void) => {
+      if (stream === PasswordOps.changed) {
+        changeSubscriptions += 1;
+        await gate;
+        activeChanges += 1;
+        return () => void (activeChanges -= 1);
+      }
+      listeners.set(stream, onEvent);
+      return () => void listeners.delete(stream);
+    },
+    handle: () => () => {},
+  } as unknown as PageClient;
+  const store = new PasswordsStore(client);
+  const stop = store.subscribe(() => {});
+  await tick();
+  // The link drops and returns while the change subscription is still pending.
+  listeners.get(PAGE_CONNECTION)?.({ connected: false }, 1);
+  listeners.get(PAGE_CONNECTION)?.({ connected: true }, 2);
+  await tick();
+  release();
+  await tick();
+  await tick();
+  expect(changeSubscriptions).toBe(1);
+  expect(activeChanges).toBe(1);
+  stop();
+  expect(activeChanges).toBe(0);
+});
