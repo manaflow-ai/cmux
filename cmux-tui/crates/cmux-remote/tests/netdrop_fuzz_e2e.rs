@@ -40,6 +40,10 @@
 //! seed is shrunk: each of its faults runs alone, and the faults that still
 //! fail are printed as its minimal list.
 //!
+//! This is a measurement, not a CI test: it returns at once (`NETDROP SKIP`)
+//! unless the fleet step key contains `netdrop` (`cmux-ci run ... --key
+//! fuzz-h-netdrop-<sha12>-<n>`) or `CMUX_NETDROP_FUZZ` is set.
+//!
 //! The timings are the production mechanisms at test scale (heartbeat every
 //! 250 ms with a 1 s answer deadline, WebSocket dead-peer timeout 1.5 s,
 //! resume lease 4 s). Not covered: the macOS app's SSH workspace UI over a
@@ -2089,8 +2093,22 @@ fn percentile(sorted: &[u64], percent: usize) -> u64 {
     sorted[(sorted.len() - 1) * percent / 100]
 }
 
+/// Whether this run is a netdrop measurement: a fleet step keyed for it, or
+/// an explicit opt-in. Elsewhere the test skips, so it adds no CI test.
+fn netdrop_requested() -> bool {
+    std::env::var("CMUX_CI_STEP_KEY").is_ok_and(|key| key.contains("netdrop"))
+        || std::env::var_os("CMUX_NETDROP_FUZZ").is_some()
+}
+
 #[test]
 fn netdrop_fuzz_seeded_network_faults_never_lose_data_silently() {
+    if !netdrop_requested() {
+        println!(
+            "NETDROP SKIP: runs only in a fleet step whose key contains netdrop, or with \
+             CMUX_NETDROP_FUZZ set"
+        );
+        return;
+    }
     let started = std::time::Instant::now();
     let mut configs = SEEDS.iter().map(|&seed| SeedConfig::seeded(seed)).collect::<Vec<_>>();
     configs.push(SeedConfig::expiry(EXPIRY_SEED));
