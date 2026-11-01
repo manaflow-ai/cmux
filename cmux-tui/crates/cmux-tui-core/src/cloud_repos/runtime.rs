@@ -169,14 +169,13 @@ impl Backend for Runtime<'_> {
                         "Retry repository discovery. If it still fails, reconnect GitHub from Add repository."
                     },
                 );
-                if code == "repo.no_access" {
-                    if let Some(url) = error["install_url"]
+                if code == "repo.no_access"
+                    && let Some(url) = error["install_url"]
                         .as_str()
                         .map(str::to_owned)
                         .or(store::install_url(self.mux)?)
-                    {
-                        failure.0.set("install_url", json!(url));
-                    }
+                {
+                    failure.0.set("install_url", json!(url));
                 }
                 return Err(failure);
             }
@@ -311,7 +310,7 @@ impl Backend for Runtime<'_> {
                     return Err(self.seed_failure(&status, repo)?);
                 }
                 Some("running") if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(250))
+                    std::thread::sleep(Duration::from_millis(250));
                 }
                 Some("running") => {
                     return Err(Failure::new(
