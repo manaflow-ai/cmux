@@ -1879,6 +1879,9 @@ const ReadOnlyPermissionRow = memo(
 const ReadOnlyQueuedMessageRow = memo(
   function ReadOnlyQueuedMessageRow({ row, githubRepository }: RowProps) {
     if (row.incoming?.kind !== "message") return null;
+    // A person's message (a guest's prompt) is drawn whole here too: its text is never read as a
+    // lane notice, so nothing it says is hidden from the read-only transcript either.
+    const person = row.queuedMessage?.person;
     return (
       <div className="cv-incoming">
         <IncomingMessageLine
@@ -1888,6 +1891,7 @@ const ReadOnlyQueuedMessageRow = memo(
           images={row.images}
           onOpen={openSenderChat}
           githubRepository={githubRepository}
+          {...(person ? { person, whole: true } : {})}
         />
       </div>
     );
