@@ -21,11 +21,17 @@ export type ComposerCopy = {
   parts: ({ text: string } | { item: number; id: string })[];
 };
 
+/// The base64 of the largest file the host writes for a copy (32 MiB).
+const MAX_DATA_BASE64 = Math.ceil((32 << 20) / 3) * 4;
+
 /// The pasteboard item of `attachment`; none for one with nothing to hand over (a shell run not yet run).
 export function copyItem(attachment: ComposerAttachment): CopyItem | undefined {
   const { name, mimeType } = attachment;
   if (attachment.path) return { name, mimeType, path: attachment.path };
-  if (attachment.data) return { name, mimeType, data: attachment.data };
+  // Past what the host takes in one item (AgentPaneImageCopies.maximumBytes): left out, never
+  // refusing the copy's other attachments with it.
+  if (attachment.data)
+    return attachment.data.length <= MAX_DATA_BASE64 ? { name, mimeType, data: attachment.data } : undefined;
   if (attachment.text !== undefined && attachment.text !== "")
     return { name, mimeType: mimeType || "text/plain", text: attachment.text };
   return undefined;
@@ -62,14 +68,11 @@ export function composerCopy(
 
 const STORE_KEY = "cmux.composer.copy.v1";
 
-/// The order of the copy just made, kept for a paste of it into any composer of this origin.
-export function rememberCopy(copy: ComposerCopy, storage: Storage | undefined = globalStorage()) {
-  try {
-    storage?.setItem(STORE_KEY, JSON.stringify({ text: copy.text, items: copy.items.length, parts: copy.parts }));
-  } catch {
-    // Storage full or off: a paste of the copy puts the text first, the attachments after it.
-  }
-}
+/// What a copy left on the pasteboard, as the host answered: each attachment item's file name, by
+/// item, or null for one it left out (refused, unreadable). Undefined until it answers.
+type Written = (string | null)[] | undefined;
+
+type Remembered = { text: string; parts: ComposerCopy["parts"]; files?: (string | null)[] };
 
 function globalStorage(): Storage | undefined {
   try {
@@ -79,22 +82,42 @@ function globalStorage(): Storage | undefined {
   }
 }
 
-type Remembered = { text: string; items: number; parts: ComposerCopy["parts"] };
+/// The order of the copy just made, kept for a paste of it into any composer of this origin, with
+/// the files the host wrote once it says (`files`).
+export function rememberCopy(copy: ComposerCopy, files?: Written, storage: Storage | undefined = globalStorage()) {
+  try {
+    const kept: Remembered = { text: copy.text, parts: copy.parts, ...(files ? { files } : {}) };
+    storage?.setItem(STORE_KEY, JSON.stringify(kept));
+  } catch {
+    // Storage full or off: a paste of the copy puts its files in as any paste does.
+  }
+}
+
+/// A copy of text alone (the field's own): the last attachment copy is no longer on the pasteboard.
+export function forgetCopy(storage: Storage | undefined = globalStorage()) {
+  try {
+    storage?.removeItem(STORE_KEY);
+  } catch {
+    // Nothing kept.
+  }
+}
 
 function remembered(storage: Storage | undefined): Remembered | undefined {
   try {
     const raw = storage?.getItem(STORE_KEY);
     if (!raw) return undefined;
     const value = JSON.parse(raw) as Partial<Remembered>;
-    if (typeof value.text !== "string" || typeof value.items !== "number" || !Array.isArray(value.parts))
-      return undefined;
+    if (typeof value.text !== "string" || !Array.isArray(value.parts)) return undefined;
     const parts = value.parts.filter(
       (part): part is Remembered["parts"][number] =>
         Boolean(part) &&
         (typeof (part as { text?: unknown }).text === "string" ||
           (typeof (part as { item?: unknown }).item === "number" && typeof (part as { id?: unknown }).id === "string")),
     );
-    return { text: value.text, items: value.items, parts };
+    const files = Array.isArray(value.files)
+      ? value.files.map((name) => (typeof name === "string" ? name : null))
+      : undefined;
+    return { text: value.text, parts, ...(files ? { files } : {}) };
   } catch {
     return undefined;
   }
@@ -107,9 +130,11 @@ export type PastePart = { text: string } | { id: string } | { file: File };
 const lines = (text: string) => text.replace(/\r\n?/g, "\n");
 
 /// How a paste of a copy made here goes back in, in its order; none for any other paste (the field's
-/// and the intake's own paste take it). A paste is that copy when its text is the copy's and it
-/// brings each attachment: as the pasteboard's files, one per item in order, or, in a composer that
-/// still has every one (`known`), by its id.
+/// and the intake's own paste take it). The paste is that copy when its files are the ones the host
+/// wrote for it, by name and in order: while the pasteboard holds file URLs WebKit gives a page the
+/// files with no text, so the text comes from the copy kept here, never from the paste. A paste with
+/// no files is the copy when its text is (the host wrote nothing, or the files did not come). Each
+/// attachment comes back by id where this composer still has every one (`known`), else as its file.
 export function pastePlan(
   data: DataTransfer | null,
   known: (id: string) => boolean,
@@ -120,14 +145,24 @@ export function pastePlan(
   if (!copy) return undefined;
   const files = [...data.files];
   const text = lines(data.getData("text/plain"));
-  // With no text the pasteboard's first file names itself as its text (AgentPaneComposerCopy.swift).
-  if (copy.text ? text !== lines(copy.text) : text && !files.some((file) => file.name === text)) return undefined;
+  /// Each item's file in the paste, by item.
+  const fileOf = new Map<number, File>();
+  if (files.length) {
+    if (!copy.files) return undefined;
+    const kept = copy.files.flatMap((name, item) => (name === null ? [] : [{ item, name }]));
+    if (kept.length !== files.length || kept.some((each, index) => files[index]!.name !== each.name)) return undefined;
+    // A text WebKit does give is the copy's own.
+    if (text && text !== lines(copy.text)) return undefined;
+    kept.forEach((each, index) => fileOf.set(each.item, files[index]!));
+  } else if (!copy.text || text !== lines(copy.text)) return undefined;
   const ids = copy.parts.flatMap((part) => ("id" in part ? [part.id] : []));
   const byId = ids.length > 0 && ids.every(known);
-  if (!byId && files.length !== copy.items) return undefined;
-  return copy.parts.map((part) => {
-    if ("text" in part) return { text: part.text };
-    return byId ? { id: part.id } : { file: files[part.item]! };
+  if (!byId && !files.length) return undefined;
+  return copy.parts.flatMap((part): PastePart[] => {
+    if ("text" in part) return [{ text: part.text }];
+    if (byId) return [{ id: part.id }];
+    const file = fileOf.get(part.item);
+    return file ? [{ file }] : [];
   });
 }
 
@@ -139,5 +174,16 @@ export const pastesPlaced = new WeakSet<Event>();
 /// refuses (no gesture, a page outside the app) leaves the text copied.
 export function writeComposerCopy(copy: ComposerCopy) {
   rememberCopy(copy);
-  void postNative("composer.copy", { text: copy.text, items: copy.items }).catch(() => {});
+  void postNative<{ files?: { item?: unknown; name?: unknown }[] }>("composer.copy", {
+    text: copy.text,
+    items: copy.items,
+  })
+    .then((reply) => {
+      const files: (string | null)[] = copy.items.map(() => null);
+      for (const each of reply?.files ?? [])
+        if (typeof each.item === "number" && typeof each.name === "string" && each.item < files.length)
+          files[each.item] = each.name;
+      rememberCopy(copy, files);
+    })
+    .catch(() => rememberCopy(copy, []));
 }

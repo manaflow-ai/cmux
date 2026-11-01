@@ -1,6 +1,6 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import { type ComposerAttachment, inlineCopyId, inlineTokenIds } from "./attachments";
-import { composerCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
+import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
 import {
   AttachmentStrip,
@@ -280,7 +280,11 @@ export function ComposerBox({
             onWholeSelection={setWhole}
             onCopy={(copy, cut) => {
               const made = composerCopy(copy.parts, copy.whole, staged());
-              if (!made) return false;
+              // Text alone is the field's own copy: the last copy with attachments is gone from the pasteboard.
+              if (!made) {
+                forgetCopy();
+                return false;
+              }
               writeComposerCopy(made);
               if (cut && copy.whole) dropStrip();
               return true;

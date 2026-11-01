@@ -100,6 +100,8 @@ extension AgentPaneImageCopies {
         var tiff: Data?
         /// A file of this Mac the person attached (not a copy the host wrote).
         var isLocal: Bool
+        /// The request's item this file is, by its index.
+        var index = 0
     }
 
     /// `composer.copy`: spends the person's Copy key, writes each data or text item as a file under
@@ -123,7 +125,10 @@ extension AgentPaneImageCopies {
         }
         board += files.map { composerPasteboardItem($0) }
         guard model.replyLinks.copyItems(board) else { return AgentPaneModel.replyFailure(.openFailed) }
-        return AgentPaneReply.success(["copied": files.count, "skipped": items.count - files.count])
+        // Each kept file's item and name: the page knows its own copy again by them on a paste, which
+        // WebKit gives the files of with no text while the pasteboard holds file URLs.
+        let written: [[String: Any]] = files.map { ["item": $0.index, "name": $0.file.lastPathComponent] }
+        return AgentPaneReply.success(["copied": files.count, "skipped": items.count - files.count, "files": written])
     }
 
     /// The pasteboard item of one attachment: as ``pasteboardItem(_:data:)``, with the TIFF made
@@ -145,7 +150,7 @@ extension AgentPaneImageCopies {
                                           in folder: URL) async -> [ComposerFile] {
         var files: [ComposerFile] = []
         var total = 0
-        for item in items {
+        for (index, item) in items.enumerated() {
             let file: URL?
             var isLocal = false
             switch item.payload {
@@ -169,7 +174,7 @@ extension AgentPaneImageCopies {
             }
             let tiff = imageType == UTType.tiff ? nil : image.flatMap { NSImage(data: $0)?.tiffRepresentation }
             files.append(ComposerFile(file: file, imageType: image == nil ? nil : imageType?.identifier, image: image, tiff: tiff,
-                                      isLocal: isLocal))
+                                      isLocal: isLocal, index: index))
         }
         return files
     }

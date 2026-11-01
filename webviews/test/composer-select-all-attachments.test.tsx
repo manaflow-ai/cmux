@@ -10,7 +10,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import { composerCopy, pastePlan, rememberCopy } from "../src/agent-session/acpmux/composer/composerCopy";
+import { composerCopy, forgetCopy, pastePlan, rememberCopy } from "../src/agent-session/acpmux/composer/composerCopy";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
 const scope = globalThis as Record<string, unknown>;
@@ -254,7 +254,9 @@ function recordHost() {
         postMessage: (message: { method: string; params: Record<string, unknown> }) => {
           // The composer's other host calls (a project's icon) are not the copy's.
           if (message.method === "composer.copy") posted.push({ method: message.method, params: message.params });
-          return { ok: true, value: {} };
+          // As AgentPaneComposerCopy.swift answers: each item kept, under its plain name.
+          const items = (message.params.items as { name: string }[] | undefined) ?? [];
+          return { ok: true, value: { files: items.map((item, index) => ({ item: index, name: item.name })) } };
         },
       },
     },
@@ -386,7 +388,10 @@ test("a copy pasted into another composer brings the text and the attachments ba
   act(() => root?.unmount());
   root = undefined;
   const second = await openComposer();
-  await pasteBack(written.get("text/plain")!, [screenshot("Screenshot.png"), screenshot("Second.png")]);
+  // WebKit gives a page a pasteboard of file URLs as its files with no text (it keeps the paths
+  // private): the text comes back from the copy kept here (review at f90c7e8c).
+  void written;
+  await pasteBack("", [screenshot("Screenshot.png"), screenshot("Second.png")]);
   await until(() => (second.current!.wakeState().attachments ?? []).length === 2, "the pasted attachments");
   await until(() => field().querySelectorAll("[data-inline-attachment]").length === 2, "both in the text");
   const value = markdownField().value();
@@ -395,7 +400,10 @@ test("a copy pasted into another composer brings the text and the attachments ba
   // In their copied order: the first file where the first image was.
   const ids = [...value.matchAll(new RegExp(`${MARK}([^${MARK}]+)${MARK}`, "g"))].map((match) => match[1]);
   const names = ids.map(
-    (id) => (second.current!.wakeState().attachments ?? []).find((chip) => encodeURIComponent(chip.id) === id || chip.id === id)?.name,
+    (id) =>
+      (second.current!.wakeState().attachments ?? []).find(
+        (chip) => encodeURIComponent(chip.id) === id || chip.id === id,
+      )?.name,
   );
   expect(names).toEqual(["Screenshot.png", "Second.png"]);
 });
@@ -419,24 +427,38 @@ test("a copy pasted back into the same composer brings copies of its attachments
 test("pastePlan: only a paste of the remembered copy is put back in order", () => {
   const store = dom.window.localStorage;
   const copy = composerCopy([{ text: "a " }, { id: "x" }, { text: " b" }], false, [{ ...IMAGE, id: "x" }])!;
-  rememberCopy(copy, store);
   const transfer = (plain: string, files: File[]) =>
     ({ files, getData: (type: string) => (type === "text/plain" ? plain : "") }) as unknown as DataTransfer;
-  const file = screenshot();
-  expect(pastePlan(transfer("a  b", [file]), () => false, store)).toEqual([
-    { text: "a " },
-    { file },
-    { text: " b" },
-  ]);
-  // Another text, or a file missing: not that copy.
+  const file = screenshot("Screenshot.png");
+  // Before the host answers which files it wrote, files are not known as the copy's.
+  rememberCopy(copy, undefined, store);
+  expect(pastePlan(transfer("", [file]), () => false, store)).toBeUndefined();
+  rememberCopy(copy, ["Screenshot.png"], store);
+  // WebKit's paste of file URLs: the files, no text. The text is the copy's.
+  expect(pastePlan(transfer("", [file]), () => false, store)).toEqual([{ text: "a " }, { file }, { text: " b" }]);
+  // Other files, another count, or another text: not that copy.
+  expect(pastePlan(transfer("", [screenshot("other.png")]), () => false, store)).toBeUndefined();
+  expect(pastePlan(transfer("", [file, file]), () => false, store)).toBeUndefined();
   expect(pastePlan(transfer("other", [file]), () => false, store)).toBeUndefined();
-  expect(pastePlan(transfer("a  b", []), () => false, store)).toBeUndefined();
-  // The same composer, which still has the attachment: by its id, files or not.
+  // No files: the copy's own text in a composer that still has the attachment, by its id.
   expect(pastePlan(transfer("a  b", []), (id) => id === "x", store)).toEqual([
     { text: "a " },
     { id: "x" },
     { text: " b" },
   ]);
+  expect(pastePlan(transfer("a  b", []), () => false, store)).toBeUndefined();
+  // A file the host left out is left out of the paste; the text stays.
+  rememberCopy(copy, [null], store);
+  expect(pastePlan(transfer("a  b", []), () => false, store)).toBeUndefined();
+  // A copy of text alone forgets it.
+  forgetCopy(store);
+  expect(pastePlan(transfer("a  b", []), (id) => id === "x", store)).toBeUndefined();
+});
+
+test("composerCopy leaves out an image past what the host writes, never the copy's other attachments", () => {
+  const huge = { ...IMAGE, id: "huge", data: "A".repeat(Math.ceil((32 << 20) / 3) * 4 + 4) };
+  const copy = composerCopy([{ id: "huge" }, { id: LINK.id }], false, [huge, LINK])!;
+  expect(copy.items.map((item) => item.name)).toEqual(["notes.md"]);
 });
 
 test("composerCopy: a whole selection carries the strip's attachments before the text's", () => {

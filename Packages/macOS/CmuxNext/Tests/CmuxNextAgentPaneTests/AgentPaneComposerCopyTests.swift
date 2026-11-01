@@ -194,6 +194,10 @@ struct AgentPaneComposerCopyTests {
         ])
         #expect(Self.errorCode(reply) == nil, "\(reply)")
         #expect((reply["value"] as? [String: Any])?["skipped"] as? Int == 2)
+        // The reply names each kept file by its item, so the page knows its copy again on a paste.
+        let written = try #require((reply["value"] as? [String: Any])?["files"] as? [[String: Any]])
+        #expect(written.count == (reply["value"] as? [String: Any])?["copied"] as? Int)
+        #expect(written.allSatisfy { ($0["item"] as? Int) != nil && !(($0["name"] as? String) ?? "").isEmpty })
         let items = try #require(effects.copied.first)
         #expect(items.count == 1)
         let file = try #require(Self.fileURL(items[0]))
