@@ -21,10 +21,7 @@ use super::*;
 /// short-lived threads and never consume these workers.
 #[cfg(any(unix, windows))]
 const MAX_HOST_CLOSE_WORKERS: usize = 8;
-const MAX_HOST_CLOSE_WAIT_THREADS: usize = 32;
-
-#[cfg(any(unix, windows))]
-static HOST_CLOSE_WAIT_THREADS: AtomicUsize = AtomicUsize::new(0);
+const MAX_HOST_CLOSE_WAIT_WORKERS: usize = 8;
 
 #[cfg(any(unix, windows))]
 struct PendingHostClose {
@@ -39,7 +36,10 @@ struct PendingHostClose {
 struct HostCloseState {
     #[cfg(any(unix, windows))]
     queue: VecDeque<PendingHostClose>,
+    #[cfg(any(unix, windows))]
+    wait_queue: VecDeque<PendingHostClose>,
     workers: usize,
+    wait_workers: usize,
     /// Closes queued or in progress.
     pending: usize,
     /// Steps (signals and finished closes) since start; a waiter measures
@@ -105,33 +105,29 @@ impl TerminalHostCloses {
                 // requests can arrive slowly (for example while each reply
                 // commits state), so keeping the wait in this pool starves
                 // later signals and makes hosts trail the last reply.
+                state.wait_queue.push_back(close);
+                let spawn_waiter = if state.wait_workers < MAX_HOST_CLOSE_WAIT_WORKERS {
+                    state.wait_workers += 1;
+                    true
+                } else {
+                    false
+                };
+                drop(state);
+                if !spawn_waiter {
+                    continue;
+                }
                 let closes = self.clone();
-                let close_slot = Arc::new(Mutex::new(Some(close)));
-                let waiter_slot = close_slot.clone();
-                let can_spawn = HOST_CLOSE_WAIT_THREADS
-                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
-                        (active < MAX_HOST_CLOSE_WAIT_THREADS).then_some(active + 1)
-                    })
-                    .is_ok();
-                let spawned = can_spawn
-                    && std::thread::Builder::new()
-                        .name("terminal-host-close-wait".into())
-                        .spawn(move || {
-                            if let Some(close) = waiter_slot.lock().unwrap().take() {
-                                finish_host_close(close);
-                                closes.complete();
-                            }
-                            HOST_CLOSE_WAIT_THREADS.fetch_sub(1, Ordering::AcqRel);
-                        })
-                        .is_ok();
-                if !spawned {
-                    if can_spawn {
-                        HOST_CLOSE_WAIT_THREADS.fetch_sub(1, Ordering::AcqRel);
-                    }
-                    // Do not hold the close-state mutex during the bounded
-                    // fallback wait: later signals must keep flowing.
-                    drop(state);
-                    if let Some(close) = close_slot.lock().unwrap().take() {
+                if std::thread::Builder::new()
+                    .name("terminal-host-close-wait".into())
+                    .spawn(move || closes.wait_work())
+                    .is_err()
+                {
+                    let close = {
+                        let mut state = self.state.lock().unwrap();
+                        state.wait_workers -= 1;
+                        state.wait_queue.pop_back()
+                    };
+                    if let Some(close) = close {
                         finish_host_close(close);
                         self.complete();
                     }
@@ -148,6 +144,23 @@ impl TerminalHostCloses {
         state.steps = state.steps.wrapping_add(1);
         state.pending -= 1;
         self.idle.notify_all();
+    }
+
+    fn wait_work(self: Arc<Self>) {
+        loop {
+            let close = {
+                let mut state = self.state.lock().unwrap();
+                match state.wait_queue.pop_front() {
+                    Some(close) => close,
+                    None => {
+                        state.wait_workers -= 1;
+                        return;
+                    }
+                }
+            };
+            finish_host_close(close);
+            self.complete();
+        }
     }
 
     /// Wait until every queued host close finished, until no host was
