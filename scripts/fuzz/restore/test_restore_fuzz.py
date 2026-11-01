@@ -241,6 +241,54 @@ class Closes(unittest.TestCase):
             self.assertIn("tabs", p[1])
 
 
+class DiskFull(unittest.TestCase):
+    """Row h nearly-full disk: a bounded image at the daemon's state dir, filled to a margin."""
+
+    def test_procargs2_gives_exact_env_values(self):
+        # KERN_PROCARGS2: argc, exec path, NUL padding, argv, env; values keep their spaces.
+        import struct
+        blob = (struct.pack("i", 2) + b"/x/cmux-tui\0\0\0" + b"/x/cmux-tui\0--headless\0"
+                + b"HOME=/s/home\0CMUX_TUI_STATE_DIR=/s/home/Library/Application Support/cmux/x\0\0")
+        argv, env = rf.parse_procargs2(blob)
+        self.assertEqual(argv, ["/x/cmux-tui", "--headless"])
+        self.assertEqual(env["CMUX_TUI_STATE_DIR"], "/s/home/Library/Application Support/cmux/x")
+        self.assertEqual(env["HOME"], "/s/home")
+
+    def test_filler_leaves_the_margin(self):
+        mb = 1 << 20
+        self.assertEqual(rf.filler_bytes(100 * mb, 2), 98 * mb)
+        self.assertEqual(rf.filler_bytes(1 * mb, 2), 0)
+
+    def test_disk_plan_keeps_the_host_reserve(self):
+        gb = 1 << 30
+        self.assertIsNone(rf.disk_plan(host_free=40 * gb, image_mb=512, state_bytes=10 << 20))
+        self.assertIn("reserve", rf.disk_plan(host_free=20 * gb, image_mb=512, state_bytes=10 << 20))
+        self.assertIn("state dir", rf.disk_plan(host_free=40 * gb, image_mb=512, state_bytes=300 << 20))
+
+    def test_volume_commands(self):
+        vol = rf.DiskVolume("/out/fz.dmg", "/s/home/Library/Application Support/cmux/x", 512)
+        self.assertEqual(vol.create_cmd(), ["/usr/bin/hdiutil", "create", "-size", "512m", "-fs", "HFS+",
+                                            "-volname", "fzdisk", "-type", "UDIF", "/out/fz.dmg"])
+        self.assertEqual(vol.attach_cmd(), ["/usr/bin/hdiutil", "attach", "-nobrowse", "-noautoopen",
+                                            "-mountpoint", "/s/home/Library/Application Support/cmux/x", "/out/fz.dmg"])
+        self.assertEqual(vol.detach_cmd(force=True), ["/usr/bin/hdiutil", "detach", "-force",
+                                                     "/s/home/Library/Application Support/cmux/x"])
+
+    def test_state_dir_must_be_in_the_slot_home(self):
+        self.assertIsNone(rf.check_state_dir("/s/home/Library/Application Support/cmux/x", "/s/home"))
+        self.assertIsNotNone(rf.check_state_dir("/Users/cmux/Library/Application Support/cmux/x", "/s/home"))
+        self.assertIsNotNone(rf.check_state_dir("", "/s/home"))
+        self.assertIsNotNone(rf.check_state_dir("/s/home/x", ""))
+
+
+class TypedErrors(unittest.TestCase):
+    def test_typed_error(self):
+        self.assertTrue(rf.typed_error({"error": '{"code":"operation.failed","details":{}}'}))
+        self.assertTrue(rf.typed_error({"error": {"code": "store.save_failed"}}))
+        self.assertFalse(rf.typed_error({"error": "no daemon socket"}))
+        self.assertFalse(rf.typed_error({"error": "no answer within 10 s", "stall": True}))
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).

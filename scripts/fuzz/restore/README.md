@@ -34,7 +34,7 @@ python3 scripts/fuzz/restore/verdict.py < OUT/journey.txt
    ok answer before the kill must land); each confirmed terminal still shows its marker; no workspace, tab or
    terminal twice; the app shows what the daemon has. An action that hangs past 10 s is a stall.
 
-Chaos (row h) keeps the same oracle: `hog` (the smoke gate's Austin's-day memory hog), `cpu` (one busy process
+Chaos (row h) keeps the same oracle (diskfull: a bounded HFS+ image, `--disk-image-mb`, is mounted at the daemon state dir and filled to `--disk-margin-mb`; every `--disk-recover-every`th iteration runs with the filler removed and must run again; a refused create counts as degraded, with its error and whether it is typed): `hog` (the smoke gate's Austin's-day memory hog), `cpu` (one busy process
 per core at user-interactive QoS), `fd` (RLIMIT_NOFILE soft and hard 256 for the relaunched app), `fdsoft` (soft 256, hard kept: the macOS GUI default), `slowdisk`
 (`taskpolicy -d throttle` for the relaunched app). The limit and the throttle reach the daemon only when the
 new app starts a new one.

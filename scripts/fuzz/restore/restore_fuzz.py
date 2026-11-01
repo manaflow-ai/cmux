@@ -63,7 +63,10 @@ ap.add_argument("--max-seconds", type=float, default=480, help="stop starting it
 ap.add_argument("--seed", type=int, default=None, help="the run's seed (default: from the clock, printed)")
 ap.add_argument("--iterations", type=int, default=0, help="at most this many (0: until --max-seconds)")
 ap.add_argument("--targets", default="app,daemon,acpmux")
-ap.add_argument("--chaos", default="none", choices=["none", "hog", "cpu", "fd", "fdsoft", "slowdisk", "exec"])
+ap.add_argument("--chaos", default="none", choices=["none", "hog", "cpu", "fd", "fdsoft", "slowdisk", "exec", "diskfull"])
+ap.add_argument("--disk-image-mb", type=int, default=512, help="diskfull: size of the image mounted at the daemon's state dir")
+ap.add_argument("--disk-margin-mb", type=int, default=2, help="diskfull: free space left on that image")
+ap.add_argument("--disk-recover-every", type=int, default=8, help="diskfull: every Nth iteration runs with the filler removed")
 ap.add_argument("--hog-swap-gb", type=float, default=15.0)
 ap.add_argument("--replay", help="a violations.json: replay its first violation's iteration seed and shrink it")
 # Passed by the slot runner for restore-journey.py; unused here.
@@ -368,7 +371,25 @@ def cli(*args, timeout=ACTION_BOUND):
             answer = {"error": (r.stdout + r.stderr).strip()[:400] or f"exit {r.returncode}"}
     except subprocess.TimeoutExpired:
         answer = {"error": f"no answer within {timeout} s", "stall": True}
+    if isinstance(answer, dict) and "error" in answer:
+        ERRORS.append({"cmd": " ".join(args[:2]), "error": str(answer.get("error"))[:300], "typed": typed_error(answer)})
     return answer, time.time() - started
+
+
+ERRORS = []  # every error answer of the current iteration (diskfull: refusals must be typed)
+
+
+def typed_error(answer):
+    """Is an error answer a typed one (a JSON error object with a code), not a bare string or a stall?"""
+    if answer.get("stall"):
+        return False
+    err = answer.get("error")
+    if isinstance(err, dict):
+        return bool(err.get("code"))
+    try:
+        return bool(json.loads(err).get("code"))
+    except (TypeError, ValueError, AttributeError):
+        return False
 
 
 def value(answer):
@@ -894,6 +915,219 @@ def shrink(rec, targets, deadline):
     return {"keep": keep, "attempts": attempts}
 
 
+# ---- chaos: nearly full disk ----------------------------------------------------------------------
+
+def parse_procargs2(blob):
+    """KERN_PROCARGS2 bytes -> (argv, env), values exact (spaces kept): int argc, exec path, NUL padding, argv, env."""
+    import struct
+    argc = struct.unpack_from("i", blob, 0)[0]
+    rest = blob[4:]
+    end = rest.find(b"\0")
+    rest = rest[end:].lstrip(b"\0")
+    words = rest.split(b"\0")
+    argv = [w.decode(errors="replace") for w in words[:argc]]
+    env = {}
+    for w in words[argc:]:
+        if not w:
+            break
+        key, sep, val = w.decode(errors="replace").partition("=")
+        if sep:
+            env[key] = val
+    return argv, env
+
+
+def proc_args_exact(pid):
+    """(argv, env) of a same-user process through sysctl KERN_PROCARGS2 (exact values), or None."""
+    try:
+        libc = ctypes.CDLL(None)
+        mib = (ctypes.c_int * 3)(1, 49, int(pid))  # CTL_KERN, KERN_PROCARGS2
+        size = ctypes.c_size_t(0)
+        if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0 or not size.value:
+            return None
+        buf = ctypes.create_string_buffer(size.value)
+        if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+            return None
+        return parse_procargs2(buf.raw[:size.value])
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def filler_bytes(free_bytes, margin_mb):
+    return max(0, free_bytes - margin_mb * (1 << 20))
+
+
+HOST_RESERVE = 30 << 30  # the host keeps at least this much free after the image is made
+
+
+def disk_plan(host_free, image_mb, state_bytes):
+    """None when the diskfull setup may run, else the reason it may not."""
+    if host_free - image_mb * (1 << 20) < HOST_RESERVE:
+        return f"the host would keep {host_free >> 30} GB minus the image, below its {HOST_RESERVE >> 30} GB reserve"
+    if state_bytes > image_mb * (1 << 20) // 4:
+        return f"the state dir holds {state_bytes >> 20} MB, more than a quarter of the {image_mb} MB image"
+    return None
+
+
+def check_state_dir(state_dir, home):
+    """None when the daemon's state dir is a real path under the slot HOME, else the reason."""
+    if not state_dir or not home:
+        return f"no state dir ({state_dir!r}) or no slot HOME ({home!r})"
+    if not os.path.abspath(state_dir).startswith(home.rstrip("/") + "/"):
+        return f"state dir {state_dir} is not under the slot HOME {home}"
+    return None
+
+
+class DiskVolume:
+    """A bounded HFS+ image mounted at the daemon's state dir: filling it fills only the image, never the host."""
+
+    def __init__(self, image, mountpoint, size_mb):
+        self.image, self.mountpoint, self.size_mb, self.mounted = image, mountpoint, size_mb, False
+        self.filler = os.path.join(mountpoint, ".fz-filler")
+
+    def create_cmd(self):
+        return ["/usr/bin/hdiutil", "create", "-size", f"{self.size_mb}m", "-fs", "HFS+", "-volname", "fzdisk",
+                "-type", "UDIF", self.image]
+
+    def attach_cmd(self):
+        return ["/usr/bin/hdiutil", "attach", "-nobrowse", "-noautoopen", "-mountpoint", self.mountpoint, self.image]
+
+    def detach_cmd(self, force=False):
+        return ["/usr/bin/hdiutil", "detach", *(["-force"] if force else []), self.mountpoint]
+
+    def free(self):
+        st = os.statvfs(self.mountpoint)
+        return st.f_bavail * st.f_frsize
+
+    def fill(self, margin_mb):
+        """Writes the filler until the image has margin_mb free; the free bytes after."""
+        want = filler_bytes(self.free(), margin_mb)
+        chunk = b"\0" * (8 << 20)
+        with open(self.filler, "ab") as f:
+            while want > 0:
+                n = min(want, len(chunk))
+                try:
+                    f.write(chunk[:n])
+                    f.flush()
+                except OSError:
+                    break
+                want -= n
+            os.fsync(f.fileno())
+        return self.free()
+
+    def unfill(self):
+        try:
+            os.remove(self.filler)
+        except FileNotFoundError:
+            pass
+        return self.free()
+
+    def detach(self):
+        for force in (False, True, True):
+            if not self.mounted:
+                return True
+            if subprocess.run(self.detach_cmd(force), capture_output=True, text=True, timeout=60).returncode == 0:
+                self.mounted = False
+                return True
+            time.sleep(2)
+        return False
+
+
+DISK = {}  # "volume": DiskVolume, "state_dir": path, "phase": "full" | "free"
+
+
+def daemon_state_dir():
+    """The exact CMUX_TUI_STATE_DIR of this build's daemon (KERN_PROCARGS2), or None."""
+    for pid in APP.daemon_pids():
+        got = proc_args_exact(pid)
+        if got and got[1].get("CMUX_TUI_STATE_DIR"):
+            return got[1]["CMUX_TUI_STATE_DIR"]
+    return None
+
+
+def stop_build_processes():
+    """SIGKILL this slot build's app, daemon and acpmux (the same set kill() takes), and wait until they are gone."""
+    pids = kill("app") + APP.daemon_pids() + APP.acpmux_pids()
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    return wait(lambda: not any(APP.alive(p) for p in pids), 20, 0.2)
+
+
+def tree_bytes(path):
+    total = 0
+    for root, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def setup_diskfull():
+    """Moves the daemon's state dir onto a bounded image at the same path, then fills it. None, or the reason it
+    could not (the run is then harness-invalid: NOVERDICT)."""
+    state = daemon_state_dir()
+    why = check_state_dir(state, APP.env.get("HOME", ""))
+    if why:
+        return why
+    st = os.statvfs(state)
+    why = disk_plan(st.f_bavail * st.f_frsize, opts.disk_image_mb, tree_bytes(state))
+    if why:
+        return why
+    vol = DiskVolume(os.path.join(opts.out, "fz-disk.dmg"), state, opts.disk_image_mb)
+    made = subprocess.run(vol.create_cmd(), capture_output=True, text=True, timeout=120)
+    if made.returncode:
+        return f"hdiutil create failed: {made.stderr.strip()[:200]}"
+    if not stop_build_processes():
+        return "the build's processes did not end"
+    orig = state + ".fz-orig"
+    os.rename(state, orig)
+    os.makedirs(state)
+    attached = subprocess.run(vol.attach_cmd(), capture_output=True, text=True, timeout=120)
+    if attached.returncode:
+        os.rmdir(state)
+        os.rename(orig, state)
+        APP.relaunch()
+        return f"hdiutil attach failed: {attached.stderr.strip()[:200]}"
+    vol.mounted = True
+    DISK.update(volume=vol, state_dir=state, orig=orig)
+    copied = subprocess.run(["/bin/cp", "-a", orig + "/.", state + "/"], capture_output=True, text=True, timeout=120)
+    if copied.returncode:
+        say(f"  diskfull: cp of the state dir reported: {copied.stderr.strip()[:300]}")
+    if not APP.relaunch():
+        return "the app did not answer after the state dir moved onto the image"
+    if not wait(lambda: daemon_state() is not None, 60, 0.5):
+        return "the daemon did not answer after the state dir moved onto the image"
+    DISK["phase"] = "full"
+    say(f"  diskfull: {state} is a {opts.disk_image_mb} MB image; free after fill: {vol.fill(opts.disk_margin_mb) >> 10} KB")
+    return None
+
+
+def disk_phase(i):
+    """Before iteration i: every Nth iteration runs with the filler removed (recovery), the others full."""
+    vol = DISK.get("volume")
+    if not vol:
+        return None
+    want = "free" if opts.disk_recover_every and i % opts.disk_recover_every == opts.disk_recover_every - 1 else "full"
+    if want != DISK.get("phase"):
+        free = vol.unfill() if want == "free" else vol.fill(opts.disk_margin_mb)
+        DISK["phase"] = want
+        say(f"  diskfull: phase {want}, {free >> 10} KB free")
+    return {"phase": want, "free_kb": vol.free() >> 10}
+
+
+def teardown_diskfull():
+    vol = DISK.get("volume")
+    if not vol:
+        return
+    stop_build_processes()
+    if not vol.detach():
+        say(f"  diskfull: WARNING the image is still mounted at {vol.mountpoint}; the lease cleanup must detach it")
+
+
 # ---- chaos -------------------------------------------------------------------------------------
 
 CHAOS_PROCS = []
@@ -926,6 +1160,13 @@ def start_chaos():
         say("chaos exec (control): every app relaunch execs the executable as fd/slowdisk do, with no limit and no throttle")
     elif opts.chaos == "slowdisk":
         say("chaos slowdisk: every app relaunch runs under taskpolicy -d throttle (disk I/O throttled)")
+    elif opts.chaos == "diskfull":
+        why = setup_diskfull()
+        if why:
+            teardown_diskfull()
+            say(f"RESTORE-FUZZ SUMMARY seed=none chaos=diskfull iterations=0 judged=0 not_run=0 violations=0 "
+                f"chaos_lost=0 harness_invalid=1 ({why})")
+            sys.exit(75)
 
 
 def stop_chaos():
@@ -939,8 +1180,15 @@ def stop_chaos():
 
 # ---- main --------------------------------------------------------------------------------------
 
+def _end_on_signal(signum, _frame):
+    """SIGTERM/SIGHUP (the slot script or its ssh ended): leave through main()'s finally, which detaches the image."""
+    raise SystemExit(f"restore-fuzz: signal {signum}")
+
+
 def main():
     global APP
+    signal.signal(signal.SIGTERM, _end_on_signal)
+    signal.signal(signal.SIGHUP, _end_on_signal)
     APP = App()
     targets = [t for t in opts.targets.split(",") if t in ("app", "daemon", "acpmux")]
     if "acpmux" in targets and not APP.acpmux_pids():
@@ -953,8 +1201,8 @@ def main():
     deadline = T0 + opts.max_seconds
     records, violations = [], []
     chaos_lost = [0]
-    start_chaos()
     try:
+        start_chaos()  # inside the try: a stop during the diskfull setup still detaches the image
         if opts.replay:
             with open(opts.replay) as f:
                 seeds = [json.load(f)[0]["record"]["seed"]]
@@ -968,7 +1216,20 @@ def main():
                 say(f"chaos process(es) {dead} ended early; stopping (the iterations after this would not be under chaos)")
                 break
             it_seed = seeds[0] if seeds else master.randrange(1 << 31)
+            phase = disk_phase(i)
+            ERRORS.clear()
             rec = iteration(it_seed, targets, label=f"iter{i}")
+            if phase:
+                rec["disk"] = phase
+                rec["errors"] = list(ERRORS[:20])
+                rec["errors_untyped"] = sum(1 for e in ERRORS if not e["typed"])
+                # A full disk may refuse work: that is degraded, not "not run", when it refused with an answer.
+                if phase["phase"] == "full" and rec["verdict"] == "not run" and ERRORS:
+                    rec["verdict"] = "degraded"
+                # Recovery: with the filler removed, the iteration must run (its creates must work again).
+                if phase["phase"] == "free" and rec["verdict"] == "not run":
+                    rec["problems"].append("no recovery: with free space again, the iteration could not run")
+                    rec["verdict"] = "fail"
             rec["iteration"] = i
             records.append(rec)
             with open(os.path.join(opts.out, "iterations.jsonl"), "a") as f:
@@ -991,7 +1252,9 @@ def main():
             chaos_lost[0] = 1
             say("a chaos process ended before the run did; the last iterations may have run without chaos")
         stop_chaos()
+        teardown_diskfull()
     judged = [r for r in records if r["verdict"] in ("pass", "fail")]
+    degraded = [r for r in records if r["verdict"] == "degraded"]
     kills = {}
     for r in judged:
         kills[r["target"]] = kills.get(r["target"], 0) + 1
@@ -1003,7 +1266,8 @@ def main():
     p = lambda q: settle[min(len(settle) - 1, int(q * len(settle)))] if settle else None
     say(f"RESTORE-FUZZ SUMMARY seed={seed} chaos={opts.chaos} iterations={len(records)} judged={len(judged)} "
         f"not_run={len(records) - len(judged)} kills={json.dumps(kills, sort_keys=True)} violations={len(violations)} "
-        f"chaos_lost={chaos_lost[0]} hosts_max={HOSTS_MAX[0]} listed_minus_shown_max={EXCESS_MAX[0]} "
+        f"chaos_lost={chaos_lost[0]} degraded={len(degraded)} errors_untyped={sum(r.get('errors_untyped', 0) for r in records)} "
+        f"hosts_max={HOSTS_MAX[0]} listed_minus_shown_max={EXCESS_MAX[0]} "
         f"listed_minus_shown_minus_closed30s_max={EXCESS_MAX[1]} "
         f"settle_s p50={p(0.5)} p95={p(0.95)} max={settle[-1] if settle else None}")
     sys.exit(1 if violations else (0 if judged and not chaos_lost[0] else 75))
