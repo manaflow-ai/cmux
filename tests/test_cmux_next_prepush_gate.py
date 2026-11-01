@@ -589,6 +589,66 @@ class PrePushGateTests(unittest.TestCase):
             self.assertEqual(self.remote_head(), before)
             self.assertFalse(record.exists(), "the extra never ran")
 
+    def remote_branch(self, name, text=None):
+        """Branch NAME on the remote (pushed past the hook), with a commit that adds TEXT (a clean file by default)."""
+        self.git("checkout", "--quiet", "-b", name, "origin/feat-cmux-next")
+        kind = name.title().replace("-", "")
+        self.kit(kind, text or NEW_CLEAN.replace("Fresh", kind))
+        self.commit(f"{name} work")
+        self.assertEqual(self.push_ref(name, "--no-verify").returncode, 0)
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        return self.remote_head_of(f"refs/heads/{name}")
+
+    def remote_has(self, ref):
+        return subprocess.run(["git", "-C", str(self.origin), "show-ref", "--verify", "--quiet", ref],
+                              env=self.env).returncode == 0
+
+    def test_a_delete_only_push_passes_from_a_clone_without_a_work_tree(self):
+        # 2026-11-01: the tip watcher's `git -C /work/cmux push origin :refs/heads/x` (a core.bare clone root,
+        # no work tree) died in the hook with "this operation must be run in a work tree" 738 times. A delete
+        # sends no commits; nothing in the hook has anything to check.
+        for name in ("stale-a", "stale-b"):
+            self.remote_branch(name)
+        self.git("config", "core.bare", "true")
+
+        one = self.push_ref(":refs/heads/stale-a")
+
+        output = one.stdout + one.stderr
+        self.assertEqual(one.returncode, 0, output)
+        self.assertNotIn("work tree", output)
+        self.assertFalse(self.remote_has("refs/heads/stale-a"), "the branch is gone")
+
+        # Two deletes in one push (`git push --delete origin a b`): every line is a delete, so it passes too.
+        self.git("config", "core.bare", "false")
+        self.remote_branch("stale-c")
+        self.git("config", "core.bare", "true")
+        two = subprocess.run(["git", "-C", str(self.repo), "push", "--delete", "origin", "stale-b", "stale-c"],
+                             env=self.env, text=True, capture_output=True)
+
+        output = two.stdout + two.stderr
+        self.assertEqual(two.returncode, 0, output)
+        for name in ("stale-b", "stale-c"):
+            self.assertFalse(self.remote_has(f"refs/heads/{name}"), name)
+
+    def test_a_push_with_any_real_ref_still_runs_every_check(self):
+        # The delete-only pass must not reach a push that also sends commits: a delete next to a real ref, or a
+        # real ref alone, still runs the gate and is refused for the try! it adds.
+        doomed = self.remote_branch("doomed")
+        before = self.remote_head()
+        self.kit("Fresh", NEW_WITH_TRY)
+        self.commit("adds a try!")
+
+        for refs in ((":refs/heads/doomed", "feat-cmux-next"), ("feat-cmux-next",)):
+            pushed = subprocess.run(["git", "-C", str(self.repo), "push", "--atomic", "origin", *refs],
+                                    env=self.env, text=True, capture_output=True)
+
+            output = pushed.stdout + pushed.stderr
+            self.assertNotEqual(pushed.returncode, 0, f"{refs}: {output}")
+            self.assertIn("Fresh.swift", output, refs)
+            self.assertIn("try!", output, refs)
+            self.assertEqual(self.remote_head(), before, refs)
+            self.assertEqual(self.remote_head_of("refs/heads/doomed"), doomed, f"{refs}: the hook refused the delete too")
+
     def long_lived_branch(self, name, debt):
         """A long-lived integration branch NAME on the remote, three commits ahead of feat-cmux-next (its own merge
         train), the first carrying a try! in DEBT.swift (pushed past the hook); this clone fetches it."""
