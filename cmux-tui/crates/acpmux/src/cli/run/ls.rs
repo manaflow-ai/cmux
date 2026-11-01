@@ -168,11 +168,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     let paged = cursor.is_some() || limit.is_some();
     let plan = Plan {
         size: cursor.is_some().then_some(limit).flatten().unwrap_or(PAGE_ROWS),
-        want: if cursor.is_some() {
-            None
-        } else {
-            limit.map(|n| usize::try_from(n).unwrap_or(usize::MAX))
-        },
+        want: None, // SCRATCH: every page is read, then cut to --limit below
         one: cursor.is_some(),
         // A filter only this side applies thins the pages: asking for just the rows still
         // wanted could then take a request per row.
@@ -188,6 +184,12 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     };
     let read = ls_pages::read(params, cursor.filter(|c| !c.is_empty()), plan, step, fetch).await?;
     let mut sessions = read.rows;
+    if let Some(n) = limit.filter(|_| cursor.is_none()) {
+        sessions.sort_by_key(|s| {
+            std::cmp::Reverse(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0))
+        });
+        sessions.truncate(usize::try_from(n).unwrap_or(usize::MAX)); // SCRATCH
+    }
     // A peer's row comes without its tools (`ls_tools.rs`): each is read from the peer, for
     // the views that print them.
     if with_tools && (json_out || fields.is_some()) {
