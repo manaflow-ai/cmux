@@ -163,12 +163,10 @@ final class RootViewController: UIViewController {
               let transport = container.cloudChatTransport,
               let navigation = homeNavigation else { return }
         pendingCloudAttention = nil
-        let model = CloudChatViewModel(transport: transport)
+        let model = CloudChatViewModel(transport: transport, preferredSessionID: attention.sessionID)
         navigation.pushViewController(model.viewController(), animated: true)
         Task { @MainActor in
             await model.load()
-            guard let session = model.sessions.first(where: { $0.id == attention.sessionID }) else { return }
-            await model.select(session)
         }
     }
 

@@ -1,6 +1,7 @@
 import CmuxFeedPushCore
 import CmuxHomeCore
 import CmuxHomeUI
+import CmuxMobileRPC
 import CmuxiOSAuth
 import CmuxiOSIdentity
 import CmuxiOSPush
@@ -142,6 +143,12 @@ final class AppContainer {
     /// ``MobileCoreRPCClient`` is ready, and clears it when that client closes.
     func setCloudChatTransport(_ transport: (any CloudChatTransport)?) {
         cloudChatTransport = transport
+    }
+
+    /// Convenience composition hook for the paired-Mac owner. Keeping client
+    /// construction here makes the relay adapter the only production path.
+    func setCloudChatClient(_ client: MobileCoreRPCClient?) {
+        setCloudChatTransport(client.map(CloudChatRPCTransport.init(client:)))
     }
 
     /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the

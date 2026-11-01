@@ -117,16 +117,21 @@ public final class CloudChatViewModel: ObservableObject {
     @Published public private(set) var errorMessage: String?
 
     private let transport: any CloudChatTransport
+    private let preferredSessionID: String?
 
-    public init(transport: any CloudChatTransport) { self.transport = transport }
+    public init(transport: any CloudChatTransport, preferredSessionID: String? = nil) {
+        self.transport = transport
+        self.preferredSessionID = preferredSessionID
+    }
 
     public func load() async {
         isLoading = true
         defer { isLoading = false }
         do {
             sessions = try await transport.sessions()
-            if let selectedSessionID, sessions.contains(where: { $0.id == selectedSessionID }) {
-                await loadHistory(sessionID: selectedSessionID)
+            let targetID = preferredSessionID ?? selectedSessionID
+            if let targetID, let target = sessions.first(where: { $0.id == targetID }) {
+                await select(target)
             } else if let first = sessions.first {
                 await select(first)
             }

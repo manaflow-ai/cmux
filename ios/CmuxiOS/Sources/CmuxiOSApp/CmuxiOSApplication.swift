@@ -1,4 +1,5 @@
 public import CmuxChiefVoiceCore
+public import CmuxMobileRPC
 public import UIKit
 
 /// Entry points the app target's thin `@main` delegate calls.
@@ -15,6 +16,13 @@ public enum CmuxiOSApplication {
 
     public static func didRegisterForRemoteNotifications(deviceToken: Data) {
         Task { await container.push.didRegister(token: deviceToken) }
+    }
+
+    /// Called by the paired-Mac lifecycle when its authenticated RPC client is
+    /// connected or disconnected. Cloud chat stays unavailable until a real
+    /// paired client is installed; it never falls back to an unpaired origin.
+    public static func setCloudChatClient(_ client: MobileCoreRPCClient?) {
+        container.setCloudChatClient(client)
     }
 
     /// An App Intent (Action Button, Siri, Shortcuts, Control Center) asked

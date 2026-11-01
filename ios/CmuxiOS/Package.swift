@@ -43,6 +43,7 @@ let package = Package(
                 "CmuxiOSVoice",
                 .product(name: "CmuxChiefVoiceCore", package: "CmuxChiefVoiceCore"),
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+                .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
@@ -56,7 +57,6 @@ let package = Package(
             dependencies: [
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
-                .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport"),
                 .product(name: "CmuxPhonePush", package: "CmuxPhonePush"),
@@ -110,6 +110,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+                .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
             ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
