@@ -91,9 +91,9 @@ about a day. A dead label takes no slot, no overflow and no retry_runner, and a
 feed's compile counts it full (fresh_stalled()), while another label shows
 life; with every label dead the snapshot says nothing to choose by.
 
-Nothing goes to GitHub-hosted macOS (Leo, 2026-10-27: "THE GITHUB HOSTED MACS /
-ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO"). Until
-then fast-tier and swift-canary overflowed to hosted `macos-26` while Blacksmith
+Nothing goes to GitHub-hosted macOS (Leo, 2026-10-27: GitHub's own Macs are the
+slowest runners and were never under consideration). Until then fast-tier and
+swift-canary overflowed to GitHub's macOS 26 runners while Blacksmith
 was full or stalled, and built cold there for up to 45 minutes; the fast-tier
 seed kept a hosted pool warm for it (21 jobs, 891 minutes a day). A job Blacksmith
 cannot take (no free slot, and 6 vCPU stalled or backed up: overflow()) stays on
