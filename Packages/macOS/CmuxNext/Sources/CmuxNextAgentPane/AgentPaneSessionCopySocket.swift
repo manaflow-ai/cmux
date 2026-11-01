@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 public extension AgentPaneModel {
@@ -24,7 +25,7 @@ public extension AgentPaneModel {
     /// missing, a directory or not UTF-8 text.
     @concurrent nonisolated static func sessionCopyFileText(path: String) async -> String? {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else { return nil }
-        return try? String(contentsOfFile: path, encoding: .utf8)
+        guard FileManager.checked.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else { return nil }
+        return try? String(blockingContentsOf: URL(fileURLWithPath: path), encoding: .utf8)
     }
 }

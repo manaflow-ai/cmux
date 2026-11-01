@@ -68,24 +68,19 @@ enum AgentChatCopyHandlers {
             let work: ActionWork = Task { await finish(AgentChatCopyOperations.host(target.host, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noHost, copy: { copy($0, context: context) }) }
             registry.track(work)
         })
-        registry.bind(filePathsAction, invoke: { invocation in
-            guard let target = focusedChat(context, invocation) else { return }
+        // action-wait-allow: the copied text exists only after acpmux names the files and the read returns
+        registry.bindEffect(filePathsAction) { invocation in
+            guard let target = focusedChat(context, invocation) else { return .done }
             let files = filesReader(target)
-            let work: ActionWork = Task { await finish(AgentChatCopyOperations.filePaths(files: files, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noFiles, copy: { copy($0, context: context) }) }
-            registry.track(work)
-        })
+            return .waiting(.externalProcess) { await finish(AgentChatCopyOperations.filePaths(files: files, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noFiles, copy: { copy($0, context: context) }) }
+        }
         for (action, kinds) in fileActions {
-            registry.bind(action, invoke: { invocation in
-                guard let target = focusedChat(context, invocation) else { return }
+            // action-wait-allow: the copied text exists only after acpmux names the file and the disk read returns
+            registry.bindEffect(action) { invocation in
+                guard let target = focusedChat(context, invocation) else { return .done }
                 let files = filesReader(target)
-                let work: ActionWork = Task {
-                    await finish(AgentChatCopyOperations.fileContents(files: files, kinds: kinds,
-                                                                      read: { await AgentPaneModel.sessionCopyFileText(path: $0) },
-                                                                      isCurrent: { isCurrent(target, context: context) }),
-                                 missing: AgentChatCopyStrings.noFile, failure: AgentChatCopyStrings.fileUnreadable, copy: { copy($0, context: context) })
-                }
-                registry.track(work)
-            })
+                return .waiting(.fileSystem) { await finish(AgentChatCopyOperations.fileContents(files: files, kinds: kinds, read: { await AgentPaneModel.sessionCopyFileText(path: $0) }, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noFile, failure: AgentChatCopyStrings.fileUnreadable, copy: { copy($0, context: context) }) }
+            }
         }
     }
 
