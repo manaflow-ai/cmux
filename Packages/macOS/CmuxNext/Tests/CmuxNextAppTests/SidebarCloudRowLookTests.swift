@@ -8,8 +8,9 @@ import Testing
 /// Leo 2026-10-30, of a Cloud machine drawn as a header with a green dot over a row with a cloud icon, "cmux" and a
 /// second line: "when the fuck did i say i wanted a second fucking line and a green dot and a fuckign ICON ON THE
 /// LEFT!??!!?!?!? JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE". A Cloud section's header is a name, a chevron and a +;
-/// its rows are one line, their title, with no mark; an idle shell at the machine's home reads "Terminal". This Mac's
-/// and an SSH computer's rows are as they were.
+/// its rows are one line, their title; an idle shell at the machine's home reads "Terminal". The machine mark stays as
+/// base draws it, in the trailing status column (#29833, Leo 2026-11-01: "I HATE THAT THEY'RE ON THE LEFT"). This
+/// Mac's and an SSH computer's rows are as they were.
 @MainActor struct SidebarCloudRowLookTests {
     private let mac = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     private let cloud = SidebarMachine(id: MachineID("vm-1"), name: "build-vm", kind: .cloud)
@@ -29,20 +30,20 @@ import Testing
         return rows
     }
 
-    @Test func aCloudRowIsOneLineWithNoIcon() throws {
+    @Test func aCloudRowIsOneLineWithNoLeadingIcon() throws {
         let rows = rows([mac, cloud])
         let vm = try #require(rows[WorkspaceID("build-vm-ws")]), local = try #require(rows[WorkspaceID("This Mac-ws")])
         let content = try #require(vm.content)
-        #expect(content.machine == nil, "no cloud mark before the title: the header names the machine")
-        #expect(content.icon == nil)
+        // The machine mark is base's trailing one (#29833), not a leading icon.
+        #expect(content.machine?.name == "build-vm")
+        #expect(content.icon == nil, "no icon before the title")
         #expect(content.detail == nil, "no second line")
         #expect(vm.height == local.height, "as tall as this Mac's one-line row")
         // VoiceOver still says the computer.
         #expect(content.machineLabel == "build-vm")
     }
 
-    /// Outside its machine's header (Pinned, a custom section) nothing else names the machine: the row keeps its mark,
-    /// and VoiceOver says the machine (review of #28051 at 28c330e6).
+    /// Outside its machine's header (Pinned, a custom section) the mark still names the machine, and VoiceOver says it.
     @Test func aPinnedCloudRowKeepsItsMark() throws {
         let pinned = SidebarRowSection(kind: .custom(SidebarCustomSection(id: "pinned", title: "Pinned", showsTitle: true)),
                                        nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("pinned-vm-ws"), machineID: cloud.id,
@@ -55,8 +56,6 @@ import Testing
         let label = WorkspaceRowView.accessibilityText(SidebarWorkspace(id: WorkspaceID("pinned-vm-ws"), machineID: cloud.id, title: "deploy"),
                                                        content: content, tabCount: nil, presence: [])
         #expect(label.contains("build-vm"))
-        // Under its own header the same machine's row still draws none.
-        #expect(rows([mac, cloud])[WorkspaceID("build-vm-ws")]?.content?.machine == nil)
     }
 
     @Test func anSSHRowKeepsItsMark() throws {

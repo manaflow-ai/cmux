@@ -139,7 +139,7 @@ extension SidebarListView {
             }
             let o = options ?? self.options(includeGap: true)
             options = o
-            var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o), header: section.machine?.id)
+            var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
             content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
             (content.treeFold, content.rollUp) = (row.content?.treeFold, row.content?.rollUp) // and keeps its chevron and roll-up
             let m = metrics.resolved(for: o)

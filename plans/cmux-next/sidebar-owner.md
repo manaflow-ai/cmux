@@ -229,12 +229,11 @@
   `SidebarCloudMachineHeaderTests`.
 - 2026-10-30: a Cloud machine's section draws like every other group: its header is the name, chevron and +, with no
   status dot while connected (a down machine keeps its mark and words: Disconnected, Paused, Failed to start), and its
-  rows are one line, their title, with no machine mark before it (the header names the machine; Group by Status, which
-  mixes computers, keeps the mark). An unnamed Cloud workspace whose shell idles at the machine's home reads
-  "Terminal", never "cmux" or the machine's name. This Mac and SSH computers are unchanged. Leo: "JUST DEPICT IT
-  SIMILARLY TO EVERYTHING ELSE". Regression: `SidebarCloudRowLookTests`. Outside its machine's header (Pinned, a
-  custom section, Group by Status) a Cloud row keeps its mark, as nothing else there names the machine; a Cloud shell
-  whose own title (OSC) reads like the home folder keeps that title rather than "Terminal".
+  rows are one line, their title, and keep the machine mark where #29833 put it (the trailing status column, Leo
+  2026-11-01: "I HATE THAT THEY'RE ON THE LEFT"). An unnamed Cloud workspace whose shell idles at the machine's home
+  reads "Terminal", never "cmux" or the machine's name; a shell whose own title (OSC) reads like the home folder keeps
+  that title. This Mac and SSH computers are unchanged. Leo: "JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE".
+  Regression: `SidebarCloudRowLookTests`.
 
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned

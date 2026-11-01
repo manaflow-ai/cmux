@@ -42,9 +42,7 @@ nonisolated extension SidebarLayout {
     static func appendSoleMember(_ ws: SidebarWorkspace, of group: SidebarGroup, treeDepth: Int, section: SectionID,
                                  parent: Int, machine: String?, options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
                                  to rows: inout [SidebarRow], y: CGFloat) -> CGFloat {
-        var header: MachineID?
-        if case let .machine(id) = section { header = id }
-        var content = o.rowContent(ws, machine: machine, header: header)
+        var content = o.rowContent(ws, machine: machine)
         content.treeDepth = treeDepth
         let h = m.height(for: content)
         var row = SidebarRow(

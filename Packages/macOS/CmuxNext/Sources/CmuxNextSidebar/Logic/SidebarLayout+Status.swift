@@ -43,7 +43,7 @@ nonisolated extension SidebarLayout {
             y += m.groupHeaderHeight + m.rowSpacing
             if collapsed { continue }
             for member in listed {
-                let content = o.rowContent(member.ws, machine: machineLabel(member.section, options: o), header: member.section.machine?.id)
+                let content = o.rowContent(member.ws, machine: machineLabel(member.section, options: o))
                 let h = m.height(for: content)
                 rows.append(SidebarRow(
                     key: .workspace(member.ws.id), y: y, height: h, section: member.section.id,

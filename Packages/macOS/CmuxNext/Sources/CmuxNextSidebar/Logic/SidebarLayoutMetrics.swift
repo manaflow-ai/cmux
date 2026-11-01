@@ -206,16 +206,10 @@ nonisolated extension SidebarLayoutOptions {
     /// second line (including another computer's name and a machine's
     /// stage), the status block, counts and badges; the working spinner,
     /// loading, the progress bar and attention states still show, like the unread mark.
-    /// `header` is the machine whose section lists the row (nil in Pinned or a custom section).
-    func rowContent(_ ws: SidebarWorkspace, machine: String?, header: MachineID? = nil) -> WorkspaceRowContent {
+    func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        // A Cloud machine's rows under its own header (`keepsHeaderInOneList`), which names it, draw no mark before the
-        // title (Leo 2026-10-30: "a fuckign ICON ON THE LEFT"). Anywhere else (Pinned, a custom section, Group by Status,
-        // which mixes computers under one header) nothing else says the machine: the mark stays.
-        if let machine = machines[ws.machineID], machine.kind != .cloud || header != ws.machineID || grouping.byStatus {
-            content.machine = SidebarMachineMark(machine)
-        }
+        content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
         // Every mode (compact, minimal, workspaces as tabs, expanded), mark drawn or not: VoiceOver says the
         // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
         content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }

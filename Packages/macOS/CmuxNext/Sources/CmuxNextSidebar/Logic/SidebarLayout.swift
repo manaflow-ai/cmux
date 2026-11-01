@@ -326,7 +326,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
-                    var content = o.rowContent(ws, machine: machineLabel, header: section.machine?.id)
+                    var content = o.rowContent(ws, machine: machineLabel)
                     (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold, tree.rollUp)
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
@@ -387,7 +387,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             return entry.children.first(where: { $0.id == member.id }).map { (i, $0) }
                         }
                         for (n, (childIndex, ws)) in kept.enumerated() {
-                            let content = o.rowContent(ws, machine: machineLabel, header: section.machine?.id)
+                            let content = o.rowContent(ws, machine: machineLabel)
                             let h = m.height(for: content)
                             rows.append(SidebarRow(key: .workspace(ws.id), y: y, height: h, section: section.id, group: group.id,
                                                    siblingIndex: childIndex, parentIndex: index, isLastInGroup: n == kept.count - 1,
@@ -423,7 +423,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             y += h + m.rowSpacing
                             continue
                         }
-                        var content = o.rowContent(ws, machine: machineLabel, header: section.machine?.id)
+                        var content = o.rowContent(ws, machine: machineLabel)
                         content.treeDepth = depth
                         let h = m.height(for: content)
                         rows.append(SidebarRow(
