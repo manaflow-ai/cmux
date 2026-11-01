@@ -13,17 +13,19 @@ import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
-import { sessionStatus } from "../inspector/ChildSessionRows";
+import { sessionStatus } from "../session-info/ChildSessionRows";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { ChatToolsControl } from "./SourcesAddMenu";
 import type { SummaryCardControl } from "./cardState";
-import { backgroundCommands } from "../inspector/processes";
+import { backgroundCommands } from "../session-info/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
-import type { ProcessRegistry } from "../inspector/processes";
+import type { ProcessRegistry } from "../session-info/processes";
 import type { WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
+import { EnvironmentSection } from "../session-info/EnvironmentSection";
+import type { ComponentProps } from "react";
 import type { WorkflowCapacitySignal } from "./foldWorkflows";
 
 const NO_SESSIONS: readonly StartedSession[] = [];
@@ -33,9 +35,11 @@ const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
 const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
-/// uses a popover that dismisses on outside click or Escape. Folded popovers keep their header line,
-/// with the subagents' live counts. The summary is read from the transcript only while the card is
-/// open, so a live turn pays nothing for it otherwise.
+/// uses a popover that dismisses on outside click or Escape. Both start with Environment and have no
+/// title row; the popover's live counts sit in Subagents (folded, its header line keeps them), the
+/// column's in its header line.
+/// The summary is read from the transcript only while the card is open, so a live turn pays
+/// nothing for it otherwise.
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
 /// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
 /// does; its close button goes back to the summary.
@@ -45,6 +49,7 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 /// stay under Subagents. The header's counts include the running ones.
 export function SummaryCard({
   card,
+  environment,
   rows,
   cwd,
   onOpenOutput,
@@ -62,13 +67,15 @@ export function SummaryCard({
   workflows,
   workflowActionsFor,
   workflowCapacity,
+  onOpenSessionInfo,
 }: {
   card: SummaryCardControl;
+  environment?: ComponentProps<typeof EnvironmentSection>;
   rows: readonly AcpmuxRow[];
   /// The chat's project folder; Outputs excludes files outside it.
   cwd?: string;
   onOpenOutput?: (path: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
+  onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// The last turn that edited files, with its counts and files; the Changes rows open its diff,
   /// or a file's.
   changes?: SummaryChanges;
@@ -105,6 +112,8 @@ export function SummaryCard({
   workflows?: readonly WorkflowSummary[];
   workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
   workflowCapacity?: WorkflowCapacitySignal;
+  /// Opens a complete Session Info section beside the chat.
+  onOpenSessionInfo?: (section: "subagents" | "tasks") => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -156,6 +165,10 @@ export function SummaryCard({
     const away = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || panel.current?.contains(target)) return;
+      // Capture runs before a child menu's outside-press handler. Let that layer consume this
+      // dismissal; its trigger belongs to this card even though its popup is portalled.
+      if (panel.current?.querySelector('[data-menu][data-popup-open], [aria-haspopup="menu"][aria-expanded="true"]'))
+        return;
       // The card's own menus (Sources' +, SourcesAddMenu.tsx) draw in the page's portal, outside it.
       if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery, .acpmux-summary-menu")) return;
       close();
@@ -210,6 +223,8 @@ export function SummaryCard({
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
   const hasSubagents = agents.length > 0 || children.length > 0 || subsessionRows.length > 0;
+  // SummaryBody draws its own Subagents fallback only when the list above is not on screen.
+  const subagentList = hasSubagents || (!card.column && counts.length > 0);
   return (
     <>
       <aside
@@ -218,7 +233,10 @@ export function SummaryCard({
           panel.current = node;
           presence.props.ref(node);
         }}
-        className="acpmux-summary-card"
+        // The popover floats over the chat, so it is the shared glass (ui/glass/glass.css), never the
+        // solid popup surface (Leo 2026-10-30: "I don't like the non-glassness"). The inline column is
+        // part of the pane and keeps the page color.
+        className={card.column ? "acpmux-summary-card" : "ui-glass ui-glass-floats acpmux-summary-card"}
         inert={presence.leaving}
         // ui-allow: focusable from script only, the last place closing the Subagents tab can leave focus.
         tabIndex={-1}
@@ -226,127 +244,144 @@ export function SummaryCard({
         data-placement={card.column ? "inline" : "popover"}
         data-collapsed={!card.column && card.collapsed ? "" : undefined}
       >
-        <div className="acpmux-summary-card__head">
-          {tab && !card.column && (
-            // The popover keeps its fold control beside the tabs, so a narrow pane can still fold it.
-            <button
-              type="button"
-              className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
-              aria-expanded={!card.collapsed}
-              aria-label={foldLabel}
-              onClick={() => card.fold(!card.collapsed)}
-            >
-              <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-            </button>
-          )}
-          {tab ? (
-            // Toggle buttons (aria-pressed), as the gallery's filters are: page code carries no raw roles.
-            <div className="acpmux-summary-tabs">
+        {/* No title row in either placement (Leo: "iv easked so many times to not have titling"): the inline
+            column keeps a head only for its live counts, so it never draws an empty band. */}
+        {(tab || !card.column || counts.length > 0) && (
+          <div className="acpmux-summary-card__head">
+            {tab && !card.column && (
+              // The popover keeps its fold control beside the tabs, so a narrow pane can still fold it.
               <button
                 type="button"
-                className="acpmux-summary-tab"
-                aria-pressed={!onSubagents}
-                data-selected={onSubagents ? undefined : ""}
-                onClick={() => showTab("summary")}
+                className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
+                aria-expanded={!card.collapsed}
+                aria-label={foldLabel}
+                onClick={() => card.fold(!card.collapsed)}
               >
-                {t("summary.title")}
+                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
               </button>
-              <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
+            )}
+            {tab ? (
+              // Toggle buttons (aria-pressed), as the gallery's filters are: page code carries no raw roles.
+              <div className="acpmux-summary-tabs">
                 <button
                   type="button"
-                  className="acpmux-summary-tab__label"
-                  aria-pressed={onSubagents}
-                  onClick={() => showTab("subagents")}
+                  className="acpmux-summary-tab"
+                  aria-pressed={!onSubagents}
+                  data-selected={onSubagents ? undefined : ""}
+                  onClick={() => showTab("summary")}
                 >
-                  {t("summary.subagents")}
+                  {t("summary.title")}
                 </button>
-                <button
-                  type="button"
-                  className="acpmux-summary-tab__close"
-                  aria-label={t("summary.subagents.closeTab")}
-                  onClick={closeTab}
-                >
-                  <Icon name="action.close" size={10} />
-                </button>
-              </span>
-            </div>
-          ) : card.column ? (
-            <span className="acpmux-summary-card__title">{t("summary.title")}</span>
-          ) : (
-            <button
-              type="button"
-              className="acpmux-summary-card__fold"
-              aria-expanded={!card.collapsed}
-              onClick={() => card.fold(!card.collapsed)}
-            >
-              <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-              <span className="acpmux-summary-card__title">{t("summary.title")}</span>
-              {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
-            </button>
-          )}
-          {!tab && card.column && counts.length > 0 && (
-            <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
-          )}
-          {!card.column && (
-            <button
-              type="button"
-              className="acpmux-summary-card__close"
-              aria-label={t("summary.close")}
-              onClick={(event) => {
-                // The button goes with the card: focus moves to the header's summary button.
-                const pane = event.currentTarget.closest(".acpmux-stage");
-                card.close();
-                pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
-              }}
-            >
-              <Icon name="action.close" size={12} />
-            </button>
-          )}
-        </div>
+                <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
+                  <button
+                    type="button"
+                    className="acpmux-summary-tab__label"
+                    aria-pressed={onSubagents}
+                    onClick={() => showTab("subagents")}
+                  >
+                    {t("summary.subagents")}
+                  </button>
+                  <button
+                    type="button"
+                    className="acpmux-summary-tab__close"
+                    aria-label={t("summary.subagents.closeTab")}
+                    onClick={closeTab}
+                  >
+                    <Icon name="action.close" size={10} />
+                  </button>
+                </span>
+              </div>
+            ) : card.column ? null : (
+              <button
+                type="button"
+                className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
+                aria-expanded={!card.collapsed}
+                aria-label={foldLabel}
+                onClick={() => card.fold(!card.collapsed)}
+              >
+                <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+              </button>
+            )}
+            {/* The popover has no title row, but folded it keeps the live counts in view (its body, where Subagents
+              carries them, is gone). */}
+            {!tab && (card.column || card.collapsed) && counts.length > 0 && (
+              <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
+            )}
+            {!card.column && (
+              <button
+                type="button"
+                className="acpmux-summary-card__close"
+                aria-label={t("summary.close")}
+                onClick={(event) => {
+                  // The button goes with the card: focus moves to the header's summary button.
+                  const pane = event.currentTarget.closest(".acpmux-stage");
+                  card.close();
+                  pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
+                }}
+              >
+                <Icon name="action.close" size={12} />
+              </button>
+            )}
+          </div>
+        )}
         {open && onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
+            <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
+              <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
+              {environment && <EnvironmentSection {...environment} />}
+            </section>
             <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} />
           </div>
         )}
-        {summary && !onSubagents && (
+        {open && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
+            <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
+              <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
+              {environment && <EnvironmentSection {...environment} />}
+            </section>
             {/* The subagents, sub-sessions and started chats first: they are what the card follows while a turn runs. */}
-            {hasSubagents && (
+            {subagentList && (
               <SubagentStatusList
                 agents={agents}
+                counts={!card.column ? counts.join(" · ") : undefined}
                 waiting={waiting}
                 current={subagents.current}
                 onOpen={subagents.onOpen}
                 autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
                 // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
+                // The popover has no title row, so this title is its one way into the tab too.
                 onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                onOpenInPane={onOpenSessionInfo ? () => onOpenSessionInfo("subagents") : undefined}
                 subsessions={subsessionRows}
                 sessions={children}
                 onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
-                stack={agents.length === 0 ? summary.subagents : undefined}
+                stack={agents.length === 0 ? summary?.subagents : undefined}
               />
             )}
-            <SummaryBody
-              summary={summary}
-              galleryCount={galleryCount}
-              onOpenGallery={() => {
-                galleryRow.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-                setGallery(true);
-              }}
-              changes={changes}
-              onOpenChanges={onOpenChanges}
-              subagents={hasSubagents ? <></> : undefined}
-              onOpenOutput={onOpenOutput}
-              onAttach={onAttach}
-              tools={tools}
-              commands={commands}
-              onStopCommand={background?.onStop}
-              workflow={workflow}
-              workflowActions={workflowActions}
-              workflows={workflows}
-              workflowActionsFor={workflowActionsFor}
-              workflowCapacity={workflowCapacity}
-            />
+            {summary && (
+              <SummaryBody
+                summary={summary}
+                galleryCount={galleryCount}
+                onOpenGallery={() => {
+                  galleryRow.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                  setGallery(true);
+                }}
+                changes={changes}
+                onOpenChanges={onOpenChanges}
+                subagents={subagentList ? <></> : undefined}
+                onOpenOutput={onOpenOutput}
+                onAttach={onAttach}
+                tools={tools}
+                commands={commands}
+                onStopCommand={background?.onStop}
+                onOpenTasksInPane={onOpenSessionInfo ? () => onOpenSessionInfo("tasks") : undefined}
+                workflow={workflow}
+                workflowActions={workflowActions}
+                workflows={workflows}
+                workflowActionsFor={workflowActionsFor}
+                workflowCapacity={workflowCapacity}
+              />
+            )}
           </div>
         )}
       </aside>
@@ -361,9 +396,9 @@ export function SummaryCard({
           }}
           onOpenImage={
             onOpenImage &&
-            ((src, alt) => {
+            ((src, alt, path) => {
               setGallery(false);
-              onOpenImage(src, alt);
+              onOpenImage(src, alt, path);
             })
           }
         />

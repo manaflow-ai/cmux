@@ -186,12 +186,12 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(chat.fonts).toEqual(newTab.fonts);
     expect(chat.filled).toBe(false);
     expect(newTab.filled).toBe(false);
-    // The chat's chips stand a few px over its card. Claude's New Tab puts them in its one quiet
-    // row under the box, before the mode and model (#24519, Leo 2026-10-27: "one single row").
+    // Both heads stand a few px over their card, the same gap (Leo 2026-10-29: "project and
+    // cloudness at the top ... and stop making them take up so much space").
     expect(chat.gap).toBeGreaterThanOrEqual(2);
     expect(chat.gap).toBeLessThanOrEqual(10);
-    expect(newTab.footer).toBe(true);
-    expect(newTab.below).toBeGreaterThanOrEqual(0);
+    expect(newTab.footer).toBe(false);
+    expect(newTab.gap).toBe(chat.gap);
   });
 
   test("no private-folder sentence over the composer; the folder chip's menu says it", async () => {

@@ -46,12 +46,7 @@ html[data-cmux-page="changelog"] body {
   aspect-ratio: 7 / 4;
   border-radius: 10px;
   overflow: hidden;
-  background: var(--page-hover);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
-  box-shadow:
-    0 0 0 1px var(--page-separator),
-    inset 0 1px 0 color-mix(in srgb, var(--page-text) 8%, transparent);
+  /* The shared .ui-glass material supplies tint, blur, rim and reduced-transparency behavior. */
 }
 .cl-media img,
 .cl-media video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
@@ -111,8 +106,7 @@ html[data-cmux-page="changelog"] body {
 .cl-button:hover { background: var(--page-selection); }
 .cl-link { color: var(--page-text-2); text-decoration: none; font-size: var(--text-body); letter-spacing: var(--text-body--letter-spacing); }
 .cl-link:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
-:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more,
-    .cl-reel):focus-visible {
+:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }
@@ -203,8 +197,7 @@ html[data-cmux-page="changelog"] body {
 /* The number is the agent pane's reference chip (chips.css .cv-chip.is-ref); both open the shared
    pull request hover card (ChangePullRequest.tsx). */
 .cl-pr { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
-.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.cl-pr:hover { cursor: pointer; }
+.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: default; }
 /* The chip and its card draw in the agent pane's tokens (chips.css, linkCard.css), mapped here to
    the page theme. */
 html[data-cmux-page="changelog"] {
@@ -248,90 +241,6 @@ html[data-cmux-page="changelog"] {
 .cl-build { user-select: all; }
 .cl-maintenance { margin: 12px 0 0; color: var(--page-text-2); }
 
-/* The span's reels as one video card on glass: the reel's first frame with a play button and its
-   length, its title under it, then a row of nightly chips (and the open link when it cannot play). */
-.cl-reel-player { margin: 16px 0 8px; }
-.cl-reel-card {
-  max-width: 640px;
-  margin: 0 0 10px;
-  padding: 8px 8px 12px;
-  border-radius: 14px;
-  background: var(--page-hover);
-  box-shadow: inset 0 0 0 1px var(--page-separator);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
-}
-.cl-reel-stage { position: relative; aspect-ratio: 16 / 10; border-radius: 8px; overflow: hidden; }
-.cl-reel-stage video { display: block; width: 100%; height: 100%; object-fit: cover; background: transparent; }
-.cl-reel-play {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: #fff;
-  cursor: pointer;
-}
-.cl-reel-play svg {
-  box-sizing: content-box;
-  width: 24px;
-  height: 24px;
-  padding: 16px;
-  border-radius: 50%;
-  fill: currentColor;
-  background: rgb(0 0 0 / 0.45);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
-  transition: transform 120ms ease, background-color 120ms ease;
-}
-.cl-reel-play:hover svg { transform: scale(1.06); background: rgb(0 0 0 / 0.6); }
-.cl-reel-play:focus-visible { outline: none; }
-.cl-reel-play:focus-visible svg { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 3px; }
-.cl-reel-length {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  padding: 0 4px;
-  border-radius: 5px;
-  background: rgb(0 0 0 / 0.55);
-  color: #fff;
-  font-size: var(--text-caption);
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-}
-.cl-reel-title { margin: 10px 4px 0; font-size: var(--text-body); font-weight: 600; color: var(--page-text); }
-.cl-reel-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.cl-reel-picker { display: flex; flex-wrap: wrap; gap: 6px; }
-.cl-reel-chip {
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid var(--page-separator);
-  border-radius: 12px;
-  background: transparent;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  font-variant-numeric: tabular-nums;
-  cursor: default;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.cl-reel-chip:hover { background: var(--page-hover); color: var(--page-text); }
-.cl-reel-chip[aria-pressed="true"] { background: var(--page-selection); color: var(--page-text); }
-.cl-reel {
-  margin-left: auto;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-  text-decoration: none;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.cl-reel::after { content: " ↗"; }
-.cl-reel:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
-.cl-reel-chip:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
-
 .cl-updated { margin: 0 0 16px; font-size: var(--text-heading); line-height: var(--text-heading--line-height); font-weight: 600; letter-spacing: var(--text-heading--letter-spacing); }
 .cl-muted { color: var(--page-text-3); }
 .cl-error { color: var(--page-text); }
@@ -342,8 +251,8 @@ html[data-cmux-page="changelog"] {
    this narrow"); the history under it keeps its design's measure. */
 .clw > main > .clj-span {
   box-sizing: border-box;
-  max-width: calc(1100px + 2 * 32px);
-  margin: 0 auto 32px;
+  width: 100%;
+  margin: 0 0 32px;
   padding: 48px 32px 40px;
 }
 .clw > main > .clj-span + .clj { padding-top: 0; }
@@ -490,7 +399,7 @@ html[data-cmux-page="changelog"] {
    the width, modest margins, no column cap): each row its whole description, and its picture
    beside it where the pane has room. Groups read as Conductor's headings over bullet lists. No
    motion. */
-.cll { --cll-gutter: 112px; padding: 40px 32px 96px calc(32px + var(--cll-gutter) + 24px); }
+.cll { --cll-gutter: 104px; padding: 40px 32px 96px calc(32px + var(--cll-gutter) + 24px); }
 .cll-release { position: relative; }
 .cll-body { container-type: inline-size; }
 .cll-gutter { position: absolute; top: 0; bottom: 0; left: calc(-24px - var(--cll-gutter)); width: var(--cll-gutter); }
@@ -534,16 +443,17 @@ html[data-cmux-page="changelog"] {
 /* A row is a grid so its picture can stand beside it; the bullet is drawn, as a grid has no marker. */
 .cll .cl-group li.cl-wide-row { position: relative; display: grid; gap: 8px 24px; padding: 0 0 0 18px; }
 .cll .cl-group li.cl-wide-row::before { content: "•"; position: absolute; left: 4px; color: var(--page-text-2); }
-.cll .cl-row-text { max-width: 76ch; }
-/* The lead change's picture stays a picture, not a wall: it stops growing at a large card. */
-.cll-body > .cl-media { max-width: 720px; }
+.cll .cl-row-text { min-width: 0; }
+/* The lead picture follows the pane width. Its glass frame remains bounded by the pane's
+   modest margins rather than an arbitrary centered column. */
+.cll-body > .cl-media { width: 100%; }
 .cll .cl-row-summary { margin: 2px 0 0; text-wrap: pretty; }
 .cll .cl-row-actions { display: inline-flex; margin-left: 8px; }
 @container (min-width: 720px) {
-  /* Text and picture stay together on the left, not split to the pane's two edges. */
+  /* Use the wide pane for a two-column item/media grid. The text remains flexible and the
+     media column takes the remaining room, collapsing below the item at smaller widths. */
   .cll .cl-group li.cl-has-media {
-    /* The text keeps a readable measure first; the picture takes what is left, up to 480 px. */
-    grid-template-columns: minmax(36ch, 64ch) minmax(240px, 480px);
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 42%);
     justify-content: start;
     align-items: start;
   }
@@ -562,7 +472,7 @@ html[data-cmux-page="changelog"] {
 }
 .cll-lead { margin: 0 0 2px; font-size: var(--text-body); letter-spacing: var(--text-body--letter-spacing); }
 /* A change's own picture: beside its row when the pane has room, else under it. */
-.cl-row-media { margin: 6px 0 4px; max-width: 560px; }
+.cl-row-media { margin: 6px 0 4px; width: 100%; }
 /* A narrow tab: the margin folds above the release, Conductor's mobile layout. */
 @media (max-width: 760px) {
   .cll { padding: 32px 24px 80px; }
@@ -672,3 +582,41 @@ html[data-cmux-page="changelog"] {
   .cln-clips-alternate .cln-clip { grid-template-columns: minmax(0, 1fr); }
   .cln-clips-alternate .cln-clip:nth-child(even) .cln-clip-media { order: 0; }
 }
+
+/* ---------- The What's New sheet (default; SheetPage.tsx, 2026-10-31) ----------
+   An Apple app's What's New sheet: a centered bold title, then each release day, newest first,
+   under a small date heading; each change a row of an accent glyph, a bold title and one muted
+   line. One column of reading width, no rules between days, no motion. */
+.cls {
+  --cls-column: 560px;
+  padding-block: calc(var(--ds-space-6) * 1.5) calc(var(--ds-space-6) * 3);
+  padding-inline: max(var(--ds-space-6), calc((100% - var(--cls-column)) / 2));
+}
+.cls-title {
+  margin: 0 0 32px;
+  font-size: 1.85em; /* the page's one large text, relative to the body step */
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-align: center;
+  text-wrap: balance;
+}
+.cls .cls-day { padding-bottom: 0; margin-bottom: 32px; border-bottom: 0; }
+.cls-date {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 16px;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cls-rows { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+.cls-row { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
+.cls-icon { display: grid; place-items: center; width: 28px; height: 28px; color: var(--cmux-accent, var(--page-text)); }
+.cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.cls-row-text { min-width: 0; padding-top: 4px; }
+.cls-row-title { color: var(--page-text); font-weight: 600; }
+.cls-row-line { margin-top: 2px; color: var(--page-text-2); }

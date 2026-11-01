@@ -29,10 +29,10 @@ jobs:
       contents: read
       pull-requests: write
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
-    # Writes are paced under GitHub's hourly content limit (about 500): a
-    # 500-PR release takes about an hour. A refusal stops the run; a rerun
-    # skips the PRs already noted.
-    timeout-minutes: 120
+    # Each write is paced at 7.5 s under GitHub's hourly content limit.
+    # A shared edit plus a legacy deletion for all 1,000 allowed PRs takes
+    # 250 min; leave room for reads. A refusal stops the run; reruns are safe.
+    timeout-minutes: 300
     steps:
       - name: Checkout commit history
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

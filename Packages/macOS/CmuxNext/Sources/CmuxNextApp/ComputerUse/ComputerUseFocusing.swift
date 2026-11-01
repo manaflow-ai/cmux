@@ -1,3 +1,5 @@
+import CmuxNextComputerUse
+
 /// Brings forward what a Computer Use session drives or where it started:
 /// ``AppComputerUseFocus`` in the App, a fake in tests.
 @MainActor

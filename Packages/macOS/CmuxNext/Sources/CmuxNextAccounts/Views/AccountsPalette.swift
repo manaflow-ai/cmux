@@ -84,6 +84,5 @@ struct AccountsButtonStyle: ButtonStyle {
                         in: RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous))
             .opacity(configuration.isPressed && prominent ? 0.7 : 1)
             .contentShape(Rectangle())
-            .clickableCursor()
     }
 }

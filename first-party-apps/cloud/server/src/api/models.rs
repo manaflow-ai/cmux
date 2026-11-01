@@ -93,10 +93,23 @@ pub struct Machine {
     /// Optional idle-pause diagnostics from the cmux REST VM projection.
     /// Keep the object opaque here so this relay preserves new diagnostic
     /// fields without coupling the app server to the cron implementation.
-    #[serde(rename = "idlePause", alias = "idle_pause", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "idlePause",
+        alias = "idle_pause",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub idle_pause: Option<serde_json::Value>,
     #[serde(default)]
     pub error: Option<MachineError>,
+    /// US dollars an hour while running, from the backend's rate table
+    /// (display only; the page keeps no rates). A JSON number, kept as one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hourly_rate_usd: Option<serde_json::Number>,
+    /// When the machine last started running (epoch ms); `None` unless it
+    /// is running. The page shows rate x time running as "about $X so far".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running_since: Option<i64>,
     /// Optional non-secret platform metadata supplied by the machine owner.
     #[serde(default)]
     pub platform: Option<MachinePlatform>,
@@ -194,10 +207,30 @@ pub struct ConnectInfo {
     /// What this caller may dial: `daemon`, `ssh`.
     pub services: Vec<String>,
     pub daemon: DaemonInfo,
+    /// The caller's kind on this machine (`owner` | `team`, cmux-platform#89);
+    /// absent from a Worker that predates it. Any value that is not a string
+    /// reads as absent, so a bad value fails closed instead of failing the
+    /// whole record.
+    #[serde(default, deserialize_with = "string_or_none")]
+    pub vm_kind: Option<String>,
     pub revision: Revision,
 }
 
+/// A string, or `None` for any other JSON value (`ConnectInfo::vm_kind`).
+fn string_or_none<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(s) => Some(s),
+        _ => None,
+    })
+}
+
 impl ConnectInfo {
+    /// The Worker said the signed-in caller owns this machine: only the
+    /// exact value `owner`; missing or any other value is not the owner.
+    pub fn caller_owns_vm(&self) -> bool {
+        self.vm_kind.as_deref() == Some("owner")
+    }
+
     /// Whether the Cloud policy permits this server to dial one service.
     /// Service names are opaque wire values; callers must not infer access
     /// from machine state or display fields.
@@ -282,6 +315,7 @@ impl PartialOrd for Revision {
 #[cfg(test)]
 mod tests {
     use super::{ConnectInfo, DaemonInfo, Machine, MachineStatus, Peer, Revision};
+    use serde_json::json;
 
     fn info() -> ConnectInfo {
         ConnectInfo {
@@ -301,8 +335,36 @@ mod tests {
                 version: Some("0.1.0".into()),
                 capabilities: vec!["fs-v1".into()],
             },
+            vm_kind: None,
             revision: Revision::zero(),
         }
+    }
+
+    #[test]
+    fn only_the_exact_owner_value_owns_the_vm() {
+        let mut info = info();
+        assert!(!info.caller_owns_vm());
+        for (value, owns) in
+            [("owner", true), ("team", false), ("Owner", false), (" owner", false), ("", false)]
+        {
+            info.vm_kind = Some(value.into());
+            assert_eq!(info.caller_owns_vm(), owns, "{value:?}");
+        }
+    }
+
+    #[test]
+    fn a_vm_kind_that_is_not_a_string_reads_as_not_the_owner() {
+        let mut wire = serde_json::to_value(info()).expect("encode");
+        for bad in
+            [json!(true), json!(1), json!(["owner"]), json!({ "kind": "owner" }), json!(null)]
+        {
+            wire["vm_kind"] = bad.clone();
+            let decoded: ConnectInfo = serde_json::from_value(wire.clone()).expect("decodes");
+            assert!(!decoded.caller_owns_vm(), "{bad}");
+        }
+        wire.as_object_mut().expect("object").remove("vm_kind");
+        let decoded: ConnectInfo = serde_json::from_value(wire).expect("decodes");
+        assert!(!decoded.caller_owns_vm());
     }
 
     #[test]
@@ -334,6 +396,36 @@ mod tests {
     }
 
     #[test]
+    fn machine_cost_fields_relay_to_the_page() {
+        let source = serde_json::json!({
+            "id": "vm-cost",
+            "revision": "7",
+            "hourly_rate_usd": 0.2645,
+            "running_since": 1_700_000_000_000i64
+        });
+        let machine: Machine = serde_json::from_value(source.clone()).expect("cost fields decode");
+        let encoded = serde_json::to_value(&machine).expect("cost fields encode");
+        assert_eq!(encoded["hourly_rate_usd"], source["hourly_rate_usd"]);
+        assert_eq!(encoded["running_since"], source["running_since"]);
+
+        let paused: Machine = serde_json::from_value(
+            serde_json::json!({ "id": "vm-paused", "revision": "8", "hourly_rate_usd": 0.2645, "running_since": null }),
+        )
+        .expect("paused machine decodes");
+        let encoded = serde_json::to_value(&paused).expect("paused machine encodes");
+        assert!(encoded.get("running_since").is_none());
+        let older: Machine =
+            serde_json::from_value(serde_json::json!({ "id": "vm-old", "revision": "9" }))
+                .expect("older machine decodes");
+        assert!(
+            serde_json::to_value(older)
+                .expect("older machine encodes")
+                .get("hourly_rate_usd")
+                .is_none()
+        );
+    }
+
+    #[test]
     fn machine_idle_pause_diagnostics_round_trip_without_changing_older_shape() {
         let source = serde_json::json!({
             "id": "vm-idle",
@@ -352,17 +444,27 @@ mod tests {
                 }
             }
         });
-        let machine: Machine = serde_json::from_value(source.clone()).expect("idle diagnostics decode");
-        assert_eq!(machine.idle_pause.as_ref().expect("idle diagnostics")["minutes"], source["idlePause"]["minutes"]);
+        let machine: Machine =
+            serde_json::from_value(source.clone()).expect("idle diagnostics decode");
+        assert_eq!(
+            machine.idle_pause.as_ref().expect("idle diagnostics")["minutes"],
+            source["idlePause"]["minutes"]
+        );
         let encoded = serde_json::to_value(&machine).expect("idle diagnostics encode");
         assert_eq!(encoded["idlePause"], source["idlePause"]);
 
         let snake = serde_json::json!({ "id": "vm-snake", "revision": "5", "idle_pause": { "minutes": 0 } });
         let snake_machine: Machine = serde_json::from_value(snake).expect("snake alias decode");
-        assert_eq!(snake_machine.idle_pause.as_ref().expect("snake idle diagnostics")["minutes"], 0);
-        let older: Machine = serde_json::from_value(serde_json::json!({ "id": "vm-old", "revision": "6" }))
-            .expect("older machine decode");
+        assert_eq!(
+            snake_machine.idle_pause.as_ref().expect("snake idle diagnostics")["minutes"],
+            0
+        );
+        let older: Machine =
+            serde_json::from_value(serde_json::json!({ "id": "vm-old", "revision": "6" }))
+                .expect("older machine decode");
         assert!(older.idle_pause.is_none());
-        assert!(serde_json::to_value(older).expect("older machine encode").get("idlePause").is_none());
+        assert!(
+            serde_json::to_value(older).expect("older machine encode").get("idlePause").is_none()
+        );
     }
 }

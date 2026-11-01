@@ -29,7 +29,7 @@ public nonisolated final class ChromiumPasswordRows: @unchecked Sendable {
             store(entry.username, at: row, 32)
             row.storeBytes(of: entry.password.baseAddress, toByteOffset: 48, as: UnsafeRawPointer?.self)
             row.storeBytes(of: entry.password.count, toByteOffset: 56, as: Int.self)
-            let created = entry.created.map { Int64(($0.timeIntervalSince1970 + 11_644_473_600) * 1_000_000) } ?? 0
+            let created = entry.created.map(ChromiumCookieWrite.microseconds(since1601:)) ?? 0
             row.storeBytes(of: created, toByteOffset: 64, as: Int64.self)
         }
     }

@@ -29,7 +29,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     let macFilter: MacFilter
     /// Live: choosing a Mac links it and moves the Mac Chief and Home to it.
     let selectMac: ((String) -> Void)?
+    let reconnect: ((String) async -> Void)?
     @State private var macText = MacFilterMemo()
+    /// The filtered list, built once per change of the rows, search or toggle.
+    @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
     @State private var unreadOnly = false
     /// The New Chief name prompt is up.
@@ -38,6 +41,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// `open` pushes a conversation New Message opened onto Home's stack.
     public init(store: AppStore, sources: ChiefSources = .shared, feed: MacHomeFeed = .shared, macFilter: MacFilter = MacFilter(),
+                reconnect: ((String) async -> Void)? = nil,
                 selectMac: ((String) -> Void)? = nil,
                 open: @escaping (HomeConversationRoute) -> Void,
                 @ToolbarContentBuilder leading: () -> Leading) {
@@ -46,6 +50,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         self.feed = feed
         self.macFilter = macFilter
         self.selectMac = selectMac
+        self.reconnect = reconnect
         self.open = open
         self.leading = leading()
     }
@@ -64,13 +69,18 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The Mac whose Home shows: the one its rows came from, else the Mac Chief's.
     private var homeMacID: String? { feed.macID ?? sources.mac.macID }
 
+    private var homeIsOffline: Bool {
+        guard store.tracksMacData, let homeMacID else { return false }
+        return store.macConnection[homeMacID] != .connected && store.macConnection[homeMacID] != .connecting
+    }
+
     /// Under a Chief's name: where it runs ("Cloud", or the Mac's name), as the Mac's list tags each Chief.
     private var macTag: String? {
         labels.chiefDetail(place: .mac, macID: homeMacID, macName: sources.mac.macName)
     }
 
     /// The Mac's list as its sidebar lays it out, under the search and the Unread toggle.
-    private var list: MacHomeList { MacHomeList(feed.rows ?? [], query: query, unreadOnly: unreadOnly) }
+    private var list: MacHomeList { listMemo.list(feed.rows ?? [], query: query, unreadOnly: unreadOnly) }
 
     /// The Cloud Chief (the Mac lists it as its Main Chief, "Main · Cloud", among the rows by its
     /// newest message), while it answers and passes the filters.
@@ -196,19 +206,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             ForEach(entries) { entry in
                 switch entry {
                 case let .row(row):
-                    Button { open(route(row)) } label: {
-                        MessagesRow(title: row.title, subtitle: tag(row), preview: row.preview,
-                                    stamp: row.activityAt > .distantPast ? stamp.string(for: row.activityAt) : "",
-                                    isUnread: row.unreadCount > 0, isMuted: row.isMuted, needsYou: false,
-                                    isTyping: row.isWorking) { size in
-                            ChiefAvatar(text: avatarText(row), size: size)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                    .listRowBackground(theme.colors.bg.color)
-                    .contextMenu { rowMenu(row) }
-                    .accessibilityIdentifier(isMacChief(row) ? "home.chief.mac" : "home.row.\(row.id)")
+                    // Plain values: SwiftUI skips the rows that did not change.
+                    // The list-row traits outside the Equatable view, where List sees them.
+                    HomeListRow(model: rowModel(row, stamp: stamp), open: open, feed: feed)
+                        .equatable()
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                        .listRowBackground(theme.colors.bg.color)
                 case .cloud:
                     sessionRow(sources.cloud, name: primaryName, tag: chiefTag(main: true, place: String(localized: "Cloud")),
                                stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
@@ -217,8 +220,22 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief.mac", place: .mac) { callChiefItem }
                 }
             }
-            if let problem = feed.problem, !searching {
-                note(String(localized: "Couldn't read this Mac's Home: \(problem)"), identifier: "home.note.problem")
+            if !searching, feed.problem != nil || homeIsOffline {
+                VStack(spacing: 6) {
+                    Text(RecoveryMessage.home.text)
+                        .font(.footnote)
+                        .foregroundStyle(theme.colors.label2.color)
+                    RetryButton {
+                        await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
+                    }
+                    .accessibilityIdentifier("home.retry")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(theme.colors.bg.color)
+                .accessibilityIdentifier("home.note.problem")
             } else if feed.rows == nil, homeMacID != nil, !searching {
                 note(String(localized: "Connecting to \(macTag ?? String(localized: "your Mac"))…"), identifier: "home.note.connecting")
             }
@@ -272,7 +289,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                     focusesComposer: route.focusesComposer)
         }
         .navigationDestination(for: MacConversationRoute.self) { route in
-            MacConversationScreen(route: route, feed: feed)
+            MacConversationScreen(route: route, feed: feed, macID: homeMacID, reconnect: reconnect)
         }
         // Back on Home: read the Cloud Chiefs again (one may be archived or deleted elsewhere), and the Mac's list.
         .task {
@@ -291,10 +308,19 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 Task { await sources.createChief(named: name) }
             }
             .accessibilityIdentifier("home.chief.newCreate")
+                .keyboardShortcut(.defaultAction)
         } message: {
             Text("A new Cloud Chief with its own conversation and memory.")
         }
-        .animation(theme.motion.smooth.animation, value: list)
+        // The memo's revision moves only when the shown list does (no comparison of every row per pass).
+        .animation(theme.motion.smooth.animation, value: listMemo.revision)
+    }
+
+    private func rowModel(_ row: MacHomeRow, stamp: MessagesStamp) -> HomeListRow.Model {
+        HomeListRow.Model(id: row.id, title: row.title, subtitle: tag(row), preview: row.preview,
+                          stamp: row.activityAt > .distantPast ? stamp.string(for: row.activityAt) : "",
+                          isUnread: row.unreadCount > 0, isMuted: row.isMuted, isTyping: row.isWorking,
+                          isPinned: row.isPinned, avatar: avatarText(row), isMacChief: isMacChief(row), route: route(row))
     }
 
     /// The grid's tiles: the Mac's pinned conversations in the owner's order.
@@ -332,24 +358,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// The Mac's row menu, the actions that are the person's list state:
     /// Pin or Unpin, Mark as Read or Mark as Unread; Chief's row also calls Chief.
-    @ViewBuilder private func rowMenu(_ row: MacHomeRow) -> some View {
-        if isMacChief(row) { callChiefItem }
-        Button(row.isPinned ? "Unpin" : "Pin", systemImage: row.isPinned ? "pin.slash" : "pin") {
-            theme.haptics.selection()
-            feed.setPinned(!row.isPinned, row.id)
-        }
-        if row.unreadCount > 0 {
-            Button("Mark as Read", systemImage: "message") { feed.markRead(row.id) }
-        } else {
-            Button("Mark as Unread", systemImage: "message.badge") { feed.setMarkedUnread(true, row.id) }
-        }
+    private func rowMenu(_ row: MacHomeRow) -> some View {
+        HomeRowMenu(id: row.id, isMacChief: isMacChief(row), isPinned: row.isPinned, isUnread: row.unreadCount > 0, feed: feed)
     }
 
-    /// A live voice call with Chief (``ChiefCallLauncher``).
-    private var callChiefItem: some View {
-        Button("Call Chief", systemImage: "phone") { ChiefCallLauncher.shared.call() }
-            .accessibilityIdentifier("home.chief.call")
-    }
+    private var callChiefItem: some View { CallChiefItem() }
 
     @ViewBuilder private var cloudTileMenu: some View {
         let cloud = sources.cloud
@@ -463,6 +476,79 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 }
 
+/// One conversation row of Home from plain values: SwiftUI compares the
+/// model and skips the row (its body and menu) when it did not change, so a
+/// new list costs O(changed rows). `open` and `feed` only run actions.
+struct HomeListRow: View, Equatable {
+    struct Model: Equatable {
+        var id: String
+        var title: String
+        var subtitle: String?
+        var preview: String
+        var stamp: String
+        var isUnread: Bool
+        var isMuted: Bool
+        var isTyping: Bool
+        var isPinned: Bool
+        var avatar: String
+        var isMacChief: Bool
+        /// Where a tap goes.
+        var route: HomeConversationRoute
+    }
+
+    let model: Model
+    let open: (HomeConversationRoute) -> Void
+    let feed: MacHomeFeed
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.model == b.model }
+
+    var body: some View {
+        let model = model
+        Button { open(model.route) } label: {
+            MessagesRow(title: model.title, subtitle: model.subtitle, preview: model.preview, stamp: model.stamp,
+                        isUnread: model.isUnread, isMuted: model.isMuted, needsYou: false, isTyping: model.isTyping) { size in
+                ChiefAvatar(text: model.avatar, size: size)
+            }
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            HomeRowMenu(id: model.id, isMacChief: model.isMacChief, isPinned: model.isPinned, isUnread: model.isUnread, feed: feed)
+        }
+        .accessibilityIdentifier(model.isMacChief ? "home.chief.mac" : "home.row.\(model.id)")
+    }
+}
+
+/// The Mac's row menu, the actions that are the person's list state:
+/// Pin or Unpin, Mark as Read or Mark as Unread; Chief's row also calls Chief.
+struct HomeRowMenu: View {
+    let id: String
+    let isMacChief: Bool
+    let isPinned: Bool
+    let isUnread: Bool
+    let feed: MacHomeFeed
+
+    var body: some View {
+        if isMacChief { CallChiefItem() }
+        Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") {
+            theme.haptics.selection()
+            feed.setPinned(!isPinned, id)
+        }
+        if isUnread {
+            Button("Mark as Read", systemImage: "message") { feed.markRead(id) }
+        } else {
+            Button("Mark as Unread", systemImage: "message.badge") { feed.setMarkedUnread(true, id) }
+        }
+    }
+}
+
+/// A live voice call with Chief (``ChiefCallLauncher``).
+struct CallChiefItem: View {
+    var body: some View {
+        Button("Call Chief", systemImage: "phone") { ChiefCallLauncher.shared.call() }
+            .accessibilityIdentifier("home.chief.call")
+    }
+}
+
 /// One tile of Messages' pinned grid, as the Mac's Home draws it: a large
 /// avatar, the name (the unread dot before it, the muted bell after it),
 /// where a Chief runs, and a typing or preview bubble above the avatar. A
@@ -563,27 +649,41 @@ struct MacConversationScreen: View {
     struct SessionKey: Hashable {
         let route: MacConversationRoute
         let epoch: Int
+        let retry: Int
+        // First-open failures have no cached session, so reconnect need not bump the epoch.
+        let hasRows: Bool
+        let homeProblem: String?
     }
 
     let route: MacConversationRoute
     let feed: MacHomeFeed
-    @State private var session: ChiefSession?
-    @State private var failure: String?
+    let macID: String?
+    let reconnect: ((String) async -> Void)?
+    @State private var loader = MacConversationLoader()
 
     var body: some View {
         Group {
-            if let session {
+            if let session = loader.session {
                 ChiefConversationScreen(session: session)
-            } else if let failure {
-                ContentUnavailableView(route.title, systemImage: "bubble.left.and.exclamationmark.bubble.right", description: Text(failure))
+            } else if loader.failed {
+                ContentUnavailableView {
+                    Label(route.title, systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                } description: {
+                    Text(RecoveryMessage.conversation.text)
+                } actions: {
+                    RetryButton {
+                        await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
+                    }
+                    .accessibilityIdentifier("home.conversation.retry")
+                }
             } else {
                 ProgressView().accessibilityIdentifier("home.conversation.loading")
             }
         }
-        // A new link closes the conversation's channel: the screen takes a new session on it.
-        .task(id: SessionKey(route: route, epoch: feed.sessionEpoch)) {
-            failure = nil
-            do { session = try await feed.session(for: route) } catch { failure = MacHomeFeed.reason(error) }
+        // Owned by the screen: a retry button disappearing cannot cancel the load it requested.
+        .task(id: SessionKey(route: route, epoch: feed.sessionEpoch, retry: loader.retryID,
+                             hasRows: feed.rows != nil, homeProblem: feed.problem)) {
+            await loader.load { try await feed.session(for: route) }
         }
     }
 }
@@ -762,24 +862,105 @@ struct ChiefAvatar: View {
     }
 }
 
-/// The three-dot typing bubble Messages shows on a pinned avatar.
+/// The three-dot typing bubble Messages shows on a pinned avatar. The dots
+/// pulse with a Core Animation animation on the render server: no per-frame
+/// body while a Chief types (it was a `TimelineView(.animation)` per bubble).
 struct TypingBubble: View {
     var body: some View {
-        TimelineView(.animation) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 4) {
-                ForEach(0..<3) { index in
-                    Circle()
-                        .fill(theme.colors.label2.color)
-                        .frame(width: 7, height: 7)
-                        .opacity(0.35 + 0.65 * max(0, sin((t * 4) - Double(index) * 0.8)))
-                }
-            }
+        TypingDots()
+            .frame(width: TypingDotsView.width, height: TypingDotsView.dot)
             .padding(.horizontal, 10)
             .frame(height: 28)
             .background(theme.colors.surfaceRaised.color, in: .capsule)
+            .accessibilityLabel("Typing")
+    }
+}
+
+private struct TypingDots: UIViewRepresentable {
+    func makeUIView(context: Context) -> TypingDotsView { TypingDotsView() }
+    func updateUIView(_ view: TypingDotsView, context: Context) {}
+}
+
+/// Three 7 pt dots 4 pt apart in `label2`; dot i's opacity is
+/// 0.35 + 0.65 * max(0, sin(4t - 0.8i)), every bubble in step (the phase from the clock).
+final class TypingDotsView: UIView {
+    static let dot: CGFloat = 7
+    static let spacing: CGFloat = 4
+    static let width = dot * 3 + spacing * 2
+    /// One period of sin(4t).
+    private static let period = Double.pi / 2
+    private let dots = (0..<3).map { _ in CALayer() }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isAccessibilityElement = false
+        for (index, dot) in dots.enumerated() {
+            dot.frame = CGRect(x: CGFloat(index) * (Self.dot + Self.spacing), y: 0, width: Self.dot, height: Self.dot)
+            dot.cornerRadius = Self.dot / 2
+            layer.addSublayer(dot)
         }
-        .accessibilityLabel("Typing")
+        recolor()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: TypingDotsView, _) in
+            view.recolor()
+        }
+        // The system drops layer animations while the app is in the background.
+        NotificationCenter.default.addObserver(self, selector: #selector(restartPulse),
+                                               name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(restartPulse),
+                                               name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var intrinsicContentSize: CGSize { CGSize(width: Self.width, height: Self.dot) }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { startPulse() }
+    }
+
+    private func recolor() {
+        let color = theme.colors.label2.uiColor.resolvedColor(with: traitCollection).cgColor
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for dot in dots { dot.backgroundColor = color }
+        CATransaction.commit()
+    }
+
+    @objc private func restartPulse() { startPulse() }
+
+    private func startPulse() {
+        let samples = 24
+        let values = (0...samples).map { step -> Double in
+            0.35 + 0.65 * max(0, sin(Double(step) / Double(samples) * 2 * .pi))
+        }
+        let keyTimes = (0...samples).map { NSNumber(value: Double($0) / Double(samples)) }
+        // Reduce Motion: three still dots (the row's typing state stays readable without motion).
+        if UIAccessibility.isReduceMotionEnabled {
+            for dot in dots {
+                dot.removeAnimation(forKey: "pulse")
+                dot.opacity = 0.6
+            }
+            return
+        }
+        let phase = Date().timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.period)
+        for (index, dot) in dots.enumerated() {
+            dot.opacity = 0.35
+            // motion: allow the typing indicator itself, as the Mac draws it; Reduce Motion shows still dots (above).
+            let pulse = CAKeyframeAnimation(keyPath: "opacity")
+            pulse.values = values
+            pulse.keyTimes = keyTimes
+            pulse.duration = Self.period
+            pulse.repeatCount = .infinity
+            pulse.isRemovedOnCompletion = false
+            // sin(4t - 0.8i) is sin(4(t - 0.2i)): dot i runs 0.2 s behind.
+            var offset = (phase - 0.2 * Double(index)).truncatingRemainder(dividingBy: Self.period)
+            if offset < 0 { offset += Self.period }
+            pulse.timeOffset = offset
+            dot.add(pulse, forKey: "pulse")
+        }
     }
 }
 

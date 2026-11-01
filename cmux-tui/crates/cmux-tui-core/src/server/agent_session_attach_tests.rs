@@ -11,7 +11,7 @@
 use super::agent_session_attach::{AGENT_SESSION_ATTACH_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT};
 use super::*;
 use serde_json::{Value, json};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -32,6 +32,7 @@ pub(super) struct FakeAcpmux {
     frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
     current: Option<UnixStream>,
+    transfer_blocked: Arc<Mutex<HashSet<String>>>,
 }
 
 impl FakeAcpmux {
@@ -52,16 +53,29 @@ impl FakeAcpmux {
         let listener = UnixListener::bind(&socket).unwrap();
         let (frame_tx, frames) = channel();
         let (connection_tx, connections) = channel();
+        let transfer_blocked = Arc::new(Mutex::new(HashSet::new()));
+        let shared_transfers = transfer_blocked.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
                 let _ = connection_tx.send(stream.try_clone().unwrap());
                 let frame_tx = frame_tx.clone();
                 let fixture = fixture.clone();
-                std::thread::spawn(move || serve(stream, frame_tx, &fixture));
+                let transfers = shared_transfers.clone();
+                std::thread::spawn(move || serve(stream, frame_tx, &fixture, &transfers));
             }
         });
-        Self { directory, socket, frames, connections, current: None }
+        Self { directory, socket, frames, connections, current: None, transfer_blocked }
+    }
+
+    /// Models an acpmux watcher abort, independently of any cmux transfer request.
+    pub(super) fn set_transfer_blocked(&self, session: &str, blocked: bool) {
+        let mut transfers = self.transfer_blocked.lock().unwrap();
+        if blocked {
+            transfers.insert(session.to_owned());
+        } else {
+            transfers.remove(session);
+        }
     }
 
     /// The next frame the daemon sent to acpmux.
@@ -136,11 +150,32 @@ pub(super) struct Fixture {
     pub(super) watch: Vec<Value>,
     /// The records an `_acpmux/events` (history) page answers.
     pub(super) history: Vec<Value>,
+    /// Records every history page answers after [`Fixture::history`], added while the fake runs.
+    pub(super) history_later: Arc<Mutex<Vec<Value>>>,
     /// When set, the attach answer waits for one message on it (at most [`WAIT`]).
     pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// `_acpmux/sessions` answers its list in two pages, as acpmux does past its
+    /// largest reply: the first rows with a `nextCursor`, the rest from that cursor.
+    pub(super) sessions_pages: bool,
+    /// The watch answers only its first row with a `nextCursor`; `_acpmux/sessions`
+    /// from that cursor answers the rest ([`Fixture::watch`]).
+    pub(super) watch_pages: bool,
+    /// With [`Fixture::watch_pages`], the page after the watch's cursor lists no sessions.
+    pub(super) watch_bad_page: bool,
+    /// With [`Fixture::watch_pages`], the page after the watch's cursor is an error.
+    pub(super) watch_page_error: bool,
+    /// When set, each history page and each prompt's acceptance waits for one message on it (at
+    /// most [`WAIT`], or until its sender is gone).
+    pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
 }
 
-fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
+fn serve(
+    stream: UnixStream,
+    frames: Sender<Value>,
+    fixture: &Fixture,
+    transfers: &Mutex<HashSet<String>>,
+) {
     let mut writer = stream.try_clone().unwrap();
     // acpmux takes 2 `_acpmux/typing` a second per connection: the fake refuses the third.
     let mut typing_calls = 0;
@@ -174,14 +209,48 @@ fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
             }
             "_acpmux/watch" => {
                 let mut sessions = vec![json!({"sessionId": "acp_unrelated"})];
-                sessions.extend(fixture.watch.iter().cloned());
-                Some(json!({"sessions": sessions}))
+                if fixture.watch_pages {
+                    Some(json!({"sessions": sessions, "nextCursor": "w1"}))
+                } else {
+                    sessions.extend(fixture.watch.iter().cloned());
+                    Some(json!({"sessions": sessions}))
+                }
+            }
+            "_acpmux/sessions" if params["cursor"] == json!("w1") => {
+                Some(if fixture.watch_bad_page {
+                    json!({"nextCursor": null})
+                } else if fixture.watch_page_error {
+                    json!({FAKE_ERROR: "list.paced"})
+                } else {
+                    json!({"sessions": fixture.watch})
+                })
             }
             // The machine's whole list: the attached session's family and others
-            // (agent_session_children_tests.rs).
+            // (agent_session_children_tests.rs), its older rows first, as acpmux's byte
+            // pages (in no time order) can come.
+            "_acpmux/sessions" if fixture.sessions_pages => {
+                let mut rows = machine_sessions()["sessions"].as_array().unwrap().clone();
+                let older = rows.split_off(3);
+                Some(if params["cursor"] == json!("c1") {
+                    json!({"sessions": rows})
+                } else {
+                    json!({"sessions": older, "nextCursor": "c1"})
+                })
+            }
             "_acpmux/sessions" => Some(machine_sessions()),
+            "_acpmux/info" => Some(json!({
+                "sessionId": params["sessionId"],
+                "transferBlocked": transfers.lock().unwrap().contains(
+                    params["sessionId"].as_str().unwrap_or_default()
+                ),
+            })),
             "_acpmux/events" => {
-                Some(json!({"events": fixture.history, "hasMore": false, "lastSeq": 1}))
+                if let Some(gate) = &fixture.events_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
+                let mut events = fixture.history.clone();
+                events.extend(fixture.history_later.lock().unwrap().iter().cloned());
+                Some(json!({"events": events, "hasMore": false, "lastSeq": 1}))
             }
             "_acpmux/typing" => {
                 typing_calls += 1;
@@ -193,9 +262,34 @@ fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            "session/set_model" | "session/set_mode" => Some(json!({})),
+            // The agent answers its whole option list, the value just set included.
+            "session/set_config_option" => Some(json!({"configOptions": [{
+                "id": params["configId"], "currentValue": params["value"]}]})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
-            method if method.starts_with("_acpmux/transfer_") => transfer_reply(method, params),
+            method if method.starts_with("_acpmux/transfer_") => {
+                let reply = transfer_reply(method, params);
+                if let Some(answer) = &reply
+                    && answer.get(FAKE_ERROR).is_none()
+                {
+                    let session = answer["sessionId"].as_str().unwrap_or_default();
+                    let mut transfers = transfers.lock().unwrap();
+                    match method {
+                        "_acpmux/transfer_begin" | "_acpmux/transfer_commit" => {
+                            transfers.insert(session.to_owned());
+                        }
+                        "_acpmux/transfer_abort" | "_acpmux/transfer_finish" => {
+                            transfers.remove(session);
+                        }
+                        _ => {}
+                    }
+                }
+                reply
+            }
             "session/prompt" => {
+                if let Some(gate) = &fixture.prompt_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
                     "sessionId": SESSION, "promptId": params["_meta"]["acpmux"]["promptId"],
                     "turnId": "turn_1", "queued": false}});
@@ -538,6 +632,10 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":6,"cmd":"agent-session-detach","surface":surface}),
         json!({"id":7,"cmd":"agent-session-typing","surface":surface,"on":true}),
         json!({"id":8,"cmd":"agent-session-view","surface":surface,"visible":true}),
+        json!({"id":9,"cmd":"agent-session-set-model","surface":surface,"model_id":"opus"}),
+        json!({"id":10,"cmd":"agent-session-set-mode","surface":surface,"mode_id":"plan"}),
+        json!({"id":11,"cmd":"agent-session-set-config","surface":surface,
+               "config_id":"effort","value":"high"}),
     ]
 }
 
@@ -833,6 +931,86 @@ fn cancel_goes_to_the_pinned_session() {
     assert_eq!(sent["method"], json!("session/cancel"));
     assert_eq!(sent["params"], json!({"sessionId": SESSION}));
     assert!(sent.get("id").is_none(), "cancel is a notification");
+}
+
+// MARK: Settings
+
+/// A chat on another machine: the person's model, mode and option picks go to acpmux on the tab's
+/// own session, and acpmux's answer comes back unchanged (`agent-session-settings-v1`).
+#[test]
+fn model_mode_and_option_picks_go_to_the_pinned_session() {
+    let fake = FakeAcpmux::start("settings");
+    let mux = mux_with(&fake, "asa-settings");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "settings");
+    for frame in [
+        json!({"cmd":"agent-session-set-model","surface":surface,"model_id":"claude-opus-5-5"}),
+        json!({"cmd":"agent-session-set-mode","surface":surface,"mode_id":"acceptEdits"}),
+    ] {
+        assert_code(&client.request(frame), "agent_session.not_attached");
+    }
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    for (frame, method, params) in [
+        (
+            json!({"cmd":"agent-session-set-model","surface":surface,
+                   "model_id":"claude-opus-5-5[1m]"}),
+            "session/set_model",
+            json!({"sessionId": SESSION, "modelId": "claude-opus-5-5[1m]"}),
+        ),
+        (
+            json!({"cmd":"agent-session-set-mode","surface":surface,"mode_id":"acceptEdits"}),
+            "session/set_mode",
+            json!({"sessionId": SESSION, "modeId": "acceptEdits"}),
+        ),
+        (
+            json!({"cmd":"agent-session-set-config","surface":surface,
+                   "config_id":"effort","value":"high"}),
+            "session/set_config_option",
+            json!({"sessionId": SESSION, "configId": "effort", "value": "high"}),
+        ),
+    ] {
+        let reply = client.request(frame);
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], json!(method));
+        assert_eq!(sent["params"], params, "the session is the tab's own; nothing else is passed");
+        if method == "session/set_config_option" {
+            assert_eq!(
+                reply["data"],
+                json!({"configOptions": [{"id": "effort", "currentValue": "high"}]}),
+                "acpmux's answer goes back unchanged"
+            );
+        }
+    }
+    for bad in [
+        json!({"cmd":"agent-session-set-model","surface":surface}),
+        json!({"cmd":"agent-session-set-model","surface":surface,"model_id":""}),
+        json!({"cmd":"agent-session-set-model","surface":surface,"model_id":"--dangerously"}),
+        json!({"cmd":"agent-session-set-model","surface":surface,"model_id":"a b"}),
+        json!({"cmd":"agent-session-set-model","surface":surface,"model_id":"x".repeat(257)}),
+        json!({"cmd":"agent-session-set-model","surface":surface,"model_id":"opus",
+               "sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-set-mode","surface":surface,"mode_id":7}),
+        json!({"cmd":"agent-session-set-mode","surface":surface,"mode_id":"plan",
+               "_meta":{"cmuxGesture":"t"}}),
+        json!({"cmd":"agent-session-set-config","surface":surface,"config_id":"effort"}),
+        json!({"cmd":"agent-session-set-config","surface":surface,"config_id":"effort",
+               "value":true}),
+        json!({"cmd":"agent-session-set-config","surface":surface,"config_id":"effort",
+               "value":"$(id)"}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
 }
 
 // MARK: Presence

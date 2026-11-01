@@ -1,5 +1,6 @@
 import CmuxAgentBrands
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextPalette
 import Foundation

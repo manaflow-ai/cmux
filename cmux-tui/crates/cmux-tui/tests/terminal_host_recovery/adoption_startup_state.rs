@@ -94,3 +94,59 @@ fn an_incognito_shell_ends_with_its_workspace_when_its_host_adopts_after_a_resta
         "the incognito shell outlived its workspace: {lifecycle:?}"
     );
 }
+
+/// Whether the public session snapshot presents some terminal in `dir`.
+fn snapshot_presents_cwd(socket: &Path, dir: &str) -> bool {
+    let snapshot = resource_request(
+        socket,
+        "adopted-cwd-snapshot",
+        "session.snapshot",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    snapshot["terminals"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|terminal| terminal["cwd"].as_str() == Some(dir))
+}
+
+/// A shell's directory report that the host replays when a replacement owner
+/// adopts it is published at adoption (#12978): an idle shell makes no output
+/// and nothing else may change the graph, so no later step would publish it.
+/// The session snapshot used to publish pending directories itself; a read
+/// writes nothing now, so the adoption must.
+#[test]
+fn an_idle_shell_presents_its_reported_directory_after_its_host_adopts() {
+    let mut harness = RecoveryHarness::start("adopted-cwd");
+    let dir = fs::canonicalize(std::env::temp_dir())
+        .unwrap()
+        .join(format!("cmux-adopted-cwd-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let dir_text = dir.to_string_lossy().into_owned();
+    let script = format!("printf '\\033]7;file://localhost{dir_text}\\007'; exec cat");
+    request(
+        &harness.socket,
+        serde_json::json!({"cmd":"run","argv":["/bin/sh","-c",script],"new_workspace":true,"name":"idle"}),
+    );
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !snapshot_presents_cwd(&harness.socket, &dir_text) {
+        assert!(Instant::now() < deadline, "the shell's report never reached the snapshot");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let terminal_id = terminal_ids(&harness.socket).into_iter().next().unwrap();
+    wait_for_host_records(&harness.host_root(), 1);
+    harness.sigkill();
+
+    harness.restart();
+    wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !snapshot_presents_cwd(&harness.socket, &dir_text) {
+        assert!(
+            Instant::now() < deadline,
+            "the adopted shell presents its launch directory, not its reported {dir_text}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = fs::remove_dir_all(&dir);
+}

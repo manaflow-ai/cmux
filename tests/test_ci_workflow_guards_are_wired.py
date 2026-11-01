@@ -54,9 +54,18 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It runs tree-preflight's inspect step with fakes and asserts
     # wall-clock bounds of its fallback owner election; run it by hand when that step changes.
     "tests/test_cmux_tui_election_budget.py",
+    # lane = "manual" for the same rule. They check the cmux-next swift test job's shard plan and its
+    # main-thread-heavy split; run them by hand after changing scripts/cmux-next/swift-test-shards.py,
+    # main-thread-heavy-suites.py or that job.
+    "tests/test_ci_swift_test_main_thread_isolation.py",
+    "tests/test_ci_swift_test_shards.py",
     # lane = "manual" for the same rule. It reads nightly-next-launch-smoke.yml and nightly.yml to assert
     # the post-publish smoke never gates a publish; run it by hand when the smoke or its workflow changes.
     "tests/test_nightly_next_launch_smoke.py",
+    # lane = "manual" for the same rule. It reads nightly.yml only to keep the pinned Sparkle key of
+    # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
+    # helper or the workflows that call it change.
+    "tests/test_nightly_next_artifact_check.py",
 }
 
 

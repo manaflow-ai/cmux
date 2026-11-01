@@ -1,22 +1,24 @@
 // Another agent's message waiting in the queue (a `QUEUED_MESSAGE` row, queuedMessages.ts): its
-// received line, as it reads once delivered. The first of the queued messages has one quiet "Read
-// after this turn" over its line for them all, never one per message and never a spinner or a
-// pulsing dot (Leo, 2026-10-25; 2026-10-29: "the "read after this turn" stuff gets a bit
-// redundant"). Its
-// ⋯ menu keeps the queue row's actions: Steer (`send_now`, once), Edit message (into the composer,
-// images too), Open in side chat (a message without images), Move up/down, queueing, Delete.
+// received line, as it reads once delivered, in the one group of messages that wait
+// (PendingMessagesCard.tsx), with no "Read after this turn" (Leo, 2026-10-29: "why the fuck do you
+// guys keep doing this fucking bullshit with the red after this turn?"). Its actions are a message's,
+// never the person's queue row's (Leo, 2026-10-29: "WHY AM I SEEING TURN OFF QUEUING ON AGENT
+// MESSAGES????"): ⋯ with Send now (into the running turn, `send_now`,
+// once) and Dismiss (the agent never gets it), in one group as on a delivered message's line. No
+// Edit message, Move up or down, or queueing switch: those are the person's own prompts'
+// (ComposerQueue.tsx). The sender's chat opens from its name (IncomingMessageCard.tsx).
 import { useContext, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow, QueuedPromptImage } from "../model";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
-import { setQueueing, useQueueing } from "../queueing";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import type { IncomingMessage } from "./incomingMessage";
+import { MessageFooterRow } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
 /// What the ⋯ menu does (App.tsx, through TurnActions `queuedMessages`); each is false once the
-/// message started.
+/// message started. `edit`, `sideChat`, `position` and `move` serve the person's own queue rows.
 export type QueuedMessageActionsValue = {
   steer: (promptId: string) => Promise<boolean>;
   edit: (promptId: string, text: string, images: readonly QueuedPromptImage[]) => Promise<boolean>;
@@ -27,6 +29,44 @@ export type QueuedMessageActionsValue = {
   /// Moves it to `index` in the whole queue (`_acpmux/queue_edit` move).
   move?: (promptId: string, index: number) => Promise<boolean>;
 };
+
+/// A waiting message's ⋯: Send now when it can go into the running turn, and Dismiss when it can
+/// be taken back; nothing when neither. Never the person's queue actions. Copy is the opened card's
+/// corner Copy (CardCopy), as on every other message from another session.
+export function WaitingMessageMenu({ sendNow, dismiss }: { sendNow?: () => void; dismiss?: () => void }) {
+  const t = useT();
+  if (!sendNow && !dismiss) return null;
+  return (
+    <Menu>
+      <MenuButton
+        className="cv-iconbtn cv-iconbtn--compact"
+        data-menu="waiting-message"
+        label={t("composer.queueActions")}
+        title={t("composer.queueActions")}
+        aria-haspopup="menu"
+      >
+        <Icon name="action.more" size={14} />
+      </MenuButton>
+      <MenuPopup
+        side="bottom"
+        align="end"
+        className="acpmux-quick-menu acpmux-queued-more"
+        label={t("composer.queueActions")}
+      >
+        {sendNow && (
+          <MenuItem className="acpmux-quick-item" onSelect={sendNow}>
+            {t("steer.sendNow")}
+          </MenuItem>
+        )}
+        {dismiss && (
+          <MenuItem className="acpmux-quick-item" onSelect={dismiss}>
+            {t("message.dismiss")}
+          </MenuItem>
+        )}
+      </MenuPopup>
+    </Menu>
+  );
+}
 
 export function QueuedMessageCard({
   row,
@@ -41,78 +81,40 @@ export function QueuedMessageCard({
   githubRepository?: string;
 }) {
   const t = useT();
-  const queueing = useQueueing();
   const act = useContext(TurnActionsContext).queuedMessages?.();
-  // Steer goes once: hidden from its reply until acpmux's next word on the message (a new row).
-  const [steeredAt, setSteeredAt] = useState<number>();
-  // Opening draws the menu again, so its moves read where the message waits now.
-  const [, setOpened] = useState(0);
+  // Send now goes once: hidden from its reply until acpmux's next word on the message (a new row).
+  const [sentAt, setSentAt] = useState<number>();
   const queued = row.queuedMessage;
   if (!queued || row.incoming?.kind !== "message") return null;
   const { promptId } = queued;
   const message = row.incoming.message;
-  // The prompt as it waits, which Edit message puts in the composer.
-  const text = message.raw;
   const fail = () => undefined;
-  const at = act?.move ? act.position?.(promptId) : undefined;
-  const item = (label: Parameters<typeof t>[0], onSelect: () => void, disabled = false) => (
-    <MenuItem className="acpmux-quick-item" disabled={disabled} onSelect={onSelect}>
-      {t(label)}
-    </MenuItem>
-  );
-  const menu = (
-    <span className="cv-received-actions cv-received__queued-actions">
-      <Menu onOpenChange={(open) => open && setOpened((count) => count + 1)}>
-        <MenuButton
-          className="cv-iconbtn cv-iconbtn--compact"
-          data-menu="queued-message"
-          label={t("composer.queueActions")}
-          title={t("composer.queueActions")}
-          aria-haspopup="menu"
-        >
-          <Icon name="action.more" size={14} />
-        </MenuButton>
-        <MenuPopup
-          side="bottom"
-          align="end"
-          className="acpmux-quick-menu acpmux-queued-more"
-          label={t("composer.queueActions")}
-        >
-          {act &&
-            !queued.next &&
-            steeredAt !== row.version &&
-            item(
-              "composer.queueSteer",
-              () => void act.steer(promptId).then((ok) => ok && setSteeredAt(row.version), fail),
-            )}
-          {act && item("composer.queueEditMessage", () => void act.edit(promptId, text, row.images ?? []).catch(fail))}
-          {act?.sideChat &&
-            !row.images?.length &&
-            item("composer.queueSideChat", () => void act.sideChat!(promptId, text).catch(fail))}
-          {at &&
-            item("composer.queueMoveUp", () => void act!.move!(promptId, at.index - 1).catch(fail), at.index === 0)}
-          {at &&
-            item(
-              "composer.queueMoveDown",
-              () => void act!.move!(promptId, at.index + 1).catch(fail),
-              at.index >= at.count - 1,
-            )}
-          {item(queueing ? "composer.queueingOff" : "composer.queueingOn", () => setQueueing(!queueing))}
-          {act && item("composer.queueDelete", () => void act.remove(promptId).catch(fail))}
-        </MenuPopup>
-      </Menu>
+  // The same group as a delivered message's (MessageActions.tsx ReceivedActions): its ⋯. No hover
+  // Copy: the opened card's corner Copy copies it (Leo, 2026-10-30).
+  const actions = (
+    <span className="cv-received-actions">
+      <MessageFooterRow>
+        <WaitingMessageMenu
+          sendNow={
+            act && !queued.next && sentAt !== row.version
+              ? () => void act.steer(promptId).then((ok) => ok && setSentAt(row.version), fail)
+              : undefined
+          }
+          dismiss={act ? () => void act.remove(promptId).catch(fail) : undefined}
+        />
+      </MessageFooterRow>
     </span>
   );
   return (
     <div className="cv-incoming" data-queued-message={promptId}>
-      {queued.lead && <div className="cv-received__queued-head">{t("message.readAfterTurn")}</div>}
+      {queued.lead && queued.heldByStop && <div className="cv-received__queued-head">{t("message.heldByStop")}</div>}
       <IncomingMessageLine
         id={row.id}
         message={message}
         images={row.images}
         onOpen={onOpen}
         onReply={onReply}
-        actions={menu}
+        actions={actions}
         githubRepository={githubRepository}
       />
     </div>
@@ -120,41 +122,10 @@ export function QueuedMessageCard({
 }
 
 /// A message another agent steered into the running turn that the agent has not read yet
-/// (`steer === "waiting"`): its received card's actions, then Send now in a ⋯ menu (`send_now`
-/// with the steer's promptId, which stops the current step), and "Read after this step" last. No
-/// spinner row and no dot (Leo, 2026-10-25).
+/// (`steer === "waiting"`), in the group of messages that wait: its ⋯ in the message's own action
+/// group (MessageActions.tsx ReceivedActions `more`), with Send now (`send_now` with the steer's
+/// promptId, which stops the current step). No spinner row, no dot, and no "Read after this step"
+/// tag: the group says the messages wait (Leo, 2026-10-25, 2026-10-29).
 export function SteerWaitingActions({ promptId, send }: { promptId?: string; send: (promptId: string) => void }) {
-  const t = useT();
-  return (
-    <>
-      {promptId && (
-        <span className="cv-received-actions cv-received__queued-actions">
-          <Menu>
-            <MenuButton
-              className="cv-iconbtn cv-iconbtn--compact"
-              data-menu="queued-message"
-              label={t("composer.queueActions")}
-              title={t("composer.queueActions")}
-              aria-haspopup="menu"
-            >
-              <Icon name="action.more" size={14} />
-            </MenuButton>
-            <MenuPopup
-              side="bottom"
-              align="end"
-              className="acpmux-quick-menu acpmux-queued-more"
-              label={t("composer.queueActions")}
-            >
-              <MenuItem className="acpmux-quick-item" onSelect={() => send(promptId)}>
-                {t("steer.sendNow")}
-              </MenuItem>
-            </MenuPopup>
-          </Menu>
-        </span>
-      )}
-      <span className="cv-received__queued" data-reveal="hover">
-        {t("message.readAfterStep")}
-      </span>
-    </>
-  );
+  return <WaitingMessageMenu sendNow={promptId ? () => send(promptId) : undefined} />;
 }

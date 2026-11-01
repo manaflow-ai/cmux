@@ -433,8 +433,14 @@ impl Translator {
                             Some(diffs) if !is_err => {
                                 settle_write(diffs, &text, line.get("tool_use_result"))
                             }
+                            // The text, then any images it returned (a Read of a PNG, an MCP
+                            // screenshot), so a chat on another machine shows them inline.
                             _ => {
-                                json!([{"type": "content", "content": {"type": "text", "text": text}}])
+                                let mut blocks = vec![
+                                    json!({"type": "content", "content": {"type": "text", "text": text}}),
+                                ];
+                                blocks.extend(result_images(c.get("content")));
+                                Value::Array(blocks)
                             }
                         };
                         out.push(upd(json!({
@@ -523,8 +529,10 @@ impl Translator {
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
                     Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
-                    // Anything else (hook_callback, mcp_message) is declined
-                    // with an error response, so claude does not wait on it.
+                    // A registered hook fired: answered with no decision (hook_callback.rs).
+                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    // Anything else (mcp_message) is declined with an error
+                    // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
                 }
             }

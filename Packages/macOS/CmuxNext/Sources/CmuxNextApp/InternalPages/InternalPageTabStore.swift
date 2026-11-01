@@ -206,12 +206,14 @@ final class InternalPageTabStore {
     /// when the pane's daemon cannot hold page tabs. A failed creation keeps
     /// the page as an app-only tab. `key` is the provider key to use (a
     /// provider that set up its tab under it first); `created` gets the
-    /// store tab's surface once the daemon made it.
+    /// store tab's surface once the daemon made it. `requiresSurface` opts out of the app-only
+    /// fallback; `failed` it receives the creation error, or nil if the provisional tab was closed.
     func openStoreTab(_ page: InternalPageID, in pane: PaneController, window: WindowController,
                       focus: Bool, key given: String? = nil,
-                      created onCreated: (@MainActor (SurfaceID) -> Void)? = nil) -> InternalPageView? {
+                      created onCreated: (@MainActor (SurfaceID) -> Void)? = nil,
+                      failed onFailed: (@MainActor ((any Error)?) -> Void)? = nil, requiresSurface: Bool = false) -> InternalPageView? {
         openStoreTab(page, in: pane.pane, of: pane.daemon, services: pane.services, controller: pane, window: window,
-                     focus: focus, key: given, created: onCreated)
+                     focus: focus, key: given, created: onCreated, failed: onFailed, requiresSurface: requiresSurface)
     }
 
     /// ``openStoreTab(_:in:window:focus:key:created:)`` in model pane `model` of `daemon`. With no
@@ -220,12 +222,22 @@ final class InternalPageTabStore {
     /// selects nothing (a focused show leaves the top page first, which shows the workspace).
     func openStoreTab(_ page: InternalPageID, in model: PaneModel, of daemon: DaemonService, services: AppServices,
                       controller pane: PaneController?, window: WindowController, focus: Bool, key given: String? = nil,
-                      created onCreated: (@MainActor (SurfaceID) -> Void)? = nil) -> InternalPageView? {
+                      created onCreated: (@MainActor (SurfaceID) -> Void)? = nil,
+                      failed onFailed: (@MainActor ((any Error)?) -> Void)? = nil, requiresSurface: Bool = false) -> InternalPageView? {
         let store = daemon.store
+        let homePlacement = HomeDockOpens.opensBeside(model, services: services)
+        // A foreground page in Home is selected by its destination placement, never while its
+        // provisional tab still belongs to the dock: that would release OutboundTab too early.
+        let selectHere = focus && !homePlacement
         // Nothing opens in Home's dock (an app page, a file): without a placement of the caller's, the tab moves beside it.
         let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil)
         guard let provider = providers[page], daemon.supports(DaemonCapability.pageTabs.rawValue),
-              case .connected = store.connectionState else { return nil }
+              case .connected = store.connectionState else {
+            if homePlacement { HomeDockOpens.cancel(model, services: services) }
+            onFailed?(daemon.supports(DaemonCapability.pageTabs.rawValue)
+                ? DaemonError.notConnected : DaemonError.missingCapabilities([DaemonCapability.pageTabs.rawValue]))
+            return nil
+        }
         let provisional = ProvisionalTab()
         let key = given.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
@@ -242,13 +254,16 @@ final class InternalPageTabStore {
         let transaction = ClientTransactionID.generate()
         store.intend(.createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
         if let pane {
-            if focus {
+            if selectHere {
                 pane.selectWhenReported(surface: provisional.surface)
                 pane.focusContent()
             } else {
                 pane.apply(pane.snapshot())
             }
         }
+        // Home kept the provisional tab unselected for placement. If creation fails, its local
+        // fallback must still honor a foreground open, unless the person chose something else.
+        let fallbackIntent = focus && !selectHere ? pane?.workspace?.beginFocusIntent() : nil
         let create = createStoreTab, handle = model.handle, paneKey = model.id
         services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
@@ -258,11 +273,18 @@ final class InternalPageTabStore {
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                if !store.creations.wasCancelled(transaction) { onCreated?(created.surface) }
+                if !store.creations.wasCancelled(transaction) { onCreated?(created.surface) } else { onFailed?(nil) }
             } catch {
+                if homePlacement { HomeDockOpens.cancel(model, services: services) }
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
-                if !store.creations.wasCancelled(transaction) {
-                    self?.keepAsLocalTab(provisional.id, key: key, page: page, in: paneKey, controller: pane, store: store, window: window)
+                onFailed?(store.creations.wasCancelled(transaction) ? nil : error)
+                if requiresSurface {
+                    self?.storeKeys[provisional.id] = nil
+                    self?.storeTabStores[provisional.id] = nil
+                    self?.forget(key)
+                } else if !store.creations.wasCancelled(transaction) {
+                    self?.keepAsLocalTab(provisional.id, key: key, page: page, in: paneKey, controller: pane, store: store, window: window,
+                                        focus: fallbackIntent.map { pane?.workspace?.focus.state.generation == $0 } == true)
                 }
                 store.rejectIntent(transaction)
             }
@@ -287,9 +309,10 @@ final class InternalPageTabStore {
     }
 
     /// The store refused provisional page tab `id`: its page stays, as an
-    /// app-only tab in `pane` holding the same view, selected if it was.
+    /// app-only tab in `pane` holding the same view, selected if it was or its still-current
+    /// foreground Home open deferred selection to placement.
     private func keepAsLocalTab(_ id: String, key: String, page: InternalPageID, in paneKey: String, controller pane: PaneController?,
-                                store: DaemonStore, window: WindowController) {
+                                store: DaemonStore, window: WindowController, focus: Bool) {
         storeKeys[id] = nil
         storeTabStores[id] = nil
         seenLive.remove(id)
@@ -302,7 +325,7 @@ final class InternalPageTabStore {
         open(page, in: paneKey, of: store, after: id, window: window, key: key)
         guard let pane else { return }
         pane.apply(pane.snapshot())
-        if selected { reveal(key, in: pane) }
+        if selected || focus { reveal(key, in: pane) }
     }
 
     /// Lets the view of every store page tab `store` listed and lists no

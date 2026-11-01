@@ -6,11 +6,22 @@ import Testing
 
 @MainActor
 struct CloudCredentialRecoveryTests {
-    @Test func credentialRecoveryAvailabilityReturnsAfterSignInAndStaysDisabledForAppServer() {
-        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .legacy, isSignedIn: false))
-        #expect(AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .legacy, isSignedIn: true))
-        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .appServer, isSignedIn: true))
-        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .appServer, isSignedIn: false))
+    /// cmux-platform#89: a Worker machine (the app server link) reaches its exec and file routes on
+    /// the Worker machines origin, so recovery is on there too once signed in.
+    @Test func credentialRecoveryAvailabilityReturnsAfterSignInOnEitherLink() {
+        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .legacy, isSignedIn: false, passesLogin: true))
+        #expect(AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .legacy, isSignedIn: true, passesLogin: true))
+        #expect(AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .appServer, isSignedIn: true, passesLogin: true))
+        #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: .appServer, isSignedIn: false, passesLogin: true))
+    }
+
+    /// Leo: "IN THE ACTUAL PRODUCTION APP IT MAY BE AGAINST TOS". A build that does not pass the
+    /// Mac's login offers no transfer from the card, signed in or not; the card signs in on the machine.
+    @Test func credentialRecoveryIsOffWhereTheBuildDoesNotPassTheLogin() {
+        for link in [CloudConfiguration.LinkSource.legacy, .appServer] {
+            #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: link, isSignedIn: true, passesLogin: false))
+            #expect(!AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: link, isSignedIn: false, passesLogin: false))
+        }
     }
 
     @Test func restartMustFinishBeforeRetryAndNeverExposesProviderErrors() async throws {
@@ -35,6 +46,8 @@ struct CloudCredentialRecoveryTests {
     @Test func credentialRecoveryConfirmationIsAlwaysUserOnly() {
         #expect(DebugDialog.userOnly.contains(CloudPresenter.credentialRecoveryIdentifier))
         #expect(DebugDialog.userOnly.contains(CloudPresenter.codexDeviceCodeIdentifier))
+        // cloud.startChat's first-login confirm caches and installs a year-long login: only the person says Set Up.
+        #expect(DebugDialog.userOnly.contains(CloudPresenter.firstLoginIdentifier))
     }
 
     @Test func remoteHandshakeCarriesProviderVMIdentitySeparatelyFromSession() async throws {

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextRemote
@@ -15,6 +16,16 @@ import Observation
 @Observable
 final class MachineRegistry {
     static let localID = "local"
+
+    /// Whether `machineID` names a Cloud machine. A machine that is not in the registry has no typed
+    /// kind here, so the id decides: SSH machines are `ssh-…` (`SSHHost.machineID`), paired servers
+    /// `server-…` (`ServerReach.machineID`), this Mac `local`; every other id is a Cloud machine.
+    static func isCloudMachineID(_ machineID: String) -> Bool {
+        machineID != localID && !nonCloudIDPrefixes.contains { machineID.hasPrefix($0) }
+    }
+
+    /// The id prefixes of machines that are not Cloud machines, from the types that make their ids.
+    private static let nonCloudIDPrefixes = [SSHHost.machineIDPrefix, ServerReach.machineIDPrefix]
 
     let local: DaemonService
     /// Cloud machines in sidebar order (newest last).
@@ -36,8 +47,12 @@ final class MachineRegistry {
     /// the forwarding connection and the browser runtimes on it).
     @ObservationIgnored var onDaemonRemoved: (@MainActor (DaemonService) -> Void)?
 
-    init(local: DaemonService) {
+    /// Every machine's daemon update state (the app's ``DaemonUpdates/board``; a test's registry has its own).
+    let updates: DaemonUpdateBoard
+
+    init(local: DaemonService, updates: DaemonUpdateBoard = DaemonUpdateBoard()) {
         self.local = local
+        self.updates = updates
     }
 
     /// Local first, then Cloud machines, then SSH machines, then servers.

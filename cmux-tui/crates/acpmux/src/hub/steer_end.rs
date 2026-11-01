@@ -36,6 +36,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     bound: bool,
     fence: Option<&crate::agent::Fence>,
     confirm_written: bool,
+    held: Option<&(dyn Fn() -> bool + Send + Sync)>,
     on_sent: F,
 ) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
@@ -80,6 +81,11 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
             return settled(answer);
         }
         if bound && session.turn().is_none_or(|t| t.turn_id != turn_id) {
+            return Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN));
+        }
+        // A steer that may not go in now (an inbox notice behind a waiting prompt or past the
+        // turn's cap, `inbox.rs`), checked while it holds the handoff no prompt is written past.
+        if held.is_some_and(|held| held()) {
             return Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN));
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -155,7 +161,7 @@ impl Hub {
         let msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, opts.provenance.as_ref());
         self.append_prompt(session, msg, &blocks, opts.display_parts.as_ref());
-        let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true});
+        let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "steered", "steer": true});
         // Steered in: the sender's prompts still queued under its key are replaced (`supersede.rs`).
         if let Some(key) = opts.supersede.as_deref() {
             let sender =
@@ -192,8 +198,13 @@ impl Hub {
             let sent = super::carried_turn::SteerSent {
                 client: client.to_owned(),
                 text: text.clone(),
+                line: super::prompt_line::prompt_line(&text, client, opts.provenance.as_ref()),
                 control,
-                continues: super::carried_turn::Continues { from, trust_gate },
+                continues: super::carried_turn::Continues {
+                    from,
+                    trust_gate,
+                    reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
+                },
             };
             now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now
@@ -207,6 +218,8 @@ impl Hub {
         // (only a line's first words run one), one with uploaded files and an inbox digest (one
         // steer, `inbox_digest.rs`).
         let sender = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        let (class, provenance) = (opts.class, opts.provenance.as_ref());
+        super::prompt_sender::add_steer_sender(&mut params, sender.as_deref(), class, provenance);
         if let Some(from) = sender
             && !step_now
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
@@ -223,16 +236,52 @@ impl Hub {
         let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         // The turn cap's notice goes into the turn it names or nowhere (`turn_cap.rs`).
         let bound = super::turn_cap::is_notice(opts.provenance.as_ref());
+        // An inbox notice (`inbox.rs`): only while no prompt waits and the turn is under its cap,
+        // and in once the agent's writer took it.
+        let inbox_notice = super::inbox::is_notice(opts.provenance.as_ref());
+        // Another agent's steer, checked again as it is written: a chat that became a review box
+        // since (a `review.` tag) takes it as a turn of its own after the review, and one where
+        // the person's prompt waits behind the running turn now as one after it (`inbox.rs`).
+        let agent_steer = !opts.send_now
+            && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
+                .is_some();
+        // A digest its drain asked to steer is not held behind a waiting prompt (`turns.rs`).
+        let digest = super::digest::inbox_digest::is_digest(opts.provenance.as_ref());
+        // A sub-session family message still goes into the person's own turn (`turns.rs`).
+        let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
+        // Set when the person's waiting prompt is what held it, so a steer-only one says so.
+        let prompt_held = std::sync::atomic::AtomicBool::new(false);
+        let held = || {
+            if inbox_notice {
+                super::inbox::notice_held(session)
+            } else if super::inbox::review_box(session) {
+                true
+            } else if !digest && super::inbox::persons_prompt_waits(session) {
+                prompt_held.store(true, std::sync::atomic::Ordering::SeqCst);
+                true
+            } else if !digest && !family && super::inbox::persons_turn(session) {
+                // The person's own turn (`inbox.rs`): it goes in after it. A sub-session family
+                // message still goes in (`turns.rs`).
+                true
+            } else {
+                false
+            }
+        };
         let answer = agent_prompt_hook(
             session,
             &child,
             params,
             turn_id,
             true,
-            bound,
+            bound || inbox_notice,
             fence.as_ref(),
-            false,
-            || {},
+            inbox_notice,
+            (inbox_notice || agent_steer).then_some(&held as &(dyn Fn() -> bool + Send + Sync)),
+            || {
+                if inbox_notice {
+                    self.inbox_prompt_written(session, &prompt_id);
+                }
+            },
         )
         .await;
         // Read in a turn its agent ran on after the one it was steered into ended: it went into
@@ -268,10 +317,15 @@ impl Hub {
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else {
-                    // Logged above, it never went: the log says so (a notice whose turn ended).
-                    if bound {
+                    // Logged above, it never went: the log says so (a notice whose turn ended, a
+                    // steer-only one the person's prompt queued ahead of meanwhile).
+                    let waits = prompt_held.load(std::sync::atomic::Ordering::SeqCst);
+                    if bound || waits {
                         let msg = json!({"promptId": prompt_id, "turnId": turn_id});
                         self.append(session, "mux", "steer_withdrawn", msg);
+                    }
+                    if waits {
+                        return Err(super::inbox::prompt_waits_steer_refused());
                     }
                     return Err(e);
                 };
@@ -279,17 +333,21 @@ impl Hub {
                 // it stops no other.
                 let opts = PromptOptions {
                     prompt_id: Some(prompt_id),
+                    message_id: opts.message_id,
                     control,
                     trust_gate,
                     interrupt: opts.interrupt,
                     interrupt_turn: opts.interrupt.then(|| turn_id.to_owned()),
                     provenance: opts.provenance,
+                    message_sender: opts.message_sender,
                     agent: opts.agent,
                     class: opts.class,
                     // Queued under its key, so a later correction still replaces it.
                     supersede: opts.supersede,
                     display_parts: opts.display_parts,
                     full_access_device: opts.full_access_device,
+                    // Accepted as a steer already: a full queue does not refuse it now.
+                    admitted: true,
                     ..PromptOptions::default()
                 };
                 return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;

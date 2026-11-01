@@ -10,6 +10,7 @@ import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
+import { retryHelps, sendCause } from "../sendFailure";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -37,6 +38,8 @@ export type MessageMenuReport = Partial<MessageMenuTarget> & {
   /// The message's More button (MessageActions.tsx MessageMore), in CSS px: the host opens the
   /// menu a right-click on the message opens under it, now (the report is the right-click's).
   popUp?: { left: number; top: number; right: number; bottom: number };
+  /// Identifies the native popup until the host reports its dismissal.
+  popupId?: string;
 };
 
 /// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
@@ -140,7 +143,8 @@ export function messageMenuTarget(
     row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
-  if (row.kind === "user" && row.failed) target.retryRowId = row.id;
+  // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
+  if (row.kind === "user" && row.failed && retryHelps(sendCause(row.delivery))) target.retryRowId = row.id;
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;
   return target;
@@ -237,6 +241,12 @@ const webkitHandler = () =>
     ?.messageHandlers?.[MESSAGE_MENU_HANDLER];
 /// Where reports go: the handler `installMessageMenuReporter` was given.
 let menuHandler: () => Handler | undefined = () => undefined;
+let openPopup: { id: string; anchor: Element } | undefined;
+
+function clearMessagePopup() {
+  openPopup?.anchor.removeAttribute("data-popup-open");
+  openPopup = undefined;
+}
 
 /// Whether a host shows this page's message menu (its More button would do nothing without one).
 export const hasMessageMenuHost = () => menuHandler() !== undefined;
@@ -248,18 +258,44 @@ export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   const handler = menuHandler();
   if (!handler) return false;
   const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
-  handler.postMessage({ forkDestinations: throughSeq, popUp: { left, top, right, bottom } });
+  // Its opener stays lit while the destination menu is open, as More's does; the host reports the close.
+  clearMessagePopup();
+  const popupId = anchor ? crypto.randomUUID() : undefined;
+  if (anchor && popupId) {
+    openPopup = { id: popupId, anchor };
+    anchor.setAttribute("data-popup-open", "");
+  }
+  try {
+    handler.postMessage({
+      forkDestinations: throughSeq,
+      popUp: { left, top, right, bottom },
+      ...(popupId ? { popupId } : {}),
+    });
+  } catch {
+    clearMessagePopup();
+    return false;
+  }
   return true;
 }
 
 export function openMessageMenu(rowId: string, anchor: Element): boolean {
+  if (anchor.closest("[data-read-only-transcript]")) return false;
   const message = source?.(rowId);
   const handler = menuHandler();
   if (!message || !handler) return false;
   reportedImage = undefined;
   reportedPicture = undefined;
   const { left, top, right, bottom } = anchor.getBoundingClientRect();
-  handler.postMessage({ ...message, popUp: { left, top, right, bottom } } satisfies MessageMenuReport);
+  clearMessagePopup();
+  const popupId = crypto.randomUUID();
+  openPopup = { id: popupId, anchor };
+  anchor.setAttribute("data-popup-open", "");
+  try {
+    handler.postMessage({ ...message, popUp: { left, top, right, bottom }, popupId } satisfies MessageMenuReport);
+  } catch {
+    clearMessagePopup();
+    return false;
+  }
   return true;
 }
 
@@ -294,6 +330,8 @@ export function installMessageMenuReporter(
   menuHandler = handler;
   const report = (event: Event) => {
     const target = event.target as Element | null;
+    // A read-only transcript (a guest's) has no owner menu: nothing is reported from inside it.
+    if (target?.closest?.("[data-read-only-transcript]")) return;
     const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
     const message = (rowId && source?.(rowId)) || undefined;
     reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;
@@ -313,10 +351,18 @@ export function installMessageMenuReporter(
         : null;
     handler()?.postMessage(body);
   };
+  const closed = (event: Event) => {
+    if ((event as CustomEvent<unknown>).detail === openPopup?.id) clearMessagePopup();
+  };
+  doc.defaultView?.addEventListener("cmux-message-menu-closed", closed);
   doc.addEventListener("contextmenu", report, true);
   return () => {
     doc.removeEventListener("contextmenu", report, true);
-    if (menuHandler === handler) menuHandler = () => undefined;
+    doc.defaultView?.removeEventListener("cmux-message-menu-closed", closed);
+    if (menuHandler === handler) {
+      menuHandler = () => undefined;
+      clearMessagePopup();
+    }
   };
 }
 

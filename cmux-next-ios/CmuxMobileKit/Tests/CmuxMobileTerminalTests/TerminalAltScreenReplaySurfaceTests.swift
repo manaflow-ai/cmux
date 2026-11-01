@@ -128,5 +128,21 @@ import UIKit
         // The cursor came back on the Mac's row 2 (+ offset), then a new line.
         #expect(lines[rig.offset + 3] == "$", "\(lines.suffix(Self.remoteRows + 2))")
     }
+
+    /// Clear Screen and Scrollback through the real Ghostty mirror: the daemon's erase
+    /// (`IND`s from its last row, then `ESC[3J`) leaves the prompt and nothing of the old
+    /// output, neither in the scrollback nor in the rows above the Mac's screen.
+    @Test func clearHistoryLeavesOnlyThePromptOnThePhone() async {
+        let rig = Rig()
+        await rig.feed("\u{1B}c")
+        await rig.feed((1...60).map { "old-\($0)" }.joined(separator: "\r\n") + "\r\n$ ")
+        #expect(rig.surface.screenText()?.contains("old-30") == true)
+        // The daemon's clear with the prompt on the Mac's last row: up to the top, then 3J.
+        let rows = TerminalAltScreenReplaySurfaceTests.remoteRows
+        await rig.feed("\u{1B}[\(rows);1H" + String(repeating: "\u{1B}D", count: rows - 1) + "\u{1B}[3J\u{1B}[1;3H")
+        let text = rig.surface.screenText() ?? ""
+        #expect(!text.contains("old-"))
+        #expect(text.contains("$"))
+    }
 }
 #endif

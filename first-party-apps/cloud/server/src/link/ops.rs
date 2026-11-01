@@ -7,7 +7,7 @@ use super::channel::{Carrier, CarrierEvent};
 use super::dial::DialCode;
 use super::supervisor::{LinkFailure, LinkState};
 use crate::api::models::MachineStatus;
-use crate::api::{CloudError, ControlPlane, Origin, Request, args, codes, event_line};
+use crate::api::{CloudError, ControlPlane, Origin, RelayError, Request, args, codes, event_line};
 use crate::ops::Server;
 use crate::rescue::{MISSING_ROUTE, RESCUE_KIND};
 use cmux_terminal_iface::{BackendError, Grid, OpenRequest, OpenToken, TerminalBackend};
@@ -95,12 +95,17 @@ pub(crate) fn run<C: ControlPlane>(
             if let Some(token) = open_token {
                 server.request_frame_link(&carrier, token);
             }
-            Ok(carrier_json(&carrier))
+            // The owner answer of this link: the connect_info read for it
+            // (the info cache drops it when the link goes down or is
+            // revoked, and on sign-out). A failed read is not the owner.
+            let owns = owner_answer(server, &id, &carrier)?;
+            Ok(carrier_json(&carrier, owns))
         }
         DISCONNECT => {
             let id = args::id(args::object(raw, &["machine"])?, "machine")?;
             let attach = server.attach_mut();
             attach.supervisor.pump();
+            attach.owner_answers.remove(id);
             let existed = attach.supervisor.disconnect(id);
             Ok(json!({ "machine": id, "disconnected": existed }))
         }
@@ -109,7 +114,112 @@ pub(crate) fn run<C: ControlPlane>(
     }
 }
 
-fn carrier_json(carrier: &Carrier) -> Value {
+/// The owner answer of a connect (cmux-platform#89). A cached answer is
+/// usable only for the same link generation and authentication epoch, so a
+/// connect over an up carrier does not synchronously call Cloud. A sign-out,
+/// access loss, or identity change clears the cache and links as needed.
+fn owner_answer<C: ControlPlane>(
+    server: &mut Server<C>,
+    machine: &str,
+    carrier: &Carrier,
+) -> Result<bool, CloudError> {
+    let identity = match server.control_plane_mut().session() {
+        Ok(status) if status.signed_in => Some((true, status.team)),
+        Ok(_) | Err(RelayError::NotSignedIn) => {
+            let error = CloudError::new(codes::AUTH_REQUIRED, "Sign in to cmux Cloud first");
+            end_links_after(server, machine, &error);
+            return Err(error);
+        }
+        Err(RelayError::Unavailable(_)) => {
+            let attach = server.attach_mut();
+            attach.infos.forget(machine);
+            attach.owner_answers.remove(machine);
+            None
+        }
+    };
+    recheck_carrier(server, machine, carrier)?;
+    let Some(identity) = identity else { return Ok(false) };
+    server.update_auth_identity(identity.0, identity.1);
+    let epoch = server.auth_epoch();
+    if let Some((generation, cached_epoch, owns)) =
+        server.attach().owner_answers.get(machine).copied()
+        && generation == carrier.generation
+        && cached_epoch == epoch
+    {
+        return Ok(owns);
+    }
+    match super::info::connect_info(server, machine) {
+        Ok(info) => {
+            recheck_carrier(server, machine, carrier)?;
+            let owns = info.caller_owns_vm();
+            server
+                .attach_mut()
+                .owner_answers
+                .insert(machine.to_owned(), (carrier.generation, epoch, owns));
+            Ok(owns)
+        }
+        Err(error) if end_links_after(server, machine, &error) => Err(error),
+        Err(error) if transient_owner_error(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// Apply link events queued during a relay exchange before using its answer.
+fn recheck_carrier<C: ControlPlane>(
+    server: &mut Server<C>,
+    machine: &str,
+    carrier: &Carrier,
+) -> Result<(), CloudError> {
+    let attach = server.attach_mut();
+    attach.supervisor.pump();
+    if !matches!(attach.supervisor.state(machine), Some(LinkState::Up(current))
+        if current.generation == carrier.generation)
+    {
+        attach.owner_answers.remove(machine);
+        attach.infos.forget(machine);
+        let failure = attach
+            .supervisor
+            .outcome(machine, carrier.generation)
+            .and_then(Result::err)
+            .unwrap_or_else(|| LinkFailure::Down {
+                retryable: true,
+                reason: "carrier changed during relay exchange".into(),
+            });
+        return Err(link_failure_for(machine, failure));
+    }
+    Ok(())
+}
+
+fn transient_owner_error(error: &CloudError) -> bool {
+    matches!(error.code, codes::RELAY_UNAVAILABLE | codes::PROVIDER_UNAVAILABLE)
+}
+
+/// Ends the links a Cloud read's `error` says may not go on: every link on
+/// a sign-out, this machine's on not-found or forbidden (refusing new
+/// links to it). True when it ended any.
+fn end_links_after<C: ControlPlane>(
+    server: &mut Server<C>,
+    machine: &str,
+    error: &CloudError,
+) -> bool {
+    if error.code == codes::AUTH_REQUIRED {
+        // Signed out: no link may outlive the sign-in.
+        let attach = server.attach_mut();
+        attach.owner_answers.clear();
+        attach.supervisor.disconnect_all("signed out of cmux Cloud");
+        true
+    } else if error.code == codes::NOT_FOUND || error.code == codes::FORBIDDEN {
+        // The machine is gone or access ended: refuse new links to it.
+        let attach = server.attach_mut();
+        attach.owner_answers.remove(machine);
+        attach.supervisor.revoke(machine, &error.message);
+        true
+    } else {
+        false
+    }
+}
+
+fn carrier_json(carrier: &Carrier, owns: bool) -> Value {
     json!({
         "machine": carrier.target,
         "carrier": carrier.id,
@@ -118,6 +228,7 @@ fn carrier_json(carrier: &Carrier) -> Value {
         // TODO(fd passing): the supervisor passes a socketpair fd once the app
         // host can; until then the client dials the link's local socket.
         "socket": carrier.socket.to_string_lossy(),
+        "vm_kind": if owns { "owner" } else { "team" },
     })
 }
 
@@ -155,7 +266,7 @@ pub(crate) fn connect<C: ControlPlane>(
     let attach = server.attach_mut();
     attach.supervisor.pump();
     if let Some(outcome) = attach.supervisor.outcome(machine, generation) {
-        return outcome.map_err(link_failure);
+        return outcome.map_err(|failure| link_failure_for(machine, failure));
     }
     if attach.park_link_waits {
         // The serve loop never waits for a link: the op is parked and runs
@@ -163,7 +274,10 @@ pub(crate) fn connect<C: ControlPlane>(
         attach.parked = Some((machine.to_owned(), generation));
         return Err(CloudError::new(super::park::LINK_WAIT, "the link is connecting"));
     }
-    attach.supervisor.wait_connect(machine, generation).map_err(link_failure)
+    attach
+        .supervisor
+        .wait_connect(machine, generation)
+        .map_err(|failure| link_failure_for(machine, failure))
 }
 
 /// How a connect started.
@@ -175,21 +289,35 @@ pub(crate) enum Begun {
 }
 
 /// A link failure as an op error.
-pub(crate) fn link_failure(failure: LinkFailure) -> CloudError {
+pub(crate) fn link_failure_for(machine: &str, failure: LinkFailure) -> CloudError {
     match failure {
-        LinkFailure::Revoked(reason) => CloudError::new(LINK_REVOKED, reason),
-        LinkFailure::Down { retryable, reason } => {
-            CloudError { retryable, ..CloudError::new(LINK_DOWN, reason) }
-        }
-        LinkFailure::Spawn(why) => {
-            CloudError::new(LINK_UNAVAILABLE, format!("the link process did not start: {why}"))
-        }
-        LinkFailure::Dial(code) => dial_error(&code),
+        LinkFailure::Revoked(reason) => CloudError::new(
+            LINK_REVOKED,
+            format!(
+                "Cloud machine {machine}'s link was revoked: {reason}; run `cmux cloud diagnostics` and ask the team admin to restore access"
+            ),
+        ),
+        LinkFailure::Down { retryable, reason } => CloudError {
+            retryable,
+            ..CloudError::new(
+                LINK_DOWN,
+                format!(
+                    "Cloud machine {machine}'s link went down: {reason}; run `cmux cloud diagnostics` and reconnect from the Cloud sidebar"
+                ),
+            )
+        },
+        LinkFailure::Spawn(why) => CloudError::new(
+            LINK_UNAVAILABLE,
+            format!(
+                "Cloud machine {machine}'s link process did not start: {why}; run `cmux cloud diagnostics`"
+            ),
+        ),
+        LinkFailure::Dial(code) => dial_error(machine, &code),
     }
 }
 
 /// A `link.dial` refusal as an op error (contract 1.7 mapping).
-fn dial_error(code: &DialCode) -> CloudError {
+fn dial_error(machine: &str, code: &DialCode) -> CloudError {
     let retryable = |code: &'static str, message: &str| CloudError {
         retryable: true,
         ..CloudError::new(code, message.to_owned())
@@ -197,19 +325,38 @@ fn dial_error(code: &DialCode) -> CloudError {
     match code {
         DialCode::HostPaused => retryable(
             codes::MACHINE_PAUSED,
-            "The machine is still paused after a start: try again when it runs",
+            &format!(
+                "Cloud machine {machine} is still paused after a start; run `cmux cloud resume-machine --target machine:{machine}` and try again"
+            ),
         ),
-        DialCode::UnknownHost => {
-            CloudError::new(codes::NOT_FOUND, "cmux Cloud does not know this machine's host")
-        }
-        DialCode::NotAuthorized => {
-            CloudError::new(codes::FORBIDDEN, "This Mac may not reach this machine")
-        }
-        DialCode::Unreachable => retryable(LINK_DOWN, "No network path reached the machine"),
-        DialCode::BadRequest => {
-            CloudError::new(LINK_UNAVAILABLE, "cmux link did not understand the dial")
-        }
-        DialCode::Unavailable(why) => retryable(LINK_UNAVAILABLE, why),
+        DialCode::UnknownHost => CloudError::new(
+            codes::NOT_FOUND,
+            format!("Cloud machine {machine} has no known host; run `cmux cloud list-machines`"),
+        ),
+        DialCode::NotAuthorized => CloudError::new(
+            codes::FORBIDDEN,
+            format!(
+                "this Mac may not reach Cloud machine {machine}; run `cmux cloud diagnostics` or ask the team admin to change the policy"
+            ),
+        ),
+        DialCode::Unreachable => retryable(
+            LINK_DOWN,
+            &format!(
+                "no network path reached Cloud machine {machine}; run `cmux cloud diagnostics`"
+            ),
+        ),
+        DialCode::BadRequest => CloudError::new(
+            LINK_UNAVAILABLE,
+            format!(
+                "the link to Cloud machine {machine} rejected the dial; run `cmux cloud diagnostics`"
+            ),
+        ),
+        DialCode::Unavailable(why) => retryable(
+            LINK_UNAVAILABLE,
+            &format!(
+                "Cloud machine {machine} link is unavailable: {why}; run `cmux cloud diagnostics`"
+            ),
+        ),
     }
 }
 
@@ -234,9 +381,13 @@ pub(crate) fn begin_connect<C: ControlPlane>(
             return Ok(Begun::Up(carrier));
         }
         Some(LinkState::Revoked { reason }) => {
-            return Err(CloudError::new(LINK_REVOKED, reason.clone()));
+            return Err(link_failure_for(machine, LinkFailure::Revoked(reason.clone())));
         }
-        _ => {}
+        _ => {
+            // A down/reconnecting link cannot use the answer from the old
+            // generation, even before its event is drained by the loop.
+            attach.owner_answers.remove(machine);
+        }
     }
     // A link that already connects (another connect, a respawn): follow it.
     if let Some(generation) = attach.supervisor.connecting(machine) {
@@ -257,7 +408,7 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     // (no loop), and the one after it may start again.
     let restart = match attach.supervisor.refusal(machine) {
         Some(DialCode::HostPaused) if attach.paused_restarts.remove(machine) => {
-            return Err(dial_error(&DialCode::HostPaused));
+            return Err(dial_error(machine, &DialCode::HostPaused));
         }
         Some(DialCode::HostPaused) => {
             attach.paused_restarts.insert(machine.to_owned());
@@ -294,13 +445,7 @@ pub(crate) fn begin_connect<C: ControlPlane>(
             // A failed or unfinished start leaves the next connect free to
             // start again.
             server.attach_mut().paused_restarts.remove(machine);
-            if error.code == codes::AUTH_REQUIRED {
-                // Signed out: no link may outlive the sign-in.
-                server.attach_mut().supervisor.disconnect_all("signed out of cmux Cloud");
-            } else if error.code == codes::NOT_FOUND || error.code == codes::FORBIDDEN {
-                // The machine is gone or access ended: refuse new links to it.
-                server.attach_mut().supervisor.revoke(machine, &error.message);
-            }
+            end_links_after(server, machine, &error);
             // A start can fail for plan reasons, and a machine without a host
             // is still provisioning: neither is a revocation.
             return Err(error);
@@ -325,7 +470,11 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     if let Some(generation) = attach.supervisor.connecting(machine) {
         return Ok(Begun::Connecting(generation));
     }
-    attach.supervisor.begin(machine, &command).map(Begun::Connecting).map_err(link_failure)
+    attach
+        .supervisor
+        .begin(machine, &command)
+        .map(Begun::Connecting)
+        .map_err(|failure| link_failure_for(machine, failure))
 }
 
 /// Reads the machine when the projection does not know it, and starts it
@@ -348,7 +497,9 @@ fn ensure_running<C: ControlPlane>(
             .key(start_key);
         server.handle(&start)?;
         // The machine's state changed: read its link facts again.
-        server.attach_mut().infos.forget(machine);
+        let attach = server.attach_mut();
+        attach.infos.forget(machine);
+        attach.owner_answers.remove(machine);
     }
     Ok(())
 }
@@ -408,4 +559,61 @@ fn rescue_open<C: ControlPlane>(
         "kind": RESCUE_KIND,
         "focus": origin == Origin::User || focus,
     }))
+}
+
+#[cfg(test)]
+mod hint_tests {
+    use super::*;
+
+    #[test]
+    fn revoked_state_keeps_recovery_context_on_later_connects() {
+        struct NoCalls;
+        impl ControlPlane for NoCalls {
+            fn call(&mut self, _: &crate::WireCall) -> Result<crate::WireReply, RelayError> {
+                panic!("a revoked link must not call the backend")
+            }
+            fn session(&mut self) -> Result<crate::SessionStatus, RelayError> {
+                panic!("a revoked link must not request a session")
+            }
+        }
+        let mut server = Server::new(NoCalls);
+        server.attach_mut().supervisor.revoke("vm-example", "access removed");
+        let error = match begin_connect(&mut server, "vm-example", Origin::User, None) {
+            Err(error) => error,
+            Ok(_) => panic!("revoked link connected"),
+        };
+        assert!(error.message.contains("vm-example"));
+        assert!(error.message.contains("cmux cloud diagnostics"));
+        assert!(error.message.contains("team admin"));
+    }
+
+    #[test]
+    fn disconnected_links_do_not_suggest_ssh_before_reconnection() {
+        for failure in [
+            LinkFailure::Revoked("policy".into()),
+            LinkFailure::Down { retryable: true, reason: "offline".into() },
+            LinkFailure::Spawn("missing binary".into()),
+        ] {
+            let error = link_failure_for("vm-example", failure);
+            assert!(error.message.contains("vm-example"));
+            assert!(error.message.contains("cmux cloud diagnostics"));
+            assert!(!error.message.contains("cmux cloud ssh"));
+        }
+    }
+
+    #[test]
+    fn dial_failures_name_the_machine_and_an_offered_command() {
+        for (code, hint) in [
+            (DialCode::HostPaused, "cmux cloud resume-machine --target machine:vm-example"),
+            (DialCode::UnknownHost, "cmux cloud list-machines"),
+            (DialCode::NotAuthorized, "cmux cloud diagnostics"),
+            (DialCode::Unreachable, "cmux cloud diagnostics"),
+            (DialCode::BadRequest, "cmux cloud diagnostics"),
+            (DialCode::Unavailable("offline".into()), "cmux cloud diagnostics"),
+        ] {
+            let error = dial_error("vm-example", &code);
+            assert!(error.message.contains("vm-example"));
+            assert!(error.message.contains(hint), "{}", error.message);
+        }
+    }
 }

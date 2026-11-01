@@ -258,10 +258,17 @@ _CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guar
 _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
+# ci-guards.yml's guard tests take a free mini from portable placement
+# (scripts/ci/portable_job_placement.py) only when cmux-next-guards.yml passes
+# one. That job runs the same Linux guard tests, not the app's macOS lanes, so
+# the term does not make the tests it names macOS-relevant.
+_PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
+
+
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip()
+    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "")
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
     return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
@@ -735,12 +742,26 @@ def ci_helper_areas(
                         and not (runner == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, referrer))
                     ]
                     if runners and all(
-                        runner.startswith(".github/workflows/") and runner not in routed for runner in runners
+                        (runner.startswith(".github/workflows/") and runner not in routed)
+                        or runner.startswith("scripts/")
+                        for runner in runners
                     ):
                         # Only workflows outside ci.yml's call tree run this test
                         # (feat-cmux-next's cmux-next.yml and nightly.yml run a
                         # checks-job test and the nightly strip test): a dead end,
-                        # like those workflows themselves.
+                        # like those workflows themselves. A script that runs it
+                        # (a nightly step moved out of nightly.yml) is walked in
+                        # turn, so a routed job that runs the script still counts;
+                        # a script nothing names fails open.
+                        for runner in runners:
+                            if not runner.startswith("scripts/") or runner in visited_files:
+                                continue
+                            namers = _files_naming(root, Path(runner).stem)
+                            if namers is None:
+                                return every_area(f"could not search for {Path(runner).stem}")
+                            if not [namer for namer in namers if namer != runner]:
+                                return every_area(f"{runner} runs {referrer} and nothing names it")
+                            tokens.append(Path(runner).stem)
                         continue
                 return every_area(f"{referrer} names {token} and runs outside the Linux guards")
             if referrer.startswith("scripts/"):

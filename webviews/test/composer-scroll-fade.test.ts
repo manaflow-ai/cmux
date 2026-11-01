@@ -139,7 +139,10 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
 
   /// Pastes `count` texts of 30 lines each, every one a Pasted text chip (over pastedText.ts's 20
   /// lines), so the attachment row holds `count` more chips.
+  /// The row is Settings' attachment strip (the default inline view puts chips in the text), so the
+  /// strip is turned on first.
   async function pasteChips(page: Page, count: number) {
+    await page.evaluate(() => window.cmuxAcpmuxComposer?.({ attachmentView: "strip" }));
     await page.locator(EDITABLE).click();
     const held = await page.locator(CHIP).count();
     for (let chip = held + 1; chip <= held + count; chip++) {

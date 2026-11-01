@@ -32,7 +32,7 @@ test("each agent message is a received-card row, in the queue's order, with its 
   expect(rows.map((row) => row.id)).toEqual([queuedMessageRowId("a1"), queuedMessageRowId("a2")]);
   expect(rows.every((row) => row.kind === QUEUED_MESSAGE && row.untyped === true)).toBe(true);
   expect(rows[0]!.incoming).toEqual({ kind: "message", message: queue[0]!.message! });
-  // The first carries the run's one "Read after this turn" (`lead`, #27312); the rest do not.
+  // The first waiting message carries the marker for a Stop hold note; all are in the pending group.
   expect(rows[0]!.queuedMessage).toEqual({ promptId: "a1", lead: true });
   // Sent now already (acpmux marked it next): its card offers no second Steer.
   expect(rows[1]!.queuedMessage).toEqual({ promptId: "a2", next: true });

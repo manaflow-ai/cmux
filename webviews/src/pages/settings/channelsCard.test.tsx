@@ -68,6 +68,18 @@ test("each build shows its health and pull reason and links to its commit, PRs a
   page.unmount();
 });
 
+test("a build with no canary verdict has no badge; a rated one keeps its badge", async () => {
+  const page = await renderPage({ path: "/settings/updates" });
+  await settle();
+  const element = card(page.container)!;
+  const unrated = element.querySelector<HTMLElement>('[data-channel-build="3422"]')!;
+  expect(unrated.dataset.health).toBe("pending");
+  expect(unrated.querySelector(".row-control .badge")).toBeNull();
+  expect(unrated.textContent).not.toContain("Awaiting Verdict");
+  expect(element.querySelector('[data-channel-build="3420"] .badge-warning')?.textContent).toBe("Held");
+  page.unmount();
+});
+
 test("picking Nightly on a Dev build Nightly has not reached offers Go Back into the kept Nightly build", async () => {
   const page = await renderPage({
     path: "/settings/updates",

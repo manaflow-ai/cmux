@@ -31,8 +31,9 @@ public final class WebPopupHost {
         public var width: CGFloat
         /// A tooltip: one row that takes no clicks and draws no check column.
         public var tooltip: Bool
-        /// The page shows nothing with an entrance (a New Tab, Leo 2026-10-22): the menu opens in
-        /// one frame; its close still fades.
+        /// The page asks for no entrance (`popupHost.ts` sets it on every menu, and on tooltips on
+        /// the New Tab). Menus open in one frame whatever it says; a tooltip without it keeps its
+        /// fade and grow in. Every close still fades.
         public var instant: Bool
 
         /// Reads `{items:[{id,label,shortcut?,checked?,disabled?,separator?}], highlighted?,
@@ -100,7 +101,8 @@ public final class WebPopupHost {
         let anchor = window.convertToScreen(webView.convert(flipped, to: nil))
         let size = CGSize(width: model.width * scale, height: panel.rows.contentHeight)
         guard let placed = popup.show(size: size, anchor: anchor, in: window, preferred: model.side,
-                                      trailing: model.trailing, entrance: !model.instant) else { return ["shown": false] }
+                                      trailing: model.trailing,
+                                      tooltipEntrance: model.tooltip && !model.instant) else { return ["shown": false] }
         panel.isClosing = false
         let frame = placed.frame
         return ["shown": true, "side": placed.side == .below ? "bottom" : "top",

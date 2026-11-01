@@ -22,14 +22,14 @@ import UniformTypeIdentifiers
 /// `frames.json` also carries, per frame, how bright it was: `luminance`, its
 /// mean Rec. 709 luminance (0...1), and `peak`, the brightest of its 64 cells.
 /// A flash test asserts that neither rises over the window at rest
-/// (scripts/ci/frame-pacing/dark_load_flash.py).
+/// (scripts/ci/frame-pacing/dark_load_flash.py). One per app (``AppServices/windowRecord``).
 @MainActor
-enum DebugWindowRecord {
-    private static var running: Recorder?
+final class DebugWindowRecord {
+    private var running: Recorder?
     /// The recordings `--record-launch` is making; each drops out when it ends.
-    private static var launchRecorders: [Recorder] = []
+    private var launchRecorders: [Recorder] = []
     /// Every window `--record-launch` has started on, so each is recorded once.
-    private static var launchSeen: Set<ObjectIdentifier> = []
+    private var launchSeen: Set<ObjectIdentifier> = []
 
     /// What `--record-launch DIR [--record-launch-seconds S]` asks for: every
     /// window recorded from the moment it is made, for S seconds (6 by default,
@@ -51,24 +51,25 @@ enum DebugWindowRecord {
 
     private static let launchRequest = LaunchRequest(arguments: ProcessInfo.processInfo.arguments)
     /// Looks for new windows once a display frame while the launch is recorded.
-    private static var launchWatch: FrameClient?
+    private var launchWatch: FrameClient?
 
     /// With `--record-launch`, records every main window the launch makes
     /// (`ShellWindow`), each from its first composited frame: once a display
     /// frame of the app's clock, a window not seen yet starts its own
     /// recording at once. Each frame also carries its time since the process
     /// started (`processMs`), the launch marks' clock. Looks for 30 s.
-    /// Runs from `DebugTimings.install`, before the first window is made.
-    static func watchLaunch() {
-        guard let request = launchRequest, launchWatch == nil else { return }
-        let watch = FrameClient(owner: "debug.record_launch", isAnimation: false, on: .app) { _ in
+    /// Runs from the app delegate as soon as the services exist, before the first window is made.
+    func watchLaunch() {
+        guard let request = Self.launchRequest, launchWatch == nil else { return }
+        let watch = FrameClient(owner: "debug.record_launch", isAnimation: false, on: .app) { [weak self] _ in
+            guard let self else { return false }
             for window in NSApplication.shared.windows where window is ShellWindow
                 && launchSeen.insert(ObjectIdentifier(window)).inserted {
                 let dir = URL(fileURLWithPath: request.dir).appendingPathComponent("window-\(launchSeen.count)")
                 guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else { continue }
                 let id = ObjectIdentifier(window)
-                let recorder = Recorder(window: window, dir: dir, seconds: request.seconds, sinceLaunch: true) {
-                    launchRecorders.removeAll { ObjectIdentifier($0.window) == id }
+                let recorder = Recorder(window: window, dir: dir, seconds: request.seconds, sinceLaunch: true) { [weak self] in
+                    self?.launchRecorders.removeAll { ObjectIdentifier($0.window) == id }
                 }
                 launchRecorders.append(recorder)
                 recorder.start()
@@ -79,7 +80,7 @@ enum DebugWindowRecord {
         watch.activate()
     }
 
-    static func start(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+    func start(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard running == nil else { return .object(["error": .string("a recording is running")]) }
         guard let window = DebugWindowSnapshot.window(params, services: services) else { return .object(["error": .string("no such window")]) }
         guard let dir = params["dir"]?.stringValue.map({ ($0 as NSString).expandingTildeInPath }) else {
@@ -89,7 +90,7 @@ enum DebugWindowRecord {
         do { try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true) } catch {
             return .object(["error": .string("cannot create \(dir)")])
         }
-        let recorder = Recorder(window: window, dir: URL(fileURLWithPath: dir), seconds: seconds) { running = nil }
+        let recorder = Recorder(window: window, dir: URL(fileURLWithPath: dir), seconds: seconds) { [weak self] in self?.running = nil }
         running = recorder
         recorder.start()
         return .object(["dir": .string(dir), "seconds": .number(seconds)])
@@ -110,7 +111,7 @@ enum DebugWindowRecord {
         private var finished = false
         /// A launch recording ends with its window: the launch closes its
         /// window once the restored windows take every workspace.
-        private var closeObserver: NSObjectProtocol?
+        private var closeObserver: MainActorObservation?
         private let encoder = DispatchQueue(label: "debug.window_record", qos: .userInitiated)
         /// Per-frame brightness, touched only on `encoder`.
         private let brightness = Brightness()
@@ -130,10 +131,7 @@ enum DebugWindowRecord {
             self.client = client
             client.activate()
             guard sinceLaunch else { return }
-            closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-                // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-                MainActor.assumeIsolated { self?.finish() }
-            }
+            closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak self] in self?.finish() }
             // Found on the app's frame: this frame of the window may be its first.
             _ = tick(at: CACurrentMediaTime())
         }
@@ -188,7 +186,7 @@ enum DebugWindowRecord {
         private func finish() {
             guard !finished else { return }
             finished = true
-            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+            closeObserver = nil
             let index = dir.appendingPathComponent("frames.json")
             let times = self.times
             let processMs = self.processMs

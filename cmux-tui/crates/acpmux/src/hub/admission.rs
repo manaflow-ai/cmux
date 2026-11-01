@@ -5,7 +5,7 @@
 //! daemon's create, so the daemon checks there, reading two files each time:
 //!
 //! - `~/.cache/worktree-reclaim/under-floor`, which worktree-reclaim writes
-//!   while the disk is under its free-space floor: no new session at all;
+//!   while the disk is under its free-space floor: start with a warning;
 //! - `lanes.max_lanes` of this machine in the fleet registry: a create while
 //!   this host's live sessions (running, ready, waiting; a peer's are not
 //!   counted) are at the cap starts all the same, with a warning that names
@@ -27,9 +27,7 @@
 //! for a moment, keeps its last good copy; with none the cap is unknown, which
 //! is logged and admitted, and a `FLEET_REGISTRY` that is missing counts as one
 //! that cannot be read. `_meta.acpmux.forceAdmit` (`acpmux new --force-admit`)
-//! admits past the floor, and the daemon logs who asked and what it overrode;
-//! the person's own new chat on this host (its app pane, or the person key) is
-//! admitted and logged too. `session/new` (with no adopt, or an adopt that may fork), `session/fork`,
+//! remains accepted for compatibility; floors and caps never refuse a session. `session/new` (with no adopt, or an adopt that may fork), `session/fork`,
 //! the composer's aside (`_acpmux/ask`) and sub-session starts are checked; a
 //! send, a resume, a restart, an adopt that never forks, a side chat (`btw.rs`)
 //! and a handoff target never are. An admitted create counts as live until it ends, so of concurrent
@@ -46,10 +44,24 @@ pub const FORCE_FIELD: &str = "forceAdmit";
 
 const NO_REGISTRY: &str = "no fleet registry";
 
-/// Why a create is refused, with what the refusal names.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Refusal {
-    UnderFloor { flag: PathBuf },
+/// Disk pressure reported by the hygiene reconciler: advisory, just like the lane cap.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UnderFloor {
+    flag: PathBuf,
+}
+
+impl UnderFloor {
+    fn warning(&self, local: bool) -> String {
+        let host = if local { super::start_gate::host_label() } else { "this machine" };
+        let source = if local {
+            format!("{} exists", self.flag.display())
+        } else {
+            "worktree-reclaim says so".into()
+        };
+        format!(
+            "{host}'s disk is under its free-space floor ({source}); started anyway, as a floor only warns. Reclaim idle owned data or start the next session on a host with more room."
+        )
+    }
 }
 
 /// A create at or past this host's `lanes.max_lanes`: started, with a warning.
@@ -62,7 +74,7 @@ pub(crate) struct OverCap {
 }
 
 impl OverCap {
-    /// The warning; `local` as in [`Refusal::error`], `peers` as in [`Ask::peers`]. `instead`:
+    /// The warning; `local` as in [`Ask::local`], `peers` as in [`Ask::peers`]. `instead`:
     /// where the placement engine would put it (`placement::placed`), when anywhere.
     fn warning(&self, local: bool, peers: bool, instead: Option<&str>) -> String {
         let host = if local { super::start_gate::host_label() } else { "this machine" };
@@ -83,66 +95,37 @@ impl OverCap {
     }
 }
 
-impl Refusal {
-    fn why(&self) -> &'static str {
-        match self {
-            Self::UnderFloor { .. } => "under_floor",
-        }
-    }
-
-    /// `local`: the caller may learn this host's name and paths (not a Web client).
-    /// `can_force`: the caller's `--force-admit` is honoured (`Ask::can_force`).
-    fn error(&self, local: bool, can_force: bool) -> RpcError {
-        let host = if local { super::start_gate::host_label() } else { "this machine" };
-        let what = match self {
-            Self::UnderFloor { flag } => format!(
-                "{host}'s disk is under its free-space floor ({}): no new session until worktree-reclaim frees space",
-                if local {
-                    format!("{} exists", flag.display())
-                } else {
-                    "worktree-reclaim says so".into()
-                }
-            ),
-        };
-        let data = json!({"reason": REASON, "why": self.why(), "retryable": true});
-        let hint = if can_force {
-            "--force-admit creates it anyway"
-        } else {
-            "--force-admit is honoured only on that machine itself, not from a Web client or a peer"
-        };
-        RpcError::new(-32000, format!("{what}; {hint}")).with_data(data)
-    }
-}
-
 /// What the checks read, so a test can give its own.
 pub(crate) struct Inputs<'a> {
     pub flag: Option<&'a Path>,
     pub registry: Option<&'a Value>,
     /// The registry file is there but could not be read, with no good copy.
     pub unreadable: bool,
-    /// Where the registry was read, for the refusal.
+    /// Where the registry was read, for the warning.
     pub source: &'a Path,
     pub machine: Option<&'a str>,
     pub live: usize,
 }
 
-/// What the checks say of one create: refused (the floor), started past the
-/// cap (warned), or why no cap applied (for the log).
+/// Advisory floor and cap warnings, plus why no cap applied (for the log).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Verdict {
-    pub refusal: Option<Refusal>,
+    pub under_floor: Option<UnderFloor>,
     pub over: Option<OverCap>,
     pub uncapped: Option<String>,
 }
 
 /// The verdict for `inputs`.
 pub(crate) fn check(inputs: &Inputs<'_>) -> Verdict {
-    // A marker that cannot be checked counts as there: the floor fails closed.
-    if let Some(flag) = inputs.flag.filter(|f| f.try_exists().unwrap_or(true)) {
-        let refusal = Some(Refusal::UnderFloor { flag: flag.to_path_buf() });
-        return Verdict { refusal, ..Verdict::default() };
-    }
-    let uncapped = |why: String| Verdict { uncapped: Some(why), ..Verdict::default() };
+    let under_floor = inputs
+        .flag
+        .filter(|f| f.try_exists().unwrap_or(true))
+        .map(|flag| UnderFloor { flag: flag.to_path_buf() });
+    let uncapped = |why: String| Verdict {
+        under_floor: under_floor.clone(),
+        uncapped: Some(why),
+        ..Verdict::default()
+    };
     let Some(registry) = inputs.registry else {
         if inputs.unreadable {
             return uncapped(format!(
@@ -170,7 +153,7 @@ pub(crate) fn check(inputs: &Inputs<'_>) -> Verdict {
         machine: machine.to_owned(),
         source: inputs.source.to_path_buf(),
     });
-    Verdict { over, ..Verdict::default() }
+    Verdict { under_floor, over, uncapped: None }
 }
 
 /// The registry machine this host is (module docs), lowercase names compared.
@@ -280,12 +263,11 @@ fn read_registry_in(
 /// holds the id of the session it made once that is inserted (`claim`), so a
 /// create whose session already runs is counted once, as that session.
 #[derive(Default)]
-pub(crate) struct Admitting(StdMutex<Vec<Arc<Making>>>, tokio::sync::Notify);
+pub(crate) struct Admitting(StdMutex<Vec<Arc<Making>>>);
 
 /// One admitted create: the name it asked for, and the id of the session it made.
 #[derive(Default)]
 pub(crate) struct Making {
-    name: Option<String>,
     made: OnceLock<String>,
 }
 
@@ -335,42 +317,10 @@ fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usiz
         + open.iter().filter(|m| m.made.get().is_none_or(|id| !live.contains(id.as_str()))).count()
 }
 
-/// How long a refused create waits for another create of its name to end.
-const NAME_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
-
-impl Admitting {
-    /// Waits while `still` holds of the open creates, up to `limit` in all: every
-    /// create's end wakes every waiter, so the limit is one deadline, never
-    /// restarted by a wake. True when it still held as the wait ended.
-    async fn wait_while(
-        &self,
-        limit: std::time::Duration,
-        still: impl Fn(&[Arc<Making>]) -> bool,
-    ) -> bool {
-        let deadline = tokio::time::Instant::now() + limit;
-        loop {
-            // Listening before the check: a create that ends between the two
-            // still wakes this wait.
-            let wake = self.1.notified();
-            tokio::pin!(wake);
-            wake.as_mut().enable();
-            if !still(&self.0.lock().unwrap_or_else(|e| e.into_inner())) {
-                return false;
-            }
-            if tokio::time::timeout_at(deadline, wake).await.is_err() {
-                return true;
-            }
-        }
-    }
-}
-
 impl Drop for Admitted<'_> {
     fn drop(&mut self) {
         let mut open = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
         open.retain(|m| !Arc::ptr_eq(m, &self.made));
-        drop(open);
-        // A create refused while this one held its name waits for it (`admit_new`).
-        self.admitting.1.notify_waiters();
     }
 }
 
@@ -395,12 +345,6 @@ impl Hub {
         counted(&live, open)
     }
 
-    /// Whether a session named `name` is in the list.
-    fn session_named(&self, name: &str) -> bool {
-        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions.values().any(|s| s.meta().name == name)
-    }
-
     /// Whether a new session may start here (module docs). Hold the returned
     /// guard until the create ends: until then it counts as a live session.
     pub(crate) async fn admit_new(&self, ask: Ask<'_>) -> Result<Admitted<'_>, RpcError> {
@@ -419,15 +363,11 @@ impl Hub {
         });
         let (flag, registry, unreadable, source, machine, hosted) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
-        let holds = |open: &[Arc<Making>], name: &String| {
-            open.iter().any(|m| m.name.as_ref() == Some(name))
-        };
-        // Counted and reserved under one lock, in a scope of its own so no
-        // await below holds it: no file I/O while it is held.
-        let (refusal, live, held) = {
-            let admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
+        // Count and reserve under one lock, then render warnings after releasing it.
+        let (verdict, mut admitted) = {
+            let mut admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
             let live = self.live_sessions(&admitting, &hosted);
-            let Verdict { refusal, over, uncapped } = check(&Inputs {
+            let verdict = check(&Inputs {
                 flag: flag.as_deref(),
                 registry: registry.as_ref(),
                 unreadable,
@@ -435,66 +375,40 @@ impl Hub {
                 machine: machine.as_deref(),
                 live,
             });
-            // Takes the lock's guard and drops it: nothing after it holds the lock.
-            let admitted = |mut open: std::sync::MutexGuard<'_, Vec<Arc<Making>>>| {
-                let made = Arc::new(Making { name: ask.name.clone(), made: OnceLock::new() });
-                open.push(made.clone());
-                Admitted { admitting: &self.admitting, made, warning: None }
-            };
-            // Outside the fleet (no registry) that is every create: only a fleet host's gap is logged.
-            match uncapped {
-                Some(why) if why == NO_REGISTRY => {
-                    tracing::debug!("session admitted with no lane cap: {why}")
-                }
-                Some(why) if unreadable => {
-                    tracing::warn!("session admitted with no lane cap: {why}")
-                }
-                Some(why) => tracing::info!("session admitted with no lane cap: {why}"),
-                None => {}
-            }
-            let Some(refusal) = refusal else {
-                let mut admitted = admitted(admitting);
-                admitted.warning = over.map(|o| self.over_cap_warning(&o, registry.as_ref(), &ask));
-                return Ok(admitted);
-            };
-            let (who, why) = (ask.who, refusal.why());
-            if ask.force {
-                tracing::warn!(
-                    caller = who,
-                    why,
-                    live,
-                    "session/new admitted by force-admit past {refusal:?}"
-                );
-                return Ok(admitted(admitting));
-            }
-            // The person's own new chat (cmux NEXT, or the person's key): the cap
-            // is for agents, and the app has no override to pass.
-            if ask.person {
-                tracing::info!(
-                    caller = who,
-                    why,
-                    live,
-                    "session/new admitted for the person past {refusal:?}"
-                );
-                return Ok(admitted(admitting));
-            }
-            let held = ask.name.as_ref().is_some_and(|n| holds(&admitting, n));
-            (refusal, live, held)
+            let made = Arc::new(Making::default());
+            admitting.push(made.clone());
+            (verdict, Admitted { admitting: &self.admitting, made, warning: None })
         };
-        let (who, why) = (ask.who, refusal.why());
-        // A create of a name another create already holds (or made) lost the
-        // race for that name, not for room: it says the name is taken, as the
-        // create would, so `new --reuse` takes the session that won.
-        if let Some(name) = &ask.name {
-            if held {
-                self.admitting.wait_while(NAME_WAIT, |open| holds(open, name)).await;
+        match verdict.uncapped {
+            Some(why) if why == NO_REGISTRY => {
+                tracing::debug!("session admitted with no lane cap: {why}")
             }
-            if self.session_named(name) {
-                return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
-            }
+            Some(why) if unreadable => tracing::warn!("session admitted with no lane cap: {why}"),
+            Some(why) => tracing::info!("session admitted with no lane cap: {why}"),
+            None => {}
         }
-        tracing::info!(caller = who, why, live, "session/new refused: {refusal:?}");
-        Err(refusal.error(ask.local, ask.can_force))
+        admitted.warning =
+            verdict.over.map(|over| self.over_cap_warning(&over, registry.as_ref(), &ask));
+        if let Some(floor) = verdict.under_floor {
+            let text = floor.warning(ask.local);
+            tracing::warn!(caller = ask.who, "session/new admitted below the disk floor: {text}");
+            let mut warning = admitted.warning.take().unwrap_or_else(|| json!({}));
+            let combined = match warning.get("warning").and_then(Value::as_str) {
+                Some(cap) => format!("{text} {cap}"),
+                None => text,
+            };
+            warning.set("warning", json!(combined));
+            warning.set("underFloor", json!(true));
+            admitted.warning = Some(warning);
+        }
+        tracing::debug!(
+            caller = ask.who,
+            name = ask.name.as_deref(),
+            force_admit = ask.force && ask.can_force,
+            person = ask.person,
+            "session/new admitted; disk floors and lane caps are advisory"
+        );
+        Ok(admitted)
     }
 }
 
@@ -544,21 +458,14 @@ impl Hub {
 
 /// Who asks for a new session, for `Hub::admit_new`.
 pub(crate) struct Ask<'a> {
-    /// `_meta.acpmux.forceAdmit`: admitted past a refusal, logged. Set only
-    /// where `can_force`.
+    /// Legacy force-admit provenance, kept for compatibility and logging.
     pub force: bool,
-    /// The caller may force: this host's unix socket or app, never a Web client
-    /// or a peer (as `--policy` and `--mode`).
     pub can_force: bool,
-    /// The person asks here (this host's app pane, or the person key). A peer's
-    /// app pane is not: a forwarded `via: app` is the forwarding client's word.
     pub person: bool,
+    pub name: Option<String>,
     /// The caller session or the connection, for the log.
     pub who: &'a str,
-    /// The name the create asks for, if any: a refusal while another create
-    /// holds it says the name is taken instead.
-    pub name: Option<String>,
-    /// The refusal may name this host and its paths (not a Web client, here or
+    /// The warning may name this host and its paths (not a Web client, here or
     /// through a peer).
     pub local: bool,
     /// The warning may name this host's peers (`suggestedHost`): not a peer daemon's
@@ -612,7 +519,7 @@ mod tests {
             live: 99,
         });
         assert_eq!(
-            (&unreadable.refusal, &unreadable.over),
+            (&unreadable.under_floor, &unreadable.over),
             (&None, &None),
             "admitted: {unreadable:?}"
         );
@@ -621,29 +528,6 @@ mod tests {
             why.contains("cannot be read") && why.contains("first-read-truncated.json"),
             "{why}"
         );
-    }
-
-    #[tokio::test]
-    async fn other_creates_ending_never_stretch_a_wait_past_its_limit() {
-        // Every create's end wakes every waiter: one held for its name still ends
-        // at its limit, not one limit after the last wake.
-        let admitting = Arc::new(Admitting::default());
-        admitting.0.lock().unwrap().push(Arc::new(Making::default()));
-        let waker = admitting.clone();
-        let wakes = tokio::spawn(async move {
-            for _ in 0..40 {
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                waker.1.notify_waiters();
-            }
-        });
-        let start = std::time::Instant::now();
-        let held = admitting
-            .wait_while(std::time::Duration::from_millis(200), |open| !open.is_empty())
-            .await;
-        let waited = start.elapsed();
-        wakes.abort();
-        assert!(held, "the holder never ended");
-        assert!(waited < std::time::Duration::from_millis(1000), "waited {waited:?}");
     }
 
     #[test]
@@ -730,7 +614,7 @@ mod tests {
             );
             for live in [max as usize, 16] {
                 let v = at(machine, live);
-                assert_eq!(v.refusal, None, "{machine} at {live}: a cap never refuses");
+                assert_eq!(v.under_floor, None, "{machine} at {live}: a cap never refuses");
                 assert_eq!(v.over, over(machine, live, max), "{machine} at {live}: warned");
             }
         }
@@ -754,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn the_flag_refuses_before_the_cap_and_no_registry_admits() {
+    fn the_flag_warns_alongside_the_cap_and_without_a_registry() {
         let r = registry();
         let source = Path::new("");
         let none = check(&Inputs {
@@ -765,7 +649,7 @@ mod tests {
             machine: None,
             live: 99,
         });
-        assert_eq!((none.refusal, none.over), (None, None), "no registry: admitted");
+        assert_eq!((none.under_floor, none.over), (None, None), "no registry: admitted");
         let stray = check(&Inputs {
             flag: None,
             registry: Some(&r),
@@ -774,7 +658,11 @@ mod tests {
             machine: None,
             live: 99,
         });
-        assert_eq!((stray.refusal, stray.over), (None, None), "not a registry machine: admitted");
+        assert_eq!(
+            (stray.under_floor, stray.over),
+            (None, None),
+            "not a registry machine: admitted"
+        );
         let dir = std::env::temp_dir().join(format!("acpmux-admission-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let flag = dir.join("under-floor");
@@ -787,8 +675,21 @@ mod tests {
             machine: None,
             live: 0,
         })
-        .refusal;
-        assert_eq!(refusal, Some(Refusal::UnderFloor { flag: flag.clone() }));
+        .under_floor;
+        assert_eq!(refusal, Some(UnderFloor { flag: flag.clone() }));
+        let both = check(&Inputs {
+            flag: Some(&flag),
+            registry: Some(&r),
+            unreadable: false,
+            source,
+            machine: Some("cmux16"),
+            live: 6,
+        });
+        assert!(both.under_floor.is_some());
+        assert_eq!(both.over.unwrap().max, 3);
+        let floor = UnderFloor { flag: flag.clone() };
+        assert!(floor.warning(true).contains(&flag.display().to_string()));
+        assert!(!floor.warning(false).contains(&flag.display().to_string()));
         let missing = dir.join("absent");
         let verdict = check(&Inputs {
             flag: Some(&missing),

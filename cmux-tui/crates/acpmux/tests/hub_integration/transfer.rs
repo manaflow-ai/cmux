@@ -89,6 +89,9 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
     let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
     let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
     let id = busy_chat(&mut src, &[("p-a", "a"), ("p-b", "b")]).await;
+    let running = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    let begin_turn = running["turn"]["turnId"].clone();
+    assert!(begin_turn.is_string(), "{running}");
 
     // The running turn stops; nothing queued starts here once the move began.
     let begin = src
@@ -121,7 +124,21 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
     let ran_there = texts(&mut dst, &id, "user_message").await;
-    assert_eq!(ran_there, ["hi", "until-cancel", "a", "b"], "history, then the queue once");
+    // The turn the move stopped goes on there first (`restart_resume.rs`, reason `moved`).
+    assert_eq!(
+        ran_there.len(),
+        5,
+        "history, the cut turn's continuation, the queue: {ran_there:?}"
+    );
+    assert_eq!(ran_there[..2], ["hi", "until-cancel"], "history: {ran_there:?}");
+    assert_moved_continuation(&ran_there[2]);
+    assert_eq!(ran_there[3..], ["a", "b"], "then the queue once: {ran_there:?}");
+    let scheduled = records(&mut dst, &id, "auto_resume_scheduled").await;
+    assert_eq!(scheduled.len(), 1, "{scheduled:?}");
+    assert_eq!(scheduled[0]["reason"], "moved", "{scheduled:?}");
+    assert_eq!(scheduled[0]["turnId"], begin_turn, "{scheduled:?}");
+    assert_eq!(scheduled[0]["promptId"], "p-turn", "{scheduled:?}");
+    assert_eq!(begin["continues"], "p-turn~resume-1", "{begin}");
     let ran_here = texts(&mut src, &id, "user_message").await;
     assert_eq!(ran_here, ["hi", "until-cancel"], "the source ran nothing after the move began");
 
@@ -129,6 +146,9 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
     assert_eq!(draft["draft"], "unsent words", "{draft}");
     let left = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert_eq!(left["status"], "closed", "{left}");
+    assert_eq!(left["transferBlocked"], true, "{left}");
+    let arrived = dst.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(arrived["transferBlocked"], false, "import clears the source move: {arrived}");
     let draft = src.request(method::MUX_DRAFT_GET, json!({"sessionId": id})).await.unwrap();
     assert!(draft["draft"].is_null(), "the source keeps no draft: {draft}");
 }
@@ -146,6 +166,8 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
         .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
         .await
         .unwrap();
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], true, "begin revokes authority: {info}");
     let refused = src.request(method::SESSION_PROMPT, prompt(&id, "p-late", "late")).await;
     assert!(refused.as_ref().is_err_and(|e| e.contains("transfer.moving")), "{refused:?}");
     // Its queue and draft move as they are.
@@ -163,10 +185,22 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
     )
     .await
     .unwrap();
-    // Given back: its queue runs, and it takes prompts again.
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "explicit abort restores authority: {info}");
+    // Given back: the stopped turn goes on here, then its queue runs, and it takes prompts again.
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
     src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
-    assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel", "a", "again"]);
+    let ran = texts(&mut src, &id, "user_message").await;
+    assert_eq!(ran.len(), 5, "{ran:?}");
+    assert_eq!(ran[..2], ["hi", "until-cancel"], "{ran:?}");
+    assert_moved_continuation(&ran[2]);
+    assert_eq!(ran[3..], ["a", "again"], "{ran:?}");
+}
+
+/// The prompt a move's continuation sends: it says the chat moved and quotes the cut prompt.
+fn assert_moved_continuation(text: &str) {
+    assert!(text.starts_with("This chat moved to another machine"), "{text}");
+    assert!(text.contains("<message>\nuntil-cancel\n</message>"), "{text}");
 }
 
 /// Records of `kind` in a session's log, their `msg`.
@@ -227,6 +261,8 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
     let aborted = records(&mut src, &id, "transfer_aborted").await;
     assert_eq!(aborted.len(), 1, "{aborted:?}");
     assert_eq!(aborted[0]["reason"], "stalled", "{aborted:?}");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "watchdog abort restores authority: {info}");
 }
 
 #[tokio::test]

@@ -98,8 +98,9 @@ public enum AgentClientIntent: Hashable, Sendable {
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
     case setModel(String)
     /// Retry with another model (the Mac's turn menu, cx-ncc.62): `session/set_model`, then
-    /// the prompt again under `promptID`. A refused model sends nothing (the chat says why).
-    case retryWithModel(model: String, text: String, promptID: String)
+    /// the prompt again, with its attachments, under `promptID`. A refused model sends nothing
+    /// (the chat says why).
+    case retryWithModel(model: String, text: String, attachments: [AgentAttachment], promptID: String)
     case setMode(String)
     case setConfigOption(id: String, value: String)
     case removeQueued(promptId: String)

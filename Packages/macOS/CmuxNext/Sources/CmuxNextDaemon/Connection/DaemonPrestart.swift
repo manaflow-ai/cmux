@@ -13,6 +13,25 @@ import Foundation
 /// attempt, and the connection's events stay buffered until the store runs
 /// it. A failed attempt is reported like any other failed first connect and
 /// retried by the same loop.
+private actor DaemonPrestartConnectionHolder {
+    private var connection: DaemonConnection?
+    private var cancelled = false
+
+    func install(_ connection: DaemonConnection) async {
+        if cancelled {
+            await connection.closeAndWait()
+        } else {
+            self.connection = connection
+        }
+    }
+
+    func cancel() async {
+        cancelled = true
+        guard let connection else { return }
+        await connection.closeAndWait()
+    }
+}
+
 public final class DaemonPrestart: Sendable {
     public typealias Outcome = Result<(DaemonConnection, DaemonIdentity), DaemonError>
 
@@ -24,10 +43,10 @@ public final class DaemonPrestart: Sendable {
     /// service keeps reading after it takes the connection over.
     public let requestLatency: DaemonRequestLatency?
     private let attempt: Task<Outcome, Never>
-    /// The bundled binary's build commit (`--version`), for the version
+    /// The bundled binary's build (`--version --json`), for the version
     /// handoff check: read from here, because a run begun only once the app
     /// started its services was still going when the connection came back.
-    public let bundledCommit: Task<String?, Never>
+    public let bundledBuild: Task<DaemonBuildStamp?, Never>
 
     /// Starts the attempt now. `configuration.retryWake` is replaced by `wake`.
     public init(launcher: DaemonLauncher, configuration: DaemonConnection.Configuration,
@@ -38,20 +57,31 @@ public final class DaemonPrestart: Sendable {
         configuration.retryWake = wake
         requestLatency = configuration.requestLatency
         let fixed = configuration
-        // task-owner: one `--version` run per launch, bounded by its timeout
-        bundledCommit = Task.detached(priority: .userInitiated) { try? await launcher.bundledBuildCommit() }
+        // task-owner: one `--version --json` run per launch, bounded by its timeout
+        bundledBuild = Task.detached(priority: .userInitiated) { try? await launcher.bundledBuild() }
         // task-owner: one attempt per launch; its requests carry the connection's deadlines
+        let holder = DaemonPrestartConnectionHolder()
         attempt = Task.detached(priority: .userInitiated) {
-            let connection = DaemonConnection(configuration: fixed, endpointProvider: launcher.endpointProvider)
-            DaemonLaunchTimings.shared.mark("daemon.connect_start")
-            do {
-                let identity = try await connection.start()
-                DaemonLaunchTimings.shared.mark("daemon.handshake_end")
-                await connection.prefetchSnapshot()
-                return .success((connection, identity))
-            } catch {
-                await connection.close()
-                return .failure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
+            await withTaskCancellationHandler {
+                let connection = DaemonConnection(configuration: fixed, endpointProvider: launcher.endpointProvider)
+                await holder.install(connection)
+                guard !Task.isCancelled else {
+                    await holder.cancel()
+                    return .failure(.launchFailed("prestart cancelled"))
+                }
+                DaemonLaunchTimings.shared.mark("daemon.connect_start")
+                do {
+                    let identity = try await connection.start()
+                    DaemonLaunchTimings.shared.mark("daemon.handshake_end")
+                    await connection.prefetchSnapshot()
+                    return .success((connection, identity))
+                } catch {
+                    await connection.closeAndWait()
+                    return .failure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
+                }
+            } onCancel: {
+                // concurrency-allow: cancellation cleanup is actor-isolated and joined by outcome teardown.
+                Task { await holder.cancel() }
             }
         }
     }

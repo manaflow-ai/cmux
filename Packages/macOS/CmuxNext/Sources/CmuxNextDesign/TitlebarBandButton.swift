@@ -13,6 +13,16 @@ public final class TitlebarBandButton: ClickableButton {
     public var customImage: ((String, CGFloat) -> NSImage?)? {
         didSet { renderedIconSize = 0; renderSymbol() }
     }
+    /// Optional compact count/status text supplied by a content-owned tool.
+    public var badge: String? {
+        didSet { badgeLabel.stringValue = badge ?? ""; badgeLabel.isHidden = badge == nil; needsLayout = true }
+    }
+    /// The glyph's point size, read at layout so density changes apply live; nil draws at
+    /// `Metrics.smallIconSize` (a split button's menu indicator draws smaller).
+    public var symbolPointSize: (() -> CGFloat)? {
+        didSet { renderedIconSize = 0; renderSymbol() }
+    }
+    private let badgeLabel = NSTextField(labelWithString: "")
     private var renderedIconSize: CGFloat = 0
     public private(set) lazy var hover = ChromeHover(self, behindContent: true)
     /// Set once `hover` follows the pointer (not during NSButton's init).
@@ -28,6 +38,15 @@ public final class TitlebarBandButton: ClickableButton {
         imageScaling = .scaleProportionallyDown
         renderSymbol()
         contentTintColor = performWithTheme { Palette.textSecondary }
+        badgeLabel.font = Typography.caption
+        badgeLabel.alignment = .center
+        badgeLabel.textColor = performWithTheme { Palette.textSecondary }
+        badgeLabel.isBezeled = false
+        badgeLabel.drawsBackground = false
+        badgeLabel.isEditable = false
+        badgeLabel.isSelectable = false
+        badgeLabel.isHidden = true
+        addSubview(badgeLabel)
         // Hover follows the pointer and the button's frame (cx-3wu5): a band
         // that collapses or hides under a still pointer clears it.
         hover.followPointer(isHoverable: { [weak self] in self?.isEnabled ?? false })
@@ -48,10 +67,12 @@ public final class TitlebarBandButton: ClickableButton {
     override public func layout() {
         super.layout()
         renderSymbol()
+        let size = min(Metrics.space3, bounds.height)
+        badgeLabel.frame = NSRect(x: bounds.maxX - size, y: bounds.maxY - size, width: size, height: size)
     }
 
     private func renderSymbol() {
-        let size = Metrics.smallIconSize
+        let size = symbolPointSize?() ?? Metrics.smallIconSize
         guard size != renderedIconSize else { return }
         renderedIconSize = size
         image = customImage?(symbol, size)

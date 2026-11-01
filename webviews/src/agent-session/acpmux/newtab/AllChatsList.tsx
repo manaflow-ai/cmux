@@ -560,8 +560,14 @@ export function AllChatsList({
           <span className="nt-all-glyph">
             <AgentMark harness={row.harness} />
           </span>
-          <span className="nt-all-title">{title}</span>
-          {project && state.design !== "quiet" && view === "chats" && <span className="nt-all-project">{project}</span>}
+          <span className="nt-all-title" title={title}>
+            {title}
+          </span>
+          {project && state.design !== "quiet" && view === "chats" && (
+            <span className="nt-all-project" title={row.cwd}>
+              {project}
+            </span>
+          )}
           {age && <span className="nt-all-meta">{age}</span>}
         </button>
       </div>
@@ -659,7 +665,9 @@ export function AllChatsList({
                   <span className="nt-all-glyph">
                     <AgentMark harness={chat.harness} />
                   </span>
-                  <span className="nt-all-title">{chat.title}</span>
+                  <span className="nt-all-title" title={chat.title}>
+                    {chat.title}
+                  </span>
                   <span className="nt-all-state">{chat.label}</span>
                 </button>
               </ContextMenu>

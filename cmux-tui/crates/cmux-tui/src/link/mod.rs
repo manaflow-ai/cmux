@@ -11,6 +11,11 @@ mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
+// `cmux link seed plan`; `cmux link seed push|clone` is [`seed_cli`].
+#[cfg_attr(not(test), allow(dead_code))]
+mod seed;
+mod seed_cli;
+mod start_chat_cli;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
@@ -21,6 +26,7 @@ mod inbound;
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
+mod machine_pin;
 pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
@@ -98,8 +104,8 @@ pub(crate) fn start_link_entry(
     Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?))
 }
 
-/// The gate of the remote entry: exactly the seven `fs-v1` ops, every
-/// other frame denied (`remote_denied`).
+/// The gate of the remote entry: exactly the seven `fs-v1` ops and the two
+/// `git-seed-v1` ops, every other frame denied (`remote_denied`).
 fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
     Arc::new(cmux_tui_core::server::FsGate)
 }
@@ -114,6 +120,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
     }
+    if args.first().map(String::as_str) == Some("seed") {
+        if matches!(args.get(1).map(String::as_str), Some("push" | "clone")) {
+            return seed_cli::run(&args[1..]);
+        }
+        return seed::run(&args[1..]);
+    }
     // So do `agent` and `access`.
     if args.first().map(String::as_str) == Some("agent") {
         return agent_cli::run(&args[1..]);
@@ -122,7 +134,13 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return access_cli::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("machine") {
+        if args.get(1).map(String::as_str) == Some("pin") {
+            return machine_pin::run(&args[2..]);
+        }
         return machine_update::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("start-chat") {
+        return start_chat_cli::run(args.get(1..).unwrap_or_default());
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
@@ -159,7 +177,13 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "peer" => run_peer(rest),
         "serve" => run_serve(&flags(
             rest,
-            &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
+            &[
+                "--state-dir",
+                "--session-socket",
+                "--server-config",
+                "--credential-socket",
+                "--ready-fd",
+            ],
         )?),
         "ensure" => {
             // `--handoff` is the one flag without a value.
@@ -169,7 +193,14 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             ensure::run_ensure(
                 &flags(
                     &rest,
-                    &["--state-dir", "--install", "--port", "--session-socket", "--server-config"],
+                    &[
+                        "--state-dir",
+                        "--install",
+                        "--port",
+                        "--session-socket",
+                        "--server-config",
+                        "--credential-socket",
+                    ],
                 )?,
                 handoff,
             )
@@ -362,8 +393,16 @@ async fn reload(socket: &Path) -> bool {
 }
 
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
+    // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
+    #[cfg(target_os = "macos")]
+    let watch = launchd::plist_path()
+        .ok()
+        .and_then(|plist| crate::launchd_refresh::for_agent(launchd::LABEL, plist));
+    #[cfg(not(target_os = "macos"))]
+    let watch: Option<AgentWatch> = None;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
+    let credential_socket = flags.get("--credential-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
     // `link.status` hashes, the same bytes.
     let config_path = server_config_path(flags);
@@ -377,7 +416,15 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served))
+    tokio_runtime()?.block_on(serve(
+        state,
+        session_socket,
+        credential_socket,
+        owner,
+        ready,
+        served,
+        watch,
+    ))
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -442,9 +489,11 @@ fn owner_session(
 async fn serve(
     state: LinkState,
     session_socket: Option<PathBuf>,
+    credential_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
+    watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
     let private_key = state.private_key()?;
@@ -463,9 +512,11 @@ async fn serve(
         socket,
     )?;
     let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
-    // Cloud host ids resolve through the host credential relay, which is
-    // not served yet: Cloud dials report `unreachable` until it ships.
-    let resolver = Arc::new(cloud::CloudResolver::new(cloud::RelaySource));
+    // Cloud host ids resolve through the private credential relay owned by
+    // the signed-in app. A missing relay fails closed as unavailable.
+    let resolver = Arc::new(cloud::CloudResolver::new(
+        credential_socket.map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
+    ));
     let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
@@ -494,6 +545,7 @@ async fn serve(
         served = serve_local(local, overlay.clone(), peers.clone(), resolver, status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
+        outcome = launchd_agent_outcome(watch) => outcome,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
@@ -519,6 +571,38 @@ fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
     let listener = tokio::net::UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(listener)
+}
+
+/// This serve's launchd agent watch (`launchd_refresh.rs`), opened first thing in
+/// `run_serve`.
+#[cfg(target_os = "macos")]
+type AgentWatch = crate::launchd_refresh::Agent;
+#[cfg(not(target_os = "macos"))]
+type AgentWatch = std::convert::Infallible;
+
+/// When launchd runs this serve as `com.cmuxterm.link` (`watch`): resolves
+/// once an update replaced its binary (an error, so launchd starts the new
+/// one) or its app was deleted (the agent booted itself out and removed its
+/// plist). Never resolves otherwise.
+async fn launchd_agent_outcome(watch: Option<AgentWatch>) -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(agent) = watch {
+        // A thread of its own: a blocking task would hold the runtime's shutdown.
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(agent.wait());
+        });
+        return match receiver.await {
+            Ok(crate::launchd_refresh::Outcome::Replaced) => {
+                Err(anyhow!("an update replaced this cmux; launchd starts the new build"))
+            }
+            Ok(crate::launchd_refresh::Outcome::Removed) => Ok(()),
+            Err(_) => std::future::pending().await,
+        };
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = watch;
+    std::future::pending().await
 }
 
 async fn shutdown_signal() -> anyhow::Result<()> {

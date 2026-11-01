@@ -76,21 +76,15 @@ struct ChiefSidebarItemTests {
         #expect(ChiefSidebar.menuRemovals(isApp: true, isChief: false) == [ChiefSidebar.toggleIdleAction])
     }
 
-    /// The Chief item wears the chosen pet character (`home.chiefPetMascot`) as its picture in every
-    /// look, not a generic glyph; another pick draws another picture, and an unknown id draws the orb.
-    @Test func theChiefItemWearsTheChosenPetCharacter() {
+    /// The Chief item wears no pet character by default (Lawrence 2026-10-31: "no more default profile
+    /// pic thing"): with no upload it keeps its plain glyph whatever character is picked.
+    @Test func theChiefItemWearsNoDefaultPicture() {
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
         func picture(_ mascot: String?) -> SidebarFavicon? {
             SidebarBridge.itemInfo(for: layout, registered: { _ in true }, chiefMascot: mascot)[Self.chiefItem.id]?.favicon
         }
-        let fox = picture("fox"), orb = picture("orb")
-        #expect(fox != nil)
-        #expect(orb != nil)
-        #expect(fox != orb)
-        // The same pick is the same picture, so an unrelated sidebar change does not redraw the item.
-        #expect(picture("fox") == fox)
-        #expect(picture(nil) == orb)
-        #expect(picture("not-a-mascot") == orb)
+        #expect(picture("fox") == nil)
+        #expect(picture(nil) == nil)
     }
 
     @Test func foldedHidesOnlyIdleSubagentsInNumberOrder() {
@@ -98,11 +92,11 @@ struct ChiefSidebarItemTests {
                      Self.lane("optchat-sub-6b68ac4a-a2", .idle),
                      Self.lane("optchat-sub-6b68ac4a-a3", .failed)]
         let folded = Self.rows(lanes)
-        #expect(folded.map(\.info.title) == [ChiefToolStrings.subagent, "Inspector"], "the a3 id never shows")
+        #expect(folded.map(\.info.title) == ["", "Inspector"], "the a3 id never shows")
         #expect(folded.allSatisfy { $0.info.indent == 1 && $0.anchoredOnly })
         #expect(folded[0].info.activity == .error)
         let open = Self.rows(lanes, showsIdle: true)
-        #expect(open.map(\.info.title) == [ChiefToolStrings.subagent, ChiefToolStrings.subagent, "Inspector"])
+        #expect(open.map(\.info.title) == ["", "", "Inspector"])
         #expect(SidebarTransientItem.chiefSubagentSession(open[0].item.id) == "id-optchat-sub-6b68ac4a-a2")
         #expect(SidebarTransientItem.chiefSubagentSession(LayoutItemID("itm_chief")) == nil)
     }

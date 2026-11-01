@@ -17,6 +17,9 @@ import os
 public final class MobileHostService {
     public private(set) var host: MobileIrxHost?
     private var starting: Task<Void, Never>?
+    /// The last listener's teardown; the next listener starts only after it ends, so a quick
+    /// sign-out and sign-in or off and on never leaves an old phone link open beside the new one.
+    private var stopping: Task<Void, Never>?
     /// Bumped by every start and stop; a start that lost the race drops out.
     private var generation = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.mobile")
@@ -74,15 +77,22 @@ public final class MobileHostService {
     }
 
     /// Follows Settings > Accounts > Phone Access from now on (once).
-    public func follow(_ settings: SettingsController, launch: LaunchIdentity) {
+    public func follow(_ settings: SettingsController, launch: LaunchIdentity,
+                       configureAdmission: (@MainActor (PhoneAccessGate, @escaping @Sendable (String) async -> Void) -> Void)? = nil) {
         guard follower == nil else { return }
+        configureAdmission?(access, { [weak self] id in await self?.disconnectPhone(id) })
         follower = PhoneAccessFollower(mobile: self, settings: settings,
                                        history: MobileHostHistory(stateDirectory: Self.stateDirectory(namespace: Self.namespace(launch))))
         follower?.start()
     }
 
+    public func disconnectPhone(_ endpoint: String) async {
+        await host?.disconnectPhone(endpoint)
+    }
+
     private func servingChanged() {
         KeepAwakeService.shared.setPhoneServing(isServing)
+        access.setServing(isServing)
     }
 
     /// Starts (or restarts for a new account) the phone listener. The Mac's
@@ -90,15 +100,14 @@ public final class MobileHostService {
     private func startHost(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService) {
         generation += 1
         let current = generation
-        let previous = host
-        host = nil
         starting?.cancel()
         phaseFollower?.cancel()
         status.reset()
+        let teardown = retireHost()
         let access = access
         let status = status
         starting = Task { [weak self, logger] in
-            await previous?.stop()
+            await teardown.value
             let displayName = await self?.displayName() ?? "Mac"
             guard let self, self.generation == current, !Task.isCancelled else { return }
             guard let configuration = Self.configuration(launch: launch, daemon: daemon, displayName: displayName) else {
@@ -136,10 +145,22 @@ public final class MobileHostService {
         phaseFollower?.cancel()
         phaseFollower = nil
         status.reset()
+        _ = retireHost()
+    }
+
+    /// Stops the current listener after every earlier teardown, and records that in `stopping`, so
+    /// a start cancelled by a quicker one still leaves its old listener's stop for the next to await.
+    private func retireHost() -> Task<Void, Never> {
         let host = host
         self.host = nil
-        // task-owner: teardown hop; MobileIrxHost.stop() is idempotent and bumps its lifetime
-        Task { await host?.stop() }
+        let previous = stopping
+        // task-owner: teardown hop, kept in `stopping`; MobileIrxHost.stop() is idempotent and bumps its lifetime
+        let teardown = Task {
+            await previous?.value
+            await host?.stop()
+        }
+        stopping = teardown
+        return teardown
     }
 
     static func configuration(launch: LaunchIdentity, daemon: DaemonService, displayName: String,

@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixture (a sample prompt, reply, workflow and agent names), not shipped UI.
 // A Claude workflow in the whole pane (Labs `workflowLabs`): its card where it started in the
 // transcript (WorkflowCard.tsx) and Session Info open beside it, whose Background tasks lists the
-// run's phases and agents (inspector/WorkflowTasks.tsx). Both read the same fold data: a
+// run's phases and agents (session-info/WorkflowTasks.tsx). Both read the same fold data: a
 // workflow's events fed through the real subagent fold (workflowFixture.ts).
 import { agentPaneEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
@@ -55,12 +55,12 @@ export default agentPaneEntry({
   height: 720,
   covers: [
     "agent-session/acpmux/summary/WorkflowCard.tsx",
-    "agent-session/acpmux/inspector/WorkflowTasks.tsx",
+    "agent-session/acpmux/session-info/WorkflowTasks.tsx",
     "agent-session/acpmux/summary/foldWorkflows.ts",
   ],
   variants: {
     running: {
-      note: "Labs: a workflow running. The transcript has its card where it started (demo-name-tournament, Workflow · 6 agents · 13s, a dot per agent). Session Info's Background tasks lists it: 1 running · 2 queued · 3 done · 185k tokens, Brainstorm 3 done, Critique open with Model: Opus 5.5 and punchy running beside two Queued, then Up next: Judge.",
+      note: "Labs: a workflow running. The transcript has its card where it started (demo-name-tournament, Workflow · 6 agents · 13s, a dot per agent). Session Info's Background tasks lists it: 1 running · 2 queued · 3 done · 185k tokens, Brainstorm 3 done, Critique open with Model: Opus 5.5 and punchy running beside two Queued, then Judge as a plain pending row.",
       snapshot: paneSnapshot("running"),
       native,
       workflowLabs: true,

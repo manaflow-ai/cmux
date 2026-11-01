@@ -313,6 +313,8 @@ extension AgentTabStore {
     /// Stops tab `key`'s page and forgets its view state.
     func release(_ key: String) {
         if let view = views.removeValue(forKey: key) {
+            // Its machine link is no longer pushed; the last page gone ends that observation.
+            machineLink.forget(view)
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
             // page of another machine's chat never does (NewTabSparePool.recycle, cx-k21v).
             if newTabPages[key] != nil, recycle?(view) == true {

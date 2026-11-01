@@ -7361,6 +7361,41 @@
       },
       "extra": false
     },
+    "ClosedAgentSessionRecord": {
+      "kind": "object",
+      "fields": {
+        "session": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "description": "The bound acpmux session id; null while an agent tab has not bound one."
+        },
+        "harness": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The harness type that owns the session, such as claude or codex."
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "The public record intentionally omits the session host and install identity."
+      ]
+    },
     "ClosedTabRecord": {
       "kind": "object",
       "fields": {
@@ -7370,9 +7405,11 @@
             "kind": "enum",
             "values": [
               "terminal",
-              "browser"
+              "browser",
+              "conversation"
             ]
-          }
+          },
+          "description": "An agent chat reads as conversation under closed-conversation-tabs-v1; older connections retain browser and safe agent_session metadata."
         },
         "name": {
           "required": true,
@@ -7420,6 +7457,14 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "agent_session": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ClosedAgentSessionRecord"
+          },
+          "description": "The safe public identity of a closed agent chat; host/install metadata is omitted."
         },
         "page": {
           "required": false,
@@ -11558,10 +11603,12 @@
             "values": [
               "terminal_tab",
               "browser_tab",
+              "conversation_tab",
               "screen",
               "workspace"
             ]
-          }
+          },
+          "description": "conversation_tab requires closed-conversation-tabs-v1; older connections read browser_tab."
         },
         "cwd": {
           "required": false,
@@ -18191,6 +18238,14 @@
               "resource": "tab"
             },
             "description": "Reopen the member of the newest group that holds this tab (a tab member, or the screen or workspace member that contains it), under the SAME tab id, so a `cmux://tab/` link to it keeps working. Excludes `closed` and `members`. `resource.not_found` when no group holds it: the tab is open, or its record was deleted."
+          },
+          "workspace": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "Reopen the workspace member of the newest group that recorded this closed workspace, so a `cmux://workspace/` link to a closed workspace opens it again (as a new workspace). Excludes `closed`, `members` and `tab`. `resource.not_found` when no group holds it: the workspace is open, it closed before its id was recorded, or its record was deleted."
           },
           "fallback_pane": {
             "required": false,
@@ -32381,6 +32436,18 @@
               "name": "boolean"
             },
             "description": "Make the new workspace the focused one. Default false: the focused workspace stays."
+          },
+          "placement": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "top",
+                "after_current",
+                "bottom"
+              ]
+            },
+            "description": "Where the new workspace goes in the sidebar order, for this create: top (first, below Home), after_current or bottom. Default: the workspaces.newPlacement setting."
           },
           "cwd": {
             "required": false,

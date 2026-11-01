@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 
 /// App actions on an agent chat's own tab: the header's tools and "..." menu
 /// (acpmux header/ChatHeaderTools.tsx), the empty-space right-click menu (`agentChat`
@@ -18,9 +19,11 @@ struct AgentChatTabActions {
     var splitInherits: @MainActor () -> Bool = { NewTerminalStart.inherits(.split) }
     /// The chat's folder is on this Mac: the inherit keys apply only here (NewTerminalStart).
     var local: @MainActor () -> Bool = { true }
+    /// Opens the header's Terminal or Browser on the chat's right (AgentTabStore.openTool); false when the chat is not shown.
+    var openTool: @MainActor (_ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool = { _, _ in false }
 
     /// A header action, with the folder it names when it names one, on the chat's tab or on tab
-    /// `target` (a header split opening right of the one before it, AgentChatSplitToggles).
+    /// `target`; the header's Terminal and Browser on the chat's tab go through ``openTool`` first.
     func run(_ id: String, cwd: String?, on target: String? = nil) {
         // The header's Terminal names the chat's folder, the one a split inherits: with Ghostty's
         // `split-inherit-working-directory = false` it names none, and the split starts in the home
@@ -28,6 +31,10 @@ struct AgentChatTabActions {
         // the key is this Mac's, and a chat of another machine keeps its folder.
         let terminal = id == "splitRight" || id == "splitDown"
         let cwd = terminal && local() && !splitInherits() ? nil : cwd
+        // Terminal and Browser open on the chat's right as a link does (RightColumnPlacement): a tab in the
+        // pane that holds that kind, a split below for the other kind, never a third column (Leo, 2026-10-31).
+        if target == nil, let kind = ["splitRight": RightColumnPlacement.Kind.terminal, "splitBrowserRight": .browser][id],
+           openTool(kind, cwd) { return }
         let arguments: [String: ActionValue] = cwd.map { ["cwd": .string($0)] } ?? [:]
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
         // The header's Terminal and Split Down open a terminal, not the New Tab page a person's split from a chat opens.
@@ -75,7 +82,7 @@ struct AgentChatTabActions {
     func menuItems() -> [NSMenuItem] {
         guard let registry = registry() else { return [] }
         let menu = registry.makeContextMenu(for: .agentChat, target: ActionTargetRef(kind: .tab, id: tab()),
-                                            entries: ContextMenuCatalog.shared.entries(for: .agentChat, removing: hidden()))
+                                            entries: registry.contextMenuEntries(for: .agentChat, removing: hidden()))
         let items = menu.items
         menu.removeAllItems()
         return items

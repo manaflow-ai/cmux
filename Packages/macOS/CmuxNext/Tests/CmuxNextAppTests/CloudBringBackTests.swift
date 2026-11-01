@@ -28,8 +28,11 @@ struct CloudBringBackTests {
             let calls = trip.calls()
             #expect(calls.count == 4, "\(calls)")
             #expect(calls.dropFirst(2).first == ["link", "sync", "pull", "--socket", trip.vmSocket, trip.project.path, trip.synced])
+            // A running turn moves too, with what it wrote on the machine since the pull.
             #expect(calls.dropFirst(3).first == ["link", "agent", "move", "--from-socket", trip.vmSocket, "--surface", String(trip.machineSurface),
-                                                 "--to-socket", trip.macSocket, "--cwd", trip.project.path])
+                                                 "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--interrupt",
+                                                 "--sync", "pull", "--sync-socket", trip.vmSocket, "--sync-local", trip.project.path,
+                                                 "--sync-remote", trip.synced])
             let local = try #require(trip.localChat(), "no chat tab on this Mac")
             #expect(local.agentSession?.session == "chat-live")
             #expect(local.agentSession?.host == trip.services.agentTabs.localHost)
@@ -145,7 +148,9 @@ struct CloudBringBackTests {
             let root = try #require(trip.services.cloud.move.workRoots.first)
             let call = try #require(uploads().first, "no upload ran")
             #expect(Array(call.prefix(7)) == ["link", "access", "upload", "--socket", trip.vmSocket, "--remote-root", root], "\(call)")
-            #expect(call.count == 8, "\(call)")
+            // Each file goes under an upload id of the app's own, so a failed or cancelled one is removed.
+            #expect(call.count == 10 && call[7] == "--upload-id", "\(call)")
+            #expect(call.count == 10 && call[8].utf8.count == 32 && call[8].utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }, "\(call)")
             let sent = try #require(call.last)
             let temporary = ProcessInfo.processInfo.environment["TMPDIR"] ?? NSTemporaryDirectory()
             let pastes = URL(fileURLWithPath: temporary).appendingPathComponent("cmux-pastes").resolvingSymlinksInPath().path
@@ -240,7 +245,9 @@ struct CloudBringBackTests {
             let calls = trip.calls()
             #expect(calls.count == 8, "\(calls)")
             #expect(calls.last == ["link", "agent", "move", "--from-socket", trip.vmSocket, "--surface", String(trip.machineSurface),
-                                   "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--ask-first"])
+                                   "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--interrupt",
+                                   "--sync", "pull", "--sync-socket", trip.vmSocket, "--sync-local", trip.project.path,
+                                   "--sync-remote", trip.synced, "--ask-first"])
             #expect(trip.localChat()?.agentSession?.session == "chat-live")
             #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == nil)
         }
@@ -378,16 +385,8 @@ struct CloudBringBackTests {
 
         /// `cmux <action>` on tab `tab`, as the CLI sends it; its error when it stopped.
         func run(_ action: String, tab: String, args: [String: CmuxNextSettings.JSONValue] = [:], wait: Bool = true) async -> ControlError? {
-            let bridge = RegistryControlBridge(registry: services.registry)
-            let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
-                                                                 processID: getpid()),
-                                       executor: bridge, settings: nil,
-                                       configuration: ControlRouter.Configuration(requestDeadline: .seconds(60)))
-            router.updateCatalog(RegistryControlBridge.catalog(from: services.registry))
-            let params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
-                                                                "wait": .bool(wait), "target": .string("tab:" + tab), "args": .object(args)]
-            if case .failure(let error) = await router.handle(ControlRequest(id: "1", method: "action.run", params: params)) { return error }
-            return nil
+            await CloudCLIActionRun(services: services)(["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
+                                                         "wait": .bool(wait), "target": .string("tab:" + tab), "args": .object(args)])
         }
 
         /// `cmux cloud bring-back` on the machine's chat tab.
@@ -468,7 +467,7 @@ struct CloudBringBackTests {
         let record = AgentSessionRef(host: try #require(services.agentTabs.localHost), hostName: "This Mac", session: "chat-live", harness: "claude")
         let created = try await connection.request(NewConversationTabRequest(agentSession: record, pane: pane.handle))
         let tabID = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
-        while services.locateTab(tabID) == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+        while services.locateTab(tabID, onMachine: services.machines.local.machineID) == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
         // Setup only needs the moved chat; waiting for the full move action
         // couples setup to the control deadline and turns slow daemon startup
         // into a false timeout.

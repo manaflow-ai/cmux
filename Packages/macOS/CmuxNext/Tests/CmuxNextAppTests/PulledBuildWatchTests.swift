@@ -2,44 +2,27 @@ import Foundation
 @testable import CmuxNextUpdater
 import Testing
 
-/// The pulled-build banner (nightly train, section 2): when the feed's pulled.json lists the
-/// running build, the update notice offers "Wait for the Fix" (the default) and, only when the
-/// kept build can take over, "Roll Back".
+/// A pulled build is never offered, kept or installed, and nothing asks about it (Leo 2026-10-29:
+/// "why the fuck am I even getting a thing that I can download that I can just— that was pulled in
+/// the first place? Just fucking cancel it, or, like, do something else about it. Just don't have
+/// that be the downloading thing."). Build 4091813159501 was staged on his Mac, then pulled, and
+/// the app showed "This Nightly Was Pulled" with Wait for the Fix and Roll Back. Now the staged
+/// pulled build is dropped quietly and the newest good build downloads; a running pulled build
+/// downloads the newest good one, and one line says why.
 @MainActor @Suite(.serialized) struct PulledBuildWatchTests {
+    typealias Base = UpdateStagedYieldsToNewerTests
     private static let next = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
     private static let legacy = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
-
-    private final class Calls: @unchecked Sendable {
-        var rolledBackTo: [String] = []
-        /// Times Roll Back asked, and the answer the next question gets (true: Roll Back, false: Cancel).
-        var asked = 0
-        var confirms = true
-    }
 
     private static func body(_ builds: [(String, String)]) -> Data {
         let entries = builds.map { ["build": $0.0, "reason": $0.1, "pulledAt": "2026-10-20T21:00:00Z", "serve": "100"] }
         return try! JSONSerialization.data(withJSONObject: entries)
     }
 
-    private static func watch(build: String = "300", feed: String = next, list: Data?, kept: KeptVersion? = nil,
-                              rollBackFailure: String? = nil, calls: Calls = Calls(), asks: Bool = true,
-                              defaults: UserDefaults = UserDefaults(suiteName: "PulledBuildWatchTests.\(UUID().uuidString)")!) -> PulledBuildWatch {
-        let watch = PulledBuildWatch(build: build, defaults: defaults, feedURL: { feed },
-                                     fetch: { url in url.path.hasSuffix("/next/pulled.json") ? list : nil },
-                                     rollbackCheck: { _ in kept },
-                                     rollBack: { build, _ in calls.rolledBackTo.append(build); return rollBackFailure })
-        // The App's confirmation presenter for updates.rollback, answered by `calls.confirms`.
-        if asks {
-            watch.confirmRollBack = { proceed in
-                calls.asked += 1
-                if calls.confirms { proceed() }
-            }
-        }
-        return watch
+    private static func watch(build: String = "300", feed: String = next, list: Data?) -> PulledBuildWatch {
+        PulledBuildWatch(build: build, feedURL: { feed },
+                         fetch: { url in url.path.hasSuffix("/next/pulled.json") ? list : nil })
     }
-
-    private static let kept = KeptVersion(build: "200", shortVersion: "1.0.0-nightly.200", bundle: URL(fileURLWithPath: "/tmp/kept.app"),
-                                          storeSchemas: [:], teamID: "TEAM")
 
     @Test func listURLsSitNextToTheAppcastAndTheLegacyFeedAlsoReadsNext() {
         #expect(PulledBuild.listURLs(feedURL: Self.next).map(\.absoluteString) == ["https://files-next.cmux.com/nightly-next/next/pulled.json"])
@@ -55,94 +38,198 @@ import Testing
         #expect(PulledBuild.decode(Data("nope".utf8)).isEmpty)
     }
 
-    @Test func aPulledBuildWithAKeptBuildOffersWaitFirstThenRollBack() async {
-        let watch = Self.watch(list: Self.body([("300", "crashes at launch")]), kept: Self.kept)
+    @Test func theWatchReadsTheListAndTheRunningBuildsEntry() async {
+        let watch = Self.watch(list: Self.body([("300", "crashes at launch"), ("299", "older")]))
+        var refreshed = 0
+        watch.onRefresh = { refreshed += 1 }
         await watch.refresh().value
+        #expect(watch.pulled?.build == "300")
+        #expect(watch.pulledBuilds == ["300", "299"])
+        #expect(watch.isPulled("299") && !watch.isPulled("301"))
+        #expect(refreshed == 1)
 
-        #expect(watch.card == .pulled(reason: "crashes at launch", rollbackVersion: "1.0.0-nightly.200"))
-        let shown = watch.card?.presentation(version: "1.0.0-nightly.300", build: "300")
-        #expect(shown?.actions == [.waitForFix, .rollBack])
-        #expect(UpdateCardAction.waitForFix.isProminent)
-        #expect(!UpdateCardAction.rollBack.isProminent)
-    }
-
-    @Test func withNothingKeptOnlyWaitShows() async {
-        let watch = Self.watch(list: Self.body([("300", "bad")]), kept: nil)
+        // A failed read keeps what the last read knew.
+        watch.fetch = { _ in nil }
         await watch.refresh().value
+        #expect(watch.pulledBuilds == ["300", "299"] && watch.pulled?.build == "300")
+        #expect(refreshed == 2)
 
-        #expect(watch.card?.presentation(version: "x", build: "300").actions == [.waitForFix])
-    }
+        // The legacy feed reads two lists: one that answers empty while the other fails forgets nothing.
+        let pulledList = Self.body([("300", "bad")]), emptyList = Self.body([])
+        let legacyFeed = Self.legacy
+        let legacy = PulledBuildWatch(build: "300", feedURL: { legacyFeed }, fetch: { url in
+            url.path.hasSuffix("/next/pulled.json") ? pulledList : emptyList
+        })
+        await legacy.refresh().value
+        legacy.fetch = { url in url.path.hasSuffix("/next/pulled.json") ? nil : emptyList }
+        await legacy.refresh().value
+        #expect(legacy.isPulled("300") && legacy.pulled?.build == "300")
 
-    @Test func aBuildNotOnTheListShowsNothing() async {
-        let watch = Self.watch(list: Self.body([("299", "older")]), kept: Self.kept)
-        await watch.refresh().value
-        #expect(watch.card == nil)
-        // The Updated card still learns every pulled build, so it never counts one as newer.
-        #expect(watch.pulledBuilds == ["299"])
-
-        let missing = Self.watch(list: nil, kept: Self.kept)
+        let missing = Self.watch(list: nil)
         await missing.refresh().value
-        #expect(missing.card == nil)
+        #expect(missing.pulled == nil && missing.pulledBuilds.isEmpty)
     }
 
-    @Test func waitHidesTheBannerForThatBuildAcrossLaunches() async {
-        let defaults = UserDefaults(suiteName: "PulledBuildWatchTests.\(UUID().uuidString)")!
-        let watch = Self.watch(list: Self.body([("300", "bad")]), kept: Self.kept, defaults: defaults)
-        await watch.refresh().value
-        watch.perform(.waitForFix)
-        #expect(watch.card == nil)
+    /// The staged build (300) was pulled: its installer is cancelled and this app's check fetches
+    /// the newest good build; when it is found it downloads with no click, and no card shows.
+    @Test func aPulledStagedBuildIsDroppedQuietlyAndTheNewestDownloads() async throws {
+        let h = Base.make(ring: "nightly", replaceable: false, pulled: ["300"])
+        var downloads = 0
+        h.updater.acceptAvailable = { downloads += 1 }
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.cancels == 1, "pulled build 300 stayed staged")
+        #expect(h.sparkle.backgroundChecks == 1, "nothing looked for the newest good build")
+        #expect(h.updater.newestFetch == .stagedPulled)
 
-        let relaunched = Self.watch(list: Self.body([("300", "bad")]), kept: Self.kept, defaults: defaults)
-        await relaunched.refresh().value
-        #expect(relaunched.card == nil)
+        h.sparkle.staged = nil
+        for phase: UpdateIndicatorPhase in [.hidden, .checking] {
+            h.updater.debugIndicatorPhase = phase
+            #expect(h.updater.card == nil, "the quiet swap showed \(String(describing: h.updater.card))")
+        }
+        h.updater.debugIndicatorPhase = .available(version: "4.0.0")
+        #expect(downloads == 1, "the newest good build waits for a click")
+        h.updater.debugIndicatorPhase = .downloading(.starting)
+        #expect(h.updater.card == nil)
+        h.sparkle.staged = "400"
+        h.updater.debugIndicatorPhase = .ready(version: "4.0.0")
+        #expect(h.updater.newestFetch == nil)
+        #expect(h.updater.readyCard != nil, "the newest good build does not ask to restart")
+
+        // A later read of the list changes nothing: 400 is not pulled.
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.cancels == 1 && h.sparkle.backgroundChecks == 1)
     }
 
-    @Test func rollBackRunsTheDropBackToTheKeptBuildAndShowsAFailure() async {
-        let calls = Calls()
-        let watch = Self.watch(list: Self.body([("300", "bad")]), kept: Self.kept, rollBackFailure: "a store is too new", calls: calls)
-        await watch.refresh().value
+    /// With downloads asking first, a cached appcast offers the pulled build again on the update-found
+    /// step: it shows no card and no Update Available button, never downloads, and its Sparkle prompt
+    /// ends. A found build the list marks pulled later leaves the step the same way.
+    @Test func aFoundPulledBuildIsNeverOfferedOrDownloaded() async throws {
+        let h = Base.make(ring: "nightly", replaceable: false, pulled: ["300"])
+        var downloads = 0, dismissals = 0
+        var found: String? = "300"
+        h.updater.acceptAvailable = { downloads += 1 }
+        h.updater.availableBuild = { found }
+        h.updater.dismissAvailable = { dismissals += 1 }
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.updater.newestFetch == .stagedPulled)
 
-        watch.perform(.rollBack)
-        watch.perform(.rollBack) // a second press while one runs is ignored
-        for _ in 0..<50 where watch.rollbackFailure == nil { await Task.yield() }
+        h.sparkle.staged = nil
+        for phase: UpdateIndicatorPhase in [.hidden, .checking, .available(version: "3.0.0")] {
+            h.updater.debugIndicatorPhase = phase
+        }
+        #expect(downloads == 0, "pulled build 300 downloaded again")
+        #expect(h.updater.card == nil && h.updater.availableButton == nil, "pulled build 300 was offered")
+        #expect(dismissals >= 1, "pulled build 300's prompt stayed open")
+        #expect(h.updater.newestFetch == nil)
 
-        #expect(calls.asked == 1)
-        #expect(calls.rolledBackTo == ["200"])
-        #expect(watch.card == .pulled(reason: "a store is too new", rollbackVersion: "1.0.0-nightly.200"))
+        // Build 400 waits for a click; then the list marks it pulled.
+        found = "400"
+        h.updater.debugIndicatorPhase = .hidden
+        h.updater.debugIndicatorPhase = .available(version: "4.0.0")
+        #expect(h.updater.availableButton != nil)
+        let list = Self.body([("300", "crashed"), ("400", "crashed")])
+        h.updater.pulledWatch.fetch = { _ in list }
+        await h.updater.pulledWatch.refresh().value
+        h.updater.downloadClicked()
+        #expect(downloads == 0, "pulled build 400 downloaded")
+        #expect(h.updater.card == nil && h.updater.availableButton == nil, "pulled build 400 was offered")
     }
 
-    /// Roll Back quits into the kept build (`updates.rollback` is destructive), so it asks first:
-    /// Cancel runs nothing and leaves the banner as it was; a later confirmed press still runs.
-    @Test func rollBackAsksFirstAndCancelLeavesTheBanner() async {
-        let calls = Calls()
-        calls.confirms = false
-        let watch = Self.watch(list: Self.body([("300", "bad")]), kept: Self.kept, calls: calls)
-        await watch.refresh().value
-        let shown = watch.card
-
-        watch.perform(.rollBack)
-        for _ in 0..<50 { await Task.yield() }
-        #expect(calls.asked == 1)
-        #expect(calls.rolledBackTo.isEmpty)
-        #expect(watch.card == shown)
-        #expect(watch.rollbackFailure == nil)
-
-        calls.confirms = true
-        watch.perform(.rollBack)
-        for _ in 0..<50 where calls.rolledBackTo.isEmpty { await Task.yield() }
-        #expect(calls.asked == 2)
-        #expect(calls.rolledBackTo == ["200"])
+    /// A feed that stages the pulled build again (a cached appcast) never loops: it is dropped, and
+    /// nothing checks again until Sparkle's next scheduled check.
+    @Test func aPulledBuildStagedAgainIsDroppedWithoutAnotherCheck() async throws {
+        let h = Base.make(ring: "nightly", pulled: ["300"])
+        await h.updater.pulledWatch.refresh().value
+        h.updater.debugIndicatorPhase = .checking
+        h.updater.debugIndicatorPhase = .downloading(.starting)
+        h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
+        #expect(h.sparkle.cancels == 2)
+        #expect(h.sparkle.backgroundChecks == 1, "the pulled build was fetched again and again")
     }
 
-    /// With nobody to ask (no App presenter wired), Roll Back never runs.
-    @Test func rollBackWithNobodyToAskRunsNothing() async {
-        let calls = Calls()
-        let watch = Self.watch(list: Self.body([("300", "bad")]), kept: Self.kept, calls: calls, asks: false)
-        await watch.refresh().value
+    /// The running build (100) was pulled: the newest good build is fetched and downloads, the
+    /// card says so in one line with no button, and the Update Ready card asks before the relaunch.
+    @Test func aPulledRunningBuildUpdatesToTheNewestInOneLine() async throws {
+        let h = Base.make(ring: "nightly", replaceable: false, pulled: ["100"])
+        var downloads = 0
+        h.updater.acceptAvailable = { downloads += 1 }
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .hidden
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.backgroundChecks == 1, "the pulled running build looked for nothing newer")
+        #expect(h.sparkle.cancels == 0)
+        #expect(h.updater.card == .gettingNewest(nil, pulled: true))
+        let shown = try #require(h.updater.cardPresentation)
+        #expect(shown.title == UpdaterStrings.gettingNewest)
+        #expect(shown.detail == UpdaterStrings.runningBuildPulled)
+        #expect(shown.actions.isEmpty && shown.lines.isEmpty, "the pulled build still offers \(shown.actions)")
 
-        watch.perform(.rollBack)
-        for _ in 0..<50 { await Task.yield() }
-        #expect(calls.rolledBackTo.isEmpty)
-        #expect(watch.card == .pulled(reason: "bad", rollbackVersion: "1.0.0-nightly.200"))
+        h.updater.debugIndicatorPhase = .checking
+        h.updater.debugIndicatorPhase = .available(version: "3.0.0")
+        #expect(downloads == 1)
+        h.sparkle.staged = "300"
+        h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
+        #expect(h.updater.card == nil)
+        #expect(h.updater.readyCard != nil)
+
+        // Once per launch: a later read of the list starts nothing.
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .hidden
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.backgroundChecks == 1)
+    }
+
+    /// The running build (100) and the staged build (300) are both pulled, and the staged
+    /// installer is not this app's to cancel: the running build still looks for the newest good
+    /// build, once.
+    @Test func aPulledRunningBuildStillUpdatesWhenAPulledStagedBuildCannotBeDropped() async throws {
+        let h = Base.make(ring: "nightly", pulled: ["100", "300"])
+        h.updater.cancelStaged = { false }
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.backgroundChecks == 1, "the app stays on pulled build 100")
+        #expect(h.updater.newestFetch == .runningPulled)
+        h.updater.newestFetch = nil
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.backgroundChecks == 1, "the pulled running build looked twice")
+    }
+
+    @Test func aPulledBuildDoesNotDownloadFromAnOffManagedChannel() async {
+        let h = Base.make(ring: "nightly", pulled: ["100", "300"])
+        h.updater.applyManagedPolicy(channel: "stable", minimumVersion: nil)
+        var downloads = 0
+        h.updater.acceptAvailable = { downloads += 1 }
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.cancels == 1, "the pulled installer must still be cancelled")
+        #expect(h.sparkle.backgroundChecks == 0, "automatic recovery checked the forbidden nightly channel")
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .hidden
+        await h.updater.pulledWatch.refresh().value
+        h.updater.debugIndicatorPhase = .available(version: "4.0.0")
+        #expect(downloads == 0, "automatic recovery downloaded from the forbidden nightly channel")
+        #expect(h.updater.newestFetch == nil)
+    }
+
+    @Test func aPulledRunningAndStagedBuildKeepsTheRunningExplanation() async {
+        let h = Base.make(ring: "nightly", pulled: ["100", "300"])
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.cancels == 1)
+        #expect(h.sparkle.backgroundChecks == 1)
+        #expect(h.updater.newestFetch == .runningPulled)
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .checking
+        #expect(h.updater.card == .gettingNewest(nil, pulled: true))
+        #expect(h.updater.cardPresentation?.detail == UpdaterStrings.runningBuildPulled)
+    }
+
+    /// With nothing newer than the pulled running build on the feed, the check ends and nothing shows.
+    @Test func aPulledRunningBuildWithNothingNewerEndsQuietly() async throws {
+        let h = Base.make(ring: "nightly", pulled: ["100"])
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .hidden
+        await h.updater.pulledWatch.refresh().value
+        h.updater.debugIndicatorPhase = .checking
+        h.updater.debugIndicatorPhase = .hidden
+        #expect(h.updater.newestFetch == nil)
+        #expect(h.updater.card == nil)
     }
 }

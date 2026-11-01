@@ -76,16 +76,14 @@ export type Subagent = {
   agentId?: string;
   /// Where the harness says it works, from the call that started it: Claude's Agent call asked for
   /// a worktree of its own (`isolation: "worktree"`), the folder that call named (`cwd`), and the
-  /// worktree and branch its result reports (`worktreePath:`, `worktreeBranch:`). The Inspector's
-  /// Environment for the subagent reads them (inspector/subagentScope.ts).
+  /// worktree and branch its result reports (`worktreePath:`, `worktreeBranch:`). Session Info's
+  /// Environment for the subagent reads them (session-info/subagentScope.ts).
   isolated?: boolean;
   cwd?: string;
   worktree?: { path: string; branch?: string };
-  /// A shell call that started an agent of another family (`codex exec`, `acpmux run`;
-  /// agentRuns.ts) is that agent: its harness (its mark), its model and effort ("gpt-6-astra
-  /// xhigh"), the command as the call ran it, the acpmux session it made and the other machine it
-  /// runs on, and what it finally said (``runReply``) once it ended. `kind` is "Codex · gpt-6-astra
-  /// xhigh". It has no `prompt`: Restart and Stop are a Claude subagent's.
+  /// An acpmux child session explicitly recorded for a shell call: the protocol supplies its
+  /// harness, model and effort. Command text and stdout never establish session identity.
+  /// It has no `prompt`: Restart and Stop are a Claude subagent's.
   harness?: string;
   model?: string;
   effort?: string;
@@ -123,7 +121,16 @@ export type Event = { seq: number; at: number; msg?: any };
 type Step = { event: Event; update: any };
 /// The most `acpmux run --parent` calls waiting for their sub-session's start at once.
 const PENDING_CHILDREN = 16;
-type Group = { id: string; at: number; version: number; ids: string[] };
+type Group = { id: string; at: number; version: number; ids: string[]; seq?: number };
+type ChildIdentity = { name?: string; prompt?: string };
+type PendingParent = {
+  run: AgentRun;
+  command: string;
+  first: Step;
+  last?: Step;
+  identity: ChildIdentity;
+  ambiguous: boolean;
+};
 type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 
 /// Folds a session's subagent records out of its transcript. Subagents the session spawns
@@ -131,6 +138,15 @@ type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 /// own updates, their spawn and state events, and the tool calls that started them draw no row.
 export class SubagentFold {
   private readonly agents = new Map<string, Subagent>();
+  /// The event that first introduced each agent, retained for a late top-level promotion.
+  private readonly startedSeq = new Map<string, number>();
+  /// Replay can show a child's spawn before the sender's own spawn. Keep the
+  /// original record so the child can be moved under that sender later.
+  private readonly pending = new Map<string, Map<string, Event>>();
+  /// Native session ids that are the owning chat, rather than subagents. Codex collaboration
+  /// metadata names the issuing thread; keeping this identity across replay prevents an echoed
+  /// root update from becoming a child of the thread that happened to report it.
+  private readonly rootThreads = new Set<string>();
   private readonly groupOf = new Map<string, Group>();
   private readonly spawnCalls = new Set<string>();
   /// The subagent each spawning call started, by call id.
@@ -161,6 +177,10 @@ export class SubagentFold {
   /// pane knows it. It is never one of its subagents (``isChat``). Learned only after records that
   /// made it one were folded, the pane folds them again (direct.ts ``learnChatThread``).
   chat: string | undefined;
+  /// The acpmux session whose updates this folds (direct.ts sets the selected one). A Claude
+  /// subagent's lines stream under `<session>/<its Agent call>` (acpmux
+  /// claude_stdio/subagent_route.rs), which is also the id acpmux tags them with (``ownerOf``).
+  session: string | undefined;
   /// Every id a record named as a subagent, a parent or an owner (``names``).
   private readonly named = new Set<string>();
   /// The chat's harness (`claude`, `codex`, a profile such as `claude-sr2`), when the pane knows
@@ -173,17 +193,61 @@ export class SubagentFold {
   /// that read one: what such a read shows is the run's reply.
   private readonly runOutputs = new Map<string, string>();
   private readonly outputReads = new Map<string, string>();
-  /// A call started another family's agent while the chat's harness was not known: once it is,
-  /// the pane folds the records again (direct.ts ``learnChatThread``).
+  /// A parent-session call arrived while the chat's harness was unknown: once known, replay
+  /// can associate the call with an explicit child-session record.
   deferredRun = false;
   /// `acpmux run --parent` calls whose sub-session acpmux has not said started (``reduceChild``):
   /// what each runs, its first update and its newest. The oldest go past PENDING_CHILDREN.
-  private readonly parentCalls = new Map<string, { run: AgentRun; command: string; first: Step; last?: Step }>();
+  private readonly parentCalls = new Map<string, PendingParent>();
+  /// Active MCP starts can overlap a parent shell call. Completed starts leave an identity
+  /// tombstone because their child may still be queued and arrive after the call ends.
+  private readonly sessionStarts = new Map<string, ChildIdentity>();
+  private readonly retiredStarts: ChildIdentity[] = [];
   /// The run each sub-session is, by its session id; the runs whose reply acpmux recorded.
   private readonly children = new Map<string, string>();
   private readonly recorded = new Set<string>();
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
+
+  /// Seeds the native root before a persisted event window is replayed. A malformed historical
+  /// record can mention the root as a subagent, so this must happen before the first `apply`.
+  /// True when a record folded already named the root (``names``): the fold repaired its tree
+  /// here, and a pane that drew it folds again (direct.ts `seedRoots`).
+  setRoot(id: string | undefined): boolean {
+    if (typeof id !== "string" || id.length === 0 || this.rootThreads.has(id)) return false;
+    this.rootThreads.add(id);
+    const named = this.named.has(id);
+    this.resolvePending(id, null, true);
+    // A live update can arrive before the session summary. Remove that late phantom and promote
+    // anything it had already acquired so a later root seed repairs the in-memory tree too.
+    const phantom = this.agents.get(id);
+    if (phantom) this.dropPhantom(id);
+    // Children can name the root as parent without the root ever getting a row of its own.
+    const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
+    for (const agent of promoted) this.moveAgent(agent, null);
+    return named;
+  }
+  /// Removes a root thread that was folded as a subagent before its identity was known.
+  private dropPhantom(id: string): void {
+    const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
+    this.agents.delete(id);
+    this.startedSeq.delete(id);
+    const phantomGroup = this.groupOf.get(id);
+    this.groupOf.delete(id);
+    this.own.delete(id);
+    this.drawn.delete(id);
+    this.versions.delete(id);
+    for (const group of groups) {
+      if (!group.ids.includes(id)) continue;
+      group.ids = group.ids.filter((child) => child !== id);
+      this.changed.add(group);
+    }
+    if (phantomGroup) this.changed.add(phantomGroup);
+    // An open batch the phantom emptied is not reused: later workers start a group of their own,
+    // not the phantom's row and place.
+    if (this.open && this.open.ids.length === 0) this.open = undefined;
+    for (const parent of this.own.keys()) this.removeSpawn(parent, id);
+  }
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
   private readonly ended = new Set<string>();
@@ -201,15 +265,68 @@ export class SubagentFold {
 
   /// Folds one session/update record; true when it belongs to subagents and draws no row.
   reduce(event: Event, update: any): boolean {
+    const kind = update?.sessionUpdate;
+    const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+    const sessionStart = startsSession(update);
+    if (call && (sessionStart || this.sessionStarts.has(call))) {
+      if (kind === "tool_call" || (kind === "tool_call_update" && !isTerminal(update.status))) {
+        if (sessionStart) this.sessionStarts.set(call, sessionStart);
+        const identity = this.sessionStarts.get(call);
+        if (identity) this.markAmbiguous(identity);
+      } else if (isTerminal(update.status)) {
+        const identity = this.sessionStarts.get(call) ?? sessionStart;
+        this.sessionStarts.delete(call);
+        if (identity) this.retire(identity);
+      }
+    }
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
-    const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
+    // Codex puts its collaboration item on the session update itself. Keep the event-level
+    // fallback for older persisted records that lifted `_meta` beside `update`.
+    const collaboration = update?._meta?.codex?.collaboration ?? event.msg?.params?._meta?.codex?.collaboration;
+    const reporter = typeof collaboration?.senderThreadId === "string" ? collaboration.senderThreadId : undefined;
+    // Only a spawnAgent's sender is the parent of the threads it lists (Rust's codex_legacy); a
+    // `wait` or `closeAgent` names whoever waits, which says nothing of a worker it first meets.
+    const sender = collaboration?.tool === "spawnAgent" ? reporter : undefined;
+    const tag = typeof mux?.subagent === "string" ? mux.subagent : this.ownerOf(event.msg?.params?.sessionId);
     if (tag !== undefined) this.named.add(tag);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
-    for (const change of events) this.apply(change, event, spawn);
+    for (const change of events) {
+      if (typeof change?.id !== "string" || this.rootThreads.has(change.id)) continue;
+      const rootRepair =
+        typeof change.parent === "string" &&
+        this.rootThreads.has(change.parent) &&
+        (reporter === undefined || this.rootThreads.has(reporter));
+      const normalized =
+        sender === undefined
+          ? rootRepair
+            ? { ...change, parent: null, __rootRepair: true }
+            : change
+          : {
+              ...change,
+              parent: this.parentFor(sender, change.parent, change.id, event),
+              ...(rootRepair ? { __rootRepair: true } : {}),
+            };
+      const authoritative =
+        sender !== undefined &&
+        (this.rootThreads.has(sender) || (this.agents.has(sender) && this.canParent(change.id, sender)));
+      this.apply(normalized, event, spawn, authoritative);
+    }
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
     const owner = tag !== undefined && !this.isChat(tag) ? this.agents.get(tag) : undefined;
+    // A subagent's own `acpmux run --parent` never becomes one of the chat's calls, but its child
+    // comes to the chat's log too: it competes for the parent's child records, as a start_session does.
+    if (tag !== undefined && !this.isChat(tag) && call) this.reduceNestedRun(`${tag}\u0000${call}`, update);
+    // A tail page can start after the child's spawn. Its ownership tag still keeps its work
+    // out of the parent transcript; retain that work for its own view without inventing a
+    // lifecycle row. Later progress/spawn metadata supplies the child's identity as usual.
+    if (tag !== undefined && !this.isChat(tag) && !owner) {
+      const spawnCall = call !== undefined && this.spawnCalls.has(call);
+      if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
+        this.record(tag, { event, update });
+      return true;
+    }
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
@@ -246,10 +363,8 @@ export class SubagentFold {
       this.touch(owner);
       return true;
     }
-    const kind = update?.sessionUpdate;
     if (kind === "subagent_spawned" || kind === "subagent_state_update" || kind === "subagent_progress") return true;
     if (this.reduceRun(event, update)) return true;
-    const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
     if (call && this.spawnCalls.has(call)) {
       this.readSpawnCall(call, update);
       return true;
@@ -270,10 +385,8 @@ export class SubagentFold {
     return this.runs.has(call);
   }
 
-  /// A shell call of the chat's own that starts an agent of another family (agentRuns.ts), as that
-  /// agent: its start, its output (its reply, or that it went to the background) and how a
-  /// background one ended. True when the update was the agent's and draws no row. Its updates are
-  /// its own view, so opening it shows the command and all it printed.
+  /// A call becomes a session card only after `reduceChild` receives its explicit child-session
+  /// record. Parsing a command only locates a possible parent call; ordinary Bash stays a tool.
   private reduceRun(event: Event, update: any): boolean {
     const kind = update?.sessionUpdate;
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
@@ -282,12 +395,19 @@ export class SubagentFold {
     if (kind === "background_task_update") {
       const agent = known ? this.agents.get(known) : undefined;
       // A `--parent` call still waiting for its child's start that ended starts none.
-      if (!agent && ["completed", "failed", "stopped"].includes(update.state)) this.parentCalls.delete(call);
+      if (!agent && isTerminal(update.state)) {
+        this.retire(this.parentCalls.get(call)?.identity);
+        this.parentCalls.delete(call);
+        this.notRuns.add(call);
+      }
       if (!agent) return false;
       const state = update.state;
-      const failed = state === "failed" || (Number.isInteger(update.exitCode) && update.exitCode !== 0);
-      if (state === "completed" || state === "failed" || state === "stopped")
-        this.endRun(agent, failed ? "failed" : state === "stopped" ? "cancelled" : "completed", event.at);
+      // Every terminal state ends it (a timed-out run failed, a stopped one was cancelled): none
+      // leaves its card running.
+      const timedOut = String(state).startsWith("time");
+      const failed = state === "failed" || timedOut || (Number.isInteger(update.exitCode) && update.exitCode !== 0);
+      const cancelled = state === "stopped" || state === "cancelled";
+      if (isTerminal(state)) this.endRun(agent, failed ? "failed" : cancelled ? "cancelled" : "completed", event.at);
       return true;
     }
     if (kind !== "tool_call" && kind !== "tool_call_update") return false;
@@ -305,9 +425,12 @@ export class SubagentFold {
       // Drawn as the call until acpmux says its sub-session started. One that ended (not one moved
       // to the background) started none, or its start already came.
       pending.last = { event, update };
-      const ended = update.status === "failed" || update.status === "completed";
-      if (ended && !(update.status === "completed" && backgroundOutputPath(outputOf(update))))
+      const ended = isTerminal(update.status);
+      if (ended && !(update.status === "completed" && backgroundOutputPath(outputOf(update)))) {
+        this.retire(pending.identity);
         this.parentCalls.delete(call);
+        this.notRuns.add(call);
+      }
       return false;
     }
     const command = update?.rawInput?.command;
@@ -318,23 +441,27 @@ export class SubagentFold {
     // A sub-session of a chat (acpmux #25019): its records name its harness, even one the command
     // does not, and only this chat's own children come to its log.
     if (run?.parent !== undefined && this.harness) {
-      this.parentCalls.set(call, { run, command: line, first: { event, update } });
+      // Child names are made unique by the daemon, and prompts can be identical. Neither
+      // distinguishes concurrent shell starts, even after one call ends or fails.
+      const identity = runIdentity(run);
+      const ambiguous =
+        [...this.parentCalls.values()].some((pending) => identitiesOverlap(identity, pending.identity)) ||
+        [...this.sessionStarts.values()].some((start) => identitiesOverlap(identity, start)) ||
+        this.retiredStarts.some((start) => identitiesOverlap(identity, start));
+      for (const pending of this.parentCalls.values())
+        if (identitiesOverlap(identity, pending.identity)) pending.ambiguous = true;
+      this.parentCalls.set(call, { run, command: line, first: { event, update }, identity, ambiguous });
       for (const old of this.parentCalls.keys()) {
         if (this.parentCalls.size <= PENDING_CHILDREN) break;
+        this.retire(this.parentCalls.get(old)?.identity);
         this.parentCalls.delete(old);
+        this.notRuns.add(old);
       }
       return false;
     }
-    // Only another family's: both harnesses known and different (a chat whose harness is not known
-    // yet keeps its calls).
-    if (!run?.harness || !this.harness || harnessFamily(run.harness) === harnessFamily(this.harness)) {
-      // The pane folds again once it knows the chat's harness (direct.ts ``learnChatThread``).
-      if (run?.harness && !this.harness) this.deferredRun = true;
-      this.notRuns.add(call);
-      return false;
-    }
-    this.startRun(call, { event, update }, run, line);
-    return true;
+    if (run?.parent !== undefined && !this.harness) this.deferredRun = true;
+    this.notRuns.add(call);
+    return false;
   }
 
   /// The agent shell call `call` started, from its first update.
@@ -360,12 +487,13 @@ export class SubagentFold {
     };
     this.runs.set(call, agent.id);
     this.agents.set(agent.id, agent);
+    this.startedSeq.set(agent.id, event.seq);
     this.named.add(agent.id);
     this.turn.add(agent.id);
     // A foreground run ends with its call; the turn's end ends one whose end never came.
     if (!agent.background) this.called.add(agent.id);
     // Its own card in the transcript, where it started: never a batch with Claude's subagents.
-    const group: Group = { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [agent.id] };
+    const group: Group = { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [agent.id], seq: event.seq };
     this.groupOf.set(agent.id, group);
     this.open = undefined;
     this.updateRun(agent, event, update);
@@ -419,17 +547,27 @@ export class SubagentFold {
     // The call that named it (`-n`) or asked it what it was asked: never a guess, since a child the
     // start_session tool started meanwhile has the same parent. A call that says neither (its
     // prompt in a file) stays its command.
-    const name = text(record.shortName);
+    const name = daemonShortName(record.shortName);
     const asked = promptKey(record.prompt);
-    // A name is the surer of the two: any call it names wins over one only its prompt matches.
+    // A name is the surer of the two: a different explicit name cannot fall back to its prompt.
+    // The daemon allocates `base-2`, `base-3`, ... when a requested short name is taken. When a
+    // start requested that base, the suffix has no provenance in this record; never let it promote
+    // a shell call whose requested name happens to equal the renamed child. An explicit `-n fix-2`
+    // with no competing `fix` is its own name.
+    if (name && this.mayBeRenamed(name)) return undefined;
+    const identity = { name, prompt: asked };
+    if (this.retiredStarts.some((start) => identitiesOverlap(start, identity))) return undefined;
+    // The call's requested name in the daemon's spelling (`-n Alpha` claims `alpha`).
     const calls = [...this.parentCalls];
     const call =
-      calls.find(([, pending]) => name !== undefined && pending.run.session === name)?.[0] ??
-      calls.find(([, pending]) => asked !== undefined && promptKey(pending.run.prompt) === asked)?.[0];
+      calls.find(([, pending]) => name !== undefined && pending.identity.name === name)?.[0] ??
+      calls.find(
+        ([, pending]) => !pending.identity.name && asked !== undefined && pending.identity.prompt === asked,
+      )?.[0];
     const pending = call !== undefined ? this.parentCalls.get(call) : undefined;
-    if (call === undefined || !pending) return undefined;
+    if (call === undefined || !pending || pending.ambiguous) return undefined;
     this.parentCalls.delete(call);
-    const harness = text(record.harness) ?? pending.run.harness;
+    const harness = text(record.harness);
     if (!harness || !this.harness || harnessFamily(harness) === harnessFamily(this.harness)) {
       this.notRuns.add(call);
       return undefined;
@@ -437,12 +575,15 @@ export class SubagentFold {
     const model = text(record.model);
     const effort = text(record.effort);
     const prompt = pending.run.prompt ?? text(record.prompt);
-    const run = {
-      ...pending.run,
+    // Identity comes entirely from the session record, including absent metadata. CLI flags
+    // describe a requested run and cannot fill gaps in what the protocol actually observed.
+    const run: AgentRun = {
       harness,
       ...(model && { model }),
       ...(effort && { effort }),
       ...(prompt && { prompt }),
+      ...(name && { session: name }),
+      ...(text(record.host) && { host: text(record.host) }),
     };
     const agent = this.startRun(call, pending.first, run, pending.command);
     agent.child = child;
@@ -452,6 +593,51 @@ export class SubagentFold {
     this.children.set(child, agent.id);
     if (pending.last) this.updateRun(agent, pending.last.event, pending.last.update);
     return call;
+  }
+
+  /// A subagent's shell call (`key` is its tag and call id): while it runs, an `acpmux run --parent`
+  /// it made is a competing start; once it ends, its identity is a tombstone, since its child may
+  /// still arrive.
+  private reduceNestedRun(key: string, update: any): void {
+    const kind = update?.sessionUpdate;
+    if (kind !== "tool_call" && kind !== "tool_call_update") return;
+    if (!this.sessionStarts.has(key)) {
+      const command = update?.rawInput?.command;
+      if (typeof command !== "string" && !Array.isArray(command)) return;
+      const run = typeof command === "string" ? agentRun(command) : agentRunOf(command.map(String));
+      if (run?.parent === undefined) return;
+      this.sessionStarts.set(key, runIdentity(run));
+    }
+    const identity = this.sessionStarts.get(key)!;
+    if (isTerminal(update.status)) {
+      this.sessionStarts.delete(key);
+      this.retire(identity);
+    } else this.markAmbiguous(identity);
+  }
+
+  private markAmbiguous(identity: ChildIdentity): void {
+    for (const pending of this.parentCalls.values())
+      if (identitiesOverlap(identity, pending.identity)) pending.ambiguous = true;
+  }
+
+  /// `name` ends in `-N` and a pending, running or retired start requested it without that suffix.
+  private mayBeRenamed(name: string): boolean {
+    const base = /-\d+$/.test(name) ? name.replace(/-\d+$/, "") : undefined;
+    if (!base) return false;
+    const identities = [
+      ...[...this.parentCalls.values()].map((pending) => pending.identity),
+      ...this.sessionStarts.values(),
+      ...this.retiredStarts,
+    ];
+    return identities.some((identity) => identity.name === base);
+  }
+
+  private retire(identity: ChildIdentity | undefined): void {
+    // A start that said neither name nor prompt (`--prompt-file`) has nothing to compare: kept,
+    // it would overlap every later start forever.
+    if (!identity || (!identity.name && !identity.prompt)) return;
+    if (this.retiredStarts.some((start) => sameIdentity(start, identity))) return;
+    this.retiredStarts.push(identity);
   }
 
   private updateRun(agent: Subagent, event: Event, update: any): void {
@@ -519,6 +705,85 @@ export class SubagentFold {
     if (agent.state !== "running") this.forgetOutput(agent.id);
   }
 
+  private parentFor(sender: string, recordedParent: unknown, child: string, event: Event): string | null {
+    if (this.rootThreads.has(sender)) return null;
+    if (this.agents.has(sender)) return this.canParent(child, sender) ? sender : null;
+    if (!this.pending.has(sender)) this.pending.set(sender, new Map());
+    this.pending.get(sender)!.set(child, event);
+    const recorded =
+      typeof recordedParent === "string" && !this.rootThreads.has(recordedParent) ? recordedParent : undefined;
+    return recorded !== undefined && this.canParent(child, recorded) ? recorded : null;
+  }
+
+  /// Whether putting `child` under `parent` would close a lineage cycle.
+  private canParent(child: string, parent: string): boolean {
+    if (child === parent) return false;
+    let at: string | undefined = parent;
+    for (let i = 0; i <= this.agents.size; i += 1) {
+      if (at === child) return false;
+      at = this.agents.get(at)?.parent ?? undefined;
+      if (at === undefined) return true;
+    }
+    return false;
+  }
+
+  private forgetPending(child: string): void {
+    for (const [sender, pending] of this.pending) {
+      pending.delete(child);
+      if (pending.size === 0) this.pending.delete(sender);
+    }
+  }
+
+  private resolvePending(sender: string, parent: string | null, authoritative = false): void {
+    const pending = this.pending.get(sender);
+    if (!pending) return;
+    this.pending.delete(sender);
+    for (const [child, event] of pending) {
+      const agent = this.agents.get(child);
+      if (agent) {
+        if (authoritative) this.forgetPending(child);
+        this.moveAgent(agent, parent, event);
+      }
+    }
+  }
+
+  private removeSpawn(parent: string, child: string): void {
+    const entries = this.own.get(parent);
+    if (!entries) return;
+    const kept = entries.filter((entry) => entry.spawned !== child);
+    if (kept.length === entries.length) return;
+    this.own.set(parent, kept);
+    // ChildRowView consumes an append-only log; removing an entry resets its cursor and groups.
+    this.drawn.delete(parent);
+    this.bumpViewRevision(parent);
+    this.bump(parent);
+  }
+
+  private moveAgent(agent: Subagent, parent: string | null, event?: Event): void {
+    if (agent.parent === parent || (parent !== null && (!event || !this.canParent(agent.id, parent)))) return;
+    if (agent.parent !== null) this.removeSpawn(agent.parent, agent.id);
+    const previous = this.groupOf.get(agent.id);
+    if (previous) {
+      previous.ids = previous.ids.filter((child) => child !== agent.id);
+      previous.version += 1;
+      this.changed.add(previous);
+      this.groupOf.delete(agent.id);
+    }
+    agent.parent = parent;
+    if (parent === null) {
+      const group: Group = {
+        id: `${SUBAGENTS}-root-${agent.id}`,
+        at: agent.startedAt,
+        version: 0,
+        ids: [agent.id],
+        seq: this.startedSeq.get(agent.id),
+      };
+      this.groupOf.set(agent.id, group);
+      this.changed.add(group);
+    } else if (event) this.record(parent, { event, spawned: agent.id });
+    this.bump(agent.id);
+  }
+
   /// A turn starts: its stop ends the subagents spawned from here on.
   startTurn(): void {
     this.turn = new Set();
@@ -556,6 +821,7 @@ export class SubagentFold {
       id: group.id,
       version: group.version,
       at: group.at,
+      ...(group.seq !== undefined ? { seq: group.seq } : {}),
       kind: SUBAGENTS,
       subagents: group.ids.map((id) => ({ ...this.agents.get(id)! })),
     }));
@@ -699,8 +965,24 @@ export class SubagentFold {
   /// under its own session, and acpmux used to record that as a spawn: the chat became its
   /// own subagent, nested under that child, and every later subagent nested under the chat (Leo's
   /// staircase, 2026-10-22). Records written then still say so, so the fold reads them by lineage.
+  /// The subagent an untagged update streams under, from its own `sessionId`: a known subagent's
+  /// id, or the chat's session with a subagent part (`<session>/<Agent call>`). acpmux tags a
+  /// subagent's lines with that id, but a hub that just adopted its host lost its subagent tree
+  /// until the subagent's next progress event, and the lines between came untagged. Folded as the
+  /// chat's own, a background subagent's call drew as a "Running grep …" row under the finished
+  /// turn and never ended there, since its end came tagged (Leo, 2026-11-01: "why does it say
+  /// you're still running grep"). Its own view and the running tray show it instead.
+  private ownerOf(sessionId: unknown): string | undefined {
+    if (typeof sessionId !== "string" || sessionId.length === 0 || this.isChat(sessionId)) return undefined;
+    if (this.agents.has(sessionId)) return sessionId;
+    const session = this.session;
+    return session && sessionId.length > session.length + 1 && sessionId.startsWith(`${session}/`)
+      ? sessionId
+      : undefined;
+  }
+
   private isChat(id: string): boolean {
-    return id === this.chat;
+    return id === this.chat || this.rootThreads.has(id);
   }
 
   /// Whether a folded record named `id` as a subagent, a subagent's parent or an update's owner.
@@ -708,18 +990,22 @@ export class SubagentFold {
     return this.named.has(id);
   }
 
-  private apply(change: any, event: Event, spawn = true): void {
+  private apply(change: any, event: Event, spawn = true, authoritative = false): void {
     if (typeof change?.id !== "string") return;
     this.named.add(change.id);
     if (typeof change.parent === "string") this.named.add(change.parent);
     if (this.isChat(change.id)) return;
+    if (authoritative || change.__rootRepair) this.forgetPending(change.id);
     if (typeof change.toolCallId === "string") {
       this.spawnCalls.add(change.toolCallId);
       this.spawnedBy.set(change.toolCallId, change.id);
     }
     let agent = this.agents.get(change.id);
     if (!agent) {
-      const parent = typeof change.parent === "string" && !this.isChat(change.parent) ? change.parent : null;
+      const parent =
+        typeof change.parent === "string" && !this.isChat(change.parent) && this.canParent(change.id, change.parent)
+          ? change.parent
+          : null;
       const name = text(change.name) ?? text(change.task) ?? change.id;
       agent = {
         id: change.id,
@@ -732,14 +1018,17 @@ export class SubagentFold {
         startedAt: event.at,
       };
       this.agents.set(agent.id, agent);
+      this.startedSeq.set(agent.id, event.seq);
       if (spawn) this.turn.add(agent.id);
       if (typeof change.toolCallId === "string") this.called.add(agent.id);
       if (parent === null) {
-        this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
+        this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [], seq: event.seq };
         this.open.ids.push(agent.id);
         this.groupOf.set(agent.id, this.open);
       } else this.record(parent, { event, spawned: agent.id });
+      this.resolvePending(agent.id, agent.id);
     } else {
+      if (authoritative || change.__rootRepair) this.moveAgent(agent, change.parent, event);
       agent.name = text(change.name) ?? agent.name;
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;
@@ -866,10 +1155,14 @@ export class SubagentFold {
   }
 
   private bumpParentViews(id: string): void {
-    this.bumpViewRevision(id);
-    this.bump(id);
-    const parent = this.agents.get(id)?.parent;
-    if (parent !== null && parent !== undefined) this.bumpParentViews(parent);
+    // Historical records can make two agents each other's parent (an echoed root): walk once.
+    const seen = new Set<string>();
+    for (let at: string | null | undefined = id; typeof at === "string" && !seen.has(at);) {
+      seen.add(at);
+      this.bumpViewRevision(at);
+      this.bump(at);
+      at = this.agents.get(at)?.parent;
+    }
   }
 }
 
@@ -897,7 +1190,7 @@ export type SubagentsLeft = { state: "completed" | "cancelled" | "disconnected";
 /// Whom acpmux's record `kind` leaves running with no one to end them: a stopped turn's
 /// foreground subagents (`cancelled`; the harness keeps background ones running), a completed
 /// turn's foreground ones whose end the harness never sent (`completed`: the turn waited on them;
-/// they read running for good, Leo's Inspector counted 5 running with about 3 live), a turn the
+/// they read running for good, Leo's Session Info counted 5 running with about 3 live), a turn the
 /// daemon lost (`outcome_unknown`), or, when the agent process behind the chat went away or
 /// started again (an exit or stop, a reopen or resume, a new or ended host), every one, as
 /// acpmux's own process table reads those records (hub/processes.rs).
@@ -955,6 +1248,71 @@ const HARNESS_GONE = new Set(["exited", "stopped", "reopened", "resumed", "host_
 function promptKey(prompt: unknown): string | undefined {
   const start = typeof prompt === "string" ? prompt.replace(/\s+/g, " ").trim().slice(0, 60) : "";
   return start || undefined;
+}
+
+/// Both MCP servers expose start_session; Claude names the tool, Codex nests its arguments.
+/// An unknown server's identically named tool is conservatively a possible competing start.
+function startsSession(update: any): ChildIdentity | undefined {
+  const named = [update?._meta?.claude?.tool, update?.title, update?.rawInput?.tool].some(
+    (name) => typeof name === "string" && /(?:^|[_.])start_session(?: call)?$/.test(name),
+  );
+  if (!named) return undefined;
+  const input = update?.rawInput;
+  const args = input && typeof input.arguments === "object" && input.arguments !== null ? input.arguments : input;
+  return {
+    ...(daemonShortName(args?.name) && { name: daemonShortName(args.name) }),
+    ...(promptKey(args?.prompt) && { prompt: promptKey(args.prompt) }),
+  };
+}
+
+function runIdentity(run: AgentRun): ChildIdentity {
+  return {
+    ...(daemonShortName(run.session) && { name: daemonShortName(run.session) }),
+    ...(promptKey(run.prompt) && { prompt: promptKey(run.prompt) }),
+  };
+}
+
+/// A child record with no call id is safe to pair only when no other candidate could have
+/// produced the same name or prompt. Distinct explicit names are deterministic even with the
+/// same prompt; an absent name keeps prompt matching conservative.
+function identitiesOverlap(a: ChildIdentity, b: ChildIdentity): boolean {
+  if (a.name && b.name) return nameFamily(a.name) === nameFamily(b.name);
+  if (a.prompt && b.prompt) return a.prompt === b.prompt;
+  return true;
+}
+
+/// `claim_name` reserves the requested base then appends `-2`, `-3`, ...; compare the full
+/// rename family when call provenance is absent. Unrelated names such as alpha and beta remain
+/// independent, while alpha, alpha-2 and alpha-2-2 cannot be paired safely.
+function nameFamily(name: string): string {
+  return name.replace(/(?:-\d+)+$/, "");
+}
+
+/// Mirrors acpmux `short_name_of`: Unicode words, lowercased and joined by dashes, capped at
+/// forty characters. Matching the daemon's claimed spelling is required before family matching;
+/// raw request text (`Alpha`, `review/router`) is not protocol identity.
+function daemonShortName(value: unknown): string | undefined {
+  const source = text(value);
+  if (!source) return undefined;
+  let out = "";
+  for (const word of source.split(/[^\p{Letter}\p{Number}]+/u).filter(Boolean)) {
+    const lower = word.toLowerCase();
+    const next = out ? `${out}-${lower}` : lower;
+    if (Array.from(next).length > 40) {
+      if (!out) out = Array.from(next).slice(0, 40).join("");
+      break;
+    }
+    out = next;
+  }
+  return out || "task";
+}
+
+function sameIdentity(a: ChildIdentity, b: ChildIdentity): boolean {
+  return a.name === b.name && a.prompt === b.prompt;
+}
+
+function isTerminal(status: unknown): boolean {
+  return ["completed", "failed", "stopped", "cancelled", "timed_out", "timed-out", "timeout"].includes(String(status));
 }
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);

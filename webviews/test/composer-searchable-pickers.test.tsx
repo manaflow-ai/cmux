@@ -434,7 +434,10 @@ for (const query of ["atlas", "/demo/atlas"]) {
           icon={null}
           onPick={(cwd) => calls.push(cwd)}
           onNoProject={() => calls.push("none")}
-          onBrowse={() => calls.push("browse")}
+          onBrowse={() => {
+            calls.push("browse");
+            return undefined;
+          }}
         />,
       ),
     );
@@ -459,7 +462,10 @@ test("folder search Enter chooses its matching project instead of a pinned actio
         projectChoices={[{ cwd: "/demo/atlas", label: "atlas" }]}
         onProject={(cwd) => calls.push(cwd)}
         onNoProject={() => calls.push("none")}
-        onBrowseProject={() => calls.push("browse")}
+        onBrowseProject={() => {
+          calls.push("browse");
+          return undefined;
+        }}
       />,
     ),
   );

@@ -59,19 +59,27 @@ enum NewTabPage {
     /// The bar's suggestions: the open tabs and other workspaces a jump lands somewhere real on
     /// (``places(_:current:excluding:home:)``), the open tabs' folders (the current one first),
     /// and recent pages, newest first.
-    static func omnibar(_ services: AppServices, excluding selectedID: String?) -> AgentPaneOmnibar {
+    static func omnibar(_ services: AppServices, excluding selectedID: String?, paletteActions: Bool = true) -> AgentPaneOmnibar {
         let (tabs, workspaces, folders) = places(services, excluding: selectedID)
         let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
             AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
-        let actionIDs: Set<String> = ["palette.openCmuxSettingsFile", "keybindings.open"]
-        let actions = services.registry.descriptors.filter { actionIDs.contains($0.id.rawValue) }.map {
-            AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, keywords: $0.keywords)
-        }
+        // Every Commands palette (Cmd-Shift-P) action, from the palette's own rows (one source).
+        let actions = paletteActions ? Self.paletteActions(services) : []
         return AgentPaneOmnibar(
             tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history)
         )
+    }
+
+    /// Every Commands palette (Cmd-Shift-P) action as the bar lists it, from the palette's own rows.
+    static func paletteActions(_ services: AppServices) -> [AgentPaneOmnibar.Action] {
+        BenchSpans.measure("newTab.paletteActions") {
+            services.palette.commandEntries().map {
+                AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, detail: $0.section, keywords: $0.keywords,
+                                        keycaps: $0.keycaps.isEmpty ? nil : $0.keycaps)
+            }
+        }
     }
 
     /// One workspace as the bar reads it.
@@ -173,12 +181,12 @@ enum NewTabPage {
     /// `window` is where the page shows (the active one when nil; a panel counts as the window
     /// that owns it): its dots' last pick comes first, then the saved `tabs.newTabTemplate` (cx-l1jv).
     static func page(_ services: AppServices, selected: TabModel?, window: NSWindow? = nil,
-                     pane: PaneController? = nil) -> AgentPaneNewTab {
+                     pane: PaneController? = nil, paletteActions: Bool = true) -> AgentPaneNewTab {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
         // An SSH or Cloud tab's page shows that machine's folder, never this Mac's home (cx-gaq9).
         let machine = NewTabPageMachine(services, selected: selected, pane: pane)
-        var bar = omnibar(services, excluding: selectedID)
+        var bar = omnibar(services, excluding: selectedID, paletteActions: paletteActions)
         // A page on another machine offers that machine's folders only (cx-k21v).
         if let remote = machine.remoteFolders { (bar.folders, bar.projects) = (remote, remote) }
         return AgentPaneNewTab(
@@ -244,8 +252,8 @@ enum NewTabPage {
                 }.value
             },
             action: { [weak services] id in
-                guard let services else { return }
-                _ = services.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+                // As the palette runs its row: an action that needs arguments asks for them there.
+                services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
             }
         )
     }

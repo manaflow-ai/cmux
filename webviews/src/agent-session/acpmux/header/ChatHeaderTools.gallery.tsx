@@ -9,6 +9,8 @@ import { translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
+import type { NativeRowToolsHost } from "./useNativeRowTools";
+import { NeedsYouButton } from "../needsYou/NeedsYou";
 
 type HeaderToolsProps = {
   treatment?: { size: number; gap: number };
@@ -25,6 +27,8 @@ type HeaderToolsProps = {
   onPreview?: (url: string | undefined, mode: "toggle" | "open") => void;
   onCustomize?: (list: readonly QuickAction[]) => void;
   summary: ReactNode;
+  inbox?: ReactNode;
+  nativeRowTools?: NativeRowToolsHost;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<{ queued: boolean }>;
@@ -68,6 +72,7 @@ const menuRows = (): ChatMenuItem[] => [
       { key: "copyLink", label: "Copy link", shortcutAction: "palette.copySurfaceLink", onSelect: () => undefined },
       { key: "copyResponse", label: "Copy last response", onSelect: () => undefined },
       { key: "copyMarkdown", label: "Copy as Markdown", onSelect: () => undefined },
+      { key: "saveMarkdown", label: "Save as Markdown…", onSelect: () => undefined },
     ],
   },
   "separator",
@@ -142,9 +147,10 @@ const groupTreatment =
   };
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
-// just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
-// and the chat menu open, no header tool draws a border or shadow, and only a pressed one draws a fill:
-// the selection fill on its own square, hovered or not, so the open panel's toggle reads as on (Leo,
+// just being, you know, good"; 2026-10-31: "AND THE FUCKING BACKGROUND ON THIS FUCKING BUILD ON THESE
+// BUTTONS STILL ISN'T FUCKING REMOVESD"): with the right-side panel and Terminal's split open, Terminal
+// hovered and the chat menu open, no header tool draws a fill, a border or a shadow, pressed or not. A
+// pressed one reads as on by its lit ink alone, hovered or not, as the App's pane toolbar toggles do (Leo,
 // 2026-10-26: "why is the button not toggled?" / "i literally meant the ui depicting it as toggled or not").
 const plainIcons: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
@@ -155,22 +161,23 @@ const plainIcons: Play = async (ctx) => {
   const view = ctx.document.defaultView!;
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
   const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
-  if (clear(view.getComputedStyle(panel).backgroundColor))
-    throw new Error("the open panel toggle loses its selection fill on hover");
+  if (!clear(view.getComputedStyle(panel).backgroundColor))
+    throw new Error("the open panel toggle draws a plate on hover");
+  const litInk = view.getComputedStyle(panel).color;
   await ctx.hover({ role: "button", name: "Terminal" });
   await openMenu(ctx);
   await ctx.hover({ role: "menuitem", name: "Rename" });
   const menuButton = ctx.find({ role: "button", name: "Chat actions" });
   if (!menuButton.hasAttribute("data-popup-open")) throw new Error("the chat menu closed on pointer exit");
-  await ctx.waitFor(() => view.getComputedStyle(menuButton).color === view.getComputedStyle(panel).color);
+  // The open menu's trigger takes the text's ink, unlike a tool at rest (Browser is not pressed here).
+  const restInk = view.getComputedStyle(ctx.find({ selector: '[data-quick-action="browser"]' })).color;
+  await ctx.waitFor(() => view.getComputedStyle(menuButton).color !== restInk);
   for (const tool of tools) {
     const style = view.getComputedStyle(tool);
     const name = tool.getAttribute("aria-label");
     const pressed = tool.getAttribute("aria-pressed") === "true";
-    if (pressed === clear(style.backgroundColor))
-      throw new Error(
-        `header tool ${name} ${pressed ? "is pressed with no fill" : "draws a fill"}: ${style.backgroundColor}`,
-      );
+    if (!clear(style.backgroundColor)) throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    if (pressed && style.color !== litInk) throw new Error(`header tool ${name} is pressed without the lit ink`);
     if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
       throw new Error(`header tool ${name} draws a border`);
     if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);
@@ -329,6 +336,13 @@ const keyboardSubmenu: Play = async (ctx) => {
   });
 };
 
+const copySubmenu: Play = async (ctx) => {
+  await openMenu(ctx);
+  await ctx.focus({ role: "menuitem", name: "Copy" });
+  await ctx.press("ArrowRight");
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
+};
+
 // A Cloud chat's machine rows (cloudMachineMenu.ts), placed as the App places them: before Archive's group.
 const noop = () => undefined;
 const noCall = async () => undefined;
@@ -340,6 +354,13 @@ const withMachine = (machine: ChatMenuItem[]): ChatMenuItem[] => {
   const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
   return [...rows.slice(0, archive), ...machine, "separator", ...rows.slice(archive)];
 };
+
+const inbox = (
+  <NeedsYouButton
+    items={[]}
+    actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => undefined }}
+  />
+);
 
 const base: HeaderToolsProps = {
   onTerminal: () => undefined,
@@ -405,6 +426,27 @@ export default componentEntry<HeaderToolsProps>({
     },
   },
   variants: {
+    "native-row-off": {
+      note: "The default web toolbar: Summary, Needs You, quick actions and the chat menu remain web controls.",
+      props: { ...base, inbox },
+    },
+    "native-row-tools": {
+      note: "Native row tools opt-in: Summary and quick-action icons move to the native host. Needs You keeps its web button and anchored rich list; the chat menu stays web. No default changes.",
+      props: {
+        ...base,
+        inbox,
+        nativeRowTools: {
+          enabled: true,
+          callNative: async () => undefined,
+          panel: { id: "summary", label: "Summary", toggled: false, run: () => undefined },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
+        ctx.find({ selector: ".acpmux-needs-you-button" });
+        ctx.find({ role: "button", name: "Chat actions" });
+      },
+    },
     "unified-compact": {
       note: "Chosen: one 24px target on a 26px pitch, 16px SF Symbols in the app, overflow last. The selected panel glyph uses accent ink; only the hovered button changes its hover ink. Fits the shared 28px tab row.",
       props: {
@@ -665,6 +707,12 @@ export default componentEntry<HeaderToolsProps>({
       note: "Hand off to… opens with ArrowRight; Escape closes the submenu and then the parent menu.",
       props: base,
       play: keyboardSubmenu,
+    },
+    "menu-copy-submenu": {
+      height: 860,
+      note: "Copy opens with ArrowRight: Copy as Markdown puts the whole chat on the clipboard, and Save as Markdown… writes the same Markdown to a file the person picks.",
+      props: base,
+      play: copySubmenu,
     },
     "quick-chat": {
       note: "Quick Chat has no tab to split, so only the summary and chat actions remain.",

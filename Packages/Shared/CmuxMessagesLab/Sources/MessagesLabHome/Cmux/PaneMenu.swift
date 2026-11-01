@@ -40,7 +40,8 @@ extension ChatController {
             menu.addItem(.separator())
         }
         // cmux: tapbacks only while the owner takes them (`canReact`, false offline).
-        let canReact = intents?.canReact == true
+        let interactive = intents?.canInteract(with: ref.messageId) != false
+        let canReact = intents?.canReact == true && interactive
         if canReact {
             // MessagesLab 7518134: timed from the choosing input (PaneTapback.swift).
             TapbackMenuRows.items(current: current, react: { [weak self] in self?.chooseTapback(ref, $0) },
@@ -48,9 +49,11 @@ extension ChatController {
         }
         // Then (real order, macOS 27): Tapback Details…, Reply…, Attach Sticker…; Edit
         // (mine); Copy; Share…; Delete…, with separators between the groups.
-        menu.addItem(MenuAction(title: Strings.menuTapbackDetails, symbol: "plus.magnifyingglass") { [weak self] in self?.showTapbackDetails(hit) })
+        if interactive {
+            menu.addItem(MenuAction(title: Strings.menuTapbackDetails, symbol: "plus.magnifyingglass") { [weak self] in self?.showTapbackDetails(hit) })
+        }
         // cmux: Reply… only when the owner can take a reply (HomeOp has none yet, as SwipeReply).
-        if intents?.canReply == true {
+        if intents?.canReply == true && interactive {
             // cmux: Reply to Selection (plans/cmux-next/reply-to-selection-DESIGN.md): text selected in this
             // message is the reply's quote; Reply… still answers the whole message.
             if let quote = selectionQuote(at: hit) {
@@ -88,6 +91,9 @@ extension ChatController {
                 let playing = intents.videoState(ref) == .playing
                 menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
                                         symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
+                menu.addItem(MenuAction(title: CmuxStrings.viewVideoLarger, symbol: "arrow.up.left.and.arrow.down.right") { [weak self] in
+                    self?.intents?.openVideo(ref, a.id)
+                })
             }
             content.attachmentItems(name: a.fileName, resolve: attachmentResolver(ref.messageId, a.id)) { [weak self] in
                 self?.intents?.openAttachment(ref.messageId, a.id)

@@ -15,3 +15,9 @@ haptics, color, typography, and system component usage. When cmux deviates
 from the HIG deliberately, say so in the PR description and name the HIG page
 you checked. If you cannot fetch the page (offline sandbox), state that in the
 PR instead of guessing.
+
+## macOS and iOS parity
+
+The cmux-next parity rule is in the root `CLAUDE.md` ("macOS and iOS parity"). It applies
+to the cmux-next iPhone app (`cmux-next-ios/`) and the packages it uses here, not to classic
+`ios/`.

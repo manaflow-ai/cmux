@@ -2,6 +2,7 @@
 //! as its child and owns sign-in and the acpmux endpoint.
 //!
 //! stdin carries JSON lines from the app:
+//! - `{"type":"network_changed"}`: the Mac woke; re-register signaling and refresh live endpoints.
 //! - `{"type":"token","token":"<Stack access token>"}`: the access token to use
 //!   from now on. The app sends one at start and answers every `need_token`
 //!   (hostd asks whenever it needs one and its token is under a minute from
@@ -29,12 +30,15 @@
 //! stdout carries one JSON event per line for the app (logs go to stderr);
 //! [`Event`] lists them. Tokens never appear in either stream.
 
+use std::collections::HashMap;
 use std::io::Write;
-use std::sync::OnceLock;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, oneshot, watch};
+use tokio::time::{Duration, timeout};
 
 /// The acpmux WebSocket the app reported: URL and bearer token.
 pub type AcpmuxEndpoint = Option<(String, Option<String>)>;
@@ -43,6 +47,70 @@ static ENABLED: OnceLock<bool> = OnceLock::new();
 static DROPS: OnceLock<broadcast::Sender<String>> = OnceLock::new();
 static PHONE_CREDENTIALS: std::sync::Mutex<Option<std::collections::HashMap<String, Secret>>> =
     std::sync::Mutex::new(None);
+
+/// A current authenticated Cloud machine link supplied by the signed-in Mac
+/// app. Socket paths are never accepted from the phone.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct CloudLink {
+    pub machine_id: String,
+    pub team_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub socket: Option<PathBuf>,
+    #[serde(default)]
+    pub owner: bool,
+}
+
+#[derive(Default)]
+struct CloudLinkBroker {
+    next: std::sync::atomic::AtomicU64,
+    pending: Mutex<HashMap<u64, oneshot::Sender<Vec<CloudLink>>>>,
+}
+static CLOUD_LINKS: OnceLock<Arc<CloudLinkBroker>> = OnceLock::new();
+const MAX_CLOUD_LINK_REQUESTS: usize = 16;
+
+struct PendingCloudLink {
+    broker: Arc<CloudLinkBroker>,
+    request: u64,
+}
+impl Drop for PendingCloudLink {
+    fn drop(&mut self) {
+        self.broker.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.request);
+    }
+}
+fn cloud_link_broker() -> Arc<CloudLinkBroker> {
+    CLOUD_LINKS.get_or_init(|| Arc::new(CloudLinkBroker::default())).clone()
+}
+
+/// Request a fresh app-owned Cloud link snapshot. A response is single-use and
+/// expires quickly so a revoked link cannot be reused after sign-out.
+pub async fn request_cloud_links() -> Result<Vec<CloudLink>, &'static str> {
+    let broker = cloud_link_broker();
+    let request = broker.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_add(1);
+    let (sender, receiver) = oneshot::channel();
+    {
+        let mut pending = broker.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if pending.len() >= MAX_CLOUD_LINK_REQUESTS {
+            return Err("too many Cloud link requests");
+        }
+        pending.insert(request, sender);
+    }
+    let _pending = PendingCloudLink { broker: Arc::clone(&broker), request };
+    emit(&Event::NeedCloudLinks { request });
+    match timeout(Duration::from_secs(5), receiver).await {
+        Ok(Ok(links)) => Ok(links),
+        Ok(Err(_)) | Err(_) => Err("Cloud link snapshot unavailable"),
+    }
+}
+fn resolve_cloud_links(request: u64, links: Vec<CloudLink>) {
+    let links = links.into_iter().take(128).collect();
+    if let Some(sender) =
+        cloud_link_broker().pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&request)
+    {
+        let _ = sender.send(links);
+    }
+}
 
 /// The acpmux credential the app gave phone `phone_device_id` (`phone_credentials`), if any.
 pub fn phone_credential(phone_device_id: &str) -> Option<String> {
@@ -81,6 +149,8 @@ impl std::fmt::Debug for Secret {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inbound {
+    /// The Mac woke: refresh signaling and endpoints without dropping live links.
+    NetworkChanged,
     Token {
         token: String,
     },
@@ -135,6 +205,10 @@ pub enum Inbound {
     PhoneCredentials {
         credentials: std::collections::HashMap<String, Secret>,
     },
+    CloudLinks {
+        request: u64,
+        links: Vec<CloudLink>,
+    },
 }
 
 impl Inbound {
@@ -151,9 +225,15 @@ pub enum Event {
     /// Registering and opening the signaling socket.
     Connecting,
     /// Registered and holding the signaling socket: phones can dial.
-    Online { device_id: String, team_id: String },
+    Online {
+        device_id: String,
+        team_id: String,
+    },
     /// The last attempt failed or the socket closed; retrying after the delay.
-    Waiting { reason: String, retry_in_seconds: u64 },
+    Waiting {
+        reason: String,
+        retry_in_seconds: u64,
+    },
     /// The current access token is missing, about to expire, or was refused.
     NeedToken,
     /// The acpmux endpoint is missing or refused a connection (acpmux restarted).
@@ -163,14 +243,28 @@ pub enum Event {
     /// the person allows iPhone connections again (a new device id then).
     Removed,
     /// A phone's link is up.
-    PhoneUp { session_id: String, phone_device_id: String, transport: String, path: String },
+    PhoneUp {
+        session_id: String,
+        phone_device_id: String,
+        transport: String,
+        path: String,
+    },
     /// A phone's link moved to another path.
-    PhonePath { session_id: String, path: String },
+    PhonePath {
+        session_id: String,
+        path: String,
+    },
     /// A phone's WebRTC media session beside its WireGuard link `session_id`
     /// came up over `media_path` (`direct`, `turn`), or went away (`none`).
-    PhoneMedia { session_id: String, media_path: String },
+    PhoneMedia {
+        session_id: String,
+        media_path: String,
+    },
     /// A phone's link ended.
-    PhoneDown { session_id: String, reason: String },
+    PhoneDown {
+        session_id: String,
+        reason: String,
+    },
     /// A phone proved keys the Mac has not approved: ask the user.
     /// `registered_at_ms` (epoch milliseconds, absent when unknown) is when
     /// that phone device id first registered with the service, for the prompt.
@@ -187,18 +281,34 @@ pub enum Event {
         pair_token: Option<String>,
     },
     /// A paired phone signed out and asks the Mac to forget it.
-    Unpaired { phone_device_id: String },
+    Unpaired {
+        phone_device_id: String,
+    },
     /// A phone opened browser tab `tab`: start the app's browser host on
     /// `url` and answer with `browser` (or `browser_failed`) for `request`.
-    NeedBrowser { request: u64, tab: String, url: String },
+    NeedBrowser {
+        request: u64,
+        tab: String,
+        url: String,
+    },
     /// hostd no longer needs the browser host of `tab`: stop it.
-    BrowserStop { tab: String },
+    BrowserStop {
+        tab: String,
+    },
     /// A phone opened simulator surface tab `tab` (`s<surface>`, a phone tab
     /// of this Mac): start its frame source and answer with `surface` (or
     /// `surface_failed`) for `request`.
-    NeedSurface { request: u64, tab: String },
+    NeedSurface {
+        request: u64,
+        tab: String,
+    },
     /// hostd no longer needs the surface source of `tab`: stop it.
-    SurfaceStop { tab: String },
+    SurfaceStop {
+        tab: String,
+    },
+    NeedCloudLinks {
+        request: u64,
+    },
 }
 
 /// Writes `event` as one stdout line when supervised; otherwise nothing.
@@ -240,6 +350,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             match Inbound::parse(&line) {
+                Some(Inbound::NetworkChanged) => crate::netwatch::changed(),
                 Some(Inbound::Token { token }) => {
                     token_tx.send_replace(Some(token));
                 }
@@ -258,6 +369,7 @@ pub fn spawn_stdin_reader() -> Supplied {
                     devices_tx.send_replace(Some(trust));
                 }
                 Some(Inbound::PhoneCredentials { credentials }) => set_phone_credentials(credentials),
+                Some(Inbound::CloudLinks { request, links }) => resolve_cloud_links(request, links),
                 Some(Inbound::DropPhone { phone_device_id }) => {
                     let _ =
                         DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
@@ -338,6 +450,22 @@ mod tests {
         assert_eq!(
             Inbound::parse(r#"{"type":"browser_gone","tab":"s4"}"#),
             Some(Inbound::BrowserGone { tab: "s4".into() })
+        );
+        assert_eq!(Inbound::parse(r#"{"type":"network_changed"}"#), Some(Inbound::NetworkChanged));
+        assert_eq!(
+            Inbound::parse(
+                r#"{"type":"cloud_links","request":7,"links":[{"machine_id":"m","team_id":"t","name":"Cloud","socket":"/tmp/s","owner":true}]}"#
+            ),
+            Some(Inbound::CloudLinks {
+                request: 7,
+                links: vec![CloudLink {
+                    machine_id: "m".into(),
+                    team_id: "t".into(),
+                    name: "Cloud".into(),
+                    socket: Some("/tmp/s".into()),
+                    owner: true,
+                }]
+            })
         );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);

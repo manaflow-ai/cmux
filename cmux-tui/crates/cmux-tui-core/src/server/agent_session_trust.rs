@@ -140,7 +140,7 @@ pub(super) fn trust(
 }
 
 /// True when `surface` is an agent tab whose record names this store.
-fn own_agent_tab(mux: &Mux, surface: SurfaceId) -> bool {
+pub(super) fn own_agent_tab(mux: &Mux, surface: SurfaceId) -> bool {
     let Some(runtime) = mux.surface(surface) else { return false };
     matches!(
         mux.conversation_tab_of(&runtime),
@@ -166,6 +166,87 @@ pub(super) fn home_rule(cwd: &str, home_confirmed: bool) -> Result<(), Refusal> 
         return if home_confirmed { Ok(()) } else { Err(Refusal::HomeUnconfirmed) };
     }
     if home.starts_with(&cwd) { Err(Refusal::AboveHome) } else { Ok(()) }
+}
+
+/// Whether a call runs on the caller's own Cloud VM: the machine kind gate
+/// reads a Cloud VM and the caller's `vm_kind` is exactly `owner`, the Cloud API's
+/// answer for it, which it gives the machine's creator alone (also on a team
+/// VM, #28788). The machine kind gate ran before, so a word it refused never
+/// reaches here.
+pub(super) fn callers_own_cloud_vm(mux: &Mux, vm_kind: &Option<Option<String>>) -> bool {
+    vm_word(vm_kind) == Some("owner") && mux.control_clients.agent_sessions.starts.on_cloud_vm()
+}
+
+/// The folder a start on the caller's own Cloud VM runs in when no folder was
+/// selected. It is made per chat under `~/chats/<chat-id>` so separate chats
+/// never share state. An older caller that supplied the home folder without a
+/// confirmation is treated as the same no-folder choice; an explicitly chosen
+/// folder (including Use Home Folder) is preserved.
+pub(super) fn owner_cloud_cwd(
+    own: bool,
+    cwd: Option<&str>,
+    home_confirmed: bool,
+    chat_id: u64,
+) -> Option<String> {
+    if !own || home_confirmed {
+        return None;
+    }
+    let no_folder = match cwd {
+        None => true,
+        Some(cwd) => {
+            let home =
+                crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok());
+            home.zip(std::fs::canonicalize(cwd).ok()).is_some_and(|(home, cwd)| home == cwd)
+        }
+    };
+    no_folder
+        .then(|| super::agent_session_folders::own_chat_folder(chat_id, true))
+        .flatten()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// acpmux's trust answer (`acp.trust.get`) for the caller's own Cloud VM:
+/// the machine's own work folder (`$HOME/work`, exactly) is the person's, so
+/// with no decision of acpmux's and no agent holding it untrusted it reads
+/// trusted, as acpmux answers a folder cmux made (`decided`, `auto`:
+/// `cloud_work`), and a new chat there starts with no trust question. The
+/// rule widens an unknown only: a person's "Don't trust" (a decision) and an
+/// agent's own untrusted level still win, and it never applies to another
+/// folder, another machine or a caller without the owner word.
+pub(super) fn owner_cloud_trust(own: bool, mut answer: Value) -> Value {
+    if !own || answer.get("decided").and_then(Value::as_bool) == Some(true) {
+        return answer;
+    }
+    let untrusted = |name: &str| {
+        answer.pointer(&format!("/harnesses/{name}")).and_then(Value::as_str) == Some("untrusted")
+    };
+    if untrusted("claude") || untrusted("codex") {
+        return answer;
+    }
+    let canonical = |path: &str| std::fs::canonicalize(path).ok();
+    let work = super::agent_session_folders::own_work_folder(false);
+    let at_work = answer.get("cwd").and_then(Value::as_str).and_then(canonical);
+    let chat_root = crate::platform::home_dir().and_then(|home| {
+        std::fs::canonicalize(home)
+            .ok()
+            .map(|home| home.join(super::agent_session_folders::CHAT_FOLDER))
+    });
+    let at_chat = answer.get("cwd").and_then(Value::as_str).and_then(canonical);
+    let in_chat = chat_root.as_ref().is_some_and(|root| {
+        super::agent_session_folders::private_owned_dir(root)
+            && at_chat.as_ref().is_some_and(|path| {
+                path.parent() == Some(root) && super::agent_session_folders::private_owned_dir(path)
+            })
+    });
+    if (work.is_none() || at_work != work) && !in_chat {
+        return answer;
+    }
+    if let Some(object) = answer.as_object_mut() {
+        object.insert("level".into(), json!("trusted"));
+        object.insert("decided".into(), json!(true));
+        object.insert("auto".into(), json!(if in_chat { "cloud_chat" } else { "cloud_work" }));
+    }
+    answer
 }
 
 /// `agent_session.trust.get` and `agent_session.trust.set`: the verb for a
@@ -219,8 +300,11 @@ fn run(mux: &Mux, socket: &std::path::Path, params: &TrustParams) -> Result<Valu
         home_rule(&params.cwd, params.home_confirmed)?;
     }
     let link = connect(mux, socket)?;
+    let own = callers_own_cloud_vm(mux, &params.vm_kind);
     let result = match &params.level {
-        None => link.call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT),
+        None => link
+            .call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT)
+            .map(|answer| owner_cloud_trust(own, answer)),
         Some(level) => {
             link.call("acp.trust.set", json!({"cwd": params.cwd, "level": level}), CALL_TIMEOUT)
         }

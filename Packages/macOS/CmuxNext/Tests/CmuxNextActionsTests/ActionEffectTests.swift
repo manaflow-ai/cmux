@@ -119,7 +119,7 @@ import Testing
             onNotice?()
         }
         registry.bindEffect("test.rename") { _ in
-            ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure("cancelled")) {
+            registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure("cancelled")) {
                 interactiveRefusalCapture = registry.isCapturingRefusal
                 return ActionWorkFailure("create failed")
             }

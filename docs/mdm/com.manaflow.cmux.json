@@ -6,7 +6,8 @@
       "description" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
       "enum" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "title" : "Attachment View",
       "type" : "string"
@@ -89,6 +90,27 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.rail.side" : {
+      "default" : "left",
+      "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
+    "agentPane.display.transcriptView" : {
+      "default" : "normal",
+      "description" : "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
+      "enum" : [
+        "normal",
+        "thinking",
+        "verbose"
+      ],
+      "title" : "Transcript View",
+      "type" : "string"
+    },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
       "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
@@ -160,6 +182,16 @@
       "title" : "Needs You",
       "type" : "boolean"
     },
+    "agentPane.newChatsIn" : {
+      "default" : "local",
+      "description" : "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+      "enum" : [
+        "local",
+        "cloud"
+      ],
+      "title" : "Start New Chats In",
+      "type" : "string"
+    },
     "agentPane.scrollToBottomOnSend" : {
       "default" : true,
       "description" : "When off, sending while you are reading up keeps your place and shows new messages below.",
@@ -176,6 +208,12 @@
       "default" : true,
       "description" : "The microphone beside Send in every composer, including the New Tab page.",
       "title" : "Show Dictation Button",
+      "type" : "boolean"
+    },
+    "agentPane.showMachineLoadWarnings" : {
+      "default" : true,
+      "description" : "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu.",
+      "title" : "Show Machine Load Warnings",
       "type" : "boolean"
     },
     "agentPane.spellChecking" : {
@@ -251,7 +289,7 @@
       "type" : "boolean"
     },
     "agents.subsessions.maxChildren" : {
-      "default" : 50,
+      "default" : 1000,
       "description" : "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
       "maximum" : 1000,
       "minimum" : 1,
@@ -267,7 +305,7 @@
       "type" : "number"
     },
     "agents.subsessions.maxRunning" : {
-      "default" : 16,
+      "default" : 1000,
       "description" : "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
       "maximum" : 1000,
       "minimum" : 1,
@@ -402,7 +440,7 @@
     },
     "appearance.appTheme" : {
       "default" : "followTerminal",
-      "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+      "description" : "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast.",
       "title" : "App Theme",
       "type" : "string"
     },
@@ -996,6 +1034,13 @@
       "title" : "Sidebar Width",
       "type" : "number"
     },
+    "appearance.metrics.tabFontSize" : {
+      "description" : "Text size of tab titles. Unset, tabs follow the interface size.",
+      "maximum" : 18,
+      "minimum" : 10,
+      "title" : "Tab Text Size",
+      "type" : "number"
+    },
     "appearance.metrics.tabMaxWidth" : {
       "description" : "Widest a tab gets when the strip has room.",
       "maximum" : 320,
@@ -1022,6 +1067,13 @@
       "maximum" : 120,
       "minimum" : 24,
       "title" : "Pinned Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabStripHeight" : {
+      "description" : "Height of a pane's tab bar. Its tabs grow and shrink with it.",
+      "maximum" : 44,
+      "minimum" : 22,
+      "title" : "Tab Bar Height",
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
@@ -1290,7 +1342,7 @@
       "type" : "number"
     },
     "appearance.theme" : {
-      "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+      "description" : "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it.",
       "title" : "Theme",
       "type" : "string"
     },
@@ -1410,6 +1462,12 @@
       "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
     },
+    "browser.import.cookieBanner" : {
+      "default" : true,
+      "description" : "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+      "title" : "Offer to Import Cookies",
+      "type" : "boolean"
+    },
     "browser.import.enabled" : {
       "default" : true,
       "description" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -1524,6 +1582,15 @@
       "title" : "Address Bar Corners",
       "type" : "string"
     },
+    "browser.omnibar.fontSize" : {
+      "default" : "density",
+      "description" : "The size of the address and the suggestions. Match Density follows the density. Also accepts a number from 10 to 24 in a raw profile.",
+      "enum" : [
+        "density"
+      ],
+      "title" : "Address Bar Text Size",
+      "type" : "string"
+    },
     "browser.omnibar.glass" : {
       "default" : "off",
       "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
@@ -1554,6 +1621,15 @@
       "minimum" : 0,
       "title" : "Tint Strength",
       "type" : "number"
+    },
+    "browser.omnibar.height" : {
+      "default" : "density",
+      "description" : "Match Density follows the density. The bar always grows to fit its text. Also accepts a number from 20 to 56 in a raw profile.",
+      "enum" : [
+        "density"
+      ],
+      "title" : "Address Bar Height",
+      "type" : "string"
     },
     "browser.omnibar.inlineAutocomplete" : {
       "default" : true,
@@ -1748,6 +1824,22 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "cloud.newWorkspaceFolder" : {
+      "default" : "inherit",
+      "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
+      "enum" : [
+        "inherit",
+        "empty"
+      ],
+      "title" : "New Cloud Workspaces Start In",
+      "type" : "string"
+    },
+    "cloud.newWorkspacesInCloud" : {
+      "default" : false,
+      "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+      "title" : "Run New Workspaces in Cloud",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -1768,6 +1860,12 @@
       "default" : true,
       "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
       "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "contextMenus.showCustomizeItem" : {
+      "default" : true,
+      "description" : "Adds Customize Menu… to the end of every right-click menu.",
+      "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
     "deviceHub.url" : {
@@ -3603,7 +3701,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.delay" : {
-      "default" : 1300,
+      "default" : 400,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -3837,6 +3935,12 @@
       "title" : "Mark This Mac's Workspaces",
       "type" : "boolean"
     },
+    "sidebar.showNewWorkspaceChooser" : {
+      "default" : false,
+      "description" : "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
+      "title" : "Show New Workspace Menu Button",
+      "type" : "boolean"
+    },
     "sidebar.showProfileControl" : {
       "default" : true,
       "description" : "sidebar.showProfileControl",
@@ -3865,12 +3969,6 @@
       "default" : false,
       "description" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does.",
       "title" : "Show Timestamps",
-      "type" : "boolean"
-    },
-    "sidebar.showWorkspaceTabs" : {
-      "default" : true,
-      "description" : "Lists tabs beneath each workspace in the sidebar.",
-      "title" : "Show Workspace Tabs",
       "type" : "boolean"
     },
     "sidebar.side" : {
@@ -3927,6 +4025,17 @@
         "rail"
       ],
       "title" : "Sidebar Style",
+      "type" : "string"
+    },
+    "sidebar.textSize" : {
+      "default" : "default",
+      "description" : "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+      "enum" : [
+        "default",
+        "large",
+        "larger"
+      ],
+      "title" : "Sidebar Text Size",
       "type" : "string"
     },
     "sidebar.topBandMaxShare" : {
@@ -4444,6 +4553,12 @@
       "title" : "Command-1 to 9 Select",
       "type" : "string"
     },
+    "tabs.nativeNewTabPage" : {
+      "default" : false,
+      "description" : "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
+      "title" : "Native New Tab Page",
+      "type" : "boolean"
+    },
     "tabs.newTabNowPlaying" : {
       "default" : false,
       "description" : "A player for what is playing, on the New Tab page.",
@@ -4468,7 +4583,6 @@
         "minimal",
         "cards",
         "default",
-        "composer",
         "threads",
         "console",
         "classic",
@@ -4591,12 +4705,6 @@
       "default" : false,
       "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
       "title" : "Swap Cmd-T and Cmd-N",
-      "type" : "boolean"
-    },
-    "tabs.terminalFirst" : {
-      "default" : false,
-      "description" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
-      "title" : "cmux Classic Mode",
       "type" : "boolean"
     },
     "tabs.toolbarButtons" : {
@@ -4872,6 +4980,12 @@
       "title" : "When an Update Is Ready",
       "type" : "string"
     },
+    "updates.showFeatureTips" : {
+      "default" : true,
+      "description" : "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
+      "title" : "Show Feature Tips",
+      "type" : "boolean"
+    },
     "updates.showWhatsNew" : {
       "default" : true,
       "description" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
@@ -4909,6 +5023,17 @@
       "title" : "Titlebar Buttons",
       "type" : "string"
     },
+    "workspaceColors.indicatorStyle" : {
+      "default" : "dot",
+      "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+      "enum" : [
+        "dot",
+        "leftRail",
+        "fill"
+      ],
+      "title" : "Workspace Color Style",
+      "type" : "string"
+    },
     "workspaces.autoArchive.idleDays" : {
       "default" : 3,
       "description" : "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive.",
@@ -4918,7 +5043,7 @@
       "type" : "number"
     },
     "workspaces.autoArchive.style" : {
-      "default" : "suggest",
+      "default" : "manual",
       "description" : "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
       "enum" : [
         "suggest",

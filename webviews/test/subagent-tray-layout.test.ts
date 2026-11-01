@@ -24,5 +24,8 @@ test("the bottom-stack tray's floor is its one row, not the stack's taller row",
   const floors = rules.flatMap((rule) =>
     [...rule.matchAll(/min-height:\s*([^;]+);/g)].map((match) => match[1]!.trim()),
   );
-  expect(floors.at(-1)).toBe("var(--ds-control-row, 28px)");
+  expect(floors.at(-1)).toBe("var(--ui-row-height, var(--ds-control-row, 28px))");
+  // The header is one row at every width (its time follows its counts), so a narrow tray keeps the
+  // same one-row floor: no strip of glass under a folded header.
+  expect(bottomStack).not.toMatch(/\.acpmux-dock\s*>\s*\.acpmux-running-tray\[data-narrow\]/);
 });

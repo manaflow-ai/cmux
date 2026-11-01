@@ -245,7 +245,7 @@ class WorkflowTests(unittest.TestCase):
         # Last in the job, never failing it, and reported by report-nightly-failure.
         self.assertNotIn("\n      - ", job[readback + 1:])
         step = job[readback:]
-        self.assertIn("if: always() && steps.recheck.outputs.already_published != 'true' && steps.upload_next_appcasts.outcome == 'success'", step)
+        self.assertIn("if: always() && steps.recheck.outputs.already_published != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true'", step)
         self.assertIn("continue-on-error: true", step)
         self.assertIn("nightly_next_live_feed_check.py", step)  # the step runs publish-next-feed-readback.sh
         self.assertIn("feed_check: ${{ steps.feedcheck.outcome }}", job)

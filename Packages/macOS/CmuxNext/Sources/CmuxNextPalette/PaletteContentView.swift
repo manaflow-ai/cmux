@@ -42,6 +42,7 @@ final class PaletteContentView: NSView {
     private var appliedScroll = -1
     private var appliedPage = -1
     private var appliedSize = CGSize.zero
+    private var appliedTextSizes = PaletteLayout.textSizes
     private var menuHeight: CGFloat = 0
     private var actionsMenuFadingOut = false
 
@@ -99,6 +100,7 @@ final class PaletteContentView: NSView {
         searchBar.onQueryChange = { model.query = $0 }
         searchBar.onPopTo = { model.pop(to: $0) }
         searchBar.onKeywordHint = { model.handle(.openActions) }
+        searchBar.onRemoveToken = { model.removeToken(at: $0) }
         list.onHover = { model.hover($0) }
         list.onPointerMove = { model.pointerMoved(over: $0) }
         list.onActivate = { model.activate(rowID: $0) }
@@ -121,7 +123,7 @@ final class PaletteContentView: NSView {
         }
     }
 
-    private func render() {
+    func render() {
         // Read every tracked input up front so tracking sees all of them.
         let resultsVersion = model.resultsVersion
         let sections = model.sections
@@ -132,6 +134,7 @@ final class PaletteContentView: NSView {
         let menuState = model.actionsMenu
         let recorderState = model.shortcutRecorder
         let size = PaletteLayout.windowSize
+        let textSizes = PaletteLayout.textSizes
 
         if resultsVersion != appliedResults {
             appliedResults = resultsVersion
@@ -160,7 +163,8 @@ final class PaletteContentView: NSView {
             rootTitle: model.navigation.graph.root.title,
             style: model.chipStyle,
             keywordHint: model.keywordHint?.title,
-            isLoading: model.isLoading
+            isLoading: model.isLoading,
+            tokens: model.pageTokens
         )
         footer.update(
             pageTitle: model.prefixHints ?? model.pageTitle,
@@ -181,6 +185,14 @@ final class PaletteContentView: NSView {
         }
         updateMenu(menuState)
         updateRecorder(recorderState)
+        if textSizes != appliedTextSizes {
+            // Labels keep the font they were made with; a text size or density change while the
+            // palette exists resizes them (#26606).
+            appliedTextSizes = textSizes
+            refreshPaletteFonts()
+            list.reloadRows()
+            needsLayout = true
+        }
         if size != appliedSize {
             appliedSize = size
             list.relayoutRows()

@@ -42,7 +42,6 @@ import {
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
-  VmUsageLimitExceededError,
   isVmCreateDisabledError,
   vmWorkflowErrorCause,
 } from "../services/vms/errors";
@@ -3564,6 +3563,7 @@ describe("VM Effect workflows", () => {
     let providerImageSize: { name: string; cpu: number; memoryMb: number; storageMb: number } | null = null;
     let usageEventAttempts = 0;
     const repo: VmRepositoryShape = {
+      countSavedUserVms: () => Effect.succeed(0),
       listUserVms: () => Effect.succeed([]),
       claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
       markBillingGrantApplied: () => Effect.void,
@@ -3654,7 +3654,38 @@ describe("VM Effect workflows", () => {
     expect(usageEventAttempts).toBe(2);
   });
 
-  dbTest("preflights Go runtime before replacing a destroyed idempotent row", async () => {
+  dbTest.each([
+    { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
+    { name: "md", cpu: 4, memoryMb: 8192, storageMb: 32768 },
+    { name: "lg", cpu: 8, memoryMb: 16384, storageMb: 65536 },
+  ])("Plus provisions the requested Pro size: $name", async (imageSize) => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = `plus-size-${imageSize.name}`;
+    let requestedSize: unknown;
+    const provider = {
+      ...unusedProviderGateway(),
+      create: (_provider: unknown, options: { imageSize?: unknown }) => Effect.sync(() => {
+        requestedSize = options.imageSize;
+        return testVmHandle({ providerVmId: `plus-provider-${imageSize.name}` });
+      }),
+    };
+    await Effect.runPromise(createVm({
+      userId, billingCustomerType: "user", billingTeamId: userId,
+      billingPlanId: "go", maxActiveVms: 1, provider: "freestyle",
+      image: "snapshot-plus", imageSize, memoryMb: imageSize.memoryMb,
+    }).pipe(Effect.provide(providerLayer(provider))));
+    expect(requestedSize).toEqual(imageSize);
+    const [row] = await sql<{ id: string; status: string }[]>`select id, status from cloud_vms where user_id = ${userId}`;
+    expect(row.status).toBe("running");
+    await sql`update cloud_vms set status = 'paused' where user_id = ${userId}`;
+    // Resuming an existing machine does not claim a second saved-machine slot.
+    const reserved = await Effect.runPromise(vmRepositoryLiveShape.reservePausedResume({
+      id: row.id, userId, billingTeamId: userId, providerVmId: `plus-provider-${imageSize.name}`, maxActiveVms: 1,
+    }));
+    expect(reserved?.status).toBe("running");
+  });
+
+  dbTest("replaces a destroyed Plus idempotent row without a billing-period or hour gate", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
@@ -3674,7 +3705,7 @@ describe("VM Effect workflows", () => {
       ...unusedProviderGateway(),
       create: () => Effect.sync(() => {
         createCalls += 1;
-        return testVmHandle({ providerVmId: "provider-vm-should-not-start" });
+        return testVmHandle({ providerVmId: "provider-vm-starter-replacement" });
       }),
     };
 
@@ -3687,26 +3718,24 @@ describe("VM Effect workflows", () => {
         maxActiveVms: 1,
         provider: "freestyle",
         image: "snapshot-go",
-        // Default Go creates carry the fixed Go shape (the route sends the
-        // image selection's size). Without it the shape check rejects the
-        // request before the runtime allowance is read, and this test would
-        // not reach it.
+        // Match a supported Plus image sent by the create route so this
+        // exercises replacement admission without any subscription period.
         imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
         idempotencyKey: "go-destroyed-retry",
       }).pipe(Effect.provide(providerLayer(provider))),
     ));
 
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") expect(result.left).toBeInstanceOf(VmUsageLimitExceededError);
-    expect(createCalls).toBe(0);
+    expect(result._tag).toBe("Right");
+    if (result._tag === "Right") expect(result.right.providerVmId).toBe("provider-vm-starter-replacement");
+    expect(createCalls).toBe(1);
 
     const rows = await sql<{ status: string }[]>`
       select status
       from cloud_vms
       where billing_team_id = 'team-workflow-go-destroyed-retry'
     `;
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.status).toBe("destroyed");
+    // The replacement is retained alongside the destroyed machine's history.
+    expect(rows.map((row) => row.status).sort()).toEqual(["destroyed", "running"]);
   });
 
   test("create configures the first guest prompt with the stored display name", async () => {
@@ -5712,12 +5741,12 @@ describe("VM Effect workflows", () => {
     expect(createCalls).toBe(0);
   });
 
-  dbTest("does not count paused VMs against the active billing team limit", async () => {
+  dbTest("counts paused machines against Pro’s five-machine limit and frees a slot only on delete", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-paused-slot-old', 'team-workflow-paused-slot', 'free', 'freestyle', 'provider-vm-paused-old', 'snapshot-test', 'paused')
+      select 'user-workflow-paused-slot-old', 'team-workflow-paused-slot', 'pro', 'freestyle', 'provider-vm-paused-' || n, 'snapshot-test', 'paused' from generate_series(1,5) n
     `;
 
     let createCalls = 0;
@@ -5746,19 +5775,23 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
+    const attempt = () => Effect.runPromise(
       createVm({
         userId: "user-workflow-paused-slot-new",
         billingCustomerType: "team",
         billingTeamId: "team-workflow-paused-slot",
-        billingPlanId: "free",
-        maxActiveVms: 1,
+        billingPlanId: "pro",
+        maxActiveVms: 5,
         provider: "freestyle",
         image: "snapshot-test",
         idempotencyKey: "paused-slot-new",
       }).pipe(Effect.provide(providerLayer(provider))),
     );
 
+    await expect(attempt()).rejects.toThrow();
+    expect(createCalls).toBe(0);
+    await sql`update cloud_vms set status = 'destroyed' where provider_vm_id = 'provider-vm-paused-1'`;
+    const created = await attempt();
     expect(created.providerVmId).toBe("provider-vm-paused-new");
     expect(createCalls).toBe(1);
     expect(statusCalls).toBe(0);
@@ -6084,7 +6117,7 @@ describe("VM Effect workflows", () => {
     expect(createCalls).toBe(1);
   });
 
-  dbTest("refreshes Freestyle running rows before active limit enforcement", async () => {
+  dbTest("refreshes Freestyle running rows before saved limit refusal", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
@@ -6118,7 +6151,7 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
+    const error = await Effect.runPromise(
       createVm({
         userId: "user-workflow-provider-paused-new",
         billingCustomerType: "team",
@@ -6128,12 +6161,12 @@ describe("VM Effect workflows", () => {
         provider: "freestyle",
         image: "snapshot-test",
         idempotencyKey: "provider-paused-new",
-      }).pipe(Effect.provide(providerLayer(provider))),
+      }).pipe(Effect.flip, Effect.provide(providerLayer(provider))),
     );
 
-    expect(created.providerVmId).toBe("provider-vm-provider-paused-new");
+    expect(error).toBeInstanceOf(VmLimitExceededError);
     expect(statusCalls).toBe(1);
-    expect(createCalls).toBe(1);
+    expect(createCalls).toBe(0);
 
     const [oldVm] = await sql<{ status: string }[]>`
       select status from cloud_vms
@@ -6221,7 +6254,7 @@ describe("VM Effect workflows", () => {
     expect(destroyedUsageCount).toBe("1");
   });
 
-  dbTest("refreshes Freestyle running rows concurrently before active limit enforcement", async () => {
+  dbTest("refreshes Freestyle running rows concurrently before saved limit refusal", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
@@ -6263,7 +6296,7 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
+    const error = await Effect.runPromise(
       createVm({
         userId: "user-workflow-provider-concurrent-new",
         billingCustomerType: "team",
@@ -6273,13 +6306,13 @@ describe("VM Effect workflows", () => {
         provider: "freestyle",
         image: "snapshot-test",
         idempotencyKey: "provider-concurrent-new",
-      }).pipe(Effect.provide(providerLayer(provider))),
+      }).pipe(Effect.flip, Effect.provide(providerLayer(provider))),
     );
 
-    expect(created.providerVmId).toBe("provider-vm-provider-concurrent-new");
+    expect(error).toBeInstanceOf(VmLimitExceededError);
     expect(statusCalls).toBe(2);
     expect(maxInFlight).toBe(2);
-    expect(createCalls).toBe(1);
+    expect(createCalls).toBe(0);
 
     const [{ oldRunningCount }] = await sql<{ oldRunningCount: string }[]>`
       select count(*)::text as "oldRunningCount" from cloud_vms
@@ -8154,6 +8187,7 @@ function testWorkflowRepo(input: {
   }>;
 }): VmRepositoryShape {
   return {
+    countSavedUserVms: () => Effect.succeed(0),
     listUserVms: () => Effect.succeed([]),
     setDisplayName: () => Effect.succeed(true),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),

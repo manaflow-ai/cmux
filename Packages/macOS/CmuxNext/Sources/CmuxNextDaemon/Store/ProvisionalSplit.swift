@@ -69,16 +69,64 @@ import Foundation
     }
 
     /// The pane a pending create's command addresses: `handle`, or, for a stand-in pane, the daemon's
-    /// pane that took it over under the same public id (nil until the daemon reports it).
+    /// pane that took it over (nil until the daemon reports it): under the same public id for a split's
+    /// stand-in, the pane holding the first tab of the workspace with the same key for Cmd-N's.
     static func daemonHandle(showing handle: PaneID, in store: DaemonStore) -> PaneID? {
-        if let paneID = store.standInTargets[handle] ?? store.intentLog.entries.lazy.compactMap({ entry -> String? in
-            if case .splitPane(_, _, _, let provisional) = entry.kind, provisional.handle == handle { return provisional.paneID }
-            return nil
-        }).first {
-            return store.index.panesByResource[ResourceID(rawValue: paneID)].flatMap { $0.handle != handle ? $0.handle : nil }
+        if let origin = store.standInTargets[handle] ?? standInOrigin(of: handle, in: store) {
+            return daemonPane(of: origin, showing: handle, in: store)
         }
         return store.panesByHandle[handle] != nil ? handle : nil
     }
+
+    /// The daemon's pane that took over the stand-in `handle` made by `origin`; nil before.
+    static func daemonPane(of origin: StandInOrigin, showing handle: PaneID, in store: DaemonStore) -> PaneID? {
+        switch origin {
+        case .pane(let paneID):
+            return store.index.panesByResource[ResourceID(rawValue: paneID)].flatMap { $0.handle != handle ? $0.handle : nil }
+        case .workspace(let key):
+            return ProvisionalWorkspaceOverlay.adoptedPane(of: key, in: store)
+        }
+    }
+
+    /// What made stand-in `handle`: a pending split's (or column's, row's) provisional pane, the first pane of a
+    /// pending Cmd-N workspace, or of one whose create succeeded (``DaemonStore/adoptedStandIn(_:)``).
+    static func standInOrigin(of handle: PaneID, in store: DaemonStore) -> StandInOrigin? {
+        guard handle.rawValue >= ProvisionalPane.firstHandle else { return nil }
+        for entry in store.intentLog.entries {
+            switch entry.kind {
+            case .splitPane(_, _, _, let provisional) where provisional.handle == handle: return .pane(provisional.paneID)
+            case .createWorkspace(let provisional, _) where provisional.pane == handle: return .workspace(provisional.key)
+            default: continue
+            }
+        }
+        return store.adoptedStandIn(handle).map(StandInOrigin.workspace)
+    }
+
+    /// Whether the create that makes a stand-in of `origin` is still in flight (in the log, not closed by the person).
+    static func createInFlight(_ origin: StandInOrigin, in store: DaemonStore) -> Bool {
+        store.intentLog.entries.contains { entry in
+            guard !entry.closeWhenCreated else { return false }
+            switch (entry.kind, origin) {
+            case (.splitPane(_, _, _, let provisional), .pane(let paneID)): return provisional.paneID == paneID
+            case (.createWorkspace(let provisional, _), .workspace(let key)): return provisional.key == key
+            default: return false
+            }
+        }
+    }
+
+    /// A create pressed on a pending create's stand-in (a split's, a New Terminal Tab's, Cmd-N's first pane): remember
+    /// what made the stand-in, so the target stays found once the daemon's pane takes it over under a new handle.
+    static func rememberStandInTarget(_ target: PaneID, in store: DaemonStore) {
+        guard target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil else { return }
+        if let paneID = store.panesByHandle[target]?.resourceID?.rawValue {
+            store.standInTargets[target] = .pane(paneID)
+        } else if let origin = standInOrigin(of: target, in: store) {
+            store.standInTargets[target] = origin
+        }
+    }
+
+    /// The pane that shows `target` now: `target` itself, or the daemon's pane that took a stand-in target over.
+    static func shownPane(_ target: PaneID, in store: DaemonStore) -> PaneID? { shownTarget(target, in: store) }
 
     /// The pane the overlay places beside: `target`, or the pane that shows a stand-in target now
     /// (the stand-in itself while it is pending, the daemon's pane once it took it over).
@@ -97,12 +145,7 @@ import Foundation
         let daemon = daemonPane(provisional, in: store)
         guard !daemonPlaces(provisional, in: store) else { return nil }
         let leaf = daemon?.handle ?? provisional.handle
-        // A create pressed on a pending create's stand-in: remember its public id, so the target
-        // stays found once the daemon's pane takes the stand-in over under a new handle.
-        if target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil,
-           let paneID = store.panesByHandle[target]?.resourceID?.rawValue {
-            store.standInTargets[target] = paneID
-        }
+        rememberStandInTarget(target, in: store)
         guard let target = shownTarget(target, in: store), store.panesByHandle[target] != nil,
               daemon != nil || (store.panesByHandle[provisional.handle] == nil && store.tabsBySurface[provisional.surface] == nil),
               let screen = store.screen(containing: target) else { return nil }
@@ -152,23 +195,16 @@ import Foundation
 
     /// New Column's overlay (`new-pane-right`, cmux-tui `new_pane_right`): a column holding `leaf`
     /// right after the target's column (right before it for New Column Left, `side: "left"`), at
-    /// the column's width, with the width changes it brings.
-    /// A screen that is still a split tree becomes two columns, the tree and the new one, as the
-    /// daemon wraps its root in a viewport split.
+    /// the column's width. Every column there keeps its width (R3b). A screen that is still a
+    /// split tree becomes two columns, the tree at full width and the new one, as the daemon wraps
+    /// its root in a viewport split.
     private static func applyColumn(_ column: ProvisionalColumn, after target: PaneID, leaf: PaneID, daemon: PaneModel?,
                                     provisional: ProvisionalPane, screen: ScreenModel, in store: DaemonStore) -> IntentUndo? {
         var columns = screen.columns
         if columns.isEmpty {
             // A zoomed or docked screen has no tree column to open beside.
             guard screen.zoomedPane == nil else { return nil }
-            columns = [ColumnSnapshot(id: column.treeHandle, width: column.treeWidth ?? 1, layout: screen.layout)]
-        } else {
-            columns = columns.map { entry in
-                guard let width = column.widths[entry.id] else { return entry }
-                var entry = entry
-                entry.width = width
-                return entry
-            }
+            columns = [ColumnSnapshot(id: column.treeHandle, width: 1, layout: screen.layout)]
         }
         // The target's column: its index places the new column, its panes place the new pane.
         guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }),

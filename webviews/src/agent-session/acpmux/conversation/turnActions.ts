@@ -9,6 +9,7 @@ export type TakeBack = "back" | "refused" | "failed";
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
+import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
 import type { HarnessHealth } from "../HarnessHealthNotice";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
@@ -47,6 +48,10 @@ export type TurnActions = {
   promptImage?: (id: string) => Promise<string | undefined>;
   /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
   retry?: (rowId: string, prompt: string) => void;
+  /// A failed last turn's Retry (turnRetry.ts): acpmux's turn retry of the chat the row was drawn
+  /// for, else `retry` where the turn has a prompt to send (`rowId`, `prompt`). Settles with the
+  /// note a refusal leaves on the failure's card.
+  retryFailed?: (rowId: string | undefined, prompt: string | undefined) => Promise<RetryNote | undefined>;
   /// Retry with another model (cx-ncc.62): the chat harness's models, the one it runs, and the retry
   /// that moves the chat to the model picked and sends the prompt again there.
   retryWith?: {
@@ -88,6 +93,9 @@ export type TurnActions = {
     find: () => Promise<ChatAccount | "on" | undefined>;
     use: (routeId: string) => Promise<void>;
   };
+  /// Add Credits… on a turn the cmux model router refused for want of a plan or credits
+  /// (accessOffer.ts, failureCopy.ts `needs-credits`); the app runs it on the person's click.
+  access?: AccessOffer;
   /// What another agent's waiting message's ⋯ menu does (conversation/QueuedMessageCard.tsx), as
   /// the chat offers it now; undefined while the chat is not connected.
   queuedMessages?: () => QueuedMessageActionsValue | undefined;
@@ -140,7 +148,10 @@ export function chatLoginCommand(
   harness: string | undefined,
   health: HarnessHealth | undefined,
 ): string | undefined {
-  const profile = catalog.find((entry) => entry.id === (harness ?? ""))?.auth?.login;
   const checked = health && health.id === harness ? health.login?.trim() : undefined;
-  return profile || checked || undefined;
+  // Prefer the health command: it is the profile command after account-home
+  // qualification (CODEX_HOME/CLAUDE_CONFIG_DIR). The catalog value is the
+  // unqualified fallback for a daemon that has not reported health yet.
+  const profile = catalog.find((entry) => entry.id === (harness ?? ""))?.auth?.login;
+  return checked || profile || undefined;
 }

@@ -30,7 +30,11 @@ function cellText(cell: string): string {
 
 export function tableMarkdown(table: Table): string {
   const count = columnCount(table);
-  const line = (cells: string[]) => `| ${padded(cells, count).join(" | ")} |`;
+  // A pipe in a cell is written escaped again, or the copied table would grow a column.
+  const line = (cells: string[]) =>
+    `| ${padded(cells, count)
+      .map((cell) => cell.replace(/\|/g, "\\|"))
+      .join(" | ")} |`;
   const rule = padded([], count).map((_, i) => {
     const align = table.align[i];
     return align === "center" ? ":---:" : align === "right" ? "---:" : align === "left" ? ":---" : "---";

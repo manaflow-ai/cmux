@@ -49,6 +49,7 @@ extension SidebarViewComponents {
         var rowLimit: Int
         /// Where group lines sit (`sidebar.groupLineLayout`): headers reach and lines move, so the list lays out again.
         var groupLineLayout: SidebarGroupLineLayout
+        var groupChromeShape: Bool
         /// Whether a joined line runs out of its header's bar (`SidebarGroupLine.joinsBar`, the band header style)
         /// or starts after the cut: its frame moves, so the list lays out again.
         var groupLineJoinsBar: Bool
@@ -70,7 +71,7 @@ extension SidebarViewComponents {
             preferences = design.sidebarSections
             suppressedApps = model.suppressedApps
             metrics = .standard
-            fontSize = Typography.body.pointSize
+            fontSize = SidebarStyle.titleFont.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
             tree = SidebarSessionTree.shared.drawn
@@ -81,6 +82,7 @@ extension SidebarViewComponents {
             foldsDone = SidebarTunables.doneFold.value
             rowLimit = SidebarTunables.rowLimit
             groupLineLayout = SidebarGroupLineLayout.tunable.value
+            groupChromeShape = SidebarStyle.groupChromeShape
             groupLineJoinsBar = SidebarGroupLine.joinsBar
         }
     }
@@ -119,6 +121,7 @@ extension SidebarViewComponents {
             || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
             || lastState?.groupsByStatus != state.groupsByStatus
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
+            || lastState?.groupChromeShape != state.groupChromeShape
             || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
         let listChanged = rowsChanged || selectionChanged
         // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).

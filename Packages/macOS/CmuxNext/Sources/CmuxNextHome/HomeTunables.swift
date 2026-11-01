@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 import MessagesLabHome
+import MessagesLabSidebar
 
 /// Debug Settings of the Home transcript (DEV and NIGHTLY only; Release and
 /// RC never activate the store, so they keep the defaults: the flight
@@ -73,17 +74,18 @@ public nonisolated struct HomeTunables {
     /// top and fade out there. Conversations opened after a change follow it.
     public static let chatHeader = Tunable<Bool>.toggle(
         "home.chatHeader", section, "Avatar and name over the chat",
-        help: "The chat shows the Chief's avatar and name pill on a glass band at its top, as Messages does. Off: no header, and the messages fade out at the top as they scroll away.",
+        help: "The chat shows the Chief's avatar and name pill at its top over the chat's own background, as Messages does. Off: no header, and the messages fade out at the top as they scroll away.",
         default: true, code: "HomeTunables.chatHeader")
 
     /// How the chat ends at its top under the avatar and the "Chief >" pill (MessagesLabHome
-    /// ``HomeTopFadeStyle``), switched live in every open Home chat. The glass band by default
-    /// (#23796's look) until Lawrence picks one (2026-10-23: "make variations of how we do fade at
-    /// top in chief"). Only with ``chatHeader`` on; no header keeps its own short fade.
+    /// ``HomeTopFadeStyle``), switched live in every open Home chat. The background tint by default:
+    /// the header is the chat's own background, no separate band (Lawrence 2026-10-30: "bg of chief
+    /// header is ugly"; one background across Home, 2026-10-30). Only with ``chatHeader`` on; no
+    /// header keeps its own short fade.
     public static let topFadeStyle = Tunable<HomeTopFadeChoice>.choice(
         "home.topFadeStyle", section, "Top of the chat",
-        help: "How the messages end at the top of the chat as they scroll under the avatar and name pill: a glass band, a soft fade, a progressive blur, a material band with a hairline, a hard edge with a shadow, a fade that starts below the pill, a background tint, or Messages' blurred bar. Changes every open chat at once.",
-        default: .glassBand, code: "HomeTunables.topFadeStyle")
+        help: "How the messages end at the top of the chat as they scroll under the avatar and name pill: the chat's own background (the default), a glass band, a soft fade, a progressive blur, a material band with a hairline, a hard edge with a shadow, a fade that starts below the pill, or Messages' blurred bar. Changes every open chat at once.",
+        default: .backgroundTint, code: "HomeTunables.topFadeStyle")
 
     /// The avatar-only list with only one conversation in it (`HomeSidebarSplitView`): off by default,
     /// so a lone Chief takes no column and the chat gets the width (visual QA 2026-10-21: one avatar in
@@ -93,10 +95,18 @@ public nonisolated struct HomeTunables {
         help: "A narrow Home column whose list holds one conversation (only the Chief) still shows the avatar-only list beside the chat. Off gives the chat the whole width; compose stays at its top-left.",
         default: false, code: "HomeTunables.loneConversationRail")
 
+    /// How a Chief's avatar moves in the Home list and pinned grid (Leo 2026-11-01: "i also want them
+    /// animated like how chatgpt animates their dots"): a slow idle loop, livelier while it works.
+    /// Float by default; the others are the gallery's variants.
+    public static let avatarMotion = Tunable<HomeAvatarMotionChoice>.choice(
+        "home.avatarMotion", section, "Chief avatar motion",
+        help: "How a Chief's avatar moves in the Home list: Float bobs it by a point, Breathe grows and shrinks it, Sway tilts it, Still keeps it at rest. Each moves faster while the Chief works, and none moves under Reduce Motion or while the window is hidden.",
+        default: .float, code: "HomeTunables.avatarMotion")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
          turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chatHeader.descriptor,
-         topFadeStyle.descriptor, loneConversationRail.descriptor]
+         topFadeStyle.descriptor, loneConversationRail.descriptor, avatarMotion.descriptor]
     }
 }
 
@@ -119,6 +129,32 @@ public nonisolated enum HomeTurnProgressChoice: String, Sendable, CaseIterable, 
         case .narrated: .narrated
         case .steps: .steps
         case .line: .line
+        }
+    }
+}
+
+/// ``HomeTunables/avatarMotion``'s choices: MessagesLabSidebar's ``CmuxSidebarAvatarMotionStyle``.
+public nonisolated enum HomeAvatarMotionChoice: String, Sendable, CaseIterable, TunableChoice {
+    case float
+    case breathe
+    case sway
+    case still
+
+    public var tunableTitle: String {
+        switch self {
+        case .float: "Float"
+        case .breathe: "Breathe"
+        case .sway: "Sway"
+        case .still: "Still"
+        }
+    }
+
+    var style: CmuxSidebarAvatarMotionStyle {
+        switch self {
+        case .float: .float
+        case .breathe: .breathe
+        case .sway: .sway
+        case .still: .still
         }
     }
 }

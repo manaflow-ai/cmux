@@ -103,7 +103,16 @@ pub(super) async fn finish_move(
             return Err(e);
         }
     };
-    let moved = match copy(src, dst, begin, &receive["receiveId"], cwd, name).await {
+    let moved = match copy(
+        src,
+        dst,
+        begin,
+        receive.get("receiveId").unwrap_or(&Value::Null),
+        cwd,
+        name,
+    )
+    .await
+    {
         Ok(moved) => moved,
         // A finish whose answer was lost may have landed, and the target runs the queue then:
         // the source commits. Only a target that shows no such move lets the chat come back.
@@ -122,7 +131,7 @@ pub(super) async fn finish_move(
         },
     };
     let mut to_meta = to_meta;
-    to_meta.set("sessionId", moved["sessionId"].clone());
+    to_meta.set("sessionId", moved.get("sessionId").cloned().unwrap_or(Value::Null));
     src.request(
         "_acpmux/transfer_commit",
         json!({"sessionId": id, "transferId": transfer_id, "to": to_meta}),

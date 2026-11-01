@@ -46,7 +46,7 @@ nonisolated enum AcpmuxPaneMethods {
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
-        "_acpmux/status", "_acpmux/draft_get",
+        "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
         // The thread minimap's prompt bookmarks of a chat in the pane's scope (direct.ts
@@ -97,6 +97,10 @@ nonisolated enum AcpmuxPaneMethods {
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
         // gesture; caller params never reach Claude.
         "_acpmux/subagent_stop", "_acpmux/subagent_transcript",
+        // Page a chat's older turns in from its Claude Code transcript, past the newest page its log
+        // was seeded with (direct.ts fetchNativeOlder; acpmux hub/native_history.rs). A read of the
+        // pane's own chat: `before` is a byte cursor acpmux gave, never a path.
+        "_acpmux/native_history",
         // Resume a paused agent pair of a chat in the pane's scope (the pause row's Resume; acpmux
         // hub/agent_pairs.rs): delivers the messages the two agents already sent and the guard held.
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
@@ -106,7 +110,7 @@ nonisolated enum AcpmuxPaneMethods {
         // IncomingMessageCard.tsx): acpmux checks it and answers it signed, prompting nothing, and
         // the host sends it on as that chat's cmux agent message (``AgentPaneAgentReply``).
         "_acpmux/app_reply",
-        // A chat's background processes (direct.ts listProcesses, tailProcess; the Inspector and an
+        // A chat's background processes (direct.ts listProcesses, tailProcess; Session Info and an
         // opened background task note): read only, like `_acpmux/events`. acpmux serves them only to
         // this Mac's clients (server/processes.rs).
         "_acpmux/process/list", "_acpmux/process/tail",
@@ -121,14 +125,14 @@ nonisolated enum AcpmuxPaneMethods {
         // only. It names its chat (`sessionId`, in the pane's scope) or a new chat's `target` (a
         // harness, and optionally its host and route), never another chat.
         "_acpmux/session/auth",
-        // The Inspector's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
+        // Session Info's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
         // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
         // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already
         // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
         // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
         "_acpmux/subsession/limits",
-        // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp, the
-        // Inspector's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
+        // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp,
+        // Session Info's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
         // already lists, on its running process; it starts nothing and refuses other harnesses.
         "_acpmux/mcp/reconnect",
         // The forum's current rules for the rules card above the composer (direct.ts forumRules,
@@ -234,7 +238,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",

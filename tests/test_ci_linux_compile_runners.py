@@ -1,5 +1,11 @@
-"""Linux jobs that compile run on the 32 or 16 vCPU Blacksmith size.
+"""Linux jobs that compile run on the Blacksmith size .github/runners.json linux_sizes measured for them.
 
+Leo, 2026-11-01, on 1,531 jobs queued on 32 vCPU: "ok. we clearly are not able to use them. so we should have
+resized a long-ass time ago." Blacksmith caps concurrency in vCPUs, so each job below now takes the smallest
+size its measurement fits (tests/test_ci_blacksmith_linux_sizes.py), and fails over to another small size.
+Jobs whose entry is `pending` keep the 32 or 16 vCPU size listed here until their open pull request lands.
+
+History: 
 Leo, 2026-10-21: "MOVE STUFF TO BLACKSMITH 16 OR 32. IF WE HAVE 256 OF 32,
 JUST USE 32." Every Linux job below compiles (cargo, Swift, cross builds, zig, Go,
 C++, Gradle) or runs a web build or test suite, so its manaflow-ai runner is
@@ -29,12 +35,15 @@ the compile and test suites below. Small routing/status jobs can keep the
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from blacksmith_linux_sizes import label as size_label, table  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 BIG = "blacksmith-32vcpu-ubuntu-2404"
@@ -55,7 +64,6 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-mobile-ffi.yml", "android", "runs-on", BIG),
     ("cmux-next-car-guards.yml", "linux", "runs-on", BIG),
     ("cmux-next-source-archive.yml", "vt-link-graph", "runs-on", BIG),
-    ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on", BIG),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on", BIG),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER", BIG),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER", BIG),
@@ -81,7 +89,6 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     # Swift on Linux: swift build and swift test of the portable packages in the swift.org
     # container (ask-d3f5804560: "WE CAN COMPILE SWIFT ON LINUX").
     ("swift-packages-linux.yml", "packages", "runs-on", BIG),
-    ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on", BIG),
     # Web: production builds, bundle builds, the backend build and suites.
     ("backend.yml", "test", "runs-on", BIG),
     ("ci-web.yml", "web-production-build", "runs-on", BIG),
@@ -112,14 +119,35 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("sdk-publish-go.yml", "verify-versioned-go-module", "runs-on", SMALL),
 )
 
+SIZES = table()["jobs"]
+
+
+def measured(workflow: str, job_id: str) -> dict | None:
+    """The job's linux_sizes entry once it has moved off its old size, else None."""
+    entry = SIZES.get(f"{workflow}#{job_id}")
+    return entry if entry and not entry.get("pending") else None
+
+
+# The size each job takes now: its measured size, or the old size while its move is pending.
+EXPECTED = tuple(
+    (workflow, job_id, where, size_label(measured(workflow, job_id)["size"]) if measured(workflow, job_id) else label)
+    for workflow, job_id, where, label in EXPECTED
+)
+# The failover each job takes while the overflow record exists.
+OTHER = {
+    (workflow, job_id): size_label(measured(workflow, job_id)["failover"])
+    for workflow, job_id, _, _ in EXPECTED
+    if measured(workflow, job_id)
+}
+
 LINUX_LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(?!-arm)\b")
 # `vars.LINUX_RUNNER` exactly; `vars.LINUX_RUNNER_DARWIN_CROSS` is its own knob.
 SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
 
 
-def trusted_fallback(label: str) -> str:
+def trusted_fallback(label: str, other: str | None = None) -> str:
     """The size; the other size while the outage record exists; an operator's non-Blacksmith runner first."""
-    other = SMALL if label == BIG else BIG
+    other = other or (SMALL if label == BIG else BIG)
     return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
             f"vars.CI_CLOUD_OVERFLOW_SAVED && '{other}' || '{label}'")
 
@@ -138,8 +166,7 @@ FORK_PR_LABELS = {
     ("ci-web.yml", "web-instant-navigation", "runs-on"): SMALL,
     ("ci-web.yml", "diff-sidecar-check", "runs-on"): BIG,
     ("cmux-next-fast-gates.yml", "fast-gates", "runs-on"): SMALL,
-    ("cmux-next.yml", "web-bundles", "runs-on"): BIG,
-    ("cmux-vm-clients.yml", "rust", "runs-on"): BIG,
+    ("cmux-vm-clients.yml", "rust", "runs-on"): "blacksmith-8vcpu-ubuntu-2404",
     ("cmux-vm-clients.yml", "sdk", "runs-on"): SMALL,
     ("remote-daemon.yml", "remote-daemon-tests", "runs-on"): SMALL,
 }
@@ -197,7 +224,7 @@ def expected_selector(workflow: str, job_id: str, where: str, label: str) -> str
         else:
             fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
             prefix = OWNER + FORK_PULL_REQUEST.format(label=fork_label)
-    return "${{ " + prefix + trusted_fallback(label) + closing + " }}"
+    return "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id))) + closing + " }}"
 
 
 def load(name: str) -> dict:
@@ -225,7 +252,7 @@ def selector(job: dict, where: str) -> str:
 
 
 class LinuxCompileRunners(unittest.TestCase):
-    def test_each_compile_job_runs_on_the_16_or_32_vcpu_size(self) -> None:
+    def test_each_compile_job_runs_on_its_measured_size(self) -> None:
         docs: dict[str, dict] = {}
         for workflow, job_id, where, label in EXPECTED:
             with self.subTest(workflow=workflow, job=job_id, where=where):
@@ -241,7 +268,7 @@ class LinuxCompileRunners(unittest.TestCase):
                 self.assertEqual(
                     len(SHARED_VARIABLE.findall(value)), 2,
                     f"{workflow}:{job_id} {where} must read vars.LINUX_RUNNER only in "
-                    f"{trusted_fallback(label)!r}: {value}",
+                    f"{trusted_fallback(label, OTHER.get((workflow, job_id)))!r}: {value}",
                 )
 
     def test_each_compile_job_follows_the_blacksmith_outage_switch(self) -> None:
@@ -250,9 +277,9 @@ class LinuxCompileRunners(unittest.TestCase):
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
-                self.assertEqual(value.count(trusted_fallback(label)), 1, f"{workflow}:{job_id} {where}: {value}")
+                self.assertEqual(value.count(trusted_fallback(label, OTHER.get((workflow, job_id)))), 1, f"{workflow}:{job_id} {where}: {value}")
                 self.assertRegex(
-                    value, re.escape(trusted_fallback(label)) + r"\)? \}\}$",
+                    value, re.escape(trusted_fallback(label, OTHER.get((workflow, job_id)))) + r"\)? \}\}$",
                     f"{workflow}:{job_id} {where}: the outage guard must be the trusted fallback",
                 )
 
@@ -276,7 +303,7 @@ class LinuxCompileRunners(unittest.TestCase):
     def test_every_listed_label_is_known_to_actionlint(self) -> None:
         config = yaml.safe_load((ROOT / ".github" / "actionlint.yaml").read_text(encoding="utf-8"))
         known = set(config["self-hosted-runner"]["labels"])
-        self.assertLessEqual({BIG, SMALL}, known)
+        self.assertLessEqual({label for _, _, _, label in EXPECTED} | set(OTHER.values()), known)
 
 
 if __name__ == "__main__":

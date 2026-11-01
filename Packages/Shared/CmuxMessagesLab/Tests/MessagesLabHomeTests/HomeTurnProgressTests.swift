@@ -44,7 +44,9 @@ import Testing
 
     @Test func genericStepsAreNeverCounted() {
         let progress = Self.progress(["Telling a31", "Starting 2 agents", "Checking on a31", "Checking on a7"])
-        #expect(progress.summary == "›")
+        // No lone "›" row ("›" over "Running · 4s", user 2026-10-30): a click on the line still lists the steps.
+        #expect(progress.summary == nil)
+        #expect(progress.rows == [progress.current])
         let mixed = Self.progress(["Running ls", "Running pwd", "Telling a31", "Starting 2 agents", "Checking on a31"])
         #expect(mixed.summary == CmuxStrings.turnRanCommands(2) + " ›")
         for text in [progress.summary, mixed.summary].compactMap({ $0 }) {

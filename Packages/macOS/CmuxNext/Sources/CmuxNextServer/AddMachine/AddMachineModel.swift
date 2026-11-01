@@ -3,9 +3,11 @@ public import Observation
 
 /// One `cmux-tui acp host` run the Add Machine card starts (plans/cmux-next/add-machine-DESIGN.md).
 public nonisolated enum HostCommand: Equatable, Sendable {
-    /// `host enroll HOST --name N --json`: every step, fixing what it can.
+    /// `host enroll HOST --name N --harness local --reverse --json`: every step, fixing what it can,
+    /// with this Mac's agent profiles copied and the host peered back, so setup leaves no skips.
     case enroll(host: String, name: String)
-    /// `host doctor NAME|HOST [--fix] --json`: the checks alone, or `--fix` for the failed ones.
+    /// `host doctor NAME|HOST [--fix] --json`: the checks alone, or `--fix` for the failed ones plus
+    /// the setup enroll does (profiles, peer-back).
     case doctor(host: String, fix: Bool)
     /// `machine doctor ID --json`: the minting end's checks of a machine that joined with a one-line
     /// token (Labs `labs.machineJoin`). It reads the cmux access token on stdin (``needsAccount``).
@@ -14,11 +16,15 @@ public nonisolated enum HostCommand: Equatable, Sendable {
     /// The arguments after the `cmux-tui` binary.
     public var arguments: [String] {
         switch self {
-        case let .enroll(host, name): ["acp", "host", "enroll", host, "--name", name, "--json"]
-        case let .doctor(host, fix): ["acp", "host", "doctor", host] + (fix ? ["--fix"] : []) + ["--json"]
+        case let .enroll(host, name): ["acp", "host", "enroll", host, "--name", name] + Self.setup + ["--json"]
+        case let .doctor(host, fix): ["acp", "host", "doctor", host] + (fix ? ["--fix"] + Self.setup : []) + ["--json"]
         case let .joinedDoctor(id): ["machine", "doctor", id, "--json", "--cloud-token-stdin"]
         }
     }
+
+    /// What setup copies and adds besides the machine itself: every agent profile this Mac has
+    /// (`--harness local`) and this Mac as the host's peer (`--reverse`, a warning when it fails).
+    private static let setup = ["--harness", "local", "--reverse"]
 
     /// The run reads the signed-in account's cmux access token as one line on its stdin.
     public var needsAccount: Bool {
@@ -33,6 +39,8 @@ public nonisolated enum AddMachineAction: Equatable, Sendable {
     case add
     /// Run the same add again after a failure.
     case tryAgain
+    /// Back to the fields after a failed add, with the host and name kept, to correct them.
+    case changeHost
     /// `doctor --fix` for the checked machine.
     case fix
     /// Open a workspace on the added machine and close.
@@ -131,7 +139,7 @@ public struct AddMachineServices {
 /// (or doctor for Check Machine) with its checklist filling in live from the CLI's lines, then
 /// ready or failed. The card, the palette, the CLI and a reopen read the same model; the click and
 /// the key run ``perform(_:)``.
-@Observable
+@MainActor @Observable
 public final class AddMachineModel {
     public nonisolated enum Mode: Equatable, Sendable {
         /// Add Machine: the field and the Tailscale list, then enroll.
@@ -266,7 +274,8 @@ public final class AddMachineModel {
         case (.ready, .check):
             [AddMachineButton(action: .done, key: .return)]
         case (.failed, .add):
-            [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .tryAgain, key: .return)]
+            [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .changeHost, key: nil),
+             AddMachineButton(action: .tryAgain, key: .return)]
         case (.failed, .check):
             [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .fix, key: .return)]
         case (.running, .checkJoined):
@@ -284,6 +293,9 @@ public final class AddMachineModel {
         switch action {
         case .add, .tryAgain:
             add()
+            return false
+        case .changeHost:
+            changeHost()
             return false
         case .fix:
             doctor(fix: true)
@@ -335,6 +347,16 @@ public final class AddMachineModel {
         return lines.joined(separator: "\n")
     }
 
+    /// A failed add goes back to the fields as they were typed. Nothing runs until Add is pressed.
+    private func changeHost() {
+        guard mode == .add, case .failed = phase else { return }
+        cancelRun()
+        phase = .pick
+        checklist = HostChecklist()
+        machineID = nil
+        loadCandidates()
+    }
+
     // MARK: Runs
 
     private func add() {
@@ -355,11 +377,18 @@ public final class AddMachineModel {
         task = Task { [weak self] in
             guard let self else { return }
             var report = await stream(.enroll(host: host, name: name))
+            // Cancel can end the stream after it has parsed a report. Do not start the
+            // app-install fallback from that retained report.
+            guard !Task.isCancelled else { return }
             if let first = report, Self.needsAppInstall(first) {
                 // The app's own install path (remote.connect, remote.install) puts the right-arch
                 // build on the host; enroll then runs again from the top.
                 installingAppBuild = true
                 checklist.run(.install)
+                guard !Task.isCancelled else {
+                    installingAppBuild = false
+                    return
+                }
                 let installed = await services.install(host, name)
                 installingAppBuild = false
                 guard !Task.isCancelled else { return }
@@ -382,7 +411,7 @@ public final class AddMachineModel {
     }
 
     /// An agent peer the app does not have: enroll already ran for it, so the app connects it under
-    /// `name` and runs doctor (by its peer name) for the checklist.
+    /// `name` and runs doctor --fix (by its peer name) for the checklist and the rest of setup.
     private func addPeer(_ candidate: HostCandidate, host: String, name: String) {
         cancelRun()
         candidatesTask?.cancel()
@@ -400,7 +429,9 @@ public final class AddMachineModel {
                 return
             }
             machineID = id
-            let report = await stream(.doctor(host: Self.trimmed(candidate.peer ?? "") ?? host, fix: false))
+            // `--fix`: the peer was enrolled by another run; finish its setup here (approvals,
+            // profiles, peer-back) so the card ends ready, not with "run doctor --fix" warnings.
+            let report = await stream(.doctor(host: Self.trimmed(candidate.peer ?? "") ?? host, fix: true))
             guard !Task.isCancelled else { return }
             guard let report else { phase = .failed(nil); return }
             services.record(id, report)
