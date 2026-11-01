@@ -1,13 +1,13 @@
-// The Inspector's Environment (Claude Code desktop's): where a running chat runs, the one place
-// that says so. The machine by its own name and kind (this Mac, an SSH machine, a Cloud machine),
-// never "This computer", with Save; then the chat's project (chatFolders.ts), named by its
+// Session Info's Environment (Claude Code desktop's): where a running chat runs, the one place
+// that says so. The machine by its own name, with its kind in words at the row's end (This Mac,
+// SSH, Cloud), never "This computer"; then the chat's project (chatFolders.ts), named by its
 // repository, whose full path only a hover shows; the GitHub repository; the branch. Then Remote
 // Control, when the App offers it. A chat in a temporary or internal folder (a harness's scratchpad)
 // has no project row and no Save: only its machine. Every row does something: the project opens in
 // the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
 // opens in the browser as it opens a reply's link.
 import { useRef, useState, type ReactNode } from "react";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { machineColor } from "../machineColor";
@@ -39,6 +39,16 @@ export function machineOf(
   if (peer) return { icon: "machine.remote", name: summary?.host || peer, kind: "ssh" };
   return { icon: "machine.mac", name: machineName || summary?.host || undefined, kind: "local" };
 }
+
+/// Where the chat runs, in words, at the machine row's end: this Mac, an SSH machine or a Cloud
+/// machine, as the environment picker names its sections (EnvironmentPicker.tsx), so a remote chat
+/// never reads like a local one (Leo, 2026-10-31: "WHY THE F*** IS THERE NOTHING THAT F***ING TELLS
+/// ME IF IT'S LOCAL OR IF").
+export const MACHINE_KIND_LABEL: Record<ReturnType<typeof machineOf>["kind"], StringKey> = {
+  local: "composer.thisMac",
+  ssh: "composer.envSSH",
+  cloud: "composer.cloud",
+};
 
 /// What Save keeps of the chat's environment (environments.ts, the New Tab page's saved
 /// environments): this Mac or the SSH machine, and the chat's folder, named after its project. Only
@@ -175,7 +185,12 @@ export function EnvironmentSection({
           row
           color={machine.kind !== "local" && machine.name ? machineColor(machine.name) : undefined}
         />
-        <span className="acpmux-chat-inspector-row__name">{machine.name ?? "—"}</span>
+        <span className="acpmux-chat-inspector-row__name">{machine.name ?? t(MACHINE_KIND_LABEL[machine.kind])}</span>
+        {machine.name && (
+          <span className="acpmux-chat-inspector-row__end" data-machine-kind={machine.kind}>
+            {t(MACHINE_KIND_LABEL[machine.kind])}
+          </span>
+        )}
         {save && (
           <button
             type="button"

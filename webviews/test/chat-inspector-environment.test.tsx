@@ -205,8 +205,55 @@ test("a scratchpad chat lists only its machine: no folder row and no Save", asyn
     onOpenFolder: () => undefined,
     onSaveEnvironment: () => undefined,
   });
-  expect(environment.textContent).toBe("studio-mac");
+  expect(environment.textContent).toBe(`studio-mac${translate("composer.thisMac")}`);
   expect(environment.querySelector("button")).toBeNull();
+});
+
+test("the machine row says in words whether the chat runs on this Mac, an SSH machine or a Cloud machine", async () => {
+  // Leo, 2026-10-31: "WHY THE F*** IS THERE NOTHING THAT F***ING TELLS ME IF IT'S LOCAL OR IF".
+  const machineRow = async (summary: Partial<Summary>, machineName?: string, peerKinds?: Record<string, "ssh" | "cloud">) => {
+    const host = installDom();
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <EnvironmentSection summary={summaryAt(SCRATCHPAD, summary)} machineName={machineName} peerKinds={peerKinds} />,
+      ),
+    );
+    const row = host.querySelector<HTMLElement>("[data-machine]")!;
+    const kind = row.querySelector<HTMLElement>("[data-machine-kind]");
+    const result = {
+      machine: row.dataset.machine,
+      name: row.querySelector(".acpmux-chat-inspector-row__name")?.textContent,
+      kind: kind?.textContent,
+    };
+    await act(async () => root!.unmount());
+    root = undefined;
+    dom?.window.close();
+    dom = undefined;
+    return result;
+  };
+  expect(await machineRow({}, "studio-mac")).toEqual({
+    machine: "local",
+    name: "studio-mac",
+    kind: translate("composer.thisMac"),
+  });
+  expect(await machineRow({ peer: "glaeda" })).toEqual({
+    machine: "ssh",
+    name: "glaeda",
+    kind: translate("composer.envSSH"),
+  });
+  expect(await machineRow({ peer: "vm-1" }, undefined, { "vm-1": "cloud" })).toEqual({
+    machine: "cloud",
+    name: "vm-1",
+    kind: translate("composer.cloud"),
+  });
+  expect(await machineRow({ hostKind: "cloud", host: "cmux cloud" })).toEqual({
+    machine: "cloud",
+    name: "cmux cloud",
+    kind: translate("composer.cloud"),
+  });
+  // With no name known (an older App), the row still says where: This Mac, not a dash.
+  expect(await machineRow({})).toEqual({ machine: "local", name: translate("composer.thisMac"), kind: undefined });
 });
 
 test("without the App's actions the rows are plain text, and no Remote Control row is drawn", async () => {
