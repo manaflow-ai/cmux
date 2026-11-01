@@ -67,9 +67,11 @@ fn serve(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>, paced: bool) 
                                 "\"dup\" matches 2 sessions; use the id",
                                 Value::Null,
                             ),
-                            Some("fallbackdup") => {
-                                err(-32000, "info temporarily unavailable", Value::Null)
-                            }
+                            Some("fallbackdup") => err(
+                                -32000,
+                                "info temporarily unavailable",
+                                Value::Null,
+                            ),
                             Some("builder/review" | "p-1") => ok(row("p-1", "review")),
                             // A peer's session with a bare name no local one has:
                             // acpmux forwards it and the peer answers as its own.
