@@ -10,8 +10,10 @@
 //     answers, and reports it read for that chat (the page's first paint, App.tsx `adoptionDrawn`);
 //   - bound, it is that tab's page: a chat the daemon drops is called missing, never replaced by
 //     another chat, as a page whose handshake named the session (`sessionMustExist`);
-//   - a chat the daemon does not list when the page adopts it is the tab's missing chat (the pane
-//     says why, chatUnavailable.ts), never an empty chat, and nothing is attached for it.
+//   - a chat the page's list lacks opens on its attach, without waiting for the list to be read
+//     again (a busy acpmux paces its whole list for seconds);
+//   - a chat the daemon neither attaches nor lists when the page adopts it is the tab's missing chat
+//     (the pane says why, chatUnavailable.ts), never an empty chat.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -72,6 +74,8 @@ class Daemon {
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
   hold?: string;
+  /// Lists asked while set are never answered: a list acpmux is still pacing.
+  holdLists = false;
   attaches: string[] = [];
   private held?: Message;
   private holding?: () => void;
@@ -89,6 +93,7 @@ class Daemon {
     if (message.id === undefined) return;
     const sessionId = String(message.params?.sessionId ?? "");
     if (message.method === "_acpmux/attach") this.attaches.push(sessionId);
+    if (message.method === "_acpmux/watch" && this.holdLists) return;
     if (message.method === "_acpmux/attach" && sessionId === this.hold) {
       this.held = message;
       this.hold = undefined;
@@ -114,7 +119,13 @@ class Daemon {
     if (message.method === "initialize")
       result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     else if (message.method === "_acpmux/watch") result = { sessions: this.listed.map(summary) };
-    else if (message.method === "_acpmux/attach") {
+    else if (message.method === "_acpmux/attach" && !this.listed.includes(sessionId)) {
+      // acpmux refuses an attach of a chat it lacks.
+      this.onmessage?.({
+        data: JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32602, message: "unknown session" } }),
+      });
+      return;
+    } else if (message.method === "_acpmux/attach") {
       const events = chatEvents(sessionId, `Reply of ${sessionId}.`);
       result = { session: summary(sessionId), lastSeq: events.length, events, hasMore: false };
     } else if (message.method === "_acpmux/events") result = { events: [], hasMore: false, lastSeq: 0 };
@@ -235,7 +246,20 @@ test("a chat the daemon does not list is the adopted tab's missing chat, never a
   expect(page.last()?.sessionId).toBeUndefined();
   expect(page.last()?.missingSession).toBe(chat);
   expect(page.last()?.missingReason).toBe("notListedAtOpen");
-  expect(daemon.attaches).toEqual([]);
+  expect(daemon.attaches).toEqual([chat]);
+});
+
+test("a chat the page's list lacks opens on its attach, without waiting for the list", async () => {
+  const chat = "adopt-later";
+  const daemon = new Daemon(["newest"]);
+  const page = await spare(daemon);
+  // The chat started after the page read its list, and acpmux is slow to list again.
+  daemon.listed.push(chat);
+  daemon.holdLists = true;
+  expect(await page.client.adoptSession(chat)).toBe(chat);
+  expect(page.last()?.sessionId).toBe(chat);
+  expect(page.last()?.missingSession).toBeUndefined();
+  expect(daemon.attaches).toEqual([chat]);
 });
 
 test("a listed chat the page adopts opens as a pick opens it", async () => {
