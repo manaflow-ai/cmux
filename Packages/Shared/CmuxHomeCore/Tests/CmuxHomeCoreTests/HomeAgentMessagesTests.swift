@@ -204,6 +204,22 @@ struct HomeAgentMessagesTests {
         #expect(!store.isAgentMessagesExpanded("0123456789abcdef", in: id))
     }
 
+    /// User 2026-10-31: five "stopped without a report" notes and one real report after one answer
+    /// were six bubbles behind a link. The real report shows by itself; the notes are one quiet row.
+    @Test func statusNotesFoldApartAndARealReportShowsByItself() throws {
+        var book = HomeAgentMessages()
+        var steps = (1...5).map { index in
+            HomeAgentRun.Message(id: "note\(index)", sequence: UInt64(index), revision: 1, peer: "a\(index)", outgoing: false,
+                                 text: "(stopped without a report: its session is Disconnected)", date: date)
+        }
+        steps.append(.init(id: "report", sequence: 6, revision: 1, peer: "a9", outgoing: false, text: "Fixed the feed.", date: date))
+        _ = book.apply(run(revision: 1, messages: steps))
+        let rows = book.inserting(into: [question()], summary: nil)
+        #expect(rows.count == 3)
+        #expect(rows.contains { $0.plainText.hasSuffix("Fixed the feed.") })
+        #expect(!rows.contains { $0.plainText.contains("stopped without a report") })
+    }
+
     @Test func reportFragmentsWithTheSameTimestampKeepTheirStepSequence() {
         var book = HomeAgentMessages()
         let fragments = (0..<12).reversed().map { index in
