@@ -206,6 +206,22 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 restore = steps["Restore unsigned nightly products"]["run"]
                 self.assertIn('if [ "$RUNNER_OS" = Linux ]; then', restore)
 
+    def test_legacy_identity_target_uses_fleet_first_linux_with_overflow(self) -> None:
+        """The short Linux compatibility check must not pin a nightly to Blacksmith."""
+        import yaml
+        job = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]["legacy-identity-target"]
+        runs_on = job["runs-on"]
+        self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER", runs_on)
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404'", runs_on)
+        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        self.assertNotIn("macos", runs_on)
+        linux = linux_runner_values()
+        labels = resolve_labels(runs_on, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD],
+                                                     "LINUX_RUNNER": sorted(linux)})
+        self.assertTrue(labels)
+        self.assertTrue(all(isinstance(label, str) and (label in linux or LINUX_LABEL.fullmatch(label))
+                            for label in labels))
+
     def test_no_job_takes_a_mac_only_while_the_overflow_switch_is_on(self) -> None:
         """The overflow switch never sends a job to a macOS label it would not take otherwise.
 
