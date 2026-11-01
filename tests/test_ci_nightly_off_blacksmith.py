@@ -45,7 +45,7 @@ BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "resolve-nightly-ghostty-cli-helper", "build-nightly-inputs", "pick-nightly-build-runner",
     "attest-nightly-remote-daemon", "prepare-nightly-variant-primary",
     "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
-    "route-visual-gate-nightly", "visual-gate-nightly-verdict",
+    "signer-dmg", "route-visual-gate-nightly", "visual-gate-nightly-verdict",
     "report-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
     "publish-nightly-next-github-names", "keep-published-dsyms", "legacy-identity-target",
     "publish-nightly-identity-legacy", "nightly-identity-legacy-published", "republish-nightly-deltas",

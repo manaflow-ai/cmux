@@ -191,18 +191,13 @@ async fn default_approve_all_resolves_only_inherited_pending_tools() {
     hub.config.write().await.path = Some(dir.path().join("config.json"));
     let inherited = chat_in(&mut c, "default").await;
     let own = chat_in(&mut c, "default").await;
-    c.request(method::MUX_SET_POLICY, json!({"sessionId": own, "policy": "ask"}))
-        .await
-        .unwrap();
+    c.request(method::MUX_SET_POLICY, json!({"sessionId": own, "policy": "ask"})).await.unwrap();
     let inherited_turn = c.send(method::SESSION_PROMPT, guard(&inherited)).await;
     c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == inherited).await;
     let own_turn = c.send(method::SESSION_PROMPT, guard(&own)).await;
     let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == own).await;
     let mut changer = connect(&hub).await;
-    changer
-        .request("_acpmux/set_default_policy", json!({"policy": "approve-all"}))
-        .await
-        .unwrap();
+    changer.request("_acpmux/set_default_policy", json!({"policy": "approve-all"})).await.unwrap();
     assert!(c.response(inherited_turn).await.0.is_ok());
     let session = hub.resolve(&inherited).unwrap();
     assert!(session.pending_permissions().is_empty());
