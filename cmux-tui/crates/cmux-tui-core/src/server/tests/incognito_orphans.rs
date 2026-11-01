@@ -3,7 +3,8 @@
 //! window, terminals included (design/spaces.md "Incognito": deleted after
 //! a crash). The daemon now closes the ephemeral workspaces an app process
 //! created once that process has no connection left and another app process
-//! reads the session.
+//! reads the session. The peer keys here name pids above every pid_max, so
+//! their processes have exited.
 
 use super::*;
 
@@ -87,12 +88,12 @@ fn persistent(name: &'static str) -> (Arc<Mux>, PathBuf) {
 #[test]
 fn a_crashed_apps_incognito_workspaces_close_when_the_next_app_reads_the_session() {
     let (mux, root) = persistent("crash");
-    let crashed = app(&mux, "token:4101.1");
+    let crashed = app(&mux, "token:999999101.1");
     let private = create(&mux, &crashed, "private", true);
     let normal = create(&mux, &crashed, "normal", false);
     // The app crashes: its connection goes, the daemon keeps running.
     assert!(disconnect_client(&mux, crashed.0, false));
-    let relaunched = app(&mux, "token:4102.1");
+    let relaunched = app(&mux, "token:999999102.1");
     let workspaces = listed(&mux, &relaunched, "after-crash");
     assert!(workspaces.contains(&normal), "a normal workspace stays: {workspaces:?}");
     assert!(
@@ -113,14 +114,14 @@ fn a_crashed_apps_incognito_workspaces_close_when_the_next_app_reads_the_session
 #[test]
 fn incognito_workspaces_stay_while_their_app_lives_or_reconnects() {
     let (mux, root) = persistent("alive");
-    let first = app(&mux, "token:4201.1");
+    let first = app(&mux, "token:999999201.1");
     let private = create(&mux, &first, "private", true);
     // Another app process reads while the creator is still connected.
-    let other = app(&mux, "token:4202.1");
+    let other = app(&mux, "token:999999202.1");
     assert!(listed(&mux, &other, "creator-alive").contains(&private));
     // The creator's connection drops and the same process reconnects.
     assert!(disconnect_client(&mux, first.0, false));
-    let again = app(&mux, "token:4201.1");
+    let again = app(&mux, "token:999999201.1");
     assert!(listed(&mux, &again, "same-process").contains(&private));
     mux.shutdown();
     drop(mux);
@@ -132,7 +133,7 @@ fn incognito_workspaces_stay_while_their_app_lives_or_reconnects() {
 #[test]
 fn a_workspace_a_crashed_app_moved_incognito_tabs_into_closes_too() {
     let (mux, root) = persistent("moved");
-    let crashed = app(&mux, "token:4301.1");
+    let crashed = app(&mux, "token:999999301.1");
     let mut params = json!({"name": "private", "initial_content": "terminal", "ephemeral": true});
     params["machine"] = json!("current");
     params["session"] = json!("current");
@@ -169,7 +170,7 @@ fn a_workspace_a_crashed_app_moved_incognito_tabs_into_closes_too() {
     assert_ne!(moved_to, private, "{moved}");
     assert!(listed(&mux, &crashed, "before-crash").contains(&moved_to));
     assert!(disconnect_client(&mux, crashed.0, false));
-    let relaunched = app(&mux, "token:4302.1");
+    let relaunched = app(&mux, "token:999999302.1");
     let after = listed(&mux, &relaunched, "after-crash");
     for workspace in [&private, &moved_to] {
         assert!(
@@ -177,6 +178,26 @@ fn a_workspace_a_crashed_app_moved_incognito_tabs_into_closes_too() {
             "every incognito workspace of a crashed app must close: {workspace} in {after:?}"
         );
     }
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A creator whose connection dropped while its process still runs may
+/// come back at any moment: its workspaces stay, so no close races its
+/// reconnect.
+#[test]
+fn a_creator_whose_process_still_runs_keeps_its_workspaces() {
+    let (mux, root) = persistent("running");
+    let running = format!("token:{}.1", std::process::id());
+    let first = app(&mux, &running);
+    let private = create(&mux, &first, "private", true);
+    assert!(disconnect_client(&mux, first.0, false));
+    let other = app(&mux, "token:999999402.1");
+    assert!(
+        listed(&mux, &other, "creator-running").contains(&private),
+        "a running app's incognito workspace stays"
+    );
     mux.shutdown();
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
