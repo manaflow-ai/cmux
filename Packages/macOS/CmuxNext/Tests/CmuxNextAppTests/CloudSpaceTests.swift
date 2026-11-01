@@ -185,8 +185,10 @@ struct CloudSpaceTests {
     /// A script's create that names a machine this app cannot resolve (unknown, or Cloud off) is refused: it never
     /// falls back to this Mac's connected daemon, so a command meant for that machine never runs on the person's
     /// Mac (fail closed, REVIEW.md 5).
-    @Test func aScriptsCreateOnAnUnknownMachineIsRefusedNotMadeOnTheMac() async throws {
+    @Test(.timeLimit(.minutes(1))) func aScriptsCreateOnAnUnknownMachineIsRefusedNotMadeOnTheMac() async throws {
         let services = Self.services()
+        AppActions.bind(services) // the real New Workspace handler, as the app binds it
+        services.windows.ordersWindowsIn = false
         let local = services.machines.local
         let connection = DaemonConnection(
             endpoint: .init(socketPath: "/tmp/cmux-cloud-space-\(UUID().uuidString).sock",
@@ -202,7 +204,9 @@ struct CloudSpaceTests {
         let invocation = ActionInvocation(arguments: ["machine": .string("vm-unknown"), "command": .string("echo hi")],
                                           origin: .script)
         // The handler's own work, awaited to its end: no yield count decides the result.
-        let work = services.registry.capturingWork { _ = services.registry.perform("newTab", invocation: invocation) }
+        var performed = false
+        let work = services.registry.capturingWork { performed = services.registry.perform("newTab", invocation: invocation) }
+        try #require(performed, "New Workspace did not run")
         try #require(work.count == 1, "the create reported \(work.count) works")
         var failures: [ActionWorkFailure?] = []
         for task in work { failures.append(await task.value) }
