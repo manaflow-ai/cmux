@@ -4,15 +4,29 @@
 //! `session/prompt`: callers must present a platform-admitted principal whose
 //! machine, chat, delivery, prompt digest, cwd and harness are all fixed.
 
-use super::{Conn, TriggerScope};
+use super::{Conn, Origin, TriggerScope};
 use crate::hub::Hub;
 use crate::rpc::{RpcError, method};
 use cmux_host::identity::HostIdentity;
 use serde_json::{Value, json};
 use sha2::Digest;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 const MAX: usize = 4096;
+const MAX_PROMPT: usize = 64 * 1024;
+
+fn prompt(value: &Value, key: &str) -> Result<String, RpcError> {
+    let text = value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty() && s.len() <= MAX_PROMPT)
+        .ok_or_else(|| RpcError::invalid_params("trigger prompt is invalid"))?;
+    if text.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')) {
+        return Err(RpcError::invalid_params("trigger prompt contains a forbidden control"));
+    }
+    Ok(text.to_owned())
+}
 
 fn string(value: &Value, key: &str, max: usize) -> Result<String, RpcError> {
     value
@@ -46,10 +60,13 @@ fn scope(p: &Value) -> Result<TriggerScope, RpcError> {
     }
     Ok(TriggerScope {
         trigger: string(p, "trigger", 128)?,
+        owner: string(p, "owner", MAX)?,
+        team: string(p, "team", MAX)?,
         machine: string(p, "machine", MAX)?,
         workspace: string(p, "workspace", MAX)?,
         session: string(p, "session", MAX)?,
         delivery: string(p, "delivery", MAX)?,
+        turn: p.get("turn").and_then(Value::as_str).unwrap_or_default().to_owned(),
         prompt_hash: string(p, "promptHash", 128)?,
         cwd: string(p, "cwd", MAX)?,
         harness: string(p, "harness", 256)?,
@@ -82,7 +99,9 @@ fn validate_claims(
     let expires = principal.get("expiresAt").and_then(Value::as_u64);
     let now = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0);
     if issued.is_none_or(|at| at > now)
-        || expires.is_none_or(|at| at <= now || at - issued.unwrap_or(now) > 300_000)
+        || expires.is_none_or(|at| {
+            at <= now || issued.is_none_or(|when| at <= when || at - when > 300_000)
+        })
     {
         return Err(RpcError::new(-32001, "trigger authorization expired"));
     }
@@ -90,11 +109,13 @@ fn validate_claims(
 }
 
 fn token_route(token: &str) -> Result<&str, RpcError> {
-    if token.len() > 8192 || !token.starts_with("ctg1.") {
+    if token.len() > 8192 {
         return Err(RpcError::new(-32001, "trigger token is invalid"));
     }
     let mut parts = token.split('.');
-    let _ = parts.next();
+    if parts.next() != Some("ctg1") {
+        return Err(RpcError::new(-32001, "trigger token is invalid"));
+    }
     let id = parts.next().filter(|id| {
         id.len() == 36
             && id.as_bytes().iter().enumerate().all(|(i, b)| {
@@ -103,14 +124,38 @@ fn token_route(token: &str) -> Result<&str, RpcError> {
                         && (b.is_ascii_digit() || (b'a'..=b'f').contains(b)))
             })
     });
+    let payload = parts.next().filter(|payload| {
+        !payload.is_empty()
+            && payload
+                .as_bytes()
+                .iter()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    });
+    let signature = parts.next().filter(|signature| {
+        signature.len() == 43
+            && signature
+                .as_bytes()
+                .iter()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    });
+    if parts.next().is_some() || id.is_none() || payload.is_none() || signature.is_none() {
+        return Err(RpcError::new(-32001, "trigger token is invalid"));
+    }
     id.ok_or_else(|| RpcError::new(-32001, "trigger token is invalid"))
 }
 
 async fn identity() -> Result<HostIdentity, RpcError> {
-    tokio::task::spawn_blocking(cmux_host::identity::query)
-        .await
-        .map_err(|_| RpcError::new(-32001, "host identity unavailable"))?
-        .map_err(|_| RpcError::new(-32001, "host identity unavailable"))
+    #[cfg(not(target_os = "linux"))]
+    {
+        return Err(RpcError::new(-32001, "host identity unavailable"));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        tokio::task::spawn_blocking(cmux_host::identity::query)
+            .await
+            .map_err(|_| RpcError::new(-32001, "host identity unavailable"))?
+            .map_err(|_| RpcError::new(-32001, "host identity unavailable"))
+    }
 }
 
 async fn same_identity(expected: &HostIdentity) -> Result<(), RpcError> {
@@ -124,6 +169,9 @@ async fn authorize(
     params: &Value,
     operation: &str,
 ) -> Result<(TriggerScope, HostIdentity), RpcError> {
+    if params.get("principal").is_some() {
+        return Err(RpcError::new(-32001, "trigger principal is server-issued"));
+    }
     let token = string(params, "token", 8192)?;
     let trigger = token_route(&token)?;
     let before = identity().await?;
@@ -133,12 +181,15 @@ async fn authorize(
     op.insert("workspace".into(), json!(string(params, "workspace", MAX)?));
     op.insert("session".into(), json!(string(params, "session", MAX)?));
     op.insert("delivery".into(), json!(string(params, "delivery", MAX)?));
+    if operation == "status" {
+        op.insert("turn".into(), json!(string(params, "turn", MAX)?));
+    }
     op.insert("guestKey".into(), json!(before.guest_key.clone()));
     if operation == "ensure" {
         op.insert("cwd".into(), json!(string(params, "cwd", MAX)?));
         op.insert("harness".into(), json!(string(params, "harness", 256)?));
     } else if operation == "send" {
-        op.insert("body".into(), json!(string(params, "body", 1_000_000)?));
+        op.insert("body".into(), json!(prompt(params, "body")?));
         op.insert("quiet".into(), json!(true));
     }
     let url = format!(
@@ -162,17 +213,24 @@ async fn authorize(
     if response.content_length().is_some_and(|n| n > 128 * 1024) {
         return Err(RpcError::new(-32001, "trigger authorization response is too large"));
     }
-    let body = response
-        .bytes()
-        .await
-        .map_err(|_| RpcError::new(-32001, "trigger authorization unavailable"))?;
-    if body.len() > 128 * 1024 {
-        return Err(RpcError::new(-32001, "trigger authorization response is too large"));
+    use futures_util::StreamExt;
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk =
+            chunk.map_err(|_| RpcError::new(-32001, "trigger authorization unavailable"))?;
+        if body.len().saturating_add(chunk.len()) > 128 * 1024 {
+            return Err(RpcError::new(-32001, "trigger authorization response is too large"));
+        }
+        body.extend_from_slice(&chunk);
     }
     let envelope: Value = serde_json::from_slice(&body)
         .map_err(|_| RpcError::new(-32001, "trigger authorization refused"))?;
-    let principal = envelope.get("principal").unwrap_or(&envelope);
-    if !envelope.get("ok").and_then(Value::as_bool).unwrap_or(true) {
+    let principal = envelope
+        .get("principal")
+        .filter(|principal| principal.is_object())
+        .ok_or_else(|| RpcError::new(-32001, "trigger authorization refused"))?;
+    if envelope.get("active").and_then(Value::as_bool) != Some(true) {
         return Err(RpcError::new(-32001, "trigger authorization refused"));
     }
     let after = identity().await?;
@@ -189,6 +247,106 @@ fn operation(params: &Value, expected: &str) -> Result<(), RpcError> {
         return Err(RpcError::invalid_params(format!("trigger operation must be {expected}")));
     }
     Ok(())
+}
+
+fn exact_session(hub: &Hub, id: &str) -> Result<Arc<crate::hub::Session>, RpcError> {
+    let session = hub.resolve(id)?;
+    if session.id != id {
+        return Err(RpcError::not_found("trigger session id is not exact"));
+    }
+    Ok(session)
+}
+
+async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError> {
+    if let Ok(session) = exact_session(hub, &scope.session) {
+        let meta = session.meta();
+        if meta.cwd != PathBuf::from(&scope.cwd) || meta.harness != scope.harness {
+            return Err(RpcError::new(-32001, "trigger session binding changed"));
+        }
+        return Ok(json!({
+            "ok": true, "state": "started", "machine": scope.machine,
+            "workspace": scope.workspace, "session": session.id, "delivery": scope.delivery,
+        }));
+    }
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            harness: Some(scope.harness.clone()),
+            name: Some(scope.session.clone()),
+            cwd: Some(PathBuf::from(&scope.cwd)),
+            remote: true,
+            ..Default::default()
+        })
+        .await?;
+    hub.start_in_mode(
+        false,
+        None,
+        &json!({"_meta": {"acpmux": {"trigger": true}}}),
+        &session,
+        false,
+    )
+    .await?;
+    Ok(json!({
+        "ok": true, "state": "started", "machine": scope.machine,
+        "workspace": scope.workspace, "session": session.id, "delivery": scope.delivery,
+    }))
+}
+
+async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Value, RpcError> {
+    let session = exact_session(hub, &scope.session)?;
+    let provenance = json!({
+        "kind": "trigger", "triggerId": scope.trigger, "deliveryId": scope.delivery,
+        "owner": scope.owner, "team": scope.team, "machine": scope.machine,
+        "workspace": scope.workspace, "session": scope.session,
+    });
+    let provenance = Hub::prompt_provenance(
+        &json!({"_meta": {"acpmux": {"provenance": provenance}}}),
+        Origin::Local,
+        true,
+    )?;
+    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+    let delivery = scope.delivery.clone();
+    let hub_for_task = hub.clone();
+    let session_for_task = session.clone();
+    let options = crate::hub::PromptOptions {
+        prompt_id: Some(delivery.clone()),
+        resend: true,
+        control: crate::hub::Control::Web,
+        trust_gate: true,
+        provenance,
+        on_accepted: Some(Box::new(move |receipt| {
+            let _ = accepted_tx.send(receipt);
+        })),
+        ..Default::default()
+    };
+    tokio::spawn(async move {
+        let _ = hub_for_task
+            .prompt_with(
+                &session_for_task,
+                vec![json!({"type": "text", "text": body})],
+                "cloud-trigger",
+                false,
+                options,
+            )
+            .await;
+    });
+    let receipt = tokio::time::timeout(std::time::Duration::from_secs(4), accepted_rx)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_else(|| hub.trigger_delivery(&session, &delivery));
+    if receipt.get("turnId").and_then(Value::as_str).is_none() {
+        return Err(RpcError::new(-32001, "trigger delivery was not durably accepted"));
+    }
+    Ok(receipt)
+}
+
+fn status(hub: &Hub, scope: &TriggerScope) -> Result<Value, RpcError> {
+    let session = exact_session(hub, &scope.session)?;
+    let mut out = hub.trigger_delivery(&session, &scope.delivery);
+    out["machine"] = Value::String(scope.machine.clone());
+    out["workspace"] = Value::String(scope.workspace.clone());
+    out["session"] = Value::String(session.id.clone());
+    Ok(out)
 }
 
 pub(super) async fn handle(
@@ -209,65 +367,56 @@ pub(super) async fn handle(
     match expected {
         "ensure" => {
             same_identity(&identity).await?;
-            if let Ok(existing) = hub.resolve(&scope.session) {
-                return Ok(json!({
-                    "delivery": scope.delivery,
-                    "session": {"sessionId": existing.id, "existing": true},
-                }));
-            }
-            let result = super::requests::handle_request(
-                hub,
-                conn,
-                method::SESSION_NEW,
-                json!({
-                    "cwd": scope.cwd,
-                    "harness": scope.harness,
-                    "name": format!("trigger-{}", scope.trigger),
-                    "_meta": {"acpmux": {"trigger": true}},
-                }),
-            )
-            .await?;
-            Ok(json!({"delivery": scope.delivery, "session": result}))
+            ensure(hub, &scope).await
         }
         "send" => {
-            let prompt = string(&params, "body", 1_000_000)?;
-            let digest = format!("{:x}", sha2::Sha256::digest(prompt.as_bytes()));
+            let body = prompt(&params, "body")?;
+            let digest = format!("{:x}", sha2::Sha256::digest(body.as_bytes()));
             if digest != scope.prompt_hash {
                 return Err(RpcError::new(-32001, "trigger prompt does not match authorization"));
             }
             same_identity(&identity).await?;
-            let result = super::requests::handle_request(
-                hub,
-                conn,
-                method::SESSION_PROMPT,
-                json!({
-                    "sessionId": scope.session,
-                    "prompt": [{"type": "text", "text": prompt}],
-                    "_meta": {"acpmux": {
-                        "promptId": scope.delivery,
-                        "provenance": {
-                            "kind": "trigger", "triggerId": scope.trigger,
-                            "deliveryId": scope.delivery, "machine": scope.machine,
-                            "workspace": scope.workspace, "session": scope.session,
-                        },
-                    }},
-                }),
-            )
-            .await?;
-            Ok(result)
+            let result = send(hub, &scope, body).await?;
+            let duplicate =
+                result.pointer("/_meta/acpmux/duplicate").and_then(Value::as_bool) == Some(true);
+            Ok(json!({
+                "ok": true,
+                "state": if duplicate { "replayed" } else { "sent" },
+                "machine": scope.machine,
+                "workspace": scope.workspace,
+                "session": scope.session,
+                "delivery": scope.delivery,
+                "turn": result.pointer("/_meta/acpmux/turnId").cloned().unwrap_or(Value::Null),
+                "reply": result,
+            }))
         }
         "status" => {
             // Keep the status response scoped to the exact session/delivery;
             // no list, owner or machine data is exposed on this RPC.
             same_identity(&identity).await?;
-            let result = super::requests::handle_request(
-                hub,
-                conn,
-                method::MUX_INFO,
-                json!({"sessionId": scope.session, "delivery": scope.delivery}),
-            )
-            .await?;
-            Ok(json!({"delivery": scope.delivery, "status": result}))
+            let requested_turn = string(&params, "turn", MAX)?;
+            if scope.turn != requested_turn {
+                return Err(RpcError::new(-32001, "trigger turn binding changed"));
+            }
+            let result = status(hub, &scope)?;
+            if result.get("turnId").and_then(Value::as_str).is_some_and(|id| id != scope.turn) {
+                return Err(RpcError::new(-32001, "trigger delivery turn mismatch"));
+            }
+            let current_state = result.get("state").and_then(Value::as_str).unwrap_or("failed");
+            let state = match current_state {
+                "running" | "queued" => current_state,
+                "completed" => "completed",
+                "unknown" => "failed",
+                _ => "attention",
+            }
+            .to_owned();
+            let mut result = result;
+            result["ok"] = Value::Bool(true);
+            result["state"] = Value::String(state.to_owned());
+            result["machine"] = Value::String(scope.machine.clone());
+            result["workspace"] = Value::String(scope.workspace.clone());
+            result["session"] = Value::String(scope.session.clone());
+            Ok(result)
         }
         _ => unreachable!(),
     }
