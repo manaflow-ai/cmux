@@ -279,7 +279,7 @@ export function CloudStartView({
           )}
         </button>
         {expanded && (
-          <div className="acpmux-cloud-start__checklist" aria-label="Cloud startup checklist">
+          <div className="acpmux-cloud-start__checklist" aria-label={t("cloudStartup.checklist")}>
             {rows.map((step) => (
               <div key={step.id} className="acpmux-cloud-start__row" data-status={step.status} data-step-id={step.id}>
                 <span className="acpmux-cloud-start__mark">{mark(step, t)}</span>

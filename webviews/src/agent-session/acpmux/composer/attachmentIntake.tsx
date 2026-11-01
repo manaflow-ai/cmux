@@ -1340,7 +1340,7 @@ function PdfAttachmentChip({
           <PdfSheetPreview />
         </button>
         <span className="acpmux-attachment-document-meta">
-          <FileDoc size={15} />
+          <FileDoc size={16} />
           <span className="acpmux-attachment-document-name">{attachment.name}</span>
           <span className="acpmux-attachment-document-pages">{deliveryLabel}</span>
         </span>
@@ -1377,7 +1377,7 @@ function PdfAttachmentChip({
             rel="noreferrer"
             aria-label={t(ATTACHMENT_LABELS.openAttachment, { name: attachment.name })}
           >
-            <FileDoc size={15} />
+            <FileDoc size={16} />
             <span>{attachment.name}</span>
           </a>
         )}

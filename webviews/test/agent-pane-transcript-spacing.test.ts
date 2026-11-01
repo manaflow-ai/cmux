@@ -201,7 +201,19 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
       const lastReply = reply("Meanwhile the PR checks");
       const dock = document.querySelector<HTMLElement>(".acpmux-main[data-dock=float] > .acpmux-dock")!;
+      // The reply's last line's text box (its content area, the line less its half-leading), the
+      // footer's 24px line, and the next prompt's bubble: the line sits in the middle of that room.
+      const lastLineBottom = (node: Element) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const lines = [...range.getClientRects()].filter((box) => box.height > 0);
+        return lines.at(-1)!.bottom;
+      };
+      const firstFooter = footers[0]!;
+      const firstFooterReply = reply("Not yet: the hosted test run");
       return {
+        footerRoomAbove: rect(firstFooter).top - lastLineBottom(firstFooterReply),
+        footerRoomBelow: rect(last).top - rect(firstFooter).bottom,
         metaRowUnderBubble: Math.round(rect(lastActions).top - rect(last).bottom),
         metaRowHeight: Math.round(rect(lastActions).height),
         olderPromptToNext: Math.round(rect(firstContent).top - rect(first).bottom),
@@ -235,6 +247,10 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     // The footer's 28 box sits inside the turn gap and never touches the next prompt.
     expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(0);
     expect(measured.footerToNextPrompt).toBeLessThanOrEqual(8);
+    // A footer's line is centred between the reply's last line and the next prompt (Leo, 2026-10-31:
+    // "padding after == padding before that kinda thing all around", #29860). The last footer instead
+    // rests the rest gap over the composer (below).
+    expect(Math.abs(measured.footerRoomAbove - measured.footerRoomBelow)).toBeLessThanOrEqual(1.5);
     // The last footer rests the rest gap over the floating composer (model.ts REST_GAP, about two
     // and a half body lines, as Codex leaves; agent-pane-composer-rest-gap.test.ts holds it in every
     // state).
