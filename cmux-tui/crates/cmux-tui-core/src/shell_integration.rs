@@ -232,38 +232,58 @@ fn is_incognito(lookup: &dyn Fn(&str) -> Option<String>) -> bool {
     lookup(INCOGNITO_ENV).is_some_and(|value| !value.is_empty())
 }
 
-/// Whether a startup file the bare interactive `shell` reads first under
-/// `lookup` runs the incognito history hook: the app's cmux-cli-path layer
-/// or the daemon's own scripts, which name `CMUX_TUI_INCOGNITO`. A launch
-/// key alone proves nothing (a caller may set any), so the files are read.
-/// A bare bash never reads `ENV` (only `--posix` does), so it never has one.
+/// The app's cmux-cli-path startup files that run the incognito history
+/// hook, as the app bundle ships them (`BundledCLIEnvironment`).
+const APP_ZSHENV: &str = include_str!("../../../../Resources/cmux-cli-path/zsh/.zshenv");
+const APP_FISH: &str =
+    include_str!("../../../../Resources/cmux-cli-path/fish/vendor_conf.d/cmux-cli-path.fish");
+
+/// The daemon's own script at `path` under its scripts root.
+fn script(path: &str) -> Option<&'static str> {
+    SCRIPTS.iter().find(|script| script.path == path).map(|script| script.contents)
+}
+
+/// Whether the bare interactive `shell` under `lookup` already runs the
+/// incognito history hook at startup: the startup files it reads first are
+/// the app's cmux-cli-path layer or the daemon's own scripts, byte for byte.
+/// Neither a launch key nor a file that only names the marker proves it (a
+/// caller may set or write any). A bare bash never reads `ENV` (only
+/// `--posix` does), so it never has one.
 fn runs_incognito_hook(shell: Shell, lookup: &dyn Fn(&str) -> Option<String>) -> bool {
-    let carries =
-        |path: &Path| fs::read_to_string(path).is_ok_and(|text| text.contains(INCOGNITO_ENV));
+    let is = |path: &Path, expected: Option<&str>| {
+        expected.is_some_and(|expected| fs::read_to_string(path).is_ok_and(|text| text == expected))
+    };
     match shell {
         Shell::Zsh => lookup("ZDOTDIR").is_some_and(|dir| {
             let dir = Path::new(&dir);
-            carries(&dir.join(".zshenv")) || carries(&dir.join("ghostty-integration"))
+            let zshenv = dir.join(".zshenv");
+            is(&zshenv, Some(APP_ZSHENV))
+                || (is(&zshenv, script("zsh/.zshenv"))
+                    && is(&dir.join("ghostty-integration"), script("zsh/ghostty-integration")))
         }),
         Shell::Bash => false,
         Shell::Fish => lookup("XDG_DATA_DIRS").is_some_and(|dirs| {
             dirs.split(':').filter(|dir| !dir.is_empty()).any(|dir| {
-                fs::read_dir(Path::new(dir).join("fish").join("vendor_conf.d")).is_ok_and(
-                    |entries| {
-                        entries.flatten().any(|entry| {
-                            let path = entry.path();
-                            path.extension() == Some(OsStr::new("fish")) && carries(&path)
-                        })
-                    },
-                )
+                let vendor = Path::new(dir).join("fish").join("vendor_conf.d");
+                is(&vendor.join("cmux-cli-path.fish"), Some(APP_FISH))
+                    || is(
+                        &vendor.join("cmux-tui-incognito-history.fish"),
+                        script("fish/vendor_conf.d/cmux-tui-incognito-history.fish"),
+                    )
             })
         }),
     }
 }
 
-/// Whether every argument after the program is a login or interactive flag.
+/// Whether every argument after the program is a login or interactive flag
+/// (`-l`, `--login`, `-i`, or a cluster of them such as `-il`).
 fn is_bare(command: &[String]) -> bool {
-    command.iter().skip(1).all(|arg| matches!(arg.as_str(), "-l" | "--login" | "-i"))
+    command.iter().skip(1).all(|arg| {
+        arg == "--login"
+            || arg.strip_prefix('-').is_some_and(|flags| {
+                !flags.is_empty() && flags.chars().all(|flag| matches!(flag, 'i' | 'l'))
+            })
+    })
 }
 
 /// An explicit `command` of an incognito terminal that is a bare

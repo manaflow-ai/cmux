@@ -896,9 +896,9 @@ impl OutputStore {
                 self.public.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id.clone());
                 Some(false)
             }
-            // Not a session terminal (yet): nothing of an incognito
-            // workspace; asked again next time.
-            Ok(None) => Some(false),
+            // No row (yet): not known normal, so it reads as incognito and
+            // its bytes wait; asked again next time.
+            Ok(None) => None,
             Err(error) => {
                 eprintln!(
                     "cmux-tui: could not tell whether terminal {} is incognito; keeping it in memory: {error:#}",
