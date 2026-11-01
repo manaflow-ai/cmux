@@ -1268,6 +1268,14 @@ impl Hub {
         session
     }
 
+    #[cfg(test)]
+    pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
+        let id = meta.id.clone();
+        let session = self.make_session(meta);
+        self.sessions.lock().unwrap().insert(id, session.clone());
+        session
+    }
+
     // ------------------------------------------------------------ lookup
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {

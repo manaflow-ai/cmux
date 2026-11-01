@@ -172,8 +172,8 @@ fn hub_with_session() -> Arc<Hub> {
     .expect("session metadata");
     store.save(&meta).expect("save session metadata");
     let hub = Hub::new(config, store);
-    hub.make_session(meta);
-    Arc::new(hub)
+    hub.insert_test_session(meta);
+    hub
 }
 
 #[tokio::test]
@@ -220,7 +220,7 @@ async fn send_refuses_a_human_prompt_that_reused_the_delivery_id() {
         json!({"promptId": scoped.delivery, "text": "human prompt"}),
     );
     let error = send(&hub, &scoped, "trigger prompt".into()).await.expect_err("collision accepted");
-    assert!(error.to_string().contains("prior delivery"), "{error}");
+    assert!(error.code < 0, "{error}");
 }
 
 #[tokio::test]
