@@ -27,19 +27,34 @@ const LATEST = `Answer ${TURNS}:`;
 const { events, session } = papercutEvents({ turns: TURNS, running: false });
 let attachedAt = 0;
 let attachBytes = 0;
-const answer = (method: string): unknown => {
+let attachEvents = 0;
+/// The newest `limit` events before `beforeSeq`, oldest first, and whether older ones remain: the page the
+/// daemon answers an attach or an older-history read with.
+const newest = (limit: number, beforeSeq = Infinity) => {
+  const older = events.filter((event) => event.seq < beforeSeq);
+  return { page: older.slice(-limit), hasMore: older.length > limit };
+};
+const answer = (method: string, params: Record<string, unknown> = {}): unknown => {
   switch (method) {
     case "initialize":
       return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     case "_acpmux/watch":
       return { sessions: [session] };
     case "_acpmux/attach": {
-      const result = { session, lastSeq: events.length, events, hasMore: false };
+      // As the daemon does: the newest `limit` events, and hasMore while older ones remain.
+      const { page, hasMore } = newest(Number(params.limit ?? 400));
+      const result = { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore };
       attachBytes = JSON.stringify(result).length;
+      attachEvents = page.length;
       return result;
     }
-    case "_acpmux/events":
-      return { events: [], hasMore: false, lastSeq: events.length };
+    case "_acpmux/events": {
+      if (params.beforeSeq !== undefined) {
+        const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq));
+        return { events: page, hasMore, lastSeq: events.at(-1)?.seq ?? 0 };
+      }
+      return { events: [], hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
+    }
     default:
       return null;
   }
@@ -112,9 +127,9 @@ try {
     },
     websocket: {
       message(ws, raw) {
-        const message = JSON.parse(String(raw)) as { id?: number; method: string };
+        const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
         if (message.id === undefined) return;
-        const result = answer(message.method);
+        const result = answer(message.method, (message as { params?: Record<string, unknown> }).params);
         if (message.method === "_acpmux/attach") attachedAt = Date.now();
         ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
       },
@@ -258,7 +273,7 @@ try {
   const rounds: Round[] = [];
   for (let round = 0; round < ROUNDS; round += 1) rounds.push(await open());
   const median = (pick: (r: Round) => number) => [...rounds.map(pick)].sort((a, b) => a - b)[Math.floor(rounds.length / 2)]!;
-  console.log(`chat-open: ${TURNS} turns, ${events.length} events, attach payload ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`);
+  console.log(`chat-open: ${TURNS} turns, ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`);
   console.log("attach ms | firstRow ms | latest ms | settled ms | long tasks | long ms | layout shift | scroll moves after latest");
   console.log(
     [
