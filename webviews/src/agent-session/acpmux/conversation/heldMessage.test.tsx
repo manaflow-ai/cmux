@@ -265,7 +265,7 @@ test("the requests the pane sends fit the native relay's param allowlist", async
     );
   };
   const sent: Record<string, Record<string, unknown>> = {
-    "_acpmux/queue_approve": { sessionId: "s", promptId: "p", revision: 0 },
+    "_acpmux/queue_approve": { sessionId: "s", promptId: "p", turnId: "t", revision: 0 },
     "_acpmux/queue_decline": { sessionId: "s", promptId: "p" },
     "_acpmux/queue_get": { sessionId: "s", promptId: "p" },
   };

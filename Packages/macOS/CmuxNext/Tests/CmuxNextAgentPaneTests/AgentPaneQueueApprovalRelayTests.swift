@@ -37,7 +37,7 @@ struct AgentPaneQueueApprovalRelayTests {
         #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
 
         transport.gestures.record()
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, method: approve, params: #"{"sessionId":"s","promptId":"p","revision":2}"#)]) == nil)
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, method: approve, params: #"{"sessionId":"s","promptId":"p","turnId":"t-1","revision":2}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":4"#)
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 5, method: decline, params: #"{"sessionId":"s","promptId":"q"}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":5"#)
@@ -48,6 +48,7 @@ struct AgentPaneQueueApprovalRelayTests {
             return try #require(object?["params"] as? [String: Any])
         }
         #expect(params.first?["revision"] as? Int == 2)
+        #expect(params.first?["turnId"] as? String == "t-1", "Approve names the incarnation the owner saw")
         #expect(params.last?["promptId"] as? String == "q")
     }
 

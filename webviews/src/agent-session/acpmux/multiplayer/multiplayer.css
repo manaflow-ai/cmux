@@ -208,9 +208,21 @@
   outline-offset: 2px;
   border-radius: 8px;
 }
-/* Its ⋯ (the `menu` look) is how the owner answers: always shown, never only on hover. */
-.cv-held .cv-received-actions {
+/* Its Approve and Decline (or its ⋯, the `menu` look) are how the owner answers: always shown in
+   the line's action slot (IncomingMessageCard.tsx, DisclosureRow `actions`), never only on hover. */
+.cv-held .cv-received-actions,
+.cv-held[data-held] .cv-received__hover {
   opacity: 1;
+  pointer-events: auto;
+}
+/* "Waiting for you", "Updating…": a quiet note after the buttons, in the line's caption type. */
+.cv-held .cv-received__queued {
+  flex: none;
+  margin-inline-start: var(--ds-space-1);
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
 }
 .acpmux-quick-item.cv-held__primary {
   font-weight: 600;
