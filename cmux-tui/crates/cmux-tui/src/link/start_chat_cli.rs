@@ -311,12 +311,11 @@ pub(super) fn origin_url(config: &str) -> Option<String> {
             let section = section.split(']').next().unwrap_or("");
             let (name, sub) = section.split_once(char::is_whitespace).unwrap_or((section, ""));
             in_origin = name.eq_ignore_ascii_case("remote") && sub.trim() == "\"origin\"";
-        } else if in_origin {
-            if let Some((key, value)) = line.split_once('=') {
-                if key.trim().eq_ignore_ascii_case("url") {
-                    url = Some(value.trim().trim_matches('"').to_string());
-                }
-            }
+        } else if in_origin
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim().eq_ignore_ascii_case("url")
+        {
+            url = Some(value.trim().trim_matches('"').to_string());
         }
     }
     url
