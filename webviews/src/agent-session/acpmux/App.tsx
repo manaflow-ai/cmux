@@ -6894,7 +6894,7 @@ function AcpmuxPane() {
     const summary = withCloudMachineSummary(cardSnapshot.summary, cloudMachineID);
     return summary === cardSnapshot.summary ? cardSnapshot : { ...cardSnapshot, summary };
   }, [cardSnapshot, cloudMachineID]);
-  const cloudRouteHostKind = withCloudMachineSummary(snapshot.summary, cloudMachineID)?.hostKind;
+  const cloudRouteHostKind = cloudMachineID ? "cloud" : snapshot.summary?.hostKind;
   const summaryHasContent = useMemo(
     () => chatHasSummaryContent(cardRows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
     [cardRows, chatSubsessions, workflows],

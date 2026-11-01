@@ -383,7 +383,7 @@ test("Session Info derives Cloud from the host handshake when the summary has no
   delete summaryWithoutMachineKind.peer;
   const realCloudShape: AcpmuxSnapshot = {
     ...chat([]),
-    summary: { ...summaryWithoutMachineKind, sessionId: "cloud-session", host: "cloud-01" },
+    summary: { ...summaryWithoutMachineKind, sessionId: "cloud-session" },
   };
   await act(async () => {
     root = createRoot(container);
@@ -392,7 +392,7 @@ test("Session Info derives Cloud from the host handshake when the summary has no
     );
   });
   const environment = section(container, "environment")!;
-  expect(environment.querySelector("li[data-machine]")?.textContent).toContain("cloud-01");
+  expect(environment.querySelector("li[data-machine]")?.textContent).toContain("Studio");
   expect(environment.textContent).toContain("Default");
   expect(environment.textContent).toContain("Add repository…");
 
