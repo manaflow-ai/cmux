@@ -24,8 +24,13 @@ import Testing
         init(lower: Bool) throws {
             _ = NSApplication.shared
             let services = AppServices(environment: AppEnvironment.current([:]))
-            services.daemon.store.connectionState = .connected(DaemonIdentity(capabilities: [DaemonCapability.dockColumnRole.rawValue],
-                                                                             generation: DaemonGeneration(rawValue: "chat-tools")))
+            // The capability check reads the handshake's identity (StateResourceQueries.supports), which a
+            // real connect records before its `.connected` event (DaemonStore.noteHandshake); the
+            // connection state alone advertises nothing, and `openTool` then answers false.
+            let identity = DaemonIdentity(capabilities: [DaemonCapability.dockColumnRole.rawValue],
+                                          generation: DaemonGeneration(rawValue: "chat-tools"))
+            services.daemon.store.noteHandshake(identity)
+            services.daemon.store.connectionState = .connected(identity)
             let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat)
             let right: LayoutNode = lower
                 ? .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: .leaf(2), b: .leaf(3)) : .leaf(2)

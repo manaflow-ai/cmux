@@ -265,7 +265,7 @@ mod remote_cli_docs {
         assert!(app::parse(&args).is_ok());
         assert!(cloud_help::overview(false).contains("cloud <action>"));
         assert!(AGENT_HELP.contains("agent open-tab"));
-        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
+        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]"));
     }
 
     #[test]

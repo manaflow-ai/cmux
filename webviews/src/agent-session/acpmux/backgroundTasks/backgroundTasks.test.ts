@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import type { BackgroundCommand } from "../inspector/processes";
+import type { BackgroundCommand } from "../session-info/processes";
 import type { StartedSession } from "../started/startedSessions";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
 import { workflowPaneId } from "../summary/workflowTranscript";
