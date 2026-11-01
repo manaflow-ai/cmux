@@ -474,8 +474,9 @@ fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
 /// automatically". On the caller's own Cloud VM (the owner word; on a team VM
 /// the creator's) a new chat with no folder of the person's own, which the
 /// app sends as the workspace's first terminal folder (`$HOME` on a new
-/// machine), starts in the machine's work folder, and that work folder reads
-/// trusted with no question. A person's "Don't trust" still wins, and a
+/// machine), starts in a private folder of its own, `~/chats/<chat id>`
+/// (#30363), which reads trusted with no question (`cloud_chat`); the work
+/// folder still reads trusted too. A person's "Don't trust" still wins, and a
 /// machine that is not a Cloud VM keeps the home folder rule.
 #[test]
 fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_own_trusted_chat_folder() {
