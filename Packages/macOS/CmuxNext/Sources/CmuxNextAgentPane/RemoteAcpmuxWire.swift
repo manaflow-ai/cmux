@@ -525,6 +525,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 self?.emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: result, as: UTF8.self) + "}" })
             } catch let error as AgentSessionRemoteError {
                 self?.fail(id, code: error.code, message: error.message)
+                if error.code == "cloud.turn.connection" { self?.pushed(.closed(error.message)) }
             } catch {
                 self?.fail(id, code: Self.unsupported, message: String(describing: error))
             }

@@ -149,4 +149,18 @@ import Testing
         for _ in 0..<200 where frames.reply(7) == nil { try await Task.sleep(for: .milliseconds(5)) }
         #expect(frames.reply(7) != nil)
     }
+
+    @Test func staleCloudConnectionClosesSoThePaneCanReattach() async throws {
+        let client = Client(), frames = RemoteAcpmuxObserverTests.Frames()
+        let (closed, continuation) = AsyncStream<Int>.makeStream()
+        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: { _, _ in
+            throw AgentSessionRemoteError(code: "cloud.turn.connection", message: "The Cloud machine changed")
+        }, capture: { _, _, _, _ in Issue.record("A stale attachment must not capture"); return Data() }))
+        try await wire.open(onFrame: { frames.append($0) }, onClose: { code, _ in continuation.yield(code) })
+        wire.send(#"{"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{"sessionId":"session_1","prompt":[{"type":"text","text":"hello"}],"_meta":{"acpmux":{"promptId":"prompt_1"}}}}"#) { _ in }
+        for await code in closed { #expect(code == 1012); break }
+        #expect(frames.reply(7)?["error"] != nil)
+        #expect(client.calls.withLock { $0 }.isEmpty)
+        continuation.finish()
+    }
 }

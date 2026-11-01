@@ -577,7 +577,7 @@ extension AgentTabStore {
             let target = try JSONDecoder().decode(CloudWorkspaceConnection.self, from: await connection.connection(workspace: workspace)).checked(machine: machine)
             guard target.generation == generation,
                   await link.isConnected(machine: target.connectionMachine, generation: generation)
-            else { throw CloudTurnOwnerClient.Failure.scope }
+            else { throw AgentSessionRemoteError(code: "cloud.turn.connection", message: "The Cloud machine changed. Reconnecting this chat.") }
             try await MainActor.run {
                 guard let services else { throw CancellationError() }
                 try services.cloud.rememberTurnWorkspace(workspace: workspace, machine: machine, scope: account)
