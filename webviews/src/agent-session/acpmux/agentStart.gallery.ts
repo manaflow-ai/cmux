@@ -48,7 +48,10 @@ const toReply: Play = async (ctx) => {
       );
       if (moved.length === 0) continue;
       const { node, previousRect: was, currentRect: now } = moved[0]!;
-      const name = node instanceof view.Element ? node.className.toString() : "#text";
+      const name =
+        node instanceof view.Element
+          ? `${node.className.toString()} "${(node.getAttribute("aria-label") || node.textContent || "").trim().slice(0, 60)}"`
+          : "#text";
       const delta = [now!.x - was!.x, now!.y - was!.y, now!.width - was!.width, now!.height - was!.height];
       shifts.push({ value: entry.value, from: `${name} [${delta.map((d) => Math.round(d * 10) / 10).join(" ")}]` });
     }
