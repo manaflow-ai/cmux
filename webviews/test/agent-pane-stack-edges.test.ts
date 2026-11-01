@@ -57,7 +57,6 @@ await requireBrowserLane("agent-pane-stack-edges.test.ts", async () => {
     "acpmux-pr-stack",
     "acpmux-pr-count-host",
     "acpmux-recap",
-    "acpmux-agents-pill-anchor",
     "acpmux-host-line",
   ]);
   const FRAMES: { entry: string; variant: string }[] = [
@@ -70,8 +69,6 @@ await requireBrowserLane("agent-pane-stack-edges.test.ts", async () => {
     { entry: "agent-pane.bottom-stack", variant: "trusted-permission-queue" },
     { entry: "agent-pane.bottom-stack", variant: "compact-trust-queue" },
     { entry: "agent-pane.bottom-stack", variant: "short-400-long-draft" },
-    { entry: "agent-pane.pr-dock", variant: "inline-pills" },
-    { entry: "agent-pane.pr-dock", variant: "full-bars" },
     { entry: "agent-pane.recap-card", variant: "recap-card" },
     { entry: "agent-pane.bottom-stack-styles", variant: "collapsed" },
     { entry: "agent-pane.bottom-stack-styles", variant: "expanded" },

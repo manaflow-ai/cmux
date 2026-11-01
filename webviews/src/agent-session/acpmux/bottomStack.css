@@ -1,7 +1,6 @@
 /* The chat's bottom stack (hq#1957, Leo 2026-10-14), .acpmux-dock: everything under the transcript,
-   in this order: a question waiting for an answer (.acpmux-asks-stack), notices, the pull request
-   dock (summary/PullRequestDock.tsx), the tray while subagents or background commands run
-   (subagents/SubagentTray.tsx; the agents pill, subagents/AgentsPill.tsx, with it off),
+   in this order: a question waiting for an answer (.acpmux-asks-stack), notices, the tray while subagents or background commands run
+   (subagents/SubagentTray.tsx),
    then the composer form, which holds the queued prompts (ComposerQueue.tsx), the location strip and
    the card. Every part takes its own height in the stack's own flow, so none draws over another or
    under the pane's edge; a new part joins that flow here.
@@ -38,9 +37,9 @@
 .acpmux-main[data-dock="float"]:has(.acpmux-composer-foot) > .acpmux-dock {
   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
 }
-/* A part of the floating stack is a band the pane's width wide whose card, bar or pill sits inset in
-   it by the column's gutters (--cv-inset): the question card, the pull request dock, an error card,
-   the agents pill. The band takes the pointer, since the transcript's rows under the stack are only
+/* A part of the floating stack is a band the pane's width wide whose card or bar sits inset in it by
+   the column's gutters (--cv-inset): the question card, the pull request dock, or an error card. The
+   band takes the pointer, since the transcript's rows under the stack are only
    masked: a hover, click or drag in its gutters or empty room must not reach a row no one sees. The
    wheel there scrolls the transcript all the same (wheelPassThrough.ts forwards it), and a band that
    scrolls itself (the pull request dock, the question card in a short pane) keeps its wheel and its
@@ -71,28 +70,20 @@
   --acpmux-stack-start: calc(var(--cv-inset) - var(--acpmux-stack-outset));
   --acpmux-stack-end: calc(var(--cv-inset-end, var(--cv-inset)) - var(--acpmux-stack-outset));
 }
-.acpmux-dock > .acpmux-agents-pill-anchor {
-  position: relative;
-  flex: none;
-  display: flex;
-  padding: 0 var(--acpmux-stack-end) 0 var(--acpmux-stack-start);
-}
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
    with the composer card; in a short pane it gives up its height like the parts below. */
 .acpmux-dock > .acpmux-running-tray {
   margin: 0 var(--acpmux-stack-end) 0 var(--acpmux-stack-start);
 }
-/* The parts on the rule (the tray, the pull requests, the recap, the agents pill, the host's line,
-   the gallery's legacy bars): the stack's token under each that another part follows. */
+/* The parts on the rule (the tray, the pull requests, the recap, the host's line): the stack's token
+   under each that another part follows. */
 .acpmux-dock
   > :is(
     .acpmux-running-tray,
     .acpmux-pr-stack,
     .acpmux-pr-count-host,
     .acpmux-recap,
-    .acpmux-agents-pill-anchor,
-    .acpmux-host-line,
-    .acpmux-pr-comparison
+    .acpmux-host-line
   ):has(+ :not(.acpmux-composer)) {
   margin-bottom: var(--acpmux-stack-gap);
 }
@@ -411,7 +402,6 @@
 /* A permission card's numbered options can outgrow a short pane: it scrolls inside the height it
    keeps, so the composer card stays in view. */
 .acpmux-dock > .acpmux-composer > .acpmux-composer-queue,
-.acpmux-dock > .acpmux-pr-dock,
 .acpmux-dock > .acpmux-pr-stack,
 .acpmux-dock > .acpmux-running-tray,
 .acpmux-dock > .acpmux-asks-stack {
@@ -438,10 +428,6 @@
      stupid-ass fucking padding"). */
   min-height: var(--ui-row-height, var(--ds-control-row, 28px));
 }
-.acpmux-dock > .acpmux-running-tray[data-narrow] {
-  --acpmux-tray-header-lines: 2;
-  min-height: calc(2 * var(--ui-row-height, var(--ds-control-row, 28px)));
-}
 @media (min-height: 360px) {
   /* Not while the fold plays (conversation/fold.ts clips it then and marks it data-fold-clip): the
    fold's own height carries the tray, so open and close never jump by the reservation. Never a
@@ -450,8 +436,9 @@
     > .acpmux-running-tray:has(
       > .acpmux-running-tray__fold:not([data-fold-clip]) > .acpmux-running-tray__finished
     ) {
-    /* View all needs one row in addition to the header's one or two lines. */
-    min-height: calc((var(--acpmux-tray-header-lines, 1) + 1) * var(--ui-row-height, var(--ds-control-row, 28px)) + var(--ds-space-1) / 2 + 2 * var(--cmux-hairline));
+    /* View all needs one row in addition to the header's one, narrow too: the header's time follows
+       its counts on its one line (subagents.css), so it never takes a second. */
+    min-height: calc(2 * var(--ui-row-height, var(--ds-control-row, 28px)) + var(--ds-space-1) / 2 + 2 * var(--cmux-hairline));
   }
 }
 /* A pane too short for both pinned rows and the composer (a webview under 360px) keeps the composer
@@ -463,10 +450,9 @@
   }
 }
 
-/* What joins the bottom stack rises out of the composer as it appears (Leo 2026-10-20, directional
-   motion): a question, a notice, the pull request dock, the agents pill and a queued prompt fade in
-   from a few points below where they land (ui-enter, ui/popupSurface.css). Their space opens in one
-   frame, as the stack's flow takes it; only the drawing travels. */
+/* What joins the bottom stack enters from the composer as it appears (Leo 2026-10-20): a question,
+   a notice, the pull request dock, the running tray and a queued prompt use the shared entry tokens.
+   Their space opens in one frame, as the stack's flow takes it; only the drawing travels. */
 .acpmux-dock > :not(.acpmux-composer, .acpmux-home-area, .acpmux-asks-stack),
 .acpmux-asks-stack > *,
 .acpmux-composer-queue > li {

@@ -64,7 +64,6 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
     "above",
     "above-no-tray",
     "cards",
-    "legacy-bars",
   ];
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -121,7 +120,6 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
       cards.push({ name, left: r.left, right: r.right, top: r.top, bottom: r.bottom });
     };
     add("prs", document.querySelector(".acpmux-dock > .acpmux-pr-stack"));
-    for (const chip of document.querySelectorAll(".acpmux-dock .acpmux-pr-comparison__chip")) add("pr bar", chip);
     add("tray", document.querySelector(".acpmux-dock > .acpmux-running-tray"));
     add("composer", document.querySelector(".acpmux-composer-box"));
     cards.sort((a, b) => a.top - b.top);
@@ -339,8 +337,8 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
         undefined,
         { timeout: 2_000 },
       );
-      // The per-message pills (cmux#26082) stay where they are.
-      expect(await page.locator(".acpmux-scroll .acpmux-pr-dock").count()).toBeGreaterThan(0);
+      // The per-message pills are gone (cmux#29614): the count is the chat's one PR control.
+      expect(await page.locator(".acpmux-scroll .acpmux-pr-dock").count()).toBe(0);
     } finally {
       await page.close();
     }
