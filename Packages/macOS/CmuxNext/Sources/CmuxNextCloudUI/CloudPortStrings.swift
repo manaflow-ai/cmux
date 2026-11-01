@@ -17,7 +17,8 @@ public struct CloudPortNames: Equatable {
 /// What `cmux cloud open-browser`, `port-list`, `port-forward`, `port-close` and `machine-link`
 /// say (CloudHandlers+Browser.swift). Each failure names the machine and the port and gives the
 /// next command. Keys live in Resources/CloudPorts.xcstrings with every app locale.
-public enum CloudPortStrings {
+public struct CloudPortStrings {
+    public init() {}
     /// A machine on the classic link (`/api/vm` and `cmux-tui remote connect`): the Cloud app
     /// server keeps no forward for it.
     public static func classicLink(_ names: CloudPortNames) -> String {

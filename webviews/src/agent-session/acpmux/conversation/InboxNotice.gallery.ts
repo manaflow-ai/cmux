@@ -216,22 +216,25 @@ const SIX = [
   [FYI, RAIL],
 ];
 
-/// Opens the group (when there is one) and the first thread's line.
+/// Opens the delivered inbox batch (when there is one) and the first received line. Inbox
+/// deliveries now use the same flat lane-notice projection as the transcript, so a notice's
+/// own InboxNoticeCard selectors are only present for the legacy singleton shape.
 const openFirst: Play = async (ctx) => {
-  const head = ctx.document.querySelector<HTMLButtonElement>(".cv-inbox__head");
-  if (head) {
-    head.click();
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-inbox__thread"));
-  }
-  ctx.document.querySelector<HTMLButtonElement>(".cv-inbox__thread .cv-disclosure__toggle")?.click();
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-inbox__thread .cv-received__text .cv-md"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle, .cv-received .cv-disclosure__toggle"));
+  ctx.document.querySelector<HTMLButtonElement>(".cv-lane-batch__toggle")?.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__toggle"));
+  ctx.document.querySelector<HTMLButtonElement>(".cv-received .cv-disclosure__toggle")?.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
 };
-/// Opens the group and its thread of three messages.
+/// Opens every delivered batch and the last received line, which is the three-message rail thread
+/// in the fixture after inbox flattening.
 const openRail: Play = async (ctx) => {
-  ctx.document.querySelector<HTMLButtonElement>(".cv-inbox__head")?.click();
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-inbox__thread").length >= 6);
-  ctx.document.querySelectorAll<HTMLButtonElement>(".cv-inbox__thread .cv-disclosure__toggle")[5]?.click();
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-inbox__message").length >= 3);
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle, .cv-received .cv-disclosure__toggle"));
+  for (const batch of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-lane-batch__toggle")) batch.click();
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received .cv-disclosure__toggle").length >= 3);
+  const lines = ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle");
+  lines[lines.length - 1]?.click();
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 1);
 };
 
 export default agentPaneEntry({

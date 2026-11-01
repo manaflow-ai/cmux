@@ -47,7 +47,7 @@ pub(in crate::cli) struct CallFailure {
 }
 
 impl CallFailure {
-    pub(super) fn local(kind: FailureKind, code: &str, message: impl Into<String>) -> Self {
+    pub(in crate::cli) fn local(kind: FailureKind, code: &str, message: impl Into<String>) -> Self {
         Self {
             kind,
             error: json!({

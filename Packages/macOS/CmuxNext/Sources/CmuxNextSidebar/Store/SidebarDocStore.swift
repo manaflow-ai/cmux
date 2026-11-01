@@ -76,7 +76,8 @@ public final class SidebarDocStore {
     @ObservationIgnored var onSettledWait: (@MainActor () -> Void)?
     /// A refetch asked for while one was in flight runs after it.
     @ObservationIgnored private var refetchAgain = false
-    /// Batches that arrived while the first load was in flight; applied after it (the mirror drops the stale ones).
+    /// Batches that arrived during a load; replayed after its reply (the mirror drops the stale ones).
+    /// Active stores still apply them immediately, but an older get reply must not erase them.
     @ObservationIgnored private var earlyBatches: [Data] = []
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
@@ -211,18 +212,23 @@ public final class SidebarDocStore {
             self.bump()
             let early = self.earlyBatches
             self.earlyBatches = []
-            for batch in early { self.receive(batch: batch) }
+            for batch in early { self.applyReceived(batch: batch) }
         }
     }
 
     /// One `session.events` batch of document changes (JSON, with its
     /// revision and idempotency key).
     public func receive(batch data: Data) {
-        // The launch snapshot's document is not the chain a batch extends: batches wait for the first load.
-        guard isActive, !isProvisional, let mirror else {
-            if loading, mirror != nil, earlyBatches.count < 512 { earlyBatches.append(data) }
-            return
+        if loading, mirror != nil {
+            if earlyBatches.count < 512 { earlyBatches.append(data) }
+            else { refetchAgain = true } // A fresh snapshot recovers the tail we could not retain.
         }
+        applyReceived(batch: data)
+    }
+
+    private func applyReceived(batch data: Data) {
+        // The launch snapshot's document is not the chain a batch extends: batches wait for the first load.
+        guard isActive, !isProvisional, let mirror else { return }
         // The mirror drops the pending intent with the batch's key in every case: so do its record writes.
         let settled = !pendingRecords.isEmpty && SidebarDocWire.Batch.key(of: data).map { pendingRecords.remove($0) } == true
         // The reducer judges the revision chain: a skipped one refetches. While a Chief change waits, the mirror also

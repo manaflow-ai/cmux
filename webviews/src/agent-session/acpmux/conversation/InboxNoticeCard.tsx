@@ -13,7 +13,7 @@
 // beside it are inboxNoticeLook.ts's. Whether a line or the group is open lasts while the page does
 // (incomingOpened.ts), and the row estimator (model.ts) reads it. Everything opens on the click,
 // with no fade in.
-import { useContext, useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { ChevronRight } from "./icons";
@@ -22,7 +22,7 @@ import { DisclosureRow } from "../subagents/DisclosureRow";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
-import { FindReveal } from "./chatFind";
+import { FindReveal, foldFind } from "./chatFind";
 import { SenderMark, SenderName } from "./IncomingMessageCard";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
@@ -49,6 +49,7 @@ function InboxThreadLine({
   onOpen,
   readThread,
   githubRepository,
+  actions,
 }: {
   rowId: string;
   thread: InboxThread;
@@ -56,6 +57,7 @@ function InboxThreadLine({
   onOpen(sessionId: string): void;
   readThread?: ReadInboxThread;
   githubRepository?: string;
+  actions?: ReactNode;
 }) {
   const t = useT();
   const session = useContext(PromptMarksSession);
@@ -108,7 +110,7 @@ function InboxThreadLine({
   // Find opens the line that holds the match (the row's text is every thread's messages).
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === rowId ? reveal.needle : "";
-  const holds = Boolean(needle && whole.toLocaleLowerCase().includes(needle));
+  const holds = Boolean(needle && foldFind(whole).includes(needle));
   useLayoutEffect(() => {
     if (!holds || open) return;
     show(true);
@@ -125,6 +127,7 @@ function InboxThreadLine({
       fadeIn={false}
       leading={<SenderName message={sender} onOpen={onOpen} />}
       toggleLabel={t("message.collapsedLabel", { from: name, preview: thread.preview || t("message.noText") })}
+      actions={actions}
       label={
         <>
           {thread.label && <span className="cv-inbox__label">{thread.label}</span>}
@@ -167,6 +170,7 @@ export function InboxNoticeCard({
   onOpen,
   readThread,
   githubRepository,
+  actions,
 }: {
   /// The row's id, which keeps its lines and its group open across remounts.
   rowId: string;
@@ -176,6 +180,7 @@ export function InboxNoticeCard({
   onOpen(sessionId: string): void;
   readThread?: ReadInboxThread;
   githubRepository?: string;
+  actions?: ReactNode;
 }) {
   const t = useT();
   const look = useInboxNoticeLook();
@@ -205,6 +210,7 @@ export function InboxNoticeCard({
       onOpen={onOpen}
       readThread={readThread}
       githubRepository={githubRepository}
+      actions={actions}
     />
   ));
   if (!grouped) {
