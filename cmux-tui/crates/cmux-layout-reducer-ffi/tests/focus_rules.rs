@@ -21,7 +21,10 @@
 //! step 7 was re-recorded from the Rust rules when a sidebar responder the
 //! platform picked on its own (programmatic, no sidebar target) stopped
 //! taking a pane's keyboard (QUIT P0, 2026-11-01): it now re-applies the
-//! pane (revealPane, moveResponder) and leaves the state as it was.
+//! pane (revealPane, moveResponder) and leaves the state as it was. Seed 63
+//! step 23 and seed 104 step 10 were re-recorded the same way when that
+//! report, with the sidebar already focused by keyboard, stopped dropping
+//! the keyboard flag: no effect and no state change.
 
 use cmux_focus_core::event::{FocusEffect, FocusEvent};
 use cmux_focus_core::reducer;
