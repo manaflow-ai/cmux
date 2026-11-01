@@ -676,7 +676,7 @@
    stuff surely we can get more compact horizontally" / "see claude code has that"): the menu is as
    wide as the rows its tabs show (QuickModelMenu's width probe leaves Legacy models out), and the
    effort column is as wide as a level's name and chevron ("Extra high ›"), so a row's effort, star
-   and key sit close after its name. `stable` is the default; `wide` keeps the earlier menu. */
+   and key sit close after its name. `fit` is the default; `wide` keeps the earlier menu. */
 .acpmux-quick-menu:is(.acpmux-quick-width-fit, .acpmux-quick-width-stable) {
   --acpmux-quick-effort-column: 88px;
   min-width: min(240px, var(--available-width, calc(100vw - 24px)));

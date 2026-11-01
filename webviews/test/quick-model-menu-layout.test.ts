@@ -610,7 +610,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     // surely we can get more compact horizontally" / "see claude code has that".
     const widths: Record<string, number> = {};
     const gaps: Record<string, number> = {};
-    for (const variant of ["width-stable", "width-wide"]) {
+    for (const variant of ["width-fit", "width-wide"]) {
       const page = await open(variant, 900, 640);
       try {
         widths[variant] = (await bounds(page, ".acpmux-quick-menu")).width;
@@ -629,9 +629,9 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         await page.close();
       }
     }
-    expect(widths["width-stable"]!).toBeLessThan(widths["width-wide"]! - 40);
+    expect(widths["width-fit"]!).toBeLessThan(widths["width-wide"]! - 40);
     // The band shrinks by the width the fixed menu added, so effort and ⌘N sit close to the name.
-    expect(gaps["width-stable"]!).toBeLessThan(gaps["width-wide"]! - 60);
+    expect(gaps["width-fit"]!).toBeLessThan(gaps["width-wide"]! - 60);
   });
 
   test("one tab per harness: Claude and Codex routes are Account choices, never tabs", async () => {
