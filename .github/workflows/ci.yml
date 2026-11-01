@@ -1139,8 +1139,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check out reviewed runner-pool tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .runner-pool-tooling
+          sparse-checkout: |
+            scripts/ci/runner_pool_reconcile.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Run the fast guard tests
         env:
+          RUNNER_POOL_TOOLING_ROOT: ${{ github.workspace }}/.runner-pool-tooling
           CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || '' }}
         run: scripts/ci/guards-local.sh --no-stamp --jobs 8
 

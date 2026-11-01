@@ -7,7 +7,7 @@ directly. A first fix chose 16 vCPU while the overflow switch's record was set,
 but the switch trips only when every probed size stalls, so one stalled size
 still held every run. The job now reads fromJSON(vars.RUNNER_POOLS).linux: the
 pool (.github/runners.json) declares the sizes, and scripts/ci/runner_pools.py
-moves it off a size the probe saw stall. The pool stays on Blacksmith: no job
+moves it off a size the probe saw stall. The audited pool tries fleet Linux before Blacksmith: no job
 runs on GitHub-hosted Ubuntu, so it never names vars.LINUX_RUNNER (which the
 switch may point at hosted Linux) or a hosted label. Sticky disks work on every
 Blacksmith Linux size, so the cache steps stay as they are.
@@ -41,13 +41,15 @@ class FastChecksFailoverTests(unittest.TestCase):
         # Past the re-dispatch input, no size is written down.
         self.assertNotRegex(line.split("inputs.runner ||")[-1], BLACKSMITH_LINUX)
 
-    def test_the_linux_pool_is_blacksmith_linux_only(self) -> None:
+    def test_the_linux_pool_is_fleet_then_bounded_blacksmith(self) -> None:
         import json
         runners = json.loads((WORKFLOW.parents[1] / "runners.json").read_text(encoding="utf-8"))
         members = runners["pools"]["linux"]["members"]
         self.assertGreaterEqual(len(members), 2)
-        for label in members:
+        self.assertEqual(members[0], "cmux-fleet-linux-x64")
+        for label in members[1:]:
             self.assertRegex(label, r"^blacksmith-\d+vcpu-ubuntu-2404$")
+        self.assertEqual(runners["pools"]["linux_ephemeral"]["members"], members[1:])
 
     def test_failover_never_reaches_github_hosted_linux(self) -> None:
         lines = runs_on_lines()

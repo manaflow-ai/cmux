@@ -59,9 +59,9 @@ concurrency:
 
 jobs:
   probe:
-    # One probe per Blacksmith Linux size compiles run on
-    # (cloud_overflow_switch.PROBE_LABELS). Overflow goes off only when none of
-    # them starts, and back on only when all start: a single probed label is a pin, and on 2026-10-28 the 4 vCPU
+    # The secretless fleet probe creates real JIT demand. The reviewed adapter
+    # evaluates Blacksmith outage health separately using linux_ephemeral.
+    # Overflow goes off only when none of those starts, and back on when all start: a single probed label is a pin, and on 2026-10-28 the 4 vCPU
     # label alone stalling flipped the whole fleet four times. A drill probes
     # only its own label.
     name: Blacksmith probe (${{ matrix.label }})
@@ -75,26 +75,17 @@ jobs:
     permissions: {}
     steps:
       - name: Started
-        run: echo "Blacksmith started this job on ${RUNNER_NAME:-an unnamed runner}"
+        run: echo "Probe started this job on ${RUNNER_NAME:-an unnamed runner}"
 
   watch:
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    # Never GitHub-hosted Ubuntu (Leo, 2026-10-27: "just put it on blacksmith /
-    # 16vcpu blacksmiths do exist"). On 2026-10-27 the watch queued 94 minutes
-    # (19:22Z to 20:56Z) on hosted ubuntu-24.04, which the switch's own
-    # failover had filled; this run held the concurrency group meanwhile, so
-    # every later scheduled run was evicted with no jobs and nothing decided.
-    # The probes ask for the Blacksmith Linux sizes, so the watch sits on
-    # Blacksmith macOS: it never queues behind its own probes and can put
-    # overflow back however the Linux sizes fare.
-    # A literal ephemeral label, never a variable (not CI_CONTROL_RUNNER, as the
-    # nightly control jobs take): this job holds the App key that writes
-    # repository variables, so a variable must not move it to a reused machine,
-    # where the key could outlive the job, nor may it write its own runner.
-    # Hosted runners are refused (check_no_github_hosted_runners), so in an
-    # outage of all Blacksmith this waits and the values are set by hand.
-    runs-on: blacksmith-6vcpu-macos-26
+    # This job holds the existing variable-write App key. Its bounded literal
+    # candidates remain trusted ephemeral runners; no repository variable can
+    # move it to a reused host or change its own placement. Queued-only rescue
+    # advances after three minutes without a watcher start, at most twice.
+    # A running watcher is never cancelled by that rescue.
+    runs-on: ${{ github.run_attempt == 1 && 'blacksmith-8vcpu-ubuntu-2404' || github.run_attempt == 2 && 'blacksmith-6vcpu-macos-26' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     permissions:
       actions: write
@@ -196,7 +187,7 @@ jobs:
           CI_CLOUD_LABEL_HEALTH: ${{ vars.CI_CLOUD_LABEL_HEALTH }}
           LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
-        run: python3 .runner-pool-tooling/scripts/ci/runner_pool_reconcile.py --source-root "$GITHUB_WORKSPACE"
+        run: bash scripts/ci/python-with-yaml.sh .runner-pool-tooling/scripts/ci/runner_pool_reconcile.py --source-root "$GITHUB_WORKSPACE"
 
       # Last, in its own step so the summary above is already saved. If the
       # switch did not observe every probe start (one may still be queued),

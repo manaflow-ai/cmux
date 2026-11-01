@@ -791,7 +791,9 @@ class PythonDependencyTests(unittest.TestCase):
                     if 'PyYAML==6.0.3' not in args:
                         raise SystemExit('expected pinned PyYAML')
                     (root / 'installed').touch()
-                elif args == ['scripts/ci/cloud_overflow_switch.py']:
+                elif args == ['scripts/ci/cloud_overflow_switch.py'] or (
+                        args[:2] == ['.runner-pool-tooling/scripts/ci/runner_pool_reconcile.py', '--source-root']
+                        and args[-1] == '--probe'):
                     if not (root / 'installed').exists():
                         raise SystemExit("ModuleNotFoundError: No module named 'yaml'")
                     (root / 'executed').touch()
@@ -802,7 +804,7 @@ class PythonDependencyTests(unittest.TestCase):
             result = subprocess.run(['bash', '-euo', 'pipefail', '-c', step['run']], cwd=ROOT,
                                     env={**os.environ, 'PATH': f'{binaries}:{os.environ["PATH"]}',
                                          'RUNNER_TEMP': str(root / 'runner'), 'PYTHON_FIXTURE_ROOT': str(root),
-                                         'GITHUB_PATH': str(root / 'github-path')},
+                                         'GITHUB_PATH': str(root / 'github-path'), 'GITHUB_WORKSPACE': str(ROOT)},
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((root / 'executed').exists())
@@ -819,7 +821,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIs(probe["strategy"]["fail-fast"], False)
         matrix = probe["strategy"]["matrix"]["label"]
         listed = json.loads(re.search(r"\|\| '(\[.*?\])'", matrix).group(1))
-        self.assertEqual(tuple(listed), switch.PROBE_LABELS)
+        pools = json.loads((ROOT / ".github/runners.json").read_text())["pools"]
+        self.assertEqual(listed, pools["linux"]["members"])
+        self.assertEqual(listed[1:], pools["linux_ephemeral"]["members"])
         self.assertTrue(probe["runs-on"].endswith("|| matrix.label }}"))
         # Unless every probe started, the run ends itself, so a queued probe frees the group.
         self.assertIn("if: always() && steps.switch.outputs.outcome != 'started'", self.text)
@@ -831,9 +835,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("ubuntu-24.04", runs_on)
         self.assertNotIn("ubuntu-latest", runs_on)
         self.assertNotIn("github-hosted-required", runs_on)
-        # Blacksmith macOS: never a size the probes ask for, so it never queues behind them.
-        self.assertEqual(runs_on, "blacksmith-6vcpu-macos-26")
-        self.assertNotIn("ubuntu", runs_on)
+        # Every retry is a literal trusted ephemeral size. Linux 8 is first,
+        # then the existing Mac size, then Linux 16; no variable can move the
+        # App key to a reused machine.
+        self.assertIn("github.run_attempt == 1 && 'blacksmith-8vcpu-ubuntu-2404'", runs_on)
+        self.assertIn("github.run_attempt == 2 && 'blacksmith-6vcpu-macos-26'", runs_on)
+        self.assertIn("'blacksmith-16vcpu-ubuntu-2404'", runs_on)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
@@ -850,8 +857,14 @@ class WorkflowTests(unittest.TestCase):
         for name, job in yaml.safe_load(self.text)["jobs"].items():
             if "secrets." not in json.dumps(job) and "create-github-app-token" not in json.dumps(job):
                 continue
-            self.assertNotIn("${{", job["runs-on"], name)
-            self.assertTrue(job["runs-on"].startswith(switch.CLOUD_PREFIX), name)
+            route = job["runs-on"]
+            if name == "watch":
+                self.assertEqual(route, "${{ github.run_attempt == 1 && 'blacksmith-8vcpu-ubuntu-2404' "
+                                 "|| github.run_attempt == 2 && 'blacksmith-6vcpu-macos-26' "
+                                 "|| 'blacksmith-16vcpu-ubuntu-2404' }}", name)
+            else:
+                self.assertNotIn("${{", route, name)
+                self.assertTrue(route.startswith(switch.CLOUD_PREFIX), name)
 
     def test_no_job_that_ci_control_runner_moves_holds_a_secret(self) -> None:
         # CI_CONTROL_RUNNER may name a reused machine, so the control jobs it moves hold only their

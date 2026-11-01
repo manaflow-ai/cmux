@@ -154,8 +154,21 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
 
+      - name: Check out reviewed runner-pool tooling
+        if: ${{ matrix.group == 'ci' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .runner-pool-tooling
+          sparse-checkout: |
+            scripts/ci/runner_pool_reconcile.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Validate the runner pools and their reconciler
         if: ${{ matrix.group == 'ci' }}
+        env:
+          RUNNER_POOL_TOOLING_ROOT: .runner-pool-tooling
         run: python3 tests/test_ci_runner_pools.py
 
       - name: Validate fast checks take their size from the linux runner pool
