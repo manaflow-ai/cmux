@@ -272,7 +272,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           );
           await page.locator(".cv-agentmsg__card").waitFor();
           await page.evaluate(() => document.fonts.ready);
-          const measured = await page.evaluate(() => {
+          const measured_ = await page.evaluate(() => {
             const box = (s: string) => {
               const el = document.querySelector(s);
               if (!el) throw new Error(`Missing grid card: ${s}`);
@@ -293,7 +293,12 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               column.left;
             result["message/gap"] = message.top - box(".cv-agentmsg__line").bottom;
             result["message/under-gap"] = box(".cv-agentmsg__under").top - message.bottom;
-            // Carets sit inline after their label (cmux#28018), so no `trail` line is measured here.
+            // Carets sit inline after their label (cmux#28018), so no `trail` line is measured here;
+            // each sits at most one grid gap after its words.
+            const caretGaps = {
+              subsession: box(".cv-disclosure__line .cv-rotor").left - box(".cv-disclosure__line .cv-disclosure__label").right,
+              group: box("[data-grid-count] .cv-tool__chevron").left - box("[data-grid-count] .cv-tool__text").right,
+            };
             const panel = box(".cv-disclosure__panel");
             result["subsession/nesting"] = panel.left - column.left;
             const card = box(".cv-agent-card");
@@ -317,8 +322,15 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               )
                 throw new Error("Counts must use tabular numerals");
             }
-            return result;
+            return { result, caretGaps };
           });
+          const { caretGaps } = measured_;
+          const measured = measured_.result;
+          console.log(`TRANSCRIPT_CARDS_CARETS ${JSON.stringify({ width, theme, caretGaps })}`);
+          for (const [name, gap] of Object.entries(caretGaps)) {
+            expect(gap, `${name} caret inline`).toBeGreaterThanOrEqual(-0.5);
+            expect(gap, `${name} caret inline`).toBeLessThanOrEqual(8.5);
+          }
           console.log(`TRANSCRIPT_CARDS ${JSON.stringify({ width, theme, measured })}`);
           for (const [line, actual] of Object.entries(measured)) {
             const expected =

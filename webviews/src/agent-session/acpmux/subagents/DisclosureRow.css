@@ -127,11 +127,9 @@
   margin: 0;
 }
 
+/* The caret sits right after the words, never pushed to the line end (cmux#28018). */
 .cv-disclosure__toggle > .cv-rotor {
   flex: none;
-  margin-inline-start: auto;
-  width: var(--grid-icon-box);
-  height: var(--grid-icon-box);
 }
 .cv-disclosure__panel > .cv-subsession__under {
   padding-inline-start: 0;
