@@ -98,10 +98,10 @@ impl<'a> Runtime<'a> {
                     failure.0.set("install_url", json!(url));
                 }
             }
-        } else if failure.0["code"] == "repo.no_access" {
-            if let Some(url) = self.optional_install_url(value)? {
-                failure.0.set("install_url", json!(url));
-            }
+        } else if failure.0["code"] == "repo.no_access"
+            && let Some(url) = self.optional_install_url(value)?
+        {
+            failure.0.set("install_url", json!(url));
         }
         Ok(failure)
     }
@@ -179,10 +179,10 @@ impl Backend for Runtime<'_> {
                         "Retry repository discovery. If it still fails, reconnect GitHub from Add repository."
                     },
                 );
-                if code == "repo.no_access" {
-                    if let Some(url) = self.optional_install_url(error)? {
-                        failure.0.set("install_url", json!(url));
-                    }
+                if code == "repo.no_access"
+                    && let Some(url) = self.optional_install_url(error)?
+                {
+                    failure.0.set("install_url", json!(url));
                 }
                 return Err(failure);
             }
