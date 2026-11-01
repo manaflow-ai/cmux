@@ -146,6 +146,7 @@ export function anonymize(events: Recorded[], options: { sessionId: string; maxC
       seq: out.length + 1,
       at: 1_793_500_000_000 + (at - start),
       ...(scrub(rest) as Omit<Recorded, "seq" | "at">),
+      kind: event.kind,
     });
   }
   return out;
