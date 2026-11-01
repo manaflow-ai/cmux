@@ -11873,6 +11873,9 @@ function AcpmuxPane() {
             <SwitchNotice
               switching={snapshot.switching}
               onRetry={() => void callNative("chat.harness.retry")}
+              // The refused prompt is back in the composer; a chat on another machine starts only
+              // with a send, so the share's retry sends it again (as Trust's answer does).
+              onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
               onAction={(action) => {
                 // A fresh chat on another machine has no summary yet: its connection's origin, or a
                 // folder list its host marked as that machine's, says where it runs.
