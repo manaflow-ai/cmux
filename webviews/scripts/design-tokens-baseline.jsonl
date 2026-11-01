@@ -176,7 +176,6 @@
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"height","property":"height","values":{"48px":2,"26px":1,"44px":2,"1px":1,"30px":1,"9px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"gap","values":{"10px":4,"6px":2,"2px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding","values":{"0 14px":1,"0 10px":1,"0 12px 0 10px":1,"6px":1,"6px 8px 4px":1,"8px 10px":1}}
-{"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding-right","values":{"48px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding-top","values":{"2px":1}}
 {"file":"agent-session/acpmux/summary/summary.css","kind":"height","property":"height","values":{"26px":5,"6px":1,"22px":2,"14px":1,"18px":1,"40px":1}}
 {"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"gap","values":{"2px":5,"6px":3}}
