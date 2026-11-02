@@ -81,7 +81,9 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet {
             guard oldValue != isOnLayoutSpring else { return }
             if isOnLayoutSpring {
-                guard holdsContentInMotion() else {
+                // A keyboard resize holds every pane's content too (RESIZE KEYS K3): its spring frames would lay each
+                // pane's chrome, page and chat out at every live size.
+                guard holdsContentInMotion() || (superview as? ScreenContentView)?.holdsContentForKeyResize == true else {
                     heldContentSize = nil
                     return
                 }

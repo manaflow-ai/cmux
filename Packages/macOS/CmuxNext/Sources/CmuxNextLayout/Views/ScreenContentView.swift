@@ -33,6 +33,9 @@ final class ScreenContentView: NSView {
     /// springs, and the shift after the last column or row closed is the close's own curve. A user
     /// scroll takes the camera back to the scroll spring.
     var scrollRidesFrames = false
+    /// A keyboard resize press moves this screen (`LayoutRootView.keyboardResizeWillChange`): until its spring lands,
+    /// every pane keeps its content at its size, clipped, and lays it out once at the landing (``PaneHostView``).
+    var holdsContentForKeyResize = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
