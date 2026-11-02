@@ -140,3 +140,18 @@ test("a typed ! switches the classic field to a terminal and leaves it empty", a
   expect(host.querySelector(".acpmux-newtab")?.getAttribute("data-kind")).toBe("terminal");
   expect(field.value()).toBe("");
 });
+
+test("in a prompt of several lines, ↑ moves the caret up a line and ↓ on the last line steps the suggestions", async () => {
+  const field = await render();
+  await field.type("first line\nsecond line");
+  expect(host.querySelectorAll('[role="option"]').length).toBeGreaterThan(0);
+  const press = async (key: string) => {
+    const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    await act(async () => field.editor.dispatchEvent(event));
+    return event.defaultPrevented;
+  };
+  // The caret is on the last line: ↑ has a line to move to, so the editor keeps it.
+  expect(await press("ArrowUp")).toBe(false);
+  // ↓ has none: it steps the rows.
+  expect(await press("ArrowDown")).toBe(true);
+});

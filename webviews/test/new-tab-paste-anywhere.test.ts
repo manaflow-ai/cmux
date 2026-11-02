@@ -95,23 +95,26 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
     // MarkdownField mounts its ProseMirror DOM before the async Milkdown view and imperative
     // handle are ready. Cmd-V focuses through that handle, so wait for the same readiness the
     // app's COMPOSER_READY_EVENT reports before blurring and exercising the route.
-    if (design.design === "screen")
-      await page.waitForFunction(() => {
-        const element = document.querySelector(".nt-field") as
+    await page.waitForFunction(
+      (selector) => {
+        const element = document.querySelector(selector) as
           | (Element & { acpmuxMarkdownField?: { inlineIds: () => unknown } })
           | null;
         return element?.acpmuxMarkdownField?.inlineIds() !== undefined;
-      });
+      },
+      design.design === "classic" ? ".acpmux-newtab-field" : ".nt-field",
+    );
     if (draft) {
       await field.click();
       await page.keyboard.type(draft);
-      if (design.design === "classic") await field.evaluate((node: HTMLInputElement) => node.setSelectionRange(0, 0));
-      else
-        await page.evaluate(() =>
+      // Both fields are the composer's Markdown prompt: the caret moves through its handle.
+      await page.evaluate(
+        (selector) =>
           (
-            document.querySelector(".nt-field") as Element & { acpmuxMarkdownField?: { setCaret(at: number): void } }
+            document.querySelector(selector) as Element & { acpmuxMarkdownField?: { setCaret(at: number): void } }
           ).acpmuxMarkdownField?.setCaret(0),
-        );
+        design.design === "classic" ? ".acpmux-newtab-field" : ".nt-field",
+      );
     }
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
     expect(await inField(page, design)).toBe(false);
