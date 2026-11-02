@@ -1,0 +1,227 @@
+{
+ "id": "ui-palette-light",
+ "priority": "P2",
+ "title": "UI VIDEO U1 light: command palette open (Shift-Cmd-P) and close (Escape) by real HID keys, 10 times, filmed at the display rate",
+ "why": "UI VIDEO (STATUS 4269): the palette must show complete in the next refresh after the key and leave in one frame, with no blank list, flash or half-drawn frame. The VM judge (scripts/cmux-next/switch-frames/judge_switch.py) reads the movie: OLD = before the key, TARGET = settled after it.",
+ "source": "UI VIDEO (STATUS 4269); handoff/resize-videos/UI-VIDEO.md",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "switch_profile",
+   "title": "set-up: 2 workspaces, 2 beacon panes each",
+   "workspaces": 2,
+   "panes": 2,
+   "prefix": "up-${nonce}"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "switch_record",
+   "action": "start",
+   "name": "switch",
+   "mbps": 60,
+   "seconds": 60
+  },
+  {
+   "do": "switch_keys",
+   "title": "open and close the palette 10 times",
+   "name": "switch",
+   "via": "hid",
+   "gap": 1.2,
+   "keys": [
+    [
+     [
+      "shift",
+      "cmd"
+     ],
+     "p",
+     "palette-open",
+     "commandPalette"
+    ],
+    [
+     [],
+     "escape",
+     "palette-close",
+     "paletteKey.escape"
+    ],
+    [
+     [
+      "shift",
+      "cmd"
+     ],
+     "p",
+     "palette-open",
+     "commandPalette"
+    ],
+    [
+     [],
+     "escape",
+     "palette-close",
+     "paletteKey.escape"
+    ],
+    [
+     [
+      "shift",
+      "cmd"
+     ],
+     "p",
+     "palette-open",
+     "commandPalette"
+    ],
+    [
+     [],
+     "escape",
+     "palette-close",
+     "paletteKey.escape"
+    ],
+    [
+     [
+      "shift",
+      "cmd"
+     ],
+     "p",
+     "palette-open",
+     "commandPalette"
+    ],
+    [
+     [],
+     "escape",
+     "palette-close",
+     "paletteKey.escape"
+    ],
+    [
+     [
+      "shift",
+      "cmd"
+     ],
+     "p",
+     "palette-open",
+     "commandPalette"
+    ],
+    [
+     [],
+     "escape",
+     "palette-close",
+     "paletteKey.escape"
+    ],
+    [
+     [
+      "shift",
+      "cmd"
+     ],
+     "p",
+     "palette-open",
+     "commandPalette"
+    ],
+    [
+     [],
+     "escape",
+     "palette-close",
+     "paletteKey.escape"
+    ],
+    [
+     [
+      "shift",
+      "cmd"
+     ],
+     "p",
+     "palette-open",
+     "commandPalette"
+    ],
+    [
+     [],
+     "escape",
+     "palette-close",
+     "paletteKey.escape"
+    ],
+    [
+     [
+      "shift",
+      "cmd"
+     ],
+     "p",
+     "palette-open",
+     "commandPalette"
+    ],
+    [
+     [],
+     "escape",
+     "palette-close",
+     "paletteKey.escape"
+    ],
+    [
+     [
+      "shift",
+      "cmd"
+     ],
+     "p",
+     "palette-open",
+     "commandPalette"
+    ],
+    [
+     [],
+     "escape",
+     "palette-close",
+     "paletteKey.escape"
+    ],
+    [
+     [
+      "shift",
+      "cmd"
+     ],
+     "p",
+     "palette-open",
+     "commandPalette"
+    ],
+    [
+     [],
+     "escape",
+     "palette-close",
+     "paletteKey.escape"
+    ]
+   ]
+  },
+  {
+   "do": "switch_record",
+   "action": "stop",
+   "name": "switch"
+  },
+  {
+   "do": "switch_adopt_shown"
+  },
+  {
+   "do": "expect",
+   "title": "the palette is closed and a beacon pane shows",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "PANE"
+    },
+    {
+     "app_text_contains": "PANE"
+    },
+    {
+     "frame_text": "PANE"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
