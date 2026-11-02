@@ -83,6 +83,9 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         public var guestTakesLogin: Bool
         public var skippedTeamMachine: Bool
         public var summary: String
+
+        /// ``provider`` as a transfer provider; nil for a harness with no transfer (pi, opencode).
+        public var transferProvider: CloudCredentialTransfer.Provider? { provider.flatMap(CloudCredentialTransfer.Provider.init(rawValue:)) }
     }
 
     private struct Request: Encodable {
@@ -107,7 +110,7 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     /// Whether this build passes a login (the setting when set, else only DEV and dogfood builds).
     public var gate: Bool { verdict.gate }
     /// The provider whose login the start passes; nil for a harness with no transfer (pi, opencode).
-    public var provider: CloudCredentialTransfer.Provider? { verdict.provider.flatMap(CloudCredentialTransfer.Provider.init(rawValue:)) }
+    public var provider: CloudCredentialTransfer.Provider? { verdict.transferProvider }
     /// The guest's `/etc/cmux/vm-kind` as read ("" when missing); nil when not read.
     public var guestKind: String? { verdict.guestKind }
     /// The start passed no personal login because the machine is a team machine (handshake `cloudTeamMachine`).

@@ -427,3 +427,90 @@ test("a start that leaves the folder takes the new chat's held prompts out, in o
   await settle();
   expect(acpmux.sent).toEqual([]);
 });
+
+test("a pick from a new chat pauses its held prompts until it lands, then takes them; a failed pick lets them go", async () => {
+  const acpmux = standIn();
+  const at = "/Users/you/picked";
+  await act(async () => root.render(<Probe key="q" acpmux={acpmux} holds chat={undefined} cwd={at} />));
+  await act(async () => shown!.hold("first", []));
+  await act(async () => shown!.hold("second", []));
+  // A pick starts (cmux#32298 review at 94f283e): Trust is answered while it waits for the chat it
+  // opens, and the page still shows the new chat. Nothing goes, or it could land in the picked chat.
+  let resume = () => {};
+  await act(async () => void (resume = shown!.pauseNewChat()));
+  await act(async () => root.render(<Probe key="q" acpmux={acpmux} holds={false} chat={undefined} cwd={at} />));
+  await settle();
+  expect(acpmux.sent).toEqual([]);
+  // The pick landed: the page takes them, in order, and none is sent after.
+  let taken: { text: string }[] = [];
+  await act(async () => {
+    taken = shown!.takeNewChat();
+    resume();
+  });
+  await settle();
+  expect(taken.map((entry) => entry.text)).toEqual(["first", "second"]);
+  expect(acpmux.sent).toEqual([]);
+
+  // A pick that fails only resumes: the new chat's prompts go as before, once.
+  await act(async () => void (resume = shown!.pauseNewChat()));
+  await act(async () => shown!.hold("third", []));
+  await settle();
+  expect(acpmux.sent).toEqual([]);
+  await act(async () => {
+    resume();
+    resume();
+  });
+  await settle();
+  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["third"]);
+});
+
+test("a new chat's prompt cancelled mid-start by a pick comes back held and is taken with the rest", async () => {
+  const acpmux = standIn();
+  const at = "/Users/you/picked";
+  await act(async () => root.render(<Probe key="r" acpmux={acpmux} holds chat={undefined} cwd={at} />));
+  await act(async () => shown!.hold("first", []));
+  await act(async () => shown!.hold("second", []));
+  await act(async () => root.render(<Probe key="r" acpmux={acpmux} holds={false} chat={undefined} cwd={at} />));
+  await settle();
+  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["first"]);
+  // The pick pauses, and its start is cancelled before it made a session (App.tsx `movedOn`).
+  let resume = () => {};
+  await act(async () => void (resume = shown!.pauseNewChat()));
+  acpmux.sent[0]!.refuse(movedOn());
+  await settle();
+  expect(acpmux.sent).toHaveLength(1);
+  let taken: { text: string }[] = [];
+  await act(async () => {
+    taken = shown!.takeNewChat();
+    resume();
+  });
+  await settle();
+  expect(taken.map((entry) => entry.text)).toEqual(["first", "second"]);
+  expect(acpmux.sent).toHaveLength(1);
+});
+
+test("a pick that lands before its cancelled start settles takes that prompt too, and it never comes back", async () => {
+  const acpmux = standIn();
+  const at = "/Users/you/picked";
+  await act(async () => root.render(<Probe key="s" acpmux={acpmux} holds chat={undefined} cwd={at} />));
+  await act(async () => shown!.hold("first", []));
+  await act(async () => shown!.hold("second", []));
+  await act(async () => root.render(<Probe key="s" acpmux={acpmux} holds={false} chat={undefined} cwd={at} />));
+  await settle();
+  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["first"]);
+  // The pick lands while "first" is still going (cmux#32298 review at dffb7d9).
+  let resume = () => {};
+  await act(async () => void (resume = shown!.pauseNewChat()));
+  let taken: { text: string }[] = [];
+  await act(async () => {
+    taken = shown!.takeNewChat();
+    resume();
+  });
+  expect(taken.map((entry) => entry.text)).toEqual(["first", "second"]);
+  // Its cancelled start settles after: nothing comes back, is given back or goes again.
+  acpmux.sent[0]!.refuse(movedOn());
+  await settle();
+  expect(shown!.holdsAny()).toBe(false);
+  expect(acpmux.putBack).toEqual([]);
+  expect(acpmux.sent).toHaveLength(1);
+});
