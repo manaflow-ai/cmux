@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import Foundation
 import Testing
 
 /// Cloud's pre-chat approval preparation follows the same typed safe-to-restart signal as the
