@@ -161,6 +161,7 @@ final class CloudMachineSession {
             guard !disconnected, !machine.shownStatus.isChanging else {
                 noteMutationInterruption()
                 appConnecting = false
+                retryIfHopFails = false
                 return
             }
             if let appLink {
