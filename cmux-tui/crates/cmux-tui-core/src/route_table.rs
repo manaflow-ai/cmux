@@ -7,7 +7,8 @@
 //! or any other change of which surface an id routes to makes the next key look its terminal up
 //! again, so a key never goes to a terminal that no longer owns the id. Reads deref to the map;
 //! the only writes are [`RouteTable::insert`] and [`RouteTable::remove`], so the compiler finds
-//! every write and none can skip the generation.
+//! every write and none can skip the generation. A whole table replaced (a rollback `*state = before`, a projected
+//! state swapped in) drops the table it replaces, and a drop moves the generation too, so no replace skips it.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -56,6 +57,13 @@ impl<K: Eq + Hash, V> RouteTable<K, V> {
         additional: usize,
     ) -> Result<(), std::collections::TryReserveError> {
         self.0.try_reserve(additional)
+    }
+}
+
+impl<K, V> Drop for RouteTable<K, V> {
+    fn drop(&mut self) {
+        // The table this one routed is gone: a rollback or a projection replaced it.
+        route_changed();
     }
 }
 
