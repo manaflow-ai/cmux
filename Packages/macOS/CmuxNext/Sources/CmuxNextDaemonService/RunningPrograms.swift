@@ -35,9 +35,10 @@ extension DaemonService {
     /// nil counts it as running none.
     @MainActor public func runningPrograms(of tabs: [TabModel], unanswered: (@MainActor (TabModel) -> String)? = nil) async -> RunningPrograms {
         let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
+        // No connection: nothing was asked (the base answer, an empty map), unless no answer counts as a program.
         guard let connection, !terminals.isEmpty else {
-            return Dictionary(uniqueKeysWithValues: terminals.map { ($0.surface, unanswered.map { pick in .some(pick($0)) } ?? .some(nil)) })
-                .filter { _ in unanswered != nil }
+            guard let unanswered else { return [:] }
+            return Dictionary(uniqueKeysWithValues: terminals.map { ($0.surface, .some(unanswered($0))) })
         }
         await closeReadStarts() // a test may hold the read here (debug.close.hold, DEBUG and bench builds)
         let fallback = Dictionary(uniqueKeysWithValues: terminals.map { ($0.surface, unanswered?($0)) })
