@@ -13,6 +13,7 @@ import { PresenceStack } from "../acpmux/multiplayer/Faces";
 import { displayName, participant, type Participant } from "../acpmux/multiplayer/participants";
 import { GuestComposer, GuestMessages } from "./GuestComposer";
 import { GuestPrompts } from "./guestPrompts";
+import { GuestSendQueue } from "./guestSendQueue";
 import { joinName, type Redeem, type RedeemError } from "./redeem";
 import { TypingSignal } from "./typingSignal";
 import {
@@ -151,6 +152,14 @@ export function LiveChat({
   const [hasMore, setHasMore] = useState(false);
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const socket = useRef<ShareSocket | undefined>(undefined);
+  const sendQueue = useMemo(
+    () =>
+      new GuestSendQueue(
+        prompts,
+        (prompt) => socket.current?.send({ t: "prompt", client_id: prompt.clientId, text: prompt.text }) ?? false,
+      ),
+    [prompts],
+  );
   const pageArrived = useRef<(() => void) | undefined>(undefined);
   const ended = useRef(onEnded);
   ended.current = onEnded;
@@ -167,10 +176,7 @@ export function LiveChat({
           setChat(next.chat);
           setHasMore(next.hasMore);
           client.feed(next.records, "snapshot");
-          prompts.snapshot(next.prompts);
-          // Messages the room never acknowledged go again, as the same prompt (same client id).
-          for (const prompt of prompts.unsent())
-            room.send({ t: "prompt", client_id: prompt.clientId, text: prompt.text });
+          sendQueue.snapshot(next.prompts);
           typing.reset();
           // A page asked for on the old connection never comes; the new history is in place.
           pageArrived.current?.();
@@ -184,9 +190,13 @@ export function LiveChat({
           pageArrived.current = undefined;
         },
         presence: setPeople,
-        promptState: (state) => prompts.update(state),
-        connection: setConnection,
+        promptState: (state) => sendQueue.status(state),
+        connection: (state) => {
+          setConnection(state);
+          if (state !== "live") sendQueue.disconnected();
+        },
         ended: (reason) => {
+          sendQueue.stop();
           client.dispose();
           ended.current(reason);
         },
@@ -195,11 +205,12 @@ export function LiveChat({
     socket.current = room;
     room.connect();
     return () => {
+      sendQueue.disconnected();
       room.stop();
       client.dispose();
       pageArrived.current?.();
     };
-  }, [socketUrl, openSocket, prompts, typing]);
+  }, [socketUrl, openSocket, prompts, typing, sendQueue]);
 
   const loadOlder = useCallback(
     () =>
@@ -226,9 +237,8 @@ export function LiveChat({
   };
   const send = (text: string) => {
     typing.stop();
-    const prompt = prompts.add(text);
-    // Without a live connection it stays `sending` and goes with the next snapshot.
-    socket.current?.send({ t: "prompt", client_id: prompt.clientId, text });
+    prompts.add(text);
+    sendQueue.queued();
   };
   const viewing = people
     .filter((person) => person.viewing !== false && !isMe(person.id, guestId))

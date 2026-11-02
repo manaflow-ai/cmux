@@ -30585,34 +30585,6 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "action help-setup-guide",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "help.setupGuide",
-      "main_menu" : "help",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Setup Guide",
-      "title_key" : "action.help.setupGuide",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
       "cli_name" : "action help-troubleshooting",
       "context_menu" : "noObject",
       "context_menus" : [

@@ -44,6 +44,16 @@ import Testing
 
     struct Offline: Error {}
 
+    @Test func absentAutomationActionsAreExplicitlyUnavailable() {
+        // The real AutomationsHostingView currently has no operation bindings. Its page must
+        // never offer clickable Run now / Pause / Edit buttons that silently do nothing.
+        let actions = AutomationsPageView.Actions()
+        #expect(actions.new == nil)
+        #expect(actions.runNow == nil)
+        #expect(actions.setEnabled == nil)
+        #expect(actions.edit == nil)
+    }
+
     @Test func bothSourcesLoadIntoOneGroupedList() async {
         let page = AutomationsPage(local: { Self.localJSON }, cloud: { Self.cloudJSON })
         await page.reload(now: Self.now)
