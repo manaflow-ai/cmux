@@ -64,19 +64,19 @@ struct CloudStartChat {
     }
 
     /// Why no Cloud chat can start at all now, the sandbox's codes (`AgentPageChats.wireSandbox`):
-    /// Cloud off by policy, not signed in, or the Cloud app server's link, whose machines serve one
-    /// connection (the app's own) and so take no folder copy (``CloudMove``'s `linkUnsupported`):
-    /// refused before any machine is created for it. Not behind Labs (Leo, 2026-10-30: "that seems
-    /// dumb. i dont like putting so much stuff in labs"): the person picked Cloud for this send.
+    /// Cloud off by policy, or not signed in. Either link takes the start: the Cloud app server's
+    /// carrier socket serves each connection as its own dial of the machine's daemon, so the copy's
+    /// CLI gets a connection beside the app's (``CloudMove/connected(_:_:)``). Not behind Labs (Leo,
+    /// 2026-10-30: "that seems dumb. i dont like putting so much stuff in labs"): the person picked
+    /// Cloud for this send.
     static func refusal(_ services: AppServices) -> String? {
         refusal(cloudDisabled: services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud,
-                signedIn: services.cloud.isSignedIn, appServerLink: services.cloud.configuration.linkSource == .appServer)
+                signedIn: services.cloud.isSignedIn)
     }
 
-    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool, appServerLink: Bool = false) -> String? {
+    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? {
         if cloudDisabled { return "cloud_disabled" }
-        guard signedIn else { return "not_signed_in" }
-        return appServerLink ? "unavailable" : nil
+        return signedIn ? nil : "not_signed_in"
     }
 
     /// Whether `path` is an existing folder, read off the main thread.
