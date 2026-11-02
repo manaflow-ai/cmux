@@ -610,6 +610,10 @@ button.cv-subagent > :last-child {
    end in. A long title truncates; the time never does. */
 .acpmux-running-tray__head > .acpmux-running-tray__title {
   flex: 0 1 auto;
+  /* Its counts change in place (trayMotion.tsx `Tick` steadyCounts): every digit one width, so a
+     count ticking over moves nothing after it but a new digit (Leo, 2026-10-31: "jolting every time
+     there's a new subagent or command"). */
+  font-variant-numeric: tabular-nums;
 }
 .acpmux-running-tray__time {
   flex: 1 0 auto;

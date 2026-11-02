@@ -20,7 +20,7 @@ public actor NativeDeviceEnrollment {
 
     public init(scope: NativeDeviceScope, identity: MacInstallIdentity, paths: CloudPaths,
                 native: any NativeDeviceTransport, session: @escaping InstallAuthClient.SessionToken, name: String) throws {
-        guard !name.isEmpty, name.utf8.count <= 63, name.first!.isASCII, name.first!.isLetter || name.first!.isNumber,
+        guard let first = name.first, name.utf8.count <= 63, first.isASCII, first.isLetter || first.isNumber,
               name.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "._ -".contains($0)) }) else { throw NativeDeviceEnrollmentError.invalidScope }
         nativeOrigin = try NativeDeviceScope.canonicalOrigin(native.origin)
         self.scope = scope; self.identity = identity; root = paths.root; self.native = native; self.session = session; self.name = name

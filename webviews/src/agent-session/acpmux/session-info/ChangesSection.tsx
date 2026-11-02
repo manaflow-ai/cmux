@@ -28,7 +28,7 @@ export const CHANGES_SHOWN = 5;
 /// Lines a pull request adds and removes in one kind of file.
 export type LineCounts = { readonly additions: number; readonly deletions: number };
 export type ChangeKind = "code" | "tests" | "generated" | "docs";
-const KINDS: readonly ChangeKind[] = ["code", "tests", "generated", "docs"];
+export const KINDS: readonly ChangeKind[] = ["code", "tests", "generated", "docs"];
 const KIND_LABELS: Record<ChangeKind, StringKey> = {
   code: "sessionInfo.changes.code",
   tests: "sessionInfo.changes.tests",

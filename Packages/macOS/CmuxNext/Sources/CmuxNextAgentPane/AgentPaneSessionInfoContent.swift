@@ -114,7 +114,8 @@ extension AgentPaneSessionInfoModel {
                     titleInk: row.tone == .failed ? .danger : .primary, detail: row.detail, subtitle: row.subtitle,
                     trailing: row.trailing, trailingTone: row.tone, meter: row.meter, segments: row.segments, buttons: row.buttons ?? [],
                     menu: row.menu ?? [], menuLabel: row.menuLabel, reorderLabel: section.reorderLabel, toggle: row.toggle, reorderable: section.bare == true && index == 0 && section.reorderable == true,
-                    hover: row.hover, marks: row.marks, indent: min(3, max(0, row.indent ?? 0)), action: row.action, help: row.help)))
+                    hover: row.hover, marks: row.marks,
+                    indent: min(3, max(0, Int((row.indent ?? 0).rounded()))), action: row.action, help: row.help)))
             }
             if let more = section.more {
                 items.append(.line(SessionInfoLine(id: "more:\(section.id)", kind: .more, title: more.label, titleInk: .secondary, action: more.action)))
@@ -201,8 +202,10 @@ final class AgentPaneSessionInfoContent: NSView {
             }
         }
         list.width = scroll.contentSize.width
-        if let reveal = store.info?.reveal, reveal.at != lastRevealToken {
-            lastRevealToken = reveal.at
+        if let reveal = store.info?.reveal {
+            let token = Int(reveal.at.rounded())
+            guard token != lastRevealToken else { return }
+            lastRevealToken = token
             list.reveal(section: reveal.section)
         }
     }
@@ -231,6 +234,7 @@ final class SessionInfoListView: NSView {
     private var ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil }, move: { _, _, _ in }, flush: {})
     private var pendingItems: [SessionInfoItem]?
     private var pendingInk: SessionInfoInk?
+    private var revealTask: Task<Void, Never>?
     var width: CGFloat = 0 { didSet { if width != oldValue { place() } } }
 
     @discardableResult
@@ -266,7 +270,7 @@ final class SessionInfoListView: NSView {
                         id: "title", kind: .title, symbol: "chevron.left", title: backLabel ?? title,
                         detail: nil, action: action)
                     if let old = existingLines[line.id ?? ""] {
-                        old.update(line: line, ink: ink)
+                        if !old.matches(line: line, ink: ink) { old.update(line: line, ink: ink) }
                         label = old
                     } else {
                         label = SessionInfoLineView(line: line, ink: ink)
@@ -286,7 +290,7 @@ final class SessionInfoListView: NSView {
                 addSubview(line)
             case .line(let value):
                 if let identity = value.id, let old = existingLines[identity] {
-                    old.update(line: value, ink: ink)
+                    if !old.matches(line: value, ink: ink) { old.update(line: value, ink: ink) }
                     addSubview(old)
                 } else {
                     addSubview(SessionInfoLineView(line: value, ink: ink))
@@ -333,13 +337,19 @@ final class SessionInfoListView: NSView {
             if case .line(let line) = $0 { return line.id == section }
             return false
         }), index < subviews.count,
-        let target = subviews[index] as? NSView,
         let scroll = enclosingScrollView else { return }
+        let target = subviews[index]
         let rect = target.frame
         scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, rect.minY - SessionInfoMetrics.rowHeight)))
         scroll.reflectScrolledClipView(scroll.contentView)
+        revealTask?.cancel()
         target.layer?.backgroundColor = ink.colors.hover.withAlphaComponent(0.8).cgColor
-        Task { @MainActor [weak target] in target?.layer?.backgroundColor = nil }
+        revealTask = Task { @MainActor [weak self, weak target] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            target?.layer?.backgroundColor = nil
+            self?.revealTask = nil
+        }
     }
 
     private func place() {
@@ -402,6 +412,13 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = SessionInfoMetrics.rowRadius
+        rebuild()
+    }
+
+    /// Rebuild every value-bearing child from the page model. Rows are keyed by id so this view
+    /// survives a model refresh for focus and accessibility, but its children must not retain
+    /// values from the previous snapshot (meters, marks, menus and action closures included).
+    private func rebuild() {
         let colors = ink.colors
         if let harness = line.harness {
             glyph = Self.image(HarnessSymbolImages.isSymbolName(harness) ? harness : "person.crop.circle", font: Typography.body, tint: colors.secondary)
@@ -463,7 +480,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         for view in [glyph, grip, title, detail, subtitle, trailing, chevron, meter, segmentedMeter, marksView, toggle, menuButton].compactMap({ $0 }) + buttons { addSubview(view) }
         toolTip = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: "\n")
         setAccessibilityElement(true)
-        setAccessibilityLabel([line.title, line.detail, line.trailing].compactMap { $0 }.joined(separator: ", "))
+        setAccessibilityLabel([line.title, line.detail, line.subtitle, line.trailing].compactMap { $0 }.joined(separator: ", "))
         setAccessibilityRole(line.action != nil ? .button : .staticText)
         if let unfolded = line.unfolded { setAccessibilityExpanded(unfolded) }
     }
@@ -471,79 +488,34 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    /// Refreshes the values a page can stream without replacing the native row. The list keeps
-    /// this view keyed by `line.id`, so focus and hover survive a live label update.
+    /// Whether a page refresh changes this row or its theme; handler closures are stable for the
+    /// mounted panel and do not participate in equality.
+    func matches(line: SessionInfoLine, ink: SessionInfoInk) -> Bool {
+        self.line == line && self.ink.colors == ink.colors
+    }
+
+    /// Refreshes a keyed native row without leaving any child from the prior page model attached.
     func update(line: SessionInfoLine, ink: SessionInfoInk) {
         self.line = line
         self.ink = ink
-        title.stringValue = line.title
-        title.font = line.font
-        title.textColor = switch line.titleInk {
-        case .primary: ink.colors.primary
-        case .secondary: ink.colors.secondary
-        case .danger: ink.colors.danger
-        }
-        if let text = line.trailing {
-            if let trailing {
-                trailing.stringValue = text
-                trailing.textColor = ink.colors.tone(line.trailingTone)
-            } else {
-                let label = Self.label(text, font: line.kind == .row ? NSFont.monospacedDigitSystemFont(ofSize: Typography.caption.pointSize, weight: .regular) : Typography.caption, color: ink.colors.tone(line.trailingTone))
-                trailing = label
-                addSubview(label)
-            }
-        } else if let trailing {
-            trailing.removeFromSuperview()
-            self.trailing = nil
-        }
-        if let unfolded = line.unfolded {
-            let symbol = unfolded ? "chevron.down" : "chevron.right"
-            if let chevron {
-                chevron.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-                    .withSymbolConfiguration(.init(pointSize: Typography.caption.pointSize, weight: .regular))
-                chevron.contentTintColor = ink.colors.tertiary
-            } else {
-                let view = Self.image(symbol, font: Typography.caption, tint: ink.colors.tertiary)
-                chevron = view
-                addSubview(view)
-            }
-        } else if let chevron {
-            chevron.removeFromSuperview()
-            self.chevron = nil
-        }
-        if let detailText = line.detail {
-            if let detail {
-                detail.stringValue = detailText
-                detail.textColor = ink.colors.tertiary
-            } else {
-                let label = Self.label(detailText, font: Typography.body, color: ink.colors.tertiary)
-                detail = label
-                addSubview(label)
-            }
-        } else if let detail {
-            detail.removeFromSuperview()
-            self.detail = nil
-        }
-        if let value = line.toggle {
-            if let toggle {
-                toggle.state = value ? .on : .off
-                toggle.toolTip = line.help
-            } else {
-                let control = NSSwitch()
-                control.state = value ? .on : .off
-                control.target = self
-                control.action = #selector(toggleChanged(_:))
-                control.toolTip = line.help
-                toggle = control
-                addSubview(control)
-            }
-        } else if let toggle {
-            toggle.removeFromSuperview()
-            self.toggle = nil
-        }
-        setAccessibilityLabel([line.title, line.detail, line.trailing].compactMap { $0 }.joined(separator: ", "))
-        setAccessibilityRole(line.action != nil ? .button : .staticText)
-        if let unfolded = line.unfolded { setAccessibilityExpanded(unfolded) }
+        glyph = nil
+        grip = nil
+        detail = nil
+        subtitle = nil
+        trailing = nil
+        chevron = nil
+        meter = nil
+        segmentedMeter = nil
+        toggle = nil
+        menuButton = nil
+        marksView = nil
+        buttons = []
+        isMenuOpen = false
+        isDragging = false
+        dragStart = nil
+        subviews.forEach { $0.removeFromSuperview() }
+        rebuild()
+        updateTrackingAreas()
         needsLayout = true
         paint()
     }
