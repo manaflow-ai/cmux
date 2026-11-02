@@ -8,6 +8,7 @@ import {
   restBand,
   tailGap,
   TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
   transcriptGap,
@@ -1137,9 +1138,9 @@ const lineRow = () => LINE_FRAME + toolRowHeight();
 /// lines at the column's width, with the plain status gap above and below it. A note that wraps
 /// draws a line per wrap, so it is estimated from its text as a reply is (cmux#31148).
 const NOTE_LINE = 20;
-/// The room above and below a note (#30400's --cv-note-gap): the block gap, since a run's lines are
-/// otherwise flush (conversation.css `.cv-tool-note`).
-const noteGap = () => TRANSCRIPT_BLOCK_GAP * chromeScale;
+/// The room above and below a note (#30400's --cv-note-gap): the run gap, as for any prose by a run,
+/// since a run's lines are otherwise flush (conversation.css `.cv-tool-note`).
+const noteGap = () => TRANSCRIPT_RUN_GAP * chromeScale;
 /// The prepared texts of those notes, for their estimates; cleared past 256, as a row's are.
 const notePrepared = new Map<string, PreparedText | null>();
 function noteHeight(text: string | undefined, width: number): number {
