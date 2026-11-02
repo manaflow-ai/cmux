@@ -221,8 +221,11 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
             return Self(kind: .workspace, targetTab: try tab(in: workspace, topology: topology, method: method))
         }
         // An agent's tab opens beside its chat; action.run picks the pane (ControlCaller).
-        if let session = agentSession,
-           let location = ControlCallerLocation.resolve(ControlCaller(agentSession: session), in: topology) {
+        if let session = agentSession {
+           let caller = ControlCaller(agentSession: session)
+           guard let location = ControlCallerLocation.resolve(caller, in: topology) else {
+               throw BrowserCallerTarget.missingCaller(caller)
+           }
             return Self(kind: location.beside == nil ? .besideCallerNewColumn : .besideCaller, targetTab: nil)
         }
         if let terminal = terminalID, let tab = terminalTab(terminal, in: topology) {
