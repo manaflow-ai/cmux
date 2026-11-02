@@ -37,6 +37,9 @@ final class TerminalFrameHold {
     /// Whether a held frame is on screen.
     var isHolding: Bool { view.superview != nil }
 
+    /// Whether a timer will end the hold.
+    var hasDeadline: Bool { deadline.isScheduled }
+
     /// Paints `old`'s last frame (or the frame this hold already shows) over `fresh` in `host`
     /// until `fresh` presents a frame drawn after the output queued on its lane so far.
     func begin(old: TerminalSurfaceView, fresh: TerminalSurfaceView, in host: NSView) {
