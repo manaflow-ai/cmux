@@ -79,6 +79,7 @@ final class TerminalLaunchFrameKeeper {
         guard !stopped, TerminalLaunchFrames.isFileSafe(key) else { return }
         if let old = kept[key], old.session === session { return }
         kept[key]?.timer.cancel()
+        notDrawnChecks[key] = nil
         let changes = session.frameChanges
         kept[key] = Kept(session: session, changes: changes, timer: DemandTimer(owner: "terminal.launch-frames.keep-frame", clock: ContinuousClock()))
         changes.observe { [weak self] in
@@ -110,8 +111,8 @@ final class TerminalLaunchFrameKeeper {
         guard let session = entry.session, Self.isOnScreen(session) else {
             _ = entry.changes.take()
             remove(key)
-            // Closed or moved out of every window: nothing visits it again; a pane that shows it calls keep() anew.
-            if entry.session?.surfaceView.window == nil {
+            // Closed: nothing visits it again. One only out of a window for now (a move) stays: its next window wakes it.
+            if entry.session?.isClosed ?? true {
                 entry.timer.cancel()
                 kept[key] = nil
                 notDrawnChecks[key] = nil
@@ -127,6 +128,7 @@ final class TerminalLaunchFrameKeeper {
         let generation = entry.changes.generation
         let changedSinceCheck = generation != entry.seen
         entry.seen = generation
+        if changedSinceCheck { notDrawnChecks[key] = nil } // a few checks per change, not per terminal
         // Nothing usable on disk (removed while hidden, or saved at another size): save as soon as it is quiet.
         let stale = !entry.onDisk || entry.savedSize != session.surfaceView.bounds.size
         if !stale, let last = entry.lastSave, now - last < Self.interval {
@@ -135,8 +137,11 @@ final class TerminalLaunchFrameKeeper {
             return
         }
         if changedSinceCheck, entry.lastSave != nil {
+            // A size change (a window drag, a pane spring) waits for quiet with no busy-wait force: a frame of an
+            // in-between size is refused at launch anyway, so saving one mid-gesture is only cost.
+            let sizeMoving = entry.savedSize != session.surfaceView.bounds.size
             let since = entry.waitingSince ?? now
-            if now - since < Self.busyWait {
+            if sizeMoving || now - since < Self.busyWait {
                 entry.waitingSince = since
                 kept[key] = entry
                 entry.timer.schedule(after: Self.idle) { @MainActor [weak self] in await self?.check(key) }

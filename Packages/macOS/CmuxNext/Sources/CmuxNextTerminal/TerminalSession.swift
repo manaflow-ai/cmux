@@ -90,6 +90,8 @@ public final class TerminalSession {
     }
     /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
     nonisolated let frameChanges = TerminalFrameChanges()
+    /// ``close()`` ran: the launch frame keeper forgets this terminal.
+    private(set) var isClosed = false
 
     /// This terminal's theme when it differs from the Ghostty config (its
     /// own, its workspace's or its room's); nil uses the config. Applied to
@@ -419,6 +421,7 @@ public final class TerminalSession {
     /// Stops consuming events and detaches the surface. The IO owner decides
     /// whether the underlying terminal keeps running.
     public func close() {
+        isClosed = true
         frameChanges.bump() // its kept frame goes (TerminalLaunchFrameKeeper)
         let onClose = view.onClose
         view.onClose = nil
