@@ -38,6 +38,8 @@ public nonisolated enum TerminalStreamPlan {
         /// Who the grid is sized for, when another view sets it and it does not fit this one; nil
         /// clears it (plans/cmux-next/sync-ux/DESIGN.md 2.6).
         case sizing(TerminalSizeNotice?)
+        /// Shown again, the view has every byte printed before the show (`shown`): a switch shows it now.
+        case caughtUp
     }
 
     public static func steps(for event: TerminalChannelEvent, cursorDefault: TerminalCursorDefault = .ghostty) -> [Step] {
@@ -51,6 +53,8 @@ public nonisolated enum TerminalStreamPlan {
             []
         case .sizeState(let state, let participant):
             [.sizing(state.notice(for: participant))]
+        case .shown:
+            [.caughtUp]
         case .snapshot(let frame):
             // The decoder admits a READY only with its grid. A local-history
             // READY locks no grid first: its restore reflows the old grid.

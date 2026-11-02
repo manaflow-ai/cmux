@@ -159,6 +159,7 @@ extension TabContentCache {
 
     private func reveal(_ key: String) {
         if let entry = terminals[key] {
+            // Before the IO hears it shows: the session asks it whether the daemon held output to catch up on.
             entry.session.isRenderingSuspended = false
             entry.io.setVisible(true)
             // A new session after an eviction shows its last frame until its content draws (one that

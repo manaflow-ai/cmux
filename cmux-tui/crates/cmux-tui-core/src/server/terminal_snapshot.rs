@@ -82,6 +82,8 @@ use crate::{Mux, Surface, SurfaceId};
 pub const TERMINAL_SNAPSHOT_CAPABILITY: &str = "terminal-snapshot-v1";
 /// `set-attach-visibility`: a snapshot viewer that does not show its terminal gets output once per wall-clock second.
 pub const ATTACH_VISIBILITY_CAPABILITY: &str = "attach-visibility-v1";
+/// A snapshot viewer shown again gets `shown` once its stream holds every byte printed before the show.
+pub const ATTACH_VISIBILITY_SHOWN_CAPABILITY: &str = "attach-visibility-shown-v1";
 /// READY is followed by its history chunks (scrollback, then FINISH).
 pub const TERMINAL_SNAPSHOT_HISTORY_CAPABILITY: &str = "terminal-snapshot-history-v1";
 /// A resize reaches an opted-in viewer as a READY without history.
@@ -581,6 +583,9 @@ struct SnapshotWorker {
     images_cap: Option<u64>,
     /// Output held while the viewer is hidden (`set-attach-visibility`), sent as one `output` event.
     hidden_batch: Vec<u8>,
+    /// The gate's show count this worker answered, and the stream position a newer show owes `shown` at.
+    shows_seen: u64,
+    owed_shown: Option<(u64, u64)>,
 }
 
 /// A hidden viewer's batch goes out at once past this many bytes (a hidden `yes` stays bounded).
@@ -608,6 +613,26 @@ impl SnapshotWorker {
             "generation": self.generation, "offset": self.offset,
         });
         self.send(&value)
+    }
+
+    /// A show the worker has not answered owes `shown` at the stream position of that moment; once every byte
+    /// before it is on the stream (none batched), `shown` goes out. Returns false when the send failed.
+    fn answer_shows(&mut self) -> bool {
+        let shows = self.gate.shows();
+        if shows != self.shows_seen {
+            self.shows_seen = shows;
+            let at_show = self.surface.snapshot_stream_position();
+            self.owed_shown = Some(at_show.unwrap_or((self.generation, self.offset)));
+        }
+        let Some(owed) = self.owed_shown else { return true };
+        if !self.hidden_batch.is_empty() || (self.generation, self.offset) < owed {
+            return true;
+        }
+        self.owed_shown = None;
+        self.send(&json!({
+            "event": "shown", "surface": self.surface_id,
+            "generation": self.generation, "offset": self.offset,
+        }))
     }
 
     fn send(&self, value: &Value) -> bool {
@@ -708,6 +733,10 @@ impl SnapshotWorker {
                     break;
                 }
                 digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
+            }
+            // Shown again: `shown` follows every byte printed before the show (`attach-visibility-shown-v1`).
+            if !self.answer_shows() {
+                break;
             }
             // A hidden viewer's digest waits for the batch it would describe.
             let digest = if self.hidden_batch.is_empty() { digest_at } else { None };
@@ -929,6 +958,8 @@ fn attach(
         tail,
         images_cap,
         hidden_batch: Vec::new(),
+        shows_seen: 0,
+        owed_shown: None,
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let spawned =

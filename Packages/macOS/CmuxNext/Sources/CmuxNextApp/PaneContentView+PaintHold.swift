@@ -2,6 +2,7 @@ import AppKit
 public import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextTerminal
 import CmuxNextWakeups
 
 /// One that painted and is shown again waits for its frame at the size it
@@ -27,6 +28,13 @@ extension InternalPageView: PaneFirstPaintGated {
         guard let page = content as? PageWebView else { return body() }
         page.whenPainted(body)
     }
+}
+
+/// A terminal shown again whose output waited in the daemon while it was hidden: the pane keeps the tab it showed
+/// until the terminal drew that output, so its first frame is the newest one (SWITCH FRAMES SF-5, pre-show).
+extension TerminalHostView: PaneFirstPaintGated {
+    public var awaitsFirstPaint: Bool { awaitsCatchUp }
+    public func whenFirstPainted(_ body: @escaping () -> Void) { whenCaughtUp(body) }
 }
 
 extension PaneContentView {

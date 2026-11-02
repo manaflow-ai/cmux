@@ -122,6 +122,9 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
 
     public var isClosed: Bool { phase == .closed }
 
+    /// The live link while the view is hidden on it (it told the daemon so).
+    public var hiddenLiveLink: Link? { hiddenOn.flatMap { $0 == liveLink ? $0 : nil } }
+
     public mutating func reduce(_ event: Event) -> [Effect] {
         switch event {
         case .start: start()

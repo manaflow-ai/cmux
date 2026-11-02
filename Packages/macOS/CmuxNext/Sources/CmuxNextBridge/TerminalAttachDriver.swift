@@ -17,9 +17,15 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     func sendHidden(_ hidden: Bool)
     /// Asks for a fresh READY + history on this attach.
     func sendSnapshotRequest(reason: SnapshotRequestReason)
+    /// Shown again after it hid, the stream brings a `shown` marker (``TerminalChannelEvent/shown``).
+    var marksShownAfterHide: Bool { get }
     /// Detaches and closes the connection; its `events` then finish.
     /// Idempotent.
     func detachNow()
+}
+
+public extension TerminalAttachLink {
+    var marksShownAfterHide: Bool { false }
 }
 
 /// Runs a ``TerminalAttachMachine`` against real attachments: one reducer
@@ -147,6 +153,11 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     // MARK: Diagnostics
 
     public var machine: Machine { core.withLock { $0.machine } }
+    /// Hidden on its live link, which marks a show (``TerminalAttachLink/marksShownAfterHide``): shown now, the view
+    /// gets ``TerminalStreamPlan/Step/caughtUp`` once it has every byte printed before the show.
+    public var catchesUpWhenShown: Bool {
+        core.withLock { $0.machine.hiddenLiveLink?.link.marksShownAfterHide ?? false }
+    }
     public var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
 
     // MARK: Reducer and applier
@@ -253,7 +264,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
                 case .replay: owner.value?.send(.replayDelivered(ref))
                 // A link's first READY is its replay; later ones are no-ops there.
                 case .snapshot(let frame) where frame.phase == .ready: owner.value?.send(.replayDelivered(ref))
-                case .grid, .output, .snapshot, .exited, .status, .sizing: break
+                case .grid, .output, .snapshot, .exited, .status, .sizing, .caughtUp: break
                 }
             }
             if case .closed(let reason) = event {

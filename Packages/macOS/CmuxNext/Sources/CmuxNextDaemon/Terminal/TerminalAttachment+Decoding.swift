@@ -170,6 +170,10 @@ extension TerminalAttachment {
                 let event = try decoder.decode(SizeStateEvent.self, from: line)
                 guard scoped(event.surface) else { return nil }
                 return DecodedAttachLine(event: .sizeState(event.state, participant: event.selfParticipant))
+            case "shown":
+                let scope = try decoder.decode(SurfaceScoped.self, from: line)
+                guard scoped(scope.surface) else { return nil }
+                return DecodedAttachLine(event: .shown)
             case "detached":
                 let scope = try decoder.decode(SurfaceScoped.self, from: line)
                 guard scoped(scope.surface) else { return nil }

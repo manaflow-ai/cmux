@@ -229,6 +229,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.setVisible(visible)
     }
 
+    /// Hidden on a live link whose daemon marks the show (`attach-visibility-shown-v1`).
+    @MainActor var catchesUpWhenShown: Bool { driver.catchesUpWhenShown }
+
     /// The terminal or the daemon connection is back: a disconnected view
     /// re-attaches (one attempt; nothing happens otherwise).
     @MainActor func reconnect() {
@@ -289,6 +292,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
         case .sizing(let notice): .sizedFor(notice.map(Self.sizedFor))
+        case .caughtUp: .caughtUp
         }
     }
 
