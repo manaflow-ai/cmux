@@ -370,10 +370,46 @@ fn workspace_key(id: &str) -> String {
     format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
 }
 
+/// The name a workspace opened for an unnamed launch shows: the session's own
+/// name (`gcp-lane-11/ergo-help` for a peer's session, so two peers' `codex-1`
+/// read apart), never the app's `workspace-N`. `name` is the session's name
+/// as the daemon reported it, `session_id` its raw id (`name` falls back to it
+/// when the daemon reported none, which names nothing) and `peer` the machine
+/// that runs it. Nil when there is nothing better than `workspace-N`.
+pub(super) fn default_workspace_name(
+    name: &str,
+    session_id: &str,
+    peer: Option<&str>,
+) -> Option<String> {
+    let _ = (name, session_id, peer);
+    None
+}
+
+/// The words of `cmux agent open` for session `id` in group `group`. `title`
+/// (an explicit launch name) goes as `--name`, which reuses a predecessor row
+/// of that name in the group. `default_name` (an unnamed launch's session name,
+/// `default_workspace_name`) goes as `--default-name`: the new workspace's
+/// name, which never matches a predecessor row, so a peer's generated session
+/// name cannot put its chat in another session's workspace.
+fn group_open_args(
+    id: &str,
+    key: &str,
+    title: Option<&str>,
+    default_name: Option<&str>,
+    group: &str,
+) -> Vec<String> {
+    let mut args = vec!["agent".to_owned(), "open".to_owned(), id.to_owned()];
+    if let Some(title) = title {
+        args.extend(["--name".to_owned(), title.to_owned()]);
+    }
+    let _ = default_name;
+    args.extend(["--key".to_owned(), key.to_owned(), "--group".to_owned(), group.to_owned()]);
+    args
+}
+
 /// Shows session `id` in the cmux app's sidebar group `group` through the
-/// app's `agent open` action (`cmux agent open`), optionally named `title`.
-/// Unnamed launches omit the title so a peer's generated session name cannot
-/// accidentally match another session's workspace in the same group.
+/// app's `agent open` action (`cmux agent open`), named `title` (an explicit
+/// launch name) or else `default_name` (`group_open_args`).
 /// A remote create's ID stays qualified with its owning peer. Open that
 /// qualified ID here, without `--host`: the workspace belongs to this Mac and its
 /// acpmux forwards the chat to the peer. This also avoids a name lookup in
@@ -382,16 +418,14 @@ pub(super) fn show_in_group(
     id: &str,
     session_name: &str,
     title: Option<&str>,
+    default_name: Option<&str>,
     group: &str,
     daemon_cli_path: Option<&std::path::Path>,
     deadline: Option<Instant>,
 ) -> Result<()> {
     let key = workspace_key(id);
-    let mut args = vec!["agent", "open", id];
-    if let Some(title) = title {
-        args.extend(["--name", title]);
-    }
-    args.extend(["--key", &key, "--group", group]);
+    let owned = group_open_args(id, &key, title, default_name, group);
+    let args = owned.iter().map(String::as_str).collect::<Vec<_>>();
     // Prefer the app's bundled CLI when the daemon was started by the app.
     // A plain shell can otherwise resolve an older standalone `cmux` first.
     let cli =
@@ -671,11 +705,49 @@ mod tests {
         assert!(uuid::Uuid::parse_str(&k).is_ok());
     }
 
+    /// An unnamed launch's workspace is named for its session, never the app's `workspace-N`
+    /// (Leo, 2026-11-02: "hundreds of random sessions"), and a peer's session reads with its peer.
+    #[test]
+    fn an_unnamed_launch_names_its_workspace_for_the_session() {
+        assert_eq!(
+            default_workspace_name("ergo-help", "s-1", Some("gcp-lane-11")).as_deref(),
+            Some("gcp-lane-11/ergo-help")
+        );
+        assert_eq!(
+            default_workspace_name("gcp-lane-11/ergo-help", "s-1", Some("gcp-lane-11")).as_deref(),
+            Some("gcp-lane-11/ergo-help")
+        );
+        assert_eq!(default_workspace_name("codex-1", "s-1", None).as_deref(), Some("codex-1"));
+        assert_eq!(default_workspace_name("codex-1", "s-1", Some(" ")).as_deref(), Some("codex-1"));
+        // No reported name (it fell back to the raw id), or a blank one: nothing better than workspace-N.
+        assert_eq!(default_workspace_name("s-1", "s-1", Some("gcp-lane-11")), None);
+        assert_eq!(default_workspace_name("  ", "s-1", None), None);
+    }
+
+    /// The session's name goes as `--default-name`, which never reuses a predecessor row; only an
+    /// explicit launch name goes as `--name`.
+    #[test]
+    fn only_an_explicit_name_opts_into_predecessor_reuse() {
+        let unnamed = group_open_args("p/s-1", "k", None, Some("p/codex-1"), "g");
+        assert_eq!(
+            unnamed,
+            ["agent", "open", "p/s-1", "--default-name", "p/codex-1", "--key", "k", "--group", "g"]
+        );
+        assert!(!unnamed.iter().any(|word| word == "--name"), "{unnamed:?}");
+        let named = group_open_args("s-1", "k", Some("lane"), Some("lane"), "g");
+        assert_eq!(named, ["agent", "open", "s-1", "--name", "lane", "--key", "k", "--group", "g"]);
+        assert_eq!(
+            group_open_args("s-1", "k", None, None, "g"),
+            ["agent", "open", "s-1", "--key", "k", "--group", "g"]
+        );
+    }
+
     #[test]
     fn a_group_open_failure_keeps_the_session_name_and_retry_command() {
         let error = show_in_group(
             "session-id",
             "lane-name",
+            None,
             None,
             "remote-audit",
             Some(Path::new("/definitely/missing/cmux")),
@@ -699,8 +771,9 @@ mod tests {
         crate::test_exec::write_executable(&cli, "#!/bin/sh\nsleep 30\n");
         let started = std::time::Instant::now();
         let deadline = Instant::now() + std::time::Duration::from_millis(300);
-        let error = show_in_group("session-id", "lane-name", None, "g", Some(&cli), Some(deadline))
-            .unwrap_err();
+        let error =
+            show_in_group("session-id", "lane-name", None, None, "g", Some(&cli), Some(deadline))
+                .unwrap_err();
         assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
         let app = error.downcast_ref::<crate::cli::errors::AppError>();
         assert_eq!(app.map(|a| a.code), Some(crate::cli::errors::Code::Timeout), "{error:#}");
