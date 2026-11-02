@@ -58,6 +58,35 @@ import Testing
         #expect(ShimLog.backgrounds.last == Self.navy)
     }
 
+    /// Re-review FIX at fba2f6d9d61: OnLoadingStateChange(false) follows every load end and settled white at once.
+    @Test func theStopLoadingEventAlsoWaitsForTheRead() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.committedTab()
+        CEFFirstPaintBridge(tab: tab).painted()
+        await rig.until { ShimLog.evaluates > 0 }
+        rig.runtime.handle(.loadEnd(browser: Rig.browser, httpStatus: 200))
+        rig.runtime.handle(.loadingState(browser: Rig.browser, loading: false, canGoBack: false, canGoForward: false))
+        for _ in 0..<10 { await Task.yield() }
+        #expect(!ShimLog.backgrounds.contains(Self.white), "no white base while the read is pending")
+        rig.answerEvaluate(#"{"result":{"type":"object","value":[11,42,74]}}"#)
+        await rig.until { tab.documentSettled }
+        #expect(ShimLog.backgrounds.last == Self.navy)
+        #expect(!ShimLog.backgrounds.contains(Self.white))
+    }
+
+    /// A read that never answers (a renderer busy with page script) settles after the bounded wait, as before.
+    @Test func aReadThatNeverAnswersSettlesAfterTheLimit() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.committedTab()
+        CEFFirstPaintBridge(tab: tab).painted()
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(3))
+        while !tab.documentSettled, clock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(tab.documentSettled, "settled within the limit, not after the 5 s evaluate timeout")
+    }
+
     /// A page with no background of its own is white, the web default.
     @Test func aPageWithNoBackgroundSettlesWhite() async throws {
         let rig = try Rig()
