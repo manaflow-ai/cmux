@@ -337,6 +337,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   provider.snapshots = JSON.parse(JSON.stringify(state.snapshots));
   if (state.ports) provider.edge.forwards = JSON.parse(JSON.stringify(state.ports)) as PortForward[];
   if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
+  if (state.snapshotsFail) provider.failNext = CloudOps.snapshotList;
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
     mode: state.mode === "normal" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,

@@ -26,9 +26,6 @@ struct PlacementWriteOrderTests {
     private static func burst(mixed: Bool, mode: String = "") async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let savedDocument = SidebarDocStore.current
-        SidebarDocStore.current = nil
-        defer { SidebarDocStore.current = savedDocument }
         let bridge = DaemonBridge.fakePython(["-c", PlacementStaleRowsGalleryTests.daemonScript, mixed ? "1" : "0", mode])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-placement-order-\(UUID().uuidString).sock", bridge: bridge),
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))

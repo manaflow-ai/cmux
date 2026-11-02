@@ -12,10 +12,7 @@ import CmuxNextSettings
 /// - `callers`: the process names of the program that asked and its parents (`aws`, `gh`),
 ///   which `caller:` rules match.
 /// - `terminal_id`: the caller's terminal (`CMUX_TUI_TERMINAL_ID`). A cmux target opens from its
-///   tab, where `layout.linkPlacement` puts a terminal's link (beside it by default). A
-///   `terminal_id` that no tab shows (a closed or stale terminal) refuses a cmux target with
-///   `not_found` and opens nothing: the link never lands in whichever pane has focus, which may
-///   be another window or browser profile (#29224). With no `terminal_id` the focused pane is meant.
+///   tab (`layout.linkPlacement`); one no tab shows refuses it with `not_found` (``LinkRouter/openTerminalLink``).
 /// - `focus` (default false): false opens the tab without taking the keyboard from the terminal.
 /// - `target`: a target that wins over the setting (`cmux`, `system`, `chrome@Work`), as a
 ///   `command:` hook prints it; a `command:` target is refused here.
@@ -55,13 +52,7 @@ enum TerminalLinkOpenControl {
                     decision = setting.decide(url, callers: callers, routing: services?.settings?.snapshot.linkRouting ?? .fallback)
                 }
                 let explicit = params["target"] != nil || decision.rule != nil
-                let terminal: String?
-                switch params["terminal_id"] {
-                case nil, .null?: terminal = nil
-                case .string(let id)?: terminal = id.isEmpty ? nil : id
-                default: throw ControlError.invalidParams("params.terminal_id must be a terminal id string")
-                }
-                let source = terminal.flatMap { call.snapshot.topology.tabID(ofTerminal: $0) }
+                let (terminal, source) = try call.terminalTab()
                 let background = params["focus"]?.boolValue != true
                 var reply: [String: JSONValue] = ["target": .string(decision.target.kind)]
                 if let rule = decision.rule {
@@ -70,19 +61,11 @@ enum TerminalLinkOpenControl {
                 }
                 switch decision.target {
                 case .cmux:
-                    let router = LinkRouter.shared
-                    // A named terminal that is gone never falls back to the focused pane.
-                    if terminal != nil, source == nil, router.routing().browserEnabled,
-                       explicit || router.target(for: url) == .cmuxBrowser {
+                    guard let opened = LinkRouter.shared.openTerminalLink(url, terminal: terminal, source: source, explicit: explicit,
+                                                                          background: background) else {
                         throw ControlError(code: "not_found", message: "params.terminal_id names no open terminal; nothing was opened")
                     }
-                    if explicit {
-                        router.open(url, in: .cmuxBrowser, background: background, source: source)
-                        reply["opened_in"] = .string(router.routing().browserEnabled ? "cmux" : "system")
-                    } else {
-                        let routed = router.open(url, background: background, source: source)
-                        reply["opened_in"] = .string(routed == .system ? "system" : "cmux")
-                    }
+                    reply["opened_in"] = .string(opened == .system ? "system" : "cmux")
                 case .system:
                     LinkRouter.shared.open(url, in: .system)
                     reply["opened_in"] = "system"

@@ -169,8 +169,17 @@ public final class AgentChatStore {
     /// The chat opened on its newest history only: older records stay on the Mac, so the
     /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
     public private(set) var hasEarlierHistory = false
+    /// An older page is being read (``loadEarlier()``).
+    public private(set) var isLoadingEarlier = false
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
+    /// Each ended turn's `turn_result` record seq, by turn id: the turn a fork through it keeps
+    /// (Edit and Resend of an earlier prompt).
+    public private(set) var turnSeqs: [String: Int] = [:]
+    /// acpmux holds the waiting prompts (`queue_paused`) until the person resumes them.
+    public private(set) var queuePaused = false
+    /// The pause's reason as acpmux logged it (`stop`: a person's Stop held agent messages).
+    public private(set) var queuePauseReason: String?
 
     /// The chat's title: the agent's session title, else the session's name, else (a new
     /// session) the first prompt trimmed to 40 characters, as ChatGPT and Claude do.
@@ -527,6 +536,33 @@ public final class AgentChatStore {
         return turn.prompt
     }
 
+    /// The turn an edit of `turn`'s prompt forks through (the Mac's Edit and Resend, webviews
+    /// conversation/editPrompt.ts): the seq of the completed turn right before it, or nil when
+    /// its prompt can't be edited that way. A chat's first prompt has no turn before it; a
+    /// failed or cancelled turn before it was never answered whole; only Claude and Codex
+    /// chats fork through an earlier turn (acpmux `fork_through.rs`).
+    public func editForkSeq(for turn: AgentTurn) -> Int? {
+        guard ["claude", "codex"].contains(Self.family(of: summary.harness)),
+              let index = turns.firstIndex(where: { $0.id == turn.id }), index > 0, !turn.prompt.isEmpty else { return nil }
+        let before = turns[index - 1]
+        guard before.status == .completed else { return nil }
+        return turnSeqs[before.id]
+    }
+
+    /// The harness family acpmux forks by: Claude Code's profiles (`claude-sr`, `cmux`) are Claude's.
+    nonisolated static func family(of harness: String) -> String {
+        let id = harness.lowercased()
+        if id == "claude" || id.hasPrefix("claude-") || id == "cmux" { return "claude" }
+        if id == "codex" || id.hasPrefix("codex-") { return "codex" }
+        return id
+    }
+
+    /// Resume (the Mac's Resume over a paused queue): acpmux runs the held prompts again.
+    public func resumeQueue() {
+        guard queuePaused else { return }
+        source.send(.resumeQueue)
+    }
+
     /// The queued row's X: takes the prompt back into the composer, returning the text the
     /// composer gets. Only an empty composer (whitespace counts as empty) takes it: a draft
     /// there is never replaced, so the prompt stays queued and this returns nil (the row then
@@ -636,6 +672,11 @@ public final class AgentChatStore {
         case .retrying(let attempt, let maxAttempts, let status):
             guard let index = turns.indices.last, turns[index].status == .running else { return }
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
+        case .turnSeq(let turnId, let seq):
+            turnSeqs[turnId] = seq
+        case .queuePaused(let paused, let reason):
+            queuePaused = paused
+            queuePauseReason = paused ? reason : nil
         case .turnResult(let turnId, let status, let errorText, let at):
             mutateTurn(turnId) { turn in
                 turn.retry = nil
@@ -719,6 +760,10 @@ public final class AgentChatStore {
             currentModeID = current
         case .earlierHistory(let earlier):
             hasEarlierHistory = earlier
+        case .earlierPage(let events, let hasEarlier):
+            isLoadingEarlier = false
+            hasEarlierHistory = hasEarlier
+            prependEarlier(events)
         case .fullAccess(let on):
             fullAccess = on
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
@@ -753,6 +798,35 @@ public final class AgentChatStore {
     }
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
+
+    /// The reader reached the oldest turn shown: the source reads the page before it.
+    public func loadEarlier() {
+        guard hasEarlierHistory, !isLoadingEarlier else { return }
+        isLoadingEarlier = true
+        source.loadEarlierHistory()
+    }
+
+    /// Older turns go in front of the shown ones. They are built on their own: the queue, the
+    /// asks and the status the chat shows are newer than anything in them. Drawn in place, as
+    /// history.
+    private func prependEarlier(_ events: [AgentSessionEvent]) {
+        guard !events.isEmpty else { return }
+        let older = AgentChatStore(source: EarlierHistorySource(summary: summary))
+        older.nextFrame = nil
+        older.apply(.batch(events))
+        turnSeqs.merge(older.turnSeqs) { current, _ in current }
+        let shown = Set(turns.map(\.id))
+        let added = older.turns.filter { !shown.contains($0.id) }
+        guard !added.isEmpty else { return }
+        turns.insert(contentsOf: added, at: 0)
+        let known = Set(subagents.map(\.id))
+        subagents.insert(contentsOf: older.subagents.filter { !known.contains($0.id) }, at: 0)
+        for turn in added {
+            replayedIDs.insert(turn.id)
+            for row in turn.rows { replayedIDs.insert(row.id) }
+        }
+        lastChangeWasReplay = true
+    }
 
     /// Whether `id` (a turn's id or a `TurnRow.id`) was on screen as replayed history,
     /// so its view appears without an insert transition (and its ask without a haptic).
@@ -929,4 +1003,14 @@ public final class AgentChatStore {
             }
         }
     }
+}
+
+/// The source a page of older turns is built from on its own (``AgentChatStore/loadEarlier()``):
+/// nothing streams and nothing is sent.
+@MainActor
+private final class EarlierHistorySource: AgentSessionSource {
+    let summary: AgentSessionSummary
+    init(summary: AgentSessionSummary) { self.summary = summary }
+    func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { $0.finish() } }
+    func send(_ intent: AgentClientIntent) {}
 }

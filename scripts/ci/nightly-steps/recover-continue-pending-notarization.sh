@@ -2,6 +2,13 @@
 # nightly.yml recover-nightly-next-notarization: "Continue the newest accepted pending notarization".
 # Moved out of the workflow verbatim to keep nightly.yml under GitHub's
 # workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# notarize-nightly-dmg.sh signs the DMG around the stapled app and
+# waits 20m for it; one still queued is pending, and a later run
+# continues the same accepted candidate (no older one is published).
+# This job holds notarization secrets, so it runs no bundle code:
+# verify-recovered-nightly-next statically verifies the continued DMG (#21024).
 set -euo pipefail
 feeds=()
 for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do

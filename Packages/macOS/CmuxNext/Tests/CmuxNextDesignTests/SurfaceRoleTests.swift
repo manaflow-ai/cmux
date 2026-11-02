@@ -17,7 +17,7 @@ struct SurfaceRoleTests {
                                                                darkRim: (0.30, 0.06), lightRim: (0.85, 0.10), castsShadow: true))
         #expect(FloatingGlassStyle.dialog == FloatingGlassStyle(cornerRadius: 14, darkVeilAlpha: 0.48, lightVeilAlpha: 0.62,
                                                                 darkRim: (0.28, 0.05), lightRim: (0.85, 0.10), castsShadow: true))
-        #expect(FloatingGlassStyle.card == FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.22, lightVeilAlpha: 0.45,
+        #expect(FloatingGlassStyle.card == FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.42, lightVeilAlpha: 0.45,
                                                               darkRim: (0.22, 0.04), lightRim: (0.80, 0.08), castsShadow: false))
     }
 

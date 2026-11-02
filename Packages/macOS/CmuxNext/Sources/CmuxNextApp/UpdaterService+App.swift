@@ -71,7 +71,7 @@ extension UpdaterService {
     /// (local only); a return to cmux may pick the next day's tip.
     func attachTips(registry: ActionRegistry) {
         runTipAction = { [weak registry] action in
-            guard TipCatalog.all.contains(where: { $0.action == action }) else { return }
+            guard TipCatalog.actions.contains(action) else { return }
             _ = registry?.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user))
         }
         registry.runObserver = { [weak self] id, invocation in

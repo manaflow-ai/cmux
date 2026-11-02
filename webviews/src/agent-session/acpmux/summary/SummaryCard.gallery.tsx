@@ -299,13 +299,21 @@ export default componentEntry<Props>({
       props: { tabRowHeight: 0, sessionInfoPush: true, rows: [] },
     },
     "shared-tab-row": {
-      note: "The inline Summary column beside the chat, under a 32px native tab row. Two commands and a failed subagent keep long counts visible with a right ellipsis, outside the native header holes.",
+      note: "The inline Summary column beside the chat, under a 32px native tab row. A running subagent, two commands and failed, stopped and done subagents make counts longer than the column, so they end in a right ellipsis, outside the native header holes.",
       props: {
         tabRowHeight: 32,
         rows: [
           ...rows,
           row("subagents", 1, {
             subagents: [
+              {
+                id: "running-review",
+                name: "Running review",
+                task: "Running review",
+                parent: null,
+                state: "running",
+                startedAt: minutesAgo(2),
+              },
               {
                 id: "failed-review",
                 name: "Review",

@@ -28,6 +28,7 @@ pub(crate) struct LocalServerMessages {
     pub owner_spawn_failed: &'static str,
     pub owner_not_ready: &'static str,
     pub owner_restore_timeout: &'static str,
+    pub owner_busy: &'static str,
     pub owner_restoring: &'static str,
     pub replaced: &'static str,
     pub replace_refused: &'static str,
@@ -103,6 +104,22 @@ impl LocalServerMessages {
         text.replace("{seconds}", &seconds.to_string()).replace("{command}", command)
     }
 
+    /// The message of a failed ensure, shared by `server ensure` and attach.
+    pub(crate) fn ensure_failed(&self, error: &crate::local_owner::EnsureError) -> String {
+        use crate::local_owner::EnsureError;
+        match error {
+            EnsureError::Spawn(_) => self.owner_spawn_failed(),
+            EnsureError::NotReady => self.owner_not_ready.to_string(),
+            EnsureError::RestoreTimeout => self.owner_restore_timeout.to_string(),
+            EnsureError::Busy => self.owner_busy.to_string(),
+            EnsureError::WrongOwner => self.wrong_owner.to_string(),
+            EnsureError::DifferentSession => self.different_session.to_string(),
+            EnsureError::DifferentState => self.different_state.to_string(),
+            EnsureError::InvalidIdentity => self.invalid_identity.to_string(),
+            EnsureError::UnsupportedProtocol => self.unsupported_protocol.to_string(),
+        }
+    }
+
     pub(crate) fn unknown_scope(&self, scope: &str, suggestion: Option<&str>) -> String {
         self.with_suggestion(self.unknown_scope.replace("{scope}", scope), suggestion)
     }
@@ -148,6 +165,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     owner_spawn_failed: "cannot start the detached session owner; check the session state and retry",
     owner_not_ready: "the detached session owner did not become ready; inspect the client log under the session state directory and retry",
     owner_restore_timeout: "the session owner is running but did not finish restoring its terminals within 2 minutes; inspect the client log under the session state directory and retry",
+    owner_busy: "the session owner is running but refused every connection at its connection limit; restart cmux-tui and retry",
     owner_restoring: "cmux: the session owner is restoring its terminals; waiting for it (up to 2 minutes)",
     replaced: "the unresponsive session owner was stopped and a new local server started",
     replace_refused: "cannot replace the unresponsive session owner; inspect the client log under the session state directory and retry",
@@ -222,6 +240,7 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     owner_spawn_failed: "デタッチされたセッション所有者を起動できません。セッション状態を確認して再試行してください",
     owner_not_ready: "デタッチされたセッション所有者が準備完了になりませんでした。セッション状態ディレクトリのクライアントログを確認して再試行してください",
     owner_restore_timeout: "セッション所有者は起動していますが、2 分以内にターミナルの復元を完了しませんでした。セッション状態ディレクトリのクライアントログを確認して再試行してください",
+    owner_busy: "セッション所有者は起動していますが、接続数の上限に達しているためすべての接続を拒否しました。cmux-tui を再起動して再試行してください",
     owner_restoring: "cmux: セッション所有者がターミナルを復元しています。完了を待っています (最大 2 分)",
     replaced: "応答しないセッション所有者を停止し、新しいローカルサーバーを起動しました",
     replace_refused: "応答しないセッション所有者を置き換えられません。セッション状態ディレクトリのクライアントログを確認して再試行してください",

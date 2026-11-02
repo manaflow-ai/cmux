@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextWakeups
 import Foundation
 public import Observation
@@ -52,14 +53,19 @@ public final class DaemonStore: StateResourceQueries {
     /// tabs the tree lists, their panes or their order: one read for an
     /// observer that follows every tab list, instead of a walk of every pane.
     public private(set) var tabListRevision: UInt64 = 0
+    /// Tabs a pending close only hides while the daemon's read decides (``holdTabs(_:)``); the live tree still lists them.
+    @ObservationIgnored var heldTabIDs: Set<String> = []
     public let session = SessionStateStore()
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
     /// What the sidebar shows of a tab's unread notification
     /// (`notificationText(for:)`): each live notification's text by id, and
     /// the ledger's newest unread text by surface, seeded at connect.
-    var notificationTexts: [NotificationID: String] = [:]
-    var ledgerNotificationTexts: [SurfaceID: String] = [:]
+    /// Each observed one key at a time (`ObservedMap`): a sidebar row reads its own tab's text, so a notification
+    /// posted to another workspace maps no other row again (TYPING UNDER LOAD F6: every row with an unread tab
+    /// re-mapped on every `notify`).
+    @ObservationIgnored let notificationTexts = ObservedMap<NotificationID, String>()
+    @ObservationIgnored let ledgerNotificationTexts = ObservedMap<SurfaceID, String>()
     /// True once the first snapshot is applied.
     public internal(set) var isLoaded = false
     /// True while the tree is the daemon's launch snapshot (drawn before
@@ -177,6 +183,10 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
+    /// Test seam (nil in the app): while it returns true for the buffered events, `drain` leaves them
+    /// buffered and asks for no frame, as a daemon whose events arrive late; ``releaseHeldEvents()``
+    /// applies them. A test holds one report this way to order it after an app step deterministically.
+    @ObservationIgnored public var eventHold: (@MainActor ([DaemonEventEnvelope]) -> Bool)?
     @ObservationIgnored var isResyncing = false
     /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
     @ObservationIgnored var personalRefetch = PersonalRefetch()
@@ -215,6 +225,13 @@ public final class DaemonStore: StateResourceQueries {
     public func screen(_ handle: ScreenID) -> ScreenModel? { index.screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { index.panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { index.tabsBySurface[surface] }
+    /// The current tab records, invalidated only when the tab/pane topology
+    /// changes. Callers that need to inspect every tab without observing row
+    /// status should use this instead of walking ``workspaces``.
+    public var liveTabs: [TabModel] {
+        _ = tabListRevision
+        return Array(index.tabsByID.values)
+    }
     /// The shell's reported folder (OSC 7); a remote terminal's is never a local cwd.
     public func noteTerminalDirectory(_ directory: String?, surface: SurfaceID) {
         guard let tab = index.tabsBySurface[surface], tab.kind != .remoteTerminal else { return }
@@ -244,6 +261,11 @@ public final class DaemonStore: StateResourceQueries {
         _ = tabListRevision
         return index.tabsByID[id] ?? index.tabsByResource[ResourceID(rawValue: id)]
     }
+    /// The pane with public id or pane resource id `id`.
+    public func pane(idOrResource id: String) -> PaneModel? {
+        index.panesByResource[ResourceID(rawValue: id)]
+            ?? workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.id == id || $0.resourceID?.rawValue == id }
+    }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { index.tabGroupsByID[id] }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
     public func profile(_ id: ProfileID) -> ProfileModel? { profiles.first { $0.id == id } }
@@ -270,6 +292,11 @@ public final class DaemonStore: StateResourceQueries {
     public func pane(holding tab: TabModel) -> PaneModel? {
         _ = tabListRevision
         return index.pane(holding: tab)
+    }
+
+    /// The workspace that shows tab `id`: the workspace of the pane holding its surface.
+    public func workspace(holdingTab id: String) -> WorkspaceModel? {
+        tab(id: id).flatMap { pane(containing: $0.surface) }.flatMap { workspace(containing: $0.handle) }
     }
 
     // MARK: Snapshot

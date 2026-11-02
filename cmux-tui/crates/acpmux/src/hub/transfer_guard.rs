@@ -377,7 +377,8 @@ impl Hub {
         Ok((meta, taken))
     }
 
-    /// A web-guarded chat's mode, and every option that is not a model or effort choice, must be
+    /// A web-guarded chat's mode, and every option that is not a model, effort or speed choice
+    /// (`FREE_CONFIG_IDS`, `CARRIED_CONFIG_IDS`), must be
     /// one this daemon's table lists as asking for its family, never of a family the Web does not
     /// drive. A chat of a family with asking modes must have a recorded mode: a Web prompt for a
     /// chat with none passes dispatch on its policy (`session_asks_now`), and its agent could
@@ -403,6 +404,7 @@ impl Hub {
             let id = o.get("id").and_then(Value::as_str).unwrap_or("");
             let value = o.get("currentValue").and_then(Value::as_str);
             let asks = crate::web_modes::FREE_CONFIG_IDS.contains(&id)
+                || crate::web_modes::CARRIED_CONFIG_IDS.contains(&id)
                 || (id == "mode" && value.is_some_and(&listed));
             if !asks {
                 return Err(guard_error(

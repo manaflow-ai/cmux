@@ -12,6 +12,7 @@ import { useSyncExternalStore } from "react";
 export type SessionInfoSectionId =
   | "environment"
   | "context"
+  | "usage"
   | "connectors"
   | "changes"
   | "sources"
@@ -24,12 +25,13 @@ export type SessionInfoSections = Readonly<Record<SessionInfoSectionId, boolean>
 /// The width a drag can give it, in px, and the width it opens at the first time.
 export const SESSION_INFO_WIDTH = { min: 260, max: 560, fallback: 320 } as const;
 
-/// Connectors starts folded to its one-line value (as in Claude Code desktop); the rest start open,
-/// Context too (Leo, 2026-11-01: "context tho is pretty good i think to keep expanded by default? it
-/// seemed like it was collapsed initially").
+/// Usage and Connectors start folded to their one-line values (as in Claude Code desktop); the rest
+/// start open, Context too (Leo, 2026-11-01: "context tho is pretty good i think to keep expanded by
+/// default? it seemed like it was collapsed initially").
 export const DEFAULT_SECTIONS: SessionInfoSections = {
   environment: true,
   context: true,
+  usage: false,
   connectors: false,
   changes: true,
   sources: true,

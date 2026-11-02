@@ -93,6 +93,7 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+RUNNING_MCP = []
 # Whether the client asked for native subagent sessions the way codex-acp 1.10.0
 # reads it: the JetBrains AIR capability in clientCapabilities._meta (its ACP
 # schema strips the draft `subagents` field, so that one does not count).
@@ -175,6 +176,8 @@ def codex_store_prompt(rid, params):
                         and r["payload"]["content"][0]["text"] != "history-probe"],
             "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
         })
+    # Native rollouts retain the assistant reply as well as the user's prompt.
+    codex_write(sid, "response_item", {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": reply}]})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
     # Codex's rollout writer flushes a turn's last records after the turn
@@ -1403,6 +1406,26 @@ def main():
                 effort["currentValue"] = params.get("value")
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": options}})
             continue
+        # FAKE_RUN_MCP=<path>: on session/new, run each stdio MCP server the daemon gave, as a
+        # harness does (its stdin held open, so it serves until the harness ends), and write
+        # their pids to <path>.<this harness pid>.
+        if m == "session/new" and os.environ.get("FAKE_RUN_MCP"):
+            import subprocess
+            pids = []
+            for srv in params.get("mcpServers") or []:
+                if not srv.get("command"):
+                    continue
+                env = dict(os.environ)
+                env.update({e["name"]: e["value"] for e in srv.get("env") or []})
+                proc = subprocess.Popen([srv["command"], *srv.get("args", [])], env=env,
+                                        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL)
+                RUNNING_MCP.append(proc)
+                pids.append(str(proc.pid))
+            out = f"{os.environ['FAKE_RUN_MCP']}.{os.getpid()}"
+            with open(f"{out}.tmp", "w") as f:
+                f.write("\n".join(pids))
+            os.replace(f"{out}.tmp", out)
         # FAKE_SETSID_CHILD=<path>: on session/new, start a child that leaves this
         # process group (setsid), as a harness that daemonizes a helper does, and
         # write its pid to <path>.<this harness pid>. Every harness with the env

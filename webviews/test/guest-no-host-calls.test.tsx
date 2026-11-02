@@ -129,7 +129,8 @@ const { RunInBackgroundContext } = await import("../src/agent-session/acpmux/con
 const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
 const { StartedMentionsContext } = await import("../src/agent-session/acpmux/started/StartedSessionCard");
 const { AvatarContext } = await import("../src/pages/home-channels/avatars");
-const { askingRecords, fakeRoom, joinFrames } = await import("../src/agent-session/guest/fixtures/liveChat");
+const { askingRecords, fakeRoom, joinFrames, memoryStorage } =
+  await import("../src/agent-session/guest/fixtures/liveChat");
 
 afterAll(() => {
   // Bun shares modules across test files: put every host and transport back as the pane has them.
@@ -411,6 +412,7 @@ test("the guest page itself, joined and live, reaches no host and no owner actio
         <GuestPage
           shareId="c2hhcmUtMTIzNDU2Nzg"
           guestId="g1"
+          storage={memoryStorage()}
           redeem={() => new Promise(() => undefined)}
           attempt={() => "0".repeat(32)}
           socketUrl="wss://room.test/guest"

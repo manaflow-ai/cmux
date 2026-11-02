@@ -35,13 +35,14 @@ describe("billing alert checks", () => {
     await runBillingAlertChecks({
       now: new Date("2026-09-10T06:00:00.000Z"),
       sendAlert,
-      countWebhookErrors: async (_since, retryableBefore) => {
-        cutoffs.push(retryableBefore);
+      countWebhookErrors: async (since, retryableBefore) => {
+        cutoffs.push(since, retryableBefore);
         return { count: 1, types: ["customer.subscription.created"], latest: "retryable: Another account mutation is still in progress.", eventIds: ["evt_1"] };
       },
       countUnsentPurchaseEmails: async () => 0,
     });
-    expect(cutoffs).toEqual([new Date("2026-09-10T05:45:00.000Z")]);
+    // Watches the inbox's whole 3-day retry window, after a 30-minute grace.
+    expect(cutoffs).toEqual([new Date("2026-09-07T06:00:00.000Z"), new Date("2026-09-10T05:30:00.000Z")]);
     expect(sent[0]?.body).toContain("evt_1");
     expect(sent[0]?.body).not.toContain("no entitlement");
   });

@@ -2,6 +2,7 @@ import { agentKey } from "../shared/agentKey";
 import type { AcpmuxDirectClient } from "./direct";
 
 type RecoveryClient = Pick<AcpmuxDirectClient, "selectedSession" | "resendPrompt" | "send">;
+type Recovery = (rowId: string, prompt: string, automatic?: boolean) => Promise<void>;
 
 /** Recovery uses the native host's provider VM ID; daemon summaries do not carry machine context. */
 export function cloudCredentialRecovery(
@@ -12,18 +13,36 @@ export function cloudCredentialRecovery(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   isCurrent: (sessionId: string) => boolean,
   currentClient: () => RecoveryClient | undefined,
-): ((rowId: string, prompt: string) => Promise<void>) | undefined {
+  automaticAttempts: Set<string>,
+): Recovery | undefined {
   const provider = agentKey(harness?.split("/").pop());
   if (!connected || !machineID || !sessionId || (provider !== "claude" && provider !== "codex")) return undefined;
   let pending = false;
-  return async (rowId, prompt) => {
+  let automaticAttempted = false;
+  return async (rowId, prompt, automatic = false) => {
     const client = currentClient();
-    if (pending || !client || !isCurrent(sessionId)) return;
+    if (
+      pending ||
+      (automatic && (automaticAttempted || automaticAttempts.has(sessionId))) ||
+      !client ||
+      !isCurrent(sessionId)
+    )
+      return;
+    if (automatic) {
+      automaticAttempted = true;
+      automaticAttempts.add(sessionId);
+    }
     pending = true;
     try {
       const retryPromptId = crypto.randomUUID();
       // Reserve the click natively before any async attachment restoration or provider login.
-      const reply = await call("chat.cloudCredentialTransfer", { provider, machineID, sessionId, retryPromptId });
+      const reply = await call("chat.cloudCredentialTransfer", {
+        provider,
+        machineID,
+        sessionId,
+        retryPromptId,
+        automatic,
+      });
       if (
         !isCurrent(sessionId) ||
         currentClient() !== client ||

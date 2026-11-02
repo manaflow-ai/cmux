@@ -56,6 +56,19 @@ export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo
     : session.name;
 }
 
+/// A subagent's name as a line shows it: until a record names it (history paged in after its spawn
+/// carries none), its name is its raw `<session>/<tool call>` id, which the fold keeps for routing
+/// and the line shows as the localized "Subagent" instead (Leo, 2026-10-22, on "Subagent finished:
+/// 01a15779-…/toolu_01H9…": "this needs to be rendered better"). A raw id is Claude's
+/// `<session>/<tool call>` or Codex's bare thread UUID; a name equal to any other id is a real
+/// name a record gave it, so it stays.
+export function subagentDisplayName(t: Translate, agent: { id: string; name: string }): string {
+  const rawId = agent.id.includes("/") || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(agent.id);
+  return (agent.name === agent.id && rawId) || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(agent.name)
+    ? t("tray.kind.subagent")
+    : agent.name;
+}
+
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
 /// prompt, which the line cuts when there is no room) or a tool's permission. Only the person
 /// answers it, in its chat (person proof): its parent's agent cannot, so the line says where.
@@ -167,6 +180,8 @@ export class SubsessionStore {
   /// sub-session card.
   private named = new Map<string, string>();
   private harnesses = new Map<string, string>();
+  /// By id, the model and thinking effort each listed chat runs on, for a sender's hover.
+  private runs = new Map<string, SenderRun>();
   private hosts = new Map<string, string>();
   /// Where each listed chat works, by id: its folder and the other machine it runs on, for the
   /// files its messages name (IncomingMessageCard.tsx), read with the same listeners.
@@ -213,8 +228,14 @@ export class SubsessionStore {
     }
     const hosts = new Map<string, string>();
     const places = new Map<string, SenderPlace>();
+    const runs = new Map<string, SenderRun>();
     for (const entry of sessions) {
       if (entry.harness) harnesses.set(entry.sessionId, entry.harness);
+      if (entry.model || entry.effort)
+        runs.set(entry.sessionId, {
+          ...(entry.model && { model: entry.model }),
+          ...(entry.effort && { effort: entry.effort }),
+        });
       const host = cloudHost(entry);
       if (host) hosts.set(entry.sessionId, host);
       const cwd = entry.cwd?.trim();
@@ -224,13 +245,14 @@ export class SubsessionStore {
     // and metadata should not notify every sender card only because rows were reordered.
     const sorted = <T>(map: Map<string, T>) => [...map].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
     const ids = new Set(sessions.map((entry) => entry.sessionId));
-    const namedKey = JSON.stringify([sorted(named), sorted(harnesses), sorted(places), [...ids].sort()]);
+    const namedKey = JSON.stringify([sorted(named), sorted(harnesses), sorted(places), sorted(runs), [...ids].sort()]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
     this.ids = ids;
     this.harnesses = harnesses;
     this.hosts = hosts;
     if (renamed) this.places = places;
+    if (renamed) this.runs = runs;
     this.namedKey = namedKey;
     if (renamed) for (const listener of this.nameListeners) listener();
     for (const entry of sessions) {
@@ -275,6 +297,11 @@ export class SubsessionStore {
 
   harness(sessionId: string): string | undefined {
     return this.harnesses.get(sessionId);
+  }
+
+  /// The model and effort listed chat `sessionId` runs on, when the list names them.
+  run(sessionId: string): SenderRun | undefined {
+    return this.runs.get(sessionId);
   }
 
   /// The other machine listed chat `sessionId` runs on; undefined for this Mac's.
@@ -340,6 +367,9 @@ export function useSubsessionInfos(
 /// undefined for this Mac's).
 export type SenderPlace = { cwd?: string; host?: string };
 
+/// The model and thinking effort a listed chat runs on (its sender's hover, IncomingMessageCard.tsx).
+export type SenderRun = { model?: string; effort?: string };
+
 /// Where the chat a message came from works, while the list has it (subsessions.ts `place`).
 export function useSenderPlace(sessionId: string | undefined): SenderPlace | undefined {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
@@ -354,7 +384,7 @@ export function useSenderPlace(sessionId: string | undefined): SenderPlace | und
 export function useSenderChat(
   name: string,
   sessionId: string | undefined,
-): { sessionId?: string; harness?: string; host?: string } {
+): { sessionId?: string; harness?: string; host?: string; run?: SenderRun } {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const readId = () => sessionId ?? store.find(name);
   const id = useSyncExternalStore(store.subscribeNames, readId, readId);
@@ -362,5 +392,7 @@ export function useSenderChat(
   const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
   const readHost = () => (id ? store.host(id) : undefined);
   const host = useSyncExternalStore(store.subscribeNames, readHost, readHost);
-  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }) };
+  const readRun = () => (id ? store.run(id) : undefined);
+  const run = useSyncExternalStore(store.subscribeNames, readRun, readRun);
+  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }), ...(run && { run }) };
 }

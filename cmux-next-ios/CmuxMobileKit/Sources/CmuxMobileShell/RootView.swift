@@ -309,12 +309,16 @@ public struct RootView: View {
         // A live Chief call (even minimized) ends with the account; a call asked for while signed out is dropped.
         ChiefLiveCall.shared.signedOut()
         ChiefCallLauncher.shared.cancelPending()
+        AgentChatLauncher.shared.cancelPending()
+        AgentSessionDirectory.shared.newChatDraft = nil
+        // Send Message… needs a signed-in shell's Chief.
+        ChiefMessenger.shared.compose = nil
         // A pending approval/reply or notification route belongs to the old
         // account, including if sign-out came from an expired server session.
         PushReplies.shared.signedOut()
         let ending = live
         live = nil
-        shellModel.discard()
+        shellModel.discard { $0.cloudChats = nil }
         setupPlan = nil
         asksNotifications = nil
         if auth.isMock {
@@ -328,6 +332,10 @@ public struct RootView: View {
         store.resetForSignOut()
         // The chats loaded in this launch go too: the next background would save them again.
         AgentSessionDirectory.shared.removeAll()
+        // A shared thumbnail cache can still hold this account's file
+        // excerpts or images. Clear it, including in-flight reads, before a
+        // different account can open an artifact grid in the same process.
+        ArtifactThumbnailCacheLifecycle.clearForSignOut()
         // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
         PushRetryStore.app?.removeAll()
         // The App Group is resolved and emptied off the main thread, after any snapshot save in flight.
@@ -455,7 +463,10 @@ final class KeptModel<Model: AnyObject> {
         return made
     }
 
-    func discard() { kept = nil }
+    func discard(cleanup: (Model) -> Void = { _ in }) {
+        if let kept { cleanup(kept) }
+        kept = nil
+    }
 }
 
 /// The signed-in shell: the UIKit drawer container with the team sidebar under
@@ -510,6 +521,12 @@ struct ShellView: View {
         .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
+        }
+        .sheet(item: $shell.cloudChats) { item in
+            CloudChatsScreen(shell: shell, attention: item.attention)
+        }
+        .sheet(item: $shell.messagingChief) { subject in
+            ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
@@ -733,8 +750,14 @@ private struct LiveCallHost: ViewModifier {
                 call.configure(store: shell.store, accountID: user?.id,
                                userName: user?.name.split(separator: " ").first.map(String.init))
                 ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+                AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
+                ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
             }
-            .onDisappear { ChiefCallLauncher.shared.handler = nil }
+            .onDisappear {
+                ChiefCallLauncher.shared.handler = nil
+                AgentChatLauncher.shared.handler = nil
+                ChiefMessenger.shared.compose = nil
+            }
     }
 }
 

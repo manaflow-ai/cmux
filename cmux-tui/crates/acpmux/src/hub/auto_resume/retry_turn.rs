@@ -217,6 +217,8 @@ impl Hub {
             resend: true,
             control: by.control,
             trust_gate: by.trust_gate,
+            // A retry inherits the durable floor of the failed Cloud-mobile turn.
+            cloud_mobile: session.floor.cloud_mobile_turn.load(std::sync::atomic::Ordering::SeqCst),
             full_access_device: by.full_access_device,
             provenance: Some(provenance),
             after_turn: Some(cut_turn.clone()),
@@ -326,7 +328,7 @@ impl Hub {
                 return Err(if stopped_here { super::stopped() } else { super::superseded() });
             }
         }
-        if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
+        if session.turn().is_some() || session.queue().iter().any(|q| !q.aside()) {
             return Err(busy());
         }
         let last = session.meta().last_turn.unwrap_or(Value::Null);

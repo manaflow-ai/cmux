@@ -93,7 +93,8 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 pub(crate) use machine_join::{
-    device_credential as joined_machine_credential, rows_for_devices as joined_machine_rows,
+    CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
+    platform_origin, rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]
@@ -883,8 +884,7 @@ fn scan_globals(
             continue;
         }
         // Cloud repo actions name a chat, not a daemon, with --session.
-        if command.len() >= 2
-            && command[..2] == ["cloud", "repo"]
+        if command.get(..2).is_some_and(|words| words == ["cloud", "repo"])
             && (value == "--session" || value.starts_with("--session="))
         {
             command.push(value.clone());
@@ -1153,6 +1153,7 @@ fn scope_help_for(
         }
         "cloud" => Cow::Owned(cloud_help::overview(catalog.is_japanese())),
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
+        "space" => Cow::Borrowed(scope_help::SPACE_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
         "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),

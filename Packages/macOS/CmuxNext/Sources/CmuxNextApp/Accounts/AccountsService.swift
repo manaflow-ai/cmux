@@ -134,18 +134,22 @@ final class AccountsService: AccountsServices {
     }
 
     @discardableResult
-    func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) -> Bool {
-        if let showcaseMock { return showcaseMock.reauthenticate(provider, plan: plan) }
-        var opened = false
-        plan.run(line: { opened = runInTerminal($0) }, page: { opened = openPage($0) })
-        return opened
+    func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) async -> Bool {
+        if let showcaseMock { return await showcaseMock.reauthenticate(provider, plan: plan) }
+        switch plan {
+        case .command:
+            guard let line = plan.shellLine else { return false }
+            return await runInTerminal(line)
+        case .page(let url): return await openPage(url)
+        case .none: return false
+        }
     }
 
-    func runClaudeSetupToken() { if let showcaseMock { showcaseMock.runClaudeSetupToken() } else { runInTerminal("claude setup-token") } }
+    func runClaudeSetupToken() async { if let showcaseMock { showcaseMock.runClaudeSetupToken() } else { await runInTerminal("claude setup-token") } }
 
-    func openConsole(_ url: URL) {
+    func openConsole(_ url: URL) async {
         if let showcaseMock { showcaseMock.openConsole(url); return }
-        openPage(url)
+        await openPage(url)
     }
 
     func saveKey(_ key: String, for provider: AIProvider) throws {
@@ -156,22 +160,22 @@ final class AccountsService: AccountsServices {
         if let showcaseMock { try showcaseMock.deleteSavedKey(for: provider) } else { try keys.delete(for: provider) }
     }
 
-    /// Types `line` and Return into a new terminal tab of the focused pane,
+    /// Opens `line` in a local terminal, creating a local workspace when needed,
     /// so the provider's own login runs where the user can see and answer it.
     @discardableResult
-    private func runInTerminal(_ line: String) -> Bool {
+    private func runInTerminal(_ line: String) async -> Bool {
         let line = capture?.terminalLine ?? line
-        let opened = services.inFrontPane { $0.newTerminalTab(typing: line + "\r") }
-        if !opened { logger.info("no local pane for a terminal tab") }
+        let opened = await services.openLocalProviderLogin(line)
+        if !opened { logger.info("could not open a local provider terminal") }
         return opened
     }
 
-    /// Opens `url` in a new browser tab of the main window's local pane.
+    /// Opens `url` in a local browser tab, creating a local workspace when needed.
     @discardableResult
-    private func openPage(_ url: URL) -> Bool {
+    private func openPage(_ url: URL) async -> Bool {
         let url = capture?.pageURL ?? url
-        let opened = services.inFrontPane { $0.newBrowserTab(url: url) }
-        if !opened { logger.info("no local pane for a browser tab") }
+        let opened = await services.openLocalProviderPage(url)
+        if !opened { logger.info("could not open a local provider browser") }
         return opened
     }
 }

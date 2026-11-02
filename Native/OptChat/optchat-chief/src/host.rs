@@ -786,6 +786,12 @@ fn start(
     let chief_tools = Arc::new(load_chief_tools(&source, daemon_socket, &membership)?);
     let sub_instructions = instructions.clone();
     let instructions = chief_tools.instructions(instructions);
+    // The optional coordinator contact belongs only to this Chief's turns;
+    // subagents keep their original instructions. The host reads it once at
+    // startup, so setting changes apply after restart.
+    let contact =
+        crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json")).contact;
+    let instructions = crate::prompt::with_coordinator_contact(instructions, contact.as_deref());
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
@@ -1310,6 +1316,22 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::Continue => {
+                let (reply, answer) = channel();
+                tx.send(Input::Continue { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::Retry(message) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Retry { message, reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::StopAll => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopAll { reply }).map_err(stopping)?;
@@ -1445,6 +1467,8 @@ fn start(
         .with_trace(trace.clone())
         .with_person(paths.person.clone())
         .with_pinned_harness(sub_set.is_some())
+        .with_engine_file(Some(crate::engine::path(home)))
+        .with_families(families.clone())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone())

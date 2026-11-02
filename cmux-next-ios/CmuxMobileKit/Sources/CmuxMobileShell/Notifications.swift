@@ -23,11 +23,15 @@ public struct NotificationRoute: Equatable, Sendable {
     public var workspaceID: String?
     public var tabID: String?
     public var conversationID: String?
+    /// A Cloud notification retains its machine and team; it is never resolved
+    /// as a local acpmux session with a coincidentally equal id.
+    public var cloud: CloudChatAttention?
     /// A cmux link the person opened (kind `link`): resolved by the Mac's public ids, not a push's.
     public var link: CmuxLink?
 
     public init(kind: String, mac: String? = nil, sessionID: String? = nil, workspaceID: String? = nil, tabID: String? = nil,
-                conversationID: String? = nil, link: CmuxLink? = nil) {
+                conversationID: String? = nil, link: CmuxLink? = nil, cloud: CloudChatAttention? = nil) {
+        self.cloud = cloud
         self.link = link
         self.kind = kind
         self.mac = mac
@@ -49,6 +53,10 @@ public struct NotificationRoute: Equatable, Sendable {
 
     /// Reads `userInfo["cmuxMobile"]`; nil for anything else.
     init?(userInfo: [AnyHashable: Any]) {
+        if let cloud = CloudChatAttention(userInfo: userInfo) {
+            self.init(kind: "cloud", cloud: cloud)
+            return
+        }
         guard let payload = PushPayload(userInfo: userInfo) else { return nil }
         self.init(payload)
     }
@@ -140,12 +148,50 @@ public final class NotificationRouter {
     }
 }
 
+/// Whether an iPhone installation can register with APNs. A permission
+/// changed in the iOS Settings app is just as valid as an in-app grant.
+enum APNsRegistrationDecision {
+    static func shouldRegister(push: Bool, authorization: UNAuthorizationStatus) -> Bool {
+        push && [.authorized, .provisional, .ephemeral].contains(authorization)
+    }
+}
+
+/// The scene-based app delegate does not get applicationDidBecomeActive.
+/// Observe UIApplication's foreground notification once and use the exact
+/// same authorization check at launch and on return from iOS Settings.
+@MainActor
+final class APNsActivationObserver {
+    private let center: NotificationCenter
+    private let refresh: @MainActor () -> Void
+    private var token: NSObjectProtocol?
+
+    init(center: NotificationCenter = .default, refresh: @escaping @MainActor () -> Void) {
+        self.center = center
+        self.refresh = refresh
+    }
+
+    func start() {
+        guard token == nil else { return }
+        token = center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        refresh()
+    }
+
+    func stop() {
+        if let token { center.removeObserver(token) }
+        token = nil
+    }
+}
+
 /// The app delegate: remote-notification registration and notification
 /// presentation, taps and buttons. Notification permission is asked in setup
-/// (or Settings → Notifications); once granted, every launch registers so the
-/// token stays current.
+/// (or Settings → Notifications); on launch and each foreground return,
+/// register whenever the OS currently permits it.
 @MainActor
 public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private var apnsObserver: APNsActivationObserver?
+
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
@@ -159,11 +205,22 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         SimulatedServiceExtension.deliverIfAsked()
         SimulatedServiceExtension.registerStandInTokenIfAsked()
         #endif
-        Task {
-            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            if BuildCapabilities.current.push, [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
-        }
+        // Returning from iOS Settings can be the *first* time permission is on
+        // in this process. Registration is idempotent and refreshes the token.
+        let observer = APNsActivationObserver { [weak self] in self?.registerPushIfAllowed() }
+        apnsObserver = observer
+        observer.start()
         return true
+    }
+
+    private func registerPushIfAllowed() {
+        guard BuildCapabilities.current.push else { return }
+        Task { @MainActor in
+            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+            if APNsRegistrationDecision.shouldRegister(push: true, authorization: status) {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
     }
 
     /// Portrait everywhere but a Mac's shared screen, which turns with the phone.
@@ -205,6 +262,16 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // Only Sendable values cross to the main actor.
         let content = response.notification.request.content
         let userInfo = content.userInfo
+        // Cloud pushes navigate only. Approval/reply buttons keep the existing
+        // signed Mac payload path below; no Cloud payload can authorize one.
+        if let cloud = CloudChatAttention(userInfo: userInfo) {
+            let opens = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+            Task { @MainActor in
+                if opens { NotificationRouter.shared.set(NotificationRoute(kind: "cloud", cloud: cloud)) }
+                completionHandler()
+            }
+            return
+        }
         // The app's own Chief alert (ChiefAlerts): it carries no `cmuxMobile`
         // payload, so the trust gate refused it and the tap opened nothing.
         if let route = ChiefAlerts.route(userInfo: userInfo, actionIdentifier: response.actionIdentifier) {

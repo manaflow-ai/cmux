@@ -79,15 +79,30 @@ pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
 /// import shows a consent panel, then macOS asks for a password; Invite to
-/// Team waits for Send in its dialog): the app
+/// Team waits for Send in its dialog; an agent's or script's Share Chat with
+/// Guest waits for the owner's Make Link, #30263): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
-/// The CLI names of the actions that wait for a person (`waits_for_person`).
+/// The CLI names and ids of the actions the app marks `waitsForPerson` (the
+/// control socket gives them `personDeadline`). One missing here makes the CLI
+/// give up at 45 s on a run the app still finishes: `cloud start-session`
+/// waits for a new Cloud machine to come up, and answered
+/// `mutation.outcome_unknown` with no chat opened.
 const PERSON_ACTIONS: &[&str] = &[
     "browser import-cookies",
     "browser.importCookies",
     "home invite-to-team",
     "home.inviteToTeam",
+    "cloud start-session",
+    "cloudStartSession",
+    "apps install",
+    "app.install",
+    "apps remove",
+    "app.remove",
+    "workspace import-classic",
+    "workspace.importClassic",
+    "share chat",
+    "agent.share",
 ];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
@@ -838,6 +853,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             warn_unstable_handles(method, &value, global.output);
             if global.output == OutputMode::Human
                 && let Some(line) = super::share_cli::human_line(&params, &value)
+                    .or_else(|| super::vm::created_line(&params, &value, global))
             {
                 print!("{line}");
                 return Ran::Done(0);
@@ -1036,7 +1052,9 @@ fn connect_for_uid(socket: &Path, expected_uid: u32) -> std::io::Result<UnixStre
 /// (`after: "sync"`, one daemon round trip), so it sees what an earlier
 /// `cmux` call wrote to the daemon (plans/cmux-next/state-ownership.md 4).
 /// The liveness probes skip it: they read no session state, and a busy
-/// daemon must not make a live app look dead.
+/// daemon must not make a live app look dead. A caller that passes its own
+/// `after` keeps it (the `focused` overlay reads the window with `after: 0`,
+/// app_focus.rs).
 fn with_read_barrier(method: &str, mut params: Value) -> Value {
     if matches!(method, "system.ping" | "system.capabilities") {
         return params;

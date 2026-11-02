@@ -216,7 +216,7 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// Session Info's toggle (Debug Settings `agent.inspector`, session-info/SessionInfo.tsx): with it,
+  /// Session Info's toggle (Debug Settings `agent.sessionInfo`, session-info/SessionInfo.tsx): with it,
   /// the right-side panel's toggle in the summary's place, the first of the icons.
   sessionInfo?: ReactNode;
   /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
@@ -647,7 +647,7 @@ export function ChatMenu({
                   disabled={row.disabled}
                   label={
                     <>
-                      <Icon name={row.icon} size={15} />
+                      <Icon name={row.icon} size={14} />
                       <span className="acpmux-chat-menu-label">{row.label}</span>
                     </>
                   }
@@ -668,7 +668,7 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
-      <Icon name={item.icon} size={15} />
+      <Icon name={item.icon} size={14} />
       <span className="acpmux-chat-menu-label">{item.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>

@@ -50,6 +50,7 @@ mod side;
 mod spawns;
 mod steer;
 mod transcript;
+mod turn_actions;
 mod turns;
 mod wakes;
 mod watches;
@@ -146,6 +147,8 @@ pub enum Input {
         peer: Option<String>,
         /// `spawn(place)`: `cloud`, `local` or None (the saved default).
         place: Option<String>,
+        /// `spawn(harness)`: the harness its subagents run on; None: the turn's.
+        harness: Option<String>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -455,6 +458,14 @@ pub enum Input {
     Stop {
         reply: Sender<serde_json::Value>,
     },
+    /// Owner turn actions; answered by the brain in its serialized input loop.
+    Continue {
+        reply: Sender<serde_json::Value>,
+    },
+    Retry {
+        message: String,
+        reply: Sender<serde_json::Value>,
+    },
     /// chief.stop {name}: stops ONE subagent at work (or queued), the turn
     /// and the other subagents going on; answers `{"stopped": bool, ...}`.
     StopSubagent {
@@ -665,6 +676,8 @@ impl Queued {
             Source::Message {
                 requires_approval: true,
                 ..
+            } | Source::OwnerAction {
+                requires_approval: true
             } | Source::Resume {
                 requires_approval: true,
                 ..
@@ -709,6 +722,8 @@ enum Source {
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
     Note,
+    /// An explicit owner action, retaining the original turn's policy floor.
+    OwnerAction { requires_approval: bool },
     /// A subagent's report (section 9).
     Spawn(crate::state::SpawnRef),
     /// The note that resumes a turn a host stop cut (`HostState::resumes`),
@@ -995,6 +1010,9 @@ impl Brain {
         stale_sessions.retain(|name| name.starts_with(&own));
         let handled = state.logged_seq;
         let chief = crate::chief_settings::ChiefSettings::load(&settings.settings_file);
+        let cloud_idle = std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs);
+        let cloud_reap =
+            std::time::Duration::from_secs(chief.cloud_delete_after_paused_days * 86_400);
         let mut brain = Brain {
             chat,
             agents,
@@ -1049,14 +1067,12 @@ impl Brain {
             workspaces: None,
             sub_starter: None,
             cloud_vms: None,
-            cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
+            cloud_idle,
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
             cloud_pause_retry: Default::default(),
             cloud_pause_backoff: spawns::PAUSE_BACKOFF.to_vec(),
-            cloud_reap: std::time::Duration::from_secs(
-                chief.cloud_delete_after_paused_days * 86_400,
-            ),
+            cloud_reap,
             cloud_reaping: Default::default(),
             fleet: None,
             fleet_every: std::time::Duration::from_secs(30),
@@ -1412,6 +1428,7 @@ impl Brain {
                 tasks,
                 peer,
                 place,
+                harness,
                 reply,
             } => {
                 // `cloud:SIZE`: on the cloud, at that VM size.
@@ -1423,6 +1440,12 @@ impl Brain {
                     .spawn_peer(peer.as_deref(), place.as_deref())
                     .and_then(|peers| {
                         self.register_spawn_sized(&tasks, &peers, place.as_deref(), size.as_deref())
+                    })
+                    .map(|mut plan| {
+                        if let Some(h) = harness.as_deref() {
+                            plan.engine = Some(self.engine_on(h));
+                        }
+                        plan
                     });
                 let _ = reply.send(plan);
             }
@@ -1585,6 +1608,12 @@ impl Brain {
             }
             Input::Stop { reply } => {
                 let _ = reply.send(self.owner_stop());
+            }
+            Input::Continue { reply } => {
+                let _ = reply.send(self.owner_continue());
+            }
+            Input::Retry { message, reply } => {
+                let _ = reply.send(self.owner_retry(&message));
             }
             Input::Shutdown { signal } => {
                 (self.log)(&format!("signal {signal}: stopping"));
@@ -1768,12 +1797,28 @@ impl Brain {
     /// Changes a per-Chief setting and saves it.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT,
-            SHOW_SUBAGENT_WORKSPACES, parse_bool, parse_reply_threads, parse_ttl,
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, CONTACT, REPLY_THREADS, SHOW_AFTER_REPORT,
+            SHOW_SUBAGENT_WORKSPACES, parse_bool, parse_contact, parse_reply_threads, parse_ttl,
         };
+        if key == CONTACT {
+            let contact = parse_contact(value)?;
+            let mut next = self.chief.clone();
+            next.contact = contact.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!(
+                "setting {key} = {}",
+                contact.as_deref().unwrap_or("<unset>")
+            ));
+            return Ok(format!(
+                "{key} = {}; applies after host restart",
+                contact.as_deref().unwrap_or("<unset>")
+            ));
+        }
         if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
             let days = crate::chief_settings::parse_paused_days(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.cloud_delete_after_paused_days = days;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1782,9 +1827,19 @@ impl Brain {
             (self.log)(&format!("setting {key} = {days}"));
             return Ok(format!("{key} = {days}"));
         }
+        if key == crate::chief_settings::CLOUD_AUTO_PAUSE {
+            let on = parse_bool(value)?;
+            let mut next = self.chief.clone();
+            next.cloud_auto_pause = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
         if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
             let secs = crate::chief_settings::parse_idle_secs(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.cloud_auto_pause_idle_secs = secs;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1795,7 +1850,7 @@ impl Brain {
         }
         if key == crate::chief_settings::TRACE_FULL {
             let on = parse_bool(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.trace_full = on;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1809,7 +1864,7 @@ impl Brain {
                 .trim()
                 .parse()
                 .map_err(|_| format!("{key}: a whole number of words (0: off)"))?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.reply_max_words = words;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1819,7 +1874,7 @@ impl Brain {
         }
         if key == SHOW_AFTER_REPORT {
             let on = parse_bool(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.show_after_report = on;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1831,7 +1886,7 @@ impl Brain {
             // From the next spawn on; a subagent already running keeps its
             // workspace or stays hidden (`control show|hide ID` changes one).
             let on = parse_bool(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.show_subagent_workspaces = on;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1841,7 +1896,7 @@ impl Brain {
         }
         if key == REPLY_THREADS {
             let threads = parse_reply_threads(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.reply_threads = threads;
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1852,7 +1907,7 @@ impl Brain {
         if key == CACHE_TTL {
             // From the next turn on (the native engine: the next host start).
             let ttl = parse_ttl(value)?;
-            let mut next = self.chief;
+            let mut next = self.chief.clone();
             next.cache_ttl = Some(ttl);
             next.save(&self.settings.settings_file)
                 .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
@@ -1864,7 +1919,8 @@ impl Brain {
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
         Err(format!(
-            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})",
+            crate::chief_settings::CLOUD_AUTO_PAUSE
         ))
     }
 
