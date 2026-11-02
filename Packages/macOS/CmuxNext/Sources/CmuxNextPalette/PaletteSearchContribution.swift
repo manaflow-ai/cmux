@@ -1,7 +1,9 @@
 /// A page of the App's whose rows join Search (scope `search`,
 /// plans/cmux-next/sidebar-search.md): the page's providers are asked once per
 /// open, like every provider, and the palette's ranker searches their rows with
-/// the rest. A row with no section of its own shows under ``title``.
+/// the rest. A page that answers its own queries (`PalettePageSpec.queryResults`)
+/// is asked for each typed query instead (`PaletteContributedAnswers`). A row with
+/// no section of its own shows under ``title``.
 ///
 /// ```swift
 /// sources.searchContributions.append(PaletteSearchContribution(id: "history", title: "History", order: 40) {
@@ -25,7 +27,7 @@ public struct PaletteSearchContribution {
     ///   - title: Section title for rows that carry none.
     ///   - order: Section order.
     ///   - searchesChats: True for chats and agent sessions (the Chats & agents scope lists them too).
-    ///   - page: Makes the page whose providers join Search.
+    ///   - page: Makes the page whose providers (or query answers) join Search.
     public init(id: String, title: String, order: Int, searchesChats: Bool = false,
                 page: @escaping @MainActor () -> PalettePageSpec?) {
         self.id = id

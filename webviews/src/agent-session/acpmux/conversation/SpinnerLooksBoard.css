@@ -1,0 +1,53 @@
+/* Gallery only: the working mark's candidate looks (SpinnerLooksBoard.tsx). The shipped look is the
+   real `Spinner` (spinner.css); the conic sweep and the spokes are drawn here for comparison. */
+.spinner-looks {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  font: var(--text-detail) / 1.3 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+.spinner-looks__panel {
+  flex: 1;
+  display: grid;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-radius: 10px;
+}
+.spinner-looks__panel[data-scheme="light"] {
+  background: #ffffff;
+  color: rgb(0 0 0 / 66%);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 8%);
+}
+.spinner-looks__panel[data-scheme="dark"] {
+  background: #1f1f1f;
+  color: rgb(255 255 255 / 66%);
+}
+.spinner-looks__scheme {
+  font-weight: 600;
+  opacity: 0.8;
+}
+.spinner-looks__row {
+  display: grid;
+  grid-template-columns: 1fr repeat(3, 28px);
+  align-items: center;
+}
+.spinner-looks__cell {
+  display: inline-flex;
+  justify-content: center;
+}
+.spinner-looks__conic {
+  display: inline-block;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0deg, currentColor 330deg, transparent 331deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, currentColor 18%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]) .spinner-looks__conic {
+    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+  }
+  :root:not([data-status-indicators="static"]) .spinner-looks__spokes {
+    animation: cmux-spin var(--cmux-spinner-period, 900ms) steps(8, end) infinite;
+  }
+}
