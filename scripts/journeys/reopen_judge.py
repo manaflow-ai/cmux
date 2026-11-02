@@ -88,7 +88,13 @@ def clock_offset(frames, record, scale):
     if not start or not sync or len(frames) < 3:
         return None, None, "no sync moves"
     lows, highs, seen = [], [], []
+    visited = set()
     for move in sync:
+        # Only an ARRIVAL at a point never visited before in this film is a clean event (a revisited point's
+        # region also changes when the pointer leaves it).
+        if move["x"] in visited:
+            continue
+        visited.add(move["x"])
         r = {"x": move["x"] - 10, "y": max(0, move["y"] - 10), "w": 24, "h": 24}
         sl = box(r, scale, frames[0][1].shape)
         hit = None
