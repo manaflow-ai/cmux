@@ -144,6 +144,8 @@ impl LoginError {
 #[derive(Debug, Clone, Default)]
 pub struct Cli {
     pub program: String,
+    /// The harness family whose login environment must be applied.
+    pub agent: Option<Agent>,
     pub globals: Vec<String>,
     pub env: BTreeMap<String, String>,
 }
@@ -182,7 +184,7 @@ impl Cli {
     /// stdio set.
     pub fn command(&self, args: &[&str], cwd: &Path) -> Command {
         let mut cmd = Command::new(&self.program);
-        crate::login_env::apply_tokio(&mut cmd);
+        crate::login_env::apply_tokio_for(&mut cmd, self.agent.map(Agent::name), Some(&self.env));
         crate::config::scrub_nested_claude_env_tokio(&mut cmd);
         for (k, _) in std::env::vars_os() {
             if k.to_string_lossy().starts_with("ACPMUX_") {
