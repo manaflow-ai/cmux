@@ -72,7 +72,11 @@ grep -q '^left: web/data/cmux-shortcuts.generated.json' "$tmp/out" || fail "the 
 # The base autofix rewrites the app-host files from the committed export
 # anyway (app platform checks them against it): #32097 changed the operation
 # catalog while the Mac exports were deferred, and app platform stayed red.
-bash "$FIX" --no-fmt --docs-shortcuts --app-host --app-host-committed-exports --unverified-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed with committed app-host exports"
+# The test runner has no bun: a stand-in runs the generator's one write.
+mkdir -p "$tmp/fakebin"
+printf '#!/bin/sh\necho from-stale-export > cmux-tui/crates/cmux-app-host/generated/scopes.json\n' > "$tmp/fakebin/bun"
+chmod +x "$tmp/fakebin/bun"
+PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --docs-shortcuts --app-host --app-host-committed-exports --unverified-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed with committed app-host exports"
 [[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must still wait for verified action exports"
 [[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == from-stale-export ]] || fail "the base app-host files must not wait for the Mac exports"
 grep -q '^fixed: regenerated cmux-tui/crates/cmux-app-host/generated/scopes.json' "$tmp/out" || fail "the regenerated app-host file must be reported"
