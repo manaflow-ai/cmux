@@ -543,9 +543,8 @@ fn interrupted_copy_refuses_changed_source_and_resumes_the_original_folder() {
     let copy = copy_of("/Users/me/work/project-a", "");
     let first = copy.run(&path, &|_, _, _| Err(("timeout".into(), "cut off".into())));
     assert_eq!(first["error_code"], json!("timeout"));
-    let original_place = Ledger::update(&path, |pins| pins.copy_place(&send(&copy.key), "vm-a"))
-        .unwrap()
-        .unwrap();
+    let original_place =
+        Ledger::update(&path, |pins| pins.copy_place(&send(&copy.key), "vm-a")).unwrap().unwrap();
     let original = std::fs::read(&path).unwrap();
     let changed = StartCopy { local: "/Users/me/work/project-b".into(), ..copy.clone() };
     let refused = changed.run(&path, &|_, _, _| panic!("changed retry cannot push"));
@@ -559,16 +558,38 @@ fn interrupted_copy_refuses_changed_source_and_resumes_the_original_folder() {
 #[test]
 fn copy_environment_flag_is_validated_before_the_ledger_or_guest_is_touched() {
     let args = flags(&[
-        "--key", &key(), "--account", ACCOUNT, "--machine", "vm-a",
-        "--socket", "/tmp/guest.sock", "--local", "/Users/me/project",
-        "--work-root", "/home/cmux/work", "--environment", ENV,
+        "--key",
+        &key(),
+        "--account",
+        ACCOUNT,
+        "--machine",
+        "vm-a",
+        "--socket",
+        "/tmp/guest.sock",
+        "--local",
+        "/Users/me/project",
+        "--work-root",
+        "/home/cmux/work",
+        "--environment",
+        ENV,
     ]);
     let copy = StartCopy::of(&args).expect("valid selected environment");
     assert_eq!(copy.environment.as_deref(), Some(ENV));
     let invalid = flags(&[
-        "--key", &key(), "--account", ACCOUNT, "--machine", "vm-a",
-        "--socket", "/tmp/guest.sock", "--local", "/Users/me/project",
-        "--work-root", "/home/cmux/work", "--environment", "env_other",
+        "--key",
+        &key(),
+        "--account",
+        ACCOUNT,
+        "--machine",
+        "vm-a",
+        "--socket",
+        "/tmp/guest.sock",
+        "--local",
+        "/Users/me/project",
+        "--work-root",
+        "/home/cmux/work",
+        "--environment",
+        "env_other",
     ]);
     assert!(StartCopy::of(&invalid).is_none());
 }
