@@ -457,9 +457,9 @@ test("a focused tick whose rail hides and comes back in the same chat is not hel
     const clicked = document.querySelector<HTMLElement>(`[data-tick="0"]`)!;
     await act(async () => clicked.click());
     expect(document.activeElement).toBe(clicked);
-    // The same chat drops to 3 prompts (fewer than the rail needs, MIN_PROMPTS): the rail goes, with
-    // no blur (jsdom, as a browser may, sends none for a removed element), and the first prompt stays.
-    await show(span(0, 3));
+    // The same chat drops to no prompts (fewer than the rail needs, MIN_PROMPTS): the rail goes, with
+    // no blur (jsdom, as a browser may, sends none for a removed element).
+    await show(span(0, 0));
     expect(document.querySelector(".acpmux-minimap__rail")).toBeNull();
     // It comes back whole, and the reader is at its end: only the rows in the rail's window are
     // drawn, not the first prompt's tick that had focus before.
@@ -498,8 +498,8 @@ test("a keyboard-focused tick whose rail hides comes back with no tick held and 
     await scrollTo(0);
     await act(async () => document.querySelector<HTMLElement>(`[data-tick="0"]`)!.focus());
     expect(document.querySelector(".acpmux-minimap__card")?.textContent).toContain("Question 0");
-    // The same chat drops to 3 prompts: the rail goes, with no blur.
-    await show(span(0, 3));
+    // The same chat drops to no prompts: the rail goes, with no blur.
+    await show(span(0, 0));
     expect(document.querySelector(".acpmux-minimap__rail")).toBeNull();
     // It comes back whole with the reader at its end: no card, and the first prompt's tick is not
     // held drawn by the focus it had before.

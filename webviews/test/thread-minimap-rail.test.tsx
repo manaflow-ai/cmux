@@ -163,9 +163,10 @@ const landing = (index: number) => {
   return Math.max(0, Math.min(16 + rowTop(`user-${index + 1}`) - 35, total - VIEWPORT));
 };
 
-test("the rail shows from four prompts, at any pane width", async () => {
+test("the rail shows from one prompt, at any pane width", async () => {
   for (const [prompts, width, shown] of [
-    [3, 1040, false],
+    [1, 1040, true],
+    [3, 1040, true],
     [4, 1040, true],
     // An 800 px pane starts the column 40 px in: the narrow rail (thread-minimap-narrow.test.tsx).
     [6, 800, true],

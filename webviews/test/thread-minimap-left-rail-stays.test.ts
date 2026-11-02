@@ -43,7 +43,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   let current: Browser | undefined;
   let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
   beforeAll(async () => {
-    // Eight prompts: the rail shows from four (threadMinimap/model.ts MIN_PROMPTS).
+    // Eight prompts: the rail shows from one (threadMinimap/model.ts MIN_PROMPTS).
     pane = await papercutPane(() => current!, { turns: 8, running: false });
     current = browsers.values().next().value;
     await (await pane.open()).close();
