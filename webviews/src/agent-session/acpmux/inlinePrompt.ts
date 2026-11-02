@@ -221,6 +221,29 @@ export function carryInline(input: string, text: string, attachments: ComposerAt
   }
   return out + text.slice(from);
 }
+/** Whether Retry can send a prompt's attachments again without dropping one (`resendPrompt`): the
+ * ones this page sent and kept, else every recorded part `restoreInline` rebuilds (an image read
+ * back by id, a linked or inline-text file, a paste), else its `images` read back by id. A recorded
+ * document or audio block, or a file with neither a path nor its text, cannot be rebuilt once the
+ * kept attachments are gone (a reload, a reconnect), so an attachment-only prompt offers no Retry. */
+export function canResendAttachments(row: Pick<AcpmuxRow, "retryAttachments" | "inlineParts" | "images">): boolean {
+  if (row.retryAttachments?.length) return true;
+  const parts = row.inlineParts;
+  if (!parts?.length) return true;
+  return parts.every(
+    (part) =>
+      part.kind === "text" ||
+      part.kind === "image" ||
+      (part.kind === "pasted" && Boolean(part.text)) ||
+      (part.kind === "file" &&
+        Boolean(
+          part.uri ||
+          part.text ||
+          (part.companionOf !== undefined &&
+            parts.some((image) => image.kind === "image" && image.blockIndex === part.companionOf)),
+        )),
+  );
+}
 export async function restoreInline(
   row: AcpmuxRow,
   text: string,

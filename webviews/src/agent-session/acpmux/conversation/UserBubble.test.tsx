@@ -209,3 +209,46 @@ for (const kind of ["image", "document", "audio", "text", "pasted", "link"] as c
     expect(retried).toEqual([row.id]);
   });
 }
+
+// After a reload or reconnect the attachments this page kept are gone: Retry rebuilds them from the
+// row's recorded parts, and one it cannot rebuild hides Retry rather than send the prompt without it.
+for (const kind of ["document", "audio"] as const) {
+  test(`a recorded ${kind}-only prompt with nothing kept to resend offers no retry`, async () => {
+    const row: AcpmuxRow = {
+      ...baseRow(),
+      images: undefined,
+      inlineParts: [{ kind, name: `attachment.${kind === "audio" ? "mp3" : "pdf"}`, mimeType: "application/pdf" }],
+    };
+    const container = await render(row, { retry: () => {} });
+    expect(container.querySelector(".cv-user__actions")).not.toBeNull();
+    expect(container.querySelector(`button[aria-label="${translate("turn.copy")}"]`)).not.toBeNull();
+    expect(container.querySelector(`button[aria-label="${translate("turn.retry")}"]`)).toBeNull();
+  });
+}
+
+test("a recorded file-only prompt with no path or text offers no retry", async () => {
+  const row: AcpmuxRow = {
+    ...baseRow(),
+    images: undefined,
+    inlineParts: [{ kind: "file", name: "notes.txt", mimeType: "text/plain", size: 12 }],
+  };
+  const container = await render(row, { retry: () => {} });
+  expect(container.querySelector(`button[aria-label="${translate("turn.retry")}"]`)).toBeNull();
+});
+
+for (const [label, part] of [
+  ["linked file", { kind: "file", name: "notes.pdf", mimeType: "application/pdf", uri: "file:///tmp/notes.pdf" }],
+  ["inline text file", { kind: "file", name: "notes.txt", mimeType: "text/plain", text: "hello" }],
+  ["paste", { kind: "pasted", name: "Pasted text", text: "hello" }],
+  ["image", { kind: "image", ...image }],
+] as const) {
+  test(`a recorded ${label}-only prompt rebuilds its attachment and offers retry`, async () => {
+    const row: AcpmuxRow = { ...baseRow(), images: undefined, inlineParts: [part] };
+    const retried: string[] = [];
+    const container = await render(row, { retry: (id) => void retried.push(id) });
+    const retry = container.querySelector<HTMLButtonElement>(`button[aria-label="${translate("turn.retry")}"]`);
+    expect(retry).not.toBeNull();
+    await act(async () => retry!.click());
+    expect(retried).toEqual([row.id]);
+  });
+}

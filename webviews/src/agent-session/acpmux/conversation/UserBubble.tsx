@@ -35,7 +35,7 @@ import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
-import { recordedPromptParts } from "../inlinePrompt";
+import { canResendAttachments, recordedPromptParts } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -300,7 +300,13 @@ export function UserBubble({
               )}
               {/* Not while it is still on its way: a second send would duplicate it. */}
               {!row.pending && row.delivery?.state !== "sending" && (
-                <PromptRetry rowId={row.id} prompt={resend} hasAttachment={hasAttachment} />
+                <PromptRetry
+                  rowId={row.id}
+                  prompt={resend}
+                  // An attachment-only prompt retries only when every attachment can go again:
+                  // a Retry that sent none of them would send an empty prompt.
+                  hasAttachment={hasAttachment && canResendAttachments(row)}
+                />
               )}
               {forkThrough !== undefined && (
                 <ForkButton
