@@ -114,4 +114,21 @@ struct PaneLookupTests {
         #expect(focused.map(\.targetMachineID) == [machine, MachineRegistry.localID])
         #expect(focused.map { $0.target?.id } == ["pane-2", "pane-2"])
     }
+
+    /// The strip's "+" (`newTab.default` -> `daemonPane`) and a tab's double-click zoom (`toggleSplitZoom`)
+    /// send this pane's paneKey; scoped to the pane's own machine they still find it while a fork with
+    /// the same ids is connected, instead of being refused as ambiguous.
+    @Test func paneChromeRunsAreScopedToTheirOwnMachine() throws {
+        let fixture = try Fixture()
+        let context = AppActionContext(services: fixture.services)
+        for (pane, machine) in [(fixture.localPanes[1], MachineRegistry.localID), (fixture.remotePanes[1], fixture.remote.machineID)] {
+            var runs: [ActionInvocation] = []
+            StripNewTab.request(pane: pane.id, machineID: fixture.services.daemon(for: pane).machineID) { runs.append($1) }
+            runs.append(PaneController.zoomInvocation(pane: pane.id, machineID: fixture.services.daemon(for: pane).machineID))
+            #expect(runs.map(\.targetMachineID) == [machine, machine])
+            for run in runs { #expect(context.daemonPane(run) === pane) }
+        }
+        #expect(context.daemonPane(PaneController.zoomInvocation(pane: fixture.localPanes[1].id)) == nil,
+                "a bare paneKey two machines share stays ambiguous")
+    }
 }
