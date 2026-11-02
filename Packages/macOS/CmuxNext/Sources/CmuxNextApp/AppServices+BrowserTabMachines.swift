@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import Foundation
 
