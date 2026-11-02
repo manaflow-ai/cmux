@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
@@ -5,8 +6,9 @@ import CmuxNextLayout
 import Foundation
 
 extension ChatColumnPlacement {
-    /// What a person's new tab from `controller`'s pane becomes.
-    @MainActor static func resolve(from controller: PaneController, services: AppServices) -> ChatColumnPlacement {
+    /// What a person's new tab from `controller`'s pane becomes. `ignoringPages`: New Tab pages in the
+    /// chat's pane are left out, so a lone chat with a page beside it is still alone (a pick from the page).
+    @MainActor static func resolve(from controller: PaneController, services: AppServices, ignoringPages: Bool = false) -> ChatColumnPlacement {
         guard let content = controller.workspace,
               content.daemon.supports(DaemonCapability.dockColumnRole.rawValue),
               let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
@@ -16,17 +18,37 @@ extension ChatColumnPlacement {
             screen.zoomedPane != nil && screen.panes.contains { $0 === controller.pane }
         }
         return resolve(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes, zoomed: zoomed) { column in
-            guard column.root.panes.count == 1, let tabs = content.panes[column.root.panes[0]]?.pane.tabs,
+            guard column.root.panes.count == 1,
+                  let tabs = content.panes[column.root.panes[0]]?.pane.tabs.filter({ !ignoringPages || !services.agentTabs.isNewTabPage($0.id) }),
                   tabs.count == 1 else { return false }
             return isChat(tabs[0], services: services)
         }
     }
+
+    /// Whether a person's New Tab page from `controller`'s pane opens there (``keepsNewTabPage(from:columns:)``).
+    @MainActor static func keepsNewTabPage(in controller: PaneController) -> Bool { guard let screen = controller.workspace?.layoutModel.screen(containing: controller.layoutPaneID) else { return false }; return keepsNewTabPage(from: controller.layoutPaneID, columns: columns(of: screen, containing: controller.layoutPaneID)) }
+    @MainActor static func isBelowChat(_ controller: PaneController) -> Bool { guard let screen = controller.workspace?.layoutModel.screen(containing: controller.layoutPaneID) else { return false }; return isBelowChat(controller.layoutPaneID, columns: columns(of: screen, containing: controller.layoutPaneID)) }
+
+    /// The strip pane a terminal or browser picked on a New Tab page in `controller`'s pane opens in
+    /// (``pagePick(from:columns:recent:zoomed:)``), nil when the pick takes the page's place.
+    @MainActor static func pagePick(from controller: PaneController) -> PaneController? { guard let content = controller.workspace, let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return nil }; let zoomed = content.workspace.screens.contains { screen in screen.zoomedPane != nil && screen.panes.contains { $0 === controller.pane } }; let columns = columns(of: screen, containing: controller.layoutPaneID); guard let id = pagePick(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes, zoomed: zoomed), let strip = content.panes[id], strip !== controller else { return nil }; return strip }
 
     /// Whether `tab` is an agent chat. The New Tab page is an agent tab too, but not a chat.
     /// Reads `tab` itself: finding it again by id walks every workspace's tabs, once per
     /// tab of a pane whose tab bar is drawn (cx-6so.21).
     @MainActor static func isChat(_ tab: TabModel, services: AppServices) -> Bool {
         tab.agentSession != nil && !services.agentTabs.isNewTabPage(tab.id)
+    }
+
+    /// A terminal or browser opened from the chat dock uses its right column: split below its
+    /// one pane, then add tabs in the lower pane. The open waits for preceding right-side opens
+    /// before measuring; the New Tab page keeps `route` and its own docking behavior.
+    @MainActor static func openTool(from controller: PaneController, services: AppServices, background: Bool = false,
+                                    kind: RightColumnPlacement.Kind? = nil,
+                                    _ make: @escaping LinkOpener.Make) -> Bool {
+        guard case .tab = resolve(from: controller, services: services) else { return false }
+        services.linkOpener.open(from: controller, background: background, besideChat: true, kind: kind, make)
+        return true
     }
 
     /// Where a person's new tab from `controller`'s pane opens: the pane

@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20: the narrowest a tab gets is the room for its favicon and its close button,
 /// worked out from the parts (not a flat number), and Settings > Tabs > Minimum Tab Width still
 /// overrides it. A crowded strip's tabs sit at that width; a hovered one shows its favicon and its x
 /// whole, and the x's click target (Apple's 20 x 20 pt macOS minimum) never covers the favicon.
-@MainActor @Suite(.serialized) struct TabMinimumWidthTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabMinimumWidthTests {
     private struct Harness {
         let window: NSWindow
         let strip: TabStripView
@@ -46,7 +47,7 @@ import Testing
         DesignSettings.shared.tabOverflow = .shrink
         DesignSettings.shared.setOverride(.tabMinInactiveWidth, nil)
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let m = harness.strip.metrics
         #expect(m.minInactiveTabWidth == faviconAndCloseWidth(m), "minimum \(m.minInactiveTabWidth), favicon + x need \(faviconAndCloseWidth(m))")
         #expect(m.faviconCloseWidth == faviconAndCloseWidth(m))
@@ -58,7 +59,7 @@ import Testing
         DesignSettings.shared.tabOverflow = .shrink
         DesignSettings.shared.setOverride(.tabMinInactiveWidth, nil)
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let m = harness.strip.metrics
         let cell = try #require(harness.strip.cells[TabID("tab3")])
         #expect(abs(cell.frame.width - m.minInactiveTabWidth) < 0.5, "tab3 is \(cell.frame.width) wide")
@@ -81,7 +82,7 @@ import Testing
         DesignSettings.shared.tabOverflow = .shrink
         defer { DesignSettings.shared.setOverride(.tabMinInactiveWidth, nil) }
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         for value: CGFloat in [72, 36] {
             DesignSettings.shared.setOverride(.tabMinInactiveWidth, value)
             harness.refresh()

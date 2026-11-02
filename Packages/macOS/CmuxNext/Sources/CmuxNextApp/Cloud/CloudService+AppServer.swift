@@ -1,8 +1,10 @@
 import AppKit
+import CmuxNextAppCore
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
 
@@ -32,21 +34,37 @@ extension CloudService {
     /// answers its first machine instead of making a second.
     func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
-                         onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+                         onSent: @escaping @MainActor @Sendable () async -> Void,
+                         persistSent: (@MainActor @Sendable (String) async throws -> Void)? = nil) async throws -> CloudMachine {
         let pinned = creation?.request ?? request
         let identity = installIdentity
         let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }
         // The team the relay's create bills: the install token's team claim, captured now. A Retry
         // stays with the first send's team, and is refused if the token now bills another one.
         let team = try Self.appServerTeam(current: try await currentTeam(), request: pinned)
-        let sent: @MainActor @Sendable () async -> Void = { [weak creation] in
+        let sent: @MainActor @Sendable () async throws -> Void = { [weak creation] in
+            try await persistSent?(team)
             creation?.markRequestSent(team: team)
             await onSent()
         }
         let flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps))
+        // A Worker machine runs once its bind registers the VM install in the creator's user record, which each Worker
+        // deployment refuses for a user it has none of: the machine would stay provisioning. `user.ensure` is idempotent.
+        // Every attempt asks with its own key: a same-key retry would replay a failed ensure.
+        _ = try? await appOps("user.ensure", .object([:]), "user-ensure-" + UUID().uuidString.lowercased(), .user)
         // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
-        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, key: pinned.idempotencyKey,
+        let record: JSONValue
+        do {
+            record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, key: pinned.idempotencyKey,
+                                           approved: pinned.approvedRequest, onApproved: { [weak creation] in creation?.markApproved($0, key: pinned.idempotencyKey) },
+                                           answering: pinned.answeringRequest, onAnswering: { [weak creation] in creation?.markAnswering($0, key: pinned.idempotencyKey) },
                                            gate: pinned.wasSent ? .allowed : createGate, environment: environment)
+        } catch let failure as CloudAppOpFailure where CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
+            // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
+            // attempt (a Retry already started, with this same key) leaves the key to that Retry.
+            if !Task.isCancelled { creation?.renewKey(replacing: pinned.idempotencyKey) }
+            throw failure
+        }
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
         return machine
     }
@@ -82,7 +100,7 @@ extension CloudService {
     /// The approval-aware flow every person-confirmed app-server op runs through; `run` sends each
     /// call, and `team` is the team its approvals are answered for.
     private func appServerFlow(team: String, run: @escaping CloudAppOp) -> CloudMachineCreateFlow {
-        let approvals = CloudApprovalAnswer(call: sessionCall())
+        let approvals = CloudApprovalAnswer(call: sessionCall()) { [approvalHolds] in await approvalHolds.isAnswered($0, team: $1) }
         return CloudMachineCreateFlow(
             run: run,
             confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },
@@ -96,26 +114,14 @@ extension CloudService {
         )
     }
 
-    /// The team an app-server create goes to: the install token's team `current`, or, once
-    /// `request` was sent, the team of its first send, which `current` must still be: the key is
-    /// scoped per team, so the same key in another team would be a second machine.
     static func appServerTeam(current: String, request: CloudMachineRequest) throws -> String {
-        guard request.wasSent, let first = request.team else { return current }
-        guard first == current else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
-        return first
+        try CloudMachineCreateRetry().team(current: current, request: request, changedTeam: ActionFailure(message: CloudStrings.createRetryOtherTeam))
     }
 
-    /// The relay call of a create pinned to `team`: every call, the first and each same-key retry
-    /// after an approval, checks the install token still bills `team` right before it goes out, and
-    /// is refused, unsent, if the install switched teams meanwhile (during the confirmation or a
-    /// retry's backoff). Only a call that passes marks the request sent.
     nonisolated static func pinnedRun(team: String, currentTeam: @escaping @Sendable () async throws -> String,
-                                      sent: @escaping @MainActor @Sendable () async -> Void, ops: @escaping CloudAppOp) -> CloudAppOp {
-        { op, args, key, origin in
-            guard try await currentTeam() == team else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
-            await sent()
-            return try await ops(op, args, key, origin)
-        }
+                                      sent: @escaping @MainActor @Sendable () async throws -> Void, ops: @escaping CloudAppOp) -> CloudAppOp {
+        CloudMachineCreateRetry().pinnedRun(team: team, currentTeam: currentTeam, sent: sent,
+            changedTeam: { ActionFailure(message: CloudStrings.createRetryOtherTeam) }, ops: ops)
     }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the
@@ -168,10 +174,10 @@ extension CloudPresenter {
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
         if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }
-        return await withCheckedContinuation { continuation in
-            confirm(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
-                    identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
-        }
+        // A cancelled wait (the hold answered elsewhere) dismisses the sheet (CmuxDialogCenter.present).
+        guard let window else { return false }
+        return await CmuxDialogCenter.shared.present(confirmSpec(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"),
+                                                                 button: CloudStrings.createConfirmButton, identifier: createConfirmIdentifier), in: .window(window)).button == "confirm"
     }
 }
 
@@ -180,5 +186,12 @@ private nonisolated final class CloudRefuseRedirects: NSObject, URLSessionTaskDe
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         completionHandler(nil)
+    }
+}
+
+extension CloudService {
+    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
+        guard let loadedAt, loadedFor == account else { return false }
+        return loadedAt.duration(to: now) < age
     }
 }

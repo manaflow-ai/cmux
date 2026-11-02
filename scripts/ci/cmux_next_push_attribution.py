@@ -5,8 +5,10 @@ Pull requests run only the cmux-next tiers their change reaches, and every
 feat-cmux-next push runs them all as a backstop (superseded pushes skip their
 Mac jobs, so a burst of merges is checked once, at its newest commit). When a
 push run fails, this finds, for each failed job, the newest earlier push run
-where the same job passed, and comments on every pull request merged in that
-range: one of them broke it, and its lane fixes forward.
+where the same job passed, and updates the shared status comment on every pull
+request merged in that range: one of them broke it, and its lane fixes forward.
+The latest processed failure replaces the push-attribution section instead of
+adding a timeline comment for each failed run.
 
 The run's code never executes here; it reads the Actions and pulls APIs.
 
@@ -16,16 +18,21 @@ Usage: cmux_next_push_attribution.py --repo OWNER/NAME --run-id ID --sha SHA
 
 --events adds workflow_dispatch runs of the branch to the scan: the tree jobs
 (daemon tests, scheme compile) of a push whose same-tree cmux-tui was published
-after its run probed it pass or fail in a same-tree mode dispatch run.
+after its run probed it pass or fail in a same-tree mode dispatch run, and the
+base Mac tier (daemon tests, generated files, scheme compile) runs only in the
+`cmux-next base tier` dispatch, at most once every 15 minutes on the tip.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+import pr_status
 
 MARKER = "<!-- cmux-next-push-attribution:{run_id} -->"
 # Jobs that report rather than check.
@@ -34,6 +41,18 @@ SCANNED_RUNS = 40
 # Past this many candidates a comment on each is noise (a job red for a long
 # while): the run summary lists the range instead.
 MAX_COMMENTED_PRS = 5
+
+
+# cmux-next.yml run names end in the commit the run tested: `cmux-next · <sha>` for a push, and
+# `cmux-next base tier · <sha>` or `cmux-next tip daemon suite · <sha>` for a dispatch, whose
+# same-tree run tests that commit after the branch moved on (its head_sha is the newer branch head).
+TESTED_SHA = re.compile(r" · ([0-9a-f]{40})$")
+
+
+def tested_sha(run: dict) -> str:
+    """The commit a cmux-next.yml run tested: the sha its name ends in, else its head_sha."""
+    match = TESTED_SHA.search(run.get("display_title") or run.get("name") or "")
+    return match.group(1) if match else run["head_sha"]
 
 
 def should_comment(numbers: list[int]) -> bool:
@@ -140,9 +159,9 @@ def main(argv: list[str]) -> int:
         reverse=True,
     )[:SCANNED_RUNS]
     earlier = [
-        (run["head_sha"], run_jobs(args.repo, run["id"]))
+        (tested_sha(run), run_jobs(args.repo, run["id"]))
         for run in runs
-        if run["id"] < args.run_id and run["head_sha"] != args.sha and run.get("status") == "completed"
+        if run["id"] < args.run_id and tested_sha(run) != args.sha and run.get("status") == "completed"
     ]
     long_red = never_passed(failed, earlier)
     if long_red:
@@ -161,15 +180,12 @@ def main(argv: list[str]) -> int:
                    "The job has been red for a while; its owner needs the run, not each author.")
         return 0
     body = comment_body(run_url, args.sha, failed, good, numbers, args.run_id)
-    marker = MARKER.format(run_id=args.run_id)
     for number in numbers:
-        comments = gh_api(f"repos/{args.repo}/issues/{number}/comments?per_page=100")
-        if any(marker in (comment.get("body") or "") for comment in comments):
-            continue
         if args.dry_run:
             print(f"--- would comment on #{number}:\n{body}")
             continue
-        subprocess.run(["gh", "pr", "comment", str(number), "--repo", args.repo, "--body", body], check=True)
+        pr_status.upsert(args.repo, number, "push-attribution", body,
+                         legacy="<!-- cmux-next-push-attribution:")
     return 0
 
 

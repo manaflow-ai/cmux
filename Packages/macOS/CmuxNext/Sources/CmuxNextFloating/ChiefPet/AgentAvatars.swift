@@ -43,6 +43,29 @@ public final class AgentAvatars {
         return nil
     }
 
+    /// A Chief as an agent chat draws a message it sent there (`chief.face`, manaflow-ai/cmux#27914):
+    /// `name`, and its own `text` avatar, else its `picture` drawn down as `src`.
+    public func chiefFace(name: String?, picture: URL?, text: String?) async -> [String: String] {
+        var face: [String: String] = [:]
+        if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { face["name"] = name }
+        if let text, !text.isEmpty {
+            face["text"] = text
+        } else if let picture, let src = await self.picture(picture) {
+            face["src"] = src
+        }
+        return face
+    }
+
+    /// Picture `file` (a Chief's avatar or character still) drawn down as the agent avatars are, as a
+    /// data URL; nil when it cannot be read. Each still is drawn once.
+    func picture(_ file: URL) async -> String? {
+        if let known = made[file] { return known }
+        // task-owner: one small read and draw-down of a still; ends with it
+        let src = await Task.detached(priority: WorkPriority.userVisible.taskPriority) { Self.dataURL(file) }.value
+        if let src { made[file] = src }
+        return src
+    }
+
     /// Set Avatar…: the open panel over `window`, then the upload. The new avatar; nil when the
     /// person cancelled, or when the picture was refused (a cmux dialog over `window` says why).
     public func choose(_ session: String, window: NSWindow?) async -> String? {

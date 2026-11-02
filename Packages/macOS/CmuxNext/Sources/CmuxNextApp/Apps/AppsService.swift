@@ -114,7 +114,8 @@ final class AppsService {
         showStore(appID: request.appID, tab: request.tab, focus: request.focus)
     }
 
-    /// Opens an app's page as a tab of the active window (one per window),
+    /// Opens an app (``AppOpenTarget``): its scene page as a tab of the active window (one per window)
+    /// or its web app as a browser tab in the active workspace,
     /// then runs `command` (one of the app's palette ops, by name or its last
     /// segment, for example CodeRouter's connectAccount) in the app when
     /// given. User runs select and
@@ -132,8 +133,23 @@ final class AppsService {
         if let reason = client.unavailableReason { throw .unavailable(reason) }
         guard let app = client.app(appID), app.installed else { throw .unknownApp }
         guard app.enabled else { throw .disabled }
-        guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
-        guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
+        switch AppOpenTarget(app) {
+        case .scenePane:
+            guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
+            guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
+        case .web(let url):
+            // A web app is a browser tab in the active workspace, through the one browser-open path
+            // (`openBrowser`), so the browser's policy, engine and placement rules apply as for any tab.
+            guard services.windows.active != nil else { throw .noWindow }
+            let opened = services.registry.perform("openBrowser", invocation: ActionInvocation(
+                arguments: ["url": .string(url.absoluteString)], origin: origin, focusRequested: focus))
+            guard opened else { throw .noPage }
+            return nil
+        case .notDeployed:
+            throw .notDeployed
+        case .none:
+            throw .noPage
+        }
         guard let command else { return nil }
         guard let found = app.commands.first(where: { AppCommandPalette.Entry(app: app, command: $0).matches(command) }) else {
             throw .unknownCommand
@@ -203,6 +219,8 @@ extension AppsService: InternalPageProvider {
 
 enum AppsServiceError: Error {
     case unknownApp, noPage, noWindow, unknownCommand
+    /// A remote pane whose instance is not running yet (install it with a deploy target).
+    case notDeployed
     /// Installed but turned off.
     case disabled
     /// The supervisor cannot be reached (an older daemon, not connected yet, or turned off).
