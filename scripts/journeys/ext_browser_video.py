@@ -217,5 +217,19 @@ def step_bv_devtools(j, step):
     return row
 
 
-STEPS = {"bv_page_ready": step_bv_page_ready, "bv_devtools": step_bv_devtools, "bv_action": step_bv_action, "bv_serve": step_bv_serve, "bv_open": step_bv_open, "bv_scroll": step_bv_scroll, "bv_state": step_bv_state,
+def step_bv_budget(j, step):
+    """The app's own action runs (debug.action_budget recent: id, entrypoint, input_age_ms, commit_ms, outcome,
+    start_uptime_ns) of `actions` (default the DevTools toggle) into the recording's notes under `note`. Read after
+    the recording's keys, so it costs the recorded frames nothing."""
+    want = set(step.get("actions") or ["toggleBrowserDeveloperTools"])
+    try:
+        recent = (j.app.rpc("debug.action_budget", {"limit": 64}) or {}).get("recent") or []
+    except Exception as error:  # noqa: BLE001  noted, not fatal
+        recent = [{"error": str(error)[:200]}]
+    runs = [r for r in recent if r.get("id") in want]
+    _note(j, step.get("note", "budget"), runs)
+    return {"runs": runs[-4:]}
+
+
+STEPS = {"bv_budget": step_bv_budget, "bv_page_ready": step_bv_page_ready, "bv_devtools": step_bv_devtools, "bv_action": step_bv_action, "bv_serve": step_bv_serve, "bv_open": step_bv_open, "bv_scroll": step_bv_scroll, "bv_state": step_bv_state,
          "bv_agent": step_bv_agent}

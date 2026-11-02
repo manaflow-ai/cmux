@@ -164,6 +164,10 @@
    "note": "after"
   },
   {
+   "do": "bv_budget",
+   "note": "budget"
+  },
+  {
    "do": "video_stop",
    "name": "bv-dt-right-light-dark-r0",
    "tail": 0.2
@@ -248,6 +252,10 @@
    "do": "bv_state",
    "page": "light",
    "note": "after"
+  },
+  {
+   "do": "bv_budget",
+   "note": "budget"
   },
   {
    "do": "video_stop",
@@ -336,6 +344,10 @@
    "note": "after"
   },
   {
+   "do": "bv_budget",
+   "note": "budget"
+  },
+  {
    "do": "video_stop",
    "name": "bv-dt-right-light-dark-r2",
    "tail": 0.2
@@ -420,6 +432,10 @@
    "do": "bv_state",
    "page": "light",
    "note": "after"
+  },
+  {
+   "do": "bv_budget",
+   "note": "budget"
   },
   {
    "do": "video_stop",
@@ -508,6 +524,10 @@
    "note": "after"
   },
   {
+   "do": "bv_budget",
+   "note": "budget"
+  },
+  {
    "do": "video_stop",
    "name": "bv-dt-right-light-dark-r4",
    "tail": 0.2
@@ -592,6 +612,10 @@
    "do": "bv_state",
    "page": "light",
    "note": "after"
+  },
+  {
+   "do": "bv_budget",
+   "note": "budget"
   },
   {
    "do": "video_stop",

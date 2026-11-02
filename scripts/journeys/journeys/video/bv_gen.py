@@ -55,6 +55,7 @@ def devtools(dock, page, theme, rounds=5, mbps=80):
                   dict(OPEN_KEY, mark=f"close-r{r}", title="close DevTools: real Cmd-Opt-I"),
                   {"do": "bv_devtools", "page": page, "open": False, "timeout": 5},
                   {"do": "wait", "seconds": 0.4}, {"do": "bv_state", "page": page, "note": "after"},
+                  {"do": "bv_budget", "note": "budget"},
                   {"do": "video_stop", "name": name, "tail": 0.2}, {"do": "wait", "seconds": 0.5}]
     return {"id": jid, "priority": "P1",
             "title": f"Video: DevTools docked {dock} open and close (real Cmd-Opt-I), {page} page, {theme}, recorded every frame",
