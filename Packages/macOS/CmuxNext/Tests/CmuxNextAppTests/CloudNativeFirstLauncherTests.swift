@@ -33,7 +33,7 @@ struct CloudNativeFirstLauncherTests {
         #expect(link.ensures == 0)
     }
 
-    @Test func aFailedNativeRouteFallsBackToCmuxLinkUntilSignOut() async throws {
+    @Test func aFailedNativeRouteFallsBackToCmuxLinkWhileItsHoldLasts() async throws {
         let native = FakeLauncher(status: "native", failure: NativeDeviceEnrollmentError.refused(400, step: "host.network.target"))
         let link = FakeLauncher(status: "link")
         var reasons: [String] = []
@@ -48,6 +48,25 @@ struct CloudNativeFirstLauncherTests {
         await launcher.archive(install: "i")
         native.failure = nil
         #expect(try await launcher.ensure(install: "i").status == "native")
+    }
+
+    /// A new team has no Native mesh until its first machine is made, after the link first started: once the
+    /// hold passes, the next ensure tries Native again and, when it works, stops the link and uses Native.
+    @Test func nativeIsRetriedAfterTheHoldAndTakesOverFromTheLink() async throws {
+        let native = FakeLauncher(status: "native", failure: NativeDeviceEnrollmentError.refused(404, step: "host.network.target"))
+        let link = FakeLauncher(status: "link")
+        var reasons = 0
+        let launcher = CloudNativeFirstLauncher(native: native, link: link, retryNativeAfter: .zero) { _ in reasons += 1 }
+        #expect(try await launcher.ensure(install: "i").status == "link")
+        #expect(launcher.route == "link (native failed: refused(404) at host.network.target)")
+        #expect(try await launcher.ensure(install: "i").status == "link")
+        #expect(native.ensures == 2 && reasons == 2 && link.stops == 0)
+        native.failure = nil
+        #expect(try await launcher.ensure(install: "i").status == "native")
+        #expect(native.ensures == 3 && link.stops == 1)
+        #expect(launcher.route == "native" && launcher.fallbackReason == nil)
+        await launcher.stop(install: "i")
+        #expect(native.stops == 1 && link.stops == 1)
     }
 
     /// `cloud.machines`' `link_route` (#32494): the launcher each link source and choice gets, and its route.
