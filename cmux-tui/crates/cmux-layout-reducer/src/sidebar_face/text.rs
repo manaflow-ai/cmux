@@ -34,13 +34,18 @@ fn is_whitespace(c: char) -> bool {
 /// `text` without leading and trailing tabs and spaces
 /// (`trimmingCharacters(in: .whitespaces)`).
 pub fn trim_whitespace(text: &str) -> &str {
-    text
+    text.trim_matches(is_whitespace)
 }
 
 /// A folder of this Mac with its home folder `home` as `~`.
 pub fn abbreviate<'a>(path: &'a str, home: &str) -> Cow<'a, str> {
-    let _ = home;
-    Cow::Borrowed(path)
+    if path == home {
+        return Cow::Borrowed("~");
+    }
+    match path.strip_prefix(home) {
+        Some(rest) if rest.starts_with('/') => Cow::Owned(format!("~{rest}")),
+        _ => Cow::Borrowed(path),
+    }
 }
 
 /// A folder of another computer (SSH, Cloud) as its shell prompt writes it:
@@ -48,47 +53,60 @@ pub fn abbreviate<'a>(path: &'a str, home: &str) -> Cow<'a, str> {
 /// does not know that machine's home otherwise, and this Mac's home says
 /// nothing about it (cx-gaq9).
 pub fn abbreviate_remote(path: &str) -> Cow<'_, str> {
-    Cow::Borrowed(path)
+    let mut parts = path.split('/');
+    let (Some(""), Some(root), Some(user)) = (parts.next(), parts.next(), parts.next()) else {
+        return Cow::Borrowed(path);
+    };
+    if !(root == "Users" || root == "home") || user.is_empty() || user == "Shared" {
+        return Cow::Borrowed(path);
+    }
+    // What follows `/<root>/<user>`: nothing, or `/` and the rest.
+    let rest = &path[1 + root.len() + 1 + user.len()..];
+    Cow::Owned(format!("~{rest}"))
 }
 
 /// A folder as its machine's prompt writes it: this Mac's against `home`,
 /// another computer's against its account's home (`abbreviate_remote`).
 pub fn shorten<'a>(path: &'a str, local: bool, home: &str) -> Cow<'a, str> {
-    let _ = (local, home);
-    Cow::Borrowed(path)
+    if local { abbreviate(path, home) } else { abbreviate_remote(path) }
 }
 
 /// `path` without one trailing `/`, unless it is `/` itself.
 pub fn trim_slash(path: &str) -> &str {
-    path
+    if path.len() > 1 && path.ends_with('/') { &path[..path.len() - 1] } else { path }
 }
 
 /// The status line: every entry's text but the ones other elements show
 /// (ports, pull request) and the empty ones, joined with ` · `.
 pub fn entries_status_line(entries: &[Entry<'_>]) -> Option<String> {
-    let _ = entries;
-    None
+    let texts: Vec<&str> = entries
+        .iter()
+        .filter(|entry| is_status_entry(entry.key) && !entry.text.is_empty())
+        .map(|entry| entry.text)
+        .collect();
+    if texts.is_empty() { None } else { Some(texts.join(" · ")) }
 }
 
 /// The row's second line: the hooks' status line (`set_status`), else the
 /// daemon's workspace status entries' (`entries_status_line`); none when
 /// that is empty. An empty hooks' line hides the entries' line.
 pub fn status_line<'a>(hooks: Option<&'a str>, entries: &[Entry<'_>]) -> Option<Cow<'a, str>> {
-    let _ = (hooks, entries);
-    None
+    let line = match hooks {
+        Some(line) => Cow::Borrowed(line),
+        None => Cow::Owned(entries_status_line(entries)?),
+    };
+    if line.is_empty() { None } else { Some(line) }
 }
 
 /// Whether an entry shows in the status line and the status block (every
 /// key but the ports and pull request ones).
 pub fn is_status_entry(key: &str) -> bool {
-    let _ = key;
-    true
+    key != PORTS_KEY && key != PULL_REQUEST_KEY
 }
 
 /// The index of the first entry with `key` and a text.
 pub fn entry(key: &str, entries: &[Entry<'_>]) -> Option<usize> {
-    let _ = (key, entries);
-    None
+    entries.iter().position(|entry| entry.key == key && !entry.text.is_empty())
 }
 
 /// One daemon workspace status entry (`WorkspaceStatus.Entry`).
@@ -114,6 +132,11 @@ fn default_name_number(name: &str) -> Option<i64> {
 /// so a key-repeat burst numbers each create once, in press order. A
 /// reserved name the machine lists already counts once.
 pub fn default_workspace_name(existing: &[&str], reserved: &[&str]) -> String {
-    let _ = (existing, reserved, default_name_number("x"));
-    String::new()
+    let unlisted: Vec<&str> =
+        reserved.iter().filter(|name| !existing.contains(name)).copied().collect();
+    let highest =
+        existing.iter().chain(&unlisted).filter_map(|name| default_name_number(name)).max();
+    let count = i64::try_from(existing.len() + unlisted.len()).unwrap_or(i64::MAX);
+    let next = highest.unwrap_or(0).max(count).saturating_add(1);
+    format!("{DEFAULT_NAME_PREFIX}{next}")
 }
