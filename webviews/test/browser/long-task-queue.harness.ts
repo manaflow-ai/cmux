@@ -8,6 +8,7 @@ import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 
 const EVENT_COUNT = 192_000;
 const TICK_COUNT = 12;
+const STREAM_TICK_COUNT = 4;
 const TICK_MS = 50;
 const SESSION_ID = "long-task-queue-fixture";
 
@@ -24,6 +25,8 @@ export type LongTaskQueueReport = {
   tickFrames: number[];
   tickTasks: number[];
   tickRowReads: number[];
+  streamTickMs: number[];
+  streamMaxTickMs: number;
 };
 
 function fixture(): EventRecord[] {
@@ -49,6 +52,7 @@ function run(): Promise<LongTaskQueueReport> {
   const tickFrames: number[] = [];
   const tickTasks: number[] = [];
   const tickRowReads: number[] = [];
+  const streamTickMs: number[] = [];
   let rowReads = 0;
   let freshSnapshots = 0;
   const observedRows = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
@@ -115,6 +119,19 @@ function run(): Promise<LongTaskQueueReport> {
       lastTickTask = tasks;
       tickMs.push(performance.now() - tickStarted);
       if (tickMs.length < TICK_COUNT) return;
+      // A streaming delta replaces the last row and therefore hands the pane a new source array.
+      // Measure the same turn-view path separately from metadata heartbeats so a long transcript
+      // cannot hide a per-token scan behind the stable-source fast path.
+      let streamTurns = turns;
+      for (let stream = 0; stream < STREAM_TICK_COUNT && streamTurns; stream += 1) {
+        const streamed = rows.slice();
+        const last = streamed.at(-1);
+        if (!last) break;
+        streamed[streamed.length - 1] = { ...last, text: `fixture-${stream}` };
+        const streamStarted = performance.now();
+        streamTurns = turnViewFrom(streamed, expanded, { now: 1_791_000_000_000 }, streamTurns);
+        streamTickMs.push(performance.now() - streamStarted);
+      }
       window.clearInterval(timer);
       cancelAnimationFrame(frameHandle);
       window.clearTimeout(taskHandle);
@@ -134,6 +151,8 @@ function run(): Promise<LongTaskQueueReport> {
           tickFrames,
           tickTasks,
           tickRowReads,
+          streamTickMs,
+          streamMaxTickMs: Math.max(...streamTickMs),
         });
       }, 0);
     }, TICK_MS);

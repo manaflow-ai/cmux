@@ -52,6 +52,8 @@ await requireBrowserLane("long-task-queue.test.ts", async () => {
       expect(report.tasks).toBeGreaterThan(report.ticks);
       expect(report.tickTasks.every((count) => count > 0)).toBe(true);
       expect(report.tickRowReads.every((count) => count < report.eventCount / 100)).toBe(true);
+      expect(report.streamTickMs).toHaveLength(4);
+      expect(report.streamMaxTickMs).toBeGreaterThanOrEqual(0);
       expect(report.maxTickMs).toBeLessThan(16.7);
       expect(report.tickFrames.every((count) => count > 0)).toBe(true);
       expect(report.longTasks.filter((task) => task.duration >= 50)).toEqual([]);

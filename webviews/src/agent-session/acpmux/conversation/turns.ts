@@ -29,7 +29,12 @@ import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
-import { backgroundTurnRowId, foldBackgroundTurns, foldedBackgroundIds, openBackgroundTurns } from "./backgroundTurns";
+import {
+  backgroundTurnRowId,
+  collectFoldedBackgroundId,
+  foldBackgroundTurns,
+  openBackgroundTurns,
+} from "./backgroundTurns";
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -165,6 +170,8 @@ export type TurnView = {
   times: TurnTimes[];
   dated: boolean[];
   firstVisible?: number;
+  /// Background owners whose closed lines hide rows across prompt boundaries.
+  foldedBackground: ReadonlySet<string>;
   /// Each boundary keeps its count and last row before the next prompt extends a fold.
   ends: { count: number; row: AcpmuxRow | undefined; visible?: number }[];
   rows: AcpmuxRow[];
@@ -223,13 +230,10 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
-  // A subagent's done line may land after a *newer* prompt. Keep its original quiet
-  // background turn's ownership across prompt boundaries, even though each prompt is shaped
-  // independently below. One scan per changed transcript; the unchanged-view return above
-  // avoids the work altogether.
-  const foldedBackground = foldedBackgroundIds(rows, expanded);
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
+  const reuseFoldedBackground = previous?.source === rows && previous.expanded === expanded;
+  const foldedBackground = reuseFoldedBackground ? previous!.foldedBackground : new Set<string>();
   let reuse = 0;
   if (
     previous &&
@@ -245,7 +249,10 @@ export function turnViewFrom(
     if (rows === shared) reuse = previous.starts.length;
     else {
       let from = 0;
-      while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
+      while (from < rows.length && from < shared.length && rows[from] === shared[from]) {
+        if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, rows[from]!, expanded);
+        from += 1;
+      }
       while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
     }
     reuse = Math.max(0, reuse - 1);
@@ -278,6 +285,7 @@ export function turnViewFrom(
     // a quiet turn the agent ran on its own folded to its line (backgroundTurns.ts).
     while (index < rows.length && rows[index]!.kind !== "user") {
       const row = rows[index++]!;
+      if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, row, expanded);
       if (!isVisiblyEmptyMessage(row)) out.push(row);
     }
     out = foldBackgroundTurns(out, expanded);
@@ -300,11 +308,13 @@ export function turnViewFrom(
   // turn that changed (shapedTurn).
   while (index < rows.length) {
     const start = index++;
+    if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, rows[start]!, expanded);
     let answerAt: number | undefined;
     while (
       index < rows.length &&
       (rows[index]!.kind !== "user" || isUnsent(rows[index]!) || continuesTurn(rows[index]!))
     ) {
+      if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, rows[index]!, expanded);
       if (isAnswer(rows[index]!)) answerAt = rows[index]!.at;
       index += 1;
     }
@@ -373,6 +383,7 @@ export function turnViewFrom(
     times,
     dated,
     firstVisible,
+    foldedBackground,
     ends,
     rows: out,
   };
