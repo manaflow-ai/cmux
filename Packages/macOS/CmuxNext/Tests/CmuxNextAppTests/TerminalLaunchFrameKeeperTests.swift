@@ -103,6 +103,31 @@ import Testing
         #expect(gone, "a hidden terminal's frame stays: the next launch would show it in a pane that shows another terminal")
     }
 
+    /// Issue #32274: the keeper drops the files of terminals this run does not show once the launch read has ended, by
+    /// the terminals it keeps. A pane that still shows its saved frame ahead of its surface (no session yet, so not
+    /// kept) is on screen too: the keeper removed its frame, and a quit or a kill then left that pane empty at the next
+    /// launch.
+    @Test func aPaneShownAheadOfItsSurfaceKeepsItsFrameWhileOtherTerminalsAreKept() async throws {
+        let shown = try await Shown()
+        defer { shown.close() }
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let waiting = TerminalLaunchFrameTests.WaitingPane(reveal: reveal)
+        defer { waiting.window.close() }
+        waiting.window.orderFrontRegardless()
+        let directory = try await TerminalLaunchFrameTests.saved(
+            ["tab_ahead": TerminalLaunchFrameTests.frame(waiting.surfaceSize, scale: waiting.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = TerminalLaunchFrames(directory: directory)
+        await frames.prefetch(on: Self.work)?.value
+        try #require(frames.showAhead("tab_ahead", in: waiting.content, reveal: reveal))
+        // Another terminal on screen is kept: its write drops the files of terminals this run does not show.
+        frames.keep("tab_kept", session: shown.session, work: Self.work)
+        try #require(try await Self.eventually { !Self.files("tab_kept", in: directory).isEmpty }, "the shown frame was never kept")
+        // The same files-lane job drops the other files right after that write: give it time to.
+        let removed = try await Self.eventually(1) { Self.files("tab_ahead", in: directory).isEmpty }
+        #expect(!removed, "the keeper removed the frame of a pane still showing it ahead of its surface: the next launch shows it empty")
+    }
+
     /// Never per keystroke: a terminal that changes constantly (an echo per key, a busy program) is saved at most once
     /// per interval.
     @Test func aBusyTerminalIsSavedAtMostOncePerInterval() async throws {

@@ -395,7 +395,14 @@ public final class TerminalLaunchFrames {
     public func save(_ sessions: [String: TerminalSession]) async {
         keeper?.stop()
         var frames: [String: NSImage] = [:]
-        for (key, session) in sessions where !session.isRenderingSuspended {
+        for entry in ahead.values where entry.content?.window?.isVisible == true {
+            mark("quit.terminal_frame.\(entry.key).ahead") // shown ahead of a surface that has not come (#32274)
+        }
+        for (key, session) in sessions {
+            guard !session.isRenderingSuspended else {
+                mark("quit.terminal_frame.\(key).suspended")
+                continue
+            }
             let surface = session.surfaceView
             // Each shown terminal's outcome is a quit mark (`quit.terminal_frame.<key>.<outcome>`, issue #32274).
             let skipped = surface.window?.isVisible != true ? "not_visible"

@@ -1027,12 +1027,18 @@ def one_run(tag, mode, timeout, profile=None):
 def launch_terminals(tag):
     """The launch's visible terminals (debug.timings `launch_terminals`): by tab key, when each asked for its saved
     frame, when it showed (`frame_shown_ms`) or why it did not (`missed`: no_frame, size, scale, live), and the max."""
-    try:
-        app = app_client(tag, timeout=5)
-        result = app.call("debug.timings").get("result") or {}
-        return {"panes": result.get("launch_terminals"), "max_ms": result.get("launch_terminals_frame_shown_max_ms")}
-    except (OSError, ValueError, SystemExit) as error:
-        return {"error": str(error)}
+    errors = []
+    for _ in range(5):
+        try:
+            reply = app_client(tag, timeout=5).call("debug.timings")
+            result = reply.get("result")
+            if isinstance(result, dict) and "launch_terminals" in result:
+                return {"panes": result["launch_terminals"], "max_ms": result.get("launch_terminals_frame_shown_max_ms")}
+            errors.append(json.dumps(reply.get("error") or reply)[:300])
+        except (OSError, ValueError, SystemExit) as error:
+            errors.append(str(error)[:300])
+        time.sleep(0.2)  # bench: the control socket answers again
+    return {"panes": None, "errors": errors}
 
 
 def frame_files(tag):
