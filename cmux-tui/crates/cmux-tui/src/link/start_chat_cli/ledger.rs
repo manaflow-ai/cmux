@@ -99,6 +99,10 @@ struct Binding {
     workspace: String,
     account: String,
     machine_id: String,
+    /// The original platform idempotency key, only for a machine verified through workspace ensure.
+    /// Old/App-made pins have none, so their legacy reuse path stays unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    platform_create_key: Option<String>,
 }
 
 /// The file: the sends, then the workspaces. An older ledger is the sends' list alone.
@@ -145,6 +149,44 @@ impl Ledger {
             .map(|binding| binding.machine_id.clone())
     }
 
+    /// The original platform create key for a verified workspace machine (none for a legacy App-made machine).
+    /// A new chat uses the same key for a read-like ensure, so a lost workspace binding never buys a second VM.
+    pub(crate) fn platform_create_key(
+        &self,
+        workspace: &str,
+        account: &str,
+        machine: &str,
+    ) -> Option<String> {
+        let account = account.to_lowercase();
+        self.workspaces
+            .iter()
+            .find(|binding| {
+                binding.workspace == workspace
+                    && binding.account == account
+                    && binding.machine_id == machine
+            })
+            .and_then(|binding| binding.platform_create_key.clone())
+    }
+
+    /// Marks the workspace's already-bound machine as a platform-created one, keeping its first create key.
+    pub(crate) fn record_platform(
+        &mut self,
+        workspace: &str,
+        account: &str,
+        machine: &str,
+        create_key: &str,
+    ) {
+        let account = account.to_lowercase();
+        if let Some(binding) = self.workspaces.iter_mut().find(|binding| {
+            binding.workspace == workspace
+                && binding.account == account
+                && binding.machine_id == machine
+        }) && binding.platform_create_key.is_none()
+        {
+            binding.platform_create_key = Some(create_key.to_string());
+        }
+    }
+
     /// Whether a Mac workspace other than `workspace` picked `machine` in `account`.
     pub(crate) fn held_by_another(&self, machine: &str, workspace: &str, account: &str) -> bool {
         let account = account.to_lowercase();
@@ -172,6 +214,7 @@ impl Ledger {
             workspace: workspace.to_string(),
             account: account.to_lowercase(),
             machine_id: machine.to_string(),
+            platform_create_key: None,
         });
         let over = self.workspaces.len().saturating_sub(WORKSPACE_LIMIT);
         self.workspaces.drain(..over);

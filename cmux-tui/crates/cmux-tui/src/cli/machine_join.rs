@@ -423,7 +423,7 @@ impl Platform {
             .get("code")
             .or_else(|| parsed.get("error").and_then(|e| e.get("code")))
             .and_then(Value::as_str);
-        Err(CallError::Status { status, code: known_code(code) })
+        Err(CallError::Status { status, code: platform_error_code(status, code) })
     }
 
     async fn credentials_async(&self) -> Result<Vec<Value>, CallError> {
@@ -545,7 +545,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 33] = [
+const KNOWN_CODES: [&str; 41] = [
     "auth.unauthenticated",
     "auth.forbidden",
     "auth.sso_required",
@@ -565,17 +565,25 @@ const KNOWN_CODES: [&str; 33] = [
     "machine.join.not_found",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
+    "cloud_environment.unavailable",
+    "machine.snapshot.not_found",
     "machine.conflict",
     "machine.unavailable",
     "machine.placement_unavailable",
     "machine.provider_unavailable",
     "workspace_machine.unconfigured",
     "workspace_machine.not_admitted",
+    "workspace_machine.bootstrap_mismatch",
+    "workspace_machine.bootstrap_unknown",
+    "workspace_machine.machine_slots_full",
+    "workspace_machine.usage_unavailable",
+    "workspace_machine.admission_changed",
     "workspace_machine.machine_taken",
     "workspace_machine.machine_gone",
     "bad_request",
     "unauthorized",
     "not_found",
+    "route.not_found",
     "gone",
     "conflict",
     "unavailable",
@@ -584,6 +592,18 @@ const KNOWN_CODES: [&str; 33] = [
 
 fn known_code(code: Option<&str>) -> &'static str {
     code.and_then(|c| KNOWN_CODES.iter().copied().find(|known| *known == c)).unwrap_or("")
+}
+
+/// On 404 only, preserve the presence of an unfamiliar typed refusal. Passing an empty code to the
+/// start-chat fallback would mistake a missing snapshot or future resource for an absent route. The
+/// fixed sentinel keeps arbitrary server text and credential-shaped strings out of diagnostics.
+fn platform_error_code(status: u16, code: Option<&str>) -> &'static str {
+    let known = known_code(code);
+    if status == 404 && known.is_empty() && code.is_some_and(|raw| !raw.is_empty()) {
+        "platform.unknown_error"
+    } else {
+        known
+    }
 }
 
 /// How the verbs run: whether a person is at the terminal, and how often `--wait` reads.

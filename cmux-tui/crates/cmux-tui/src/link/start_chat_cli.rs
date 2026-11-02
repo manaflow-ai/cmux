@@ -275,7 +275,10 @@ pub(super) fn plan_with(
     }
     let keys = Keys::of(&request.key);
     let send = Send::new(&request.key, &request.account);
+    let repo = request.local.as_deref().and_then(folder_repo);
+    let platform_eligible = ensures(&request, repo.as_deref());
     let planned = Ledger::update(ledger, |pins| {
+        let pinned_before = pins.machine(&send);
         let destination = pick::destination(
             &send,
             &request.account,
@@ -286,7 +289,17 @@ pub(super) fn plan_with(
             request.user.as_deref(),
             request.loaded,
         );
-        if let Destination::Machine(id) = &destination {
+        let verify_key = match (&destination, workspace) {
+            (Destination::Machine(id), Some(workspace))
+                if platform_eligible && pinned_before.as_deref() != Some(id.as_str()) =>
+            {
+                pins.platform_create_key(workspace, &request.account, id)
+            }
+            _ => None,
+        };
+        if let Destination::Machine(id) = &destination
+            && verify_key.is_none()
+        {
             pins.record(id, &send);
             // A retry of an older send keeps its machine, never the workspace's newer one,
             // and a machine another workspace has never becomes this one's too.
@@ -294,13 +307,52 @@ pub(super) fn plan_with(
                 pick::claim(pins, workspace, &request.account, id);
             }
         }
-        destination
+        (destination, verify_key)
     });
-    let repo = request.local.as_deref().and_then(folder_repo);
     let mut line = keys.json();
     let fields = match planned {
-        Ok(Destination::Machine(id)) => json!({"ok": true, "machine": id}),
-        Ok(Destination::New) if ensures(&request, repo.as_deref()) => {
+        Ok((Destination::Machine(id), Some(create_key))) => {
+            let mut credential = String::new();
+            let _ = stdin.read_line(&mut credential);
+            if credential.trim().is_empty() {
+                return refused("not_signed_in", "the platform credential is missing for this workspace");
+            }
+            let ask = Ensure {
+                workspace: workspace.unwrap_or_default().to_string(),
+                create_key,
+                repo: repo.clone().unwrap_or_default(),
+                git_ref: None,
+                environment: request.environment.clone(),
+                platform: None,
+            };
+            // This uses the first creation key: if the server lost its binding, the same request reaches its
+            // original VM. A changed repo or setup is refused by the platform's durable bootstrap check.
+            let checked = ensure_answer(ensure(&ask, credential.trim()));
+            let Some(returned) = checked.get("machine").and_then(Value::as_str) else { return checked };
+            if returned != id {
+                return refused("workspace_machine.changed", "the platform returned a different workspace machine");
+            }
+            let pinned = Ledger::update(ledger, |pins| {
+                if let Some(workspace) = workspace
+                    && !pick::claim(pins, workspace, &request.account, &id)
+                {
+                    return false;
+                }
+                pins.record(&id, &send);
+                true
+            });
+            match pinned {
+                Ok(true) => json!({"ok": true, "machine": id, "ensured": {
+                    "created": checked.get("created"), "snapshot": checked.get("snapshot"),
+                    "environment": checked.get("environment"),
+                    "environment_id": checked.get("environment_id"), "setup": checked.get("setup"),
+                }}),
+                Ok(false) => return refused("workspace_machine.changed", "this workspace chose another machine"),
+                Err(error) => return refused("ledger_failed", format!("{error:#}")),
+            }
+        }
+        Ok((Destination::Machine(id), None)) => json!({"ok": true, "machine": id}),
+        Ok((Destination::New, _)) if platform_eligible => {
             let mut credential = String::new();
             let _ = stdin.read_line(&mut credential);
             let ask = Ensure {
@@ -312,20 +364,25 @@ pub(super) fn plan_with(
                 environment: request.environment.clone(),
                 platform: None,
             };
-            let answer = if credential.trim().is_empty() {
-                Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
-            } else {
-                ensure(&ask, credential.trim())
-            };
+            // No credential means the platform was never asked, so the App's legacy create can still help.
+            // A real authorization refusal from the platform must stop this send.
+            let answer = (!credential.trim().is_empty()).then(|| ensure(&ask, credential.trim()));
             match answer {
-                Ok(body) => {
+                None => json!({
+                    "ok": true,
+                    "machine": null,
+                    "new_name": pick::new_machine_name(request.machines.iter().map(|machine| machine.title.as_str())),
+                }),
+                Some(Ok(body)) => {
                     let line = ensure_answer(Ok(body));
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
                     // Pinned before the App opens anything there, as a machine the App made.
                     if let Err(error) = Ledger::update(ledger, |pins| {
                         pins.record(id, &send);
-                        if let Some(workspace) = workspace {
-                            pick::claim(pins, workspace, &request.account, id);
+                        if let Some(workspace) = workspace
+                            && pick::claim(pins, workspace, &request.account, id)
+                        {
+                            pins.record_platform(workspace, &request.account, id, &ask.create_key);
                         }
                     }) {
                         return refused("ledger_failed", format!("{error:#}"));
@@ -337,16 +394,16 @@ pub(super) fn plan_with(
                     }})
                 }
                 // The platform made no machine: the App makes it, as before.
-                Err(error) if made_no_machine(&error) => json!({
+                Some(Err(error)) if made_no_machine(&error) => json!({
                     "ok": true,
                     "machine": null,
                     "new_name": pick::new_machine_name(request.machines.iter().map(|machine| machine.title.as_str())),
                 }),
                 // It may have made one: a retry with the same key reaches it, never a second paid machine.
-                Err(error) => return ensure_answer(Err(error)),
+                Some(Err(error)) => return ensure_answer(Err(error)),
             }
         }
-        Ok(Destination::New) => json!({
+        Ok((Destination::New, _)) => json!({
             "ok": true,
             "machine": null,
             "new_name": pick::new_machine_name(request.machines.iter().map(|machine| machine.title.as_str())),
@@ -372,13 +429,14 @@ fn ensures(request: &PlanRequest, repo: Option<&str>) -> bool {
     repo.is_some() && personal && request.credential_on_stdin
 }
 
-/// Whether a failed ensure made no machine, so the App may make one: the platform has no workspace machines here (a
-/// 404 that is not a refused environment), refused the sign-in, has none configured, or admitted none.
+/// The App's legacy create is only a compatibility fallback for an absent workspace-machine endpoint,
+/// an unconfigured warm base or a provider without a compatible offer. Authentication, resource and budget
+/// refusals must reach the person: a second machine creation would bypass the platform's admission decision.
 pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
     use crate::cli::PlatformCallError as E;
     match error {
-        E::Status { code: "cloud_environment.not_found", .. } => false,
-        E::Status { status: 401 | 403 | 404, .. } => true,
+        E::Status { status: 401 | 403, .. } => false,
+        E::Status { status: 404, code: "" | "not_found" | "route.not_found" } => true,
         E::Status {
             code: "workspace_machine.unconfigured" | "workspace_machine.not_admitted",
             ..
