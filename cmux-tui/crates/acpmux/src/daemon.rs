@@ -657,6 +657,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
     let shutdown = async {
         #[cfg(unix)]
+        let mut app_orphan = std::pin::pin!(app_orphan);
+        #[cfg(unix)]
         loop {
             let (term, int) = &mut stop_signals;
             tokio::select! {
@@ -670,7 +672,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 // No build of its app is left to adopt its agents, so they end with it. An app
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
-                end_agents = app_orphan => {
+                end_agents = &mut app_orphan => {
                     if end_agents {
                         let _ = hub.end_agents_at_shutdown(Default::default());
                     }
