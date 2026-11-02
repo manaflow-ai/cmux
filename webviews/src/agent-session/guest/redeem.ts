@@ -15,6 +15,7 @@ export type GuestLink = { shareId: string; secret?: string };
 export type RedeemError =
   | "share.expired"
   | "share.revoked"
+  | "share.closed"
   | "share.used"
   | "share.kicked"
   | "share.left"
@@ -27,6 +28,7 @@ export type Redeem = (shareId: string, request: RedeemRequest) => Promise<Redeem
 const KNOWN: ReadonlySet<string> = new Set([
   "share.expired",
   "share.revoked",
+  "share.closed",
   "share.used",
   "share.kicked",
   "share.left",
