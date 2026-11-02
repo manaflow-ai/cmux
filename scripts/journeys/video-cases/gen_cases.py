@@ -118,12 +118,20 @@ def settle(seconds=1.0):
     return {"do": "wait", "seconds": seconds, "title": "the layout and the load settle (nothing observable to wait on)"}
 
 
+WIDTH_PRESET = {1: "column.widthFull", 2: "column.widthHalf", 3: "column.widthOneThird"}
+
+
 def columns(n, heavy, rows=1, start=0):
-    """n strip columns, each with `rows` panes stacked (splitDown). Names p0..p(n*rows-1), column-major."""
+    """n strip columns (1..3, all on screen: each set to 1/n of the viewport with the app's width preset), each with
+    `rows` panes stacked (splitDown). Names p0..p(n*rows-1), column-major."""
+    if n not in WIDTH_PRESET:
+        raise ValueError(f"{n} strip columns do not fit on screen with the width presets")
+    width = {"do": "action", "action": WIDTH_PRESET[n], "title": f"set-up: the focused column 1/{n} of the viewport"}
     steps, idx = [], start
     for c in range(n):
         if c > 0 or idx > 0:
             steps += add_pane(idx, "newColumn", heavy)
+        steps.append(dict(width))
         idx += 1
         for _ in range(rows - 1):
             steps += add_pane(idx, "splitDown", heavy)
@@ -200,12 +208,12 @@ case("split-during-split", "Cmd-D, then Shift-Cmd-D 80 ms later while the first 
      [kit_key("d", ["cmd"], "split1", "Cmd-D"), {"do": "wait", "seconds": 0.08},
       kit_key("d", ["cmd", "shift"], "split2", "Shift-Cmd-D during the first split")])
 # 7. Zoom in and out with 12 panes (4 columns x 3 rows).
-case("zoom-12", "Zoom one of 12 panes (Shift-Cmd-Return), then unzoom",
-     lambda h: columns(4, h, rows=3),
+case("zoom-12", "Zoom one of 12 panes (3 columns x 4 rows; Shift-Cmd-Return), then unzoom",
+     lambda h: columns(3, h, rows=4),
      [{"do": "use_pane", "pane": "p4", "click": True}, kit_key("return", ["cmd", "shift"], "zoom", "zoom in"),
       {"do": "wait", "seconds": 1.0}, kit_key("return", ["cmd", "shift"], "unzoom", "zoom out")], variants=ALL)
 case("zoom-interrupted", "Zoom in, then zoom out 100 ms later while the zoom still moves (12 panes)",
-     lambda h: columns(4, h, rows=3),
+     lambda h: columns(3, h, rows=4),
      [{"do": "use_pane", "pane": "p4", "click": True}, kit_key("return", ["cmd", "shift"], "zoom", "zoom in"),
       {"do": "wait", "seconds": 0.1}, kit_key("return", ["cmd", "shift"], "unzoom", "zoom out mid-motion")])
 # 8. Row divider drag: slow, fast, to the minimum and maximum clamp.
@@ -229,12 +237,12 @@ case("col-drag-clamp", "Drag a vertical divider of 3 panes past the minimum widt
       kit_drag({"divider": 0}, [3000, 0], 400, "max", "past the maximum width")])
 # 10. Window resize with 12 panes (bottom-right corner, out and back).
 case("window-resize-12", "Live-resize the window with 12 panes: the corner 300 x 150 points in and back at 120 Hz",
-     lambda h: columns(4, h, rows=3),
+     lambda h: columns(3, h, rows=4),
      [kit_drag({"window_edge": "bottom-right"}, [-300, -150], 600, "in", "window corner in"), {"do": "wait", "seconds": 0.3},
       kit_drag({"window_edge": "bottom-right"}, [300, 150], 600, "out", "window corner out")])
 # 11. 1 pane against 12 panes: the same split in a 1-pane and in a 12-pane layout.
 case("split-1pane", "Cmd-D in a single pane", lambda h: [], [kit_key("d", ["cmd"], "split", "Cmd-D")], variants=ALL)
-case("split-12pane", "Cmd-D in one of 12 panes", lambda h: columns(4, h, rows=3),
+case("split-12pane", "Cmd-D in one of 12 panes (3 columns x 4 rows)", lambda h: columns(3, h, rows=4),
      [{"do": "use_pane", "pane": "p5", "click": True}, kit_key("d", ["cmd"], "split", "Cmd-D")], variants=ALL)
 
 

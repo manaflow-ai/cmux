@@ -1,7 +1,7 @@
 {
  "id": "rv-split-12pane-idle-dark",
  "priority": "P1",
- "title": "Cmd-D in one of 12 panes (idle load, dark)",
+ "title": "Cmd-D in one of 12 panes (3 columns x 4 rows) (idle load, dark)",
  "why": "Lawrence 2026-11-02: every layout animation pixel perfect at 120 Hz with a 12-pane TUI load. The movie and trace are judged per frame (gap, overlap, stretch, stale content, jump, dropped frames).",
  "source": "RESIZE VIDEOS suite (handoff/resize-videos/FINDINGS.md)",
  "budget_seconds": 240,
@@ -68,6 +68,11 @@
   },
   {
    "do": "action",
+   "action": "column.widthOneThird",
+   "title": "set-up: the focused column 1/3 of the viewport"
+  },
+  {
+   "do": "action",
    "action": "splitDown",
    "title": "set-up: splitDown"
   },
@@ -92,8 +97,8 @@
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn"
+   "action": "splitDown",
+   "title": "set-up: splitDown"
   },
   {
    "do": "adopt_pane",
@@ -104,8 +109,8 @@
   },
   {
    "do": "action",
-   "action": "splitDown",
-   "title": "set-up: splitDown"
+   "action": "newColumn",
+   "title": "set-up: newColumn"
   },
   {
    "do": "adopt_pane",
@@ -113,6 +118,11 @@
   },
   {
    "do": "neutral_prompt"
+  },
+  {
+   "do": "action",
+   "action": "column.widthOneThird",
+   "title": "set-up: the focused column 1/3 of the viewport"
   },
   {
    "do": "action",
@@ -128,8 +138,8 @@
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn"
+   "action": "splitDown",
+   "title": "set-up: splitDown"
   },
   {
    "do": "adopt_pane",
@@ -152,8 +162,8 @@
   },
   {
    "do": "action",
-   "action": "splitDown",
-   "title": "set-up: splitDown"
+   "action": "newColumn",
+   "title": "set-up: newColumn"
   },
   {
    "do": "adopt_pane",
@@ -164,8 +174,13 @@
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn"
+   "action": "column.widthOneThird",
+   "title": "set-up: the focused column 1/3 of the viewport"
+  },
+  {
+   "do": "action",
+   "action": "splitDown",
+   "title": "set-up: splitDown"
   },
   {
    "do": "adopt_pane",
