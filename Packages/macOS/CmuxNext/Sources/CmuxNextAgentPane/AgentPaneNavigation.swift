@@ -60,6 +60,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
         view?.applyEditedFiles()
         view?.replayCustomization()
+        view?.announceSessionInfo()
     }
 
     /// A crashed web content process leaves a blank pane; the view shows the crash notice, whose

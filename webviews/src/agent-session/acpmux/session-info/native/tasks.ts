@@ -298,14 +298,11 @@ function workflowRows(
     const counts = tally(item.agents);
     const tokens =
       item.tokens !== undefined ? [t("subagents.tokens", { n: item.tokens, tokens: compactTokens(item.tokens) })] : [];
+    const status =
+      item.state === "completed" ? (both ? undefined : t("bgTask.state.completed")) : workflowStateWord(t, item.state);
     const meta = live
       ? [...workflowCounts(t, item.agents), ...tokens]
-      : [
-          t("workflow.kind"),
-          item.state === "completed" ? t("bgTask.state.completed") : workflowStateWord(t, item.state),
-          t("subagents.pill", { n: counts.total }),
-          ...tokens,
-        ];
+      : [...(status ? [status] : []), t("subagents.pill", { n: counts.total }), ...tokens];
     const onStop = input.onStopWorkflow;
     rows.push({
       id: `workflow:${item.id}`,

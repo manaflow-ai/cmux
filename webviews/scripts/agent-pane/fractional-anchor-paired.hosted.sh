@@ -6,7 +6,10 @@ base_sha=${1:?usage: fractional-anchor-paired.hosted.sh BASE_SHA}
 [[ $base_sha =~ ^[0-9a-f]{40}$ ]] || exit 2
 repo_root=$(git rev-parse --show-toplevel)
 webviews_root="$repo_root/webviews"
-git fetch --no-tags --depth=1 origin "$base_sha"
+# A full clone stays full: only a checkout that is already shallow gets a depth-limited fetch.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+git fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$base_sha"
 base_dir=$(mktemp -d /tmp/cmux-fractional-anchor-base.XXXXXXXX)
 cleanup() {
   git worktree remove --force "$base_dir" >/dev/null 2>&1 || true

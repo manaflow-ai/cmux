@@ -428,6 +428,14 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.sessionInfo":
+            let info = params?["info"]
+            if info == nil || info is NSNull { self = .sessionInfo(nil) }
+            else if let model = AgentPaneSessionInfoModel.decode(info) { self = .sessionInfo(model) }
+            else { self = .unsupported(method) }
+        case "pane.copyText":
+            if let text = params?["text"] as? String { self = .copyText(text) }
+            else { self = .unsupported(method) }
         case "pane.tabRowTools.set":
             if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
             else { self = .unsupported(method) }

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// (PATTERNS.md P4, instant create), the key's turn now shows a stand-in: the page takes its docked frame and the
 /// DevTools area the pane's themed ground, that frame is committed, and Chromium creates DevTools in the next turn.
 /// When Chromium opens nothing, the stand-in rolls back.
-@MainActor @Suite(.serialized) struct CEFDevToolsStandInTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFDevToolsStandInTests {
     @Test(arguments: [BrowserDevToolsCommand.show, .toggle, .console, .inspectElement])
     func theKeysTurnShowsTheDockedLayoutBeforeChromiumCreatesDevTools(command: BrowserDevToolsCommand) async throws {
         let rig = try Rig()
@@ -151,6 +152,8 @@ import Testing
 
         func close() {
             window.contentView?.subviews.forEach { $0.removeFromSuperview() }
+            // Closed, not only emptied: a window never closed is left open (`.closesItsWindows`).
+            window.closeAfterTest()
             try? FileManager.default.removeItem(at: root)
             // The runtime is `unowned` in its tabs and hosts: kept to the end of the test process so a late task or
             // view teardown never reads it after it ended (the red run crashed there).
