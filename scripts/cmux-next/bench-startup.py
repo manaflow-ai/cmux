@@ -728,7 +728,8 @@ def launch_profile(out, app_pid, until_ms):
     main_tid = _c.Counter((r[2] or {}).get("tid") for r in rows).most_common(1)[0][0]
     rows = sorted((r for r in rows if r[2].get("tid") == main_tid), key=lambda r: r[0])
     start = rows[0][0]
-    rows = [r for r in rows if r[0] - start <= until_ms * 1e6]
+    # until_ms counts from the process start, the samples from the recording's start: keep every main-thread sample;
+    # the call tree and the after-dfl window below find the launch by its frames.
     own, total = collections.Counter(), collections.Counter()
     for _, weight, _, frames in rows:
         names = [str(trace.text(f) if not isinstance(f, str) else f) for f in frames]
@@ -737,7 +738,31 @@ def launch_profile(out, app_pid, until_ms):
         for name in set(n[:200] for n in names):
             total[name] += weight
     to_ms = lambda c, n: [[round(v / 1e6, 1), k] for k, v in c.most_common(n)]
+    # The launch's window build as a call tree: each sample inside applicationDidFinishLaunching adds its weight to
+    # every path prefix of the app frames below it (outermost first, up to 7 levels); and the samples of the 120 ms
+    # after the last applicationDidFinishLaunching sample (the first commit and what runs before the first frame),
+    # each with its time and its top app frames.
+    def frame_names(frames):
+        return [str(trace.text(f) if not isinstance(f, str) else f) for f in frames]
+    tree, after, dfl_last = collections.Counter(), [], None
+    for t, weight, _, frames in rows:
+        names = frame_names(frames)
+        if any("applicationDidFinishLaunching" in n for n in names):
+            dfl_last = t
+            outer = list(reversed(names))
+            at = next(i for i, n in enumerate(outer) if "applicationDidFinishLaunching" in n)
+            path = [n[:110] for n in outer[at + 1:] if not n.startswith(("0x", "swift_", "_swift", "objc_", "<"))][:7]
+            for depth in range(1, len(path) + 1):
+                tree[" > ".join(path[:depth])] += weight
+    if dfl_last is not None:
+        for t, weight, _, frames in rows:
+            if dfl_last < t <= dfl_last + 120e6:
+                names = frame_names(frames)
+                app = [n[:90] for n in names if "Cmux" in n or "cmux" in n][:3]
+                after.append([round((t - dfl_last) / 1e6, 1), names[0][:90] if names else "", " < ".join(app),
+                              any("Transaction::commit" in n for n in names)])
     return {"samples": len(rows), "span_ms": round((rows[-1][0] - start) / 1e6, 1), "self": to_ms(own, 60), "total": to_ms(total, 250),
+            "tree": [[round(v / 1e6, 1), k] for k, v in tree.most_common(400)], "after_dfl": after[:400],
             "pids": [[str(k), v] for k, v in per_pid.most_common(12)],
             "threads": [[str(k), v] for k, v in _c.Counter((r[2] or {}).get("tid") for r in every if (r[2] or {}).get("pid") == app_pid).most_common(6)]}
 
