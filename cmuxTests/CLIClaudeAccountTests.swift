@@ -205,8 +205,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["config_dir"] as? String }
         XCTAssertEqual(keys.count, 2, before.stdout)
 
-        // The app's store format: the work account resets in two hours, the default one already did.
-        let resetsAt = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 + 7_200).rounded(.down))
+        // The app's store format: the work account resets a day from now, the default one reset a
+        // day ago. The CLI reads the real clock, so both sit a day from one reference time, beyond
+        // any clock correction between this write and the CLI's read.
+        let reference = Date().timeIntervalSince1970
+        let resetsAt = Date(timeIntervalSince1970: (reference + 86_400).rounded(.down))
         let store = ClaudeAccountExhaustionStore(
             fileURL: ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: home.path)
         )
@@ -214,7 +217,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let storeFile = ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: home.path)
         var stored = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeFile)) as? [String: Any])
         var entries = try XCTUnwrap(stored["exhaustedUntil"] as? [String: Any])
-        entries[keys[0]] = Date().timeIntervalSince1970 - 60
+        entries[keys[0]] = reference - 86_400
         stored["exhaustedUntil"] = entries
         try JSONSerialization.data(withJSONObject: stored).write(to: storeFile)
         let storedBytes = try Data(contentsOf: storeFile)
