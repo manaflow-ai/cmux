@@ -134,12 +134,14 @@ def plan(s, held, wired, cap, wire_cap, grown, disk_free, critical_for, wire_ok,
     is --swap-gb above the start; CRITICAL_FOR: seconds the kernel has said critical in a row; WIRE_OK: no mlock was
     refused; BACKING_OFF: the hog gives memory back since the level reached --floor (until --resume); STEERED: the
     level could be read at the start. A sample that cannot read the level (a failed sysctl, likely at the edge) then
-    changes nothing: hold, and keep the back-off as it is."""
+    changes nothing: hold, and keep the back-off as it is (a back-off goes on freeing; a nearly full disk starts one)."""
     level, critical = s.get("level"), (s.get("vm_pressure") or 0) >= CRITICAL
-    if steered and level is None:
-        return "hold", backing_off
     reserve = opts.disk_reserve_gb * GIB
     disk_low = disk_free is not None and disk_free < reserve / 2
+    if steered and level is None:
+        # The disk is read by statvfs, not sysctl: a nearly full disk still starts or keeps a back-off.
+        backing_off = backing_off or disk_low
+        return ("free" if backing_off and held + wired else "hold"), backing_off
     if (level is not None and level <= opts.floor) or critical_for >= CRITICAL_SECONDS or disk_low:
         backing_off = True
     elif backing_off and not critical and (level is None or level >= opts.resume):
@@ -302,6 +304,8 @@ def main():
            "vm_pressure_max": reached["vm_pressure_max"], "held_mb_max": mb(reached["held_max"]),
            "wired_mb_max": mb(reached["wired_max"]), "swap_growth_mb": round(reached["swap_max"] - start_swap, 1),
            "seconds_at_or_below_resume": reached["in_band_s"]})
+    if log:
+        log.close()
 
 
 if __name__ == "__main__":

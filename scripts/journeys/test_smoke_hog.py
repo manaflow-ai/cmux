@@ -83,8 +83,10 @@ class Plan(unittest.TestCase):
 
     def test_a_sample_without_a_level_changes_nothing(self):
         # Review of 1af4a7d7d70: a failed sysctl (likely at the edge) ended a back-off and grew the swap part.
-        self.assertEqual(self.plan(sample(None, vm_pressure=None), 50, wired=10, backing_off=True), ("hold", True))
         self.assertEqual(self.plan(sample(None, vm_pressure=None), 50, wired=10), ("hold", False))
+        # ... but a back-off goes on giving memory back, and a nearly full disk (statvfs, not sysctl) starts one.
+        self.assertEqual(self.plan(sample(None, vm_pressure=None), 50, wired=10, backing_off=True), ("free", True))
+        self.assertEqual(self.plan(sample(None, vm_pressure=None), 50, wired=10, disk=4 * GIB), ("free", True))
 
     def test_a_nearly_full_disk_stops_the_growth_or_gives_memory_back(self):
         self.assertEqual(self.plan(sample(30), 40, disk=4 * GIB)[0], "free")
@@ -127,7 +129,7 @@ class Loop(unittest.TestCase):
                 live.append(self)
 
             def close(self):
-                live.remove(self)
+                live[:] = [c for c in live if c is not self]  # by identity, not by content
 
         class FakeLocker(object):
             def lock(self, chunk):
@@ -144,7 +146,9 @@ class Loop(unittest.TestCase):
                       "kern.memorystatus_vm_pressure_level": "2", "vm.swapusage": "used = 10.0M"}
             return {k: v for k, v in values.items() if k in names}
 
+        import signal
         saved = (hog.CHUNK, hog.mmap.mmap, hog.Locker, hog.sysctls, hog.disk_free_bytes, hog.PACE_SECONDS, sys.argv)
+        handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "hog.jsonl")
             try:
@@ -154,7 +158,10 @@ class Loop(unittest.TestCase):
                 hog.main()
             finally:
                 hog.CHUNK, hog.mmap.mmap, hog.Locker, hog.sysctls, hog.disk_free_bytes, hog.PACE_SECONDS, sys.argv = saved
-            rows = [json.loads(line) for line in open(path)]
+                for sig, handler in handlers.items():  # main() set its own: give the test process its handlers back
+                    signal.signal(sig, handler)
+            with open(path) as f:
+                rows = [json.loads(line) for line in f]
         self.assertEqual(live, [])
         self.assertTrue(rows[0]["start"])
         self.assertEqual((rows[0]["cap_mb"], rows[0]["wire_cap_mb"]), (57, 32))
@@ -164,6 +171,7 @@ class Loop(unittest.TestCase):
         self.assertGreater(end["wired_mb_max"], 0)
         self.assertTrue(all(r.get("level", 0) > 12 for r in rows[1:-1]))  # it never went down to the floor
         self.assertIs(real_mmap.mmap, hog.mmap.mmap)
+        self.assertEqual({sig: signal.getsignal(sig) for sig in handlers}, handlers)
 
 
 class Sysctl(unittest.TestCase):
