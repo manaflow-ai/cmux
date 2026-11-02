@@ -116,17 +116,11 @@ jobs:
         id: declaration
         if: ${{ github.event_name == 'push' }}
         shell: bash
+        env:
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
         run: |
-          set -euo pipefail
-          before='${{ github.event.before }}'
-          git cat-file -e "$before^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "$before" 2>/dev/null || true
-          if git cat-file -e "$before^{commit}" 2>/dev/null &&
-            git diff --quiet "$before" "${{ github.sha }}" -- .github/runners.json; then
-            echo 'pending=false' >> "$GITHUB_OUTPUT"
-          else
-            echo 'pending=true' >> "$GITHUB_OUTPUT"
-            echo '::notice title=Runner pools::declaration changed; scheduled reconciliation will validate the new live value'
-          fi
+          scripts/ci/check_runner_pool_declaration.sh
 
       # RUNNER_POOLS, the one routing source (scripts/ci/runner_pools.py): every pool set, each to
       # one of its declared members. A missing pool fails every job that reads it. LINUX_RUNNER,

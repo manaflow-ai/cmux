@@ -6,7 +6,9 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import json
+import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -451,11 +453,34 @@ class Main(unittest.TestCase):
         check = next(step for step in steps if "runner_pools.py --check" in str(step.get("run", "")))
         self.assertIn("github.event_name == 'push'", declaration["if"])
         self.assertIn("steps.declaration.outputs.pending != 'true'", check["if"])
-        self.assertIn(".github/runners.json", declaration["run"])
         # Review of #30627: a depth-1 clone lacks event.before, so the diff must have it or call it pending.
         checkout = next(step for step in steps if step.get("name") == "Checkout")
         self.assertEqual(checkout["with"].get("fetch-depth"), 2)
-        self.assertIn('git cat-file -e "$before^{commit}"', declaration["run"])
+        self.assertIn("BEFORE", declaration["env"])
+        self.assertIn("SHA", declaration["env"])
+        self.assertIn("check_runner_pool_declaration.sh", declaration["run"])
+        declaration_script = (ROOT / "scripts/ci/check_runner_pool_declaration.sh").read_text()
+        self.assertIn(".github/runners.json", declaration_script)
+
+    def test_runner_pool_declaration_diff_failure_fails_closed(self) -> None:
+        script = ROOT / "scripts/ci/check_runner_pool_declaration.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_git = Path(tmp) / "git"
+            fake_git.write_text("""#!/bin/sh
+if [ "$1" = diff ]; then
+  exit 128
+fi
+exit 0
+""", encoding="utf-8")
+            fake_git.chmod(0o755)
+            output = Path(tmp) / "github-output"
+            env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", BEFORE="before", SHA="after",
+                       GITHUB_OUTPUT=str(output))
+            result = subprocess.run(["bash", str(script)], env=env, text=True,
+                                    capture_output=True, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
+            self.assertIn("git diff exited 128", result.stderr)
 
     def test_no_switch_token_and_a_correct_linux_runner_is_not_a_failure(self) -> None:
         # Review of #28864: with no token and the variables not handed in, the mirror is unknown, not unset.
