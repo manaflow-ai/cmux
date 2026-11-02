@@ -1304,6 +1304,55 @@ let package = Package(
         self.assertIn("Merge conflict markers", output)
         self.assertIn("MergedTests.swift:2: <<<<<<< HEAD", output)
 
+    def cargo_workspace(self):
+        """A two-crate cmux-tui workspace with a matching Cargo.lock; the push env cargo needs under this HOME."""
+        cargo = shutil.which("cargo")
+        if cargo is None:
+            self.skipTest("no cargo on this host")
+        real_home = Path(os.environ.get("HOME", str(Path.home())))
+        env = {"CARGO_HOME": os.environ.get("CARGO_HOME", str(real_home / ".cargo")),
+               "RUSTUP_HOME": os.environ.get("RUSTUP_HOME", str(real_home / ".rustup")),
+               "PATH": f"{Path(cargo).parent}:{self.env.get('PATH', '')}"}
+        self.write("cmux-tui/Cargo.toml", '[workspace]\nmembers = ["crates/a", "crates/b"]\nresolver = "2"\n')
+        for name in ("a", "b"):
+            self.write(f"cmux-tui/crates/{name}/Cargo.toml",
+                       f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2021"\n')
+            self.write(f"cmux-tui/crates/{name}/src/lib.rs", "")
+        made = subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=self.repo / "cmux-tui",
+                              env={**self.env, **env}, text=True, capture_output=True)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        self.commit("cmux-tui workspace")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        return env
+
+    def test_a_cargo_dependency_moved_without_its_lock_is_refused(self):
+        # 2026-11-02: #31462 changed a crate's Cargo.toml and left Cargo.lock behind; every --locked step failed.
+        env = self.cargo_workspace()
+        before = self.remote_head()
+        self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\nb = { path = "../b" }\n')
+        self.commit("a uses b")
+
+        result = self.push(**env)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("cmux-tui/Cargo.lock: does not match its manifests", output)
+
+    def test_a_cargo_dependency_with_its_lock_pushes(self):
+        env = self.cargo_workspace()
+        self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\nb = { path = "../b" }\n')
+        locked = subprocess.run(["cargo", "metadata", "--offline", "--format-version", "1"], cwd=self.repo / "cmux-tui",
+                                env={**self.env, **env}, capture_output=True, text=True)
+        self.assertEqual(locked.returncode, 0, locked.stderr)
+        self.commit("a uses b, with the lock")
+
+        result = self.push(**env)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     SIDEBAR_VIEW = f"{PKG}/Sources/CmuxNextSidebar/Views/RowView.swift"
 
     def test_a_sidebar_view_change_without_a_sidebar_look_trailer_is_refused_even_with_a_skip_reason(self):
