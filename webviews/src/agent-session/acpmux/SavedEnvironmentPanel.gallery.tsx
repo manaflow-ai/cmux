@@ -12,6 +12,7 @@ const folders = [
   { id: "/Users/you/src/cmux", label: "cmux" },
 ];
 
+// Keep this host in the machine list so the open picker exercises its width cap.
 const longHost = "gpu-box-with-a-long-machine-name-for-the-host-picker";
 
 const browseError: ComponentProps<typeof SavedEnvironmentPanel> = {
