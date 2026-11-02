@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 import Dispatch
 import Network
@@ -44,21 +45,81 @@ enum PeerProcess {
     /// connections must neither occupy the cooperative pool nor run many scans at once.
     private static let scanQueue = DispatchQueue(label: "com.cmuxterm.next.remote-localhost.peer-scan", qos: .userInitiated)
 
-    /// `isTrusted`, run on ``scanQueue`` instead of the caller's thread. `scan` is the check itself
-    /// (tests substitute a slow one).
+    /// The longest a caller waits for its scan. A scan still queued then is skipped when its turn comes.
+    static let scanTimeout: Duration = .seconds(2)
+
+    /// `isTrusted`, run on ``scanQueue`` instead of the caller's thread. The wait is bounded and
+    /// cancellation-aware: after `timeout`, or when the caller's task is cancelled, it answers false
+    /// (not trusted) at once and its queued scan never runs, so a stalled scan cannot hold the callers
+    /// behind it. `scan` is the check itself (tests substitute one).
     static func isTrustedOffPool(
         peerHost: NWEndpoint.Host,
         peerPort: UInt16,
         localHost: NWEndpoint.Host,
         localPort: UInt16,
+        timeout: Duration = scanTimeout,
         scan: (@Sendable () -> Bool)? = nil
     ) async -> Bool {
-        await withCheckedContinuation { continuation in
-            scanQueue.async {
-                continuation.resume(returning: scan?() ?? isTrusted(
-                    peerHost: peerHost, peerPort: peerPort, localHost: localHost, localPort: localPort
-                ))
+        let request = ScanRequest()
+        // task-owner: one timer per scan; cancelled below once the scan answers
+        let timer = Task {
+            // wakeup-allow: one-shot bound on a scan's wait, cancelled when the scan answers
+            do { try await Task.sleep(for: timeout) } catch { return }
+            request.cancel()
+        }
+        defer { timer.cancel() }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                request.arm(continuation)
+                scanQueue.async {
+                    guard !request.isCancelled else { return }
+                    request.finish(scan?() ?? isTrusted(
+                        peerHost: peerHost, peerPort: peerPort, localHost: localHost, localPort: localPort
+                    ))
+                }
             }
+        } onCancel: {
+            request.cancel()
+        }
+    }
+
+    /// One scan's answer, delivered exactly once: the scan's result, or false when the wait was cancelled
+    /// or timed out first.
+    private final class ScanRequest: Sendable {
+        private struct State {
+            var continuation: CheckedContinuation<Bool, Never>?
+            var result: Bool?
+            var cancelled = false
+        }
+
+        private let state = Mutex(State())
+
+        var isCancelled: Bool { state.withLock { $0.cancelled } }
+
+        func arm(_ continuation: CheckedContinuation<Bool, Never>) {
+            let settled = state.withLock { state -> Bool? in
+                if let result = state.result { return result }
+                state.continuation = continuation
+                return nil
+            }
+            if let settled { continuation.resume(returning: settled) }
+        }
+
+        func finish(_ trusted: Bool) { settle(trusted) }
+
+        func cancel() {
+            state.withLock { $0.cancelled = true }
+            settle(false)
+        }
+
+        private func settle(_ value: Bool) {
+            let waiting = state.withLock { state -> CheckedContinuation<Bool, Never>? in
+                guard state.result == nil else { return nil }
+                state.result = value
+                defer { state.continuation = nil }
+                return state.continuation
+            }
+            waiting?.resume(returning: value)
         }
     }
 

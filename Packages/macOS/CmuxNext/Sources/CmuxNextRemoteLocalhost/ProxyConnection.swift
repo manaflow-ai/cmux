@@ -53,8 +53,9 @@ final class ProxyConnection: Sendable {
             deadline.cancel()
             return
         }
-        deadline.cancel()
+        // The deadline stays armed through the trust scan (itself bounded by its own timeout).
         let trusted = await trustedRoute()
+        deadline.cancel()
         guard let route = trusted ?? proxy.route(forAuthorization: head.proxyAuthorization) else {
             proxy.count(\.unauthorized)
             proxy.note("407 \(head.kind == .connect ? "CONNECT" : head.method) \(head.host):\(head.port) credential=\(head.proxyAuthorization == nil ? "none" : "wrong")")
