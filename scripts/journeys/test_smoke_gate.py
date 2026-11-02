@@ -645,6 +645,12 @@ class VideoGoldens(unittest.TestCase):
             with open(mod.GOLDEN_LEDGER / "J.jsonl", "a") as f:
                 f.write(json.dumps({"case": "routing-split", "status": "fail", "build_job": "J", "out": "/r"}) + "\n")
             self.assertIn("FAILED on J", mod.golden_blockers("J")[0][1])
+            self.assertEqual(mod.golden_list()[0], "listed")
+            # A list read once is what the check judges, whatever the file says later.
+            self.assertEqual(mod.golden_blockers("J", ("listed", [])), [])
+            self.assertIn("unreadable", mod.golden_blockers("J", ("unreadable: denied", []))[0][1])
+            mod.VIDEO_GOLDENS = Path(tmp) / "gone.txt"
+            self.assertEqual(mod.golden_list(), ("missing", []))
 
     def test_a_listed_golden_without_a_pass_holds_back_the_pass_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -656,6 +662,17 @@ class VideoGoldens(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
             if not summary["gate_dirty"]:  # the golden check runs after the committed-gate check
                 self.assertIn("has no golden PASS on job123", open(os.path.join(tmp, "out", "video-goldens.txt")).read())
+
+    def test_both_blockers_are_reported_together(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "open-p0.txt"), "w").write("some-p0 kit@1 owner S\n")
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("routing-split routing /g/a F1 owner\n")
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            self.assertEqual(code, 75)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            if not summary["gate_dirty"]:
+                self.assertTrue(os.path.exists(os.path.join(tmp, "out", "open-p0.txt")))
+                self.assertTrue(os.path.exists(os.path.join(tmp, "out", "video-goldens.txt")))
 
 
 class OpenP0(unittest.TestCase):

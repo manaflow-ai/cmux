@@ -414,15 +414,27 @@ VIDEO_GOLDENS = Path(os.environ.get("SMOKE_GATE_VIDEO_GOLDENS", "/Users/lawrence
 GOLDEN_LEDGER = Path(os.environ.get("SMOKE_GATE_GOLDEN_LEDGER", "/Users/lawrence/fun/wt/handoff/video-golden-results"))
 
 
-def golden_blockers(job):
-    """[(list line, why)] of the golden video cases that block a .pass for JOB: no PASS on JOB in the golden ledger,
-    or any FAIL. A missing list blocks nothing (no golden yet); an unreadable one blocks."""
-    if not VIDEO_GOLDENS.exists():
-        return []
+def golden_list():
+    """(state, [fields...]) of the golden list: ("missing", []) when there is no list (no golden yet), ("listed",
+    rows), or ("unreadable: <error>", []) when it or its folder cannot be read (that blocks the .pass)."""
     try:
-        listed = [l.split() for l in VIDEO_GOLDENS.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
+        if not VIDEO_GOLDENS.exists():
+            return "missing", []
+        return "listed", [l.split() for l in VIDEO_GOLDENS.read_text().splitlines()
+                          if l.strip() and not l.lstrip().startswith("#")]
     except OSError as error:
-        return [(str(VIDEO_GOLDENS), f"the golden list cannot be read ({error}): no .pass")]
+        return f"unreadable: {error}", []
+
+
+def golden_blockers(job, listing=None):
+    """[(list line, why)] of the golden video cases that block a .pass for JOB: no PASS on JOB in the golden ledger,
+    or any FAIL. A missing list blocks nothing (no golden yet); an unreadable one blocks. LISTING: golden_list()'s
+    answer, read once by the caller so the .pass names exactly the cases this check read.
+    Rollout: the list stays absent until the per-build golden runs write the ledger (video_golden.py after each
+    listed case's round on the build); a list without those runs blocks every .pass until they ran."""
+    state, listed = listing if listing is not None else golden_list()
+    if state.startswith("unreadable"):
+        return [(str(VIDEO_GOLDENS), f"the golden list is {state}: no .pass")]
     rows = []
     try:
         for text in (GOLDEN_LEDGER / f"{job}.jsonl").read_text().splitlines():
@@ -671,6 +683,8 @@ def main(argv=None):
             return 75
         waived = []
         blockers = open_p0_blockers(opts.build, waived)
+        listing = golden_list()
+        goldens = golden_blockers(opts.build, listing)
         if blockers:
             text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but an open P0 journey blocks the "
                               f".pass ({OPEN_P0}; --build must be the full job id):"]
@@ -678,19 +692,17 @@ def main(argv=None):
                              + [f"  waived FAIL {w['id']} {w['out']}: {w['reason']}" for w in waived])
             (out / "open-p0.txt").write_text(text + "\n")
             print(text, file=sys.stderr)
-            return 75
-        goldens = golden_blockers(opts.build)
         if goldens:
             text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but a golden video case blocks "
                               f"the .pass ({VIDEO_GOLDENS}; ledger {GOLDEN_LEDGER}):"]
                              + [f"  {line}: {why}" for line, why in goldens])
             (out / "video-goldens.txt").write_text(text + "\n")
             print(text, file=sys.stderr)
+        if blockers or goldens:
             return 75
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)
-        summary["video_goldens_checked"] = [l.split()[0] for l in VIDEO_GOLDENS.read_text().splitlines()
-                                            if l.strip() and not l.lstrip().startswith("#")] if VIDEO_GOLDENS.exists() else []
+        summary["video_goldens"] = {"list": listing[0], "checked": [f[0] for f in listing[1]]}
         summary["open_p0_waived"] = waived
         summary["open_p0_checked"] = [l.split()[0] for l in OPEN_P0.read_text().splitlines()
                                       if l.strip() and not l.lstrip().startswith("#")]
