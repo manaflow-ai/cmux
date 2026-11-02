@@ -149,6 +149,54 @@ extension LiveCoordinator {
     }
 }
 
+
+/** The Mac is part of a Cloud chat route: session IDs can repeat across Macs. */
+public struct CloudChatLocation: Hashable, Identifiable, Sendable {
+    public let macID: String
+    public let machine: CloudChatMachine
+    public var id: String { macID + "\u{1}" + machine.id }
+
+    public init(macID: String, machine: CloudChatMachine) {
+        self.macID = macID
+        self.machine = machine
+    }
+}
+
+/// A Cloud attention names a (team, machine), never a Mac. Consult freshly
+/// authenticated paired-Mac directories; a failed lookup grants no access.
+/// Work is bounded to four concurrent reads (the phone's live link budget).
+public enum CloudChatAttentionResolver {
+    public static func find(
+        macIDs: [String], attention: CloudChatAttention,
+        directory: @escaping @Sendable (String) async throws -> [CloudChatMachine]
+    ) async -> CloudChatLocation? {
+        let ids = Array(Set(macIDs)).sorted()
+        return await withTaskGroup(of: CloudChatLocation?.self) { group in
+            var next = 0
+            func addNext() {
+                guard next < ids.count else { return }
+                let macID = ids[next]
+                next += 1
+                group.addTask {
+                    guard !Task.isCancelled, let listed = try? await directory(macID) else { return nil }
+                    return CloudChatDirectory.scopedMachines(listed, attention: attention)
+                        .first.map { CloudChatLocation(macID: macID, machine: $0) }
+                }
+            }
+            for _ in 0..<min(ids.count, 4) { addNext() }
+            while let match = await group.next() {
+                guard !Task.isCancelled else { group.cancelAll(); return nil }
+                if let match {
+                    group.cancelAll()
+                    return match
+                }
+                addNext()
+            }
+            return nil
+        }
+    }
+}
+
 /// A directory is a single JSON document followed by EOF. The deadline closes
 /// its channel so a disappeared Mac cannot leave a refresh suspended forever.
 public enum CloudChatDirectory {

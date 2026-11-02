@@ -3869,13 +3869,17 @@ jobs:
       # they do not compete with the other MainActor-isolated suites.
       - name: Run package tests (changed suites first, then selected targets)
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
-        timeout-minutes: 30
+        timeout-minutes: 40
         working-directory: Packages/macOS/CmuxNext
         env:
           # Whole-run limit per pass. The hang guard is the stall rule (no test
           # finished in CMUX_NEXT_TEST_STUCK_SECONDS, default 300), so a real
           # hang ends in ~5 min; this only caps a slow healthy pass (~860 s).
-          # Both passes share one deadline below the step's 30 minutes.
+          # Both passes share one deadline below the step's 40 minutes. On a
+          # 6-vCPU overflow Mac the shards run one at a time (width 1): the
+          # broad pass took 1,266-1,371 s over four runs and 1,725 s in run
+          # 41372093339, where the last shard (CmuxNextAppTests.Cloud, ~90 s
+          # alone) started with 33 s left and was cut at its 60 s floor.
           CMUX_NEXT_TEST_HANG_SECONDS: "1500"
           # One Swift Testing test at a time inside each shard process; the
           # shards themselves run side by side (swift-test-shards.py). A test's
@@ -3893,7 +3897,7 @@ jobs:
           echo "Test targets: $SWIFT_TARGETS"
           # One deadline for both passes, 2 min inside the step timeout, so a pass
           # hung before any test starts is still sampled and reported.
-          deadline=$(( $(date +%s) + 1680 ))
+          deadline=$(( $(date +%s) + 2280 ))
           # The heavy suites only ever run in their own step: never --skip "" (an
           # empty pattern matches, and so skips, every test).
           heavy_skip=()
@@ -5969,6 +5973,27 @@ jobs:
       # cmux-next-dev-daily.yml. Keep this separate from the Debug dogfood
       # product: the daily channel has its own stable identity and must never
       # replace the existing PR artifact.
+      # A Blacksmith VM keeps no cache between jobs, so its DEV compile's Xcode compilation cache
+      # rides Blacksmith's own actions/cache, served next to the runner, as classic's nightly does
+      # (Leo, 2026-10-26: "just give them the cache"). The newest entry under the key's prefix
+      # restores; a mini keeps its cache on disk and skips these (scripts/cmux-next/dev-vm-cas-key.sh).
+      - name: Key the DEV compile cache (Blacksmith)
+        id: vm-cas
+        if: ${{ inputs.dev_daily == true && steps.dev-product.outputs.hit != 'true' && startsWith(env.CMUX_NEXT_RUNNER, 'blacksmith-') && format('{0}', vars.CMUX_NEXT_DEV_COMPILATION_CACHE) != '0' }}
+        continue-on-error: true
+        env:
+          CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
+        run: scripts/cmux-next/dev-vm-cas-key.sh >> "$GITHUB_OUTPUT"
+      - name: Restore the DEV compile cache (Blacksmith)
+        id: vm-cas-restore
+        if: steps.vm-cas.outputs.prefix != ''
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.vm-cas.outputs.path }}
+          key: ${{ steps.vm-cas.outputs.prefix }}${{ github.sha }}
+          restore-keys: ${{ steps.vm-cas.outputs.prefix }}
       - name: Compile the cmux NEXT DEV Release app
         id: compile-cmux-next-dev-release
         if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
@@ -5995,6 +6020,9 @@ jobs:
           # CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE=wholemodule (or singlefile, everywhere).
           CMUX_NEXT_COMPILATION_CACHE: ${{ vars.CMUX_NEXT_DEV_COMPILATION_CACHE || '1' }}
           CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
+          # A miss is a restore that succeeded (singlefile fills the line); a failed restore
+          # compiles as before, whole-module with no cache.
+          CMUX_NEXT_DEV_VM_CACHE: ${{ steps.vm-cas-restore.outcome == 'success' && '1' || '' }}
           CMUX_NEXT_DEV_COMPILE_REPORT: ${{ runner.temp }}/cmux-next-dev-landing/report.txt
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/metrics.json
@@ -6012,8 +6040,8 @@ jobs:
             echo "archive=$archive" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Only a mini keeps the cache between jobs; a fresh VM would pay to fill it.
-          [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]] || export CMUX_NEXT_COMPILATION_CACHE=0
+          # A mini keeps the cache between jobs; a Blacksmith VM got it from actions/cache above.
+          [[ "$CMUX_NEXT_RUNNER" == glaeda-* || "${CMUX_NEXT_DEV_VM_CACHE:-}" == 1 ]] || export CMUX_NEXT_COMPILATION_CACHE=0
           # With the cache on, a mini builds from one fixed tree and DerivedData per host under a
           # host lock, so the cache's path-holding keys match across its runner instances; a busy
           # lock or a failed setup builds per runner at once (compile-dev-release.sh).
@@ -6021,6 +6049,16 @@ jobs:
           scripts/cmux-next/compile-dev-release.sh "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
+      # The compile already pruned it to its bound (or dropped it past 6 GiB: lib/compilation-cache.sh).
+      - name: Save the DEV compile cache (Blacksmith)
+        # Only a vm-mode (singlefile) build's cache: a whole-module one would replay nothing.
+        if: steps.vm-cas-restore.outcome == 'success' && steps.compile-cmux-next-dev-release.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.vm-cas.outputs.path }}
+          key: ${{ steps.vm-cas.outputs.prefix }}${{ github.sha }}
       # A host build moved this host's cache: the record the next landing's placement reads.
       - name: Record this host's cache for the next landing's placement
         id: dev-holder

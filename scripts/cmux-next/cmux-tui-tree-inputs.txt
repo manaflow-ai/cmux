@@ -83,4 +83,3 @@ blob skills/cmux-browser/templates/capture-workflow.sh
 blob skills/cmux-browser/templates/form-automation.sh
 blob skills/cmux-cua/SKILL.md
 blob skills/cmux/SKILL.md
-blob Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/setup-guide.json

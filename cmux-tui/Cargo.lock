@@ -1691,6 +1691,7 @@ dependencies = [
  "crossbeam-channel",
  "crossterm",
  "flate2",
+ "fs4",
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",

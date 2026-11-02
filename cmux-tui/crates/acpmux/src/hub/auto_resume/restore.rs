@@ -195,7 +195,9 @@ impl Hub {
         // the writer off this synchronous path, then reclaim restoration for this instance.
         let delays = match self.config.try_read() {
             Ok(config) => {
-                config.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
+                let configured = config.auto_resume_delays_ms.clone();
+                drop(config);
+                super::effective_delays(configured)
             }
             Err(_) => {
                 let (hub, session) = (self.clone(), session.clone());

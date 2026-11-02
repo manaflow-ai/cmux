@@ -1,5 +1,6 @@
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
+import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
 import { isModelRouterKind } from "./routerKinds";
@@ -1813,6 +1814,7 @@ export class AcpmuxDirectClient {
   private turnPrompt?: string;
   private lastSeq = 0;
   private turnOpen = false;
+  private autoResumedAttempt: number | undefined;
   /// The open turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. acpmux hearing
   /// the model (`turn_heard`), or the turn's end, clears it; the agent's own bookkeeping does not.
@@ -2418,7 +2420,9 @@ export class AcpmuxDirectClient {
           attachedRow,
           ...this.sessions.filter((session) => session.sessionId !== attachedRow.sessionId),
         ];
-      else if (first && !linkedLater) this.sessions = first.sessions;
+      // Live notices can arrive while status is pending, before this first page is installed.
+      // Keep their newer rows (and purges) when replacing the previous list.
+      else if (first && !linkedLater) this.sessions = this.sessionPages.settle(first.sessions);
       else {
         // A linked chat older than the first page, or a lagged watch restarted the list: read the
         // whole list before calling the chat missing.
@@ -2658,6 +2662,7 @@ export class AcpmuxDirectClient {
     this.lastSeq = 0;
     this.clockOffset = undefined;
     this.summary = undefined;
+    this.autoResumedAttempt = undefined;
     this.configSeq = 0;
     this.limitsSeq = 0;
     this.limitsVersion += 1;
@@ -4727,6 +4732,7 @@ export class AcpmuxDirectClient {
     this.lastSeq = 0;
     this.turnOpen = false;
     this.runningTurnId = undefined;
+    this.autoResumedAttempt = undefined;
     this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
@@ -5476,6 +5482,9 @@ export class AcpmuxDirectClient {
       ) {
         // The steer of a prompt already drawn below (it ran as that prompt): shown once, as the prompt.
       } else if (event.kind === "user_message") {
+        // The continuation's raw instructions stay hidden. Its provenance supplies only the
+        // attempt marker; a new prompt clears it, while a steer keeps the same turn's marker.
+        if (msg.steer !== true) this.autoResumedAttempt = autoResumeAttempt(msg);
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
@@ -6220,6 +6229,9 @@ export class AcpmuxDirectClient {
     this.listener({
       type: "snapshot",
       protocolVersion: 1,
+      ...(this.replayThrough === undefined
+        ? { autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt) }
+        : {}),
       rows: publishedRows,
       subagentViews: this.subagents.views(),
       ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),

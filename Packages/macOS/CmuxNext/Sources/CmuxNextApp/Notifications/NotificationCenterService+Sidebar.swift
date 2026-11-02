@@ -11,10 +11,10 @@ import CmuxNextDesign
 /// notifications posted before launch).
 extension NotificationCenterService {
     /// Moves a notified workspace first in its group, else first among the
-    /// loose rows, as Move Workspace to Top does. A pinned workspace, a muted
+    /// loose rows, as Move Workspace to Top does (`finishedTurn`: an agent's, cmux#31513). A pinned workspace, a muted
     /// one and one a window shows stay where they are.
-    func moveToTop(_ workspace: WorkspaceModel) {
-        guard let services, DesignSettings.shared.attention.movesToTop, !workspace.pinned,
+    func moveToTop(_ workspace: WorkspaceModel, finishedTurn: Bool) {
+        guard let services, DesignSettings.shared.attention.movesToTop(finishedTurn: finishedTurn), !workspace.pinned,
               !preferences.mutedWorkspaces.contains(workspace.id),
               !services.windows.controllers.contains(where: { $0.state.workspaceID == workspace.id }),
               let owner = services.windows.registry.value.owner(of: workspace.id),

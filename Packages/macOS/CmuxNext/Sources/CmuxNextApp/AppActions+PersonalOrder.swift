@@ -9,12 +9,11 @@ extension AppActions {
     /// session (the workspace's own daemon order is not touched).
     static func movePersonalWorkspace(_ services: AppServices, _ invocation: ActionInvocation, by offset: Int) {
         guard let workspace = scope(services, invocation).workspace, let sidebar = services.windows.active?.sidebar else { return }
-        let machines = services.machines
+        let machines = services.machines, doc = services.sidebarDoc
         let visible = sidebar.model.selectableWorkspaces.map(\.id)
         guard let position = visible.firstIndex(of: SidebarWorkspaceID(workspace.id)) else {
             // A pinned workspace has no list row: it moves one place among the items of its section (Pinned).
-            if let store = SidebarDocStore.current, SidebarDocWiring.isActive,
-               let item = SidebarDocWiring.item(workspace: workspace.id, machines),
+            if let store = doc.activeStore, let item = doc.item(workspace: workspace.id),
                let to = store.shown?.layout.stepMoveTarget(item, by: offset) {
                 store.move([item], to: to, title: SidebarDocStore.moveTitle)
             } else if let ref = WorkspaceLayoutRefs(machines: machines).ref(forWorkspace: workspace.id),
@@ -31,9 +30,8 @@ extension AppActions {
         let target = visible[position + offset]
         sidebar.model.noteUserMove() // the structural set that shows this move may reveal the moved row
         // The sidebar document: one move next to the row the person sees above or below (no personal order).
-        if let store = SidebarDocStore.current, SidebarDocWiring.isActive,
-           let item = SidebarDocWiring.item(workspace: workspace.id, machines),
-           let anchor = SidebarDocWiring.item(workspace: target.rawValue, machines), let section = store.records.items[anchor]?.section {
+        if let store = doc.activeStore, let item = doc.item(workspace: workspace.id),
+           let anchor = doc.item(workspace: target.rawValue), let section = store.records.items[anchor]?.section {
             let parent = store.records.items[anchor]?.parent
             let to = offset > 0 ? SidebarDocTarget(section: section, parent: parent, after: anchor) : SidebarDocTarget(section: section, parent: parent, before: anchor)
             return store.move([item], to: to, title: SidebarDocStore.moveTitle)
