@@ -93,18 +93,39 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
 }
 
 /// The hub's ICE servers as the cmux.rd link takes them: STUN servers for this
-/// side's public address (`host:port`). TURN relays follow once the link has
-/// its relay carrier.
+/// side's public address, and TURN relays (UDP) with their credentials for a
+/// relayed path when no direct one works. `turns:` and TCP-only relays are not
+/// carriers of the link yet and are left out.
 nonisolated struct MacScreenRdServers: Equatable, Sendable {
+    struct Turn: Encodable, Equatable, Sendable {
+        var addr: String
+        var username: String
+        var password: String
+    }
+
     var stun: [String] = []
+    var turn: [Turn] = []
 
     init(_ servers: [ICEServerConfig]) {
-        for url in servers.flatMap(\.urls) {
-            guard url.hasPrefix("stun:") else { continue }
-            let address = url.dropFirst("stun:".count).split(separator: "?").first.map(String.init) ?? ""
-            if !address.isEmpty, !stun.contains(address) {
-                stun.append(address.contains(":") ? address : address + ":3478")
+        for server in servers {
+            for url in server.urls {
+                let parts = url.split(separator: "?", maxSplits: 1)
+                let query = parts.count > 1 ? String(parts[1]) : ""
+                if url.hasPrefix("stun:") {
+                    let address = Self.address(parts[0].dropFirst("stun:".count))
+                    if !address.isEmpty, !stun.contains(address) { stun.append(address) }
+                } else if url.hasPrefix("turn:"), !query.contains("transport=tcp"),
+                          let username = server.username, let password = server.credential {
+                    let address = Self.address(parts[0].dropFirst("turn:".count))
+                    let relay = Turn(addr: address, username: username, password: password)
+                    if !address.isEmpty, !turn.contains(relay) { turn.append(relay) }
+                }
             }
         }
+    }
+
+    /// `host` or `host:port` as `host:port` (3478 by default).
+    private static func address(_ text: Substring) -> String {
+        text.isEmpty ? "" : (text.contains(":") ? String(text) : String(text) + ":3478")
     }
 }

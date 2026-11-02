@@ -34,6 +34,9 @@ struct Answer {
     peer_key: String,
     #[serde(default)]
     stun: Vec<String>,
+    /// The hub's TURN relays, for a relayed path when no direct one works.
+    #[serde(default)]
+    turn: Vec<crate::carrier::TurnSetup>,
     #[serde(default)]
     candidates: Vec<String>,
     socket: String,
@@ -89,7 +92,7 @@ pub fn run() -> Res<()> {
         expected_remote: peer,
         stun,
         bind: "0.0.0.0:0".parse()?,
-        turn: Vec::new(),
+        turn: crate::carrier::turn_servers(&answer.turn),
     })?;
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);

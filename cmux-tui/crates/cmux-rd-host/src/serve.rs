@@ -54,6 +54,9 @@ struct Setup {
     scope: String,
     #[serde(default)]
     stun: Vec<String>,
+    /// The hub's TURN relays, for a relayed path when no direct one works.
+    #[serde(default)]
+    turn: Vec<crate::carrier::TurnSetup>,
     #[serde(default)]
     display: Option<String>,
     #[serde(default)]
@@ -204,7 +207,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         expected_remote: peer_key,
         stun,
         bind: "0.0.0.0:0".parse()?,
-        turn: Vec::new(),
+        turn: crate::carrier::turn_servers(&setup.turn),
     })?;
     // SAFETY: fcntl on our own stdin, after the blocking setup read.
     unsafe {
@@ -215,7 +218,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         );
     }
     let mut carrier = ServeCarrier {
-        link: LinkCarrier { net, paths: Vec::new() },
+        link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
         app: AppLines { buf: Vec::new() },
     };
     let reason = match serve_session(opts, &setup, view_only, &mut carrier) {
@@ -333,6 +336,13 @@ fn serve_session(
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
+        // Enough frames in flight to cover the path's round trip, at least two: the next
+        // frame encodes while the last one waits for its acknowledgement.
+        frames_in_flight: carrier
+            .link
+            .rtt_us
+            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, setup.max_fps.unwrap_or(60)))
+            .max(2),
     };
     let mut media = MediaSession::open(&cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
     let (width, height) = media.size();

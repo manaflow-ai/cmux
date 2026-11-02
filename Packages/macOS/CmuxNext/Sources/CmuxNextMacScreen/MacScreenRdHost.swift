@@ -111,6 +111,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                 process.send(Setup(session: session.id, peerKey: offer.key,
                                    viewer: Setup.Viewer(user: session.viewerID, install: session.viewerID),
                                    scope: session.viewOnly ? "view" : "control", stun: session.servers.stun,
+                                   turn: session.servers.turn,
                                    display: offer.display.map(String.init) ?? "main", maxFps: offer.maxFps.map { min($0, 120) },
                                    maxWidth: offer.maxWidth))
                 for candidate in offer.candidates { process.send(Later(candidate: candidate)) }
@@ -141,12 +142,13 @@ nonisolated final class MacScreenRdHost: Sendable {
         var viewer: Viewer
         var scope: String
         var stun: [String]
+        var turn: [MacScreenRdServers.Turn]
         var display: String
         var maxFps: Int?
         var maxWidth: Int?
 
         enum CodingKeys: String, CodingKey {
-            case session, viewer, scope, stun, display
+            case session, viewer, scope, stun, turn, display
             case peerKey = "peer_key"
             case maxFps = "max_fps"
             case maxWidth = "max_width"
