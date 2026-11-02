@@ -283,6 +283,28 @@ struct ClassicUpgradeSimulationTests {
         await sim.shutdown()
     }
 
+    /// A classic group keeps its members' order when other workspaces sit between them in classic's list (#28425).
+    /// Each workspace first takes the bottom of the loose rows, then joins its group; the group must take it after
+    /// its last member, not after the loose row it followed (which put every later member first in the group).
+    @Test func aGroupKeepsItsOrderWithWorkspacesBetweenItsMembers() async throws {
+        typealias Workspace = ClassicUpgradeProfile.Workspace
+        let workspaces: [Workspace] = [
+            Workspace(title: "first", group: "G-SPREAD"), Workspace(title: "loose 1"),
+            Workspace(title: "second", group: "G-SPREAD"), Workspace(title: "loose 2"),
+            Workspace(title: "third", group: "G-SPREAD"),
+        ]
+        let profile = ClassicUpgradeProfile(name: "spread", windows: [ClassicUpgradeProfile.Window(
+            workspaces: workspaces, groups: [ClassicUpgradeProfile.Group(id: "G-SPREAD", name: "Spread")])])
+        let mac = try ClassicUpgradeSimulator.Mac()
+        try mac.save(profile)
+        let before = try mac.classicDigest()
+        let sim = try ClassicUpgradeSimulator(mac: mac)
+        _ = await sim.launch()
+        await sim.settle()
+        try sim.verify(profile, classicBefore: before)
+        await sim.shutdown()
+    }
+
     /// Background workspaces come over parked: their tabs stay, their shells
     /// do not run (no PTY), and showing one starts its terminals in place.
     @Test func backgroundWorkspacesStartTheirTerminalsWhenFirstShown() async throws {
