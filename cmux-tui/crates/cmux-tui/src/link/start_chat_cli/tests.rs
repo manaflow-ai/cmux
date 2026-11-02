@@ -1711,9 +1711,12 @@ fn setup_state_requires_the_exact_ready_environment_snapshot() {
         Some("snap_prepared"),
     )
     .unwrap();
-    assert_eq!(running, json!({
-        "state": "running", "status": "building", "started_at": 1000, "finished_at": 3500
-    }));
+    assert_eq!(
+        running,
+        json!({
+            "state": "running", "status": "building", "started_at": 1000, "finished_at": 3500
+        })
+    );
 
     // An environment that failed after the builder installed packages is still failed.
     let failed = setup_state(
@@ -1723,7 +1726,10 @@ fn setup_state_requires_the_exact_ready_environment_snapshot() {
         Some("snap_prepared"),
     )
     .unwrap();
-    assert_eq!(failed, json!({"state": "failed", "status": "failed", "error": "verification exited 1"}));
+    assert_eq!(
+        failed,
+        json!({"state": "failed", "status": "failed", "error": "verification exited 1"})
+    );
 
     let missing_script = setup_state(&json!({"status": "building", "steps": []}), None).unwrap();
     assert_eq!(missing_script, json!({"state": "running", "status": "building"}));
@@ -1735,12 +1741,21 @@ fn setup_state_requires_the_exact_ready_environment_snapshot() {
         None,
     )
     .unwrap();
-    assert_eq!(failed_install, json!({"state": "failed", "status": "failed", "error": "setup exited 1"}));
+    assert_eq!(
+        failed_install,
+        json!({"state": "failed", "status": "failed", "error": "setup exited 1"})
+    );
 
     // Old clients and responses may have a 'ready' status without a snapshot id:
     // status alone must never be treated as an install receipt for the machine.
-    assert_eq!(setup_state(&json!({"status": "ready", "steps": []}), Some("snap_unknown")).unwrap()["state"], json!("unverified"));
-    assert_eq!(setup_state(&json!({"steps": [{"id": "install", "state": "done"}]}), None).unwrap()["state"], json!("unverified"));
+    assert_eq!(
+        setup_state(&json!({"status": "ready", "steps": []}), Some("snap_unknown")).unwrap()["state"],
+        json!("unverified")
+    );
+    assert_eq!(
+        setup_state(&json!({"steps": [{"id": "install", "state": "done"}]}), None).unwrap()["state"],
+        json!("unverified")
+    );
     assert_eq!(setup_state(&json!({"status": "missing", "steps": []}), None), None);
 }
 
