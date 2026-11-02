@@ -286,6 +286,8 @@ struct CloudMove {
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
         try CloudHandlers.requireAttachableState(session)
+        // wakeup-allow: bounded (60 reads, 3 s apart) while a new machine provisions; ends when it runs
+        await session.untilRunning(pause: { _ in try await ContinuousClock().sleep(for: .seconds(3)) })
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
             try CloudHandlers.requireAttachableState(session)
