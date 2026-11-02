@@ -17,7 +17,8 @@
 //! index, logs and in-progress state over it. A repository that borrows
 //! objects from another (`objects/info/alternates`, as `git clone --shared`
 //! or `--reference` and worktree mirrors make) arrives standing alone: the
-//! borrowed stores' object files go into its `objects/` too, and the
+//! borrowed stores' object files (git's own: loose objects, packs, commit
+//! graphs; nothing else of those folders) go into its `objects/` too, and the
 //! alternates file, whose paths name folders of this Mac, never goes.
 //!
 //! Outside git, every regular file of the folder goes, except for a chat's
@@ -188,6 +189,12 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
             if borrowed_skipped(relative) {
                 return Ok(());
             }
+            // Only git's own object files go: anything else in a borrowed
+            // folder (which may be anywhere on this Mac) stays, counted.
+            if !borrowed_object(relative) {
+                set.skipped += 1;
+                return Ok(());
+            }
             let target = format!(".git/objects/{relative}");
             if set.files.contains_key(&target) {
                 return Ok(());
@@ -288,6 +295,37 @@ fn borrowed_skipped(relative: &str) -> bool {
     ) || relative.starts_with("pack/multi-pack-index")
         || relative.ends_with(".lock")
         || relative.rsplit('/').next().is_some_and(|name| name.starts_with("tmp_"))
+}
+
+/// Whether a file of a borrowed object folder (by its path in the folder)
+/// is one of git's object files: a loose object (`xx/` and 38 more hex
+/// digits, 62 for SHA-256), a pack and its companions, or a commit graph.
+/// Symlinks are never followed ([`walk`], [`add`]).
+fn borrowed_object(relative: &str) -> bool {
+    let hex = |text: &str| {
+        !text.is_empty() && text.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    };
+    let parts: Vec<&str> = relative.split('/').collect();
+    match parts.as_slice() {
+        [dir, file] if dir.len() == 2 && hex(dir) => matches!(file.len(), 38 | 62) && hex(file),
+        ["pack", file] => file
+            .strip_prefix("pack-")
+            .and_then(|rest| rest.split_once('.'))
+            .is_some_and(|(hash, extension)| {
+                hex(hash)
+                    && matches!(
+                        extension,
+                        "pack" | "idx" | "rev" | "promisor" | "bitmap" | "mtimes" | "keep"
+                    )
+            }),
+        ["info", "commit-graph"] => true,
+        ["info", "commit-graphs", "commit-graph-chain"] => true,
+        ["info", "commit-graphs", file] => file
+            .strip_prefix("graph-")
+            .and_then(|rest| rest.strip_suffix(".graph"))
+            .is_some_and(hex),
+        _ => false,
+    }
 }
 
 /// A working copy's own git folder and the common one (the same folder
@@ -614,7 +652,100 @@ fn without_user_info(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{borrowed_skipped, unquote};
+    use std::path::Path;
+    use std::process::Command;
+
+    use super::{Rules, borrowed_object, borrowed_skipped, collect, unquote};
+
+    #[test]
+    fn only_git_object_files_of_a_borrowed_store_go() {
+        let loose = format!("ab/{}", "c".repeat(38));
+        let loose_sha256 = format!("ab/{}", "c".repeat(62));
+        for goes in [
+            loose.as_str(),
+            loose_sha256.as_str(),
+            "pack/pack-0123abcd.pack",
+            "pack/pack-0123abcd.idx",
+            "pack/pack-0123abcd.rev",
+            "pack/pack-0123abcd.promisor",
+            "pack/pack-0123abcd.bitmap",
+            "pack/pack-0123abcd.mtimes",
+            "pack/pack-0123abcd.keep",
+            "info/commit-graph",
+            "info/commit-graphs/commit-graph-chain",
+            "info/commit-graphs/graph-0123abcd.graph",
+        ] {
+            assert!(borrowed_object(goes), "{goes}");
+        }
+        for stays in [
+            ".env",
+            "ab/.env",
+            "ab/cdef",
+            "AB/CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+            "zz/cccccccccccccccccccccccccccccccccccccc",
+            "pack/.env",
+            "pack/pack-0123abcd.pack.lock",
+            "pack/pack-.pack",
+            "pack/notes.txt",
+            "info/exclude",
+            "info/commit-graphs/secret.txt",
+            "deep/er/file",
+        ] {
+            assert!(!borrowed_object(stays), "{stays}");
+        }
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    }
+
+    /// A stray file in a borrowed object folder (a `.env`, a note) never
+    /// goes; its loose objects and packs do.
+    #[test]
+    fn a_stray_file_in_a_borrowed_store_stays_here() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let base = root.join("base");
+        std::fs::create_dir(&base).unwrap();
+        git(&base, &["init", "-q"]);
+        std::fs::write(base.join("a.txt"), "a\n").unwrap();
+        git(&base, &["add", "a.txt"]);
+        git(&base, &["commit", "-q", "-m", "packed"]);
+        git(&base, &["repack", "-q", "-a", "-d"]);
+        std::fs::write(base.join("b.txt"), "b\n").unwrap();
+        git(&base, &["add", "b.txt"]);
+        git(&base, &["commit", "-q", "-m", "loose"]);
+        let objects = base.join(".git/objects");
+        std::fs::write(objects.join(".env"), "TOKEN=x\n").unwrap();
+        std::fs::write(objects.join("pack/notes.txt"), "x\n").unwrap();
+        std::fs::create_dir(objects.join("stray")).unwrap();
+        std::fs::write(objects.join("stray/id_rsa"), "x\n").unwrap();
+        git(&root, &["clone", "-q", "--shared", "base", "copy"]);
+        let copy = root.join("copy");
+
+        let set = collect(&copy, Rules::Copy).unwrap();
+        let borrowed: Vec<&str> =
+            set.files.keys().filter_map(|path| path.strip_prefix(".git/objects/")).collect();
+        assert!(
+            borrowed.iter().any(|path| path.starts_with("pack/pack-") && path.ends_with(".pack")),
+            "no pack went: {borrowed:?}"
+        );
+        assert!(
+            borrowed.iter().any(|path| path.len() == 41 && path.as_bytes()[2] == b'/'),
+            "no loose object went: {borrowed:?}"
+        );
+        for stray in [".env", "pack/notes.txt", "stray/id_rsa", "info/alternates"] {
+            assert!(!borrowed.contains(&stray), "{stray} went: {borrowed:?}");
+        }
+        assert!(set.skipped >= 3, "the stray files were not counted: {}", set.skipped);
+    }
 
     #[test]
     fn an_alternates_line_is_a_path_plain_or_c_quoted() {
