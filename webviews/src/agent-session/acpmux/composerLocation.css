@@ -1118,8 +1118,10 @@
 .acpmux-location-row[data-worktree] { padding-inline-start: 28px; }
 .acpmux-location-branch-icon { display: inline-flex; flex: none; justify-content: center; width: 20px; color: var(--agent-muted); }
 /* One column for every name (Leo 2026-10-21, "aligned columns"): the actions after the folders start
-   where a repository's name does, past the 20 px badge and its 8 px gap. */
-.acpmux-folder-popover .acpmux-location-action { padding-inline-start: 28px; }
+   where a repository's name does, past the 20 px badge and the shared icon gap. */
+.acpmux-folder-popover .acpmux-location-action {
+  padding-inline-start: calc(20px + var(--cmux-menu-icon-gap));
+}
 .acpmux-location-worktrees {
   display: inline-flex;
   flex: none;

@@ -286,26 +286,35 @@ const openComputer: Play = async (ctx) => {
   );
 };
 
+const openEnvironment: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+};
+
 // Menu-grid experiment arms for the custom environment picker. The shared arm is the shipped
 // choice; the other two keep the old and an over-tight inset visible for side-by-side captures.
-const openComputerWithInsetArm =
+const applyMenuGridArm = (ctx: Parameters<Play>[0], arm: "legacy" | "shared" | "compact") => {
+  const style = ctx.document.createElement("style");
+  const inset =
+    arm === "shared"
+      ? "calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding))"
+      : arm === "compact"
+        ? "var(--cmux-menu-highlight-inset)"
+        : "var(--ui-row-padding-inline)";
+  const gap = arm === "compact" ? "4px" : arm === "shared" ? "var(--cmux-menu-icon-gap)" : "8px";
+  style.dataset.galleryMenuGridArm = arm;
+  style.textContent = `
+    .acpmux-location-menu .acpmux-menu-item { padding-inline: ${inset}; }
+    .acpmux-location-menu .acpmux-location-row { gap: ${gap}; }
+  `;
+  ctx.document.head.append(style);
+};
+
+const openEnvironmentWithInsetArm =
   (arm: "legacy" | "shared" | "compact"): Play =>
   async (ctx) => {
-    await openComputer(ctx);
-    const style = ctx.document.createElement("style");
-    const inset =
-      arm === "shared"
-        ? "calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding))"
-        : arm === "compact"
-          ? "var(--cmux-menu-highlight-inset)"
-          : "var(--ui-row-padding-inline)";
-    const gap = arm === "compact" ? "4px" : arm === "shared" ? "var(--cmux-menu-icon-gap)" : "8px";
-    style.dataset.galleryMenuGridArm = arm;
-    style.textContent = `
-      .acpmux-location-menu .acpmux-menu-item { padding-inline: ${inset}; }
-      .acpmux-location-menu .acpmux-location-row { gap: ${gap}; }
-    `;
-    ctx.document.head.append(style);
+    await openEnvironment(ctx);
+    applyMenuGridArm(ctx, arm);
   };
 
 /// The environment control's machine list: Machines… on its right-click menu (its main list is This
@@ -398,18 +407,18 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "menu-grid-legacy": {
       note: "Experiment arm: the old 8px row inset and icon gap, which leaves environment labels off the shared menu column.",
-      props: baseProps,
-      play: openComputerWithInsetArm("legacy"),
+      props: { ...baseProps, environments: true },
+      play: openEnvironmentWithInsetArm("legacy"),
     },
     "menu-grid-shared": {
       note: "Experiment arm: the shared AppKit menu grid (15px icon lead, 35px icon-row text, 6px icon gap); this is the shipped choice.",
-      props: baseProps,
-      play: openComputerWithInsetArm("shared"),
+      props: { ...baseProps, environments: true },
+      play: openEnvironmentWithInsetArm("shared"),
     },
     "menu-grid-compact": {
       note: "Experiment arm: a tighter 5px inset and 4px icon gap, rejected because it crowds icons against the popup edge.",
-      props: baseProps,
-      play: openComputerWithInsetArm("compact"),
+      props: { ...baseProps, environments: true },
+      play: openEnvironmentWithInsetArm("compact"),
     },
     "folder-pinned-search": {
       note: "Typing a project keeps its row active while the actions stay pinned above it.",
