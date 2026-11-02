@@ -213,7 +213,7 @@ final class CreationInputCoordinator {
         if replaying.on { return !replaying.lane && kind == .content && keepsFromWindow(event, in: shell) }
         // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown
         // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4); a second one gets its own lane.
-        if buffers[shell.windowNumber].map({ $0.awaitedTab != nil }) ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
+        if buffers[shell.windowNumber].map({ $0.awaitedTab != nil || $0.personLeftEveryCreation }) ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
            let lane = Self.awaitedSurface(controller), buffers[shell.windowNumber]?.awaitedTab != lane.tab {
             buffer(in: shell).awaitSurface(of: lane)
         }
@@ -222,7 +222,7 @@ final class CreationInputCoordinator {
         // A key typed while the person's new workspace's terminal is on its way and they have not moved on is that terminal's.
         // Automation's focus move (a new generation) does not take the key from it: the claim decides first.
         let forNewWorkspace = claimHolds(in: shell) || controller.map { buffer.newestGeneration == $0.focus.state.generation } ?? false
-        if kind == .content, buffer.passesOn(focusedTab: controller?.focus.state.typingTab) { return false } // the person moved on
+        if kind == .content, let controller, buffer.passesOn(focusedTab: controller.focus.state.typingTab), Self.responderTakesKeys(controller, window: shell) { return false } // moved on
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
         let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
         // A close of a pending creation of this hold (the focus it asked for is still on its way):

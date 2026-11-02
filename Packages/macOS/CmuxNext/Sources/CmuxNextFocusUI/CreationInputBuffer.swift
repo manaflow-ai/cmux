@@ -195,11 +195,15 @@ public final class CreationInputBuffer {
         newestGeneration = nil
     }
 
+    /// Every creation of this hold is a new workspace the person moved on from (``personMovedOn()``): a focused terminal
+    /// still to show takes the keys typed now in its own lane, as with no hold (REOPEN-F4, review of #32148).
+    public var personLeftEveryCreation: Bool { nextID > 0 && movedOnFrom.count == nextID }
+
     /// Whether a key typed now with the focus on `focusedTab` goes on to the view at once: the person moved on from every
     /// creation of this hold (new workspaces only), the key is for no creation's or surface's terminal, and no key that
     /// runs as typed waits before it (their order).
     public func passesOn(focusedTab: String?) -> Bool {
-        guard nextID > 0, movedOnFrom.count == nextID, lane(focusedTab: focusedTab) == nil else { return false }
+        guard personLeftEveryCreation, lane(focusedTab: focusedTab) == nil else { return false }
         return !events.contains { $0.creation == nil }
     }
 
@@ -243,7 +247,7 @@ public final class CreationInputBuffer {
     /// terminal's: its keys wait for the window to show it. An adopted lane (a cold terminal's surface hold, keys carried
     /// from another hold) is the terminal the person typed into before they asked for the workspace: it gives way to it.
     public func capture(_ event: NSEvent, focusedTab: String?, forNewWorkspace: Bool = false) {
-        let workspace = forNewWorkspace ? workspaceTickets.max() : nil
+        let workspace = forNewWorkspace ? workspaceTickets.subtracting(movedOnFrom).max() : nil // never one the person left
         let own = lane(focusedTab: focusedTab).flatMap { $0 < 0 && workspace != nil ? nil : $0 }
         events.append((event, own ?? workspace))
     }
