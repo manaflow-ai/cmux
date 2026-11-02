@@ -656,8 +656,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
     let shutdown = async {
-        // Every stop names its cause in the log: a daemon that stopped slowly once left no line
-        // saying why it had begun to (2026-11-02).
+        // Every stop names its cause in the log (`app_orphan` and `unused` name their own).
         #[cfg(unix)]
         let mut app_orphan = std::pin::pin!(app_orphan);
         #[cfg(unix)]
@@ -676,7 +675,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
                 end_agents = &mut app_orphan => {
-                    tracing::warn!("stopping: its cmux app is gone (agents end: {end_agents})");
                     if end_agents {
                         let _ = hub.end_agents_at_shutdown(Default::default());
                     }
