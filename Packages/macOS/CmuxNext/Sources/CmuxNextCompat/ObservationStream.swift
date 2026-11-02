@@ -31,8 +31,9 @@ internal import os
 /// only values that differ from the last one it emitted (perf-speed-of-light.md
 /// I1): a re-evaluation that gives an equal value wakes no consumer. The
 /// `==` comes from the call site for an element with a nonisolated `Equatable` conformance (the
-/// `Element: Equatable` initializers); for any other element the check is made once per iterator
-/// (`Element.self is any Equatable.Type`), so it holds for every Equatable element, Optional and collections of
+/// `Element: Equatable` initializers); for any other element the check is made once per iterator,
+/// when its second value comes (`Element.self is any Equatable.Type`, a run-time lookup that is not
+/// needed for the first value, which every stream started at launch emits), so it holds for every Equatable element, Optional and collections of
 /// Equatable values included, on both paths. A stream of a non-Equatable
 /// element (`Void`, tuples, classes) emits every re-evaluation: a consumer
 /// that needs a wakeup for a change its value does not show returns `Void`
@@ -136,7 +137,8 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     }
 
     public func makeAsyncIterator() -> Iterator {
-        let equality = knownEquality.map(Equality.known) ?? Equality.resolved(Self.equality())
+        // The first value needs no ==: an element's run-time lookup waits for a second one (REOPEN-F7).
+        let equality = knownEquality.map(Equality.known) ?? Equality.unresolved
         if let primed = primedForIterator() {
             return Iterator(legacy: LegacyIterator(emit: emit, state: primed.state), equality: equality, last: primed.value)
         }
