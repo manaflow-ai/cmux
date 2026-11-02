@@ -4,8 +4,8 @@
 Not a CI gate: a measurement an agent runs on the fleet (Lawrence 2026-10-23: every action reaches its committed
 frame in under 10 ms). Launches the tagged app (bench_launch.BenchApp: no activation, scratch config, the agent pane
 mock, the hang watchdog at 8 ms), shows a terminal workspace, then presses each shortcut --presses times through the
-app's own key path (`debug.key`, with the send time as the event's timestamp, so the action signposts carry its
-input age) while an Instruments Time Profiler (`xctrace record --attach <app pid>`, 1 ms) and `log stream --signpost`
+app's own key path (`debug.key`; the app stamps the event itself, so the action signposts carry its input age;
+no time in this report comes from this script, cmux-ad 03:40Z) while an Instruments Time Profiler (`xctrace record --attach <app pid>`, 1 ms) and `log stream --signpost`
 record. The first press waits for the profiler's first sample (KIT.md rule): the recorder's "Starting recording" line,
 then --first-sample-wait seconds; the report proves it (`first_sample_before_first_press`).
 
@@ -160,9 +160,12 @@ def uptime_us():
 
 def press(action, window):
     key, modifiers, _ = SHORTCUTS[action]
+    # No timestamp from here (cmux-ad 03:40Z: no time comes from Python): the app stamps the key event when debug.key
+    # makes it (DebugKey.send: systemUptime), so input_age_ms is the app's own event-to-run time. `sent_us` only picks
+    # which run belongs to this press; no number is computed from it.
     sent = uptime_us()
-    reply = rpc("debug.key", {"key": key, "modifiers": modifiers, "timestamp": sent / 1e6, "window": window}, timeout=15)
-    return {"action": action, "sent_us": sent, "returned_us": uptime_us(),
+    reply = rpc("debug.key", {"key": key, "modifiers": modifiers, "window": window}, timeout=15)
+    return {"action": action, "sent_us": sent,
             "error": reply.get("error") if isinstance(reply, dict) else None}
 
 
@@ -230,6 +233,7 @@ def match_runs(presses, intervals, app_pid):
             continue
         age = float(commit["fields"].get("input_age_ms", "-1"))
         p.update(run_start_us=commit["start_us"], commit_end_us=commit["end_us"], input_age_ms=round(age, 3),
+                 event_us=commit["start_us"] - age * 1000.0,
                  commit_ms=round(commit["ms"], 3), commit_missed=commit.get("missed"), nested=commit.get("nested_loop"),
                  input_to_commit_ms=round(age + commit["ms"], 3))
         if perform:
@@ -311,8 +315,9 @@ def analyze_samples(presses, samples, offset_us, app_pid):
         stacks = collections.Counter()
         windows_ms = 0.0
         for p in rows:
-            # The window starts at the key's send (the event's queue wait shows as main-thread work before the run).
-            a, b = p["sent_us"], p["commit_end_us"]
+            # The window starts at the app's own key event time (run start minus the signpost's input age), so the
+            # event's queue wait shows as main-thread work before the run; it ends at the commit's end signpost.
+            a, b = p["event_us"], p["commit_end_us"]
             windows_ms += (b - a) / 1000.0
             lo, hi = bisect.bisect_left(times, a), bisect.bisect_right(times, b)
             for t, weight, stack in main[lo:hi]:
@@ -417,7 +422,7 @@ def main():
         result["clock"] = {"how": how, "warning": warning}
         samples = trace.time_profile_samples(exported["time-profile"]) if "time-profile" in exported else []
         app_samples = [t / 1000.0 + offset for t, _, thread, _ in samples if thread.get("pid") == result["app_pid"]]
-        first_press = min((p["sent_us"] for p in presses), default=None)
+        first_press = min((p["event_us"] for p in presses if p.get("event_us")), default=None)  # the app's own key time
         result["first_sample_before_first_press"] = bool(app_samples and first_press and min(app_samples) < first_press)
         result["first_sample_lead_ms"] = round((first_press - min(app_samples)) / 1000.0, 1) if app_samples and first_press else None
         result["profile"] = analyze_samples(presses, samples, offset, result["app_pid"])
