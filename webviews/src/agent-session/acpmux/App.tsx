@@ -541,7 +541,7 @@ import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
 import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
-import { cloudAgentLogin } from "./cloudAgentLogin";
+import { cloudAgentLogin, localApiKeyLogin } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -7618,7 +7618,13 @@ function AcpmuxPane() {
       ),
       // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
       // important"): its own login, never this Mac's. Its page opens as a link click does here.
-      cloudSignIn: cloudAgentLogin({
+      // A chat here whose built-in Claude Code or Codex is not signed in offers Use an API key
+      // (Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add
+      // credits or add their own api key").
+      ...((login: Parameters<typeof cloudAgentLogin>[0]) => ({
+        cloudSignIn: cloudAgentLogin(login),
+        apiKeySignIn: localApiKeyLogin(login),
+      }))({
         connected,
         machineID: cloudMachineID,
         sessionId: snapshot.sessionId,
@@ -8072,14 +8078,22 @@ function AcpmuxPane() {
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
   const trackBackground = background.track;
+  // The calls in the foreground now, read when a move is checked (backgroundNotice.ts "kept").
+  const foregroundNow = useRef<readonly string[]>([]);
   const runInBackground = useCallback(
-    (toolCallId?: string) => trackBackground(directClient.current?.backgroundWork(toolCallId)),
+    (toolCallId?: string) => {
+      const asked = toolCallId ? [toolCallId] : foregroundNow.current;
+      trackBackground(directClient.current?.backgroundWork(toolCallId), () =>
+        asked.some((id) => foregroundNow.current.includes(id)),
+      );
+    },
     [trackBackground],
   );
   const foreground = useMemo(
     () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
+  foregroundNow.current = foreground;
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the

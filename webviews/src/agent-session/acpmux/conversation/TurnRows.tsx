@@ -275,6 +275,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     reauthenticate,
     transferCloudCredentials,
     cloudSignIn,
+    apiKeySignIn,
     resume,
     compact,
     route,
@@ -373,6 +374,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           compact={compact}
           reauthenticate={reauthenticate}
           cloudSignIn={cloudSignIn}
+          apiKeySignIn={apiKeySignIn}
           retryRowId={row.retryRowId}
           prompt={prompt}
           retry={failedRetry}
@@ -482,6 +484,7 @@ function TurnFailure({
   compact,
   reauthenticate,
   cloudSignIn,
+  apiKeySignIn,
   retryRowId,
   prompt,
   retry,
@@ -500,6 +503,9 @@ function TurnFailure({
   reauthenticate?: () => void;
   /// A Cloud chat's own sign-in on its machine (cloudAgentLogin.ts, CloudSignIn.tsx).
   cloudSignIn?: CloudSignInActions;
+  /// A chat here whose built-in Claude Code or Codex is not signed in: Use an API key
+  /// (cloudAgentLogin.ts `localApiKeyLogin`).
+  apiKeySignIn?: CloudSignInActions;
   /// The failed prompt's row and text, which the Cloud sign-in sends again once signed in.
   retryRowId?: string;
   prompt?: string;
@@ -557,6 +563,10 @@ function TurnFailure({
   // card keeps only Use an API key of the sign-in, never Sign in to Claude, which would dead-end.
   const teamMachine = isTeamMachineSignIn(kind, route);
   const cloudSignInLeads = recovery === "sign-in" && cloudSignIn !== undefined && !signInFirst && !teamMachine;
+  // A chat here whose built-in Claude Code or Codex is not signed in (Leo 2026-10-26: "if user picks a
+  // model they don't have api key, we offer them to add credits or add their own api key"): Use an API
+  // key follows Sign in again, outlined; the key goes where the agent's own CLI reads it.
+  const localKey = recovery === "sign-in" && cloudSignIn === undefined ? apiKeySignIn : undefined;
   // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
   // failure, or after Sign in again; never for trust (errorRecovery.ts).
   const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst);
@@ -646,6 +656,7 @@ function TurnFailure({
             {t("turn.signInAgain")}
           </button>
         )}
+        {localKey && <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly />}
         {offersRetry && (
           <button
             type="button"
