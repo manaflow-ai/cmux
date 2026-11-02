@@ -12,6 +12,9 @@
 
 use super::*;
 
+/// A create that returns the new terminal's surface.
+type Create<'a> = Box<dyn Fn() -> Arc<Surface> + 'a>;
+
 /// A folder that exists on every test host, as the daemon presents it.
 fn folder() -> String {
     std::env::temp_dir().canonicalize().unwrap().to_string_lossy().into_owned()
@@ -29,11 +32,7 @@ fn entity_cwd(delta: &TreeDelta) -> Option<String> {
 /// The first `kind` delta about `id` (the pane for `pane-added`, the surface
 /// for `tab-added`) among the events already sent: the create returned after
 /// it emitted them, so nothing waits.
-fn added_delta(
-    events: &crate::event_bus::MuxEventReceiver,
-    kind: TreeDeltaKind,
-    id: u64,
-) -> TreeDelta {
+fn added_delta(events: &MuxEventReceiver, kind: TreeDeltaKind, id: u64) -> TreeDelta {
     events
         .try_iter()
         .find_map(|event| match event {
@@ -59,7 +58,7 @@ fn a_split_new_column_and_new_row_pane_added_names_the_new_terminal_folder() {
     let folder = folder();
     let spawn = || TerminalSpawnOptions::new(Some(folder.clone()), Vec::new());
 
-    let creates: [(&str, Box<dyn Fn() -> Arc<Surface>>); 3] = [
+    let creates: [(&str, Create<'_>); 3] = [
         (
             "split",
             Box::new(|| mux.split_with_options(target, SplitDir::Right, spawn(), None).unwrap()),
