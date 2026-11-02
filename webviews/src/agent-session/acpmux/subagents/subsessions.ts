@@ -59,9 +59,10 @@ export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo
 /// A subagent's name as a line shows it: until a record names it (history paged in after its spawn
 /// carries none), its name is its raw `<session>/<tool call>` id, which the fold keeps for routing
 /// and the line shows as the localized "Subagent" instead (Leo, 2026-10-22, on "Subagent finished:
-/// 01a15779-…/toolu_01H9…": "this needs to be rendered better").
+/// 01a15779-…/toolu_01H9…": "this needs to be rendered better"). A name equal to an id with no
+/// `<session>/` part is a real name a record gave it, so it stays.
 export function subagentDisplayName(t: Translate, agent: { id: string; name: string }): string {
-  return agent.name === agent.id || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(agent.name)
+  return (agent.name === agent.id && agent.id.includes("/")) || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(agent.name)
     ? t("tray.kind.subagent")
     : agent.name;
 }

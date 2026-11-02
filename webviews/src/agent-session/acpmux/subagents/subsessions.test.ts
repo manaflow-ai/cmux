@@ -235,4 +235,6 @@ test("a subagent named only by its raw session/tool call id shows as Subagent, n
   expect(subagentDisplayName(t, { id: "other", name: id })).toBe("Subagent");
   expect(subagentDisplayName(t, { id, name: "Review the diff" })).toBe("Review the diff");
   expect(subagentDisplayName(t, { id, name: "toolu docs" })).toBe("toolu docs");
+  expect(subagentDisplayName(t, { id: "Reviewer", name: "Reviewer" })).toBe("Reviewer");
+  expect(subagentDisplayName(t, { id: "s/call_7", name: "s/call_7" })).toBe("Subagent");
 });
