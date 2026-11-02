@@ -43,18 +43,24 @@ struct AgentSessionWorkspaceRequestTests {
         #expect(try !Self.request(["session": .string("s-3")]).top, "no placement is not top")
     }
 
+    /// The refusal text `arguments` get, nil when they open.
+    static func refusal(_ arguments: [String: ActionValue]) -> String? {
+        do {
+            _ = try request(arguments)
+            return nil
+        } catch {
+            return (error as? AgentSessionWorkspaceRequest.Refusal)?.description ?? "not a Refusal: \(error)"
+        }
+    }
+
     @Test func noSessionABadGroupOrABadPlacementIsRefused() {
-        #expect(throws: AgentSessionWorkspaceRequest.Refusal(description: "no session")) {
-            try Self.request(["session": .string(" \t"), "group": .string("GUI push")])
-        }
-        let group = AgentSessionWorkspaceRequest.Refusal(description:
-            "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\"")
+        #expect(Self.refusal(["session": .string(" \t"), "group": .string("GUI push")]) == "no session", "no session is refused first")
+        let group = "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\""
         for id in ["ws_1234", "grp_abc", "0D3C6F2A-8B1E-4C7D-9A5F-1E2B3C4D5E6F", "   "] {
-            #expect(throws: group) { try Self.request(["session": .string("s-4"), "group": .string(id)]) }
+            #expect(Self.refusal(["session": .string("s-4"), "group": .string(id), "placement": .string("bottom")]) == group, "\(id)")
         }
-        #expect(throws: AgentSessionWorkspaceRequest.Refusal(description:
-            "agent.openSessionWorkspace: placement must be top; omit it for the workspaces.newPlacement setting")) {
-            try Self.request(["session": .string("s-5"), "placement": .string("bottom")])
-        }
+        #expect(Self.refusal(["session": .string("s-5"), "placement": .string("bottom")])
+            == "agent.openSessionWorkspace: placement must be top; omit it for the workspaces.newPlacement setting")
+        #expect(Self.refusal(["session": .string("s-6"), "group": .string("GUI push"), "placement": .string("top")]) == nil)
     }
 }
