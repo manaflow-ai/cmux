@@ -76,7 +76,7 @@ pub fn is_loopback_host(host: &str) -> bool {
 /// unique-local and link-local IPv6, single-label hosts, and the reserved or
 /// intranet suffixes (RFC 6761, RFC 6762, `home.arpa`, `internal`).
 /// Chromium's `net::IsHostnameNonUnique`.
-pub fn is_non_unique_host(host: &str) -> bool {
+fn is_non_unique_host(host: &str) -> bool {
     if host.contains(':') {
         let lower = host.to_lowercase();
         return ["fc", "fd", "fe8", "fe9", "fea", "feb"]
@@ -117,7 +117,7 @@ pub fn is_non_unique_host(host: &str) -> bool {
 
 /// Lowercased host (brackets stripped from IPv6) and whether a numeric port
 /// follows it. A non-numeric "port" yields an empty host.
-pub fn split_host_and_port(authority: &str) -> (String, bool) {
+fn split_host_and_port(authority: &str) -> (String, bool) {
     let lower = authority.to_lowercase();
     if let Some(after_open) = lower.strip_prefix('[') {
         let Some(close) = after_open.find(']') else {
@@ -204,7 +204,7 @@ impl TypedInput<'_> {
         let start = text.find("://")? + 3;
         let authority_end = start + text[start..].find(is_authority_end)?;
         let first_space = text.find(char::is_whitespace)?;
-        if authority_end >= first_space || !text.chars().all(|c| !c.is_whitespace() || c == ' ') {
+        if authority_end >= first_space || text.chars().any(|c| c.is_whitespace() && c != ' ') {
             return None;
         }
         self.explicit_url(&text.replace(' ', "%20"), &scheme)

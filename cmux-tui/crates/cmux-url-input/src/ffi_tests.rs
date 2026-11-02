@@ -35,7 +35,7 @@ fn resolve_writes_the_url_or_says_search() {
 fn a_short_buffer_reports_the_length_and_writes_nothing() {
     let (code, len, out) = resolve("https://example.com/a", 0, 4);
     assert_eq!((code, len), (ERR_SHORT, "https://example.com/a".len()));
-    assert_eq!(out, vec![0u8; 4]);
+    assert!(out.iter().all(|byte| *byte == 0));
     let (code, len, out) = resolve("https://example.com/a", 0, len);
     assert_eq!((code, &out[..len]), (FOUND, &b"https://example.com/a"[..]));
 }
