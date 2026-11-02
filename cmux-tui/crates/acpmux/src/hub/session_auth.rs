@@ -300,6 +300,10 @@ impl Hub {
         let (dir, state) = routes::places(&cfg);
         drop(cfg);
         let bindings = routes::bindings(&state);
+        profile.env = route_account::spawn_env(
+            &meta,
+            with_defaults(&defaults, self.harness_env(&meta).await.1),
+        );
         let route = route_of(&bindings, dir.as_deref(), &meta, family, &profile.env)
             .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         if route.as_ref().is_some_and(|(r, _)| r.file.kind != routes::RouteKind::DirectSubscription)
@@ -310,10 +314,6 @@ impl Hub {
         }
         let picked = route.as_ref().map(|(r, scope)| (r, *scope));
         let home = self.home_of(&meta, family, &defaults, picked).await;
-        profile.env = route_account::spawn_env(
-            &meta,
-            with_defaults(&defaults, self.harness_env(&meta).await.1),
-        );
         if let (Some(var), Some(home)) = (route_account::home_var(family), home) {
             // Pinning the default Claude home would move its .claude.json, so leave it unset.
             profile.env.insert(var.into(), home.display().to_string());
@@ -402,15 +402,23 @@ impl Hub {
             .map(|p| crate::config::derive_family(&harness, p))
             .unwrap_or_else(|| harness.clone());
         let bindings = routes::bindings(&state);
-        let no_env = BTreeMap::new();
-        let env = profile.as_ref().map_or(&no_env, |p| &p.env);
+        let env = match &meta {
+            Some(meta) => route_account::spawn_env(
+                meta,
+                with_defaults(&defaults, self.harness_env(meta).await.1),
+            ),
+            None => with_defaults(
+                &defaults,
+                profile.as_ref().map(|p| p.env.clone()).unwrap_or_default(),
+            ),
+        };
         // The route and the scope that chose it, as the spawn picks them. A chat whose route
         // is gone is reported on none (its next spawn says so); a target's is an error.
         let route = match (&meta, target) {
             (Some(meta), _) => {
-                route_of(&bindings, dir.as_deref(), meta, &family, env).ok().flatten()
+                route_of(&bindings, dir.as_deref(), meta, &family, &env).ok().flatten()
             }
-            (None, Some(t)) => target_route(dir.as_deref(), &bindings, t, &family, env)?,
+            (None, Some(t)) => target_route(dir.as_deref(), &bindings, t, &family, &env)?,
             (None, None) => None,
         };
         let own_login = route
@@ -420,9 +428,7 @@ impl Hub {
         let picked = route.as_ref().map(|(r, scope)| (r, *scope));
         let home = match &meta {
             Some(meta) => self.home_of(meta, &family, &defaults, picked).await,
-            None => {
-                target_home(&with_defaults(&defaults, env.clone()), &family, picked, cwd.as_deref())
-            }
+            None => target_home(&env, &family, picked, cwd.as_deref()),
         };
         let var = route_account::home_var(&family);
         let mut facts = Facts {
@@ -453,7 +459,6 @@ impl Hub {
                 let siblings = Siblings {
                     bindings: &bindings,
                     family: &family,
-                    env,
                     defaults: &defaults,
                     route: &route_id,
                     cwd: cwd.as_deref(),
@@ -468,13 +473,7 @@ impl Hub {
         {
             let after = previous.at;
             let family = family.clone();
-            let env = match &meta {
-                Some(meta) => route_account::spawn_env(
-                    meta,
-                    with_defaults(&defaults, self.harness_env(meta).await.1),
-                ),
-                None => with_defaults(&defaults, env.clone()),
-            };
+            let env = env.clone();
             let home = home.clone();
             let changed = tokio::task::spawn_blocking(move || {
                 credential_file_changed(&family, &env, home.as_deref(), after)
@@ -522,13 +521,7 @@ impl Hub {
         {
             // A chat's own env as its spawn builds it (`route_account::spawn_env`); a target's
             // is the profile's; either over the defaults' env.
-            profile.env = match &meta {
-                Some(meta) => {
-                    let harness_env = with_defaults(&defaults, self.harness_env(meta).await.1);
-                    route_account::spawn_env(meta, harness_env)
-                }
-                None => with_defaults(&defaults, std::mem::take(&mut profile.env)),
-            };
+            profile.env = env;
             if let (Some(var), Some(home)) = (var, &home) {
                 profile.env.insert(var.to_owned(), home.display().to_string());
             }
@@ -589,7 +582,11 @@ impl Hub {
             if best.as_ref().is_some_and(|(_, b)| b.at >= turn.at) {
                 continue;
             }
-            let Ok(route) = route_of(like.bindings, dir.as_deref(), &meta, like.family, like.env)
+            let env = route_account::spawn_env(
+                &meta,
+                with_defaults(like.defaults, self.harness_env(&meta).await.1),
+            );
+            let Ok(route) = route_of(like.bindings, dir.as_deref(), &meta, like.family, &env)
             else {
                 continue;
             };
@@ -609,8 +606,6 @@ impl Hub {
 struct Siblings<'a> {
     bindings: &'a routes::Bindings,
     family: &'a str,
-    /// The harness profile's env, which may name its own route.
-    env: &'a BTreeMap<String, String>,
     /// The harness's `defaults` env, under every chat's own.
     defaults: &'a BTreeMap<String, String>,
     /// The target's route id.
