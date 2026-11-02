@@ -427,10 +427,21 @@ function analyze(
   // stepped view has no glide, and every move it makes counts whole.
   const steps: number[] = [];
   const snapEvents: { t: number; px: number; ms: number; atOnce: number; slide: number; tail: string }[] = [];
+  const starvedFrames: { t: number; intervalMs: number; pageWorkMs: number }[] = [];
   let nextGlide = 0;
   for (let index = 1; index < live.length; index += 1) {
     const previous = live[index - 1]!;
     const frame = live[index]!;
+    const ms = frame.t - previous.t;
+    const pageWorkMs = frame.scriptMs + frame.layoutMs;
+    // A browser frame can arrive late even when the page used less than one frame of CPU. That
+    // scheduler gap belongs to the runner, not to the follow animation: counting the layout rise
+    // across it turns queued deltas into a fake jump. Keep the frame interval in the report and let
+    // the independent work/long-task checks cover time spent in the page itself.
+    if (ms > FRAME_MS && pageWorkMs < FRAME_MS) {
+      starvedFrames.push({ t: at(frame.t), intervalMs: round2(ms), pageWorkMs: round2(pageWorkMs) });
+      continue;
+    }
     let took = 0;
     for (; nextGlide < glideEvents.length && glideEvents[nextGlide]!.at <= frame.at; nextGlide += 1)
       if (glideEvents[nextGlide]!.at > previous.at) took += glideEvents[nextGlide]!.px;
@@ -440,7 +451,6 @@ function analyze(
     const glided = (frame.glide ?? 0) - (previous.glide ?? 0);
     const atOnce = now - before - glided + took;
     const slide = glided - took;
-    const ms = frame.t - previous.t;
     const step = Math.abs(atOnce + slide * Math.min(1, FRAME_MS / Math.max(ms, 1)));
     steps.push(step);
     if (step > SNAP_PX)
@@ -536,6 +546,8 @@ function analyze(
       ...stats(steps),
       overSnap: steps.filter((px) => px > SNAP_PX).length,
       snapEvents: snapEvents.slice(0, 40),
+      starvedFrames: starvedFrames.length,
+      starved: starvedFrames.slice(0, 40),
     },
     settle: {
       moves: settleMoves.length,
