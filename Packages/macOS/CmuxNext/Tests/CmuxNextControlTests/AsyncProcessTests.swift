@@ -105,7 +105,9 @@ import Testing
         // forked after `trap '' TERM` never wrote the marker.
         let script = "/bin/sh -c 'trap \"echo term > \\(marker); exit 0\" TERM; while :; do sleep 1; done' & trap '' TERM; wait"
         let request = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), ["-c", script], timeout: .seconds(1),
-                                     killGrace: .milliseconds(200), terminationScope: .processGroup)
+                                     onCancel: .finish, killGrace: .seconds(2), terminationScope: .processGroup)
+        // `.finish`: the run resolves at the leader's exit, which waits for the descendant's trap to write the
+        // marker; a `.stop` run resolves at the timeout itself, before the descendant has run its trap.
         await #expect(throws: ProcessFailure.timedOut) { try await processes.run(request) }
         #expect(FileManager.default.fileExists(atPath: marker))
     }
