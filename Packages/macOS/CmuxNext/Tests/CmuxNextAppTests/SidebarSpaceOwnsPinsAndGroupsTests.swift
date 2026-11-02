@@ -139,6 +139,37 @@ import Testing
         #expect(groups(Self.home) == ["itm_gp"], "\(groups(Self.home))")
     }
 
+    /// The review of #27308: in Default, a pinned group made before groups stored a space, whose workspace `ws-1` is
+    /// live in this window, lists here (its open workspace says where), and so does the link-only group `itm_pc`
+    /// under it, with its link. The parent counted as another space's (its open workspace) and took the child along.
+    @Test func aLinkOnlyChildOfAListedPinnedGroupStays() {
+        let records = SidebarDocRecords(sections: [
+            Self.pinned: SidebarDocSection(id: Self.pinned, kind: .pinned, region: .top),
+            Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
+        ], items: [
+            "itm_pp": Self.group("itm_pp", Self.pinned, room: nil),
+            "itm_1": SidebarDocItem(id: "itm_1", section: Self.pinned, parent: "itm_pp", body: .workspace(Self.ref("ws-1"))),
+            "itm_pc": SidebarDocItem(id: "itm_pc", section: Self.pinned, parent: "itm_pp",
+                                     body: .group(name: "itm_pc", color: nil, icon: nil, collapsed: false)),
+            "itm_pl": SidebarDocItem(id: "itm_pl", section: Self.pinned, parent: "itm_pc", body: .url("https://kept.example", title: "Kept")),
+        ])
+        let rows = [
+            SidebarDocRow(key: "itm_pp", kind: "group", section: Self.pinned, item: "itm_pp"),
+            SidebarDocRow(key: "itm_1", kind: "item", section: Self.pinned, parent: "itm_pp", depth: 1, item: "itm_1", ref: Self.ref("ws-1")),
+            SidebarDocRow(key: "itm_pc", kind: "group", section: Self.pinned, parent: "itm_pp", depth: 1, item: "itm_pc"),
+            SidebarDocRow(key: "itm_pl", kind: "url", section: Self.pinned, parent: "itm_pc", depth: 2, item: "itm_pl"),
+        ]
+        let projection = SidebarDocProjection(rows: rows, records: records, revision: 1)
+        let ws1 = SidebarWorkspace(id: WorkspaceID("ws-1"), title: "ws-1")
+        let window = [SidebarSection(kind: .machine(Self.thisMac), nodes: [.group(SidebarGroup(id: GroupID("itm_pp"), name: "itm_pp", workspaces: [ws1]))])]
+        let arranged = projection.arrange(window, drag: Self.drag(room: Self.home))
+        let nodes = arranged.flatMap(\.nodes)
+        let groups = Set(nodes.compactMap { if case let .group(group) = $0 { group.id.rawValue } else { nil } })
+        #expect(groups == ["itm_pp", "itm_pc"], "\(groups)")
+        let links = nodes.flatMap(\.listedItems).map(\.id)
+        #expect(links.contains("itm_pl"), "the child group's link is gone: \(links)")
+    }
+
     /// The wire: a group's space is its body's `profile`, another item's is `extra.room`.
     @Test func theSpaceIsReadFromTheWire() throws {
         let group = Data(#"{"id":"itm_g","section":"sec_custom","body":{"type":"group","name":"G","profile":"prof_work"}}"#.utf8)
