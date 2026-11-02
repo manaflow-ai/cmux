@@ -383,7 +383,8 @@ class Main(unittest.TestCase):
         marked = runner_pools.iso(NOW - runner_pools.DEAD_TTL - dt.timedelta(minutes=10))
         pools = runner_pools.load_pools()
         first, second = runner_pools.members(pools["linux"])[:2]
-        held = {name: runner_pools.members(spec)[0] for name, spec in pools.items()}
+        # Every pool on its first member that is not the dead one (linux_4 lists the same 4 vCPU size first).
+        held = {name: next(m for m in runner_pools.members(spec) if m != first) for name, spec in pools.items()}
         held["linux"] = second
         held["_dead"] = {first: marked}
         held["_updated"] = marked
