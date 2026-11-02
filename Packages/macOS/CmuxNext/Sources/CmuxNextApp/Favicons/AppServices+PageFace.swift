@@ -27,7 +27,7 @@ extension AppServices {
     func sidebarPageFace(_ workspace: WorkspaceModel, tab: TabModel, work: TabModel?) -> SidebarMapping.PageFace {
         let incognito = tab.kind == .browser && windows.isIncognito(workspace: workspace)
         let favicon = tab.kind != .browser ? nil
-            : browserFavicon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, known: (tab, incognito)).map { SidebarFavicon($0.cgImage) }
+            : browserFavicon(key: tab.id, recordFavicon: incognito ? nil : SidebarMapping.favicon(tab.faviconURL, page: tab.url), known: (tab, incognito)).map { SidebarFavicon($0.cgImage) }
         let names = WorkspaceAutoNameWiring(services: self, workspace: workspace).reader
         let audio = tab.kind != .browser ? nil : BrowserTabAudio.rowAudio(cache.existingBrowser(tab.id)?.tab.state)
         return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon, audio: audio)

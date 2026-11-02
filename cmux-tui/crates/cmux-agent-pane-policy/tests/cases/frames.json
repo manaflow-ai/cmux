@@ -1421,5 +1421,27 @@
   "expect": {
    "send": "unchanged"
   }
+ },
+ {
+  "name": "the first frame never carries a personKey the page put there (cx-fcaq): the host proves the key after it",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"_meta\":{\"acpmux\":{\"personKey\":\"page-forged\",\"clientName\":\"pane\"}}}}",
+  "first": true,
+  "token": "abc",
+  "expect": {
+   "send": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+     "protocolVersion": 1,
+     "_meta": {
+      "acpmux": {
+       "clientName": "pane",
+       "localAppToken": "abc"
+      }
+     }
+    }
+   }
+  }
  }
 ]
