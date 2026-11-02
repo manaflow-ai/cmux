@@ -165,6 +165,35 @@ struct MultiWindowRestoreTests {
         }
     }
 
+    /// The same with only the first launch's workspace in the closed window (a fresh start, its window
+    /// closed, quit): the relaunch shows that one workspace again in one window, and makes no second one.
+    @Test func closedFirstLaunchWindowReopensWithNoExtraWorkspace() async throws {
+        try await Self.withDaemon { launcher in
+            let before = try await Self.launch(launcher)
+            var first: Set<String> = []
+            let seeded = await Self.capture {
+                let window = try #require(before.windows.active)
+                let id = window.state.id
+                first = Set(before.machines.local.store.workspaces.map(\.id))
+                #expect(before.registry.perform("closeWindow", invocation: ActionInvocation(origin: .user)))
+                try await Self.until({ before.windows.registry.value.window(id)?.isOpen == false }, report: { Self.report(before, [id]) })
+                await before.windows.prepareForTermination()
+            }
+            await Self.quit(before, endingDaemon: (try? seeded.get()) == nil)
+            try seeded.get()
+
+            let after = try await Self.launch(launcher)
+            let restored = await Self.capture {
+                let open = after.windows.registry.value.windows.filter(\.isOpen)
+                #expect(open.count == 1, "open windows \(open.map(\.id))")
+                #expect(Set(after.machines.local.store.workspaces.map(\.id)) == first,
+                        "workspaces \(after.machines.local.store.workspaces.map(\.id)), first launch had \(first)")
+            }
+            await Self.quit(after, endingDaemon: true)
+            try restored.get()
+        }
+    }
+
     /// Shown panes still "Restoring…", disconnected or blank, as `window: pane state`.
     private static func unsettledPanes(_ services: AppServices) -> [String] {
         SurfaceDiagnosticsReport.statuses(services).compactMap { row in
