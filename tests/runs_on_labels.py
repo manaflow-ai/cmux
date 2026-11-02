@@ -49,7 +49,7 @@ GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
 FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
 
 TOKEN = re.compile(
-    r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])"
+    r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])|(?P<prop>\.[A-Za-z_][A-Za-z0-9_]*)"
     r"|(?P<num>-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?)|(?P<ident>[A-Za-z_][A-Za-z0-9_.*-]*))"
 )
 
@@ -173,7 +173,10 @@ class _Parser:
                     if self.peek() == ("op", ","):
                         self.take()
                 self.take(")")
-                return ("call", value.lower(), args)
+                node = ("call", value.lower(), args)
+                while self.peek() and self.peek()[0] == "prop":
+                    node = ("prop", node, self.take()[1][1:])
+                return node
             return ("ctx", value)
         raise ValueError(f"unexpected {value!r}")
 
@@ -266,6 +269,11 @@ class _Evaluator:
             return out
         if kind == "call":
             return _call(node[1], [self(arg) for arg in node[2]])
+        if kind == "prop":
+            target = node[1]
+            if target[:2] == ("call", "fromjson") and target[2] == [("ctx", "vars.RUNNER_POOLS")]:
+                return set(pool_members(node[2]))
+            return {EMPTY, NULL, False, 0.0, Unknown(f"{target[1]}(...).{node[2]}")}
         raise ValueError(f"unknown node {node!r}")
 
 
@@ -299,6 +307,24 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     for values in itertools.product(*choices):
         out |= _Evaluator(owner, dict(zip(names, values)), silent)(tree)
     return out
+
+
+def declared_pools(root: Path = ROOT) -> dict[str, list[str]]:
+    """pool -> its members, from .github/runners.json `pools` (main's copy is the one runner_pools.py reads)."""
+    runners = json.loads((root / ".github/runners.json").read_text(encoding="utf-8"))
+    return {name: list(spec["members"]) for name, spec in runners.get("pools", {}).items() if not name.startswith("$")}
+
+
+def pool_members(name: str, root: Path = ROOT) -> list[str]:
+    """What `fromJSON(vars.RUNNER_POOLS).<name>` can hold: one of the pool's members, never ''.
+
+    runner_pools.py keeps every declared pool set to one of its members, and an unset RUNNER_POOLS fails the
+    run at fromJSON() (a red run, not an empty runs-on). An undeclared pool name is an error, not an unknown:
+    the job would read '' and queue forever."""
+    pools = declared_pools(root)
+    if name not in pools:
+        raise ValueError(f"fromJSON(vars.RUNNER_POOLS).{name} names no pool in .github/runners.json `pools`")
+    return pools[name]
 
 
 def declared_fleet_linux_labels(root: Path = ROOT) -> set[str]:
