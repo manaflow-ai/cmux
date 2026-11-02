@@ -14,8 +14,11 @@ import Foundation
 /// OSC 133 C and the command's exec a read still sees the shell, and that "no program" would hold for the
 /// whole run (review of #31875). A terminal with no prompt report (no shell integration, a command
 /// running) has no answer, and its close asks the daemon at the key as before.
-/// What is left: a command started in the few milliseconds before the daemon's report of it reaches the
-/// store closes without the question and without an undo toast (Reopen Closed brings it back).
+/// What is left, where the old read at the key asked and this closes with no question and no undo toast
+/// (Reopen Closed brings the tab back): a command started in the milliseconds before the daemon's report of
+/// it reaches the store, and a foreground program that starts with no OSC 133 C (an `$EDITOR` or `fg` run
+/// from a line-editor key binding, a prompt that marks only A, a program a precmd hook starts after A).
+/// Follow-up: drop the answer when input is sent to the terminal (review of #31875).
 @MainActor
 public final class TerminalProcessReadAhead {
     /// The shell state an answer was read in.
