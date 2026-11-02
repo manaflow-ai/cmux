@@ -73,16 +73,23 @@ def split_terminal(name, tag, key="d", mods=("cmd",)):
     ]
 
 
+FILM = True  # main() sets it: --no-film writes the -nf journeys (same attempts, no recording; app-state verdicts)
+
+
 def filmed(case, n, attempt_steps):
     """One attempt inside its own recording (ext_video, the HARNESS kit: debug.motion record_*): the action, the
     marker line and the check. The movie is routing-<case><n>.mov; geometry and content only (no pacing claim), so
     no require_hz."""
     name = f"routing-{case.lower()}{n}"  # run.py fetches only lowercase movie names (VIDEO_FILE)
+    if not FILM:
+        return attempt_steps
     return [{"do": "video_start", "name": name, "seconds": 40}] + attempt_steps + \
         [{"do": "video_stop", "name": name, "tail": 0.6}]
 
 
 def journey(ident, title, why, steps, budget):
+    if not FILM:
+        ident, title = ident + "-nf", title + " (no film: the verdict is the app's and the daemon's state)"
     # Each filmed attempt adds the recorder's start (frames must come), its 0.6 s tail and the file write.
     budget += 12 * sum(1 for st in steps if st.get("do") == "video_start")
     return {"id": ident, "priority": "P1", "title": title, "why": why,
@@ -192,8 +199,13 @@ def main():
     ap.add_argument("--attempts", type=int, default=4)
     ap.add_argument("--check", action="store_true")
     opts = ap.parse_args()
+    global FILM
     bad = 0
-    for spec in cases(opts.attempts):
+    specs = []
+    for film in (True, False):
+        FILM = film
+        specs += cases(opts.attempts)
+    for spec in specs:
         path = OUT / f"{spec['id']}.json"
         text = json.dumps(spec, indent=2, ensure_ascii=False) + "\n"
         if opts.check:

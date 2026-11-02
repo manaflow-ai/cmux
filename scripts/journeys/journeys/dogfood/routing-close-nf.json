@@ -1,0 +1,254 @@
+{
+  "id": "routing-close-nf",
+  "priority": "P1",
+  "title": "Routing D: Cmd-W closes a pane, then a line at once: it runs in the pane the app shows focused (no film: the verdict is the app's and the daemon's state)",
+  "why": "wrong-pane typing after a close (focus moved during the close animation)",
+  "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
+  "budget_seconds": 150,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "video_close_open",
+      "title": "stop a recording a failed check left open (its movie is the evidence)"
+    },
+    {
+      "do": "env_windows",
+      "at": "end",
+      "title": "host dialogs at the end (SMOKE ENV mark)"
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus",
+      "title": "the focus and key-hold state at the end (records only)"
+    },
+    {
+      "do": "app_log",
+      "seconds": 90,
+      "grep": "newTab|closeTab|creation.hold|focus|firstResponder|keyRouter",
+      "title": "the app log of the last 90 s (records only)"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-d0-ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the workspace of d0",
+      "since": "setup-d0-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "setup-d0"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo d0home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the terminal of d0 ran its line",
+      "since": "setup-d0",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "d0home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "d0home-${nonce}",
+      "as": "d0"
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-d1"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo d1home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the split terminal of d1 ran its line",
+      "since": "setup-d1",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "d1home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "d1home-${nonce}",
+      "as": "d1"
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-d2"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo d2home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the split terminal of d2 ran its line",
+      "since": "setup-d2",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "d2home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "d2home-${nonce}",
+      "as": "d2"
+    },
+    {
+      "do": "smoke_key",
+      "key": "w",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "d1"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RD1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "D1: Cmd-W closes the right pane; the line at once runs in the pane the app shows focused, and only there",
+      "since": "d1",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RD1-${nonce}-42",
+            "on": "focused",
+            "attempt": "D1"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RD1-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "w",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "d2"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RD2-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "D2: Cmd-W again; the line at once runs in the focused pane only",
+      "since": "d2",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RD2-${nonce}-42",
+            "on": "focused",
+            "attempt": "D2"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RD2-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,317 @@
+{
+  "id": "routing-cmdn-ctrlbt-nf",
+  "priority": "P1",
+  "title": "Routing A: Cmd-N, Ctrl-` when the workspace shows, then a line at once: it runs in the new terminal only (no film: the verdict is the app's and the daemon's state)",
+  "why": "P0 #29530 / #30827 (dogfood #30271): the keys went to the New Tab page or nowhere",
+  "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
+  "budget_seconds": 140,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "video_close_open",
+      "title": "stop a recording a failed check left open (its movie is the evidence)"
+    },
+    {
+      "do": "env_windows",
+      "at": "end",
+      "title": "host dialogs at the end (SMOKE ENV mark)"
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus",
+      "title": "the focus and key-hold state at the end (records only)"
+    },
+    {
+      "do": "app_log",
+      "seconds": 90,
+      "grep": "newTab|closeTab|creation.hold|focus|firstResponder|keyRouter",
+      "title": "the app log of the last 90 s (records only)"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "a1"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "a1-ws"
+    },
+    {
+      "do": "expect",
+      "title": "A1: Cmd-N shows its workspace",
+      "since": "a1-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 1
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "a1"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RA1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "A1: the line typed at once after Ctrl-` ran in the new terminal only",
+      "since": "a1",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RA1-${nonce}-42",
+            "on": "new:a1",
+            "attempt": "A1",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RA1-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "a2"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "a2-ws"
+    },
+    {
+      "do": "expect",
+      "title": "A2: Cmd-N shows its workspace",
+      "since": "a2-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 2
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "a2"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RA2-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "A2: the line typed at once after Ctrl-` ran in the new terminal only",
+      "since": "a2",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RA2-${nonce}-42",
+            "on": "new:a2",
+            "attempt": "A2",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RA2-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "a3"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "a3-ws"
+    },
+    {
+      "do": "expect",
+      "title": "A3: Cmd-N shows its workspace",
+      "since": "a3-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 3
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "a3"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RA3-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "A3: the line typed at once after Ctrl-` ran in the new terminal only",
+      "since": "a3",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RA3-${nonce}-42",
+            "on": "new:a3",
+            "attempt": "A3",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RA3-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "a4"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "a4-ws"
+    },
+    {
+      "do": "expect",
+      "title": "A4: Cmd-N shows its workspace",
+      "since": "a4-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 4
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "a4"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RA4-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "A4: the line typed at once after Ctrl-` ran in the new terminal only",
+      "since": "a4",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RA4-${nonce}-42",
+            "on": "new:a4",
+            "attempt": "A4",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RA4-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
