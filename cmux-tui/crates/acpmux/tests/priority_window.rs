@@ -184,8 +184,9 @@ async fn a_mark_shows_in_every_window_and_a_snooze_ends_by_the_clock() {
     assert_eq!(keys(&one.window_until(|_| true).await), ["asks"]);
     assert_eq!(keys(&two.window_until(|_| true).await), ["asks"]);
 
-    // A snooze of 400 ms through the first window: both windows drop the row.
-    let snooze = json!({"window": "p", "op": "snooze", "id": "asks", "durationMs": 400});
+    // A snooze of 3 s through the first window: both windows drop the row (each has time to see
+    // it before it ends, however slow the runner).
+    let snooze = json!({"window": "p", "op": "snooze", "id": "asks", "durationMs": 3_000});
     let marked = one.ok("_acpmux/priority_mark", snooze).await;
     assert!(marked["marks"]["snoozed"]["asks"]["untilMs"].is_i64(), "{marked}");
     let hidden = two.window_until(|m| keys(m).is_empty()).await;
@@ -197,4 +198,48 @@ async fn a_mark_shows_in_every_window_and_a_snooze_ends_by_the_clock() {
     let back = two.window_until(|m| keys(m) == ["asks"]).await;
     assert_eq!(back["needingInput"], json!(["asks"]));
     one.window_until(|m| keys(m) == ["asks"]).await;
+}
+
+/// A mark through one connection shows in another connection's window while this daemon's
+/// sessions keep writing records that change no lane (a tag here; usage, tools and git records
+/// in a working daemon). Such a record arriving in the same turn as the mark must not swallow it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mark_shows_in_another_window_while_records_that_change_no_lane_arrive() {
+    let hub = hub();
+    let mut agent = client(&hub, Origin::Local);
+    let params = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {}}});
+    let id = agent.ok("session/new", params).await["sessionId"].as_str().unwrap().to_owned();
+    let mut one = client(&hub, Origin::Local);
+    let mut two = client(&hub, Origin::Local);
+    one.ok("_acpmux/priority_window", json!({"window": "p"})).await;
+    two.ok("_acpmux/priority_window", json!({"window": "p"})).await;
+    one.window_until(|m| keys(m).contains(&id)).await;
+    two.window_until(|m| keys(m).contains(&id)).await;
+
+    // Tags that change no lane, back to back from four connections, while the first connection
+    // pins and unpins the chat twenty times: each mark must reach the second window.
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let writers: Vec<_> = (0..4)
+        .map(|w| {
+            let (id, stop, mut writer) = (id.clone(), stop.clone(), client(&hub, Origin::Local));
+            tokio::spawn(async move {
+                let mut n = 0u64;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    n += 1;
+                    let tag = json!({"sessionId": id, "set": {format!("priority-test-{w}"): n.to_string()}});
+                    writer.ok("_acpmux/tag", tag).await;
+                }
+            })
+        })
+        .collect();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    for round in 0..20 {
+        let pinned = round % 2 == 0;
+        one.ok("_acpmux/priority_mark", json!({"window": "p", "op": "pin", "id": id})).await;
+        two.window_until(|m| row(m, &id).is_some_and(|r| r["pinned"] == pinned)).await;
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for writer in writers {
+        writer.await.unwrap();
+    }
 }
