@@ -120,6 +120,7 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.app.next.memory.release-sink", qos: .utility),
         ThreadDeclaration("com.cmux.host-pressure", qos: .utility),
         ThreadDeclaration("debug.window_record", qos: .userInitiated),
+        ThreadDeclaration("debug.motion.record", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.app.next.hang-reports.store", qos: .utility),
         // Launch and misc. The launch warm-up is on the closed user-interactive list: main reads what it builds
         // before the first frame (LaunchWarmup).
