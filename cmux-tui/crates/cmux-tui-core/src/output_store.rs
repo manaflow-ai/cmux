@@ -21,8 +21,12 @@
 //!   - `snapshot` (default): one compressed file per terminal (screen plus
 //!     recent scrollback), replaced atomically, written only when the
 //!     terminal's content changed (cursor redraws write nothing), at most
-//!     every [`SNAPSHOT_INTERVAL`] and at quit. A respawn after a reboot
-//!     seeds the new shell with it.
+//!     every [`SNAPSHOT_INTERVAL`] and at quit, and the output after it in
+//!     an append-only tail file written every [`TAIL_FLUSH_INTERVAL`]
+//!     (`output_store/tail.rs`; the snapshot is its compaction). A respawn
+//!     after the daemon and its hosts died (a crash, a reboot) seeds the new
+//!     shell with the snapshot plus its tail: at most the last
+//!     [`TAIL_FLUSH_INTERVAL`] of output is lost (REOPEN-F3).
 //!   - `full`: the snapshot plus every output byte in per-terminal
 //!     compressed segment files (see `output_store/segments.rs`).
 //!
@@ -34,6 +38,7 @@
 mod memory_budget;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
+mod tail;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -60,6 +65,21 @@ const SNAPSHOT_INTERVAL_ENV: &str = "CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS";
 pub(crate) const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(30);
 /// Full mode: how long new output waits before it goes to a segment file.
 pub(crate) const FULL_FLUSH_INTERVAL: Duration = Duration::from_secs(3);
+/// Snapshot mode: how long new output waits before it goes to the tail
+/// file. The most output a kill of the daemon and its hosts loses.
+pub(crate) const TAIL_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
+/// Snapshot mode: a tail file written since is fsynced at most this often
+/// (the most an OS crash adds to [`TAIL_FLUSH_INTERVAL`]).
+pub(crate) const TAIL_SYNC_INTERVAL: Duration = Duration::from_secs(1);
+/// Snapshot mode: tail bytes past which the next pass writes a snapshot
+/// (the compaction), so a restore replays at most this much over it.
+const TAIL_MAX_BYTES: u64 = 1024 * 1024;
+/// Snapshot mode: bytes of unchanged content (cursor redraws) a terminal
+/// keeps in memory instead of the tail; past it a snapshot replaces them.
+const TAIL_IDLE_BYTES: usize = 1024 * 1024;
+/// Snapshot mode: unwritten tail bytes one terminal keeps while its writes
+/// fail; past it the oldest go and the next snapshot starts the tail again.
+const TAIL_MAX_UNWRITTEN_BYTES: usize = 8 * 1024 * 1024;
 /// Snapshot mode keeps the screen plus about this many recent lines.
 pub(crate) const SNAPSHOT_HISTORY_LINES: usize = 2_000;
 /// Snapshot mode: total disk across terminals; the oldest terminals go first.
@@ -219,9 +239,57 @@ struct LogState {
     /// The log left the store (`OutputStore::forget`): no measurement may
     /// add to the total for it any more.
     forgotten: bool,
+    /// The stored snapshot's stream offset, generation and size (written
+    /// by this daemon; `None` before its first one).
+    snapshot_end: Option<u64>,
+    snapshot_generation: Option<Arc<str>>,
+    snapshot_size: Option<(u16, u16)>,
+    /// Snapshot mode: the stream offset after the last byte in the tail file
+    /// (the snapshot's offset when the tail is empty).
+    tail_end: Option<u64>,
+    /// Snapshot mode: raw bytes in the tail file.
+    tail_bytes: u64,
+    /// Snapshot mode: content digest at the last stored byte.
+    tail_digest: Option<u64>,
+    /// Snapshot mode: when the tail file was last fsynced, and whether a
+    /// write followed.
+    tail_synced_at: Option<Instant>,
+    tail_unsynced: bool,
+    /// The next pass writes a snapshot whether or not the content changed
+    /// (a gap in the tail, cleared history, a mode change).
+    force_snapshot: bool,
 }
 
 impl LogState {
+    /// A log of `generation` whose stream continues at offset `start`.
+    fn new(generation: Arc<str>, start: u64) -> Self {
+        Self {
+            generation,
+            tail_start: start,
+            tail: VecDeque::new(),
+            dirty: false,
+            snapshot_digest: None,
+            snapshot_at: None,
+            segment_digest: None,
+            last_output: Instant::now(),
+            pending: Vec::new(),
+            pending_start: start,
+            resident: 0,
+            measured_rows: None,
+            measure_due: false,
+            forgotten: false,
+            snapshot_end: None,
+            snapshot_generation: None,
+            snapshot_size: None,
+            tail_end: None,
+            tail_bytes: 0,
+            tail_digest: None,
+            tail_synced_at: None,
+            tail_unsynced: false,
+            force_snapshot: false,
+        }
+    }
+
     fn next_offset(&self) -> u64 {
         self.tail_start + self.tail.len() as u64
     }
@@ -333,6 +401,11 @@ pub(crate) struct OutputStore {
     logs: Mutex<HashMap<TerminalPublicId, Arc<TerminalLog>>>,
     writer: snapshot::Writer,
     full: segments::Segments,
+    /// Snapshot mode: output after the snapshot goes to its tail file.
+    tail: std::sync::atomic::AtomicBool,
+    /// The last memory budget pass of a write pass (they run at most once per
+    /// snapshot interval, not on every tail flush).
+    last_enforce: Mutex<Option<Instant>>,
     snapshot_interval: Duration,
     /// The policy the writer read last (the quit pass has no settings owner
     /// handle).
@@ -382,6 +455,8 @@ impl OutputStore {
             logs: Mutex::new(HashMap::new()),
             writer: snapshot::Writer::default(),
             full: segments::Segments::default(),
+            tail: std::sync::atomic::AtomicBool::new(false),
+            last_enforce: Mutex::new(None),
             snapshot_interval,
             policy: Mutex::new(None),
             pass: Mutex::new(()),
@@ -419,12 +494,21 @@ impl OutputStore {
         self.cache_policy(policy);
         self.set_resident_trigger(memory_budget::effective(policy.memory_total_bytes));
         self.full.set_enabled(policy.mode == PersistenceMode::Full);
+        self.set_tail_enabled(policy.mode == PersistenceMode::Snapshot);
         {
             let _pass = self.lock_pass();
             snapshot::prune(mux, self, policy);
         }
-        *self.resume.lock().unwrap_or_else(PoisonError::into_inner) =
-            snapshot::stream_ends(directory);
+        let mut resume = snapshot::stream_ends(directory);
+        // A tail reaches past its snapshot: a re-adopted terminal's stream
+        // continues after it, so no stored offset is used twice.
+        for (terminal_id, (generation, end)) in tail::stream_ends(directory) {
+            let known = resume.entry(terminal_id).or_insert_with(|| (generation.clone(), end));
+            if known.0 == generation {
+                known.1 = known.1.max(end);
+            }
+        }
+        *self.resume.lock().unwrap_or_else(PoisonError::into_inner) = resume;
         if policy.mode == PersistenceMode::Full {
             *self.segment_resume.lock().unwrap_or_else(PoisonError::into_inner) =
                 segments::all_stream_ends(directory);
@@ -460,22 +544,7 @@ impl OutputStore {
         let start = snapshot_end.into_iter().chain(segment_end).max().unwrap_or(0);
         let log = Arc::new(TerminalLog {
             terminal_id: terminal_id.clone(),
-            state: Mutex::new(LogState {
-                generation: generation.clone(),
-                tail_start: start,
-                tail: VecDeque::new(),
-                dirty: false,
-                snapshot_digest: None,
-                snapshot_at: None,
-                segment_digest: None,
-                last_output: Instant::now(),
-                pending: Vec::new(),
-                pending_start: start,
-                resident: 0,
-                measured_rows: None,
-                measure_due: false,
-                forgotten: false,
-            }),
+            state: Mutex::new(LogState::new(generation.clone(), start)),
         });
         logs.insert(terminal_id.clone(), log.clone());
         log
@@ -523,7 +592,7 @@ impl OutputStore {
         state.tail_start += overflow as u64 + skipped;
         state.tail.extend(bytes.get(bytes.len().saturating_sub(keep)..).unwrap_or_default());
         state.last_output = Instant::now();
-        if self.full.enabled() {
+        if self.full.enabled() || self.tail_enabled() {
             if state.pending.is_empty() {
                 state.pending_start = state.next_offset() - bytes.len() as u64;
             }
@@ -546,6 +615,8 @@ impl OutputStore {
     fn mark_dirty(&self) {
         let interval = if self.full.enabled() {
             FULL_FLUSH_INTERVAL.min(self.snapshot_interval)
+        } else if self.tail_enabled() {
+            TAIL_FLUSH_INTERVAL.min(self.snapshot_interval)
         } else {
             self.snapshot_interval
         };
@@ -653,10 +724,15 @@ impl OutputStore {
             state.snapshot_digest = None;
             state.snapshot_at = None;
             state.segment_digest = None;
+            state.tail_end = None;
+            state.tail_bytes = 0;
+            state.tail_digest = None;
+            state.force_snapshot = true;
             state.dirty = true;
         }
         if let Some(directory) = self.directory.as_deref() {
             segments::remove(directory, terminal_id);
+            tail::remove(directory, terminal_id);
         }
         self.writer.mark_dirty(Duration::ZERO);
     }
@@ -702,14 +778,15 @@ impl OutputStore {
         if self.memory_only() {
             return None;
         }
-        let (snapshot, generation) = snapshot::read(directory, terminal_id)?;
+        let (snapshot, generation, snapshot_end) = snapshot::read(directory, terminal_id)?;
         if self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Full)
             && let Some(rebuilt) =
                 segments::rebuild(directory, terminal_id, &generation, snapshot.cols, snapshot.rows)
         {
             return Some(rebuilt);
         }
-        Some(snapshot)
+        // Snapshot mode: the output after the snapshot, from its tail.
+        Some(tail::restore(directory, terminal_id, &generation, snapshot_end, snapshot))
     }
 
     /// The logs whose terminal printed since the writer last looked; their
@@ -806,6 +883,31 @@ impl OutputStore {
         self.resident_trigger.store(trigger, std::sync::atomic::Ordering::Release);
     }
 
+    fn tail_enabled(&self) -> bool {
+        self.tail.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn set_tail_enabled(&self, enabled: bool) {
+        self.tail.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether a write pass runs the memory budget now: at most once per
+    /// interval of the mode (the growth trigger covers the time between,
+    /// `memory_budget.rs`).
+    fn enforce_due(&self, full: bool) -> bool {
+        let interval = if full {
+            FULL_FLUSH_INTERVAL.min(self.snapshot_interval)
+        } else {
+            self.snapshot_interval
+        };
+        let mut last = self.last_enforce.lock().unwrap_or_else(PoisonError::into_inner);
+        if last.is_some_and(|at| at.elapsed() < interval) {
+            return false;
+        }
+        *last = Some(Instant::now());
+        true
+    }
+
     fn lock_pass(&self) -> std::sync::MutexGuard<'_, ()> {
         self.pass.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -840,6 +942,7 @@ impl OutputStore {
             let _pass = self.lock_pass();
             snapshot::remove(directory, terminal_id);
             segments::remove(directory, terminal_id);
+            tail::remove(directory, terminal_id);
         }
     }
 

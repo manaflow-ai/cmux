@@ -125,20 +125,9 @@ fn pending_log(bytes: &[u8]) -> Arc<TerminalLog> {
     Arc::new(TerminalLog {
         terminal_id: terminal(),
         state: std::sync::Mutex::new(super::super::LogState {
-            generation: Arc::from("g1"),
-            tail_start: 0,
             tail: std::collections::VecDeque::from(bytes.to_vec()),
-            dirty: false,
-            snapshot_digest: None,
-            snapshot_at: None,
-            segment_digest: None,
-            last_output: std::time::Instant::now(),
             pending: bytes.to_vec(),
-            pending_start: 0,
-            resident: 0,
-            measured_rows: None,
-            measure_due: false,
-            forgotten: false,
+            ..super::super::LogState::new(Arc::from("g1"), 0)
         }),
     })
 }
