@@ -3659,7 +3659,7 @@ a.cv-sha:focus-visible {
   display: none;
 }
 /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
-   right edge. *
+   right edge. */
 :root[data-turn-actions-placement="right"] .cv-turn-actions {
   justify-content: flex-end;
   padding-inline: 0 2px;
