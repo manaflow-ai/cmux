@@ -122,6 +122,14 @@ public actor MacInstallIdentity {
         return reply
     }
 
+    /// A GET on the API Worker under the install's token (`path` includes its query).
+    func nativeOwnerGet(_ path: String, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
+        try await nativeCheck(context)
+        let reply = try await transport.get(path, bearer: context.token, headers: requestHeaders)
+        try await nativeCheck(context)
+        return reply
+    }
+
     func nativeOwnerRead(_ body: Data, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
         try await nativeCheck(context)
         let reply = try await transport.post("/v1/read", json: body, bearer: context.token, headers: requestHeaders)

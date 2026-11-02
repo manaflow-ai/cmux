@@ -5167,6 +5167,7 @@ a.cv-sha:focus-visible {
 /* The running turn's activity line under its todo list (ActivityLine.tsx, agent.sessionStatus,
    cx-ncc.102): what the agent is doing now and the turn's time. */
 .cv-activity {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
