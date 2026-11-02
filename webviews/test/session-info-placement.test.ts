@@ -102,10 +102,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
         );
         const toggle = page.locator("button.acpmux-session-info-toggle");
         await toggle.waitFor({ timeout: 10_000 });
-        if ((await page.locator("aside.acpmux-session-info").count()) > 0) {
-          await toggle.click();
-          await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
-        }
+        // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
+        if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
+        await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
         const before = await transcript(page);
         const { panel } = await openSessionInfo(page);
         const box = await rect(page);
@@ -140,10 +139,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
           );
           await toggle.waitFor({ timeout: 10_000 });
-          if ((await page.locator("aside.acpmux-session-info").count()) > 0) {
-            await toggle.click();
-            await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
-          }
+          // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
+          if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
+          await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
           const before = await chat();
           const { panel } = await openSessionInfo(page);
           const box = await rect(page);
@@ -189,7 +187,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           });
           const rows = await transcript(page);
           const composer = await page.evaluate(() => {
-            const { left, right, top, bottom } = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+            const { left, right, top, bottom } = document
+              .querySelector(".acpmux-composer-box")!
+              .getBoundingClientRect();
             return { left, right, top, bottom };
           });
           const last = rows.reduce((a, b) => (b.bottom > a.bottom ? b : a), rows[0]!);
