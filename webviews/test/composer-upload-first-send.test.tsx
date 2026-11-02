@@ -229,6 +229,8 @@ function fakeDocument() {
   };
 }
 
+const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 test("the first try again goes on its own; the last waits for the person's key or click, never Return", async () => {
   const { doc, fire, count } = fakeDocument();
   let again = 0;
