@@ -39592,7 +39592,7 @@ export default {
             }
         }
 
-        func resolveCursorShellHook(failed: Bool) {
+        func resolveCursorShellHook(failed: Bool) async {
             guard def.name == "cursor" else {
                 sendAgentFeedTelemetry()
                 return
@@ -41317,10 +41317,10 @@ export default {
             break
 
         case .shellDone:
-            resolveCursorShellHook(failed: false)
+            await resolveCursorShellHook(failed: false)
 
         case .shellFailed:
-            resolveCursorShellHook(failed: true)
+            await resolveCursorShellHook(failed: true)
 
         case .approvalResponse:
             let idleDialogResolution = (input.rawObject?["cmux_pi_idle_dialog"] as? Bool) == true
