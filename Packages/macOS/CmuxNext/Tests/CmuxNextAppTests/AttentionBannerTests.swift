@@ -216,6 +216,22 @@ struct AttentionBannerTests {
                 "another machine's qualified key read as a bare id")
     }
 
+    /// A remote workspace's sound rule saved by an earlier build under the bare id keeps applying,
+    /// and an edit changes that rule; a qualified rule, or a local workspace with the id, wins.
+    @Test func aRemoteSoundRuleSavedBeforeQualifiedKeysStillApplies() {
+        let qualified = NotificationWorkspaceKey.qualified(machine: "lab", workspace: "ws_lab")
+        func key(_ rules: Set<String>, localHas: Bool = false) -> String {
+            NotificationWorkspaceKey.ruleKey(machine: "lab", workspace: "ws_lab", localMachine: "local",
+                                             hasRule: { rules.contains($0) }, localHolds: { localHas && $0 == "ws_lab" })
+        }
+        #expect(key(["ws_lab"]) == "ws_lab", "an earlier build's remote sound rule was dropped on upgrade")
+        #expect(key([]) == qualified)
+        #expect(key(["ws_lab", qualified]) == qualified)
+        #expect(key(["ws_lab"], localHas: true) == qualified, "a local workspace's rule reached a forked machine's same-id workspace")
+        #expect(NotificationWorkspaceKey.ruleKey(machine: "local", workspace: "ws_lab", localMachine: "local",
+                                                 hasRule: { _ in false }, localHolds: { _ in true }) == "ws_lab")
+    }
+
     /// A tab in an incognito window: its banner names neither the workspace, the tab nor the
     /// agent's reason, the way every other banner from that window does (DesktopNotifier+Incognito).
     @Test func anIncognitoTabsBannerNamesNothing() throws {

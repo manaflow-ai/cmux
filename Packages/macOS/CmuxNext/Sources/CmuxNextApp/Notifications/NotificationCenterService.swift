@@ -540,11 +540,10 @@ final class NotificationCenterService {
         var arrival = NotificationPolicy.Arrival(source: source)
         arrival.bannerAllowed = notification.desktop
         arrival.appActive = services?.appActiveSource() ?? false
-        if let workspace = located?.workspace ?? workspace {
-            arrival.workspaceMuted = preferences.mutedWorkspaces.contains(workspace.id)
-        }
+        let keys = (located?.workspace ?? workspace).map { notificationKeys(of: $0) }
+        arrival.workspaceMuted = keys?.muted ?? false
         (arrival.soundEvent, arrival.soundScope) = soundGate.classify(level: notification.level.rawValue, source: source,
-                                                                     agent: located?.tab.agentSession?.harness ?? located?.tab.agent?.agent, workspace: (located?.workspace ?? workspace)?.id)
+                                                                     agent: located?.tab.agentSession?.harness ?? located?.tab.agent?.agent, workspace: keys?.soundRule)
         if let located {
             arrival.paneIsViewed = isViewed(located.tab.id)
             arrival.typedAgo = typedAgo(tabID: located.tab.id, onMachine: services?.machines.local.machineID ?? "local")
@@ -789,13 +788,10 @@ extension NotificationCenterService {
             arrival.typedAgo = typedAgo(tabID: tab, onMachine: daemon.machineID)
             if let pane = daemon.store.pane(holding: model),
                let workspace = daemon.store.workspace(containing: pane.handle) {
-                arrival.workspaceMuted = preferences.workspaceMuted(machine: daemon.machineID, workspace: workspace.id,
-                                                                    localMachine: services.machines.local.machineID,
-                                                                    localHolds: { id in services.machines.local.store.workspace(id: id) != nil })
+                let keys = notificationKeys(of: workspace, machine: daemon.machineID)
+                arrival.workspaceMuted = keys.muted
                 (arrival.soundEvent, arrival.soundScope) = soundGate.classify(
-                    level: "warning", source: .agent, agent: model.agentSession?.harness ?? model.agent?.agent,
-                    workspace: NotificationWorkspaceKey.settingsKey(machine: daemon.machineID, workspace: workspace.id,
-                                                                   localMachine: services.machines.local.machineID))
+                    level: "warning", source: .agent, agent: model.agentSession?.harness ?? model.agent?.agent, workspace: keys.soundRule)
             }
         }
         if arrival.soundEvent == nil { arrival.soundEvent = .needsInput }

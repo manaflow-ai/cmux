@@ -13,8 +13,9 @@ extension AppServices: NotificationSoundHost {
         guard let daemon = machines.daemons.first(where: { $0.store.workspace(id: workspace.id) === workspace }) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        return NotificationWorkspaceKey.settingsKey(machine: daemon.machineID, workspace: workspace.id,
-                                                    localMachine: machines.local.machineID)
+        let rules = notifications.preferences.sounds.workspaces
+        return NotificationWorkspaceKey.ruleKey(machine: daemon.machineID, workspace: workspace.id, localMachine: machines.local.machineID,
+                                                hasRule: { rules[$0] != nil }, localHolds: { [machines] in machines.local.store.workspace(id: $0) != nil })
     }
     func soundGroup(_ invocation: ActionInvocation) throws -> NotificationSoundScope.Group { try AppActionContext(services: self).soundGroup(invocation) }
     func soundGroups(ofWorkspace id: String) -> [NotificationSoundScope.Group] { AppActionContext(services: self).soundGroups(ofWorkspace: id) }

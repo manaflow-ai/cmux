@@ -48,9 +48,12 @@ extension AppActionContext {
         // Resolve the owning object before reading personal membership, including cloned ids.
         var membership: WorkspaceGroupID?
         for daemon in services.machines.daemons {
+            // A remote workspace's rule may still sit under its legacy bare id (NotificationWorkspaceKey.ruleKey);
+            // the local machine comes first, so a bare id a local workspace holds stays local.
+            let remote = daemon.machineID != services.machines.local.machineID
             guard let workspace = daemon.store.workspaces.first(where: {
                 NotificationWorkspaceKey.settingsKey(machine: daemon.machineID, workspace: $0.id,
-                                                       localMachine: services.machines.local.machineID) == id
+                                                       localMachine: services.machines.local.machineID) == id || (remote && $0.id == id)
             }), let session = daemon.store.registryID else { continue }
             membership = personal.workspace(session: session, key: workspace.key?.rawValue ?? workspace.id)?.group
             break

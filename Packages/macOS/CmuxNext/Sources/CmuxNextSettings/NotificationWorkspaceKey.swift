@@ -40,6 +40,17 @@ public nonisolated enum NotificationWorkspaceKey {
         machine != localMachine && keys.contains(workspace) && !localHolds(workspace) ? workspace : nil
     }
 
+    /// The key `workspace`'s per-workspace rule (`notifications.sounds.workspaces`) is saved under:
+    /// its own key, or for a remote workspace the legacy bare id while only that has a rule and no
+    /// workspace on this Mac has the id (``legacyRemoteKey``), so a rule saved by an earlier build
+    /// keeps applying and an edit changes it instead of starting a new one.
+    public static func ruleKey(machine: String, workspace: String, localMachine: String, hasRule: (String) -> Bool,
+                               localHolds: (String) -> Bool) -> String {
+        let key = settingsKey(machine: machine, workspace: workspace, localMachine: localMachine)
+        guard !hasRule(key), machine != localMachine, hasRule(workspace), !localHolds(workspace) else { return key }
+        return workspace
+    }
+
     private static let qualifiedPrefix = "machine:"
 
     public static func qualified(machine: String, workspace: String) -> String {
