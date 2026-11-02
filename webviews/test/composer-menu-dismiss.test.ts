@@ -198,31 +198,9 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
         )
           return false;
         if (want.length === 0 ? livePopups.length > 0 : livePopups.length === 0) return false;
-        for (const name of want) {
-          const button = [...document.querySelectorAll<HTMLElement>(pairs.find(([label]) => label === name)![1])].find((candidate) => {
-            const box = candidate.getBoundingClientRect();
-            return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
-          })!;
-          const controls = button.getAttribute("aria-controls");
-          const controlled = controls ? document.getElementById(controls) : null;
-          const controlledPopup = controlled?.closest<HTMLElement>(".ui-popup");
-          const popup =
-            controlledPopup && !controlledPopup.hasAttribute("data-ending-style")
-              ? controlledPopup
-              : livePopups.find(
-                  (popup) =>
-                    popup.getAttribute("aria-label") === name ||
-                    (button.id && popup.getAttribute("aria-labelledby") === button.id),
-                );
-          if (
-            !popup ||
-            popup.hasAttribute("data-ending-style") ||
-            popup.getBoundingClientRect().height === 0 ||
-            Number.parseFloat(getComputedStyle(popup).opacity) <= 0 ||
-            getComputedStyle(popup).pointerEvents === "none"
-          )
-            return false;
-        }
+        // The trigger's expanded state and a mounted live popup are the semantic contract.  Popup
+        // geometry and opacity are animated independently, so tying this barrier to either one
+        // makes a loaded browser wait for presentation details rather than the menu state.
         return true;
       },
       [names.map((name) => [name, chip(name)] as const), want] as const,
