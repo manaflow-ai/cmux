@@ -13,6 +13,7 @@
 #include <string>
 
 #include "include/cef_command_ids.h"
+#include "devtools_dock_state.h"
 #include "shim_internal.h"
 
 namespace cmux_shim {
@@ -223,6 +224,31 @@ int cmux_shim_devtools_command(int browser_id, int command, int x, int y) {
     default:
       return 0;
   }
+}
+
+int cmux_shim_devtools_set_frontend_dock_side(int browser_id, int side) {
+  // The DevTools frontend keeps its dock side in its own setting (currentDockState, a JSON string in the profile's
+  // devtools.preferences dictionary) and applies it when it loads; the fork reports that as a dock-side choice.
+  // Chrome keeps one side, the frontend's: write the host's side there before DevTools opens, so the frontend loads
+  // on it and never moves DevTools.
+  const std::string value = DevToolsDockStateValue(side);
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  CefRefPtr<CefRequestContext> context = browser ? browser->GetHost()->GetRequestContext() : nullptr;
+  if (value.empty() || !context) return 0;
+  const char* pref = "devtools.preferences";
+  if (!context->CanSetPreference(pref)) return 0;
+  CefRefPtr<CefValue> current = context->GetPreference(pref);
+  CefRefPtr<CefDictionaryValue> prefs = current && current->GetType() == VTYPE_DICTIONARY
+                                            ? current->GetDictionary()->Copy(false)
+                                            : CefDictionaryValue::Create();
+  if (prefs->GetType(kDevToolsDockStateKey) == VTYPE_STRING && prefs->GetString(kDevToolsDockStateKey).ToString() == value) {
+    return 1;
+  }
+  prefs->SetString(kDevToolsDockStateKey, value);
+  CefRefPtr<CefValue> updated = CefValue::Create();
+  updated->SetDictionary(prefs);
+  CefString error;
+  return context->SetPreference(pref, updated, error) ? 1 : -1;
 }
 
 int cmux_shim_devtools_browser(int browser_id) {

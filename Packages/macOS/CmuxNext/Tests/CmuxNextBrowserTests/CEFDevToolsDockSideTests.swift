@@ -1,5 +1,6 @@
-import Foundation
+import AppKit
 @testable import CmuxNextBrowser
+import Foundation
 import Testing
 
 /// BROWSER VIDEO F2 (handoff resize-videos/BROWSER-VIDEO.md, 120 Hz films on feat 0d19fe6, 2026-11-02):
@@ -44,12 +45,20 @@ import Testing
         #expect(tab.devTools.dock == .right)
     }
 
+    @Test func forkSidesRoundTrip() {
+        for dock in [BrowserDevToolsDock.window, .left, .bottom, .right] {
+            #expect(CEFDevToolsController.dock(forkSide: Int(CEFDevToolsController.forkSide(of: dock))) == dock)
+        }
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {
         static let browser: Int32 = 11
         let runtime: CEFRuntime
         let root: URL
+        /// The pane's window: DevTools docks only in a tab shown in a window (`CEFDevToolsController.willOpen`).
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
 
         init() throws {
             ShimLog.calls = []
@@ -65,11 +74,14 @@ import Testing
             let request = try #require(runtime.pendingWindows.keys.first)
             runtime.handle(.afterCreated(browser: Self.browser, request: request, window: 1))
             try #require(tab.browserID == Self.browser)
+            tab.container.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+            window.contentView?.addSubview(tab.container)
             ShimLog.calls = []
             return tab
         }
 
         func close() {
+            window.contentView?.subviews.forEach { $0.removeFromSuperview() }
             try? FileManager.default.removeItem(at: root)
         }
     }
