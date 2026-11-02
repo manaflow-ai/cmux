@@ -313,6 +313,8 @@ struct AgentPaneNativeSessionInfoTests {
         panel.layoutSubtreeIfNeeded()
         func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
         #expect(!all(panel).contains { String(describing: type(of: $0)).contains("NSHostingView") })
+        // No background card: the content sits on the pane's glass, with no surface of its own behind it.
+        #expect(!all(panel).contains { $0 is OverlaySurfaceView || $0 is NSVisualEffectView })
         let content = try #require(all(panel).compactMap { $0 as? AgentPaneSessionInfoContent }.first)
         #expect(content.lines.map(\.line.title) == ["Subagents", "rail-fix"])
         #expect(content.lines[0].press())
