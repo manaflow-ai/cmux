@@ -95,15 +95,24 @@ public final class CreationInputBuffer {
 
     /// Opens a pending close of tabs `closing` (the focused terminal's first, on `machine`): keys typed while the focus
     /// names one of them are its own.
-    public func openClose(closing: [String], machine: String?) -> Ticket {
+    /// `takesEveryKey`: the close took its tabs out of the strip while it reads (the focus moved to a neighbour the
+    /// person did not pick): every key typed in the window until it answers is the close's, whatever has the focus.
+    public func openClose(closing: [String], machine: String?, takesEveryKey: Bool = false) -> Ticket {
         let ticket = open(generation: 0)
         closingTabs[ticket.id] = closing
         laneMachines[ticket.id] = machine
+        if takesEveryKey { everyKeyCloses.insert(ticket.id) }
         return ticket
     }
 
-    /// Whether a close of this hold still waits for its answer and closes `tab`.
-    public func isClosing(tab: String) -> Bool { closingTabs.values.contains { $0.contains(tab) } }
+    /// Closes that take every key of the window while they read (``openClose(closing:machine:takesEveryKey:)``).
+    private var everyKeyCloses: Set<Int> = []
+
+    /// Whether a close of this hold still waits for its answer and closes `tab`, or takes every key of the window
+    /// (a hidden close: the focus moved to a neighbour that `tab` may be).
+    public func isClosing(tab: String?) -> Bool {
+        everyKeyCloses.contains { closingTabs[$0] != nil } || tab.map { tab in closingTabs.values.contains { $0.contains(tab) } } == true
+    }
 
     /// The close behind `ticket` ran or stopped: its keys are tab `tab`'s (the focused terminal's after the close, or the
     /// closing terminal that stays), on `machine`; nil `tab` runs them as typed, in whatever has the focus then.
@@ -112,6 +121,7 @@ public final class CreationInputBuffer {
     /// While another close still waits for its answer (two quick Cmd-Ws), the keys become that close's, in order.
     public func settleClose(_ ticket: Ticket, parked: ParkedClose? = nil, keysTo tab: String?, machine: String?) {
         guard ticket.owner == ObjectIdentifier(self), let closing = closingTabs.removeValue(forKey: ticket.id) else { return }
+        everyKeyCloses.remove(ticket.id)
         if let parked { events.insert(contentsOf: parked.events.map { ($0, ticket.id) }, at: 0) }
         if let next = closingTabs.keys.max() {
             events = events.map { $0.creation == ticket.id ? ($0.event, next) : $0 }
@@ -126,6 +136,7 @@ public final class CreationInputBuffer {
     /// so the question's own keys are never held), in typing order, and the close waits for nothing more here.
     public func parkClose(_ ticket: Ticket) -> ParkedClose? {
         guard ticket.owner == ObjectIdentifier(self), let closing = closingTabs.removeValue(forKey: ticket.id) else { return nil }
+        everyKeyCloses.remove(ticket.id)
         let parked = events.filter { $0.creation == ticket.id }.map(\.event)
         events.removeAll { $0.creation == ticket.id }
         resolve(ticket, awaitsFocus: false)
@@ -149,6 +160,7 @@ public final class CreationInputBuffer {
     /// The lane of a key typed while the focus names (or is on its way to) tab `focusedTab`: the newest creation of
     /// this hold that shows that tab, nil when the focus names none of them (a key typed after the person moved on).
     public func lane(focusedTab: String?) -> Int? {
+        if let close = everyKeyCloses.filter({ closingTabs[$0] != nil }).max() { return close }
         guard let focusedTab else { return nil }
         if let close = closingTabs.filter({ $0.value.contains(focusedTab) }).map(\.key).max() { return close }
         return laneTabs.filter { $0.value == focusedTab }.map(\.key).max()
@@ -220,9 +232,12 @@ public final class CreationInputBuffer {
 
     /// Holds `event`, typed while the focus named `focusedTab` (``lane(focusedTab:)``). A key typed for no creation's tab
     /// while a new workspace's terminal is on its way and the person has not moved on (`forNewWorkspace`) is that
-    /// terminal's: its keys wait for the window to show it.
+    /// terminal's: its keys wait for the window to show it. An adopted lane (a cold terminal's surface hold, keys carried
+    /// from another hold) is the terminal the person typed into before they asked for the workspace: it gives way to it.
     public func capture(_ event: NSEvent, focusedTab: String?, forNewWorkspace: Bool = false) {
-        events.append((event, lane(focusedTab: focusedTab) ?? (forNewWorkspace ? workspaceTickets.max() : nil)))
+        let workspace = forNewWorkspace ? workspaceTickets.max() : nil
+        let own = lane(focusedTab: focusedTab).flatMap { $0 < 0 && workspace != nil ? nil : $0 }
+        events.append((event, own ?? workspace))
     }
 
     /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest creation) before the
@@ -255,6 +270,16 @@ public final class CreationInputBuffer {
     public func awaitSurface(of lane: HeldLane) {
         awaitedTab = lane.tab
         _ = adopt(lane)
+    }
+
+    /// The hold waits for a focused page whose content is not made yet (a restored Chromium tab): every key but a close
+    /// waits, with no terminal lane, and runs again as typed once it shows (REOPEN-F4 browser case).
+    public private(set) var awaitsPage = false
+
+    /// The hold waits for `content` (``AwaitedContent``): a terminal by its lane on `machine`, a page with no lane.
+    public func awaitContent(_ content: AwaitedContent, machine: String?) {
+        guard content.hasTerminalLane else { (awaitedTab, awaitsPage) = (content.tab, true); return }
+        awaitSurface(of: HeldLane(tab: content.tab, machine: machine))
     }
 
     /// The terminal lane `id` delivers to; nil for no lane.
