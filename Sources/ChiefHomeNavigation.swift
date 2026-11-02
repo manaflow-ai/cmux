@@ -113,6 +113,9 @@ struct ChiefHomeNavigation {
         var removedGroupIDs: Set<UUID> = []
         for home in manager.tabs where home.holdsChiefPane {
             let groupID = home.groupId
+            // Chief tabs in the Dock aren't user work: close them first, so a
+            // Dock left empty doesn't keep the workspace.
+            home._dockSplit?.removeChiefPanels()
             let holdsOnlyChief = home.panels.values.allSatisfy { $0 is ChiefPanel }
                 && home._dockSplit?.panels.isEmpty != false
             if holdsOnlyChief {

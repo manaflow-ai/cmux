@@ -183,11 +183,13 @@ struct DockEmptyPaneView: View {
                         )
                     }
                 }
-                Button(action: onNewChief) {
-                    Label(
-                        String(localized: "dock.action.newChief", defaultValue: "New Chief"),
-                        systemImage: "bubble.left.and.bubble.right"
-                    )
+                if ChiefSettings.isEnabled {
+                    Button(action: onNewChief) {
+                        Label(
+                            String(localized: "dock.action.newChief", defaultValue: "New Chief"),
+                            systemImage: "bubble.left.and.bubble.right"
+                        )
+                    }
                 }
             }
             .buttonStyle(.bordered)

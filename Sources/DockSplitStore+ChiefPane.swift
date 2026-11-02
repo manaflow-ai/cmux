@@ -4,6 +4,17 @@ import CmuxHomeCore
 
 /// Chief-specific creation and focus behavior for a right Dock.
 extension DockSplitStore {
+    /// Closes every Chief tab in this Dock, for when Chief turns off.
+    func removeChiefPanels() {
+        for paneId in bonsplitController.allPaneIds {
+            let chiefTabs = bonsplitController.tabs(inPane: paneId).map(\.id).filter { tabId in
+                surfaceIdToPanelId[tabId].flatMap { panels[$0] } is ChiefPanel
+            }
+            guard !chiefTabs.isEmpty else { continue }
+            closeDockTabs(chiefTabs, inPane: paneId, confirmationPolicy: .tabsRequiringConfirmation)
+        }
+    }
+
     /// Shows a Chief conversation in the Dock, reusing an existing matching tab.
     ///
     /// The Home conversation remains mounted separately. A Dock tab is a normal

@@ -196,7 +196,7 @@ final class CmuxFeatureFlags {
     // until the PostHog flag enables it; DEBUG keeps it on for dogfood.
     nonisolated static let chiefFlag = CmuxFeatureFlagDefinition(
         key: "chief-enabled-release",
-        title: String(localized: "featureFlags.chief.title", defaultValue: "Chief"),
+        title: String(localized: "featureFlags.chief.title", defaultValue: "Chief Home agent"),
         flagDescription: String(
             localized: "featureFlags.chief.description",
             defaultValue: "Offers Chief, the Home agent, with its Home row, menu items and settings."

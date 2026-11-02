@@ -2808,6 +2808,7 @@ struct ContentView: View {
                 ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).leave()
                 ChiefService.shared.stopBecauseDisabled()
                 ChiefHomeNavigation.removeHome(in: tabManager)
+                AppDelegate.shared?.existingWindowDock(forWindowId: windowId)?.removeChiefPanels()
             }
         })
 

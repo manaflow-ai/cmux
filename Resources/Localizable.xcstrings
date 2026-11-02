@@ -596683,6 +596683,54 @@
             "state": "translated",
             "value": "Offers Chief, the Home agent, with its Home row, menu items and settings."
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bietet Chief, den Home-Agenten, mit Home-Zeile, Menüeinträgen und Einstellungen an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propose Chief, l’agent d’accueil, avec sa ligne d’accueil, ses éléments de menu et ses réglages."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوفّر Chief، وكيل الصفحة الرئيسية، مع صفها وعناصر القائمة والإعدادات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ofrece Chief, el agente de Inicio, con su fila de Inicio, elementos de menú y ajustes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提供主頁代理 Chief,包括其主頁列、選單項目和設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提供主页代理 Chief,包括其主页行、菜单项和设置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 에이전트 Chief를 홈 행, 메뉴 항목, 설정과 함께 제공합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームエージェントの Chief を、ホーム行、メニュー項目、設定とともに提供します。"
+          }
         }
       }
     },
@@ -596692,7 +596740,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief"
+            "value": "Chief Home agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief-Home-Agent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent d’accueil Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل Chief للصفحة الرئيسية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente de Inicio Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 主頁代理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 主页代理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 홈 에이전트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief ホームエージェント"
           }
         }
       }

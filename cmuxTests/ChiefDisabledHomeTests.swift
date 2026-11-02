@@ -150,6 +150,23 @@ struct ChiefDisabledHomeTests {
         #expect(!manager.tabs.contains { $0.id == chiefOnly.id })
     }
 
+    @Test func removeHomeClearsChiefTabsFromADock() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let manager = TabManager()
+        let workspace = try #require(manager.addWorkspaceIfActive(select: false))
+        let dock = try #require(workspace.dockSplit)
+        dock.ensureLoaded()
+        let pane = try #require(dock.bonsplitController.allPaneIds.first)
+        let chiefTab = try #require(dock.newSurface(kind: .chief, inPane: pane, focus: false))
+
+        ChiefSettings.setEnabled(false)
+        #expect(dock.newSurface(kind: .chief, inPane: pane, focus: false) == nil)
+        ChiefHomeNavigation.removeHome(in: manager)
+        #expect(dock.panels[chiefTab] == nil)
+        #expect(manager.tabs.contains { $0.id == workspace.id })
+    }
+
     @Test func removeHomeKeepsPanesTheUserAddedToHome() throws {
         let setting = ChiefEnabledOverride(true)
         defer { setting.restore() }

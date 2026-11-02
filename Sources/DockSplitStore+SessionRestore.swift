@@ -240,7 +240,7 @@ extension DockSplitStore {
                 excludingStableIdentities: excludingStableIdentities
             )
         case .chief:
-            guard let chiefSnapshot = snapshot.chief else { return nil }
+            guard ChiefSettings.isEnabled, let chiefSnapshot = snapshot.chief else { return nil }
             let panel = ChiefPanel(
                 id: panels[snapshot.id] == nil ? snapshot.id : UUID(),
                 conversationID: chiefSnapshot.conversationID.map(ConversationID.init(rawValue:))

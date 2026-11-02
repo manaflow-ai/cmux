@@ -12,9 +12,10 @@ extension Workspace {
         ChiefSettings.isEnabled && holdsChiefHomePane
     }
 
-    /// True when this workspace holds any Chief pane, whether or not Chief is enabled.
+    /// True when this workspace or its Dock holds any Chief pane, whether or not Chief is enabled.
     var holdsChiefPane: Bool {
         panels.values.contains { $0 is ChiefPanel }
+            || _dockSplit?.panels.values.contains { $0 is ChiefPanel } == true
     }
 
     /// True when this workspace holds the canonical Home pane, whether or not Chief is enabled.
@@ -144,7 +145,8 @@ extension Workspace {
         focus: Bool = true,
         initialDividerPosition: CGFloat? = nil
     ) -> ChiefPanel? {
-        guard !isRetiredFromOwningTabManager,
+        guard ChiefSettings.isEnabled,
+              !isRetiredFromOwningTabManager,
               let sourceTabId = surfaceIdFromPanelId(panelId),
               let sourcePaneId = bonsplitController.allPaneIds.first(where: { paneId in
                   bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == sourceTabId })
