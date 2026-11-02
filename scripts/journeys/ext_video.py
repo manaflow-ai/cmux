@@ -614,5 +614,42 @@ def step_reply_cost(j, step):
     return {k: v for k, v in out.items() if k.endswith("_summary")}
 
 
-STEPS = {"reply_cost": step_reply_cost, "hid_inject_check": step_hid_inject_check, "action_try": step_action_try, "video_count": step_video_count, "sck_probe": step_sck_probe, "video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
+def step_record_start_sample(j, step):
+    """A main-thread profile across record_start: /usr/bin/sample (1 ms interval) starts, the call goes only after
+    its first sample is taken ("Sampling process" printed and a short wait; the lead's first-sample rule), and the
+    report's main-thread call tree is kept as video/record-start-sample-N.txt. `runs` times."""
+    import subprocess
+    out = []
+    vdir = _vdir(j)
+    for n in range(int(step.get("runs", 2))):
+        path = vdir / f"record-start-sample-{n}.txt"
+        proc = subprocess.Popen(["/usr/bin/sample", str(j.app.pid), "2", "1", "-mayDie", "-file", str(path)],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        said = []
+        end = time.monotonic() + 10  # orchestration wait only
+        while time.monotonic() < end:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            said.append(line.strip())
+            if line.startswith("Sampling process"):
+                break
+        time.sleep(0.15)  # the first samples are taken before the call
+        movie = vdir / f".sample-{n}.mov"
+        _motion(j, "record_start", path=str(movie), window=0, seconds=10)
+        try:
+            proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        _motion(j, "record_stop")
+        end = time.monotonic() + 30  # orchestration wait only
+        while time.monotonic() < end and not _motion(j, "record_read").get("written"):
+            time.sleep(0.1)
+        text = path.read_text(errors="replace") if path.exists() else ""
+        main = text.split("Thread_", 2)[1][:6000] if "Thread_" in text else ""
+        out.append({"file": path.name, "said": said[-2:], "main_head": main[:3000]})
+    return out
+
+
+STEPS = {"record_start_sample": step_record_start_sample, "reply_cost": step_reply_cost, "hid_inject_check": step_hid_inject_check, "action_try": step_action_try, "video_count": step_video_count, "sck_probe": step_sck_probe, "video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
          "hid_click": step_hid_click, "hid_key": step_hid_key, "layout_note": step_layout_note}

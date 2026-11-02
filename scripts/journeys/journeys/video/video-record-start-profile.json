@@ -1,0 +1,76 @@
+{
+ "id": "video-record-start-profile",
+ "priority": "P1",
+ "title": "Recorder: where record_start spends 7-9 ms of main thread (sample across the call), and the cost again",
+ "why": "Lead 04:5xZ: record_start costs about one 120 Hz refresh of main thread; find the cause before the fix.",
+ "source": "handoff/resize-videos (harness owner)",
+ "budget_seconds": 200,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window fills the screen",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rvs"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "record_start_sample",
+   "runs": 2
+  },
+  {
+   "do": "reply_cost",
+   "seconds": 2,
+   "runs": 2
+  },
+  {
+   "do": "type",
+   "text": "echo rvs-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "the app still answers",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "rvs-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "rvs-done-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
