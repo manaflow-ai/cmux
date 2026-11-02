@@ -216,7 +216,7 @@ export function attachSeeThroughBlur(
       opacity: Number.parseFloat(style.opacity),
     };
     if (!Number.isFinite(look.opacity)) look.opacity = 1;
-    // A faded-out or empty surface covers nothing; any other covers in full (createHoleFilter). One CSS hides with visibility (the Summary card
+    // A faded-out or empty surface covers nothing; any other covers in full. One CSS hides with visibility (the Summary card
     // under Find) keeps its holes, so they are right the moment it shows again with no event to see
     // it; the same CSS switches its blocks' filters off meanwhile (owner, summary.css).
     const shown = look.opacity > 0 && rect.width > 0 && rect.height > 0;
@@ -275,6 +275,8 @@ export function attachSeeThroughBlur(
   measure();
   kick();
   surface.addEventListener("transitionrun", kick);
+  // The loop may stop mid-fade (opacity is not in its key once shown): the fade's end measures again.
+  surface.addEventListener("transitionend", kick);
   surface.addEventListener("animationstart", kick);
   view.addEventListener("resize", kick);
   return () => {
@@ -283,6 +285,7 @@ export function attachSeeThroughBlur(
     resize.disconnect();
     mutations.disconnect();
     surface.removeEventListener("transitionrun", kick);
+    surface.removeEventListener("transitionend", kick);
     surface.removeEventListener("animationstart", kick);
     view.removeEventListener("resize", kick);
     for (const target of covered.keys()) release(target);
