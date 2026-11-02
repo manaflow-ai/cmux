@@ -73,7 +73,9 @@ pub(super) fn try_handle(
     let (prompt_tx, prompt_rx) = sync_channel(2);
     let prompt_tx_for_call = prompt_tx.clone();
     let writer = writer.clone();
+    let workspaces = Arc::clone(mux);
     std::thread::spawn(move || {
+        let hides = |key: &str| workspaces.workspace_key_is_ephemeral(key);
         let prompt_id = expected_prompt_id;
         let result = match AcpmuxLink::connect(&socket, move |inbound| {
             if let Inbound::Notification(method, notification) = inbound
@@ -89,6 +91,7 @@ pub(super) fn try_handle(
                 params,
                 local_machine_id.as_deref(),
                 Some((prompt_rx, prompt_tx_for_call)),
+                &hides,
             ),
             Err(_) => Err(("unavailable", "acpmux is unavailable".to_owned())),
         };
@@ -120,16 +123,28 @@ fn dispatch(
     params: Value,
     machine_id: Option<&str>,
     acceptance: Option<(Receiver<PromptOutcome>, SyncSender<PromptOutcome>)>,
+    hides: &dyn Fn(&str) -> bool,
 ) -> Result<Value, (&'static str, String)> {
     match command {
         "mobile-chat-sessions" => {
             let acpmux_params = bounded_page_params(&params)?;
-            let raw =
+            let mut raw =
                 link.call("_acpmux/sessions", acpmux_params, CALL_TIMEOUT).map_err(link_error)?;
+            if let Some(rows) = raw.get_mut("sessions").and_then(Value::as_array_mut) {
+                rows.retain(|row| {
+                    row.get("sessionId")
+                        .or_else(|| row.get("id"))
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| visible(link, id, hides))
+                });
+            }
             Ok(normalize_sessions(raw, machine_id))
         }
         "mobile-chat-history" => {
             let session = required_text(&params, "session_id")?;
+            if !visible(link, &session, hides) {
+                return Err(not_found());
+            }
             bounded_limit(&params, "limit")?;
             let mut request = Map::new();
             request.insert("sessionId".into(), Value::String(session.clone()));
@@ -154,6 +169,9 @@ fn dispatch(
         }
         "mobile-chat-send" => {
             let session = required_text(&params, "session_id")?;
+            if !visible(link, &session, hides) {
+                return Err(not_found());
+            }
             let text = required_text(&params, "text")?;
             if text.len() > MAX_TEXT_BYTES {
                 return Err(("bad_request", "text exceeds 64 KiB".into()));
@@ -200,6 +218,30 @@ fn dispatch(
         }
         _ => Err(("method_not_found", "unknown mobile chat command".into())),
     }
+}
+
+/// Whether a phone may see chat `session`: not one of an incognito workspace
+/// (`PhoneAccessGate.hidesWorkspace`; design/spaces.md "Incognito"), whose
+/// chats live in this daemon until the window closes. Read from `_acpmux/info`,
+/// which names the chat's workspace to this local link only; a chat acpmux
+/// cannot answer for is hidden (fail closed).
+fn visible(link: &AcpmuxLink, session: &str, hides: &dyn Fn(&str) -> bool) -> bool {
+    // The session list holds the env: no wait for the chat logs.
+    let params = json!({"sessionId": session, "waitLogs": false});
+    let Ok(info) = link.call("_acpmux/info", params, CALL_TIMEOUT) else {
+        return false;
+    };
+    let recorded = info.get("workspaceId").and_then(Value::as_str);
+    let env = info.pointer("/sessionEnv/CMUX_WORKSPACE_ID").and_then(Value::as_str);
+    [recorded, env]
+        .into_iter()
+        .flatten()
+        .all(|id| !hides(&crate::state::agent_message_policy::workspace_key(id)))
+}
+
+/// The answer a chat the phone may not see gets: the same as one that does not exist.
+fn not_found() -> (&'static str, String) {
+    ("acpmux_refused", "unknown session".into())
 }
 
 fn bounded_page_params(params: &Value) -> Result<Value, (&'static str, String)> {
@@ -466,12 +508,30 @@ mod tests {
         (link, dir)
     }
 
+    const INCOGNITO: &str = "0f0e0d0c-0b0a-0908-0706-050403020100";
+
+    fn none(_: &str) -> bool {
+        false
+    }
+
+    fn incognito(key: &str) -> bool {
+        key == crate::state::agent_message_policy::workspace_key(INCOGNITO)
+    }
+
+    /// `_acpmux/info` for a chat of an ordinary workspace.
+    fn shown() -> Value {
+        json!({"sessionId": "s1", "workspaceId": "11111111-2222-3333-4444-555555555555"})
+    }
+
     #[test]
     fn relay_normalizes_sessions_and_actual_acp_records() {
         let (link, _dir) = scripted(
-            vec![json!({
-                "sessions": [{"sessionId":"s1","name":"Cloud","status":"running","updatedAt":42}]
-            })],
+            vec![
+                json!({
+                    "sessions": [{"sessionId":"s1","name":"Cloud","status":"running","updatedAt":42}]
+                }),
+                shown(),
+            ],
             None,
         );
         let sessions = dispatch(
@@ -480,17 +540,21 @@ mod tests {
             json!({"machine_id":"vm_1","limit":20}),
             Some("vm_1"),
             None,
+            &none,
         )
         .unwrap();
         assert_eq!(sessions["sessions"][0]["machine_id"], "vm_1");
 
         let (link, _dir) = scripted(
-            vec![json!({
-                "events": [
-                    {"sessionId":"s1","seq":1,"at":10,"kind":"user_message","msg":{"text":"hello"}},
-                    {"sessionId":"s1","seq":2,"at":11,"kind":"message","msg":{"params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}}}}
-                ], "nextSeq":3
-            })],
+            vec![
+                shown(),
+                json!({
+                    "events": [
+                        {"sessionId":"s1","seq":1,"at":10,"kind":"user_message","msg":{"text":"hello"}},
+                        {"sessionId":"s1","seq":2,"at":11,"kind":"message","msg":{"params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}}}}
+                    ], "nextSeq":3
+                }),
+            ],
             None,
         );
         let history = dispatch(
@@ -499,6 +563,7 @@ mod tests {
             json!({"session_id":"s1","limit":20}),
             None,
             None,
+            &none,
         )
         .unwrap();
         assert_eq!(history["messages"].as_array().unwrap().len(), 2);
@@ -510,26 +575,28 @@ mod tests {
     #[test]
     fn relay_send_waits_for_prompt_acceptance_and_surfaces_errors() {
         let (tx, rx) = sync_channel(2);
-        let (link, _dir) = scripted(vec![json!({"$accept": true})], Some(tx.clone()));
+        let (link, _dir) = scripted(vec![shown(), json!({"$accept": true})], Some(tx.clone()));
         let accepted = dispatch(
             &link,
             "mobile-chat-send",
             json!({"session_id":"s1","text":"hello","prompt_id":"p1"}),
             None,
             Some((rx, tx)),
+            &none,
         )
         .unwrap();
         assert_eq!(accepted["accepted"], true);
         assert_eq!(accepted["turn_id"], "t1");
 
         let (tx, rx) = sync_channel(2);
-        let (link, _dir) = scripted(vec![json!({"$error":"permission.denied"})], None);
+        let (link, _dir) = scripted(vec![shown(), json!({"$error":"permission.denied"})], None);
         let error = dispatch(
             &link,
             "mobile-chat-send",
             json!({"session_id":"s1","text":"hello","prompt_id":"p1"}),
             None,
             Some((rx, tx)),
+            &none,
         )
         .unwrap_err();
         assert_eq!(error.0, "acpmux_refused");
@@ -541,18 +608,71 @@ mod tests {
         let (seen_tx, seen_rx) = std::sync::mpsc::channel();
         let (tx, rx) = sync_channel(2);
         let (link, _dir) =
-            scripted_seen(vec![json!({"$accept": true})], Some(tx.clone()), Some(seen_tx));
+            scripted_seen(vec![shown(), json!({"$accept": true})], Some(tx.clone()), Some(seen_tx));
         dispatch(
             &link,
             "mobile-chat-send",
             json!({"session_id":"s1","text":"hello","prompt_id":"p1"}),
             None,
             Some((rx, tx)),
+            &none,
         )
         .unwrap();
+        let info = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(info["method"], "_acpmux/info");
         let request = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(request["method"], "session/prompt");
         assert_eq!(request["params"]["_meta"]["acpmux"]["via"], "cloud-mobile");
         assert_eq!(request["params"]["_meta"]["acpmux"]["promptId"], "p1");
+    }
+
+    /// An incognito workspace's chat stays off the phone: not listed, its history
+    /// and a send answered as an unknown chat (`PhoneAccessGate.hidesWorkspace`).
+    #[test]
+    fn incognito_chats_never_reach_the_phone() {
+        let (link, _dir) = scripted(
+            vec![
+                json!({"sessions": [{"sessionId":"s1","name":"Shown"},{"sessionId":"s2","name":"Hidden"}]}),
+                shown(),
+                json!({"sessionId": "s2", "workspaceId": INCOGNITO}),
+            ],
+            None,
+        );
+        let sessions =
+            dispatch(&link, "mobile-chat-sessions", json!({}), None, None, &incognito).unwrap();
+        let ids: Vec<&str> = sessions["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["s1"]);
+
+        // Named by its env only, as a chat started from the workspace's terminal is.
+        let env = json!({"sessionId": "s2", "sessionEnv": {"CMUX_WORKSPACE_ID": INCOGNITO}});
+        let (link, _dir) = scripted(vec![env.clone()], None);
+        let history = dispatch(
+            &link,
+            "mobile-chat-history",
+            json!({"session_id":"s2"}),
+            None,
+            None,
+            &incognito,
+        )
+        .unwrap_err();
+        assert_eq!(history.1, "unknown session");
+
+        let (tx, rx) = sync_channel(2);
+        let (link, _dir) = scripted(vec![env], None);
+        let send = dispatch(
+            &link,
+            "mobile-chat-send",
+            json!({"session_id":"s2","text":"hello","prompt_id":"p1"}),
+            None,
+            Some((rx, tx)),
+            &incognito,
+        )
+        .unwrap_err();
+        assert_eq!(send.1, "unknown session");
     }
 }
