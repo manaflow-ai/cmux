@@ -34,14 +34,6 @@
       "at": "start"
     },
     {
-      "do": "probe_relaunch",
-      "mark": "probed"
-    },
-    {
-      "do": "smoke_ready",
-      "timeout": 60
-    },
-    {
       "do": "smoke_remember_workspaces"
     },
     {
@@ -101,6 +93,22 @@
           }
         }
       ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "typing-${nonce}",
+      "as": "typing"
+    },
+    {
+      "do": "probe_relaunch",
+      "mark": "probed"
+    },
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "smoke_make_key"
     },
     {
       "do": "smoke_adopt_line",

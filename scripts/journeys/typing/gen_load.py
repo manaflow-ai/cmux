@@ -21,7 +21,6 @@ SEED = 7
 
 def steps(profile, film):
     s = [{"do": "smoke_ready", "timeout": 60}, {"do": "env_windows", "at": "start"},
-         {"do": "probe_relaunch", "mark": "probed"}, {"do": "smoke_ready", "timeout": 60},
          {"do": "smoke_remember_workspaces"}, {"do": "smoke_make_key"},
          {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": "ws"},
          {"do": "expect", "title": "set-up: Cmd-N makes the typing workspace", "since": "ws", "timeout": 20,
@@ -31,6 +30,10 @@ def steps(profile, film):
          {"do": "smoke_type", "text": "echo typing-${nonce}", "enter": True},
          {"do": "expect", "title": "set-up: the typing terminal runs its line", "since": "term", "timeout": 30,
           "all": [{"smoke_daemon_lines": {"lines": ["typing-${nonce}"]}}]},
+         {"do": "smoke_adopt_line", "line": "typing-${nonce}", "as": "typing"},
+         # The app reopens with the in-app per-key probe on. The typing terminal exists first, so the reopen settles
+         # as soon as it is attached again (with no shown terminal, the driver's relaunch waits its full 90 s).
+         {"do": "probe_relaunch", "mark": "probed"}, {"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"},
          {"do": "smoke_adopt_line", "line": "typing-${nonce}", "as": "typing"},
          {"do": "echo_start"}]
     if profile != "L0":
