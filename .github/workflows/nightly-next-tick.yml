@@ -120,6 +120,15 @@ jobs:
       # token's /rate_limit headers then, to name the limiter.
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install
+      # Only the promotion request waits through a rate limit. The stuck-run rescue, the
+      # cancelled-tip re-run and the rolling rule set GH_BUDGET_WAIT_ATTEMPTS=1, so a refused
+      # read fails at once into each one's own fallback (no cancel, no re-run; the rolling rule
+      # promotes or waits as its docstring says). Their reads are captured by Python, so the
+      # wrapper's 60+120+240+300 s backoff was invisible, and it held the one serialized tick
+      # group: ticks 41392901357, 41398820119, 41433152543 and 41440726202 (2026-11-02) sat
+      # 12-25 min in those steps, and the landings behind them started building 15-30 min late
+      # instead of about 5. The next tick (a landing, a finished build, or the 5-minute cron)
+      # reads again.
 
       # The release train (nightly-next-train.yml, docs/ci/nightly-next-train.md).
       # on: the train replaces the promotion below (a train commit is not on
@@ -164,6 +173,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_NEXT_TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN }}
+          GH_BUDGET_WAIT_ATTEMPTS: "1"
         run: python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
@@ -178,6 +188,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_BUDGET_WAIT_ATTEMPTS: "1"
         run: bash .tick-tooling/scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"
 
       # The rolling rule (scripts/ci/nightly_next_rolling.py): promote at once when nothing is
@@ -191,6 +202,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           WINDOW_MINUTES: ${{ vars.NIGHTLY_NEXT_ROLLING_MINUTES || '10' }}
+          GH_BUDGET_WAIT_ATTEMPTS: "1"
         run: python3 .tick-tooling/scripts/ci/nightly_next_rolling.py --repo "$GITHUB_REPOSITORY" --tip "$(git rev-parse HEAD)" --window-minutes "$WINDOW_MINUTES"
 
       - name: Request nightly-next promotion on main
