@@ -382,6 +382,7 @@ final class WindowOverlayLayer {
         }
         if catchersChange { syncCatchers() }
         if placement == .overlayWindow { enforceOrder() }
+        if catchers?.pagesMoved == true, !planes.contains(where: { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }) { syncCatchers() }
     }
 
     private func showPanel() {
@@ -454,8 +455,7 @@ final class WindowOverlayLayer {
 
     private func applyCatchers() {
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
-        let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        let active = pageWindowsTakeMouse && !blocked
+        let active = pageWindowsTakeMouse && WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow != true
         catcherHoles = pageWindowsTakeMouse && window.isVisible ? contentPanelRects(in: Self.contentChildWindows(of: window)) : []
         guard let catchers = active ? self.catchers ?? makeCatchers() : self.catchers else { return }
         let shownBefore = catchers.shownCount

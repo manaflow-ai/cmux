@@ -66,14 +66,31 @@ public final class DividerMouseCatchers {
         panels.compactMapValues { $0.parent === window ? window.convertFromScreen($0.frame) : nil }
     }
 
-    /// Shows one panel per area (window coordinates), or none when `active`
-    /// is false (no page window takes the mouse) or the window's pages draw
-    /// in its view tree (``PageSurface/views``). An area's part under a
-    /// rect of `holes` (window coordinates: the content panels' frames) gets
-    /// no panel, so the popup there keeps the mouse.
+    /// The frames (window coordinates) of the page windows over the window's content at the last ``update(_:active:excluding:)``.
+    private var pages: [CGRect] = []
+
+    /// The frames, in window coordinates, of the page windows over `window`'s content: only a divider area one of them
+    /// covers needs a panel. The New Tab spare's page waits 100 000 pt outside the window (`PageOffscreenParking`) and
+    /// covers nothing (RESIZE VIDEOS Z1: with only that page, every divider had a panel, and each zoom and unzoom landing
+    /// of 12 panes parked or made 11 of them, 13 of the landing frame's 14 ms of main thread).
+    public static func pageFrames(over window: NSWindow) -> [CGRect] {
+        (window.childWindows ?? []).filter { WindowOverlayHost.isPageWindow($0) && $0.isVisible && $0.frame.intersects(window.frame) }
+            .map { window.convertFromScreen($0.frame) }
+    }
+
+    /// A page window came over the content, left it or moved since the last update (a page shown in a pane, the spare
+    /// adopted, a page tab hidden): the window's overlay layer updates the panels again at rest.
+    public var pagesMoved: Bool { Self.pageFrames(over: window) != pages }
+
+    /// Shows one panel per area (window coordinates) that a page window over the content covers, or none when
+    /// `active` is false (no page window takes the mouse) or the window's pages draw in its view tree
+    /// (``PageSurface/views``). An area's part under a rect of `holes` (window coordinates: the content panels'
+    /// frames) gets no panel, so the popup there keeps the mouse.
     public func update(_ areas: [LayoutMouseArea], active: Bool, excluding holes: [CGRect] = []) {
+        pages = Self.pageFrames(over: window)
         let takesMouse = active && window.isVisible && PageSurface.of(window) == .childWindows
-        let wanted = takesMouse ? Self.pieces(of: areas, excluding: holes) : []
+        let covered = takesMouse ? areas.filter { area in pages.contains { $0.intersects(area.rect) } } : []
+        let wanted = Self.pieces(of: covered, excluding: holes)
         let keys = Set(wanted.map(\.key))
         for (key, panel) in panels where !keys.contains(key) {
             panels[key] = nil
