@@ -46,9 +46,11 @@ class PoolsCopy(unittest.TestCase):
         upstream = main_pools()
         if upstream is None:
             self.skipTest("origin/main is not in this checkout, or declares no pools yet")
+        copy = declared_pools()
+        self.assertEqual(sorted(copy), sorted(upstream), "the copy declares a different set of pools than main")
         for name, members in upstream.items():
             with self.subTest(pool=name):
-                self.assertEqual(declared_pools().get(name), members)
+                self.assertEqual(copy.get(name), members)
 
 
 if __name__ == "__main__":
