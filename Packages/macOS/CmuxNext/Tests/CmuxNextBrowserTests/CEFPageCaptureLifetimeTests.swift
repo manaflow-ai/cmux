@@ -108,6 +108,9 @@ import Testing
         defer { rig.close() }
         let tab = try rig.attachedTab()
         let order = rig.runtime.devToolsOrder
+        // The tab's own set-up calls (Page.enable, Emulation.setEmulatedMedia) go first: this ticket must head the line.
+        await rig.until { order.isIdle(Rig.browser) }
+        try #require(order.isIdle(Rig.browser), "the tab's set-up calls never left the line")
         let ticket = order.take(Rig.browser) // a call that still waits to send
         CaptureSpy.methods = []
         let request = tab.beginThumbnail()
