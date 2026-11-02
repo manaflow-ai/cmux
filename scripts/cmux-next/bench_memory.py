@@ -450,14 +450,16 @@ def end_bundle(bundle: str):
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
+    """True once `pid` is gone; it is checked at least once, also with no time left."""
     deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
+    while True:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
             return True
+        if time.monotonic() >= deadline:
+            return False
         time.sleep(0.5)  # test script: waiting for the app to quit
-    return False
 
 
 def merged(base: dict, extra: dict) -> dict:
