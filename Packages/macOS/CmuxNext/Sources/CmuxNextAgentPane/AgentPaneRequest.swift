@@ -347,6 +347,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.setRemoteControl {on}`: Session Info's Remote Control switch (``AgentPaneRemoteControl``),
     /// whether cmux on iPhone may open this Mac's chats. Only with the person's own click.
     case remoteControl(on: Bool)
+    /// `pane.noticeAction {id}`: the button of a native notice the page draws (``AgentPaneNotice``),
+    /// with the person's own click.
+    case paneNoticeAction(id: String)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)

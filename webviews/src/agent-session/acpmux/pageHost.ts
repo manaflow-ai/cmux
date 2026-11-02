@@ -24,6 +24,7 @@ import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
 import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
+import { setPaneNotices } from "./paneNotices";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -110,6 +111,9 @@ export function applyHostEvent(event: HostEvent): void {
       return setSessionStatus(event.value);
     case "machineLink":
       return setMachineLink(event.value);
+    case "paneNotices":
+      // Direct, like remoteControl: a push before the composer mounts is kept.
+      return setPaneNotices(event.value);
     case "remoteControl":
       // Direct, like machineLink: a push before Session Info mounts is kept.
       return setRemoteControl(event.value);
