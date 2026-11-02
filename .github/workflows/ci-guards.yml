@@ -904,7 +904,9 @@ jobs:
 
       - name: Validate the CLA guard reads each revision by git at its own sha
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_cla_guard_git_reads.py
+        run: |
+          python3 tests/test_cla_guard_git_reads.py
+          python3 tests/test_cla_guard_api_reads.py
 
       - name: Validate who may approve a CLA guard change
         if: ${{ matrix.group == 'ci' }}
@@ -957,6 +959,10 @@ jobs:
       - name: Validate the signing keychain is deleted before bundle code runs
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
+
+      - name: Validate owned-Mac signing claims
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_signing_runner_claim.py
 
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}
@@ -1490,6 +1496,7 @@ jobs:
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
+          python3 tests/test_defaults_guard_review_rerun.py
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_nightly_next_feed_watch.py
