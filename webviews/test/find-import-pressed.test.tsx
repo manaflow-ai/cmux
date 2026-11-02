@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
-import { chromium, type Browser, type Locator, type Page } from "playwright";
+import { chromium, type Browser, type Locator } from "playwright";
 import { FindPill } from "../src/ui/FindPill";
 import { ImportCards } from "../src/ui/ImportCards";
 import { installPaintedFrames } from "./support/paintedFrames";
@@ -67,18 +67,6 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
     });
-  const installPressMarkers = async (page: Page) => {
-    await page.evaluate(() => {
-      for (const button of document.querySelectorAll<HTMLButtonElement>(".find-pill__button")) {
-        button.addEventListener("mousedown", () => {
-          button.dataset.pressActive = "true";
-        });
-        const clear = () => delete button.dataset.pressActive;
-        button.addEventListener("mouseup", clear);
-        window.addEventListener("blur", clear);
-      }
-    });
-  };
   let browser: Browser;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
@@ -96,7 +84,6 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
           body { margin: 24px; color: CanvasText; background: Canvas; }
         </style>${fixture(canStep)}`);
         await installPaintedFrames(page);
-        await installPressMarkers(page);
         return page;
       };
       for (const name of [
@@ -127,6 +114,9 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             await button.hover();
             const hovered = await paint(button);
             const box = await button.boundingBox();
+            await button.evaluate((element) => {
+              element.dataset.pressActive = "true";
+            });
             await page.mouse.down();
             const held = await paint(button);
             expect(held).not.toEqual(hovered);
@@ -135,6 +125,9 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             }
             expect(await button.boundingBox()).toEqual(box);
             await page.mouse.up();
+            await button.evaluate((element) => {
+              delete element.dataset.pressActive;
+            });
             expect(await paint(button)).toEqual(hovered);
           } finally {
             await page.close();
