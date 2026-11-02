@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4142547762901",
+  "notes": "notes/4142547762901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32084,
+      "title": "fix(measure): cef-embedder.sh runs the fork's embedder tests on a writable copy of the CEF dist",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32044,
+      "title": "Agent pane: checkpoints and cloud recovery read the link state, not the last emit's reason",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28950,
+      "title": "NEXT Cloud DEV integration: new Worker and app-server link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32074,
+      "title": "Agent pane: an open folder trust question never hides a question, permission or secret card",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
