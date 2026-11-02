@@ -486,6 +486,7 @@ final class TabContentCache {
 
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
+        if displacing, presenter(of: key)?.holdsRelease(of: key, { [weak self] in self?.release(key) }) == true { return } // its pane's close lands first (F1)
         onRelease?(key)
         // A closed tab is mirrored nowhere any more (`TabMirrors`); a stand-in moving to its daemon tab keeps nothing to drop.
         if displacing { pageRequests.services?.tabMirrors.remove(key) }
@@ -514,6 +515,8 @@ protocol SurfacePresenter: AnyObject {
     /// destroyed. Drop the view if it is still installed here; do not
     /// withdraw or pause it.
     func surfaceWasDisplaced(_ key: String)
+    /// True when this pane is closing in a motion and holds `release` of `key` until it goes (`LayoutRootView.afterClosing`).
+    func holdsRelease(of key: String, _ release: @escaping @MainActor () -> Void) -> Bool
 }
 
 struct WeakPresenter {

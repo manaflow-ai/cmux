@@ -468,6 +468,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// was destroyed. Let the view go without pausing it; re-present when
     /// this pane shows the tab again.
     func surfaceWasDisplaced(_ key: String) { letGo(key, parks: false) }
+    func holdsRelease(of key: String, _ release: @escaping @MainActor () -> Void) -> Bool { workspace?.layoutView.afterClosing(layoutPaneID, id: key, release) == true }
     func letGo(_ key: String, parks: Bool) {
         guard currentTabKey == key else { return }
         currentTabKey = nil

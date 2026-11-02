@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Supplies the view hosted in each pane. The layout does not know about
 /// terminals or browsers; the App returns a view containing the tab strip
@@ -124,6 +125,7 @@ final class LayoutViewContext {
         if let host = hosts[pane] { return host }
         // A close that springs is taken back before it landed (a refused close, a reopen): the same host shows again.
         if let entry = retired.removeValue(forKey: pane) {
+            runClosingWork(of: pane)
             entry.host.isHidden = false
             entry.host.chrome.isHidden = false
             // Its ring is placed again by the next overlay sync, whatever it last showed.
@@ -160,6 +162,10 @@ final class LayoutViewContext {
     /// with the unzoom as they were (RESIZE VIDEOS Z1: the landing tore down every other pane, 11 pane controllers in
     /// one frame of 42 ms, and the unzoom made them all again in one frame of 48 ms).
     private(set) var retired: [PaneID: (host: PaneHostView, screen: ScreenID, until: Retirement)] = [:]
+    /// Work that waits for a closing pane to go (``afterClosing(_:id:_:)``), by pane and id.
+    private var closingWork: [PaneID: [String: @MainActor () -> Void]] = [:]
+    /// Runs work once the current main run-loop pass committed its frame (`AfterFrameCommit`); tests pass their own.
+    var afterCommit: (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }
 
     /// Until when a retired host is kept.
     enum Retirement {
@@ -185,7 +191,29 @@ final class LayoutViewContext {
         for (pane, entry) in retired where entry.screen == screen && (until == nil || entry.until == until) {
             retired[pane] = nil
             tearDown(entry.host)
+            runClosingWork(of: pane)
         }
+    }
+
+    /// Whether `pane` left the layout in a close that still springs: its host waits, hidden, for the landing.
+    func isClosing(_ pane: PaneID) -> Bool {
+        if case .landing? = retired[pane]?.until { return true }
+        return false
+    }
+
+    /// Holds `work` until closing `pane` goes (its motion lands, its screen goes) or comes back, then runs it after
+    /// that frame's commit; false (nothing held) when `pane` is not closing. A second `id` replaces the first.
+    /// The teardown of what a closing pane showed is work no frame shows (RESIZE VIDEOS F1): in the motion's frames
+    /// it missed refreshes, so it follows the motion, as Chrome keeps its UI thread to what the next frame shows.
+    func afterClosing(_ pane: PaneID, id: String, _ work: @escaping @MainActor () -> Void) -> Bool {
+        guard isClosing(pane) else { return false }
+        closingWork[pane, default: [:]][id] = work
+        return true
+    }
+
+    private func runClosingWork(of pane: PaneID) {
+        guard let work = closingWork.removeValue(forKey: pane) else { return }
+        afterCommit { for item in work.values { item() } }
     }
 
     /// Whether `chrome` is the ring of a retired host: the overlay sync leaves it for the teardown.
