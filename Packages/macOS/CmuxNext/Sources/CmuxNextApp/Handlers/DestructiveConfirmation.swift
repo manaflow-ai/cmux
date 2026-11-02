@@ -132,7 +132,7 @@ enum DestructiveConfirmation {
     /// Its foreground program for each terminal, a terminal that gave no answer counted as running its title: only a
     /// confirmed "no program" closes it without the question (lead, #31875).
     static func confirmedPrograms(bySurface tabs: [TabModel], on daemon: DaemonService) async -> RunningPrograms {
-        await daemon.runningPrograms(of: tabs, unanswered: \.displayTitle)
+        await daemon.runningPrograms(of: tabs, unanswered: { tab in tab.displayTitle })
     }
 
     /// The targeted (or focused tab's) open tab group's tabs and their
