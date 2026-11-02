@@ -304,7 +304,7 @@ fn codex_project_config(cwd: &Path, env: &BTreeMap<String, String>) -> Option<bo
     while let Some(current) = dir {
         // The Codex home itself is not a project directory. Its config controls
         // the home-level probe and must not make this target inconclusive.
-        if codex_home.as_deref() == Some(current) {
+        if home.as_deref() == Some(current) || codex_home.as_deref() == Some(current) {
             return Some(false);
         }
         if current.join(".codex/config.toml").is_file() {
@@ -312,7 +312,7 @@ fn codex_project_config(cwd: &Path, env: &BTreeMap<String, String>) -> Option<bo
         }
         // Do not inspect parent directories outside this project or the user's
         // home. A repository root is the highest project-scoped config level.
-        if home.as_deref() == Some(current) || current.join(".git").exists() {
+        if current.join(".git").exists() {
             break;
         }
         dir = current.parent();
