@@ -44,16 +44,31 @@ impl Mux {
     ) -> anyhow::Result<StateCommit> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let commit = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            // The session lock covers only `apply`, which reads the session
+            // to resolve its targets; the registry transaction's own writes,
+            // its journal record and its commit run with the registry alone
+            // (TUL-F7: one status commit held the session lock 452 ms and
+            // a person's key lookup waited for it). A state mutation changes
+            // no session state but the revision below, and the registry lock
+            // keeps every other registry -> state writer out meanwhile.
+            let state = self.lock_state_pinned(&registry).unwrap();
             let commit = registry.commit_state_mutation(
                 mutation,
                 operation,
                 fingerprint,
                 expected_revision,
-                |transaction| apply(transaction, &state),
+                move |transaction| {
+                    let changes = apply(transaction, &state);
+                    drop(state);
+                    self.run_state_commit_after_apply_hook();
+                    changes
+                },
             )?;
             if !commit.replayed {
-                state.resource_revision = commit.revision;
+                self.state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .resource_revision = commit.revision;
             }
             commit
         };
