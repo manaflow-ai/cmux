@@ -519,9 +519,13 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
             log(f"[{host}] {line}")
         if drove.returncode not in (0, 1):
             log(f"driver exited {drove.returncode}: {drove.stderr.decode(errors='replace').strip()[-600:]}")
-        files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' . | head -c {RESULT_TAR_MAX_BYTES}",
+        files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' --exclude 'video' . | head -c {RESULT_TAR_MAX_BYTES}",
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))
+        # ext_video's recordings (handoff resize-videos/KIT.md): movies are hundreds of MB, fetched on their own.
+        videos = remote(host, f"cd {q(work + '/out')} && ls -d */video >/dev/null 2>&1 && tar c */video || true",
+                        timeout=left(240), check=False).stdout
+        take_videos(videos, out, set(ids))
         if hog_started:
             hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
             (out / f"hog-{lease}.jsonl").write_bytes(hog_log or b"")
@@ -548,6 +552,27 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     return stamp_harness(collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
                                                                f"{drove.stderr.decode(errors='replace').strip()[-300:]})",
                                  ident=ident), out, ident.get("harness"), harness)
+
+
+VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json))")
+VIDEO_MAX_BYTES = 4 << 30
+
+
+def take_videos(files, out, ids):
+    """Keeps only ext_video's expected regular files of the mini's tarball (no links, no other paths)."""
+    if not files:
+        return
+    with tarfile.open(fileobj=io.BytesIO(files)) as tar:
+        for member in tar:
+            match = VIDEO_FILE.fullmatch(member.name)
+            if not match or not member.isreg() or member.size > VIDEO_MAX_BYTES:
+                continue
+            name = match.group(1)
+            if name.split("/", 1)[0] not in ids:
+                continue
+            target = out / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(tar.extractfile(member).read())
 
 
 def take_results(files, out, ids):
