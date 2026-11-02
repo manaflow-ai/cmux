@@ -214,6 +214,8 @@ test("a message sent while the room is away goes after the reconnect, with the s
   // The room heard nothing of it; the next snapshot says nothing about it, so it goes again.
   await fake.until(() => fake.sockets.length === 2);
   await fake.join();
+  // Reconnect replay shares the outbox pacing; observe the frame after its gap.
+  await fake.until(() => fake.prompts().length === 1);
   expect(fake.prompts()).toEqual([sent!]);
   await page.unmount();
 });
