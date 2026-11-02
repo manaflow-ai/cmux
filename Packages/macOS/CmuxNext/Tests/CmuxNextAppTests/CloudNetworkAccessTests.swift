@@ -260,6 +260,40 @@ struct CloudNetworkAccessTests {
         #expect(try await queue.serialized("vm-fail") { 3 } == 3)
     }
 
+    /// A slow server answers the caller `pending` before the control socket's deadline, and the
+    /// change still goes through (#28855).
+    @Test func aSlowServerAnswersPendingAndTheChangeGoesOn() async throws {
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-net-slow")
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID),
+                                          arguments: ["access": .string("none")], origin: .cli)
+        let gate = AsyncStream<Void>.makeStream()
+        let wrote = AsyncStream<CloudNetworkPolicy>.makeStream()
+        let run = services.registry.capturingRun {
+            do {
+                try CloudNetworkAccessActions.set(invocation, AppActionContext(services: services),
+                                                  pendingAfter: .milliseconds(50),
+                                                  read: { _ in
+                                                       var waiting = gate.stream.makeAsyncIterator()
+                                                       _ = await waiting.next()
+                                                       return Self.state(CloudNetworkPolicy(mode: .full))
+                                                   },
+                                                   write: { _, policy in
+                                                       wrote.continuation.yield(policy)
+                                                       return Self.state(policy)
+                                                   })
+            } catch { Issue.record("refused: \(error)") }
+        }
+        let task = try #require(run.results.first)
+        guard case .success(let fields) = await task.value else { Issue.record("no pending answer"); return }
+        #expect(fields["pending"] == .bool(true))
+        #expect(fields["machine_id"] == .string(session.machineID))
+        #expect(fields["network_access"] == .string("none"))
+        gate.continuation.yield(())
+        var writes = wrote.stream.makeAsyncIterator()
+        #expect(await writes.next()?.mode == CloudNetworkPolicy.Mode.none, "the PUT still runs after the pending answer")
+    }
+
     @Test(arguments: ["", "open", "allowlist", "FULLY"])
     func aLevelThatIsNotAChoiceIsRefused(text: String) {
         let services = MachineIconTests.services()

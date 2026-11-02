@@ -28,6 +28,7 @@ final class BrowserProfileService {
     @ObservationIgnored var homeRecordsObservation: Task<Void, Never>?
     @ObservationIgnored var recordProfileObservation: Task<Void, Never>?
     @ObservationIgnored var migratingRecords = false
+    @ObservationIgnored var cleanupClaims = BrowserProfileCleanupClaims()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-profiles")
 
     init(services: AppServices) {

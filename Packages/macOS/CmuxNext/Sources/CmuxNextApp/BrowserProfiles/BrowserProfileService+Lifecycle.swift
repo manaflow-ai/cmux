@@ -57,10 +57,7 @@ extension BrowserProfileService {
         let pending = book.pendingCleanup
         guard file != nil, !pending.isEmpty else { return }
         let cef = services.cache.cef, webKit = services.cache.webKit.profileStore
-        let ready = pending.filter { id in
-            guard let profile = BrowserProfileRecord.engineProfile(for: id) else { return true }
-            return !cef.hasOpened(profile) && !webKit.loadedProfiles.contains(profile)
-        }
+        let ready = cleanupClaims.claim(pending) { cef.hasOpened($0) || webKit.loadedProfiles.contains($0) }
         guard !ready.isEmpty else { return }
         let cleanup = BrowserProfileStorageCleanup(chromiumRoot: cef.storageRoot)
         let bundleID = services.environment.launch.bundleID
@@ -74,6 +71,7 @@ extension BrowserProfileService {
                 try? FileManager.default.removeItem(at: SiteSettingsRegistry.defaultFile(for: profile, bundleIdentifier: bundleID))
                 done.append(id)
             }
+            self?.cleanupClaims.release(ready)
             try? self?.edit { $0.finishCleanup(done) }
         }
     }
@@ -87,17 +85,15 @@ extension BrowserProfileService {
         // task-owner: one-shot migration of the import store at launch
         Task { [weak self] in
             let pending = await store.sourcesInDefaultProfile()
-            for record in pending where BrowserProfileRecord.isValidID(record.proposedProfileID) {
+            let finished = await BrowserProfileBook.migrateImports(pending, id: \.proposedProfileID, migrate: { record in
                 guard let self else { return }
-                do {
-                    _ = try await createProfile(id: record.proposedProfileID, name: record.displayName, color: nil, icon: nil,
-                                                source: record.sourceFields)
-                    try await store.retarget(record.sourceKey, to: record.proposedProfileID)
-                } catch {
-                    logger.error("migrate import \(record.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
-                }
-            }
-            try? self?.edit { $0.importsMigrated = true }
+                _ = try await self.createProfile(id: record.proposedProfileID, name: record.displayName, color: nil, icon: nil,
+                                            source: record.sourceFields)
+                try await store.retarget(record.sourceKey, to: record.proposedProfileID)
+            }, failed: { record, reason in
+                self?.logger.error("migrate import \(record.sourceKey, privacy: .public): \(reason, privacy: .public)")
+            })
+            if finished { try? self?.edit { $0.importsMigrated = true } }
             self?.seedImportedHistory()
         }
     }

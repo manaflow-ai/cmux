@@ -2138,6 +2138,7 @@ impl Hub {
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
             session.purged.store(true, Ordering::SeqCst);
+            self.remove_cached_closed_summary(&session.id);
             let replaced = session.replaced.load(Ordering::SeqCst);
             if !self
                 .sessions
@@ -2159,23 +2160,6 @@ impl Hub {
                 .await;
             }
             self.git_branch_forget(&session.id);
-            // Tell watchers (peers, TUIs) the session is gone.
-            let _ = self.events.send(HubEvent {
-                session_id: session.id.clone(),
-                record: Arc::new(EventRecord {
-                    seq: session.meta().last_seq + 1,
-                    at: now_ms(),
-                    dir: "mux".into(),
-                    kind: "purged".into(),
-                    msg: if replaced {
-                        json!({"sessionId": session.id, "replaced": true})
-                    } else {
-                        json!({"sessionId": session.id})
-                    },
-                    host_seq: None,
-                }),
-                remote: None,
-            });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
             #[cfg(test)]
             {
@@ -2200,6 +2184,25 @@ impl Hub {
             }
             drop(sessions);
             self.remove_live_session_index(&session.id);
+            // Tell watchers (peers, TUIs) the session is gone only after local resolution can no
+            // longer find it. Otherwise a watcher that handles this event immediately can still
+            // resolve the just-purged session during the unregistering window.
+            let _ = self.events.send(HubEvent {
+                session_id: session.id.clone(),
+                record: Arc::new(EventRecord {
+                    seq: session.meta().last_seq + 1,
+                    at: now_ms(),
+                    dir: "mux".into(),
+                    kind: "purged".into(),
+                    msg: if replaced {
+                        json!({"sessionId": session.id, "replaced": true})
+                    } else {
+                        json!({"sessionId": session.id})
+                    },
+                    host_seq: None,
+                }),
+                remote: None,
+            });
         }
         Ok(())
     }

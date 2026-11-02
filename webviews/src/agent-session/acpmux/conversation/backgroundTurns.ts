@@ -38,18 +38,33 @@ export const foldsBackground = (row: AcpmuxRow): boolean =>
   row.background !== undefined &&
   (row.background.running || row.background.quiet === true);
 
+/// Update the owner set while a caller is already walking the transcript. Keeping this mutation
+/// beside that walk avoids a second O(rows) pass on every streamed snapshot.
+export function collectFoldedBackgroundId(closed: Set<string>, row: AcpmuxRow, expanded: Folds): void {
+  if (row.kind !== BACKGROUND_TURN || !row.background) return;
+  if (foldsBackground(row) && !expanded.has(row.id)) closed.add(row.background.id);
+  else closed.delete(row.background.id);
+}
+
 /// `rows` with each background turn's line and rows as they draw: a folding line stands alone
 /// while closed and its rows follow it while open (`expanded` holds its id); a line that does not
 /// fold draws nothing and its rows stay. Without a background turn, `rows` itself.
+/** IDs whose owner background line currently hides its rows. Kept separately from the
+ * current prompt: a background subagent may end after a newer user prompt, but its done line
+ * still belongs behind the original background line. A later owner update wins for an ID.
+ */
+export function foldedBackgroundIds(rows: readonly AcpmuxRow[], expanded: Folds): Set<string> {
+  const closed = new Set<string>();
+  for (const row of rows) collectFoldedBackgroundId(closed, row, expanded);
+  return closed;
+}
+
 export function foldBackgroundTurns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
   if (!rows.some((row) => row.kind === BACKGROUND_TURN)) return rows;
-  const folding = new Map<string, boolean>();
-  for (const row of rows)
-    if (row.kind === BACKGROUND_TURN && row.background)
-      folding.set(row.background.id, foldsBackground(row) && !expanded.has(row.id));
+  const folding = foldedBackgroundIds(rows, expanded);
   return rows.filter((row) => {
     if (row.kind === BACKGROUND_TURN) return foldsBackground(row);
-    return !(row.inBackground !== undefined && folding.get(row.inBackground) === true);
+    return !(row.inBackground !== undefined && folding.has(row.inBackground));
   });
 }
 

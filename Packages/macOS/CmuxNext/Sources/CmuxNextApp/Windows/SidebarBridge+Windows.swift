@@ -15,7 +15,7 @@ extension SidebarBridge {
         guard let local = WorkspaceOrdering.shared.rootIndex(for: position, moving: ids, in: scoped) else { return nil }
         let moved = Set(ids.map(\.rawValue))
         let localOrder = scoped.flatMap(\.workspaces).map(\.id.rawValue).filter { !moved.contains($0) }
-        let global = WindowManager.orderedIDs(of: daemon, machines: services.machines).filter { !moved.contains($0) }
+        let global = WindowManager.orderedIDs(of: daemon, machines: services.machines, doc: services.sidebarDoc).filter { !moved.contains($0) }
         return SidebarMembership.globalIndex(localIndex: local, local: localOrder, global: global)
     }
 
@@ -37,14 +37,13 @@ extension SidebarBridge {
     func place(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
         // On the sidebar document a group is its item (`itm_g_<id>`): the document takes the move, as it takes a
         // drag, with no undo step of its own (the placement belongs to the create or drop that asked for it).
-        if SidebarDocWiring.docMachines(services.machines).place(ids, at: position, model: model) ||
-            SidebarDocWiring.handle(.reorder(ids, to: position), bridge: self, undoable: false) {
+        let doc = services.sidebarDoc
+        if doc.docMachines.place(ids, at: position, model: model) || doc.handle(.reorder(ids, to: position), bridge: self, undoable: false) {
             // The mirror already holds this move, but its observed projection normally follows a turn later.
             // A burst resolves the next slot now: show the current document through the normal rows writer
             // first, including a refused move's unchanged order. No second pending edit owns its lifetime.
-            if let document = SidebarDocStore.current {
-                let machines = services.machines
-                document.reshow(live: SidebarDocWiring.docMachines(machines).liveRefs())
+            if let document = doc.store {
+                document.reshow(live: doc.docMachines.liveRefs())
                 resync()
             }
             return

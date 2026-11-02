@@ -141,12 +141,15 @@ try {
     remounts: number;
     topReversals: number;
     thumbReversals: number;
+    thumb: { position: number; size: number }[];
   }[] = [];
   for (let batch = 0; batch < 4; batch++) {
     await page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       node.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true }));
-      node.scrollTop = node.clientHeight;
+      // A viewport under the loaded rows' top, below the room held for the history above them.
+      const room = Number(node.querySelector<HTMLElement>(".acpmux-spacer")?.dataset.olderRoom ?? 0);
+      node.scrollTop = room + node.clientHeight;
       node.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
     await waitForHeld();
@@ -321,6 +324,14 @@ try {
     assert.equal(receipt.remounts, 0, "existing row mount identity changed during prepend");
     assert.equal(receipt.topReversals, 0, "scroll offset reversed while prepending history");
     assert.equal(receipt.thumbReversals, 0, "normalized scrollbar thumb reversed while prepending history");
+    // Leo (2026-10-26): "the thumb just jitters like crazy because it's loading upwards". A page
+    // takes its height out of the room held above the rows: the thumb neither moves nor resizes.
+    const positions = receipt.thumb.map((thumb) => thumb.position);
+    const sizes = receipt.thumb.map((thumb) => thumb.size);
+    const jump = Math.max(...positions) - Math.min(...positions);
+    const resize = Math.max(...sizes) - Math.min(...sizes);
+    assert.ok(jump <= 0.002, `scrollbar thumb moved ${jump} of the track while a page landed`);
+    assert.ok(resize <= 0.002, `scrollbar thumb resized ${resize} of the track while a page landed`);
   }
   assert.ok(Math.abs(bottom.gap) <= 4, `deadband bottom gap ${bottom.gap}`);
   assert.ok(Math.abs(bottom.largeGap) <= 1, `5-8px growth was not corrected (${bottom.largeGap}px)`);

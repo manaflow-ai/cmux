@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextLayout
 import CmuxNextTabs
+import CmuxNextTerminal
 import Observation
 import CmuxNextFocus
 
@@ -117,6 +118,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel()
         tabItems.cancelAll()
         services.presentation.cancel(self)
+        launchFrames.withdrawAhead(in: view.contentHost)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
         services.cache.hibernation?.paneDidGo(ObjectIdentifier(self))
@@ -442,8 +444,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
-        // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
-        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil {
+        // quit (`TerminalLaunchFrames`, which takes over one shown ahead); other content (a page, an agent) is ready once shown.
+        if case .terminal(let terminal) = content, let key { launchFrames.show(key, on: terminal.session, in: view.contentHost) } else { launchFrames.withdrawAhead(in: view.contentHost) }
+        if let content, !content.isTerminal {
             LaunchReveal.shared.markReady(.pane)
             // The page may have attached while the pane was alpha-held for launch. AppKit's
             // alpha transition does not reach Chromium's separate child window.
@@ -467,6 +470,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.detachContent(parks: parks)
         services.surfaceInvariant.noteChange()
         windowController?.revalidatePagePresentation() // a page that had the screen moved away
+    }
+
+    private var launchFrames: TerminalLaunchFrames { .beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()) }
+    func showWhileWaiting() { // perf-hot: 1ms launch-first-frame (REOPEN-F1: a visible terminal waiting for its surface shows its last frame)
+        guard presence == .visible, !isSuspended, !view.hostsContent, showsLiveTerminal, let key = stripModel.selectedID?.rawValue else { return }
+        launchFrames.showAhead(key, in: view.contentHost)
     }
 
     /// The selected tab is a terminal that will draw a frame (not a dead one).
