@@ -137,6 +137,14 @@ class StepsAreWired(unittest.TestCase):
                          {k: v for k, v in first["with"].items()})
         self.assertEqual(retry["uses"], first["uses"])
 
+    def test_tail_uploads_send_blocks_in_parallel(self):
+        # The signers wait on this job's end: the app and dSYM uploads send 32 blocks at a
+        # time, not upload-artifact's default 5 (92-211 s and 34-108 s at 5).
+        for name in ("Upload unsigned nightly app", "Upload unsigned nightly app (retry)",
+                     "Keep the nightly-next dSYMs for publication"):
+            with self.subTest(step=name):
+                self.assertEqual(self.steps[self.index(name)]["env"]["ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY"], "32")
+
 
 class CheckBehaviour(unittest.TestCase):
     env = {"GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "2", "GH_TOKEN": "t",

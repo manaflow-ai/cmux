@@ -2461,12 +2461,17 @@ jobs:
           python3 "$check" "${peers[@]}"
 
       # A stalled upload once held the Mac 39 min (run 40460194731): 10 min,
-      # then one retry that replaces a partial upload.
+      # then one retry that replaces a partial upload. upload-artifact sends 8 MB
+      # blocks 5 at a time by default: the 413 MB app took 92-211 s (2-4.5 MB/s, a
+      # block every 3-17 s; runs 41430382728-41444184160) and the signers wait on
+      # this job's end. 32 at a time, as ci-macos.yml's product upload; same bytes.
       - name: Upload unsigned nightly app
         id: upload-unsigned
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
         continue-on-error: true
         timeout-minutes: 10
+        env: &artifact-upload-concurrency
+          ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY: "32"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-app
@@ -2479,6 +2484,7 @@ jobs:
       - name: Upload unsigned nightly app (retry)
         if: steps.upload-unsigned.outcome == 'failure'
         timeout-minutes: 10
+        env: *artifact-upload-concurrency
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-app
@@ -2499,6 +2505,8 @@ jobs:
       - name: Keep the nightly-next dSYMs for publication
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true')
         continue-on-error: true
+        # 221 MB in 34-108 s at the default 5 blocks, before the job can end.
+        env: *artifact-upload-concurrency
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-next-dsyms-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
