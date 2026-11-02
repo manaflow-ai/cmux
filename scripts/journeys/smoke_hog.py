@@ -20,7 +20,8 @@ Two parts:
 
 The free level is the kernel's kern.memorystatus_level (0-100), the "System-wide memory free percentage" of
 `memory_pressure`. At or below --floor (or when the kernel says critical for CRITICAL_SECONDS in a row) the hog
-gives chunks back, the wired ones first, until the level is at --resume again.
+gives chunks back, the wired ones first, until the level is at --resume again. While the kernel says critical,
+neither part grows. A sample that cannot read the level changes nothing (hold).
 
 Why (the smoke gate's SMOKE ENV "no memory pressure (the hog)", 44 rounds on cmux18/19/21/22/23 of 2026-11-02,
 and hog-only runs): on macOS the level counts free, active, inactive and speculative pages as available; only
@@ -127,12 +128,16 @@ def caps(physical, max_fraction, wire_fraction, user_wire_limit):
     return int(physical * max_fraction) // CHUNK, int(wire) // CHUNK
 
 
-def plan(s, held, wired, cap, wire_cap, grown, disk_free, critical_for, wire_ok, opts, backing_off):
+def plan(s, held, wired, cap, wire_cap, grown, disk_free, critical_for, wire_ok, opts, backing_off, steered=True):
     """(action, backing_off) for one step: "free" (give one chunk back, a wired one first), "grow" (one more chunk of
     the swap part), "wire" (one more wired chunk) or "hold". S: sample(); HELD, WIRED: chunks of each part; GROWN: swap
     is --swap-gb above the start; CRITICAL_FOR: seconds the kernel has said critical in a row; WIRE_OK: no mlock was
-    refused; BACKING_OFF: the hog gives memory back since the level reached --floor (until --resume)."""
+    refused; BACKING_OFF: the hog gives memory back since the level reached --floor (until --resume); STEERED: the
+    level could be read at the start. A sample that cannot read the level (a failed sysctl, likely at the edge) then
+    changes nothing: hold, and keep the back-off as it is."""
     level, critical = s.get("level"), (s.get("vm_pressure") or 0) >= CRITICAL
+    if steered and level is None:
+        return "hold", backing_off
     reserve = opts.disk_reserve_gb * GIB
     disk_low = disk_free is not None and disk_free < reserve / 2
     if (level is not None and level <= opts.floor) or critical_for >= CRITICAL_SECONDS or disk_low:
@@ -144,7 +149,7 @@ def plan(s, held, wired, cap, wire_cap, grown, disk_free, critical_for, wire_ok,
     if disk_free is not None and disk_free < reserve:
         return "hold", backing_off
     # The original hog: grows until the swap target, the floor (above) or its cap.
-    if not grown and held < cap:
+    if not grown and held < cap and not critical:
         return "grow", backing_off
     # Then the wired part steers the level down to --target.
     if level is not None and level > opts.target and wire_ok and wired < wire_cap and not critical:
@@ -233,10 +238,11 @@ def main():
         disk_free = disk_free_bytes()
         grown = s["swap_used_mb"] - start_swap >= opts.swap_gb * 1024
         mono = time.monotonic()
-        critical_since = (critical_since or mono) if (s["vm_pressure"] or 0) >= CRITICAL else None
+        if s["vm_pressure"] is not None:  # a failed sample keeps the count of critical seconds as it is
+            critical_since = (critical_since or mono) if s["vm_pressure"] >= CRITICAL else None
         critical_for = mono - critical_since if critical_since is not None else 0.0
         action, backing_off = plan(s, len(chunks), len(wired), cap, wire_cap, grown, disk_free, critical_for,
-                                   wire_error is None, opts, backing_off)
+                                   wire_error is None, opts, backing_off, steered=first["level"] is not None)
         if action == "wire" and mono - last_wire < PACE_SECONDS:
             action = "hold"  # paced; a later step wires
         if action == "free":

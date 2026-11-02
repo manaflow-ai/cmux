@@ -78,12 +78,24 @@ class Plan(unittest.TestCase):
         self.assertEqual(self.plan(sample(30, vm_pressure=4), 57, wired=4, backing_off=True), ("free", True))
         self.assertEqual(self.plan(sample(30, vm_pressure=2), 57, wired=3, backing_off=True), ("wire", False))
 
+    def test_critical_pressure_stops_the_swap_part_too(self):
+        self.assertEqual(self.plan(sample(30, vm_pressure=4), 40, critical_for=1.0), ("hold", False))
+
+    def test_a_sample_without_a_level_changes_nothing(self):
+        # Review of 1af4a7d7d70: a failed sysctl (likely at the edge) ended a back-off and grew the swap part.
+        self.assertEqual(self.plan(sample(None, vm_pressure=None), 50, wired=10, backing_off=True), ("hold", True))
+        self.assertEqual(self.plan(sample(None, vm_pressure=None), 50, wired=10), ("hold", False))
+
     def test_a_nearly_full_disk_stops_the_growth_or_gives_memory_back(self):
         self.assertEqual(self.plan(sample(30), 40, disk=4 * GIB)[0], "free")
         self.assertEqual(self.plan(sample(30), 40, disk=8 * GIB)[0], "hold")
 
-    def test_without_a_level_it_never_wires(self):
-        self.assertEqual(self.plan(sample(None, vm_pressure=None), 57)[0], "hold")
+    def test_without_a_level_from_the_start_it_is_the_original_hog_and_never_wires(self):
+        cap, _ = hog.caps(M6_PHYSICAL, 0.9, 0.5, None)
+        blind = lambda held: hog.plan(sample(None, vm_pressure=None), held, 0, cap, 0, False, 200 * GIB, 0.0, True, OPTS,
+                                      False, steered=False)
+        self.assertEqual(blind(10)[0], "grow")
+        self.assertEqual(blind(cap)[0], "hold")
 
     def test_nothing_held_nothing_to_free(self):
         self.assertEqual(self.plan(sample(5), 0)[0], "hold")
@@ -100,6 +112,58 @@ class Locker(unittest.TestCase):
         locker.unlock(chunk, buf)
         del buf
         chunk.close()  # no export is left
+
+
+class Loop(unittest.TestCase):
+    def test_main_steers_to_the_target_and_frees_everything_at_its_deadline(self):
+        # main() with 1 MiB chunks and a fake kernel: level = 100 x (64 - 10 - wired - half the swap part (at most 20))
+        # / 64. Every chunk it made is closed at the end, and the log has the start, the samples and the end row.
+        import mmap as real_mmap
+        live, wired_ids = [], set()
+
+        class Chunk(bytearray):
+            def __init__(self, fd, size):
+                super().__init__(size)
+                live.append(self)
+
+            def close(self):
+                live.remove(self)
+
+        class FakeLocker(object):
+            def lock(self, chunk):
+                wired_ids.add(id(chunk))
+                return object(), None
+
+            def unlock(self, chunk, buf):
+                wired_ids.discard(id(chunk))
+
+        def fake_sysctls(names):
+            w = sum(1 for c in live if id(c) in wired_ids)
+            level = int(100 * (64 - 10 - w - min((len(live) - w) * 0.5, 20)) / 64)
+            values = {"hw.memsize": str(64 << 20), "vm.user_wire_limit": str(48 << 20), "kern.memorystatus_level": str(level),
+                      "kern.memorystatus_vm_pressure_level": "2", "vm.swapusage": "used = 10.0M"}
+            return {k: v for k, v in values.items() if k in names}
+
+        saved = (hog.CHUNK, hog.mmap.mmap, hog.Locker, hog.sysctls, hog.disk_free_bytes, hog.PACE_SECONDS, sys.argv)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "hog.jsonl")
+            try:
+                hog.CHUNK, hog.mmap.mmap, hog.Locker, hog.sysctls = 1 << 20, Chunk, FakeLocker, fake_sysctls
+                hog.disk_free_bytes, hog.PACE_SECONDS = (lambda path=None: 100 * GIB), 0.0
+                sys.argv = ["smoke_hog.py", "--swap-gb", "15", "--deadline", str(__import__("time").time() + 3), "--log", path]
+                hog.main()
+            finally:
+                hog.CHUNK, hog.mmap.mmap, hog.Locker, hog.sysctls, hog.disk_free_bytes, hog.PACE_SECONDS, sys.argv = saved
+            rows = [json.loads(line) for line in open(path)]
+        self.assertEqual(live, [])
+        self.assertTrue(rows[0]["start"])
+        self.assertEqual((rows[0]["cap_mb"], rows[0]["wire_cap_mb"]), (57, 32))
+        end = rows[-1]
+        self.assertTrue(end["released"])
+        self.assertLessEqual(end["level_min"], 16)
+        self.assertGreater(end["wired_mb_max"], 0)
+        self.assertTrue(all(r.get("level", 0) > 12 for r in rows[1:-1]))  # it never went down to the floor
+        self.assertIs(real_mmap.mmap, hog.mmap.mmap)
 
 
 class Sysctl(unittest.TestCase):

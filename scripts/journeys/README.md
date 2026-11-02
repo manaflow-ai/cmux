@@ -341,13 +341,16 @@ when `journeys/dogfood/smoke-dogfood.json` passed every round (10 of 10). Each r
   fleet step runs there during the round (the fleet rule for evidence).
   The perf minis are owner-only for pool `perf-lead`, so the gate sets `CAPTURE_HOST_POOL=perf-lead`
   (capture-host passes it as `--owner-pool`; hq #5153: an older hq-tools install gets HTTP 409).
-- `--hog-swap-gb`: the Austin's-day memory hog (`smoke_hog.py`, a copy of feat's
-  `scripts/cmux-next/austins-day/hog.py` until perf has it) holds incompressible memory until swap
-  used is that much above the start, gives memory back near the edge, and ends by its own
-  deadline; run.py starts it before the download and launch (at least 45 s before the journey)
-  and stops it by its pid. A 16 GB mini may reach its free-memory edge before +15 GB of swap; the
-  gate counts a round only when its hog log shows pressure (at least 4 GB held and swap +15 GB or
-  `kern.memorystatus_level` down to 20), and reports what each round reached.
+- `--hog-swap-gb`: the Austin's-day memory hog (`smoke_hog.py`, from feat's
+  `scripts/cmux-next/austins-day/hog.py`) holds incompressible memory until swap used is that much
+  above the start (or 0.9 of physical memory), then a wired (mlock) part, at most half of physical
+  memory, holds `kern.memorystatus_level` at its target (16); at the floor (12) it gives memory back,
+  wired first, until 20. It ends by its own deadline; run.py starts it before the download and launch
+  (at least 45 s before the journey) and stops it by its pid. Why the wired part: on macOS that level
+  counts active and inactive pages as free, so swappable memory alone left it at 21-47 on the 16 GB
+  minis (SMOKE ENV "no memory pressure", 2026-11-02). The gate counts a round only when its hog log
+  shows pressure (at least 4 GB held and swap +15 GB or the level down to 20), and reports what each
+  round reached (level, kernel pressure level, wired size).
 
 The journey (group `ext_smoke.py`): Cmd-N then Ctrl-\` three times (three workspaces, each with a
 terminal: a person's Cmd-N shows the New Tab page; Ctrl-\` comes as soon as the workspace shows,
