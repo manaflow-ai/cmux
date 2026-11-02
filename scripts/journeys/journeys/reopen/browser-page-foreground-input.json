@@ -1,8 +1,8 @@
 {
  "id": "browser-page-foreground-input",
  "priority": "P1",
- "title": "Control C: CuaDriver window-targeted foreground click and keys into the page's Chromium window: do the click and all keys reach the page",
- "why": "Diagnostic for reopen-f4 (STATUS 7344): CuaDriver's schema says background or desktop input may not reach Chromium content and foreground press_key sends a genuine HID key transition. Pass means the click-then-type and plain-key losses were the harness's delivery path.",
+ "title": "Control C2: CuaDriver foreground press_key (genuine HID per its schema) to the app's main window while the page has the keyboard through it, no click: do all keys reach the page",
+ "why": "Diagnostic for reopen-f4 (STATUS 7344): CuaDriver's schema says background or desktop input may not reach Chromium content and foreground press_key sends a genuine HID key transition. Pass means the click-then-type and plain-key losses were the harness's delivery path. C (click and keys targeted at the page child window) could not run at 3bcc475: the foreground click needs a window capture (ScreenCaptureKit failed, no screen-recording grant) and foreground press_key could not focus the child window.",
  "source": "REOPEN VIDEO for reopen-f4",
  "budget_seconds": 220,
  "steps": [
@@ -233,21 +233,10 @@
   },
   {
    "do": "cua_page_input",
-   "x": 520,
-   "y": 165,
-   "mark_click": "click",
-   "title": "control C: CuaDriver click, delivery_mode foreground, pid + the page CefNSWindow id, at the field"
-  },
-  {
-   "do": "window_probe",
-   "name": "after-click",
-   "title": "probe: after the foreground click"
-  },
-  {
-   "do": "cua_page_input",
    "text": "fieldkeysok",
+   "keys_window": "shell",
    "mark": "keys",
-   "title": "control C: 11 plain keys, press_key delivery_mode foreground, pid + the page window id"
+   "title": "control C2: no click; 11 plain keys, press_key delivery_mode foreground, pid + the app's main window id (the page has the keyboard through it)"
   },
   {
    "do": "window_probe",
@@ -256,7 +245,7 @@
   },
   {
    "do": "expect",
-   "title": "control C: the page got every key in order (shown reversed), the field shows the word, and the page got the click (mousedown)",
+   "title": "control C2: the page got every key in order (shown reversed) and the field shows the word",
    "since": "keys",
    "timeout": 10,
    "all": [
@@ -265,9 +254,6 @@
     },
     {
      "frame_text": "fieldkeysok"
-    },
-    {
-     "frame_text": "mousedown"
     }
    ]
   }

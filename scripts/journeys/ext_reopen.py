@@ -1535,6 +1535,10 @@ def step_rpc_try(j, step):
         return {"error": str(error)[:400]}
 
 
+class _SkipCapture(Exception):
+    """No click: no window capture either (CuaDriver's capture needs the screen-recording grant)."""
+
+
 def _page_window(j):
     """The visible Chromium page window: debug.window_list's visible CefNSWindow that takes the mouse and is wider than
     100 points, with its window-server frame (top-left screen points)."""
@@ -1558,9 +1562,15 @@ def step_cua_page_input(j, step):
     page, server = _page_window(j)
     main = max(main_windows([w for w in _jxa_json(WINDOWS_JXA, []) if w.get("pid") == j.app.pid]), key=lambda w: w["w"] * w["h"])
     out = {"page_window": page, "page_server": server}
+    # `keys_window: shell`: the keys target the app's main window (the page keeps the keyboard through it), not the page
+    # child window, which CuaDriver could not focus for foreground delivery at 44dc8431.
+    key_target = main["number"] if step.get("keys_window") == "shell" else page["id"]
+    out["key_window_id"] = key_target
     shot = str(Path(j.out) / f"probe-cua-window-{page['id']}.png")
     cua = Cua()
     try:
+        if "x" not in step:
+            raise _SkipCapture()
         state = cua.tool("get_window_state", {"pid": j.app.pid, "window_id": page["id"], "include_accessibility_tree": False,
                                               "screenshot_out_file": shot}, check=False, timeout=60)
         meta = state.get("structuredContent") or {}
@@ -1576,6 +1586,9 @@ def step_cua_page_input(j, step):
         except (OSError, struct.error, ZeroDivisionError) as error:
             out["png_error"] = str(error)[:200]
         out["pixel_scale"] = scale
+    except _SkipCapture:
+        pass
+    try:
         if "x" in step:
             sx, sy = main["x"] + float(step["x"]), main["y"] + float(step["y"])
             lx, ly = sx - server["x"], sy - server["y"]
@@ -1583,7 +1596,7 @@ def step_cua_page_input(j, step):
                 raise D.StepError(f"cua_page_input: point ({sx}, {sy}) is outside the page window {server}")
             if step.get("mark_click"):
                 j.marks[step["mark_click"]] = D.now()
-            out["click_args"] = {"pid": j.app.pid, "window_id": page["id"], "x": lx * scale, "y": ly * scale,
+            out["click_args"] = {"pid": j.app.pid, "window_id": page["id"], "x": lx * out.get("pixel_scale", 1.0), "y": ly * out.get("pixel_scale", 1.0),
                                  "delivery_mode": "foreground"}
             out["click_reply"] = cua.tool("click", out["click_args"], check=False, timeout=30)
             time.sleep(0.4)
@@ -1592,7 +1605,7 @@ def step_cua_page_input(j, step):
         if text:
             if step.get("mark"):
                 j.marks[step["mark"]] = D.now()
-            replies = [cua.tool("press_key", {"pid": j.app.pid, "window_id": page["id"], "key": ch,
+            replies = [cua.tool("press_key", {"pid": j.app.pid, "window_id": key_target, "key": ch,
                                               "delivery_mode": "foreground"}, check=False, timeout=30) for ch in text]
             out["key_replies_first"] = replies[:2]
             out["key_errors"] = [i for i, r in enumerate(replies) if r.get("isError")]
@@ -1601,7 +1614,8 @@ def step_cua_page_input(j, step):
     finally:
         cua.close()
     (Path(j.out) / "probe-control-c.json").write_text(json.dumps(out, indent=1, default=str) + "\n")
-    return {k: out.get(k) for k in ("pixel_scale", "click_args", "click_reply", "after_click", "key_errors", "after_keys")}
+    return {k: out.get(k) for k in ("pixel_scale", "key_window_id", "click_args", "click_reply", "after_click", "key_errors",
+                                    "key_replies_first", "after_keys")}
 
 
 def step_focus_probe(j, step):
