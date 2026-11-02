@@ -1,7 +1,7 @@
 // l10n-allow-file: deterministic scroll-motion fixtures.
 import { expect, test } from "bun:test";
 import { animateScroll, stopScroll } from "../src/agent-session/acpmux/threadMinimap/scrollMotion";
-import { JUMP_CURVE } from "../src/agent-session/acpmux/threadMinimap/model";
+import { JUMP_CURVE, jumpGlideStart } from "../src/agent-session/acpmux/threadMinimap/model";
 
 function frames() {
   const saved = [globalThis.requestAnimationFrame, globalThis.cancelAnimationFrame] as const;
@@ -132,4 +132,15 @@ test("a replacement notifies the old owner without reporting a completed landing
   } finally {
     clock.restore();
   }
+});
+
+test("a long Jump to latest skips the middle and glides only the last viewport", () => {
+  // Within a viewport of the end: the whole way glides.
+  expect(jumpGlideStart(500, 1_000, 600)).toBe(500);
+  expect(jumpGlideStart(400, 1_000, 600)).toBe(400);
+  // Farther: it starts one viewport above the end, so the rows in between never mount.
+  expect(jumpGlideStart(0, 50_000, 600)).toBe(49_400);
+  // Already at or below the end: nothing to skip.
+  expect(jumpGlideStart(1_000, 1_000, 600)).toBe(1_000);
+  expect(jumpGlideStart(1_200, 1_000, 600)).toBe(1_200);
 });
