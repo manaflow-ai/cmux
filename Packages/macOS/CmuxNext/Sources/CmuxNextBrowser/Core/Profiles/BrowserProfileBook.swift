@@ -71,12 +71,14 @@ public nonisolated struct BrowserProfileBook: Codable, Hashable, Sendable {
     public mutating func create(id: String = BrowserProfileRecord.newID(), name: String, color: String?, icon: String?,
                                 source: [String: String]? = nil) throws -> BrowserProfileRecord {
         guard BrowserProfileRecord.isValidID(id) else { throw BrowserProfileBookError.invalidID }
+        // A pending deletion still owns this id's disk stores. Reusing it now
+        // can resurrect old cookies or let an in-flight cleanup erase new data.
+        guard !pendingCleanup.contains(id) else { throw BrowserProfileBookError.pendingCleanup }
         if let existing = record(id) { return existing }
         let record = BrowserProfileRecord(id: id, name: try Self.validName(name), color: try Self.validColor(color),
                                           icon: try Self.validIcon(icon), position: (profiles.map(\.position).max() ?? 0) + 1,
                                           source: source)
         profiles.append(record)
-        pendingCleanup.removeAll { $0 == id }
         return record
     }
 
