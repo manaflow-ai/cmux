@@ -42,6 +42,9 @@ public final class TerminalHostView: NSView {
         get { restartAction }
         set { restartAction = newValue; syncRestartButton(); needsLayout = true }
     }
+    /// Called before the terminal session removes this host from its pane.
+    /// Transient input owners use it to cancel work pinned to this surface.
+    public var onClose: (@MainActor () -> Void)?
 
     /// The first cell's top-left in this view's coordinates (top-left
     /// origin): Ghostty's leading and top padding, or with

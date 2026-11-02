@@ -62,6 +62,10 @@ final class TerminalDictation {
         targetDaemon = daemon
         targetHost = entry.session.view
         committedText = ""
+        targetHost?.onClose = { [weak self, weak host = targetHost] in
+            guard let self, self.targetHost === host else { return }
+            self.close()
+        }
         targetHost?.topOverlay = preview
         claims.claim(self) { [weak self] in self?.session?.stop() }
         session.start()
@@ -100,6 +104,7 @@ final class TerminalDictation {
     }
 
     private func clearTarget() {
+        targetHost?.onClose = nil
         targetHost?.topOverlay = nil
         targetHost = nil
         targetSurface = nil

@@ -344,6 +344,9 @@ public final class TerminalSession {
     /// Stops consuming events and detaches the surface. The IO owner decides
     /// whether the underlying terminal keeps running.
     public func close() {
+        let onClose = view.onClose
+        view.onClose = nil
+        onClose?()
         surfaceView.clipboardRequests.cancelPendingWrite()
         eventsTask?.cancel()
         eventsTask = nil
