@@ -447,6 +447,9 @@ try {
       ["first_row", (r: Round) => r.firstRow, undefined],
       ["latest", (r: Round) => r.latest, TARGET_MS.load],
       ["settled", (r: Round) => r.settled, undefined],
+      // The page's own work once the history has left the daemon: parse, first render and layout.
+      ["attach_to_latest", (r: Round) => r.latest - r.attach, undefined],
+      ["dom_content_loaded", (r: Round) => r.dcl, undefined],
       ["long_ms", (r: Round) => r.longMs, undefined],
     ] as const)
       perfRow({ name: `chat_open.${arm}.${stage}`, p50: median(pick), p95: median(pick), target });
