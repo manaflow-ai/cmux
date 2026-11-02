@@ -1324,7 +1324,7 @@ struct cmuxApp: App {
                 showNotificationsPopover()
             }
 
-            if chiefEnabled {
+            if chiefEnabled, CmuxFeatureFlags.shared.isChiefAvailable {
                 splitCommandButton(title: String(localized: "menu.view.chief", defaultValue: "Chief"), shortcut: menuShortcut(for: .openChief)) {
                     AppDelegate.shared?.openChiefHome(toggle: true, source: "menu.view.chief")
                 }

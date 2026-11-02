@@ -42,7 +42,7 @@ enum KeyboardShortcutSettings {
 
     static var settingsVisibleActions: [Action] {
         orderedSettingsVisibleActions(
-            from: publicShortcutActions.filter { $0 != .showHideAllWindows }
+            from: publicShortcutActions.filter { $0 != .showHideAllWindows && ($0 != .openChief || ChiefSettings.isAvailable) }
         )
     }
 
