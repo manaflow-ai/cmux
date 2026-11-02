@@ -280,7 +280,8 @@ fn a_hook_binary_that_does_not_know_the_hook_lets_the_call_run() {
             .stderr(std::process::Stdio::null())
             .spawn()
             .unwrap();
-        child.stdin.take().unwrap().write_all(br#"{"tool_name":"Bash"}"#).unwrap();
+        // A binary that is gone never reads its input: the write may fail with a broken pipe.
+        let _ = child.stdin.take().unwrap().write_all(br#"{"tool_name":"Bash"}"#);
         child.wait_with_output().unwrap()
     };
     let words = |exe: String| vec![exe, crate::bg_hook::HOOK_ARG.to_owned(), "/h".to_owned()];
