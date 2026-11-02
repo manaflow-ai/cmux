@@ -81,6 +81,10 @@ Each slice is test-first (red commit, then green) and lands on `feat-cmux-next`.
 2. **Shadow reads** (done, red then green). `PROJECTION_READS=shadow` serves Postgres and runs the
    same read on MySQL, logging `projection.read.match` or `projection.read.diff` (ids and seqs
    only). On for development and staging.
+   **Development cutover** (2026-11-02, ahead of staging; development data is throwaway):
+   `PROJECTION_PRIMARY=mysql`, `PROJECTION_SHADOW=postgres`, `PROJECTION_READS=mysql`. The compare
+   cron stays on and reports only (repairs flow primary to shadow, so none run while MySQL is
+   primary). Rollback: flip the three variables back, one deploy.
 3. **Staging cutover**, after 24 h of shadow reads with 0 `projection.read.diff` and 0 lasting
    `projection.compare.diff`: `PROJECTION_READS=mysql`, then `PROJECTION_PRIMARY=mysql` with
    `PROJECTION_SHADOW=postgres` (Postgres stays current for rollback; repairs then flow MySQL to
