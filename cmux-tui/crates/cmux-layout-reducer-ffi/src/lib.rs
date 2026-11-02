@@ -139,12 +139,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
-            b"bookmarks_apply" => {
-                let request: cmux_bookmarks_core::preview::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_bookmarks_core::preview::respond(request))
-                    .map_err(|_| ERR_INVALID)?
-            }
             b"focus_type_ahead" => {
                 let request: cmux_focus_core::wire::TypeAheadRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
