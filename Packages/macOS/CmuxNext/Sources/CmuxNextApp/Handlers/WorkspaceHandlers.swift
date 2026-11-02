@@ -80,7 +80,7 @@ enum WorkspaceHandlers {
         Task {
             do {
                 _ = try await create()
-                await daemon.closeTicket(ticket, label: "create workspace", error: nil, replying: daemon.connection)
+                await daemon.closeTicket(ticket, label: "create workspace", error: nil)
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 await daemon.closeTicket(ticket, label: "create workspace", error: error)
