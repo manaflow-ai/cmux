@@ -3134,6 +3134,12 @@
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
     },
+    "notifications.attention.moveToTopOnAgentFinish" : {
+      "default" : false,
+      "description" : "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+      "title" : "Move the Workspace to the Top When Its Agent Finishes",
+      "type" : "boolean"
+    },
     "notifications.attention.persist" : {
       "default" : true,
       "description" : "notifications.attention.persist",
@@ -3570,6 +3576,12 @@
       "default" : false,
       "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
       "title" : "Let Your Phone Use This Mac",
+      "type" : "boolean"
+    },
+    "phone.cloudDesktop" : {
+      "default" : false,
+      "description" : "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
+      "title" : "Show Your Cloud Machine's Screen on Your Phone",
       "type" : "boolean"
     },
     "phone.cloudReplica" : {

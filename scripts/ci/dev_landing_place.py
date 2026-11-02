@@ -340,11 +340,14 @@ def main(argv: Sequence[str]) -> int:
 
     token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     api = GitHub(token, repo) if token and repo else None
+    first_look = True
 
     def read_runners() -> Sequence[Mapping[str, Any]]:
+        nonlocal first_look
+        use_state, first_look = first_look, False
         if api is None:
             raise RuntimeError("no routing token")
-        return api.runners()
+        return api.runners(use_state=use_state)
 
     def read_holders(host: str) -> Sequence[Mapping[str, Any]]:
         if api is None:

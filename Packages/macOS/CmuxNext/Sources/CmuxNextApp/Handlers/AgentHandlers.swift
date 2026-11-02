@@ -36,6 +36,7 @@ enum AgentHandlers {
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let terminalDictation = TerminalDictation()
         registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
@@ -170,6 +171,13 @@ enum AgentHandlers {
         // is push-to-talk. Outside an agent chat it stops a session still
         // running in one.
         registry.bind("palette.toggleDictation", invoke: { invocation in
+            if let (pane, content) = context.visibleContent(invocation), case .terminal(let entry) = content {
+                guard let tabID = pane.stripModel.selectedID?.rawValue,
+                      let tab = pane.pane.tabs.first(where: { $0.id == tabID }) else { return }
+                terminalDictation.toggle(entry: entry, surface: tab.surface, daemon: context.services.daemon(for: pane.pane))
+                return
+            }
+            if terminalDictation.stopIfActive() { return }
             guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
                   let view = context.services.agentTabs.existingView(key) else {
                 if AgentPaneView.stopDictation() { return }

@@ -243,6 +243,16 @@ class Gradient(unittest.TestCase):
         self.assertEqual((pacer.base, fake.sleeps), (0, []))
         self.assertAlmostEqual(pacer.start, fake.now, delta=0.0002)
 
+    def test_python_run_below_the_floor_is_not_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "g.jsonl")
+            # 50000 fps asked of the Python engine: it cannot hold it, so the run is NOT RUN, never ok
+            subprocess.run([PY, KIT, "gradient", "--engine", "python", "--fps", "50000", "--size", "160x48",
+                            "--duration", "1", "--log", log], stdout=subprocess.DEVNULL, timeout=30)
+            end = [e for e in read_jsonl(log) if e["ev"] == "end"][0]
+        self.assertEqual(end["engine"], "python")
+        self.assertEqual(end["verdict"], "NOT RUN", end)
+
     def test_pace_probe_reports_each_variant(self):
         with tempfile.TemporaryDirectory() as tmp:
             done = subprocess.run([PY, os.path.join(HERE, "pace_probe.py"), "--seconds", "0.5", "--out", tmp,
@@ -271,6 +281,106 @@ class Gradient(unittest.TestCase):
         data, code = run.collect(10)
         self.assertEqual(code, 0)
         self.assertTrue(data.endswith((tuikit.ESU + tuikit.RESET + tuikit.WRAP_ON + tuikit.SHOW + tuikit.ALT_OFF).encode()))
+
+
+REQUIRE_RUST = os.environ.get("CMUX_TUIKIT_REQUIRE_RUST") == "1"  # the fleet self-test: no skip
+
+
+def need_rust(test):
+    if not tuikit.rust_bin("tk-gradient"):
+        if REQUIRE_RUST:
+            test.fail("tk-gradient is not built (tuikit.py build-bins)")
+        test.skipTest("tk-gradient is not built (tuikit.py build-bins)")
+
+
+class GradientRust(unittest.TestCase):
+    """The compiled tk-gradient against the Python engine: the same bytes, and the rate it holds."""
+
+    def output(self, engine, *args):
+        done = subprocess.run([PY, KIT, "gradient", "--engine", engine, "--fake-clock", "--duration", "0"] + list(args),
+                              capture_output=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout
+
+    def test_same_bytes_as_python(self):
+        need_rust(self)
+        for seed, size, cell, extra in ((3, "90x30", "1", []), (7, "160x48", "2", []), (11, "49x17", "1", []),
+                                        (5, "21x3", "2", ["--no-sync"]), (2, "1x1", "1", [])):
+            args = ["--seed", str(seed), "--size", size, "--cell", cell, "--frames", "40"] + extra
+            py, rs = self.output("python", *args), self.output("rust", *args)
+            self.assertEqual(len(frames(py)), len(frames(rs)), (seed, size))
+            if py != rs:
+                for k, (a, b) in enumerate(zip(frames(py), frames(rs))):
+                    self.assertEqual(a, b, "seed %d size %s frame %d differs" % (seed, size, k))
+            self.assertEqual(py, rs, (seed, size, cell))
+
+    def test_holds_120_fps(self):
+        need_rust(self)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "g.jsonl")
+            done = subprocess.run([PY, KIT, "gradient", "--engine", "rust", "--seed", "1", "--size", "160x48",
+                                   "--duration", "3", "--log", log], stdout=subprocess.DEVNULL, timeout=30)
+            self.assertEqual(done.returncode, 0)
+            events = read_jsonl(log)
+        end = [e for e in events if e["ev"] == "end"][0]
+        self.assertEqual(end["engine"], "rust")
+        self.assertEqual(end["verdict"], "ok", end)
+        self.assertGreaterEqual(end["achieved_fps"], 0.95 * 120, end)
+        stamps = [e["mono"] for e in events if e["ev"] == "frame"]
+        gaps = sorted((b - a) * 1000 for a, b in zip(stamps, stamps[1:]))
+        self.assertLess(gaps[int(0.95 * len(gaps))], 1000 / 120 * 1.5, "p95 frame interval")
+
+
+class BeaconRust(unittest.TestCase):
+    """tk-beacon: the SWITCH FRAMES beacon rows (ext_switch.py's codec), the uptime clock, the rate."""
+
+    def test_rows_decode_and_rate(self):
+        if not tuikit.rust_bin("tk-beacon"):
+            if REQUIRE_RUST:
+                self.fail("tk-beacon is not built (tuikit.py build-bins)")
+            self.skipTest("tk-beacon is not built (tuikit.py build-bins)")
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "b.jsonl")
+            run = PtyRun([PY, KIT, "beacon", "--ws", "5", "--pane", "3", "--duration", "2", "--log", log], 80, 24)
+            data, code = run.collect(20)
+            self.assertEqual(code, 0)
+            events = read_jsonl(log)
+        end = [e for e in events if e["ev"] == "end"][0]
+        self.assertEqual(end["verdict"], "ok", end)
+        self.assertGreaterEqual(end["achieved_hz"], 0.95 * 240)
+        frames_ = frames(data)
+        self.assertGreater(len(frames_), 400)
+        blk = lambda rgb: ("\x1b[48;2;%d;%d;%dm  " % rgb).encode()
+        y, r, one, zero = blk((255, 255, 0)), blk((255, 0, 0)), blk((255, 0, 255)), blk((0, 255, 255))
+        clocks = []
+        for f in (frames_[10], frames_[200]):
+            rows = []
+            for i in range(3):
+                seg = f.split(("\x1b[%d;1H" % (i + 1)).encode(), 1)[1]
+                self.assertTrue(seg.startswith(y))
+                seg = seg[len(y):]
+                bits = []
+                while not seg.startswith(r):
+                    if seg.startswith(one):
+                        bits.append(1)
+                        seg = seg[len(one):]
+                    else:
+                        self.assertTrue(seg.startswith(zero))
+                        bits.append(0)
+                        seg = seg[len(zero):]
+                self.assertEqual(sum(bits) % 2, 0, "parity")
+                rows.append(bits[:-1])
+            ws = int("".join(map(str, rows[0][:6])), 2)
+            pane = int("".join(map(str, rows[0][6:10])), 2)
+            self.assertEqual((ws, pane), (5, 3))
+            g = int("".join(map(str, rows[1] + rows[2])), 2)
+            n, shift = g, 1
+            while (g >> shift) > 0:
+                n ^= g >> shift
+                shift += 1
+            clocks.append(n)
+        self.assertGreater((clocks[1] - clocks[0]) % (1 << 18), 0, "the clock advances")
+        self.assertIn(b"WS 5  PANE 3", data)
 
 
 class Sigwinch(unittest.TestCase):

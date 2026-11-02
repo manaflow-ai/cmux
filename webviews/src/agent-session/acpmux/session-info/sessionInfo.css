@@ -209,6 +209,39 @@
   overflow-x: hidden;
   overflow-y: auto;
 }
+/* Rows scrolled past the body's top or bottom fade into the glass at that edge (scrollEdges.ts marks
+   which edges have more), as the Summary card and the menus do, a little shorter so it stays quiet:
+   never a hard cut through a row. Leo, 2026-10-28: "We should have a bit of that, like blur fading
+   thing for this area as well. Just a little bit." The mask is on or off per edge, never animated. */
+.acpmux-session-info__body:is([data-fade-top], [data-fade-bottom]) {
+  --acpmux-session-info-fade-top: 0px;
+  --acpmux-session-info-fade-bottom: 0px;
+  --acpmux-session-info-fade: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-session-info-fade-top),
+    #000 calc(100% - var(--acpmux-session-info-fade-bottom)),
+    transparent
+  );
+  -webkit-mask-image: var(--acpmux-session-info-fade);
+  mask-image: var(--acpmux-session-info-fade);
+}
+.acpmux-session-info__body[data-fade-top] {
+  --acpmux-session-info-fade-top: 12px;
+}
+.acpmux-session-info__body[data-fade-bottom] {
+  --acpmux-session-info-fade-bottom: 16px;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-session-info__body:is([data-fade-top], [data-fade-bottom]) {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-session-info__body:is([data-fade-top], [data-fade-bottom]) {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
 /* A section is no box of its own: its rows sit on the glass, never a fill, solid or tinted. */
 .acpmux-session-info-section {
   flex: none;
