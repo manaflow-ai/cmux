@@ -561,6 +561,21 @@ def step_switch_keys(j, step):
             timers[method] = True
         except D.StepError:
             timers[method] = False
+    def surface_counts():
+        # Per shown terminal: the app's own reveal facts (surface swaps = a replay swapped in a fresh surface,
+        # snapshots restored, last-frame holds, a held frame up now). Read before and after the keys (cause evidence).
+        try:
+            rows = j.app.rpc("debug.surfaces", {}) or {}
+        except D.StepError:
+            return {}
+        out = {}
+        for w in rows.get("windows", []):
+            for p in w.get("panes", []):
+                if isinstance(p, dict) and p.get("terminal_id"):
+                    out[str(p["terminal_id"])] = {k: p.get(k) for k in ("surface_swaps", "snapshots", "last_frame_holds",
+                                                                          "frame_held", "attach", "local_snapshots")}
+        return out
+    counts_before = surface_counts()
     sent = []
     for entry in keys:
         mods, key, case = entry[0], entry[1], entry[2]
@@ -580,9 +595,10 @@ def step_switch_keys(j, step):
                                "t_sent": round(t_sent, 6), "t_returned": round(t_done, 6)})
         time.sleep(gap / 2)
         shown = _shown_workspace(j)
+        after_key = surface_counts()
         sent.append({"case": case, "keys": mods + [key], "action": action, "sent_host_s": t_sent, "send_returned_host_s": t_done,
                      "wall_sent": wall_sent, "wall_offset": wall_sent - t_sent,
-                     "shown": shown, "shown_tab": list(_shown_tab(j)),
+                     "shown": shown, "shown_tab": list(_shown_tab(j)), "surfaces": after_key,
                      "expect": (digits.get(key) or {}).get("workspace") if action == "selectWorkspaceByNumber" and mods == ["cmd"] else None})
         time.sleep(gap / 2)
     wanted = {s["action"] for s in sent}
@@ -622,7 +638,8 @@ def step_switch_keys(j, step):
                 app_timers[method] = {"error": str(error)[-200:]}
     (j.out / "video").mkdir(exist_ok=True)
     (j.out / "video" / (name + "-keys.events.json")).write_text(json.dumps({"events": events, "runs": runs,
-                                                                            "app_timers": app_timers}, indent=1))
+                                                                            "app_timers": app_timers,
+                                                                            "surfaces_before": counts_before}, indent=1))
     missing = [e["case"] for e in events if e.get("t_source") == "sent"]
     wrong = [e["case"] for e in events if e.get("expect") and e.get("shown") != e["expect"]]
     return {"keys": len(sent), "runs": len(runs), "missing_runs": missing, "wrong_target": wrong,
