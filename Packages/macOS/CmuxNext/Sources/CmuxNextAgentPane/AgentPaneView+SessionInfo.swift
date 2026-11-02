@@ -96,13 +96,15 @@ extension AgentPaneView {
     }
 
     /// Lays the panel out in the page's frame: the page's width from its right edge (less a side
-    /// panel's width and the 8 px float margin), from `top` under the header to the page's foot.
+    /// panel's width and the 8 px float margin), from `top` under the header, as tall as its content
+    /// up to the page's foot.
     func layoutSessionInfo() {
         guard let panel = model.sessionInfo.panel, let info = panel.store.info else { return }
         let zoom = max(0.25, CGFloat(uiPointerPageZoom))
         panel.store.zoom = zoom
         let frame = Self.sessionInfoFrame(page: page?.frame ?? webView.frame, info: info,
-                                          width: panel.store.width, zoom: zoom, flipped: isFlipped)
+                                          width: panel.store.width, zoom: zoom, flipped: isFlipped,
+                                          content: { [weak panel] width in panel?.fittingHeight(forWidth: width) ?? .greatestFiniteMagnitude })
         if panel.frame != frame { panel.frame = frame }
         applyNativeRects()
     }
@@ -115,16 +117,20 @@ extension AgentPaneView {
                       width: rect.width / scale, height: rect.height / scale)
     }
 
-    /// The panel's frame in the pane for `info` in a page frame `page` (pane coordinates).
+    /// The panel's frame in the pane for `info` in a page frame `page` (pane coordinates). Its top
+    /// is under the header; it is `content`'s height at its width (points), up to the room above
+    /// the foot, so it never runs past its last section. With no `content` it takes the whole room.
     static func sessionInfoFrame(page: CGRect, info: AgentPaneSessionInfoModel, width: Double,
-                                 zoom: CGFloat, flipped: Bool) -> CGRect {
+                                 zoom: CGFloat, flipped: Bool,
+                                 content: ((CGFloat) -> CGFloat)? = nil) -> CGRect {
         let margin = AgentPaneSessionInfoModel.floatMargin * zoom
         let top = CGFloat(info.top) * zoom
         let foot = CGFloat(info.foot ?? AgentPaneSessionInfoModel.floatMargin) * zoom
         let wide = min(CGFloat(width) * zoom, max(0, page.width - 2 * margin))
         let x = max(page.minX + margin, page.maxX - CGFloat(info.side) * zoom - margin - wide)
-        let height = max(0, page.height - top - foot)
-        let y = flipped ? page.minY + top : page.minY + foot
+        let room = max(0, page.height - top - foot)
+        let height = min(room, max(0, (content?(wide) ?? room).rounded(.up)))
+        let y = flipped ? page.minY + top : page.maxY - top - height
         return CGRect(x: x, y: y, width: wide, height: height).integral
     }
 

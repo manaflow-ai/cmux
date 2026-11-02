@@ -3,14 +3,22 @@ import CmuxNextDesign
 
 /// The chat's Session Info, drawn by the App (``AgentPaneSessionInfo``): its content on the pane's
 /// own glass, with no card, fill or rounded surface behind it (Leo, 2026-11-01: "why is the
-/// background STILL not removed"), at the agent pane's right, from under the header to the pane's foot (Leo,
-/// 2026-10-26: "you still haven't done the full-length thing"). It floats: it never takes a column
-/// and never moves the chat's layout; the page supplies the current push or overlay geometry. No close button and no band at its top:
-/// its header toggle and Esc close it. Its left edge drags its width.
+/// background STILL not removed"), at the agent pane's right, from under the header. It is as tall
+/// as its content, up to the pane's foot (then its list scrolls), so no empty panel hangs under its
+/// last section (Leo, 2026-11-02: "IT IS TAKING THIS STUPID FUCKING SPACE FOR NO REASON"). It floats:
+/// it never takes a column and never moves the chat's layout; the page supplies the current push or
+/// overlay geometry. Over the chat's column (the page sends a `foot`) the transcript runs under it,
+/// so there, and only there, it lies on the composer's glass (``backing``, the shared overlay glass,
+/// solid under Reduce Transparency) so its text never reads through the chat's, as the web panel's
+/// `.ui-glass` does over the chat. No close button and no band at its top: its header toggle and Esc
+/// close it. Its left edge drags its width.
 final class AgentPaneSessionInfoPanel: NSView {
     let store: AgentPaneSessionInfoStore
     private let content: AgentPaneSessionInfoContent
     private let edge = AgentPaneSessionInfoEdge()
+    /// The glass under the content while the panel lies over the chat's column; nil over the
+    /// pane's empty gutter, where the content stands on the pane itself.
+    private(set) var backing: OverlaySurfaceView?
 
     init(store: AgentPaneSessionInfoStore) {
         self.store = store
@@ -21,6 +29,13 @@ final class AgentPaneSessionInfoPanel: NSView {
         addSubview(content)
         edge.autoresizingMask = [.height, .maxXMargin]
         addSubview(edge)
+        let draw = store.redraw
+        store.redraw = { [weak self] in
+            draw()
+            self?.updateBacking()
+        }
+        content.onHeightChange = { [weak store] in store?.relayout() }
+        updateBacking()
         edge.onDrag = { [weak self] delta, ended in self?.store.drag(by: delta, ended: ended) }
         edge.onDoubleClick = { [weak self] in self?.store.act("width:reset") }
         store.rectForView = { [weak self] view in
@@ -34,8 +49,28 @@ final class AgentPaneSessionInfoPanel: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    /// The content's height at `width` points: the panel ends after its last section.
+    func fittingHeight(forWidth width: CGFloat) -> CGFloat { content.fittingHeight(forWidth: width) }
+
+    /// Over the chat (`foot` set) the content lies on the overlay glass; over the gutter, on nothing.
+    private func updateBacking() {
+        let overChat = store.info?.foot != nil
+        if overChat, backing == nil {
+            let glass = Glass.makeOverlayPanel()
+            glass.translatesAutoresizingMaskIntoConstraints = true
+            glass.autoresizingMask = [.width, .height]
+            glass.frame = bounds
+            addSubview(glass, positioned: .below, relativeTo: content)
+            backing = glass
+        } else if !overChat, let glass = backing {
+            glass.removeFromSuperview()
+            backing = nil
+        }
+    }
+
     override func layout() {
         super.layout()
+        backing?.frame = bounds
         content.frame = bounds
         edge.frame = CGRect(x: 0, y: 0, width: AgentPaneSessionInfoEdge.width, height: bounds.height)
     }
