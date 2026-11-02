@@ -373,19 +373,25 @@ def _write_terminal(j, term, text):
     apply (a slow daemon at the start of a round), so a retry never writes twice."""
     import re
     key = None
-    for attempt in range(4):
+    deadline = D.now() + 30.0
+    attempt = 0
+    while True:
+        attempt += 1
         args = ["terminal", term, "write", "--text", text] + (["--idempotency-key", key] if key else [])
-        try:
-            return j.app.cmux(*args)
-        except D.StepError as error:
-            found = re.search(r"--idempotency-key (mutation_[0-9a-f]+)", str(error))
-            if not found or attempt == 3:
-                raise
-            key = found.group(1)
-            slow = getattr(j, "slow_setup_actions", [])
-            slow.append({"action": "terminal write", "retry": attempt + 1})
-            j.slow_setup_actions = slow
-            time.sleep(1.0)
+        done = subprocess.run([j.app.cli, "--socket", j.app._daemon_sock or j.app.daemon_socket(), "--json", *args],
+                              capture_output=True, text=True, timeout=30,
+                              env={"HOME": j.app.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_QUIET": "1"})
+        if done.returncode == 0:
+            return json.loads(done.stdout or "{}")
+        said = (done.stdout + done.stderr).strip()
+        found = re.search(r"idempotency[ _-]key[^m]*(mutation_[0-9a-f]+)", said)
+        slow = getattr(j, "slow_setup_actions", [])
+        slow.append({"action": "terminal write", "attempt": attempt, "exit": done.returncode, "said": said[:400]})
+        j.slow_setup_actions = slow
+        if not found or D.now() > deadline:
+            raise D.StepError("terminal %s write: exit %d after %d attempts: %s" % (term, done.returncode, attempt, said[:600]))
+        key = found.group(1)
+        time.sleep(min(4.0, 0.5 * attempt))
 
 
 def _new_terminal(j, name, action, args=None, prompt=True):
