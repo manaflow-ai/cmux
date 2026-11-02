@@ -86,10 +86,16 @@ const turn = (calls: ReturnType<typeof tool>[], working = false) =>
     { title: "coord", ...(working && { isWorking: true }) },
   );
 
-/// Opens the finished turn, so each message's own row shows.
+/// Opens the finished turn, then the line a run of its sends folds into ("Sent 3 messages",
+/// MessageRunLine.tsx, #31398), so each message's own row shows.
 const openTurn: Play = async (ctx) => {
+  const run = () => ctx.document.querySelector("button[data-message-run]");
   if (ctx.document.querySelector(".cv-worked.is-toggle")) {
     await ctx.click({ selector: ".cv-worked.is-toggle" });
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? run());
+  }
+  if (!ctx.document.querySelector(".cv-sent") && run()?.getAttribute("aria-expanded") === "false") {
+    await ctx.click({ selector: "button[data-message-run]" });
     await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
   }
 };
