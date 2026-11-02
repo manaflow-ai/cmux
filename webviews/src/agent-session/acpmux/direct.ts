@@ -2068,18 +2068,22 @@ export class AcpmuxDirectClient {
     this.bindToSession(sessionId);
     const listed = () => this.sessions.some((session) => session.sessionId === sessionId);
     // A chat this page's list lacks (it started after the page connected, or its row is on a page
-    // still being read) opens without waiting for the list: its attach proves it is there, as a
-    // cold open's does (`attachedBeforeList`), since a busy acpmux paces its whole list for seconds.
-    // The list is read again behind the open, and decides only when the attach fails.
-    const relisting = listed() ? undefined : this.refreshSessions().catch(() => false);
+    // still being read) opens without the list: its attach proves it is there, as a cold open's
+    // does (`attachedBeforeList`). The list is read again only when the attach fails, to tell a
+    // missing chat from a failed open: read beside the open, its pages (a busy acpmux paces the
+    // whole list for seconds) went out on the same socket as the attach and slowed it (HQ#5914).
     const generation = this.selectionGeneration + 1;
     try {
       return await this.select(sessionId);
     } catch (error) {
-      if (relisting) await relisting;
+      // Only a list that was read and lacks the chat says it is missing; a failed read says nothing.
+      const relisted = listed() ? false : await this.refreshSessions().catch(() => false);
       if (this.closed) return undefined;
-      if (relisting && !listed() && generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-        return this.adoptedMissing(sessionId);
+      // The read itself takes a chat it lacks off the screen (`selectFallbackSession`, as for a chat
+      // that left the list while shown); at open it is the tab's missing chat, said as such.
+      const stillOpen = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+      const leftByRead = this.fallback?.from === sessionId && this.fallback.generation === generation + 1;
+      if (relisted && !listed() && (stillOpen || leftByRead)) return this.adoptedMissing(sessionId);
       // select() drops a kept tail it drew and says so itself; with nothing drawn the pane says
       // the open failed here, for the chat this adoption still shows.
       if (generation === this.selectionGeneration && this.selectedSessionId === sessionId && !this.drewKeptTail)
