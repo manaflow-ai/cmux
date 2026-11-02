@@ -491,6 +491,7 @@ impl Mux {
         if self.shutting_down.load(Ordering::Acquire) {
             return Ok(None);
         }
+        crate::scratch_launch_trace("r.start");
         let old_runtime = plan.old_runtime.take();
         // A user restart may replace a runtime whose host still runs (a
         // process end kept by `on_exit` keep keeps its host until the last
@@ -511,8 +512,11 @@ impl Mux {
             .unwrap_or_else(PoisonError::into_inner)
             .terminal_relaunch_record(&plan.terminal_id)?;
         // Its own short registry holds: the rebuild runs with no lock.
+        crate::scratch_launch_trace("r.record");
         let seed_source = self.previous_screen(&plan);
+        crate::scratch_launch_trace("r.previous_screen");
         let launch = self.respawn_launch(&plan, record.as_ref(), seed_source, geometry);
+        crate::scratch_launch_trace("r.launch_plan");
         let workspace_key = {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -552,6 +556,7 @@ impl Mux {
             launch.cell_pixels,
             &launch.seed,
         )?;
+        crate::scratch_launch_trace("r.surface_ready");
         let _pending_host_release = PendingTerminalHostRelease(surface.clone());
         let mut forgot_kept = false;
         let activated = match self.install_respawned_runtime(&plan, &surface) {
@@ -584,6 +589,7 @@ impl Mux {
             }
             Err(error) => Err(error),
         };
+        crate::scratch_launch_trace("r.installed");
         if let Err(error) = activated {
             surface.kill();
             // A failed launch leaves a kept tab kept (dead, for the next

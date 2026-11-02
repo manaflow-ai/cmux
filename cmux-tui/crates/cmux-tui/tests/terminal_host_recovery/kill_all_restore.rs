@@ -487,7 +487,13 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
 fn kill_all_restore_time_of_12_terminals() {
     const TERMINALS: usize = 12;
     let _exclusive = exclusive_process_test();
-    let mut harness = production_harness("kill-all-restore-time");
+    let mut harness = RecoveryHarness::start_unstarted("kill-all-restore-time");
+    let trace_path = harness.dir.join("respawn-trace.log");
+    harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
+    harness
+        .extra_env
+        .push(("CMUX_TUI_SCRATCH_RESPAWN_TRACE".into(), trace_path.display().to_string()));
+    harness.restart();
     let home = harness.dir.clone();
     let mut terminals = Vec::new();
     for index in 0..TERMINALS {
@@ -548,9 +554,11 @@ fn kill_all_restore_time_of_12_terminals() {
         }
     }
     restored_ms.sort_unstable();
+    let trace = fs::read_to_string(&trace_path).unwrap_or_default();
     panic!(
-        "kill-all-restore-time: {}",
-        serde_json::json!({"terminals": TERMINALS, "visible_ms": visible_ms, "restored_ms": restored_ms})
+        "kill-all-restore-time: {} TRACE-BEGIN\n{}TRACE-END",
+        serde_json::json!({"terminals": TERMINALS, "visible_ms": visible_ms, "restored_ms": restored_ms}),
+        trace
     );
 }
 

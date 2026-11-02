@@ -225,3 +225,20 @@ pub enum SplitDir {
 
 #[cfg(unix)]
 pub mod cloud_repos;
+
+/// SCRATCH (never merge): a phase mark with time and thread.
+pub(crate) fn scratch_launch_trace(phase: &str) {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    let start = START.get_or_init(std::time::Instant::now);
+    let Ok(path) = std::env::var("CMUX_TUI_SCRATCH_RESPAWN_TRACE") else { return };
+    let line = format!(
+        "LAUNCH-TRACE {} {:?} {}\n",
+        start.elapsed().as_micros(),
+        std::thread::current().name().unwrap_or(""),
+        phase
+    );
+    use std::io::Write as _;
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = file.write_all(line.as_bytes());
+    }
+}

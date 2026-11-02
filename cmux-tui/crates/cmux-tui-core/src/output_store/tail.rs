@@ -255,8 +255,10 @@ fn rebuild(snapshot: &TerminalReplay, tail: &[u8]) -> Option<TerminalReplay> {
         ghostty_vt::Callbacks::default(),
     )
     .ok()?;
+    crate::scratch_launch_trace("t.rebuild_start");
     terminal.vt_write(&snapshot.bytes);
     terminal.vt_write(tail);
+    crate::scratch_launch_trace("t.parsed");
     // Room for the respawn's marker line and mode reset.
     let budget = crate::surface::VT_REPLAY_MAX_BYTES.saturating_sub(64 * 1024);
     let replay = match terminal.vt_replay_bounded(budget) {
@@ -270,6 +272,7 @@ fn rebuild(snapshot: &TerminalReplay, tail: &[u8]) -> Option<TerminalReplay> {
         }
     };
     let bytes = replay.into_self_contained_bytes();
+    crate::scratch_launch_trace("t.encoded");
     Some(TerminalReplay { cols, rows, bytes })
 }
 

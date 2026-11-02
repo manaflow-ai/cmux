@@ -689,6 +689,7 @@ impl Surface {
         let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
         let records = terminal_metadata.program_status();
         let callbacks = hosted_terminal_callbacks(&pending_bells, title_changed.clone(), records);
+        crate::scratch_launch_trace("s.before_mirror");
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         anyhow::ensure!(
             terminal_metadata.set_osc_progress(&snapshot.osc_progress),
@@ -716,6 +717,7 @@ impl Surface {
             &snapshot.kitty_image_aliases,
             snapshot.kitty_state,
         )?;
+        crate::scratch_launch_trace("s.mirror_replayed");
         let initial_color_delta = terminal_color_override_full_state(&snapshot.colors);
         if !initial_color_delta.is_empty() {
             term.vt_write(&initial_color_delta);
