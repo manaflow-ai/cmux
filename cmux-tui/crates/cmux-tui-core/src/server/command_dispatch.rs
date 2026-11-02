@@ -28,7 +28,11 @@ pub(super) fn handle_command_with_cancellation(
             | Command::MoveTerminal { .. }
     );
     let claim = if moves { incognito_orphans::begin_move(mux, false) } else { None };
-    let result = dispatch_command(mux, client, cmd, writer, cancellation);
+    let mut result = dispatch_command(mux, client, cmd, writer, cancellation);
+    // A remote device's lists leave incognito workspaces out (#31210).
+    if let Ok(reply) = &mut result {
+        incognito_remote::prune_reply(mux, client, reply);
+    }
     if let Some(claim) = claim
         && result.is_ok()
     {

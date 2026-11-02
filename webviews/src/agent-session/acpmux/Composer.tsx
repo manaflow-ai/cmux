@@ -58,9 +58,11 @@ import {
   applyCommand,
   fastModeState,
   isFastCommand,
+  returnPicks,
   shownName,
   slashMatches,
   useSlashNames,
+  pickedSkillsOf,
   withSkillDollars,
   withoutSkillDollars,
   type SlashCommand,
@@ -122,6 +124,7 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
+import { SLASH_MAX_VIEWPORT_PX, slashActiveAfterScroll, slashScrollForActive, slashViewport } from "./slashViewport";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -590,7 +593,15 @@ export function Composer({
   /// with nothing queued since, a quit compares the editor with it, so an untouched prompt never
   /// clears a draft another client (the CLI, another window) saved while this page was open.
   const hydratedText = useRef("");
-  const prompts = usePromptHistory(snapshot.rows);
+  // A Codex skill a past prompt went with as `/$name` comes back `/name`, read only as it is
+  // recalled (slashCommands.ts withoutSkillDollars).
+  const commandsNow = useRef(snapshot.commands);
+  commandsNow.current = snapshot.commands;
+  /// The Codex skills picked into this draft, by shown name (from the menu, or a prompt that came
+  /// back with them): where a command shares the name, send still writes the skill's `/$name`
+  /// (slashCommands.ts withSkillDollars).
+  const pickedSkills = useRef(new Set<string>());
+  const prompts = usePromptHistory(snapshot.rows, (sent) => withoutSkillDollars(sent, commandsNow.current));
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
@@ -817,8 +828,12 @@ export function Composer({
       },
       restore(restoredText, restoredAttachments) {
         // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
-        // as `/$name`: it is typed `/name` here, and send writes the `$` again.
-        const restored = bindMarks(withoutSkillDollars(restoredText), restoredAttachments);
+        // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
+        // draft's picks; with nothing typed it is the whole draft, and they replace the old ones.
+        const picks = pickedSkillsOf(restoredText, commandsNow.current);
+        if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
+        else for (const name of picks) pickedSkills.current.add(name);
+        const restored = bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments);
         restoredText = restored.text;
         restoredAttachments = restored.attachments;
         // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
@@ -1168,7 +1183,12 @@ export function Composer({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
-  useEffect(() => setActive(0), [query]);
+  // The row the arrows chose: Return picks it whatever was typed (returnPicks).
+  const [arrowed, setArrowed] = useState(false);
+  useLayoutEffect(() => {
+    setActive(0);
+    setArrowed(false);
+  }, [query]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
@@ -1228,13 +1248,23 @@ export function Composer({
     setText(value);
     setCaret(at);
     setDismissed(undefined);
-    // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types.
+    // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
+    // next draft picks its own skills.
+    if (!value.trim()) pickedSkills.current.clear();
     if (!value.trim() && sessionId) onTyping?.("", sessionId);
+  };
+  const notePicked = (command: SlashCommand) => {
+    if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
+  };
+  /// A recalled prompt replaces the draft: its skills are the draft's picks, the old ones gone.
+  const notePickedIn = (sent: string) => {
+    pickedSkills.current = pickedSkillsOf(sent, commands);
   };
   // The commands picked last (any chat), for the + menu's few recent rows; read again as + opens.
   const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
   const pick = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
+    notePicked(command);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
     if (field.current?.insertCommand(shownName(command))) {
       field.current.focus();
@@ -1247,6 +1277,7 @@ export function Composer({
   };
   const pickFromPlus = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
+    notePicked(command);
     const existing = field.current?.value() ?? text;
     const next = `/${shownName(command)} ${existing}`;
     pendingCaret.current = next.length;
@@ -1300,7 +1331,11 @@ export function Composer({
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
-    const typedText = withSkillDollars(field.current?.agentText(draftText) ?? draftText, commands);
+    const typedText = withSkillDollars(
+      field.current?.agentText(draftText) ?? draftText,
+      commands,
+      pickedSkills.current,
+    );
     const inText = placeInline(typedText.trim(), attachments, {
       dropped: (id) => pending.some((chip) => chip.id === id),
     });
@@ -1581,14 +1616,10 @@ export function Composer({
     window.addEventListener("cmux-acpmux-stopTurn", stopFromAction);
     return () => window.removeEventListener("cmux-acpmux-stopTurn", stopFromAction);
   }, [actionSessionId, actionWorking, stopTurn]);
-  // Enter sends unless it picks a command: with the menu closed, with nothing to pick (an unknown
-  // command or a pasted path), or on a command already typed in full that takes no arguments.
-  const returnSends = () => {
-    const typedInFull =
-      (matches[selected] ? shownName(matches[selected].command) : undefined) === query &&
-      (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
-    return !open || matches.length === 0 || typedInFull;
-  };
+  // Enter sends unless it picks a command (slashCommands.ts returnPicks): the highlighted row was
+  // chosen with the arrows, or the typed word begins its name and is not that name in full with no
+  // arguments to take. A path or a word that only resembles a command is never rewritten.
+  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed);
   const sendOnReturn = (event: { preventDefault(): void }) => {
     if (!returnSteers) return submit(event);
     event.preventDefault();
@@ -1704,6 +1735,7 @@ export function Composer({
         if (recalled === null) return;
         pendingCaret.current = recalled.length;
         edit(recalled, recalled.length);
+        notePickedIn(prompts.recalledRaw() ?? "");
         return;
       }
     }
@@ -1774,6 +1806,7 @@ export function Composer({
       event.preventDefault();
       const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
+      setArrowed(true);
     } else if ((event.key === "Enter" || event.key === "Tab") && plain) {
       event.preventDefault();
       pick(matches[selected].command);
@@ -2249,6 +2282,7 @@ export function Composer({
         onLost={onQueueLost}
         onSideChat={onQueueSideChat}
         readImage={queueImage}
+        commands={commands}
         onLeave={() => field.current?.focus()}
       />
       {context}
@@ -2368,6 +2402,7 @@ export function Composer({
             {open && (
               <ComposerListLayer>
                 <SlashMenu
+                  key={query}
                   matches={matches}
                   active={selected}
                   empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
@@ -2499,7 +2534,7 @@ function SlashMenu({
   matches: SlashMatch[];
   active: number;
   empty: string;
-  /// The chat's fast mode, which the `/fast` row's sentence follows (undefined: not reported).
+  /// The chat's fast mode, which the /fast row's sentence follows (undefined: not reported).
   fast?: "on" | "off";
   onHover(index: number): void;
   onPick(command: SlashCommand): void;
@@ -2509,6 +2544,16 @@ function SlashMenu({
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
+  // The full match list owns keyboard ranking. Only a bounded viewport gets DOM nodes.
+  const virtual = matches.length > 40;
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportPx, setViewportPx] = useState(SLASH_MAX_VIEWPORT_PX);
+  const wantedTop = virtual ? slashScrollForActive(active, matches.length, scrollTop, viewportPx) : 0;
+  const view = slashViewport(matches.length, wantedTop, viewportPx);
+  const start = virtual ? view.start : 0;
+  const end = virtual ? view.end : matches.length;
+
+  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
   const escape = useEscapingList("top", 6, undefined, box);
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
@@ -2517,9 +2562,35 @@ function SlashMenu({
     },
     [escape],
   );
+  // The menu may be squeezed below its CSS 296px cap in a short pane.
   useLayoutEffect(() => {
-    list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [active]);
+    const node = list.current;
+    if (!node || !virtual) return;
+    const measure = () => {
+      if (node.clientHeight <= 0) return;
+      const css = node.ownerDocument.defaultView?.getComputedStyle(node);
+      const padding = (parseFloat(css?.paddingTop ?? "0") || 0) + (parseFloat(css?.paddingBottom ?? "0") || 0);
+      const height = Math.max(1, node.clientHeight - padding);
+      setViewportPx((old) => (old === height ? old : height));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [virtual]);
+
+  useLayoutEffect(() => {
+    const node = list.current;
+    if (!node) return;
+    if (virtual) {
+      if (Math.abs(node.scrollTop - view.scrollTop) > 0.5) node.scrollTop = view.scrollTop;
+      return;
+    }
+    // Keep the existing behavior for ordinary short command lists.
+    node.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [active, virtual, view.scrollTop]);
+
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
   if (matches.length === 0)
     return (
@@ -2541,21 +2612,37 @@ function SlashMenu({
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
       aria-label={t(COMPOSER_LABELS.commands)}
+      data-matched-count={matches.length}
+      onScroll={
+        virtual
+          ? (event) => {
+              const top = event.currentTarget.scrollTop;
+              setScrollTop(top);
+              const next = slashViewport(matches.length, top, viewportPx);
+              const selected = slashActiveAfterScroll(active, matches.length, next);
+              if (selected !== active) onHover(selected);
+            }
+          : undefined
+      }
     >
-      {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
-      {matches.map((match, index) => {
-        // The harness's `/fast` reads as ChatGPT's Fast row (Leo 2026-10-22): the bolt, the plain
-        // name, and what picking it does now. Picking it still writes `/fast ` (applyCommand).
+      {/* Keep the full-list scrollbar without creating offscreen options. */}
+      {virtual && <div aria-hidden="true" style={{ height: view.topSpace }} />}
+      {/* Virtual focus: the prompt's aria-activedescendant always names a mounted row. */}
+      {matches.slice(start, end).map((match, offset) => {
+        const index = start + offset;
+        // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
         const fastRow = isFastCommand(match.command);
         const fastName = t("picker.tierFast");
         return (
           <div
-            key={match.command.name}
+            key={`${match.command.source ?? "agent"}:${match.command.name}`}
             id={`acpmux-slash-${index}`}
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="option"
             tabIndex={-1}
             aria-selected={index === active}
+            aria-posinset={index + 1}
+            aria-setsize={matches.length}
             className={
               (index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row") +
               (fastRow ? " acpmux-slash-fast" : "")
@@ -2564,6 +2651,7 @@ function SlashMenu({
               if (index !== active) onHover(index);
             }}
             onMouseDown={(event) => {
+              if (event.button !== 0) return;
               event.preventDefault();
               onPick(match.command);
             }}
@@ -2613,6 +2701,7 @@ function SlashMenu({
           </div>
         );
       })}
+      {virtual && <div aria-hidden="true" style={{ height: view.bottomSpace }} />}
     </div>
   );
 }

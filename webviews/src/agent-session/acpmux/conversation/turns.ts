@@ -29,7 +29,13 @@ import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
-import { backgroundTurnRowId, foldBackgroundTurns, openBackgroundTurns } from "./backgroundTurns";
+import {
+  backgroundTurnRowId,
+  collectFoldedBackgroundId,
+  foldBackgroundTurns,
+  openBackgroundTurns,
+} from "./backgroundTurns";
+import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -99,18 +105,14 @@ const footerSays = (row: AcpmuxRow) =>
   !row.folded &&
   (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
 
-/// A footer with nothing to show at rest and only hover controls (Pin, Fork, its age): no label, no
-/// answer to copy or read aloud, the turn did not fail, and it offers no Continue (a stopped last
-/// turn whose work folds draws its line for Continue alone). It takes no line in the transcript
+/// A footer with nothing to show at rest and only hover controls (Pin, Fork, its time): no answer to
+/// copy or read aloud, the turn did not fail, and it offers no Continue (a stopped last turn whose
+/// work folds draws its line for Continue alone). Its "Worked for" label is the time's tooltip now,
+/// never a word in the row (TurnRows.tsx TurnFooter), so it no longer keeps the line. It takes no line in the transcript
 /// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
 /// show over the turn gap below, so nothing moves.
 export const isEmptyFooter = (row: AcpmuxRow) =>
-  row.kind === "turnSummary" &&
-  row.status !== "failed" &&
-  row.status !== "error" &&
-  !row.text &&
-  !row.resumable &&
-  !footerSays(row);
+  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !row.resumable;
 
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
@@ -164,6 +166,8 @@ export type TurnView = {
   times: TurnTimes[];
   dated: boolean[];
   firstVisible?: number;
+  /// Background owners whose closed lines hide rows across prompt boundaries.
+  foldedBackground: ReadonlySet<string>;
   /// Each boundary keeps its count and last row before the next prompt extends a fold.
   ends: { count: number; row: AcpmuxRow | undefined; visible?: number }[];
   rows: AcpmuxRow[];
@@ -224,6 +228,8 @@ export function turnViewFrom(
     return previous;
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
+  const reuseFoldedBackground = previous?.source === rows && previous.expanded === expanded;
+  const foldedBackground = reuseFoldedBackground ? previous!.foldedBackground : new Set<string>();
   let reuse = 0;
   if (
     previous &&
@@ -239,7 +245,10 @@ export function turnViewFrom(
     if (rows === shared) reuse = previous.starts.length;
     else {
       let from = 0;
-      while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
+      while (from < rows.length && from < shared.length && rows[from] === shared[from]) {
+        if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, rows[from]!, expanded);
+        from += 1;
+      }
       while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
     }
     reuse = Math.max(0, reuse - 1);
@@ -272,6 +281,7 @@ export function turnViewFrom(
     // a quiet turn the agent ran on its own folded to its line (backgroundTurns.ts).
     while (index < rows.length && rows[index]!.kind !== "user") {
       const row = rows[index++]!;
+      if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, row, expanded);
       if (!isVisiblyEmptyMessage(row)) out.push(row);
     }
     out = foldBackgroundTurns(out, expanded);
@@ -294,11 +304,13 @@ export function turnViewFrom(
   // turn that changed (shapedTurn).
   while (index < rows.length) {
     const start = index++;
+    if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, rows[start]!, expanded);
     let answerAt: number | undefined;
     while (
       index < rows.length &&
       (rows[index]!.kind !== "user" || isUnsent(rows[index]!) || continuesTurn(rows[index]!))
     ) {
+      if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, rows[index]!, expanded);
       if (isAnswer(rows[index]!)) answerAt = rows[index]!.at;
       index += 1;
     }
@@ -326,6 +338,7 @@ export function turnViewFrom(
       sessionStatus,
       lineBelow,
       agentFamily,
+      foldedBackground,
     );
     // Other sessions' messages the agent read stay each its own line where it read them
     // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
@@ -334,6 +347,9 @@ export function turnViewFrom(
     // The boundary is this turn; unrelated rows and report/inbox kind changes end a batch.
     const drawn: AcpmuxRow[] = [];
     for (const row of shaped) {
+      // The local turn may contain a late done line whose background owner is in a prior
+      // prompt. Its original background line still controls disclosure of that completion.
+      if (row.inBackground !== undefined && foldedBackground.has(row.inBackground)) continue;
       if (last && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
@@ -364,6 +380,7 @@ export function turnViewFrom(
     times,
     dated,
     firstVisible,
+    foldedBackground,
     ends,
     rows: out,
   };
@@ -379,6 +396,8 @@ type ShapedTurn = {
   open: string;
   /// Which of its background turns' lines are open (backgroundTurns.ts `openBackgroundTurns`).
   background: string;
+  /// Which of its message runs' lines are open (messageRuns.ts `openMessageRuns`).
+  messageRuns: string;
   last: boolean;
   clockOffset: number;
   dated: boolean;
@@ -416,30 +435,34 @@ function shapedTurn(
   sessionStatus = false,
   lineBelow = false,
   agentFamily?: string,
+  foldedBackground: ReadonlySet<string> = new Set(),
 ): AcpmuxRow[] {
   const user = rows[start]!;
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
   // open-fold key is never needed, and a streamed token does no work over its rows for it.
   const open = live ? "" : openFolds(rows, start, end, expanded);
   const background = openBackgroundTurns(rows, start + 1, end, expanded);
+  const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
+  const source = rows
+    .slice(start + 1, end)
+    .filter((row) => row.inBackground === undefined || !foldedBackground.has(row.inBackground));
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
     cached.open === open &&
     cached.background === background &&
+    cached.messageRuns === messageRuns &&
     cached.last === last &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
     cached.liveRuns === liveRuns &&
     cached.agentFamily === agentFamily &&
-    cached.source.length === end - start - 1
+    cached.source.length === source.length
   ) {
     let same = true;
-    for (let index = start + 1; same && index < end; index += 1)
-      same = cached.source[index - start - 1] === rows[index];
+    for (let index = 0; same && index < source.length; index += 1) same = cached.source[index] === source[index];
     if (same) return cached.rows;
   }
-  const source = rows.slice(start + 1, end);
   // A steer draws where it went into the turn; bookkeeping sent in draws nothing
   // (incomingMessage.ts). The summary of the turn a prompt sent now stopped is not a Stop: the
   // turn goes on under that prompt, so it neither ends nor times the turn.
@@ -480,7 +503,7 @@ function shapedTurn(
     if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
     shaped = [...date, ...drawnUser, line];
   } else {
-    const body = shapeTurn(
+    const shapedBody = shapeTurn(
       user,
       turn,
       expanded,
@@ -494,6 +517,10 @@ function shapedTurn(
       lineBelow,
       agentFamily,
     );
+    // Where its runs fold, a run of them that carries messages between agents folds under one line
+    // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
+    const body =
+      liveRuns || agentFamily?.startsWith("claude") === true ? foldMessageRuns(shapedBody, expanded) : shapedBody;
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -519,7 +546,18 @@ function shapedTurn(
     }
   }
   if (!live)
-    shapedTurns.set(user, { source, open, background, last, clockOffset, dated, liveRuns, agentFamily, rows: shaped });
+    shapedTurns.set(user, {
+      source,
+      open,
+      background,
+      messageRuns,
+      last,
+      clockOffset,
+      dated,
+      liveRuns,
+      agentFamily,
+      rows: shaped,
+    });
   return shaped;
 }
 
@@ -1468,6 +1506,19 @@ export function openViewTurnFold(
   return next;
 }
 
+/// The folds to open so `rows[index]`, which `drawn` leaves out, draws: its turn's "Worked for"
+/// (``turnFoldFor``) when that hides it, and the message run that holds it (messageRuns.ts), which
+/// may sit inside that fold. Find, a link and a running line's count open them all.
+export function hiddenRowFolds(rows: readonly AcpmuxRow[], drawn: readonly AcpmuxRow[], index: number): string[] {
+  const row = rows[index];
+  if (!row) return [];
+  const line = messageRunFoldFor(drawn, row.id);
+  if (line) return [line];
+  const turn = turnFoldFor(rows, index);
+  const run = messageRunRevealKey(drawn, row);
+  return [...(turn ? [turn] : []), ...(run ? [run] : [])];
+}
+
 /// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
 /// of the message's rows the transcript already draws, else its first row and the "Worked for" fold
 /// that hides it. A tool call ends the reply it interrupts, so one message is several rows and only
@@ -1478,13 +1529,15 @@ export function messageRevealTarget(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],
   messageRows: readonly string[],
-): { rowId: string; fold?: string } | undefined {
+): { rowId: string; fold?: string; run?: string } | undefined {
   const places = messageRows.map((id) => rows.findIndex((row) => row.id === id)).filter((at) => at >= 0);
   if (places.length === 0) return undefined;
   const shown = places.find((at) => findRowIndex(drawn, rows[at]!.id) >= 0);
   if (shown !== undefined) return { rowId: rows[shown]!.id };
   const at = places[0]!;
-  return { rowId: rows[at]!.id, fold: turnFoldFor(rows, at) };
+  // The turn's fold first, then the message run inside it (``hiddenRowFolds``).
+  const [fold, run] = hiddenRowFolds(rows, drawn, at);
+  return { rowId: rows[at]!.id, fold, ...(run && { run }) };
 }
 
 /// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward

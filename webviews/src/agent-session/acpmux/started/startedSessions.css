@@ -148,16 +148,6 @@
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
-/* Its open cue (↗), as every session link chip's (AgentTag.css): quiet, then lit with the chip. */
-.acpmux-started-cue {
-  margin-inline-start: 2px;
-  vertical-align: -1px;
-  opacity: 0.6;
-}
-.acpmux-started-chip:is(:hover, :focus-visible) .acpmux-started-cue,
-.acpmux-started-chip:is(:has([data-popup-open]), :focus-visible) .acpmux-started-cue {
-  opacity: 1;
-}
 .acpmux-started-chip:hover {
   background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 16%, transparent);
 }

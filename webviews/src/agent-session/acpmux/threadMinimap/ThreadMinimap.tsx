@@ -142,8 +142,8 @@ export function ThreadMinimap({
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
   earlier?: readonly AcpmuxRow[];
   /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
-  /// `promptCount`): the rail's box is that many prompts tall from the first frame, and the held
-  /// prompts' ticks sit at the rows they keep once the rest arrive.
+  /// `promptCount`): it decides whether the chat has enough prompts for a rail. It reserves no rows: the
+  /// box holds only the ticks drawn, centered, so held ticks never sit at its foot.
   promptCount?: number;
   loadThrough?: (seq: number) => Promise<boolean>;
   sessionId?: string;
@@ -321,28 +321,27 @@ export function ThreadMinimap({
   /// gap, #30297), so a composer that grows would shorten the rail (Leo, 2026-11-01: "the left side
   /// scroll rail needs to not really get affected by most other layout things").
   const windowHeight = globalThis.innerHeight || boxHeight;
-  /// Every prompt the chat has, held or not yet: the rail's box is this many prompts tall from the first
-  /// frame (Leo, 2026-11-01: "i also want the left scroll rail to be starting off to its max height if
-  /// there truly are that many prompts in the chat and also for it to shift less on load").
+  /// Every prompt the chat has, held or not yet: only whether the chat has enough prompts for a rail.
   const known = Math.max(turns.length, promptCount ?? 0);
-  /// The box: never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
+  /// The box holds the ticks the rail draws, centered in the view (model.ts railTop), never a run of
+  /// empty rows for prompts not held yet: those pushed the held ticks to the box's foot, so the rail
+  /// sat at the bottom of the pane (Leo, 2026-11-01: "what a stupid f***ing choice to put the f***ing
+  /// scroll rail at the bottom???"). The prompt index (`earlier`) gives every prompt its tick from the
+  /// first frame, so the box is full height as soon as it answers.
+  /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
   const boxRail = railHeight(
-    known,
+    turns.length,
     windowHeight,
     boxHeight,
     boxFoot,
     onScreen.last - onScreen.first + 1,
     railHeightConfig(heightArm),
   );
-  /// The rows above the held ticks that the prompts still to come take: the held ones are the chat's
-  /// latest, so they sit where they will be once the rest arrive (at the end of a full list's view).
-  /// A full list that fits ends at its last row; one longer than the box scrolls to the box's end.
-  const lead = Math.max(0, Math.min(known * ROW_PITCH, boxRail) - turns.length * ROW_PITCH);
-  /// The list's own height, under the lead (the whole box once every prompt is held).
-  const height = boxRail - lead;
+  /// The list's own height: the whole box.
+  const height = boxRail;
   const boxTop = railTopAt(boxRail, boxHeight, boxFoot);
   /// Where the list's first row draws in the view.
-  const railTop = boxTop + lead;
+  const railTop = boxTop;
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or
   // Session Info's chat shift; only its own pane-width inset changes.
   // Its edge (railSide.ts): on the right it is the same rail mirrored, `placement.left` in from the
@@ -1004,8 +1003,6 @@ export function ThreadMinimap({
             {...(overflow ? { [RAIL_SCROLLS_ATTRIBUTE]: "" } : {})}
             style={
               {
-                // Under the rows the prompts still to come take (`lead`), at the rows it keeps.
-                ...(lead > 0 ? { marginTop: lead, height } : {}),
                 "--acpmux-minimap-fade": `${railFade(height)}px`,
                 // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css). Each
                 // tick keeps its own place from its mount (Tick), so a scroll changes nothing the list's
@@ -1124,6 +1121,7 @@ export function ThreadMinimap({
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn.prompt}
+          from={cardTurn.from}
           reply={cardTurn.reply}
           metadata={cardTurn.metadata}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
@@ -1254,12 +1252,17 @@ const TickList = memo(function TickList({
           active={index === active}
           current={index >= first && index <= last}
           marked={marks.has(tick)}
+          incoming={tick.from !== undefined}
           describedBy={described === index ? cardId : undefined}
-          label={t(marks.has(tick) ? "minimap.tickBookmarked" : "minimap.tick", {
-            index: index + 1,
-            count: ticks.length,
-            prompt: tick.prompt,
-          })}
+          label={
+            tick.from !== undefined
+              ? t("minimap.tickFrom", { index: index + 1, count: ticks.length, name: tick.from, prompt: tick.prompt })
+              : t(marks.has(tick) ? "minimap.tickBookmarked" : "minimap.tick", {
+                  index: index + 1,
+                  count: ticks.length,
+                  prompt: tick.prompt,
+                })
+          }
           actions={actions}
         />
       </li>
@@ -1292,6 +1295,7 @@ const Tick = memo(function Tick({
   active,
   current,
   marked,
+  incoming,
   describedBy,
   label,
   actions,
@@ -1306,6 +1310,8 @@ const Tick = memo(function Tick({
   active: boolean;
   current: boolean;
   marked: boolean;
+  /// Another session's message, not the person's prompt (model.ts `promptSender`).
+  incoming: boolean;
   describedBy?: string;
   label: string;
   actions: TickActions;
@@ -1327,6 +1333,7 @@ const Tick = memo(function Tick({
       data-focus-ring="tick"
       data-tone={active ? "active" : current ? "current" : "rest"}
       data-bookmarked={marked || undefined}
+      data-incoming={incoming || undefined}
       style={{ "--acpmux-minimap-place": entrance } as React.CSSProperties}
       aria-label={label}
       aria-current={current ? "true" : undefined}

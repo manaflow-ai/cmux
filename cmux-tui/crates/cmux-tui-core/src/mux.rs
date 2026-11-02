@@ -506,6 +506,9 @@ pub struct Mux {
     launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    /// The registry's id and generation, fixed when it opened: read without
+    /// its lock, which durable commits hold.
+    registry_identity: (String, String),
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
