@@ -238,7 +238,7 @@ enum TabMoves {
     static func newWorkspaceName(for tab: TabModel, services: AppServices) -> String? {
         // An agent chat's name is its chat's title, which only the turn store knows.
         let tabName = WorkspaceAutoNameWiring(services: services).reader.newWorkspaceName(tab)
-        guard let sourceID = services.workspaceID(ofTab: tab.id), let source = services.workspace(id: sourceID),
+        guard let sourceID = services.workspaceID(ofTab: tab), let source = services.workspace(id: sourceID),
               source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return tabName }
         // The source workspace's own daemon, as WorkspaceAutoNameWiring reads it (none: legacy defaults apply).
         let daemon = services.machines.daemon(forWorkspace: sourceID)
@@ -297,7 +297,7 @@ enum TabMoves {
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
-        if services.windows.crossesIncognito(from: services.workspaceID(ofTab: tab.id), to: workspace.id) {
+        if services.windows.crossesIncognito(from: services.workspaceID(ofTab: tab), to: workspace.id) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return completion(false)
         }

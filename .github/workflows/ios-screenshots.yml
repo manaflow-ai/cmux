@@ -104,6 +104,7 @@ jobs:
             scripts/ci/ios_runner_pool.py
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -111,6 +112,7 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}

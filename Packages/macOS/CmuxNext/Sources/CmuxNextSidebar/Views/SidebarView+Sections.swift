@@ -62,7 +62,6 @@ extension SidebarViewComponents {
 
     /// A region's item activation and section folding (the bands and the list's blocks).
     private func wireItems(_ region: SidebarRegionView) {
-        region.onCloseWorkspace = { [weak self] workspace in self?.model.send(.close([workspace])) }
         region.onActivateWithModifiers = { [weak self, weak region] id, flags in
             // The profile control opens its menu over itself.
             if let view = region?.itemView(id), view.showsAvatar, self?.footerBand.showProfileMenu(from: view) == true { return }

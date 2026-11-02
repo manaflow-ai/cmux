@@ -494,5 +494,17 @@ class GitHubApiTests(unittest.TestCase):
         self.assertEqual(gh.calls, 1)
 
 
+class TriggerRunnerTests(unittest.TestCase):
+    def test_push_decision_reads_the_linux_pool(self):
+        workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
+        runs_on = next(line.strip() for line in workflow.splitlines()
+                       if line.strip().startswith("runs-on:"))
+        self.assertIn("'ubuntu-24.04'", runs_on)
+        # The reconciled Linux pool, never a fixed Blacksmith size that can stall
+        # (tests/test_ci_linux_single_size.py).
+        self.assertNotIn("32vcpu", runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+
 if __name__ == "__main__":
     unittest.main()

@@ -121,7 +121,12 @@ struct CloseTabKeepsPaneTests {
     /// empties the right pane, then Cmd-D makes a new pane and focuses it, and a quick Cmd-W closes
     /// what the person made and is looking at. Before, every Cmd-W within the quick-press window of
     /// the one before closed nothing, so a Cmd-D, Cmd-W, Cmd-W run lost its closes.
-    @Test func aCmdWAfterACmdDClosesTheNewSplitEvenRightAfterAnEmptyingClose() async throws {
+    ///
+    /// `dispatchDelay` is how long after the split's frame AppKit hands the Cmd-W to the app: at
+    /// once, or late on a loaded main thread (0.78 s in the serial run of the whole target, job
+    /// 54e4c583d660), where the person's quick presses wait in the queue.
+    @Test(arguments: [Duration.milliseconds(50), .milliseconds(700)])
+    func aCmdWAfterACmdDClosesTheNewSplitEvenRightAfterAnEmptyingClose(dispatchDelay: Duration) async throws {
         try await PinnedPageTests.withApp { services, connection in
             let setup = try await Self.emptiablePanes(services, connection)
             let emptiedAt = try await Self.emptyTheRightPane(services, setup)
@@ -131,9 +136,12 @@ struct CloseTabKeepsPaneTests {
             #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
             let made = try #require(content.panes.keys.first { !before.contains($0) }, "the split showed no pane")
             try await Self.nextCommit()
-            try await Task.sleep(for: .milliseconds(50))
-            // Well inside the old quick-press window of the emptying press.
-            let pressedAt = ProcessInfo.processInfo.systemUptime
+            try await Task.sleep(for: dispatchDelay)
+            // The person pressed it 0.3 s after the emptying press, well inside the old quick-press window
+            // (0.5 s), whenever AppKit dispatches it: the key event's own time, the clock Close Tab reads
+            // (`TabCloseGuard.press`). The test's waits above, on the wall clock, are not that time.
+            let dispatchedAt = ProcessInfo.processInfo.systemUptime
+            let pressedAt = min(dispatchedAt, emptiedAt + 0.3)
             #expect(pressedAt - emptiedAt < 0.5)
             #expect(Self.press(services, .key(repeat: false, at: pressedAt)))
             try await PinnedPageTests.until({ content.panes[made] == nil },

@@ -101,6 +101,11 @@ pub(super) struct AttachedSurface {
     pub(super) geometry_lease: Option<String>,
     /// Leases of `terminal.attach read_only` views: they watch and never size.
     pub(super) read_only_leases: HashSet<String>,
+    /// The terminal this client's keys go to, kept from its first key (`cmd_terminal_io::input_surface`): no session
+    /// lock on the typing path. Kept with the route generation it was found at (`route_table`): any respawn, close,
+    /// move or other routing change makes the next key look it up again. Goes with this record at the last detach
+    /// and at disconnect.
+    pub(super) input: (Weak<crate::Surface>, u64),
 }
 
 pub(super) struct DetachedSurface {
@@ -314,8 +319,9 @@ pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
     /// reaper starts that terminal's unattached period).
     pub(super) detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
-    /// Called after any client connects or leaves (orphan_shutdown.rs).
-    pub(super) client_presence_observer: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// Called after any client connects or leaves (orphan_shutdown.rs): the
+    /// DEV orphan exit and the lost-paths exit each add one.
+    pub(super) client_presence_observers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
     pub(super) url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -341,6 +347,8 @@ pub(crate) struct ClientRegistry {
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
     pub(super) state: Mutex<ClientRegistryState>,
+    /// Who created each live incognito workspace (incognito_orphans.rs).
+    pub(super) incognito_creators: super::incognito_orphans::IncognitoCreators,
 }
 
 /// `browser-runtime-v1` is negotiable only where the daemon has runtimes.
@@ -382,7 +390,7 @@ impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             detach_waker: Mutex::new(None),
-            client_presence_observer: Mutex::new(None),
+            client_presence_observers: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
@@ -408,6 +416,7 @@ impl ClientRegistry {
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
             state: Mutex::new(ClientRegistryState::default()),
+            incognito_creators: Default::default(),
         }
     }
 
@@ -440,6 +449,7 @@ impl ClientRegistry {
             client,
             ClientRecord {
                 transport,
+                native_vm_kind: None,
                 connected_at: Instant::now(),
                 name: None,
                 kind: None,

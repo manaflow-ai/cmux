@@ -48,8 +48,7 @@ enum AppActions {
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
-        SidebarArchiveActions(host: services).bind(into: registry)
-        AutoArchiveActions(coordinator: services.autoArchive, host: services).bind(into: registry)
+        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }).bind(into: registry)
         NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
@@ -136,7 +135,7 @@ enum AppActions {
         context.observeRefusals()
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
-        ActionRouting.installSidebarUserIntent(services)
+        ActionRouting.installUserIntentObservers(services)
         WindowKeyTable.install(services)
         // One owner per action: a second binding silently replaces the first. The check is a test
         // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
@@ -180,7 +179,7 @@ enum AppActions {
         registry.bind("newWindow", invoke: { RoomHandlers.newWindow($0, AppActionContext(services: services)) })
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
-            services.windows.active?.window?.performClose(nil)
+            services.windows.active?.window?.closeWithoutButtonFlash()
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }
@@ -190,7 +189,7 @@ enum AppActions {
             guard let window = services.windows.active else { return }
             if window.sidebar.model.isHidden { window.sidebar.model.toggle() }
             window.sidebar.container.sidebarView.focusList()
-            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .keyboard))
+            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .intent)) // the CLI's run is not the person's intent
         }
     }
 }

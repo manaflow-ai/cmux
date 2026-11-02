@@ -229,6 +229,18 @@ extension CloudStrings {
     static func idlePauseMustBeOneOf(_ list: String) -> String {
         String(format: String(localized: "cloud.cli.idlePauseMustBeOneOf", defaultValue: "Minutes must be one of: %@.", table: "Cloud", bundle: .module), list)
     }
+
+    /// `cloud set-network-access` with an `access` value that is not a level.
+    static func networkAccessMustBeOneOf(_ list: String) -> String {
+        String(format: String(localized: "cloud.cli.networkAccessMustBeOneOf", defaultValue: "Access must be one of: %@.", table: "Cloud", bundle: .module), list)
+    }
+
+    /// An agent's `cloud set-network-access` that would let the machine reach more than it can now.
+    static var networkAccessAgentWidens: String {
+        String(localized: "cloud.cli.networkAccessAgentWidens",
+               defaultValue: "An agent can only turn a machine's internet access off. To choose another level, use Internet Access… in the machine's menu.",
+               table: "Cloud", bundle: .module)
+    }
 }
 
 /// The cmux Pro offer when a create is refused because the plan has no Cloud
