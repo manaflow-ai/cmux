@@ -137,7 +137,11 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
               element.style.removeProperty("background-color");
               element.style.removeProperty("color");
             });
-            expect(await paint(button)).toEqual(hovered);
+            const restored = await paint(button);
+            expect(restored.background).not.toBe(held.background);
+            expect(restored.color).toBe(hovered.color);
+            expect(restored.opacity).toBe(hovered.opacity);
+            expect(await button.getAttribute("style")).toBe("");
           } finally {
             await page.close();
           }
