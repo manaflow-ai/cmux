@@ -246,6 +246,8 @@ fn one_line(text: &str) -> String {
 fn digestible(q: &QueuedPrompt) -> bool {
     let run = &q.run;
     run.agent.is_some()
+        // One that waits for the owner runs only once approved, in its place (`queue_approve.rs`).
+        && !q.awaiting_owner
         && !is_digest(run.provenance.as_ref())
         && !q.steer
         && !q.sent_now
@@ -433,6 +435,9 @@ impl Hub {
                 resume: false,
                 steer,
                 held: stop_held,
+                awaiting_owner: false,
+                revision: 0,
+                declined: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: false,

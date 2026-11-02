@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextSettings
 public import Foundation
@@ -16,6 +17,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var home = false
     public var harness: String?
     public var model: String?
+    /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
+    public var environment: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
@@ -23,8 +26,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// the page named no folder. The App copies only this folder, never one it finds anew.
     public var uploadRoot: String?
 
-    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String) {
+    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
+        self.environment = environment
     }
 
     /// The page's params, checked; nil for anything else.
@@ -37,12 +41,12 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         guard let task = params?["task"] as? String, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
-              let harness = name("harness"), let model = name("model") else { return nil }
+              let harness = name("harness"), let model = name("model"), let environment = name("environment") else { return nil }
         let cwd = params?["cwd"]
         if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
-        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key)
+        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment)
         self.home = home as? Bool ?? false
     }
 
@@ -109,6 +113,36 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     }
 }
 
+/// `cloud.repickChat {machine?, name?}`: the person picked another machine in the environment picker
+/// for a Cloud chat whose first send has not run (it failed, say "Claude is not signed in here"). The
+/// App moves the chat there and sends its first prompt again (``AgentPaneModel/onCloudRepickChat``,
+/// CmuxNextApp `CloudStartChat+Repick`), rather than leaving it on the machine it was on. `machine`: an
+/// account Cloud machine's id (a row acpmux does not list); `name`: the machine's name as acpmux lists
+/// it as a peer. At least one. Leo, 2026-10-31: he "picked zesty-indigo-lemur in the machine picker,
+/// but the chat stayed on sr2-tunnel-probe".
+public nonisolated struct AgentPaneCloudRepick: Sendable, Equatable {
+    public var machine: String?
+    public var name: String?
+
+    public init(machine: String?, name: String?) {
+        (self.machine, self.name) = (machine, name)
+    }
+
+    /// The page's params, checked; nil for anything else.
+    public init?(params: [String: Any]?) {
+        let params = params ?? [:]
+        guard Set(params.keys).isSubset(of: ["machine", "name"]) else { return nil }
+        func text(_ key: String) -> String?? {
+            guard let value = params[key] else { return .some(nil) }
+            guard let text = value as? String, !text.isEmpty, text.utf8.count <= 128,
+                  text.unicodeScalars.allSatisfy({ $0.isASCII && !CharacterSet.controlCharacters.contains($0) }) else { return nil }
+            return .some(text)
+        }
+        guard let machine = text("machine"), let name = text("name"), machine != nil || name != nil else { return nil }
+        self.init(machine: machine, name: name)
+    }
+}
+
 /// A new chat's first send that runs somewhere other than this Mac's chat: a Sandboxed send
 /// (`sandbox.run`) or a Cloud chat (`cloud.startChat`). Both are the Send's own gesture, only for a
 /// chat that has not started or opened here, one at a time, and while one runs no chat starts or
@@ -119,10 +153,12 @@ struct AgentPaneHandOff {
 
     func sandbox(task: String, agent: String?, key: String) async -> [String: Any] {
         guard let run = model.onSandboxRun else { return AgentPaneModel.unsupported("sandbox.run") }
+        // Read as the send is issued, before `held` waits on the send line: the tab may close by then (#31109).
+        let incognito = model.sendIsIncognito?() ?? true
         return await held("sandbox.run") { replacements in
             await model.sandboxRuns.run(task: task, key: key) {
                 defer { replacements.endSandbox() }
-                return await run(task, agent, key)
+                return await run(task, agent, key, incognito)
             }
         }
     }
@@ -201,15 +237,53 @@ struct AgentPaneHandOff {
 }
 
 extension AgentPaneCloudStart {
+    /// The clone row's fields for a seed's or copy's progress line (webviews `cloudStartProgress.ts`):
+    /// `progress` (`received_bytes`, `bytes_total`, `objects`, `total_objects`, `files_done`,
+    /// `files_total`), and `fallback` and `install_url` when a seed copied instead.
+    nonisolated static func fields(_ progress: SeedProgress) -> [String: JSONValue] {
+        let numbers: [(String, Int?)] = [("received_bytes", progress.bytesDone), ("bytes_total", progress.bytesTotal),
+                                         ("objects", progress.objects), ("total_objects", progress.objectsTotal),
+                                         ("files_done", progress.filesDone), ("files_total", progress.filesTotal)]
+        var fields: [String: JSONValue] = [:]
+        let counts = numbers.compactMap { key, value in value.map { (key, JSONValue.number(Double($0))) } }
+        if !counts.isEmpty { fields["progress"] = .object(Dictionary(uniqueKeysWithValues: counts)) }
+        if let code = progress.fallbackCode { fields["fallback"] = .string(code) }
+        if let url = progress.installURL { fields["install_url"] = .string(url) }
+        return fields
+    }
+}
+
+extension AgentPaneCloudStart {
     /// How this start goes, for the card under the message (webviews `cloudStartProgress.ts`): the
     /// step it is on (`machine`, `folder`, `opening`), the folder it copies, and the machine and its
     /// size once known, keyed by the page's send so a card for another start ignores it.
     @MainActor public func progress(_ step: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
-                                    to view: AgentPaneView) {
+                                    cloneState: String? = nil, clonePhase: String? = nil,
+                                    cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil,
+                                    environmentId: String? = nil, setupState: String? = nil, setupStatus: String? = nil,
+                                    setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
+                                    setupError: String? = nil, setupHasScript: Bool? = nil,
+                                    cloneProgress: SeedProgress? = nil, to view: AgentPaneView) {
         var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
         if let folder { value["folder"] = .string(folder) }
         if let machine { value["machine"] = .string(machine) }
         if let size { value["size"] = .string(size) }
+        var cloneFields: [String: JSONValue] = [:]
+        if let cloneState { cloneFields["state"] = .string(cloneState) }
+        if let clonePhase { cloneFields["phase"] = .string(clonePhase) }
+        if let cloneStartedAt { cloneFields["startedAt"] = .number(cloneStartedAt) }
+        if let cloneFinishedAt { cloneFields["finishedAt"] = .number(cloneFinishedAt) }
+        if let cloneProgress { cloneFields.merge(Self.fields(cloneProgress)) { $1 } }
+        if !cloneFields.isEmpty { value["clone"] = .object(cloneFields) }
+        if let environmentId { value["environmentId"] = .string(environmentId) }
+        var setupFields: [String: JSONValue] = [:]
+        if let setupState { setupFields["state"] = .string(setupState) }
+        if let setupStatus { setupFields["status"] = .string(setupStatus) }
+        if let setupStartedAt { setupFields["startedAt"] = .number(setupStartedAt) }
+        if let setupFinishedAt { setupFields["finishedAt"] = .number(setupFinishedAt) }
+        if let setupError { setupFields["error"] = .string(setupError) }
+        if let setupHasScript { setupFields["hasScript"] = .bool(setupHasScript) }
+        if !setupFields.isEmpty { value["setup"] = .object(setupFields) }
         let push = JSONValue.object(value)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])

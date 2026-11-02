@@ -1,9 +1,10 @@
 public import AppKit
 
 /// The Chief pet's character: the Chief Dock's nine pixel mascots (#21194, its `ChiefMascot`
-/// ids), bundled at 256 px wide, Mochi, the first animated avatar set, and Series 2, new colourways
-/// of Fox, Machine and Moon (`scripts/cmux-next/art/chief_mascot_series2.py`). The cases are in the
-/// picker's order: Series 1 without the orbs, Mochi, Series 2, then the orbs (Leo 2026-11-01: "we can
+/// ids), bundled at 256 px wide, the four animated avatar sets (Mochi, Captain, Sprout and Bolt,
+/// `scripts/cmux-next/art/chief_mascot_animated.py`), and Series 2, new colourways of Fox, Machine
+/// and Moon (`scripts/cmux-next/art/chief_mascot_series2.py`). The cases are in the picker's order:
+/// Series 1 without the orbs, the animated sets, Series 2, then the orbs (Leo 2026-11-01: "we can
 /// reorder them a little bit so they orb doesn't come first"). A choice is kept by its id, never its
 /// place, so the order changes nobody's pick, and Orb stays the default (`initial`).
 public nonisolated enum ChiefPetMascot: String, CaseIterable, Sendable {
@@ -15,6 +16,11 @@ public nonisolated enum ChiefPetMascot: String, CaseIterable, Sendable {
     case moonBlue = "moon-blue"
     /// The first animated set (`cmux-avatar/1`, webviews avatars/sets/mochi); still here, its idle frame.
     case mochi
+    /// The other animated sets Codex drew (#25213; Leo 2026-10-26: "We need to be getting Codex to,
+    /// like, generate some more animated stuff"): each steps its state rows in the pet, like Mochi.
+    case captain
+    case sprout
+    case bolt
     // Series 2.
     case foxArctic = "fox-arctic"
     case machineViolet = "machine-violet"

@@ -149,8 +149,10 @@ final class NotificationCenterService {
         // At activation (launch, sign-in, the first install token, a daemon
         // that starts serving the capability) one pass rebuilds the queue (B3).
         tasks.append(Task {
-            // A trigger: an input change while active (a daemon restart, a new install id) rebuilds the queue again.
-            for await active in ObservationStream({ ObservationTrigger(driver.isActive) }) where active.value { driver.run() }
+            // A trigger: an input change while active (a daemon restart, a new install id, the daemon's ephemeral flags
+            // becoming known, which a pass waits for: #31210) rebuilds the queue again.
+            let session = services.daemon.store.session
+            for await active in ObservationStream({ ObservationTrigger((driver.isActive, session.known)) }) where active.value.0 { driver.run() }
         })
         tasks.append(followPermissionBridge(services, principal: principal))
         desktop.onOpen = { [weak self] id, surface in
@@ -659,7 +661,7 @@ final class NotificationCenterService {
             self.desktop.post(id: id, title: content.title, subtitle: content.subtitle, body: content.body,
                               surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
-                              reply: notification.reply && owner?.kind == .pty, approval: approval != nil)
+                              reply: notification.reply && owner?.kind == .pty, approval: approval != nil, incognito: workspace.map { self.services?.windows.isIncognito(workspace: $0) == true } ?? false)
             if let sound, sound != "default" { self.soundGate.player.play(sound, volume: volume, banner: true) }
             if let owner {
                 self.banners[owner.id, default: []].append(id)

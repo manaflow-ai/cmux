@@ -142,6 +142,13 @@ final class SidebarListView: NSView {
     /// Whether a dragged document item is removed when dropped beside the sidebar, and its removal (`holdsDragOut`).
     var removesOnDragOut: ((String) -> Bool)?
     var onDragOutRemove: ((String) -> Void)?
+    /// The tab the row under the pointer stands for (its workspace's focused tab), nil off every
+    /// workspace row: the app forwards it so that chat is read before the click
+    /// (`SidebarListView+HoverPrefetch`). Called only when the hovered row changes.
+    var onHoverTab: ((TabID?) -> Void)?
+    /// The tab the pointer's row was last reported as, so a reload that changes that row's focused
+    /// tab in place reports it again (`refreshHoverTab`).
+    var hoverTabSent: TabID?
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -341,6 +348,7 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
+        forwardHover(key)
     }
     private func setHover(_ hovered: Bool, on view: SidebarRowView) {
         view.isHovered = hovered

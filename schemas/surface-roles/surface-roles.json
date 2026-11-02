@@ -27,7 +27,7 @@
       "style": "card",
       "radius": 10,
       "webRadius": 10,
-      "veil": { "dark": 0.22, "light": 0.45 },
+      "veil": { "dark": 0.42, "light": 0.45 },
       "rim": { "dark": [0.22, 0.04], "light": [0.8, 0.08] },
       "castsShadow": false,
       "reduceTransparency": "the opaque elevated fill (Palette.elevatedBackground) with a hairline"

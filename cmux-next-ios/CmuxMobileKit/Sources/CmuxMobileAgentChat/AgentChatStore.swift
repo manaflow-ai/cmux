@@ -169,6 +169,8 @@ public final class AgentChatStore {
     /// The chat opened on its newest history only: older records stay on the Mac, so the
     /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
     public private(set) var hasEarlierHistory = false
+    /// An older page is being read (``loadEarlier()``).
+    public private(set) var isLoadingEarlier = false
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
 
@@ -719,6 +721,10 @@ public final class AgentChatStore {
             currentModeID = current
         case .earlierHistory(let earlier):
             hasEarlierHistory = earlier
+        case .earlierPage(let events, let hasEarlier):
+            isLoadingEarlier = false
+            hasEarlierHistory = hasEarlier
+            prependEarlier(events)
         case .fullAccess(let on):
             fullAccess = on
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
@@ -753,6 +759,34 @@ public final class AgentChatStore {
     }
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
+
+    /// The reader reached the oldest turn shown: the source reads the page before it.
+    public func loadEarlier() {
+        guard hasEarlierHistory, !isLoadingEarlier else { return }
+        isLoadingEarlier = true
+        source.loadEarlierHistory()
+    }
+
+    /// Older turns go in front of the shown ones. They are built on their own: the queue, the
+    /// asks and the status the chat shows are newer than anything in them. Drawn in place, as
+    /// history.
+    private func prependEarlier(_ events: [AgentSessionEvent]) {
+        guard !events.isEmpty else { return }
+        let older = AgentChatStore(source: EarlierHistorySource(summary: summary))
+        older.nextFrame = nil
+        older.apply(.batch(events))
+        let shown = Set(turns.map(\.id))
+        let added = older.turns.filter { !shown.contains($0.id) }
+        guard !added.isEmpty else { return }
+        turns.insert(contentsOf: added, at: 0)
+        let known = Set(subagents.map(\.id))
+        subagents.insert(contentsOf: older.subagents.filter { !known.contains($0.id) }, at: 0)
+        for turn in added {
+            replayedIDs.insert(turn.id)
+            for row in turn.rows { replayedIDs.insert(row.id) }
+        }
+        lastChangeWasReplay = true
+    }
 
     /// Whether `id` (a turn's id or a `TurnRow.id`) was on screen as replayed history,
     /// so its view appears without an insert transition (and its ask without a haptic).
@@ -929,4 +963,14 @@ public final class AgentChatStore {
             }
         }
     }
+}
+
+/// The source a page of older turns is built from on its own (``AgentChatStore/loadEarlier()``):
+/// nothing streams and nothing is sent.
+@MainActor
+private final class EarlierHistorySource: AgentSessionSource {
+    let summary: AgentSessionSummary
+    init(summary: AgentSessionSummary) { self.summary = summary }
+    func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { $0.finish() } }
+    func send(_ intent: AgentClientIntent) {}
 }
