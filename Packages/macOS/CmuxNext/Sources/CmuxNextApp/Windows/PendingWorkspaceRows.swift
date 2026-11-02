@@ -1,6 +1,6 @@
 import CmuxNextBridge
 import CmuxNextSidebar
-import Observation
+import Foundation; import Observation
 
 /// A new workspace's sidebar row from the press (cx-9a7wx; Lawrence
 /// 2026-10-16: "This needs to be instant"): drawn at once in its final look
