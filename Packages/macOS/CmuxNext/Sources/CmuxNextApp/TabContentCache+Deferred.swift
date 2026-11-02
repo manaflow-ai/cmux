@@ -52,7 +52,7 @@ extension TabContentCache {
         page.onStart = { [weak self, weak entry] requested in
             self?.retryChromium(entry?.chrome.addressBar.tabKey ?? key, shown: requested, typed: requested != url)
         }
-        entry.chrome.showNotice(BrowserEngineStrings.chromiumUnavailableRestoredTab)
+        entry.chrome.showNotice(reason.waitingTabNotice ?? BrowserEngineStrings.chromiumUnavailableRestoredTab)
         return entry
     }
 

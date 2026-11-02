@@ -140,6 +140,35 @@ struct PageWebViewChromiumTests {
         view.close()
     }
 
+    /// The agent chat in Chromium (`agent.chromium`, on by default) when Chromium is refused (an
+    /// open-file limit too low for it, `CEFUnavailableReason.openFileLimit`): the first chat asks
+    /// before the refusal is known and its page reopens in WebKit at once; every chat after it opens
+    /// in WebKit. Never a blank or hung tab.
+    @Test func anAgentChatInChromiumFallsBackToWebKitWhenChromiumIsRefused() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let agent = PageDescriptor(id: "cmux.agent", resource: "chromium-page", namespaces: [])
+        let refused = FakeChromiumHosting()
+        refused.fails = true
+        let first = try #require(PageWebView(descriptor: agent, root: root, testRoot: true, routes: [],
+                                             options: PageEngineOptions(chromiumAgentChat: true), chromium: refused))
+        #expect(first.engineDecision == .chromium)
+        await (try #require(first.chromiumStart)).value
+        #expect(first.engineDecision == .webKit(.chromiumFailed))
+        #expect(!first.webKitView.isHidden)
+        #expect(first.focusView === first.webKitView)
+        first.close()
+
+        let unavailable = FakeChromiumHosting()
+        unavailable.isAvailable = false
+        let next = try #require(PageWebView(descriptor: agent, root: root, testRoot: true, routes: [],
+                                            options: PageEngineOptions(chromiumAgentChat: true), chromium: unavailable))
+        #expect(next.engineDecision == .webKit(.chromiumUnavailable))
+        #expect(next.chromiumStart == nil)
+        #expect(unavailable.made.isEmpty)
+        #expect(!next.webKitView.isHidden)
+        next.close()
+    }
+
     @Test func aLinkToAnotherOriginOpensOutsideThePage() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()

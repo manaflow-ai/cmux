@@ -16,9 +16,13 @@ public nonisolated enum CEFUnavailableReason: Equatable, Sendable {
     case startFailed(String)
     /// CEF shut down (the app is quitting); it cannot start again.
     case shutDown
+    /// The app's open-file limit (the soft limit, after the app's own raise) is below what Chromium
+    /// needs, so Chromium was not started: it would abort the app when it runs out
+    /// (`OpenFileLimit.chromiumFloor`). A launch under a lowered hard limit (`ulimit -n`).
+    case openFileLimit(UInt64)
 
     /// Stable code for diagnostics: `notBundled`, `downloading`,
-    /// `downloadFailed`, `startFailed`, `shutDown`.
+    /// `downloadFailed`, `startFailed`, `shutDown`, `openFileLimit`.
     public var code: String {
         switch self {
         case .notBundled: "notBundled"
@@ -26,13 +30,16 @@ public nonisolated enum CEFUnavailableReason: Equatable, Sendable {
         case .downloadFailed: "downloadFailed"
         case .startFailed: "startFailed"
         case .shutDown: "shutDown"
+        case .openFileLimit: "openFileLimit"
         }
     }
 
-    /// The failure message for `startFailed` and `downloadFailed`.
+    /// The failure message for `startFailed` and `downloadFailed`; for `openFileLimit`, the localized
+    /// text that names the limit and how to start cmux with a higher one.
     public var detail: String? {
         switch self {
         case .startFailed(let message), .downloadFailed(let message): message
+        case .openFileLimit(let limit): Strings.cefOpenFileLimit(limit)
         case .notBundled, .downloading, .shutDown: nil
         }
     }
@@ -42,8 +49,18 @@ public nonisolated enum CEFUnavailableReason: Equatable, Sendable {
     /// page would come back signed out (github.com/login?return_to=…, field log 2026-10-26). A build without
     /// Chromium or one still downloading it keeps the WebKit fallback.
     public var keepsChromiumTabsOutOfWebKit: Bool {
-        if case .startFailed = self { return true }
-        return false
+        switch self {
+        case .startFailed, .openFileLimit: true
+        case .notBundled, .downloading, .downloadFailed, .shutDown: false
+        }
+    }
+
+    /// The notice of a Chromium tab that waits in place (``keepsChromiumTabsOutOfWebKit``) when the reason
+    /// names its own way out: the open-file limit, where a reopen from the same shell would not help. Nil
+    /// for the App's generic "quit and reopen" notice.
+    public var waitingTabNotice: String? {
+        if case .openFileLimit = self { return detail }
+        return nil
     }
 
     /// True while the runtime is still on its way (downloading or retrying):
@@ -51,7 +68,7 @@ public nonisolated enum CEFUnavailableReason: Equatable, Sendable {
     public var isAwaitingDownload: Bool {
         switch self {
         case .downloading, .downloadFailed: true
-        case .notBundled, .startFailed, .shutDown: false
+        case .notBundled, .startFailed, .shutDown, .openFileLimit: false
         }
     }
 }
