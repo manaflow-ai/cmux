@@ -87,17 +87,6 @@ public struct DebugKeySequence: Sendable, Equatable {
                          timebaseNumer: timebase.numer, timebaseDenom: timebase.denom)
         }
 
-        /// The event clock now, for a synthesized event that carries no timestamp (a fresh CGEvent on macOS 27):
-        /// the host's mach ticks, the HID clock that event timestamps follow. A real event carries the time it
-        /// happened, and readers depend on it: the layout's scroll reducer takes a trackpad gesture's release
-        /// velocity from its samples' timestamps, so `debug.mouse` scrolls with timestamp 0 all released at the
-        /// 1/120 s floor (B1 A/B, #32369).
-        ///
-        /// - Returns: The current event timestamp, or nil when the host clock is not usable.
-        public static func now() -> CGEventTimestamp? {
-            start(probeTimestamp: 0, probeSeconds: nil)?.timestamp(at: .zero)
-        }
-
         /// The event timestamp `offset` after the start.
         ///
         /// - Parameter offset: The time since the sequence's start.

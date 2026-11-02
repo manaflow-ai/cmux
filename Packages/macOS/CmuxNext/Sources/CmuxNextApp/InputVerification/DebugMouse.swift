@@ -1,6 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
-import CmuxNextControl
 import CmuxNextLayout
 import CmuxNextSettings
 
@@ -224,7 +223,7 @@ enum DebugMouse {
     }
 
     /// A pixel scroll at `point`, addressed to `window` like the window server addresses a real one, stamped now
-    /// (``DebugKeySequence/Stamp/now()``). `phase` (`began`, `changed`, `ended`) makes it a trackpad gesture event:
+    /// (uptime nanoseconds: the unit `NSEvent(cgEvent:)` reads; mach ticks read 41.7x slow on Apple silicon). `phase` (`began`, `changed`, `ended`) makes it a trackpad gesture event:
     /// continuous (precise deltas) with that scroll phase (R99 swipes). `flags`: the modifier keys held.
     private static func scroll(at point: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil,
                                flags: NSEvent.ModifierFlags = []) -> NSEvent? {
@@ -238,7 +237,7 @@ enum DebugMouse {
         guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
                                wheel1: Int32(dy.rounded()), wheel2: Int32(dx.rounded()), wheel3: 0) else { return nil }
         cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
-        if cg.timestamp == 0, let now = DebugKeySequence.Stamp.now() { cg.timestamp = now }
+        if cg.timestamp == 0 { cg.timestamp = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
         if let phase, let value = ["began": 1, "changed": 2, "ended": 4][phase] {
             cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
             cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(value))
