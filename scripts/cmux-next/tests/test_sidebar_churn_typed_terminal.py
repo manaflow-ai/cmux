@@ -28,14 +28,15 @@ def tab(tab_id, kind):
 
 class FakeBuilder:
     """perf-stress-session's StressBuilder calls the bench can make: `action` (tab.focus makes the tab the pane's
-    `selected_tab` when `honors`), `workspace`, `panes` and `tabs` (the pane as snapshot.get lists it now)."""
+    `selected_tab` when `honors` and the run asks for focus, as ActionInvocation.allowsViewChange), `workspace`,
+    `panes` and `tabs` (the pane as snapshot.get lists it now)."""
 
     def __init__(self, pane, honors=True):
         self.pane, self.honors, self.actions = pane, honors, []
 
     def action(self, name, args=None, target=None, focus=True, **_):
-        self.actions.append((name, target))
-        if name == "tab.focus" and self.honors:
+        self.actions.append((name, target, focus))
+        if name == "tab.focus" and self.honors and focus:  # a script run changes the selection only with focus
             self.pane["selected_tab"] = target.split(":", 1)[1]
         return {"ok": True}
 
@@ -71,7 +72,7 @@ class TypedTerminalTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             terminal = churn.typed_terminal(builder, "ws", builder.panes(builder.workspace("ws"))[-1])
         self.assertEqual(terminal["id"], "t2")
-        self.assertEqual(builder.actions, [("tab.focus", "tab:t2")])
+        self.assertEqual(builder.actions, [("tab.focus", "tab:t2", True)])
         self.assertIn("selecting terminal t2", churn.results["log"][-1])
 
     def test_a_pane_with_no_terminal_still_stops_the_bench(self):
