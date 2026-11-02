@@ -13,6 +13,33 @@ public nonisolated enum AgentCursorAnchor: Equatable, Hashable, Sendable {
     /// No better anchor (sidebar hidden, workspace not listed in the
     /// sidebar, pane not on the active screen): the leading window edge.
     case windowEdge
+
+    /// The name on the wire (the Rust rules' answer, the debug socket):
+    /// `tabChip`, `tabStrip`, `columnEdge.<side>`, `workspaceRow`, `windowEdge`.
+    public var wireName: String {
+        switch self {
+        case .tabChip: "tabChip"
+        case .tabStrip: "tabStrip"
+        case let .columnEdge(side): "columnEdge.\(side.rawValue)"
+        case .workspaceRow: "workspaceRow"
+        case .windowEdge: "windowEdge"
+        }
+    }
+
+    public init?(wireName: String) {
+        switch wireName {
+        case "tabChip": self = .tabChip
+        case "tabStrip": self = .tabStrip
+        case "workspaceRow": self = .workspaceRow
+        case "windowEdge": self = .windowEdge
+        default:
+            let prefix = "columnEdge."
+            guard wireName.hasPrefix(prefix), let side = AgentCursorEdge(rawValue: String(wireName.dropFirst(prefix.count))) else {
+                return nil
+            }
+            self = .columnEdge(side)
+        }
+    }
 }
 
 public nonisolated enum AgentCursorEdge: String, Codable, Equatable, Hashable, Sendable {

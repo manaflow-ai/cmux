@@ -75,8 +75,9 @@ import PackageDescription
 //   CmuxNextAgentPane -> Design, Actions, Dictation (WKWebView host for the React agent pane and the acpmux
 //     handshake; the page talks to acpmux itself; no daemon)
 //   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
-//   CmuxNextAgentCursorVisibility -> AgentCursor (pure visibility rules for a cursor target: snapshot in,
-//     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
+//   CmuxNextAgentCursorVisibility -> AgentCursor, Focus (visibility of a cursor target: snapshot in, visible /
+//     hidden anchor / not drawn out, from cmux-focus-core's rules over the app FFI; no AppKit; the App builds
+//     the snapshot from the live models)
 //   CmuxNextWorkspaceNaming -> Bridge, Compat, Daemon, DesignTokens (hq#1957: the name a workspace takes from a moved
 //     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
@@ -756,11 +757,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Agent cursor visibility (agent-cursor.md section 3, decisions
-        // CURSOR-HIDDEN/SHOW/SCREENS): pure rules over a value snapshot,
-        // replayed from schemas/agent-cursor-visibility/vectors.json.
+        // CURSOR-HIDDEN/SHOW/SCREENS): a value snapshot sent to the Rust rules
+        // (cmux-focus-core `agent_cursor_visibility`, through CmuxNextFocus's
+        // JSON call), replayed from schemas/agent-cursor-visibility/vectors.json.
         .target(
             name: "CmuxNextAgentCursorVisibility",
-            dependencies: ["CmuxNextAgentCursor"],
+            dependencies: ["CmuxNextAgentCursor", "CmuxNextFocus"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentCursorVisibilityTests",
+            dependencies: ["CmuxNextAgentCursor", "CmuxNextAgentCursorVisibility"],
             swiftSettings: uiSwiftSettings
         ),
         // Workspace naming (hq#1957): the name a workspace made from a moved tab
