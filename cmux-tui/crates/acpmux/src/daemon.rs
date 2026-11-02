@@ -302,10 +302,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let allow_network = opts.insecure_network_listen
         || config.websocket.as_ref().is_some_and(|w| w.allow_insecure_network);
     if let Some((listen, _)) = &ws {
-        crate::server::check_listen_address(listen, allow_network).await.map_err(|e| {
-            let from = if explicit_listen { "--listen" } else { "websocket.listen" };
-            e.context(format!("refusing {from} {listen}"))
-        })?;
+        let from = if explicit_listen { "--listen" } else { "websocket.listen" };
+        if let Err(e) = crate::server::check_listen_address(listen, allow_network).await {
+            let e = e.context(format!("refusing {from} {listen}"));
+            // Said where the person sees it: the launcher shows the readiness line's refusal
+            // (the app's daemon-start failure notice, `daemon start`), not only this log.
+            if let Some(fd) = opts.ready_fd {
+                write_ready(fd, &serde_json::json!({"ready": false, "refused": format!("{e:#}")}));
+            }
+            return Err(e);
+        }
     }
 
     // Bind before any slow startup work, so clients can connect and ask
@@ -1523,6 +1529,11 @@ where
         check_autostart(path)?;
     }
     exe_path::check_start()?;
+    // A saved network listen without its opt-in: the daemon would refuse it, and a daemon
+    // placed as a launchd job has no readiness line to say so. Say it here.
+    if let Some(why) = saved_listen_refusal().await {
+        return Err(anyhow!(why));
+    }
     // The lock's holder serves this home at another socket: a start would wait out its own
     // handover for it (`handover::wait`), and no wait makes it serve this one.
     if let Some(other) = holder_elsewhere(path).await {
@@ -1587,6 +1598,18 @@ fn check_autostart(path: &std::path::Path) -> Result<()> {
         Some(why) => Err(anyhow!(why)),
         None => Ok(()),
     }
+}
+
+/// Why a daemon started from this home's config.json would refuse its `websocket.listen` (a
+/// network address without `websocket.allowInsecureNetwork`), or None. `daemon status` shows it
+/// when no daemon runs, and a start refuses with it before it spawns one.
+pub async fn saved_listen_refusal() -> Option<String> {
+    let config = crate::config::Config::load().ok()?;
+    let w = config.websocket.as_ref()?;
+    crate::server::check_listen_address(&w.listen, w.allow_insecure_network)
+        .await
+        .err()
+        .map(|e| format!("{:#}", e.context(format!("refusing websocket.listen {}", w.listen))))
 }
 
 /// The refusal when this home's daemon serves `other`, not `path`.
