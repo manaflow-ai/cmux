@@ -79,6 +79,11 @@ final class SidebarListView: NSView {
     let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
+    /// Keeps one spare workspace row view (SidebarListView+SpareRow): the sidebar's list does, a space page's does not.
+    var keepsSpareRow = false
+    var spareRowScheduled = false
+    /// Runs work once the current pass committed its frame (`AfterFrameCommit`); tests pass their own.
+    var afterFrameCommit: (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }
     var hoveredKey: SidebarRowKey?
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
@@ -278,6 +283,7 @@ final class SidebarListView: NSView {
         // The rows read the window when they moved in; the list's own reading starts them all from
         // the same state, not each from whatever its window said a moment earlier.
         if window != nil { windowOcclusionChanged() }
+        scheduleSpareRow()
     }
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
