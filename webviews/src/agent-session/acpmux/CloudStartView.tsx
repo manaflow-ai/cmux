@@ -48,6 +48,8 @@ function operationStatus(operation: CloudStartupOperation | undefined): Checklis
 function setupStatus(setup: CloudStartupSetup | undefined): ChecklistStatus | undefined {
   if (!setup) return undefined;
   if (setup.state === "skipped") return "skipped";
+  // A base snapshot may be warm but cannot certify the selected repository's setup.
+  if (setup.state === "unverified" || setup.status === "unverified") return "pending";
   if (setup.status === "ready" || setup.state === "done") return "done";
   if (setup.status === "failed" || setup.state === "failed") return "error";
   if (setup.status === "building" || setup.state === "running") return "running";
