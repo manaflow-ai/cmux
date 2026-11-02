@@ -204,3 +204,28 @@ fn a_tab_created_or_closed_elsewhere_keeps_the_key_off_the_session_lock() {
     );
     mux.shutdown();
 }
+
+/// TYPING FIX 2 (follow-up B of #31940): a workspace size default must not put the session lock back on the person's
+/// keys. A key notes its view's activity in the sizing engine; that re-expanded the host policy, which asks whether
+/// the terminal follows a workspace default, which looked the terminal's workspace up under the session lock (and
+/// could walk every surface for its placements) on every key, as soon as any workspace had a default.
+#[cfg(unix)]
+#[test]
+fn a_workspace_size_default_keeps_the_key_off_the_session_lock() {
+    let mux = test_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    // The settings owner's host policy, and a size default on the typing terminal's workspace.
+    let host = crate::mux::host_policy::HostSizePolicy {
+        mode: crate::mux::host_policy::HostSizeMode::Latest,
+        order: Vec::new(),
+    };
+    mux.adopt_host_size_policy(host, 1);
+    mux.pin_latest_size_policy_for_test(typing.id);
+    handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
+
+    let (sent, locks) =
+        session_locks_of(|| handle_command(&mux, client, key(typing.id, b'b'), &writer));
+    sent.unwrap();
+    assert_eq!(locks, 0, "with a workspace size default the person's key took the session lock");
+    mux.shutdown();
+}
