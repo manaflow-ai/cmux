@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
@@ -12,7 +13,7 @@ import Testing
 /// the paint signal comes before the painted frame is on screen, and the white base showed until it was. The base
 /// now settles on the document's own background, read at the first paint, so it changes to a color the page itself
 /// has; white only for a page with no background of its own.
-@MainActor @Suite(.serialized) struct CEFFirstPaintBaseTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFFirstPaintBaseTests {
     static let white: UInt32 = 0xFFFF_FFFF
     static let navy: UInt32 = 0xFF0B_2A4A
 
@@ -207,6 +208,8 @@ import Testing
 
         func close() {
             window.contentView?.subviews.forEach { $0.removeFromSuperview() }
+            // Closed, not only emptied: a window never closed is left open (`.closesItsWindows`).
+            window.closeAfterTest()
             try? FileManager.default.removeItem(at: root)
             // The runtime is `unowned` in its tabs and hosts, and a tab shown in a window outlives the test's locals
             // (its views, the window): ending the runtime first crashed the run at teardown on the fleet ("read an
