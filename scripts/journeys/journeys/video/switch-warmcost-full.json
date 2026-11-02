@@ -1,0 +1,26 @@
+{
+ "id": "switch-warmcost-full",
+ "priority": "P2",
+ "title": "SWITCH FRAMES SF-2: app footprint per warm hidden terminal, window 100% of the visible frame",
+ "why": "Lead 10:4xZ: size WarmSetBudget.terminalCostBytes from a measurement on a 2x display at the person's window size; record the scale and window; check that pressure evicts the warm set at once.",
+ "source": "SWITCH FRAMES SF-2; handoff/resize-videos/SWITCH-FRAMES.md",
+ "budget_seconds": 900,
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 100% of the visible frame",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "switch_warmcost",
+   "title": "open 32 terminal workspaces one by one; footprint and warm set at each count; then pressure",
+   "prefix": "wc-${nonce}",
+   "settle": 10
+  }
+ ]
+}

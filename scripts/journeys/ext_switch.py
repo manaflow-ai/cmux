@@ -704,9 +704,103 @@ def step_switch_adopt_shown(j, step):
     return j.adopt(term, focused.get("pane"))
 
 
+def _footprint(pid):
+    """(phys_footprint, resident) bytes of `pid` (proc_pid_rusage RUSAGE_INFO_V4, as bench_memory.usage), or None."""
+    import ctypes
+    buf = (ctypes.c_uint64 * 64)()
+    if ctypes.CDLL("/usr/lib/libproc.dylib").proc_pid_rusage(ctypes.c_int(int(pid)), ctypes.c_int(4), ctypes.byref(buf)) != 0:
+        return None
+    return int(buf[9]), int(buf[8])
+
+
+def step_switch_warmcost(j, step):
+    """SF-2 warm-set cost (lead 10:4xZ): the app's physical footprint per warm hidden terminal, at this lease's
+    display and window. Opens `counts` terminal workspaces one at a time (plain shells, each shown once, so the warm
+    set keeps the newest and evicts the rest), samples the footprint and debug.surfaces (live_terminals,
+    warm_terminal_capacity, last_frames) after `settle` s at each count; then feeds memory pressure warning,
+    critical, normal (debug.hibernation.pressure) and reads the warm set at once after each. Writes
+    video/warmcost.json with the display (backing scale, screen and window frames) and a least-squares fit of
+    footprint = a + b * live + c * evicted."""
+    counts = sorted({int(c) for c in step.get("counts", [1, 2, 4, 6, 8, 10, 12, 16, 20, 24, 32])})
+    settle = float(step.get("settle", 10))
+    prefix = j.sub(step.get("prefix", "wc"))
+    layers = j.app.rpc("debug.layers", {}) or {}
+    win = next(iter(layers.get("windows") or []), {}) if isinstance(layers, dict) else {}
+    display = {"window_frame": win.get("frame"), "screen_frame": win.get("screen_frame"),
+               "screen_visible_frame": win.get("screen_visible_frame"),
+               "backing_scale": win.get("backing_scale")}
+    vd = j.out / "display.json"
+    for path in (vd, j.out.parent / "display.json"):
+        try:
+            display["lease_display"] = json.loads(path.read_text())
+            break
+        except (OSError, ValueError):
+            pass
+
+    def surfaces():
+        got = j.app.rpc("debug.surfaces", {}) or {}
+        return {k: got.get(k) for k in ("live_terminals", "warm_terminal_capacity", "last_frames", "parked_workspaces",
+                                         "blank_panes")}
+
+    def sample(extra):
+        fp = _footprint(j.app.pid)
+        row = dict(extra, **surfaces())
+        row["app_footprint_mb"] = round(fp[0] / 1048576.0, 1) if fp else None
+        row["app_rss_mb"] = round(fp[1] / 1048576.0, 1) if fp else None
+        return row
+
+    report = {"display": display, "samples": [sample({"workspaces": 0, "phase": "before"})], "pressure": []}
+    made = 0
+    for count in counts:
+        while made < count:
+            made += 1
+            name = "%s-%d" % (prefix, made)
+            j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True}})
+            ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
+            _shows(j, ws, name)
+            time.sleep(0.6)  # journey pacing: the shown shell draws its first frame before the next one hides it
+        time.sleep(settle)  # journey pacing: settle before the sample
+        row = sample({"workspaces": made})
+        live = row.get("live_terminals")
+        row["evicted"] = (made - live) if isinstance(live, int) else None
+        row["live"] = live
+        report["samples"].append(row)
+        print("WARMCOST sample " + json.dumps(row), flush=True)
+    for level in ("warning", "critical", "normal"):
+        reply = j.app.rpc("debug.hibernation.pressure", {"level": level})
+        at_once = surfaces()
+        time.sleep(settle)  # journey pacing: settle before the footprint sample
+        row = sample({"level": level, "reply": str(reply)[:200], "at_once": at_once})
+        report["pressure"].append(row)
+        print("WARMCOST pressure " + json.dumps(row), flush=True)
+    pts = [(1.0, r["live"], r["evicted"], r["app_footprint_mb"]) for r in report["samples"]
+           if isinstance(r.get("live"), int) and isinstance(r.get("evicted"), int) and r.get("app_footprint_mb")]
+    if len(pts) >= 4:
+        m = [[sum(p[a] * p[b] for p in pts) for b in range(3)] + [sum(p[a] * p[3] for p in pts)] for a in range(3)]
+        ok = True
+        for col in range(3):
+            piv = max(range(col, 3), key=lambda r: abs(m[r][col]))
+            if abs(m[piv][col]) < 1e-9:
+                ok = False
+                break
+            m[col], m[piv] = m[piv], m[col]
+            for r in range(3):
+                if r != col:
+                    f = m[r][col] / m[col][col]
+                    m[r] = [x - f * y for x, y in zip(m[r], m[col])]
+        if ok:
+            a, b, c = (round(m[i][3] / m[i][i], 2) for i in range(3))
+            report["fit"] = {"base_mb": a, "per_live_terminal_mb": b, "per_evicted_terminal_mb": c,
+                             "warm_minus_evicted_mb": round(b - c, 2), "points": len(pts)}
+    (j.out / "video").mkdir(exist_ok=True)
+    (j.out / "video" / "warmcost.json").write_text(json.dumps(report, indent=1, default=str))
+    print("WARMCOST-REPORT " + json.dumps({"display": display, "fit": report.get("fit")}, default=str), flush=True)
+    return {"fit": report.get("fit"), "samples": len(report["samples"]), "window": display.get("window_frame")}
+
+
 STEPS = {"switch_profile": step_switch_profile, "switch_tabs_profile": step_switch_tabs_profile, "switch_record": step_switch_record, "switch_keys": step_switch_keys,
          "switch_adopt_shown": step_switch_adopt_shown,
-         "switch_cua_record": step_switch_cua_record}
+         "switch_cua_record": step_switch_cua_record, "switch_warmcost": step_switch_warmcost}
 
 
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "beacon":
