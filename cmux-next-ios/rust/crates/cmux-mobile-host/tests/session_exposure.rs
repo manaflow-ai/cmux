@@ -190,6 +190,17 @@ async fn visible_chat_approval_answer_reaches_backend() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn named_alias_is_forwarded_as_the_resolved_canonical_session() {
+    let mut fixture = fixture(state(&[])).await;
+    let connected = connect(&fixture).await;
+    let mut channel = connected.link.open("acpmux", json!({})).await.unwrap();
+    channel.send(prompt(ALIAS)).await.unwrap();
+    let forwarded = fixture.backend.recv().await.unwrap();
+    assert_eq!(forwarded["method"], "session/prompt");
+    assert_eq!(forwarded["params"]["sessionId"], SESSION);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pending_approval_is_refused_after_exposure_is_disabled() {
     let mut fixture = fixture(state(&[])).await;
     let connected = connect(&fixture).await;
