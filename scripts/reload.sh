@@ -1140,7 +1140,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release"
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 # NEVER MERGE (test/resize-videos-feat-bench): the feat tip as the dogfood line builds, optimized with debug.*
       shift
       ;;
     --config|--config=*)
