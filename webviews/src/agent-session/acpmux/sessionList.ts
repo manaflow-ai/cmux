@@ -59,6 +59,9 @@ export type AcpmuxSessionEntry = {
   /** A sub-session: the chat whose agent started it with its `start_session` tool (acpmux
    *  `startedBy`, kept at any depth and after that chat closes). */
   startedBy?: string;
+  /** The chat it reports to (acpmux's tag `lane.reportsTo`, a bare id on its own machine): the
+   *  session that started it as a lane (leads.ts). */
+  reportsTo?: string;
   /** Started by a Chief (its `mux.parent` tag, `optchat-chief:<home>`): the Chief manages it. */
   chiefChild?: true;
   /** A sub-session's name among its parent's (acpmux `shortName`, "tests"). */
@@ -168,6 +171,16 @@ function tagged(tags: unknown, tag: string): boolean {
   return typeof tags === "object" && tags !== null && tag in tags;
 }
 
+/** A lane's tag naming the session it reports to (acpmux hub/lane_reports.rs `TAG`). */
+const REPORTS_TO_TAG = "lane.reportsTo";
+
+/** The string value of acpmux's tag `tag` (tags an object of key to value), else undefined. */
+function tagValue(tags: unknown, tag: string): string | undefined {
+  if (typeof tags !== "object" || tags === null || Array.isArray(tags)) return undefined;
+  const value = (tags as Record<string, unknown>)[tag];
+  return typeof value === "string" && value ? value : undefined;
+}
+
 /** The tag a Chief puts on every session it starts (cmux_chief::rules::PARENT_TAG), valued
  *  `optchat-chief` or `optchat-chief:<home id>`. */
 const CHIEF_PARENT_TAG = "mux.parent";
@@ -260,6 +273,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),
+    reportsTo: tagValue(session.tags, REPORTS_TO_TAG),
     ...(chiefParent(session.tags) && { chiefChild: true as const }),
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,

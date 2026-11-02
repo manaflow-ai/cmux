@@ -13,8 +13,8 @@ public nonisolated enum GroupTint: Hashable, Sendable {
     /// header draws in the sidebar's own colors, with no dot, band, wash or members' line.
     case none
 
-    /// The wire form of ``none``. A group with no stored color is not this: it draws a picked
-    /// palette color (`GroupColor.unset(id:)`).
+    /// The wire form of ``none``. A group with no stored color draws as this too: a group shows a
+    /// color only when a person picked one (Leo 2026-10-31).
     public static let noneWire = "none"
 
     /// A token, `#RRGGBB` or `none`; nil for anything else.

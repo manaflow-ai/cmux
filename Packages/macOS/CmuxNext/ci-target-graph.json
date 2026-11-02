@@ -95,7 +95,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentCursorVisibility",
       "targets": [
-        "CmuxNextAgentCursor"
+        "CmuxNextAgentCursor",
+        "CmuxNextFocus"
       ],
       "packages": []
     },
@@ -387,6 +388,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentCursor",
+        "CmuxNextAgentCursorVisibility",
         "CmuxNextAgentLanes",
         "CmuxNextAgentPermissions",
         "CmuxNextAgentUpdates",
@@ -479,6 +481,7 @@
         "Resources/markdown-viewer/ondine.min.js",
         "cmux-tui/crates/acpmux/tests/fake_agent.py",
         "plans/cmux-next/",
+        "schemas/agent-cursor-visibility/vectors.json",
         "schemas/agent-pane/wake-state.json",
         "schemas/keybindings/keybinding-vectors.json",
         "scripts/cmux-next/bundle-ghostty-resources.sh",
@@ -1778,7 +1781,8 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextDesign",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": [
