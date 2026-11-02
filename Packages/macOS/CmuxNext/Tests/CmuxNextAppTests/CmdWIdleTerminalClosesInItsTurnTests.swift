@@ -26,14 +26,18 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
 
     /// Review of #31875: the answer read at the prompt must not stand for a command that starts after it. A read made
     /// between the shell's OSC 133 C and the command's exec still sees the shell, and the command's state does not change
-    /// until it ends, so that "no program" would hold for a whole build. Once a command runs, Cmd-W reads at the key again
-    /// and the tab stays until the daemon answers (the close question can show).
+    /// until it ends, so that "no program" would hold for a whole build. Here the shell marks a command start (C) and
+    /// stays in the foreground: exactly that read's answer. Cmd-W must still read at the key, and the tab stays until
+    /// the daemon answers (the close question can show).
     @Test func cmdWAfterACommandStartedReadsAtTheKeyAgain() async throws {
         try await Self.withIdleFocusedTerminal { services, _, pane, tab in
-            // The shell runs a command now (OSC 133 C: `extra.busy.since_ms`), and leaves its prompt.
-            tab.promptSinceMs = nil
-            tab.commandSinceMs = 1_762_000_001_000
-            #expect(services.terminalReadAhead.fresh([tab]) == nil, "the prompt's answer stands for a running command")
+            try await Self.mark("C", on: tab, services)
+            try await PinnedPageTests.until({ tab.commandSinceMs != nil }, within: .seconds(10),
+                                            report: { "no command start reached the store: command \(String(describing: tab.commandSinceMs))" })
+            // Room for a read of the command's state, if the app made one (its read answers in milliseconds; a test
+            // harness bound, not product timing): it must not, and no answer may stand for the running command.
+            for _ in 0..<20 where services.terminalReadAhead.fresh([tab]) == nil { try await Task.sleep(for: .milliseconds(100)) }
+            #expect(services.terminalReadAhead.fresh([tab]) == nil, "an answer stands for the running command")
 
             // The read is held, so what the key's turn decides is seen before the daemon answers.
             let hold = services.daemon.closeReadHold
@@ -44,6 +48,14 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             #expect(TabCloseGuard.reading.contains(tab.id), "Cmd-W on a terminal running a command did not ask the daemon")
             #expect(pane.orderedIDs.map(\.rawValue).contains(tab.id), "a terminal running a command left before its close question")
         }
+    }
+
+    /// The shell prints OSC 133 mark `kind` (A: a prompt starts, C: a command starts), as an integrated zsh, bash or fish
+    /// does; the daemon reads it from the output and the store mirrors it (`extra.prompt`, `extra.busy`). The harness's
+    /// /bin/sh has no integration of its own.
+    private static func mark(_ kind: String, on tab: TabModel, _ services: AppServices) async throws {
+        let connection = try #require(services.daemon.connection)
+        _ = try await connection.request(SendInputRequest(surface: tab.surface, text: "printf '\\033]133;\(kind)\\007'\r"))
     }
 
     /// A focused live terminal at its prompt, read before the key (its answer is fresh).
@@ -58,11 +70,11 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             try await PinnedPageTests.until({ pane.orderedIDs.map(\.rawValue).contains(tab.id) })
             pane.select(TabID(tab.id))
             try #require(services.windows.active?.focusedPane === pane, "the terminal's pane is not the focused one")
-            // The shell sits at its prompt. A person's zsh, bash or fish reports it (OSC 133, cmux-tui's shell integration)
-            // and the store mirrors it (`extra.prompt.since_ms`); the harness's /bin/sh has no integration, so the test
-            // puts that report in the store as a snapshot would. No command runs.
+            // The shell sits at its prompt and says so (OSC 133 A); no command runs.
             try #require(tab.commandSinceMs == nil, "a command runs in the new terminal")
-            tab.promptSinceMs = 1_762_000_000_000
+            try await Self.mark("A", on: tab, services)
+            try await PinnedPageTests.until({ tab.promptSinceMs != nil && tab.commandSinceMs == nil }, within: .seconds(10),
+                                            report: { "no prompt reached the store: prompt \(String(describing: tab.promptSinceMs)), command \(String(describing: tab.commandSinceMs))" })
             try #require(TabCloseGuard.asks([tab], services: services), "the terminal close warning does not apply")
             // The app read what the terminal runs while it had the focus, before the key (TerminalProcessReadAhead).
             try await PinnedPageTests.until({ services.terminalReadAhead.fresh([tab]) != nil }, within: .seconds(10),
