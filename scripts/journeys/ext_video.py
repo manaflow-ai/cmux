@@ -45,11 +45,48 @@ D = None
 R = None  # ext_realkey: the CuaDriver session and the window placement
 
 
+# cmux-ad 01:30Z (hard rule): CuaDriver is INPUT ONLY. Its screen recorder wedges the shared daemon and opens a
+# "bypass the system private window picker" dialog per start; the only recorders are the app's own debug.motion
+# record_* and the lease's 120 Hz virtual-display capture.
+CUA_RECORD_TOOLS = ("start_recording", "stop_recording", "record_screen", "screen_record")
+# Words of the CuaDriver consent dialog; a window with them on screen makes the round SMOKE ENV (not a result).
+BYPASS_WORDS = ("bypass the system private window picker", "requesting to bypass")
+
+
 def install(driver):
     global D, R
     D = driver
     import ext_realkey  # beside this file; load_extensions imported it already
     R = ext_realkey
+    _guard_session_calls()
+
+
+def _guard_session_calls():
+    """Refuses any CuaDriver screen-recording call made through ext_realkey's session (KIT.md, hard rule)."""
+    session = R._Session
+    if getattr(session, "_video_guarded", False):
+        return
+    original = session.call
+
+    def call(self, tool, args):
+        if tool in CUA_RECORD_TOOLS:
+            raise D.StepError(f"CuaDriver is input only (cmux-ad 01:30Z): {tool} refused; record with debug.motion record_*")
+        return original(self, tool, args)
+
+    session.call = call
+    session._video_guarded = True
+
+
+def _bypass_dialog(j):
+    """Whether a CuaDriver consent dialog is on screen (its window list names it): the round is SMOKE ENV then."""
+    try:
+        bad, data, raw = R._session(j).call("list_windows", {})
+    except D.NotRun:
+        return None
+    rows = data.get("windows") or []
+    hits = [w for w in rows if any(word in json.dumps(w).lower() for word in BYPASS_WORDS)
+            or ("cuadriver" in json.dumps(w).lower() and int(w.get("layer", 0) or 0) > 0)]
+    return [{k: w.get(k) for k in ("app_name", "owner_name", "title", "name", "layer", "pid")} for w in hits][:4]
 
 
 def _vdir(j):
@@ -98,7 +135,8 @@ def step_video_start(j, step):
         _motion(j, "record_stop")
         _motion(j, "trace_stop")
         raise D.NotRun(f"video_start {name}: ScreenCaptureKit did not start: {json.dumps(counts)[:300]}")
-    j.video = {"name": name, "t_start": D.now(), "hid": [], "journal_seq": seq, "start": started,
+    dialog = _bypass_dialog(j)
+    j.video = {"name": name, "t_start": D.now(), "hid": [], "journal_seq": seq, "start": started, "bypass_dialog": dialog,
                "trace_views": trace.get("views"), "notes": {}}
     # The first frames show the layout at rest: the judge's reference.
     time.sleep(float(step.get("lead", 0.4)))
@@ -138,6 +176,8 @@ def step_video_stop(j, step):
     meta = {"name": rec["name"], "start": rec["start"], "counts": counts, "window": layers, "pid": j.app.pid,
             "t_start": rec["t_start"], "t_stop": D.now(), "notes": rec["notes"], "trace_views": rec["trace_views"],
             "refresh_ms": rec.get("refresh_ms"), "display": _display_facts(),
+            "bypass_dialog": {"start": rec.get("bypass_dialog"), "stop": _bypass_dialog(j)},
+            "smoke_env": bool(rec.get("bypass_dialog") or _bypass_dialog(j)),
             "clock": "host seconds: mach_absolute_time (time.monotonic, CACurrentMediaTime, ScreenCaptureKit display time)"}
     (base.parent / f"{rec['name']}.meta.json").write_text(json.dumps(meta))
     if not counts.get("written"):

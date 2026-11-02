@@ -58,6 +58,15 @@ def publish(run_out, label, dest_root, journey_ids):
     return cases
 
 
+def refuse_cua_recording(journey_ids):
+    """KIT.md hard rule (cmux-ad 01:30Z): no journey of a video round may call CuaDriver's screen recorder."""
+    for jid in journey_ids:
+        for path in (HERE / "journeys").rglob("*.json"):
+            text = path.read_text()
+            if f'"id": "{jid}"' in text and any(t in text for t in ("start_recording", "record_screen", "cua_record")):
+                raise SystemExit(f"video-go: journey {jid} ({path}) calls a CuaDriver recorder: refused (CuaDriver is input only)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--spec", required=True)
@@ -75,6 +84,7 @@ def main():
     opts = ap.parse_args()
     if not os.environ.get("CMUX_AGENT_ID"):
         ap.error("export CMUX_AGENT_ID first (capture leases carry their owner)")
+    refuse_cua_recording(opts.journey)
     # The build first: a GO is a mini held for this round now, never while the build still runs (the scheduler
     # withdraws a GO with no lease after 240 s). A wait timeout leaves the job running: wait again, never resubmit.
     while True:
@@ -120,7 +130,15 @@ def main():
         cases = publish(out, f"{opts.label}-{opts.vdisplay}", opts.publish, opts.journey) if out.is_dir() else []
         if (out / "display.json").is_file():
             shutil.copy2(out / "display.json", Path(opts.publish) / f"{opts.label}-{opts.vdisplay}" / "display.json")
-        print(json.dumps({"round": n + 1, "host": host, "status": status, "out": str(out), "published": cases}), flush=True)
+        smoke_env = []
+        for meta in sorted(out.glob("*/video/*.meta.json")):
+            m = json.loads(meta.read_text())
+            if m.get("smoke_env"):
+                smoke_env.append(m.get("name"))
+        if smoke_env:
+            status = "smoke env"  # a CuaDriver consent dialog was on screen: not a result (KIT.md)
+        print(json.dumps({"round": n + 1, "host": host, "status": status, "out": str(out), "published": cases,
+                          "smoke_env": smoke_env}), flush=True)
         not_run += status == "not run"
     return 75 if not_run else 0
 
