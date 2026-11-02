@@ -327,16 +327,21 @@ def find_cargo():
     return None
 
 
+BUILD_TIMEOUT = 300  # s: a cargo that waits on another job's package-cache lock does not hang a load run
+
+
 def build_bins(quiet=False):
-    """Builds rust/ (std only, --offline); returns (exit, {program: path or None}). Incremental: about 0.3 s
-    when the programs are current, about 2 s from scratch on an M4."""
+    """Builds rust/ (std only, --offline). Returns (exit, {program: path or None}, why): exit 0 built, 69 no cargo
+    or builds turned off (why says which), 124 timed out, else cargo's exit (why: the end of its stderr).
+    Incremental: about 0.3 s when the programs are current, about 2 s from scratch on an M4."""
     if os.environ.get("CMUX_TUIKIT_NO_BUILD") == "1":  # tests on a host that must not compile (the agents' VM)
-        return 69, {name: rust_bin(name) for name in RUST_PROGRAMS}
+        return 69, {name: rust_bin(name) for name in RUST_PROGRAMS}, "CMUX_TUIKIT_NO_BUILD=1"
     cargo = find_cargo()
     if not cargo:
+        why = "no cargo ($CARGO, PATH, $CARGO_HOME/bin, the account's ~/.cargo/bin, /opt/homebrew/bin)"
         if not quiet:
-            sys.stderr.write("build-bins: no cargo ($CARGO, PATH, $CARGO_HOME/bin, the account's ~/.cargo/bin)\n")
-        return 69, {name: rust_bin(name) for name in RUST_PROGRAMS}
+            sys.stderr.write("build-bins: %s\n" % why)
+        return 69, {name: rust_bin(name) for name in RUST_PROGRAMS}, why
     env = dict(os.environ)
     # A capture slot runs with its own HOME: rustup then finds no toolchain (~/.rustup). Point it at the account's.
     import pwd
@@ -349,20 +354,24 @@ def build_bins(quiet=False):
     if account and "CARGO_HOME" not in env and os.path.isdir(os.path.join(account, ".cargo")):
         env["CARGO_HOME"] = os.path.join(account, ".cargo")
     # --target-dir: a CARGO_TARGET_DIR or build.target elsewhere would put the programs where rust_bin() does not look
-    done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",
-                           os.path.join(RUST_DIR, "Cargo.toml"), "--target-dir", os.path.join(RUST_DIR, "target")],
-                          env=env, stdout=subprocess.DEVNULL if quiet else None, stderr=subprocess.PIPE if quiet else None)
-    return done.returncode, {name: rust_bin(name) for name in RUST_PROGRAMS}
+    try:
+        done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",
+                               os.path.join(RUST_DIR, "Cargo.toml"), "--target-dir", os.path.join(RUST_DIR, "target")],
+                              env=env, stdout=subprocess.DEVNULL if quiet else None,
+                              stderr=subprocess.PIPE if quiet else None, timeout=BUILD_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return 124, {name: rust_bin(name) for name in RUST_PROGRAMS}, "cargo build took over %d s" % BUILD_TIMEOUT
+    why = (done.stderr or b"").decode(errors="replace").strip()[-400:] if done.returncode else ""
+    return done.returncode, {name: rust_bin(name) for name in RUST_PROGRAMS}, "%s: %s" % (cargo, why) if why else cargo
 
 
 def cmd_build_bins(a):
     """cargo build --release of rust/ (std only, no network); prints where the programs are."""
-    code, built = build_bins()
-    if code == 69:
-        return 69
-    done = argparse.Namespace(returncode=code)
-    if done.returncode != 0:
-        return done.returncode
+    code, built, why = build_bins()
+    if code != 0:
+        if code in (69, 124):
+            sys.stderr.write("build-bins: %s\n" % why)
+        return code
     print(json.dumps(dict(bin_dir=os.path.join(RUST_DIR, "target", "release"), **built)))
     return 0 if all(built.values()) else 1
 
