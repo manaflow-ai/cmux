@@ -200,9 +200,11 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
     row.dataset.usage,
     row.querySelector(".acpmux-session-info-row__end")?.textContent,
   ]);
-  expect([...usage.querySelectorAll<HTMLElement>("li[data-usage]")].every((row) =>
-    row.querySelector(".acpmux-session-info-usage__lead-slot"),
-  )).toBe(true);
+  expect(
+    [...usage.querySelectorAll<HTMLElement>("li[data-usage]")].every((row) =>
+      row.querySelector(".acpmux-session-info-usage__lead-slot"),
+    ),
+  ).toBe(true);
   expect(own).toEqual([
     ["cost", "$12.40"],
     ["tokens", "4M"],
