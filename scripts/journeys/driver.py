@@ -528,26 +528,25 @@ def ocr_contains(lines, wanted):
     return any(target in _ocr_fold(line) for line in lines) or target in _ocr_fold("".join(lines))
 
 
-OCR_NEAR_EDITS = 1      # a shown text that recognition misread in at most this many glyphs
-OCR_NEAR_MIN_LEN = 8    # ... and only for a text this long (a nonce line), never a short word
+OCR_NEAR_MIN_LEN = 8    # a misread is excused only in a text this long (a nonce line), never a short word
 
 
 def ocr_near(lines, wanted):
-    """The OCR line that shows `wanted` but for at most OCR_NEAR_EDITS glyphs (an edit distance against any part of
-    the folded line), or None. A frame that does not show the text (blank, the echoed command, another nonce) has none."""
+    """The OCR line that shows `wanted` but for ONE glyph read as a character that is no ASCII letter or digit (after
+    the fold), at the same place, with nothing added or dropped; else None. The journey's own lines differ from each
+    other in one letter or digit (t1/t2, d1/d2, w2/w3/w4: same nonce, same -42), so a frame that shows ANOTHER of them
+    (a wrong tab, workspace or pane) is never taken for a misread (review BLOCK of fe97166ee14); a blank frame or the
+    echoed command has no such line either. The two real misreads: "w" read as "\u20a9", "t" read as "+"."""
     target = _ocr_fold(wanted)
     if len(target) < OCR_NEAR_MIN_LEN:
         return None
     for line in lines:
         text = _ocr_fold(line)
-        prev = [0] * (len(text) + 1)          # a match may start anywhere in the line
-        for i, ch in enumerate(target, 1):
-            cur = [i] + [0] * len(text)
-            for j, tc in enumerate(text, 1):
-                cur[j] = min(prev[j - 1] + (ch != tc), prev[j] + 1, cur[j - 1] + 1)
-            prev = cur
-        if min(prev) <= OCR_NEAR_EDITS:
-            return line
+        for at in range(len(text) - len(target) + 1):
+            part = text[at:at + len(target)]
+            diff = [i for i, (a, b) in enumerate(zip(part, target)) if a != b]
+            if len(diff) == 1 and not re.fullmatch(r"[a-z0-9]", part[diff[0]]):
+                return line
     return None
 
 

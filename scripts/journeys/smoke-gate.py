@@ -214,6 +214,23 @@ def known_gap_steps(out):
     return [(st.get("index"), st["known_gap"]) for st in steps if st.get("known_gap") and not st.get("finally")]
 
 
+def ocr_unread(out):
+    """The notes of frame checks the driver excused as "OCR could not read it (daemon check passed)" in a round
+    (results.jsonl evidence), so a misread that comes back often stays in sight."""
+    path = out / "results.jsonl"
+    notes = []
+    try:
+        rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
+    except ValueError:
+        return []
+    for row in rows:
+        for ev in row.get("evidence") or []:
+            note = (ev.get("detail") or {}).get("ocr_unread") if isinstance(ev, dict) and isinstance(ev.get("detail"), dict) else None
+            if note:
+                notes.append(note)
+    return notes
+
+
 def required_checks(out):
     """{required title: [ok of each expect step with exactly that title]} from the round's result.json."""
     found = {title: [] for title in REQUIRED_CHECKS}
@@ -570,6 +587,7 @@ def main(argv=None):
                   "required_checks": checks, "required_missing": missing,
                   "known_gap": "known gap" in str(row.get("reason") or ""),
                   "known_gap_steps": known_gap_steps(round_out),
+                  "ocr_unread": ocr_unread(round_out),
                   "key_gaps": gaps, "leases": leases,
                   "go": {"host": go["host"], "go": go["go"], "until": go["until"]} if go else None,
                   "key_path": "real_hid" if slot in real_rounds else "debug.key", "key_paths": paths, "slot": slot}
@@ -621,6 +639,10 @@ def main(argv=None):
         lines.append(" | ".join(texts) + ": rounds " + ", ".join(
             f"{n} (step {', '.join(str(i) for i, _ in steps)})" for n, steps in gap_rounds)
             + "; each round went on with New Column through the app's action path, so a failure after it is still a result")
+    unread = [(r["round"], r.get("ocr_unread") or []) for r in rounds if r.get("ocr_unread")]
+    if unread:
+        lines.append("OCR could not read a line the daemon check of the same step passed (no failed step): "
+                     + "; ".join(f"round {n}: {' | '.join(notes)[:300]}" for n, notes in unread))
     if summary["known_gap_rounds"]:
         lines.append(f"KNOWN GAP in rounds {summary['known_gap_rounds']}: the capture lease could not make the window key, "
                      "so keys typed into a new terminal while it is made were not checked; not a pass")

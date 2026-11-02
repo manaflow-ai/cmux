@@ -5,7 +5,7 @@
 
 A frame_screen `shows` text that text recognition misreads is no failed step when a daemon check of the SAME step that
 names that text passed (smoke_new_terminals, smoke_app_lines, smoke_daemon_lines) and the frame shows the text but for
-one glyph: it is recorded as "OCR could not read it (daemon check passed)". With no such check, a failed one, a frame
+one glyph read as a non-alphanumeric character: it is recorded as "OCR could not read it (daemon check passed)". With no such check, a failed one, a frame
 that does not show the text (blank, another line), or a `lacks` text present, the miss stays a failed step.
 
 The two real cases, with the one-glyph folds of 648e4e5dfa9 ("₩") and 959ac3054cb ("+") taken out, so the rule
@@ -114,12 +114,49 @@ class OcrUnread(unittest.TestCase):
             self.assertIn("frame_screen", error or "", name)
             self.assertFalse(frame["pass"], name)
 
+    def test_another_line_of_the_same_run_is_never_taken_for_a_misread(self):
+        # Review BLOCK of fe97166ee14: the journey's lines differ in one letter or digit, and the backing checks read
+        # the model, not the pixels. A wrong tab, a wrong workspace or a blank second pane must stay red.
+        for name, (n, nonce, ocr, live) in {
+            "step 55: the window draws tab t1, not t2": (55, "445843", ["$ echo t1-445843-$((6*7))", "t1-445843-42"],
+                {"smoke_new_terminals": True, "smoke_app_lines": True, "smoke_key_window": True}),
+            "step 17: the window shows workspace w2, not w3": (17, "543646", ["$ echo w2-543646-$((6*7))", "w2-543646-42"],
+                {"smoke_new_terminals": True, "smoke_key_window": True}),
+            "step 23: the second new pane is blank, only d1 shows": (23, "111111", ["$ echo d1-111111-$((6*7))", "d1-111111-42"],
+                {"smoke_panes": True, "smoke_new_terminals": True, "smoke_app_lines": True, "smoke_key_window": True}),
+            "step 75: the window still shows w3, not w4": (75, "222222", ["$ echo w3-222222-$((6*7))", "w3-222222-42"],
+                {"smoke_daemon_lines": True}),
+        }.items():
+            error, frame = self.expect({"step": n, "nonce": nonce, "ocr": ocr}, live)
+            self.assertIn("frame_screen", error or "", name)
+            self.assertFalse(frame["pass"], name)
+            self.assertNotIn("ocr_unread", frame["detail"], name)
+
     def test_a_lacks_text_on_screen_is_never_excused(self):
         step = {"do": "expect", "title": "x", "all": [
             {"smoke_daemon_lines": {"lines": ["t2-${nonce}-42"]}},
             {"frame_screen": {"shows": ["t2-${nonce}-42"], "lacks": ["stale-${nonce}"]}}]}
         error, _ = self.expect(PLUS, {"smoke_daemon_lines": True}, ocr=PLUS["ocr"] + ["stale-445843"], step=step)
         self.assertIn("frame_screen", error)
+
+
+class GateNote(unittest.TestCase):
+    def test_the_gate_names_excused_frames_of_a_round(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("smoke_gate_ocr", HERE / "smoke-gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        with tempfile.TemporaryDirectory() as tmp:
+            note = "OCR could not read it (daemon check passed): 't2-445843-42' read as '+2-445843-42', smoke_new_terminals passed"
+            row = {"id": "smoke-dogfood", "status": "pass", "evidence": [
+                {"check": "smoke_new_terminals", "pass": True, "detail": {}},
+                {"check": "frame_screen", "pass": True, "detail": {"ocr_unread": note}},
+                {"check": "frame_screen", "pass": True, "detail": "not a dict"}]}
+            (Path(tmp) / "results.jsonl").write_text(json.dumps(row) + "\n")
+            self.assertEqual(gate.ocr_unread(Path(tmp)), [note])
+            (Path(tmp) / "results.jsonl").write_text("not json\n")
+            self.assertEqual(gate.ocr_unread(Path(tmp)), [])
+        self.assertEqual(gate.ocr_unread(Path("/nonexistent-rv")), [])
 
 
 if __name__ == "__main__":
