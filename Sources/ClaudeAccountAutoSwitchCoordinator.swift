@@ -274,31 +274,6 @@ final class ClaudeAccountAutoSwitchCoordinator {
         return AgentAutoResumeCoordinator.shared.screenState(for: terminal.surface)
     }
 
-    /// The accounts other than the current one that have a Claude config, and those of them that
-    /// already trust the session's folder. Read off the main actor: `.claude.json` holds every
-    /// project's history and can be large.
-    private nonisolated static func candidateFacts(
-        pane: ClaudeAccountAutoSwitchRequest.Pane,
-        homeDirectory: String
-    ) async -> (usable: Set<String>, trusted: Set<String>) {
-        guard case .local(let current, let registry, let workingDirectory) = pane else { return ([], []) }
-        let currentKey = current.exhaustionKey(homeDirectory: homeDirectory)
-        let candidates = registry.accounts.filter { $0.exhaustionKey(homeDirectory: homeDirectory) != currentKey }
-        return await Task.detached(priority: .utility) {
-            var usable = Set<String>()
-            var trusted = Set<String>()
-            for account in candidates where ClaudeConfigTrustReader.hasConfig(account: account, homeDirectory: homeDirectory) {
-                let key = account.exhaustionKey(homeDirectory: homeDirectory)
-                usable.insert(key)
-                if let workingDirectory,
-                   ClaudeConfigTrustReader.isTrusted(workingDirectory: workingDirectory, account: account, homeDirectory: homeDirectory) {
-                    trusted.insert(key)
-                }
-            }
-            return (usable, trusted)
-        }.value
-    }
-
     /// Writes the exhaustion to the file the CLI reads. Returns whether it was written.
     private func writeExhaustion(_ exhaustion: ClaudeAccountAutoSwitchAction.Exhaustion) async -> Bool {
         do {
