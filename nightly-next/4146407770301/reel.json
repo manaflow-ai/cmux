@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4146407770301",
+  "notes": "notes/4146407770301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32213,
+      "title": "cmux NEXT: a banner with Show for a tab an agent marked (carry of #24345)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32377,
+      "title": "Typing under load (F6 follow-up): an incognito row hears only its own tab's page install and close",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32289,
+      "title": "Browser: a page holds during a hold-mode drag unless DevTools takes room (after a failed DevTools open)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32313,
+      "title": "base red: warm the copy-controls gallery entry before the tool-output copy test opens it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32127,
+      "title": "cmux NEXT: vertical tabs per workspace or for all workspaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30294,
+      "title": "feat: relay Cloud agent chats to mobile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32284,
+      "title": "test(next): exercise long host menu width fixture",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
