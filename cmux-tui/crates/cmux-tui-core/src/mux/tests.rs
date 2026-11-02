@@ -26,6 +26,7 @@ mod layout_undo;
 mod layout_undo_commit;
 mod lone_dock;
 mod matrix;
+mod new_terminal_folder_delta;
 mod notifications;
 mod pane_close;
 mod read_paths;
