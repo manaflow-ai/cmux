@@ -1564,7 +1564,12 @@ def step_cua_page_input(j, step):
     out = {"page_window": page, "page_server": server}
     # `keys_window: shell`: the keys target the app's main window (the page keeps the keyboard through it), not the page
     # child window, which CuaDriver could not focus for foreground delivery at 44dc8431.
-    key_target = main["number"] if step.get("keys_window") == "shell" else page["id"]
+    shell_ids = [w.get("id") for w in (j.app.rpc("debug.window_list", timeout=15) or {}).get("windows") or []
+                 if w.get("kind") == "main" and w.get("visible")]
+    if step.get("keys_window") == "shell" and len(shell_ids) != 1:
+        raise D.StepError(f"cua_page_input: {len(shell_ids)} visible main windows")
+    # The main window by debug.window_list's kind (the window server's largest window can be the same-size overlay panel).
+    key_target = shell_ids[0] if step.get("keys_window") == "shell" else page["id"]
     out["key_window_id"] = key_target
     shot = str(Path(j.out) / f"probe-cua-window-{page['id']}.png")
     cua = Cua()
