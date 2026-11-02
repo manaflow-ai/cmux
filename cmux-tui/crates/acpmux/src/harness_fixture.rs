@@ -209,7 +209,6 @@ mod tests {
             id: "other".into(),
             program: "/nonexistent/other".into(),
             family: "other".into(),
-            argv: vec![],
             check: vec![],
             env: Default::default(),
             login: None,

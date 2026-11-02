@@ -86,8 +86,6 @@ pub struct Subject {
     pub id: String,
     pub program: String,
     pub family: String,
-    /// The profile's launch argv, retained so built-in checks use its provider/profile options.
-    pub argv: Vec<String>,
     /// The profile's `auth.check` command.
     pub check: Vec<String>,
     /// The profile's env for the check (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`);
@@ -116,7 +114,6 @@ impl Subject {
             id: id.to_owned(),
             program: profile.argv.first()?.clone(),
             family: crate::config::derive_family(id, profile),
-            argv: profile.argv.clone(),
             check: auth.map(|a| a.check.clone()).unwrap_or_default(),
             env: resolved.into_iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             login: auth.and_then(|a| a.login.clone()),
@@ -220,7 +217,7 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
             if !codex_login_in_file(&env) {
                 return None;
             }
-            match probe::codex_login_status_argv(&codex_status_argv(s), &s.env)? {
+            match probe::codex_login_status(&s.env)? {
                 true => Some((Auth::SignedIn, Some("`codex login status` passed".into()))),
                 false => {
                     Some((Auth::SignedOut, Some("`codex login status`: not logged in".into())))
@@ -372,6 +369,14 @@ pub(crate) fn fresh_auth_in(
             (false, output) => Ok((auth_failure(&output), format!("`{check}` failed"))),
         };
     }
+    // CLI globals can select another provider/profile or a keyring credential store.
+    // File-only evidence cannot establish that effective configuration, and a plain
+    // `codex login status` refusal must not override a working custom-provider chat.
+    if s.family == "codex" && profile.argv.iter().skip(1).any(|arg| arg.starts_with('-')) {
+        return Err(
+            "Codex launch options select credentials this file-only check cannot verify".into()
+        );
+    }
     let custom_settings = profile.argv.iter().any(|arg| {
         arg == "--settings"
             || arg.starts_with("--settings=")
@@ -391,22 +396,6 @@ static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| 
     regex::Regex::new(r"(?i)\b(not (logged|signed) in|log ?in|sign ?in|unauthenticated|authentication required|auth required|unauthorized)\b")
         .expect("sign-in pattern") // crash-allow: constant pattern
 });
-
-fn codex_status_argv(s: &Subject) -> Vec<String> {
-    let mut argv = s.argv.clone();
-    let globals = argv.get(1..).map(crate::cli::harness_login::codex_globals).unwrap_or_default();
-    argv.truncate(1 + globals.len());
-    if let Some(program) = s.env.get("CODEX_PATH").filter(|p| !p.is_empty()) {
-        if let Some(first) = argv.first_mut() {
-            *first = program.clone();
-        }
-    }
-    if argv.is_empty() {
-        argv.push("codex".into());
-    }
-    argv.extend(["login".into(), "status".into()]);
-    argv
-}
 
 /// Whether a CLI's message names signing in (`_acpmux/complete` tells a
 /// signed-out harness by it, as the health check does by a probe error).
@@ -709,7 +698,6 @@ mod tests {
                 id: id.into(),
                 program: format!("/nonexistent/{family}"),
                 family: family.into(),
-                argv: vec![],
                 check: vec![],
                 env: env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
                 login: login.map(str::to_owned),
@@ -770,7 +758,6 @@ mod tests {
             id: "codex-sr".into(),
             program: "codex".into(),
             family: "codex".into(),
-            argv: vec!["codex".into(), "app-server".into()],
             check: vec![],
             env: BTreeMap::from([(String::from("CODEX_HOME"), String::from("/tmp/codex-sr"))]),
             login: Some("codex login".into()),
@@ -815,22 +802,18 @@ mod tests {
     }
 
     #[test]
-    fn codex_status_keeps_profile_globals_and_binary() {
-        let subject = Subject {
-            id: "codex-local".into(),
-            program: "codex".into(),
-            family: "codex".into(),
-            argv: vec!["codex".into(), "-p".into(), "local".into(), "app-server".into()],
-            check: vec![],
-            env: BTreeMap::from([(String::from("CODEX_PATH"), String::from("/opt/codex"))]),
-            login: None,
-            unresolved: vec![],
-            probe_error: None,
-        };
-        assert_eq!(
-            codex_status_argv(&subject),
-            vec!["/opt/codex", "-p", "local", "login", "status"]
-        );
+    fn codex_launch_overrides_do_not_produce_a_subscription_refusal() {
+        for args in [
+            vec!["-p", "local", "app-server"],
+            vec!["--profile=local", "app-server"],
+            vec!["-c", "model_provider=\"local\"", "app-server"],
+            vec!["-c", "cli_auth_credentials_store=\"keyring\"", "app-server"],
+        ] {
+            let argv: Vec<_> = std::iter::once("codex").chain(args).collect();
+            let profile = serde_json::from_value(json!({"argv": argv})).unwrap();
+            let result = super::fresh_auth("codex", &profile, None);
+            assert!(result.is_err(), "launch overrides require inconclusive evidence: {result:?}");
+        }
     }
 
     /// A harness whose start may read the keychain is named, so a caller

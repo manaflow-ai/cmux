@@ -113,7 +113,7 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
         Agent::Claude => Vec::new(),
     };
-    Some(Cli { program, agent: Some(agent), globals, env })
+    Some(Cli { program, globals, env })
 }
 
 async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<String>), RpcError> {

@@ -144,8 +144,6 @@ impl LoginError {
 #[derive(Debug, Clone, Default)]
 pub struct Cli {
     pub program: String,
-    /// The harness family whose login environment must be applied.
-    pub agent: Option<Agent>,
     pub globals: Vec<String>,
     pub env: BTreeMap<String, String>,
 }
@@ -184,7 +182,7 @@ impl Cli {
     /// stdio set.
     pub fn command(&self, args: &[&str], cwd: &Path) -> Command {
         let mut cmd = Command::new(&self.program);
-        crate::login_env::apply_tokio_for(&mut cmd, self.agent.map(Agent::name), Some(&self.env));
+        crate::login_env::apply_tokio(&mut cmd);
         crate::config::scrub_nested_claude_env_tokio(&mut cmd);
         for (k, _) in std::env::vars_os() {
             if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -199,6 +197,13 @@ impl Cli {
             .env_remove("CLAUDECODE")
             .env_remove("CLAUDE_CODE_ENTRYPOINT");
         cmd.envs(&self.env);
+        // Pin the same resolved homes used by store(), including login-shell-only values.
+        // The generic child allowlist deliberately excludes these family-specific keys.
+        for key in ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"] {
+            if let Some(value) = self.var(key) {
+                cmd.env(key, value);
+            }
+        }
         for key in MODEL_PLANE_ENV {
             cmd.env_remove(key);
         }

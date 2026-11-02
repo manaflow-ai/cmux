@@ -265,3 +265,31 @@ fn model_plane_env_never_reaches_the_cli() {
     assert_eq!(envs.get("CMUX_CLAUDE_AUTH"), Some(&Some("own".into())));
     assert_eq!(envs.get("CLAUDE_CONFIG_DIR"), Some(&Some("/tmp/claude-home".into())));
 }
+
+#[test]
+fn login_command_pins_the_resolved_account_homes() {
+    let mut cli = Cli { program: "/bin/true".into(), ..Cli::default() };
+    cli.env.insert("HOME".into(), "/tmp/login-user".into());
+    cli.env.insert("CODEX_HOME".into(), "/tmp/login-codex".into());
+    cli.env.insert("CLAUDE_CONFIG_DIR".into(), "/tmp/login-claude".into());
+    let cmd = cli.command(&["login"], Path::new("/tmp"));
+    let env: BTreeMap<_, _> = cmd.as_std().get_envs().collect();
+    for (agent, key) in [(Agent::Claude, "CLAUDE_CONFIG_DIR"), (Agent::Codex, "CODEX_HOME")] {
+        assert_eq!(
+            env.get(std::ffi::OsStr::new(key)).copied().flatten(),
+            Some(cli.store(agent).as_os_str())
+        );
+    }
+    // No profile home: the command still names the same imported or inherited home as lookup.
+    let cli = Cli::default();
+    let cmd = cli.command(&[], Path::new("/tmp"));
+    let env: BTreeMap<_, _> = cmd.as_std().get_envs().collect();
+    for key in ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"] {
+        if let Some(value) = cli.var(key) {
+            assert_eq!(
+                env.get(std::ffi::OsStr::new(key)).copied().flatten(),
+                Some(std::ffi::OsStr::new(&value))
+            );
+        }
+    }
+}
