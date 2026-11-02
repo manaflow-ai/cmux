@@ -31,7 +31,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
     /// report arriving meanwhile is dropped: the pane is already moving, and its new account
     /// reports its own limit later. The pane's Claude events seen while its switch runs are
     /// replayed into its gate, so a `SessionStart` that lands before the switch returns counts.
-    private let runs = ClaudeAccountAutoSwitchRuns()
+    let runs = ClaudeAccountAutoSwitchRuns()
     /// The last report handled per pane, so one report switches at most once.
     private var handledEventIds: [UUID: String] = [:]
     /// Panes waiting for the resumed Claude's idle prompt to be typed `continue` into.
