@@ -113,7 +113,7 @@ extension AgentPaneSessionInfoModel {
                     spins: row.tone == .running, title: row.title,
                     titleInk: row.tone == .failed ? .danger : .primary, detail: row.detail, subtitle: row.subtitle,
                     trailing: row.trailing, trailingTone: row.tone, meter: row.meter, segments: row.segments, buttons: row.buttons ?? [],
-                    menu: row.menu ?? [], menuLabel: row.menuLabel, reorderLabel: section.reorderLabel, toggle: row.toggle, marks: row.marks, reorderable: section.bare == true && index == 0 && section.reorderable == true,
+                    menu: row.menu ?? [], menuLabel: row.menuLabel, reorderLabel: section.reorderLabel, reorderable: section.bare == true && index == 0 && section.reorderable == true, toggle: row.toggle, marks: row.marks,
                     hover: row.hover, indent: min(3, max(0, row.indent ?? 0)), action: row.action, help: row.help)))
             }
             if let more = section.more {
