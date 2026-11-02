@@ -504,12 +504,17 @@ def main(env: Mapping[str, str] = os.environ,
         dedicated_label = ""
 
     route_token = env.get("ROUTE_TOKEN", "")
+    first_look = True
 
     def read() -> Sequence[Mapping[str, Any]] | None:
+        nonlocal first_look
+        use_state, first_look = first_look, False
         if not (route_token and repo):
             return None
         try:
-            return (read_runners or (lambda token, name: pool.GitHub(token, name).runners()))(route_token, repo)
+            if read_runners is not None:
+                return read_runners(route_token, repo)
+            return pool.GitHub(route_token, repo).runners(use_state=use_state)
         except Exception as error:  # noqa: BLE001 - never fail the job; the next pool takes it
             print(f"::warning title=nightly build runner::could not list owned runners ({str(error)[:200]})")
             return None
