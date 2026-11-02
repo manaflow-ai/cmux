@@ -411,10 +411,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.rows.length).toBeGreaterThanOrEqual(3);
         const [initialFirst, ...initialRest] = initial.rows;
         expect(initialRest.every((row) => row.status.left === initialFirst!.status.left)).toBe(true);
-        // Lines with Stop share their time column; a line with none sets its time and state against
-        // the chevron instead (cmux#31492).
-        const initialStops = initial.rows.filter((row) => row.hasStop);
-        expect(initialStops.every((row) => row.time.right === initialStops[0]!.time.right)).toBe(true);
         expect(initialRest.every((row) => row.stop.left === initialFirst!.stop.left)).toBe(true);
         expect(initial.head.time.left).toBeGreaterThanOrEqual(initial.head.title.right - 0.5);
         expect(initial.head.time.left - initial.head.title.right).toBeLessThanOrEqual(8.5);
@@ -491,8 +487,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           const narrow = await measure();
           const [narrowFirst, ...narrowRest] = narrow.rows;
           expect(narrowRest.every((row) => row.status.left === narrowFirst!.status.left)).toBe(true);
-          const narrowStops = narrow.rows.filter((row) => row.hasStop);
-          expect(narrowStops.every((row) => row.time.right === narrowStops[0]!.time.right)).toBe(true);
           expect(narrowRest.every((row) => row.stop.left === narrowFirst!.stop.left)).toBe(true);
           expect(narrow.rows.every((row) => row.stateToNext >= -0.5 && row.stateToNext <= 8)).toBe(true);
           expect(narrow.rows.every((row) => row.summary.width >= 60)).toBe(true);

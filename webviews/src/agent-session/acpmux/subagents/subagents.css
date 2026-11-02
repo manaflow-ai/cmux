@@ -535,7 +535,7 @@ button.cv-subagent > :last-child {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--ds-space-1, 4px);
+  gap: var(--acpmux-tray-gap);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -586,6 +586,10 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__trail {
   justify-content: flex-start;
+}
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__time {
+  width: auto;
+  text-align: start;
 }
 .acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__stop-track {
   margin-inline-start: auto;

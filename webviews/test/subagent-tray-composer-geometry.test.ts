@@ -104,7 +104,11 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
           // gap before the line's next control: Stop's track on a line with Stop, else the chevron
           // (cmux#31492: "8m 56s Done" floated a Stop track and a status track's slack away).
           const next = row.stop ? row.stopTrack.left : row.chevron.left;
-          const gaps = [row.status.left - row.time.right, next - row.status.right, row.chevron.left - row.stopTrack.right];
+          const gaps = [
+            row.status.left - row.time.right,
+            next - row.status.right,
+            row.chevron.left - row.stopTrack.right,
+          ];
           expect(gaps[0]).toBeGreaterThan(0);
           for (const gap of gaps) within(gap, gaps[0]!);
           within(row.stopTrack.left, geometry.rows[0]!.stopTrack.left);
