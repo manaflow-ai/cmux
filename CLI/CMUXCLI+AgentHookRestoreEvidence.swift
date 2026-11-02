@@ -1,93 +1,11 @@
 import Foundation
-import CoreFoundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
     private static let codexPermissionEvidenceChunkBytes = 64 * 1024
 
     private func codexLaunchHasExplicitPermissions(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
-        let fields = codexLaunchPermissionFields(launchCommand)
-        return fields.approval || fields.sandbox || fields.network
-    }
-
-    private func codexLaunchPermissionFields(
-        _ launchCommand: AgentHookLaunchCommandRecord?
-    ) -> (approval: Bool, sandbox: Bool, network: Bool, sandboxMode: String?) {
-        guard let launchCommand,
-              AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: "codex") else {
-            return (false, false, false, nil)
-        }
-        let arguments = launchCommand.arguments
-        var approval = false
-        var sandbox = false
-        var network = false
-        var sandboxFlag: String?
-        var sandboxConfig: String?
-        var fullAuto = false
-        var bypass = false
-        for (index, argument) in arguments.enumerated() {
-            if argument == "--" { break }
-            if ["--yolo", "--dangerously-bypass-approvals-and-sandbox"].contains(argument) {
-                approval = true
-                sandbox = true
-                bypass = true
-            }
-            if argument == "--full-auto" {
-                approval = true
-                sandbox = true
-                fullAuto = true
-            }
-            if argument == "-a" || argument == "--ask-for-approval"
-                || argument.hasPrefix("--ask-for-approval=")
-                || (argument.hasPrefix("-a") && argument.count > 2) {
-                approval = true
-            }
-            if argument == "-s" || argument == "--sandbox" {
-                sandbox = true
-                if index + 1 < arguments.count { sandboxFlag = arguments[index + 1] }
-            } else if argument.hasPrefix("--sandbox=") {
-                sandbox = true
-                sandboxFlag = String(argument.dropFirst("--sandbox=".count))
-            } else if argument.hasPrefix("-s"), argument.count > 2 {
-                sandbox = true
-                sandboxFlag = String(argument.dropFirst(argument.hasPrefix("-s=") ? 3 : 2))
-            }
-            if let config = codexConfigOverride(in: arguments, at: index) {
-                let parts = config.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-                guard let rawKey = parts.first else { continue }
-                switch rawKey.trimmingCharacters(in: .whitespacesAndNewlines) {
-                case "approval_policy":
-                    approval = true
-                case "sandbox_mode":
-                    sandbox = true
-                    if parts.count == 2 {
-                        sandboxConfig = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                    }
-                case "sandbox_workspace_write", "sandbox_workspace_write.network_access":
-                    // A parent TOML table is authoritative even when its exact
-                    // networking field cannot be parsed safely here.
-                    network = true
-                default:
-                    break
-                }
-            }
-        }
-        // Match Codex's flag-over-config precedence independently of argv order.
-        let mode = bypass ? "danger-full-access"
-            : sandboxFlag ?? (fullAuto ? "workspace-write" : sandboxConfig)
-        return (approval, sandbox, network, mode)
-    }
-
-    private func codexConfigOverride(in arguments: [String], at index: Int) -> String? {
-        let argument = arguments[index]
-        if argument == "-c" || argument == "--config" {
-            return index + 1 < arguments.count ? arguments[index + 1] : nil
-        }
-        for prefix in ["--config=", "-c=", "-c"] where argument.hasPrefix(prefix) {
-            return String(argument.dropFirst(prefix.count))
-        }
-        return nil
+        CodexResumePermissionPolicy().hasExplicitPermissions(in: launchCommand)
     }
 
     /// Whether an OMP hook has no launch candidate to publish or invalidate.
@@ -353,57 +271,31 @@ extension CMUXCLI {
         transcriptPath: String?,
         observedAt: TimeInterval? = nil
     ) -> AgentHookLaunchCommandRecord? {
-        guard var launchCommand else { return nil }
+        guard let launchCommand else { return nil }
         guard !launchCommand.arguments.isEmpty else { return launchCommand }
         guard let capturedAt = observedAt ?? launchCommand.capturedAt,
               let transcriptPath = normalizedHookValue(transcriptPath) else {
             return launchCommand
         }
-        let permissionArguments = codexPermissionArguments(
+        let policy = CodexResumePermissionPolicy()
+        guard policy.requiresTranscriptEvidence(for: launchCommand) else { return launchCommand }
+        return policy.repairing(launchCommand, with: codexPermissionArguments(
             transcriptPath: transcriptPath,
             before: capturedAt
-        )
-        guard !permissionArguments.isEmpty else {
-            return launchCommand
-        }
-        let explicit = codexLaunchPermissionFields(launchCommand)
-        let shortcut = permissionArguments.count == 1
-            && ["--yolo", "--dangerously-bypass-approvals-and-sandbox"].contains(permissionArguments[0])
-        if shortcut, !explicit.approval, !explicit.sandbox {
-            launchCommand.arguments.append(contentsOf: permissionArguments)
-            return launchCommand
-        }
-        func inferredValue(_ option: String) -> String? {
-            guard let index = permissionArguments.firstIndex(of: option),
-                  index + 1 < permissionArguments.count else { return nil }
-            return permissionArguments[index + 1]
-        }
-        let approval = shortcut ? "never" : inferredValue("-a")
-        let sandbox = shortcut ? "danger-full-access" : inferredValue("-s")
-        if !explicit.approval, let approval {
-            launchCommand.arguments.append(contentsOf: ["-a", approval])
-        }
-        if !explicit.sandbox, let sandbox {
-            launchCommand.arguments.append(contentsOf: ["-s", sandbox])
-        }
-        let effectiveSandbox = explicit.sandbox ? explicit.sandboxMode : sandbox
-        if !explicit.network, effectiveSandbox == "workspace-write",
-           let network = permissionArguments.first(where: { $0.hasPrefix("sandbox_workspace_write.network_access=") }) {
-            launchCommand.arguments.append(contentsOf: ["-c", network])
-        }
-        return launchCommand
+        ))
     }
 
     private func codexPermissionArguments(
         transcriptPath: String,
         before capturedAt: TimeInterval
     ) -> [String] {
+        // This runs in the separate hook-producing CLI process, before sending
+        // the binding update, never in the app's socket server or UI actor.
         let expandedPath = (transcriptPath as NSString).expandingTildeInPath
         guard let handle = FileHandle(forReadingAtPath: expandedPath) else { return [] }
         defer { try? handle.close() }
         guard let endOffset = try? handle.seekToEnd() else { return [] }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let policy = CodexResumePermissionPolicy()
         var offset = endOffset
         var pending = Data()
         while offset > 0 {
@@ -420,61 +312,14 @@ extension CMUXCLI {
                 let lineStart = pending.index(after: newline)
                 let line = Data(pending[lineStart...])
                 pending.removeSubrange(newline...)
-                if let arguments = codexPermissionArguments(
+                if let arguments = policy.permissionArguments(
                     from: line,
-                    before: capturedAt,
-                    formatter: formatter
+                    before: capturedAt
                 ) {
                     return arguments
                 }
             }
         }
-        return codexPermissionArguments(from: pending, before: capturedAt, formatter: formatter) ?? []
-    }
-
-    private func codexPermissionArguments(
-        from line: Data,
-        before capturedAt: TimeInterval,
-        formatter: ISO8601DateFormatter
-    ) -> [String]? {
-        guard !line.isEmpty,
-              let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              object["type"] as? String == "turn_context",
-              let timestamp = object["timestamp"] as? String,
-              let date = formatter.date(from: timestamp),
-              date.timeIntervalSince1970 < capturedAt,
-              let payload = object["payload"] as? [String: Any] else {
-            return nil
-        }
-        let approvalPolicy = normalizedHookValue(payload["approval_policy"] as? String)
-        let sandboxPolicy = payload["sandbox_policy"] as? [String: Any]
-        let sandboxMode = sandboxPolicy.flatMap {
-            normalizedHookValue($0["type"] as? String)
-        }
-        if approvalPolicy == "never", sandboxMode == "danger-full-access" {
-            return ["--yolo"]
-        }
-        if approvalPolicy == "never", sandboxMode == "disabled" {
-            return ["--dangerously-bypass-approvals-and-sandbox"]
-        }
-        var arguments: [String] = []
-        if let approvalPolicy {
-            arguments.append(contentsOf: ["-a", approvalPolicy])
-        }
-        if let sandboxMode,
-           ["read-only", "workspace-write", "danger-full-access"].contains(sandboxMode) {
-            arguments.append(contentsOf: ["-s", sandboxMode])
-        }
-        // JSON numbers also bridge to Bool. Replay only an actual recorded Boolean,
-        // preserving both true and false without inventing a missing policy.
-        if sandboxMode == "workspace-write",
-           let networkAccess = sandboxPolicy?["network_access"] as? NSNumber,
-           CFGetTypeID(networkAccess) == CFBooleanGetTypeID() {
-            arguments.append(contentsOf: [
-                "-c",
-                "sandbox_workspace_write.network_access=\(networkAccess.boolValue ? "true" : "false")",
-            ])
-        }
-        return arguments.isEmpty ? nil : arguments
+        return policy.permissionArguments(from: pending, before: capturedAt) ?? []
     }
 }
