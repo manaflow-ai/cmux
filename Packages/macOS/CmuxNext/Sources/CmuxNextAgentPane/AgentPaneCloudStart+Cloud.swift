@@ -14,6 +14,9 @@ extension AgentPaneCloudStart {
         public var clonePhase: String?
         public var cloneStartedAt: Double?
         public var cloneFinishedAt: Double?
+        public var cloneCheckoutState: String?
+        public var cloneCheckoutRepository: String?
+        public var cloneCheckoutCommit: String?
         public var environmentId: String?
         public var setupState: String?
         public var setupStatus: String?
@@ -27,12 +30,16 @@ extension AgentPaneCloudStart {
         public init(name: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
                     cloneState: String? = nil, clonePhase: String? = nil,
                     cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil,
+                    cloneCheckoutState: String? = nil, cloneCheckoutRepository: String? = nil,
+                    cloneCheckoutCommit: String? = nil,
                     environmentId: String? = nil, setupState: String? = nil, setupStatus: String? = nil,
                     setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
                     setupError: String? = nil, setupHasScript: Bool? = nil, start: CloudStartInfo? = nil) {
             (self.name, self.folder, self.machine, self.size) = (name, folder, machine, size)
             (self.cloneStartedAt, self.cloneFinishedAt) = (cloneStartedAt, cloneFinishedAt)
             (self.cloneState, self.clonePhase) = (cloneState, clonePhase)
+            (self.cloneCheckoutState, self.cloneCheckoutRepository, self.cloneCheckoutCommit) =
+                (cloneCheckoutState, cloneCheckoutRepository, cloneCheckoutCommit)
             let setup = start?.setup
             (self.environmentId, self.setupState, self.setupStatus) = (start?.environmentId ?? environmentId, setup?.state ?? setupState, setup?.status ?? setupStatus)
             (self.setupStartedAt, self.setupFinishedAt) = (setup?.startedAt ?? setupStartedAt, setup?.finishedAt ?? setupFinishedAt)
@@ -52,6 +59,8 @@ extension AgentPaneCloudStart {
         progress(step.name, folder: step.folder, machine: step.machine, size: step.size,
                  cloneState: step.cloneState, clonePhase: step.clonePhase,
                  cloneStartedAt: step.cloneStartedAt, cloneFinishedAt: step.cloneFinishedAt,
+                 cloneCheckoutState: step.cloneCheckoutState, cloneCheckoutRepository: step.cloneCheckoutRepository,
+                 cloneCheckoutCommit: step.cloneCheckoutCommit,
                  environmentId: step.environmentId, setupState: step.setupState, setupStatus: step.setupStatus,
                  setupStartedAt: step.setupStartedAt, setupFinishedAt: step.setupFinishedAt,
                  setupError: step.setupError, setupHasScript: step.setupHasScript,
