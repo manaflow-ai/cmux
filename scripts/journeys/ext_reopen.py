@@ -650,8 +650,15 @@ def _end(j, cua, how, record):
         except (D.StepError, OSError, ValueError) as error:
             reply = {"error": str(error)[-200:]}
         record["logout_substitute"] = reply
-        if isinstance(reply, dict) and reply.get("error") and "unknown" in str(reply.get("error")).lower():
-            raise D.NotRun(f"logout-substitute: this build has no debug.app.terminate: {reply}")
+        error = str(reply.get("error")) if isinstance(reply, dict) and reply.get("error") else ""
+        if error:
+            # A socket error or timeout is normal when the app ends first; an answer that refuses, with the app
+            # still running a second later, ends the case at once (never a 60 s wait and a red of the wrong cause).
+            time.sleep(1.0)
+            if app.alive(old):
+                if re.search(r"method_not_found|unknown|not_allowed|not found", error, re.I):
+                    raise D.NotRun(f"logout-substitute: this build has no debug.app.terminate (PR #31645): {error[:200]}")
+                raise D.StepError(f"logout-substitute: debug.app.terminate refused: {error[:300]}")
     elif how == "logout":
         sent, status = send_logout_quit(old)
         record["logout_send"] = {"result": sent, "status": status}
