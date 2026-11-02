@@ -34,7 +34,8 @@
 //!    in a detached terminal of the machine's own daemon, as the daemon's own
 //!    user, with a fixed argv ([`apply`]): it checks its own checksum again,
 //!    keeps the running binary as `cmux-tui.prev`, renames itself over the
-//!    binary and ends the daemon with SIGTERM, which leaves every terminal
+//!    binary and ends the daemon with SIGTERM (SIGKILL once a minute passes),
+//!    which leaves every terminal
 //!    host and chat running. The supervisor starts the new binary, which
 //!    adopts them. A new daemon that does not serve within 10 minutes is
 //!    rolled back to `cmux-tui.prev`.
@@ -351,7 +352,7 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
                 Some("updated") => Ok(own.to_owned()),
                 Some("pending") => Err(Failed::new(
                     "machine_update_pending",
-                    "the new build is installed but the daemon did not stop; it runs after the machine's next restart",
+                    "the new build is installed but the daemon did not stop, even after SIGKILL; the next update stops it",
                 )),
                 Some("busy") => Err(Failed::new(
                     "machine_update_busy",
