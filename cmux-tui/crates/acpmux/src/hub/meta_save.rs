@@ -321,9 +321,7 @@ fn hold_seam(session_id: &str) {
         unsafe {
             libc::kill(libc::getpid(), libc::SIGKILL)
         };
-        // No SIGKILL off unix: end as abruptly, with no destructors or flush.
-        #[cfg(not(unix))]
-        std::process::abort();
+        // Off unix the seam does not kill: the tests that ask for it run on unix only.
     }
     let hold = dir.join(format!("hold-{session_id}"));
     if std::fs::rename(&hold, dir.join(format!("held-{session_id}"))).is_err() {
