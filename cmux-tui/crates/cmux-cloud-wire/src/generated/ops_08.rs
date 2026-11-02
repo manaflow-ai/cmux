@@ -4,6 +4,72 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MuxConfigureParams {
+    pub agent: AgentId,
+    pub brain: MuxConfigureParamsBrain,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub brain_host: Option<Option<String>>,
+}
+
+wire_errors! {
+    /// The error codes mux.configure declares.
+    MuxConfigureError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// List the caller-owned private Cloud networks.
+    NetworkListOp {
+        name: "network.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session],
+        params: NetworkListParams,
+        result: NetworkListResult,
+        error: NetworkListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetworkListParams {}
+
+wire_enum! {
+    NetworkListResultNetworksItemScope {
+        User = "user",
+        Team = "team",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetworkListResultNetworksItem {
+    pub id: String,
+    pub cidr: Option<String>,
+    #[serde(rename = "cidrV6")]
+    pub cidr_v6: Option<String>,
+    pub scope: NetworkListResultNetworksItemScope,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetworkListResult {
+    pub networks: Vec<NetworkListResultNetworksItem>,
+}
+
+wire_errors! {
+    /// The error codes network.list declares.
+    NetworkListError {
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
 wire_op! {
     /// Hand a group to another current person (the owner only). You stay as an admin.
     OwnershipTransferOp {
@@ -836,62 +902,4 @@ wire_op! {
         result: SsoConnection,
         error: SsoConnectionActivateError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionActivateParams {
-    pub connection: SsoConnectionId,
-}
-
-wire_errors! {
-    /// The error codes sso.connection.activate declares.
-    SsoConnectionActivateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        SsoDiscoveryFailed = "sso.discovery_failed",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Create an OIDC connection in draft (owners and admins). Then set its client secret and activate it.
-    SsoConnectionCreateOp {
-        name: "sso.connection.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: SsoConnectionCreateParams,
-        result: SsoConnection,
-        error: SsoConnectionCreateError,
-    }
-}
-
-wire_enum! {
-    SsoConnectionCreateParamsJitDefaultRole {
-        Member = "member",
-        Admin = "admin",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionCreateParamsJit {
-    pub enabled: bool,
-    pub default_role: SsoConnectionCreateParamsJitDefaultRole,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionCreateParams {
-    pub issuer: String,
-    pub client_id: String,
-    pub domains: Vec<EmailDomain>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scopes: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub jit: Option<SsoConnectionCreateParamsJit>,
 }
