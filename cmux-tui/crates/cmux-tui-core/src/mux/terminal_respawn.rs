@@ -56,6 +56,24 @@ const DISABLE_ENV: &str = "CMUX_TUI_TEST_DISABLE_RESPAWN";
 /// Holds a scheduled respawn this long before it starts (tests of a close
 /// that races the respawn).
 const DELAY_ENV: &str = "CMUX_TUI_TEST_RESPAWN_DELAY_MS";
+/// Test override of the respawn gate's slots (default: available
+/// parallelism).
+const SLOTS_ENV: &str = "CMUX_TUI_TEST_RESPAWN_SLOTS";
+
+/// The respawn gate: first respawn attempts take turns in the order they
+/// were scheduled, at most one per CPU at once. A respawn replays its seed
+/// (the previous screen, up to several MB) in the daemon's mirror and in
+/// its new host; after a kill of everything all of them used to start at
+/// once and the visible terminals waited behind the hidden ones for the
+/// CPU (STATUS 5931).
+pub(in crate::mux) fn respawn_gate() -> super::startup_adoption_gate::StartupAdoptionGate {
+    let slots = std::env::var(SLOTS_ENV)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, usize::from));
+    super::startup_adoption_gate::StartupAdoptionGate::with_slots(slots)
+}
+
 /// Host-loss reasons (`TerminalEnd::wire_json` `reason`) that respawn.
 const RESPAWN_REASONS: &[&str] = &[
     "dead_before_adoption",
@@ -250,14 +268,33 @@ impl Mux {
             self.abandon_terminal_respawn(terminal_id);
             return;
         };
+        // A first attempt takes its place in line here, on the scheduling
+        // thread, so the order is the order of scheduling (the visible
+        // workspace first at a start). A retry after a backoff takes none:
+        // it must not hold the line for its delay.
+        let ticket = plan.delay.is_zero().then(|| self.respawn_gate.ticket());
+        let gate = self.respawn_gate.clone();
         let name = format!("terminal-respawn-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
+            let stopping =
+                || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
+            let turn = match ticket {
+                Some(ticket) => match gate.turn(ticket, stopping) {
+                    Some(turn) => Some(turn),
+                    None => {
+                        mux.abandon_terminal_respawn(&plan.terminal_id);
+                        return;
+                    }
+                },
+                None => None,
+            };
             let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
             if mux.wait_respawn_backoff(delay) {
                 mux.run_terminal_respawn(plan);
             } else {
                 mux.abandon_terminal_respawn(&plan.terminal_id);
             }
+            drop(turn);
         });
         if let Err(error) = spawned {
             eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
