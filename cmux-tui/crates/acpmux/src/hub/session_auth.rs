@@ -482,6 +482,11 @@ impl Hub {
             .await
             .unwrap_or(None);
             if let (Some(at), Some((id, evidence))) = (changed, facts.turn.as_mut()) {
+                let source_turn_id = self
+                    .resolve(id)
+                    .ok()
+                    .and_then(|s| s.meta().last_turn)
+                    .and_then(|v| v.get("turnId").and_then(Value::as_str).map(str::to_owned));
                 if let Ok(changed_session) = self.resolve(id) {
                     let current = {
                         let mut meta =
@@ -493,6 +498,12 @@ impl Hub {
                             .as_ref()
                             .and_then(turn_evidence)
                             .is_some_and(|t| t.at == after)
+                            && meta
+                                .last_turn
+                                .as_ref()
+                                .and_then(|v| v.get("turnId"))
+                                .and_then(Value::as_str)
+                                == source_turn_id.as_deref()
                         {
                             mark_credentials_changed(&mut meta, at);
                         }

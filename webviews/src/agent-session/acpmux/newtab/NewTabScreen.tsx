@@ -749,9 +749,17 @@ export function NewTabScreen(props: Props) {
       : undefined
     : machine?.peer;
   const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+  const authCwd =
+    environment?.folder ?? machine?.folder ?? chatFolder;
   const authQuery =
     harness && (!remoteTarget || targetHost)
-      ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
+      ? {
+          target: {
+            harness,
+            ...(targetHost ? { host: targetHost } : {}),
+            ...(authCwd?.startsWith("/") ? { cwd: authCwd } : {}),
+          },
+        }
       : undefined;
   const { auth: targetAuth, recheck: recheckTarget } = useSessionAuth(
     authQuery,
