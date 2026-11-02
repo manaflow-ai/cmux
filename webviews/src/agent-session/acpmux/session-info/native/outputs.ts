@@ -5,7 +5,6 @@ import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
 import { OUTPUTS_SHOWN, type OutputArtifact, type OutputLink } from "../OutputsSection";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
-import { nativeExternalUrl, safeExternalUrl } from "./links";
 
 export type OutputsInput = {
   files: readonly TurnFile[];
@@ -31,7 +30,6 @@ export function outputsSection(
   t: Translate,
 ): NativeInfoSection | undefined {
   const { files, links, artifacts, documents = [], onOpenFile, onOpenArtifacts, onOpenDocument, onOpenUrl } = input;
-  const openUrl = nativeExternalUrl(onOpenUrl);
   // As SessionInfo shows it: any file, link, gallery item, or document it can open.
   if (files.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) === 0) return undefined;
   const rows: NativeInfoRow[] = [];
@@ -76,8 +74,10 @@ export function outputsSection(
       title: link.label,
       trailing: t("sessionInfo.outputs.link"),
       help: link.url,
-      ...(safeExternalUrl(link.url)
-        ? { action: actions.add(`outputs.openLink:${link.url}`, () => openUrl(link.url)) }
+      ...(onOpenUrl
+        ? {
+            action: actions.add(`outputs.openLink:${link.url}`, () => onOpenUrl(link.url)),
+          }
         : {}),
     });
   const expanded = input.expanded === true;
