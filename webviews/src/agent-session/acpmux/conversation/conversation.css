@@ -305,6 +305,16 @@
   line-height: 1.4;
   pointer-events: none;
 }
+/* A sent video playing in place (SentVideoTile.tsx): the reply's player (chips.css .cv-media) at its
+   own size, its controls and Expand showing the arrow, not a sent image's zoom-in. */
+.cv-user__video-player {
+  display: block;
+  max-width: 100%;
+}
+.cv-user__images .cv-user__video-player button,
+.cv-user__inline-image .cv-user__video-player button {
+  cursor: default;
+}
 /* The slot a thumbnail holds while acpmux reads it: its height, square until the image's shape is known. */
 .cv-user__image-placeholder {
   display: block;

@@ -241,6 +241,32 @@ struct AgentPaneVideoInfoTests {
         #expect(await AgentPaneVideoInfo.isSelfContained(shown))
     }
 
+    @Test func anAttachedVideoOutsideTheRootsPlaysInlineButNeverAsAReferenceMovie() async throws {
+        // A screen recording on the Desktop plays in the pane (`media.load`), from the same scope its
+        // poster and Quick Look read; a pointer there is refused as Quick Look refuses it.
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        let desktop = home.appendingPathComponent("Desktop", isDirectory: true)
+        try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
+        let secret = folder.appendingPathComponent("secret.mov")
+        try await Self.movie(at: secret, width: 320, height: 180, seconds: 1)
+        let clip = desktop.appendingPathComponent("clip.mov")
+        try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
+        let pointer = desktop.appendingPathComponent("pointer.mov")
+        try await Self.referenceMovie(at: pointer, to: secret)
+
+        let model = AgentPaneModel(host: NoHost())
+        model.replyLinks.home = home.path
+        let played = await Self.ask(model, "media.load", ["src": clip.path])
+        #expect(Self.errorCode(played) == nil, "\(played)")
+        let src = try #require((played["value"] as? [String: Any])?["src"] as? String)
+        #expect(src.hasPrefix("cmux-agent://pane/__media/") && src.hasSuffix(".mov"))
+        let url = try #require(URL(string: src))
+        #expect(AgentPaneMediaGrants.shared.file(for: url)?.resolvingSymlinksInPath() == clip.resolvingSymlinksInPath())
+        #expect(Self.errorCode(await Self.ask(model, "media.load", ["src": pointer.path])) == AgentPaneReplyError.mediaRefused.rawValue)
+    }
+
     @Test func whatIsReadAndPlayedIsAPrivateCopyTakenFromTheFileAsItWasOpened() async throws {
         // A path is never read again after its check: the copy comes from the file opened once, so
         // one rewritten in place (into a reference movie), replaced, or reached through a folder
