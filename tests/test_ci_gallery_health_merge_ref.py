@@ -85,6 +85,24 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn('--entries "$entries"', run)
         self.assertIn("bun health.ts", run)
 
+    def test_the_base_replays_only_the_red_states_within_a_budget(self) -> None:
+        # Whole entries (matched by prefix) re-rendered 1,308 cases for ~40 red states and the job was cancelled
+        # at its timeout with no verdict.
+        judge = step("Judge the red states against the base")
+        run = judge["run"]
+        self.assertIn("gallery --head \"$head\" --states", run)
+        self.assertIn('"$RUNNER_TEMP/base-entries.json" > "$RUNNER_TEMP/base-manifest.json"', run)
+        self.assertLess(run.index("base-manifest.json"), run.index("bun health.ts"))
+        self.assertIn('--manifest "$RUNNER_TEMP/base-manifest.json"', run)
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertLess(int(judge["timeout-minutes"]), int(workflow["jobs"]["health"]["timeout-minutes"]))
+
+    def test_the_shard_count_matches_the_matrix(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        shards = workflow["jobs"]["health"]["strategy"]["matrix"]["shard"]
+        self.assertEqual(shards, list(range(len(shards))))
+        self.assertIn(f"--shard-count {len(shards)} ", step("Render the gallery and judge it")["run"])
+
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
         # first ran without it, so no base result ever existed and every red failed (review of #27100).
@@ -100,8 +118,15 @@ class GalleryHealthBaseReds(unittest.TestCase):
         run = step("Judge the red states against the base")["run"]
         replay = run[run.index("bun health.ts"):]
         self.assertNotIn("|| true", replay.split("\n", 2)[0] + replay.split("\n", 2)[1])
-        self.assertIn('[ ! -s "$RUNNER_TEMP/health/base/health.json" ]', run)
-        self.assertLess(run.index('[ ! -s "$RUNNER_TEMP/health/base/health.json" ]'), run.index("--base \"$RUNNER_TEMP/health/base/health.json\""))
+        self.assertIn('[ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]', run)
+        self.assertLess(run.index('[ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]'), run.index('"${bases[@]}"'))
+
+    def test_a_state_red_in_any_base_render_is_the_bases(self) -> None:
+        # The head holds a state red only when every retry shows it; the base must not need that too, or a state
+        # that flakes on the base is the pull request's own (pages.home-channels#emoji-return, run 41393541781).
+        run = step("Judge the red states against the base")["run"]
+        self.assertIn("for pass in 1 2", run)
+        self.assertIn("--retries 0", run)
 
     def test_one_classifier_judges_it_and_fails_closed(self) -> None:
         run = step("Judge the red states against the base")["run"]

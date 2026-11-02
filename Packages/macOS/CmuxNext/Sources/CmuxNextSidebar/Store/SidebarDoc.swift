@@ -89,6 +89,16 @@ public nonisolated enum SidebarDocBody: Hashable, Sendable {
         if case .workspace(let ref) = self { ref } else { nil }
     }
 
+    /// Whether a Pinned item of this body belongs to one space (spaces.md): a link, tab or app does, stored as
+    /// `extra.room`. A built-in, room, saved group or unknown ref stays shared; a workspace's space is its own and
+    /// a group's is its `profile`.
+    public var belongsToASpace: Bool {
+        switch self {
+        case .url, .tab, .app: true
+        default: false
+        }
+    }
+
     public var isGroup: Bool {
         if case .group = self { true } else { false }
     }
@@ -115,10 +125,25 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     /// A group's own auto-archive rule (`extra.auto_archive`; plans/cmux-next/auto-archive-DESIGN.md);
     /// nil when it follows the setting.
     public var autoArchive: SidebarDocAutoArchiveRule?
+    /// The space the item was made in: a group's `profile`, another item's `extra.room`. Nil: made before items
+    /// carried one, read as the default space (spaces.md: each space owns its pins and groups).
+    public var room: String?
+
+    /// The id of the default space (`ProfileID.defaultProfile`): where an item with no stored space belongs.
+    public static let defaultRoom = "default"
+
+    /// The space an item that stores `room` belongs to while the spaces `spaces` exist: its own, else the default
+    /// space's (none stored, or one that is gone: deleted, or not mirrored back yet). Nil `spaces`: every stored space
+    /// counts. So no item is ever left out of every window; one whose space comes back (Reopen) returns to it.
+    public static func owningRoom(_ room: String?, spaces: Set<String>?) -> String {
+        guard let room, room == defaultRoom || spaces?.contains(room) ?? true else { return defaultRoom }
+        return room
+    }
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
                 label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false, archived: Bool = false,
-                autoArchive: SidebarDocAutoArchiveRule? = nil) {
+                autoArchive: SidebarDocAutoArchiveRule? = nil, room: String? = nil) {
+        self.room = room
         self.iconURL = iconURL
         self.autoArchive = autoArchive
         self.pinnedInGroup = pinnedInGroup && parent != nil
