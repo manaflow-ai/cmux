@@ -11,6 +11,8 @@ import "../../src/agent-session/acpmux/conversation/conversation.css";
 import { ToolGroupRow } from "../../src/agent-session/acpmux/conversation/ToolGroupRow";
 import { ToolRow } from "../../src/agent-session/acpmux/conversation/ToolRow";
 import { CommandRow } from "../../src/agent-session/acpmux/conversation/CommandRow";
+import cmuxExecGallery from "../../src/agent-session/acpmux/conversation/CmuxExecRows.gallery";
+import "../../src/agent-session/acpmux/conversation/ToolRowColumn.gallery.css";
 import strings from "../../src/agent-session/acpmux/generated/strings.json";
 import type { AcpmuxActivity } from "../../src/agent-session/acpmux/model";
 
@@ -23,6 +25,7 @@ const call = (tool: Partial<Tool> & { id: string }): AcpmuxActivity => ({
   text: "",
   tool: { title: "", kind: "execute", status: "completed", startedAt: 1000, endedAt: 3000, ...tool },
 });
+const CmuxExecGallery = await cmuxExecGallery.load();
 
 const blocked = call({
   id: "blocked",
@@ -64,6 +67,7 @@ function App() {
   const width = Number(params.get("width") ?? 760);
   const look = params.get("look");
   if (look) document.documentElement.dataset.toolStepsLook = look;
+  if (params.get("fixture") === "script") return <CmuxExecGallery look="after" mode={theme} />;
   return (
     <main
       className="acpmux-shell"
@@ -79,11 +83,13 @@ function App() {
         } as CSSProperties
       }
     >
-      <div className="cv-tools" data-fixture-column>
-        <ToolRow item={lone} />
-        <ToolGroupRow kind="commands" items={[blocked, failed, background]} disclosureKey="fixture-group" />
-        <CommandRow item={loneFailed} />
-        <CommandRow item={{ ...blocked, tool: { ...blocked.tool!, id: "blocked-lone", description: undefined } }} />
+      <div className="acpmux-row" style={{ position: "relative", left: 0, right: 0, width: "100%" }}>
+        <div className="cv-tools" data-fixture-column>
+          <ToolRow item={lone} />
+          <ToolGroupRow kind="commands" items={[blocked, failed, background]} disclosureKey="fixture-group" />
+          <CommandRow item={loneFailed} />
+          <CommandRow item={{ ...blocked, tool: { ...blocked.tool!, id: "blocked-lone", description: undefined } }} />
+        </div>
       </div>
     </main>
   );

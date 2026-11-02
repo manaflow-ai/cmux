@@ -122,7 +122,7 @@ final class AppServices {
     private(set) lazy var feed: FeedService = FeedService(
         auth: cloud.auth,
         showcase: environment.showcase,
-        acpmuxEnvironment: QuitAgents.environment(self),
+        acpmuxEnvironment: QuitAgents.environment(self), approvalHolds: cloud.approvalHolds,
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
     var showcase = ShowcaseState()
@@ -356,6 +356,8 @@ final class AppServices {
     let paneTabBars = PaneTabBarChoices()
     /// The panes in Full Width Tab mode (`PaneFullWidthTabs`).
     let paneFullWidthTabs = PaneFullWidthTabs()
+    /// Which workspaces show vertical tabs, and whether the lists are collapsed (`WorkspaceVerticalTabs`).
+    let workspaceVerticalTabs = WorkspaceVerticalTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.

@@ -165,34 +165,26 @@ final class CreationInputCoordinator {
                                             machine: controller.content?.daemon.machineID, takesEveryKey: hides)
     }
 
-    /// By window, while close questions are up (how many): the keys of closes that ended meanwhile, which wait for the answer with its own keys.
-    private var asking: [Int: (events: [NSEvent], questions: Int)] = [:]
+    /// How many close questions are up, by window: a key typed meanwhile is the question's, and the held keys wait, in typing order, for the last answer.
+    private var asking: [Int: Int] = [:]
 
-    /// The close asks the person: its keys wait for the answer outside the hold (the question takes its own keys).
+    /// The close asks the person: its keys wait in the window's hold for the answer, and the question takes the keys typed now.
     func parkClose(_ ticket: CreationInputBuffer.Ticket?, in window: NSWindow?) -> CreationInputBuffer.ParkedClose? {
         guard let window else { return nil }
-        asking[window.windowNumber, default: (events: [], questions: 0)].questions += 1
-        guard let ticket, let parked = buffers[window.windowNumber]?.parkClose(ticket) else { return .init(events: [], closing: "", machine: nil) }
-        scheduleFlush(in: window)
-        return parked
+        asking[window.windowNumber, default: 0] += 1
+        if let ticket { buffers[window.windowNumber]?.parkClose(ticket) }
+        return .init(ticket: ticket)
     }
 
-    /// The close ran: its keys (`parked` first) go to the terminal focused now, once it has the keyboard. The person cancelled it (`stays`): its parked keys go to the terminal that stays now, by that terminal, wherever the focus is.
-    /// A close that ends while another close's question is up waits for that answer, as the hold's keys do (``flush(in:force:end:)``), which go on after it; a gone window takes its keys with it.
+    /// The close ran: its keys go to the terminal focused now, once it has the keyboard. The person answered its question
+    /// (`parked`), with Cancel (`stays`): its keys go to the terminal it asked about, wherever the focus is. Either way they go
+    /// in typing order with the window's other held keys, after the last open question's answer (``flush(in:force:end:)``).
     func endClose(_ ticket: CreationInputBuffer.Ticket?, parked: CreationInputBuffer.ParkedClose? = nil, stays: Bool = false, in window: NSWindow?) {
         guard let window else { return }
-        let number = window.windowNumber
-        if parked == nil, asking[number] != nil, let ticket, let more = buffers[number]?.parkClose(ticket) { asking[number]?.events.append(contentsOf: more.events) }
-        if parked == nil, asking[number] != nil { return } // the answer lets these keys go on (``flush(in:force:end:)`` waits for it)
-        let parked = parked.map { CreationInputBuffer.ParkedClose(events: $0.events + (asking[number]?.events ?? []), closing: $0.closing, machine: $0.machine) }
-        // The question is answered: the keys the hold kept meanwhile go on, once no other close's question is up.
-        defer { if parked != nil { asking[number]?.events = []; asking[number]?.questions -= 1; if asking[number]?.questions == 0 { asking[number] = nil }; scheduleFlush(in: window) } }
-        if stays, let parked, !parked.closing.isEmpty, !parked.events.isEmpty { // Cancel: the keys go to the terminal that stays
-            return _ = runAgain(CreationInputBuffer.heldKeys(parked.events, for: CreationInputBuffer.HeldLane(tab: parked.closing, machine: parked.machine)), from: buffers[number] ?? CreationInputBuffer(began: ContinuousClock.now), in: window)
-        }
-        let controller = router?.focus(for: window).0
-        guard let ticket = ticket ?? parked.flatMap({ $0.events.isEmpty ? nil : buffer(in: window).openClose(closing: [$0.closing], machine: $0.machine) }) else { return }
-        buffers[number]?.settleClose(ticket, parked: parked, keysTo: controller?.focus.state.terminalTab, machine: controller?.content?.daemon.machineID)
+        let number = window.windowNumber, controller = router?.focus(for: window).0
+        if parked != nil { asking[number] = asking[number].flatMap { $0 > 1 ? $0 - 1 : nil }; scheduleFlush(in: window) }
+        guard let ticket = ticket ?? parked?.ticket else { return }
+        buffers[number]?.settleClose(ticket, keysTo: controller?.focus.state.terminalTab, stays: stays, machine: controller?.content?.daemon.machineID)
         resolve(ticket, landed: controller != nil, in: window)
     }
 
@@ -374,11 +366,11 @@ final class CreationInputCoordinator {
         if !force {
             let focus = controller.focus.state
             if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
-            // A new workspace's keys wait for the window to show it and for its terminal to have the keyboard.
-            if let workspace = buffer.awaitedWorkspace, workspace != shown || Self.keyboardTerminal(controller, window) == nil { return }
+            let terminal = Self.keyboardTerminal(controller, window) // a new workspace's keys wait for it to show with its terminal (a left one's: its own)
+            if let workspace = buffer.shownWorkspaceToWaitFor, workspace != shown || terminal == nil { return }
             guard Self.responderTakesKeys(controller, window: window) else { return }
-            // Its focused terminal's surface is still to come (the presentation shows it on a later frame).
-            if let awaited = buffer.awaitedTab, Self.awaitedContent(controller)?.tab == awaited { return }
+            if let awaited = buffer.awaitedTab, Self.awaitedContent(controller)?.tab == awaited { return } // its surface comes on a later frame
+            if let kept = buffer.keysKeptForLeftWorkspace(shown: shown, terminalReady: terminal != nil) { return _ = runAgain(buffer.take(focused: terminal, keeping: kept) { self.shortcut($0, tab: $1, in: window) != nil }, from: buffer, in: window) }
         }
         buffers[window.windowNumber] = nil
         // A forced end drops the keys of a new workspace the window does not show, and the window's focus applies again.

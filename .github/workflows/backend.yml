@@ -535,12 +535,13 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
-        # 0 current, 1 stale (the issue pages), 4 unknown (no green evidence; the issue is left alone); errors fail the step.
+        # 0 current, 1 stale (the issue pages), 4 unknown (no green evidence; the issue is left alone); any other exit
+        # (an error, e.g. a GitHub 5xx past prod-promote.ts's retries) warns and continues so G1-G7 still run.
         run: |
           set +e
           bun scripts/cmux-next/release/prod-promote.ts stale --issue
           rc=$?
-          case "$rc" in 0|4) ;; 1) echo "::warning title=cmux-api production is stale::see the prod-stale issue" ;; *) exit "$rc" ;; esac
+          case "$rc" in 0|4) ;; 1) echo "::warning title=cmux-api production is stale::see the prod-stale issue" ;; *) echo "::warning title=cmux-api production staleness check errored::prod-promote.ts stale exited $rc; the prod-stale issue was not updated this run" ;; esac
       - name: Promotion gates G1-G7 and the hold switch
         id: gates
         env:

@@ -92,6 +92,7 @@ import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
+import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
@@ -100,6 +101,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
+import { isLostConnection, JOURNAL_PARAMS_BYTES, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -1612,8 +1614,15 @@ export class AcpmuxDirectClient {
       resolve: (value: any) => void;
       reject: (error: Error) => void;
       timer?: ReturnType<typeof setTimeout>;
+      /// Puts the request on the wire again (a busy refusal's retry).
+      send: () => void;
+      /// Busy refusals it has had.
+      busy: number;
     }
   >();
+  /// The daemon's count of this connection's work requests: a page never sends past it
+  /// (requestBudget.ts). Reset with the connection.
+  private budget = new RequestBudget();
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
   /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
@@ -2316,6 +2325,8 @@ export class AcpmuxDirectClient {
     const openingSocket = await new Promise<WebSocket>((resolve, reject) => {
       const socket = this.openSocket(url, protocols);
       this.socket = socket;
+      // A new connection starts the daemon's count anew.
+      this.budget.reset();
       let opened = false;
       socket.onopen = () => {
         opened = true;
@@ -3115,6 +3126,15 @@ export class AcpmuxDirectClient {
     if (!message) return;
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
       const request = this.pending.get(message.id);
+      const busy = (message.error?.data as { reason?: unknown } | undefined)?.reason === "connection.busy";
+      if (request && busy && request.busy + 1 < BUSY_TRIES) {
+        // The daemon's count and this page's drifted: the request goes again later, never at once.
+        request.busy += 1;
+        this.wire.lifecycle("busy retry", { id: message.id, tries: request.busy });
+        this.budget.retryLater(message.id, request.send, busyDelay(request.busy));
+        return;
+      }
+      this.budget.settled(message.id);
       if (!request) return;
       this.pending.delete(message.id);
       if (request.timer) clearTimeout(request.timer);
@@ -3900,26 +3920,39 @@ export class AcpmuxDirectClient {
           origin: "native",
         }),
       );
+    const socket = this.socket;
     const id = this.nextRequest++;
-    const result = this.expectReply(id, method, deadline);
-    try {
-      const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
-      this.wire.sent(text, method, id);
-      this.socket!.send(text);
-    } catch (error) {
-      const request = this.pending.get(id);
-      this.pending.delete(id);
-      if (request?.timer) clearTimeout(request.timer);
-      request?.reject(error instanceof Error ? error : new Error(String(error)));
-    }
+    const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+    // A request that waited goes only on the connection it was asked on: a closed one rejected it.
+    // A send that throws fails its own request and frees its slot, also when a reply freed it later.
+    const send = () => {
+      if (this.socket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      try {
+        this.wire.sent(text, method, id);
+        socket.send(text);
+      } catch (error) {
+        const request = this.pending.get(id);
+        this.pending.delete(id);
+        if (request?.timer) clearTimeout(request.timer);
+        this.budget.settled(id);
+        request?.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+    const result = this.expectReply(id, method, deadline, waitsForSlot(method) ? send : undefined);
+    this.budget.admit(id, method, send);
     return result;
   }
 
-  private expectReply(id: number | string, method: string, deadline?: number): Promise<any> {
+  /// `send` puts the request on the wire again after a busy refusal; without one (a request the
+  /// native host sends, or any but a read) a busy refusal fails it like any other.
+  private expectReply(id: number | string, method: string, deadline?: number, send?: () => void): Promise<any> {
     return new Promise((resolve, reject) => {
       const timer = deadline
         ? setTimeout(() => {
             this.pending.delete(id);
+            // One on the wire holds the daemon's slot until its late answer (receive); one still
+            // waiting for a slot never goes.
+            if (!this.budget.onWire(id)) this.budget.settled(id);
             reject(
               Object.assign(new Error(translate("error.timedOut")), {
                 code: "native.timed_out",
@@ -3935,6 +3968,8 @@ export class AcpmuxDirectClient {
           reject(error);
         },
         timer,
+        send: send ?? (() => {}),
+        busy: send ? 0 : BUSY_TRIES,
       });
     });
   }
@@ -6893,6 +6928,11 @@ export class AcpmuxDirectClient {
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
       const held = !released && accepted !== undefined;
+      // The connection went before acpmux took it, on a chat of this Mac's acpmux: the host's prompt
+      // journal sends it again, under its promptId, on the pane's next connection (lostPrompt.ts),
+      // so its sender waits for it to show there instead of saying "Not sent" at once.
+      if (!taken && isLostConnection(error) && this.journalsPrompts(blocks))
+        Object.assign(error as object, { lostPrompt: { sessionId, promptId } satisfies LostPrompt });
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       if (here && trustCancellation === this.trustCancellation) this.routeTrustRefusal(error);
       if (held) {
@@ -6913,7 +6953,8 @@ export class AcpmuxDirectClient {
         // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
         // for want of a real key or click (dictation's autoSend after a session ended by itself)
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
-        if (held && !isTrustRefusal(error))
+        // A lost prompt the host sends again says nothing yet: its sender says it if it never shows.
+        if (held && !isTrustRefusal(error) && !lostPrompt(error))
           this.notice(
             code === "transport.gesture_required"
               ? translate("prompt.notSentAgain")
@@ -8508,6 +8549,17 @@ export class AcpmuxDirectClient {
       )
     );
   }
+  /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
+  /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux (a chat of another
+  /// Mac it relays included), and for a prompt within the journal's `maximumParamsBytes` (8 MiB).
+  private journalsPrompts(blocks: unknown): boolean {
+    if (!this.localOrigin) return false;
+    try {
+      return JSON.stringify(blocks).length < JOURNAL_PARAMS_BYTES;
+    } catch {
+      return false;
+    }
+  }
   /// The `awaitResent` waits, with their chat: each settles false once this connection closes or
   /// the pane shows another chat.
   private resendWaits = new Map<() => void, string>();
@@ -9360,6 +9412,8 @@ export class AcpmuxDirectClient {
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
   }
   private rejectPending(): void {
+    // The daemon's count went with the connection; busy retries waiting for their time stop here.
+    this.budget.reset();
     for (const request of this.pending.values()) {
       if (request.timer) clearTimeout(request.timer);
       // The timeout code stays (git writes, checkpoints and permissions read it); `reason` tells a
