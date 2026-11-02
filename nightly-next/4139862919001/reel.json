@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4139862919001",
+  "notes": "notes/4139862919001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31891,
+      "title": "fix(ci): refresh runner capacity after nightly admission waits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31889,
+      "title": "fix(ci): use shared runner state only for the first capacity look",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31881,
+      "title": "Agent pane: a self-started turn's Thinking clock no longer reads 11h",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31820,
+      "title": "fix(protocol): reject empty observed provider names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31805,
+      "title": "codegen: Swift emitter for CmuxNextDaemon request types (sdk-schema.json), with --check; Layout wire tests",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31758,
+      "title": "Session Info: subtle blur at overflowing Outputs edges",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31736,
+      "title": "fix(new-tab): preflight the known chat start folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31643,
+      "title": "fix(cmux-tui): a kill of everything restores each terminal's exact text, then the session line, in the same directory string (REOPEN-F3)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31747,
+      "title": "base red: ensure_home's workspace-added event names the home kind \"home\" (SidebarCmdNumberTwiceTests Cmd-2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31870,
+      "title": "swift-logic-classes: classify the declarations #31795 and #31707 added or moved",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31794,
+      "title": "base red: the pane policy lists the guest-queue methods the Swift host allows (#31144)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31613,
+      "title": "fix(next terminal): a divider drag resizes each terminal's PTY once, when the drag lands",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31859,
+      "title": "keys: build a stale key-binding table in a background batch, not on a key's turn (typing F3)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
