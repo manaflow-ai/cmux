@@ -128,7 +128,7 @@ struct WorkspaceTabHoverCardLine: Equatable {
         return namesLocal ? Strings.hoverCardThisMac : nil
     }
 
-    /// A machine as the card names it: "This Mac", "Cloud", or its name (the card's host row's words).
+    /// A machine as the card names it: "This Mac", "Cloud", or its name (the words of the card's header).
     static func machineWord(_ machine: SidebarMachine) -> String {
         switch machine.kind {
         case .local: Strings.hoverCardThisMac

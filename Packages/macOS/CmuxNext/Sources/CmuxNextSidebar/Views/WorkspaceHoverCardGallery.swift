@@ -104,7 +104,8 @@ public struct WorkspaceHoverCardGallery {
 
     /// The tab rows' line in each style (Leo 2026-11-01: "local or nonlocal is probably useful to see in the
     /// hover previews"; "these are not informative enough nor look very good. there's no symbols, not much
-    /// metadata, nothing"), on this Mac and on another machine; the shipped one says so in its name.
+    /// metadata, nothing"), on this Mac and on another machine; the shipped one says so in its name. On another
+    /// machine the card's header names it, so its rows name none (Leo 2026-11-02: "the repeated cloud cloud cloud").
     @MainActor static func tabRowCards(now: Date) -> [(name: String, view: NSView)] {
         var chat = SidebarTab(id: TabID("coord"), title: "claude-sr2-coord", kind: .agentChat, brand: "claude", folder: "~/Projects",
                               state: .working, lastActivity: now.addingTimeInterval(-60))

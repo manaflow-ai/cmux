@@ -5,9 +5,10 @@ import Foundation
 import Testing
 
 /// Machine identity: while the sidebar lists more than one machine, a workspace row on another
-/// machine marks it (its glyph, one neutral colour, in the trailing column), so rows on different machines tell apart. This Mac's
-/// rows are marked only with `sidebar.showLocalMachine` (Leo 2026-10-20: another machine is the
-/// news). One machine: no mark.
+/// machine carries it (`WorkspaceRowContent.machine`), which its accessibility label names; the row
+/// draws no glyph for it (Leo 2026-11-02: "the tiny cloud icon the repeated cloud cloud cloud"). This
+/// Mac's rows carry it only with `sidebar.showLocalMachine` (Leo 2026-10-20: another machine is the
+/// news). One machine: none.
 @MainActor @Suite(.serialized) struct SidebarMachineMarkTests {
     private let mac = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     private let vm = SidebarMachine(id: MachineID("vm"), name: "gpu-box", kind: .ssh, icon: .symbol("server.rack"))
