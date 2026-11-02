@@ -57,11 +57,40 @@ def decode(movie):
         yield np.frombuffer(buf, dtype=np.uint8).reshape(h, w, 3)
 
 
-def find(frame, test):
-    ys, xs = np.nonzero(test(frame.astype(np.int16)))
-    if len(xs) < 20:
+def find(frame, test, size=None, corner="top-left"):
+    """The bounding box (x0, y0, x1, y1 inclusive) of the solid SIZE x SIZE px square of TEST's color nearest CORNER
+    (the page's own marker or badge, not another pixel of that color elsewhere: DevTools draws colored swatches).
+    Without SIZE: the bounding box of every matching pixel."""
+    mask = test(frame.astype(np.int16))
+    if size is None:
+        ys, xs = np.nonzero(mask)
+        if len(xs) < 20:
+            return None
+        return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+    k = max(int(size * 0.8), 4)
+    ii = np.pad(mask.astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    box = ii[k:, k:] - ii[:-k, k:] - ii[k:, :-k] + ii[:-k, :-k]
+    ys, xs = np.nonzero(box >= k * k * 0.97)
+    if len(xs) == 0:
         return None
-    return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+    score = (xs + ys) if corner == "top-left" else -(xs + ys)
+    i = int(np.argmin(score))
+    x, y = int(xs[i]), int(ys[i])
+    # Grow to the square's full extent along its row and column.
+    row, col = mask[y + k // 2], mask[:, x + k // 2]
+    x0 = x
+    while x0 > 0 and row[x0 - 1]:
+        x0 -= 1
+    x1 = x + k - 1
+    while x1 + 1 < len(row) and row[x1 + 1]:
+        x1 += 1
+    y0 = y
+    while y0 > 0 and col[y0 - 1]:
+        y0 -= 1
+    y1 = y + k - 1
+    while y1 + 1 < len(col) and col[y1 + 1]:
+        y1 += 1
+    return x0, y0, x1, y1
 
 
 def magenta(f):
@@ -125,9 +154,10 @@ def judge_round(root, entry, stills, window_px):
     for x in before[:-1]:
         anim |= changed_mask(frames[x], frames[before[-1]])
     anim_share = float(anim.mean())
-    dpr = float((entry.get("state_before") or {}).get("dpr") or 2)
-    mark_a = find(A, magenta)
-    badge_a, badge_b = find(A, cyan), find(B, cyan)
+    dpr = float((entry.get("state_before") or {}).get("dpr") or entry.get("scale") or 2)
+    MARK, BADGE = round(32 * dpr), round(20 * dpr)
+    mark_a = find(A, magenta, MARK)
+    badge_a, badge_b = find(A, cyan, BADGE, "bottom-right"), find(B, cyan, BADGE, "bottom-right")
     res = {"case": entry["case"], "theme": entry["theme"], "round": entry["round"], "cold": entry.get("cold"),
            "period_ms": round(period * 1000, 3), "frames": n, "anim_share": round(anim_share, 4),
            "state": {k: entry.get(k) for k in ("state_before", "state_open", "state_after")}}
@@ -209,7 +239,7 @@ def judge_round(root, entry, stills, window_px):
                 out["jump"].append({"frame": i, "refreshes": refreshes, "column_changed": round(share, 5), "bbox": bbox(hit)})
                 if len(out["jump"]) <= 3:
                     save(f, os.path.join(stills, f"{entry['theme']}-{entry['case']}-r{entry['round']}-{label}-jump-f{i}.png"))
-            b = find(f, cyan)
+            b = find(f, cyan, BADGE, "bottom-right")
             if b and (not places or places[-1][1] != b):
                 places.append((i, b))
         out["badge_places"] = [{"frame": i, "rect": list(b)} for i, b in places]
@@ -243,7 +273,7 @@ def judge_events(root, entry, stills):
     frames, times = frames[:n], times[:n]
     events = entry["events"]
     dark = entry["theme"] == "dark"
-    dpr = 2.0
+    dpr = float(entry.get("scale") or 2)
     out = {"case": entry["case"], "theme": entry["theme"], "round": entry["round"], "kind": "events",
            "period_ms": round(period * 1000, 3), "frames": n, "events": []}
     page_phase = {"navigate", "switch back", "resize left", "resize right"}
@@ -281,7 +311,7 @@ def judge_events(root, entry, stills):
                     if len(res["flash"]) <= 3:
                         save(f, os.path.join(stills, f"{entry['theme']}-{entry['case']}-r{entry['round']}-{slug}-flash-f{i}.png"))
             if entry["case"].startswith("pane-") and ev["label"] in page_phase:
-                m = find(f, magenta)
+                m = find(f, magenta, round(32 * dpr))
                 settled_first = ev["label"] == "navigate" and (res["first"] is None or i < res["first"]["frame"] + 30)
                 if m is None:
                     if not settled_first and not (ev["label"] == "switch back" and res["first"] is None):
