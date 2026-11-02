@@ -66,7 +66,8 @@ impl Mux {
             Self::validate_workspace_name(name)?;
         }
         // Read before the state lock: `surface_notifications` locks state.
-        let notifications = self.tree_decorations();
+        let mut notifications = self.tree_decorations();
+        let reloads_presentation = mark.shows_in_tree();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
@@ -254,6 +255,11 @@ impl Mux {
                 .then_some(&write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
+        // The commit wrote the mark's kind row; the entity reads it from presentation.
+        if reloads_presentation {
+            self.reload_presentation(&registry)?;
+            notifications.presentation = self.presentation_snapshot();
+        }
         // Push the same coarse tree event a terminal-bearing create emits
         // (`emit_committed_workspace_delta` in the legacy create path), so
         // `subscribe` clients see the empty workspace now instead of when
