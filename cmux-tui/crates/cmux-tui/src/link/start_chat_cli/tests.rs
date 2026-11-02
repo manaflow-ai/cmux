@@ -321,6 +321,7 @@ fn copy_of(local: &str, subpath: &str) -> StartCopy {
         socket: PathBuf::from("/tmp/machine.sock"),
         local: local.into(),
         subpath: subpath.into(),
+        environment: None,
         work_roots: vec!["/home/cmux/work".into(), "/root/work".into()],
         acpmux_home: None,
     }
@@ -949,7 +950,10 @@ fn the_sends_the_app_kept_before_carry_over_once() {
     };
     let never =
         |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> { panic!("copied again") };
-    assert_eq!(copy.run_with_probe(&path, &never, &|_, _| Ok(true))["copied"], json!(false));
+    assert_eq!(
+        copy.run_with_probe(&path, &never, &|_, _| panic!("legacy source must not be trusted"))["error_code"],
+        json!("checkout.source_unknown")
+    );
     // Taking the same list in again changes nothing; one that is not a list is refused.
     assert_eq!(import(&path, &kept.to_string())["imported"], json!(0));
     assert_eq!(import(&path, "{")["error_code"], json!("bad_request"));
