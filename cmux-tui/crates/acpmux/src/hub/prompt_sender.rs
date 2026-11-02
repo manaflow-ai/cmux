@@ -92,6 +92,21 @@ mod tests {
     }
 
     #[test]
+    fn a_chiefs_message_names_its_chief() {
+        // A Chief's turn session sent it (`prompt_provenance::stamp_chief`):
+        // the relay of another Chief (`cmux chief acp`) routes its reply
+        // back into that Chief's chat by this id.
+        let provenance = json!({"kind": "session_message", "from": "s-turn",
+            "fromName": "Codex Chief", "fromChief": "agent_codex", "threadId": "t2"});
+        let params =
+            prompt_params("s", json!([]), Some("Codex Chief"), Some("question"), Some(&provenance));
+        assert_eq!(
+            params["_meta"]["acpmux"]["sender"],
+            json!({"name": "Codex Chief", "class": "question", "threadId": "t2", "chief": "agent_codex"})
+        );
+    }
+
+    #[test]
     fn a_persons_prompt_names_no_sender() {
         let params = prompt_params("s", json!([{"type": "text", "text": "hi"}]), None, None, None);
         assert_eq!(params, json!({"sessionId": "s", "prompt": [{"type": "text", "text": "hi"}]}));
