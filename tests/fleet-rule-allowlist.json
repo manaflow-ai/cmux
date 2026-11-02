@@ -10,6 +10,7 @@
     "cmux-tui/crates/acpmux/tests/no_keychain.rs": {"count": 7, "reason": "safe: the test asserts acpmux never runs a keychain read"},
     "cmux-tui/crates/acpmux/tests/router_no_keychain.rs": {"count": 7, "reason": "safe: the test asserts the router never runs a keychain read"},
     "scripts/ci/chief-first-turn-cost.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"},
+    "scripts/ci/macos-stubs/Security.tbd": {"count": 1, "reason": "safe: a linker text stub listing Security.framework's exported symbol names (_SecItemCopyMatching among them) so Linux CI can link; nothing runs a keychain read"},
     "scripts/cmux-next/browser-challenges-live.py": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the app's own browser HTTP auth item"},
     "scripts/measure/chief-import.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"}
   },
@@ -98,6 +99,7 @@
     "tests/test_reload_shared_derived_data.sh": {"count": 8, "reason": "safe: a test fake that records pkill arguments instead of running it"},
     "tests/test_reload_stop_never_launches_app.sh": {"count": 1, "reason": "safe: a comment or doc string explaining why name kills are unsafe; nothing is signalled"},
     "tests/test_seed_zig_package_archives.sh": {"count": 1, "reason": "safe: pgrep -f of a pattern holding this run's own mktemp cache path, so it matches only the seed downloads the test started"},
+    "tests/tool-evals/cases/hard.ndjson": {"count": 3, "reason": "safe: an eval case that forbids pkill/killall (shellMustNot) and says pkill is the wrong way to stop a process; nothing is signalled"},
     "tests_v2/test_ssh_remote_browser_favicon_uses_proxy.py": {"count": 1, "reason": "safe: the pattern is this test's own temp server script path on the test SSH host"},
     "tests_v2/test_ssh_remote_browser_move_rebinds_proxy.py": {"count": 1, "reason": "debt: `pkill -f 'python3 -m http.server PORT'` on the test SSH host; record the server PID"},
     "web/scripts/cmux-vm-image/bake.ts": {"count": 2, "reason": "safe: runs inside a throwaway VM or container this script owns; nothing else lives there (the VM image bake)"},
