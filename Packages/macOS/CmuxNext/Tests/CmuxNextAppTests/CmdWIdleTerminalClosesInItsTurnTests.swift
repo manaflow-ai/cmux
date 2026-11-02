@@ -78,8 +78,8 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             #expect(t.services.cache.existingTerminal(t.tab.id).map(ObjectIdentifier.init) == viewID,
                     "the hidden tab's terminal view was freed during the read")
             hold.release()
-            try await PinnedPageTests.until({ question() != nil }, report: { "no close question" })
-            _ = CmuxDialogCenter.shared.press(try #require(question()).id, button: "cancel")
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
             try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(t.tab.id) }, report: { "the cancelled close still asks" })
             #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "Cancel did not bring the tab back")
             #expect(t.services.cache.existingTerminal(t.tab.id).map(ObjectIdentifier.init) == viewID,
@@ -112,8 +112,8 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             try await Self.turns()
             #expect(t.services.cache.existingBrowser(page.id) === pageEntry, "the hidden page was released during the read")
             hold.release()
-            try await PinnedPageTests.until({ question() != nil }, report: { "no close question" })
-            _ = CmuxDialogCenter.shared.press(try #require(question()).id, button: "cancel")
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
             try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(t.tab.id) }, report: { "the cancelled close still asks" })
             #expect(t.pane.orderedIDs.map(\.rawValue).contains(page.id), "Cancel did not bring the page back")
             #expect(t.services.cache.existingBrowser(page.id) === pageEntry, "Cancel brought back a new page (it reloaded)")
@@ -142,11 +142,11 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             #expect(!neighbourScreen.contains("kq\(nonce)"), "keys typed during the read ran in the neighbour: \(neighbourScreen.suffix(300))")
 
             hold.release()
-            try await PinnedPageTests.until({ question() != nil }, report: { "no close question" })
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
             try await Self.turns()
-            #expect(question() != nil, "a Return typed during the read pressed the question's Close")
+            #expect(Self.question() != nil, "a Return typed during the read pressed the question's Close")
             #expect(t.store.tab(surface: t.tab.surface) != nil, "the terminal running cat closed with no answer")
-            _ = CmuxDialogCenter.shared.press(try #require(question()).id, button: "cancel")
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
             // cat writes the line back after the terminal's own echo: the whole line, in order, in the terminal that stays.
             let back = try? await t.connection.request(WaitForTextRequest(surface: t.tab.surface, pattern: "kq\(nonce)", timeoutMs: 10_000),
                                                        timeout: .seconds(15))
@@ -182,7 +182,7 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             try #require(TabCloseGuard.asks([tab], services: services), "the terminal close warning does not apply")
             let terminal = Terminal(services: services, connection: connection, store: store, pane: pane, tab: tab)
             try await Self.waitRunning(nil, terminal)
-            defer { if let record = question() { _ = CmuxDialogCenter.shared.press(record.id, button: "cancel") } }
+            defer { if let record = Self.question() { _ = CmuxDialogCenter.shared.press(record.id, button: "cancel") } }
             try await body(terminal)
         }
     }
@@ -229,12 +229,12 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
     private static func cmdWAsks(_ t: Terminal) async throws {
         let performed = t.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
         #expect(performed)
-        try await PinnedPageTests.until({ question() != nil }, report: {
+        try await PinnedPageTests.until({ Self.question() != nil }, report: {
             "no close question: asking \(TabCloseGuard.asking), in strip \(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id)), closing \(t.store.closingTabIDs)"
         })
         #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the tab is not back in its strip while its question shows")
         try await Self.waitRunning("sleep", t)
-        _ = CmuxDialogCenter.shared.press(try #require(question()).id, button: "cancel")
+        _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
         try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(t.tab.id) }, report: { "the cancelled close still asks" })
         #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "Cancel did not keep the tab")
         try await Self.waitRunning("sleep", t)
