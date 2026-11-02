@@ -2,11 +2,12 @@
 // (.github/workflows/platform-prod-secrets.yml pipes its stdout into wrangler). Its output must be a keyset
 // parseSigningKeys accepts and that signs at once. Run under Node (vitest.node.config.ts): it spawns node.
 import { spawnSync } from "node:child_process"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { parseSigningKeys, publicKeyset, signingKid } from "../src/link-token.ts"
 
-const script = fileURLToPath(new URL("../../../../scripts/cmux-next/release/mint-link-keyset.mjs", import.meta.url))
+const script = join(dirname(fileURLToPath(import.meta.url)), "../../../../scripts/cmux-next/release/mint-link-keyset.mjs")
 const mint = (...args: string[]) => spawnSync(process.execPath, [script, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
 
 describe("mint-link-keyset.mjs", () => {
