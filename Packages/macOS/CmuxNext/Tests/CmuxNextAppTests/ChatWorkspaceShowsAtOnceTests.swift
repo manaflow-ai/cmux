@@ -211,14 +211,16 @@ struct ChatWorkspaceShowsAtOnceTests {
         let made = try? await services.machines.local.connection?.createProfile(name: "Work", id: space, color: "blue", icon: nil, browserProfileID: nil)
         try #require(made != nil, "the daemon made no space")
         await services.machines.local.store.mirrored(profile: space)
-        // The space gets its first workspace first (an empty space's switch creates one, and a window whose space shows
-        // none yet falls back to Default): the switch below then stays in the space.
-        services.windows.switchProfile(space, in: window)
+        // The space gets a workspace of its own first, pinned to it and held by this window (a window whose space shows
+        // none falls back to Default: two of three runs of an empty-space switch did): the switch below then stays there.
+        var own = WorkspaceSpawn(name: "work")
+        own.profile = space
+        _ = try await services.windows.createWorkspace(own, into: window.id)
         let hasOwn = await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
-            window.profileID == space && !WindowProfiles.visible(services.windows.registry.members(of: window.id), profile: space, machines: services.machines).isEmpty
+            !WindowProfiles.visible(services.windows.registry.members(of: window.id), profile: space, machines: services.machines).isEmpty
         }
-        try #require(hasOwn, "the space never showed a workspace of its own")
-        services.windows.switchProfile(.defaultProfile, in: window)
+        try #require(hasOwn, "the space never listed a workspace of its own in the window")
+        try #require(window.profileID == .defaultProfile, "the window left Default")
         let key = WorkspaceKey.generate()
 
         let work = try AgentSessionWorkspace.open(session: "s-switch", name: "lane", key: key, cwd: nil, services: services)
