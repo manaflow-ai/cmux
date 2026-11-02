@@ -102,16 +102,22 @@ def judge(trace, frames=None, scale=2.0):
                     add("off-grid", i, f"pane {pane} {name} at {v:.2f} pt = {v * scale:.2f} device px")
     # neighbours: the space between them as at rest
     rest = {p: r for p, r in shown[last].items() if r[4] >= 0.999}
+    zoomed = {z for smp in samples[first - 1:last + 1] for z in (smp.get("zoom") or []) if z}
     for a, b, axis, at_rest in neighbours(rest):
         for i in range(first, last + 1):
             ra, rb = shown[i].get(a), shown[i].get(b)
-            if not ra or not rb or ra[4] < 0.999 or rb[4] < 0.999:
-                continue
+            if not ra or not rb or ra[4] < 0.999 or rb[4] < 0.999 or (zoomed & {a, b}):
+                continue  # a zoom's pane covers the others on purpose
             # A pane still shown between them this frame (the closing one, a new one): judge the chain a..x..b.
             lo_k, hi_k = (0, 2) if axis == "x" else (1, 3)
             start, end = ra[lo_k] + ra[hi_k], rb[lo_k]
+            # ...that also faces both on the other axis (a pane of another row or column is not between them).
+            ox, oxl = (1, 3) if axis == "x" else (0, 2)
+            def faces(r, q):
+                return min(r[ox] + r[oxl], q[ox] + q[oxl]) - max(r[ox], q[ox]) > 0.5 * min(r[oxl], q[oxl])
             between = sorted((r[lo_k], p, r) for p, r in shown[i].items()
-                             if p not in (a, b) and r[lo_k] < end and r[lo_k] + r[hi_k] > start and r[hi_k] > 0)
+                             if p not in (a, b) and r[lo_k] < end and r[lo_k] + r[hi_k] > start and r[hi_k] > 0
+                             and faces(r, ra) and faces(r, rb))
             chain = [(a, ra)] + [(p, r) for _, p, r in between] + [(b, rb)]
             for (pa, qa), (pb, qb) in zip(chain, chain[1:]):
                 gap = qb[lo_k] - (qa[lo_k] + qa[hi_k])

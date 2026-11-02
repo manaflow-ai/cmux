@@ -35,7 +35,7 @@ def main_thread_block(text, want):
     lines = text.splitlines()
     start = None
     for i, line in enumerate(lines):
-        if re.match(r"^\s*\d+\s+Thread_\d+", line) and (want in line):
+        if re.match(r"^\s*\d+\s+Thread_\d+", line) and any(w in line for w in want.split("|")):
             start = i
             break
     if start is None:
@@ -56,7 +56,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("report")
     ap.add_argument("--top", type=int, default=25)
-    ap.add_argument("--thread", default="com.apple.main-thread")
+    ap.add_argument("--thread", default="com.apple.main-thread|CrBrowserMain", help="names, | between (CEF names the main thread CrBrowserMain)")
     opts = ap.parse_args()
     text = open(opts.report, errors="replace").read()
     block = main_thread_block(text, opts.thread)
