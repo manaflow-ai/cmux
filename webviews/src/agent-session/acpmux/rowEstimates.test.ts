@@ -319,7 +319,7 @@ test("a steer the agent has not read is as tall as a read one: its Send now lead
   const steer = (state: string) => ({ id: "s", version: 1, at: 0, kind: "user", text: "Also this", steer: state });
   const [landed] = heightsOf([steer("landed")]);
   const [waiting] = heightsOf([steer("waiting")]);
-  expect(waiting).toBe(landed! + 28);
+  expect(waiting).toBe(landed!);
 });
 
 test("a Chief's waiting steer keeps Send now in its existing action row", () => {

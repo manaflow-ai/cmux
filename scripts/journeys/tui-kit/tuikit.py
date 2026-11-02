@@ -34,7 +34,9 @@ import random
 import re
 import select
 import shlex
+import shutil
 import signal
+import subprocess
 import sys
 import time
 import zlib
@@ -294,6 +296,21 @@ def gradient_layout(cols, rows, style):
     return lay
 
 
+def cmd_build_bins(a):
+    """cargo build --release of rust/ (std only, no network); prints where the programs are."""
+    cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
+    if not os.access(cargo, os.X_OK):
+        sys.stderr.write("build-bins: no cargo on PATH or in ~/.cargo/bin\n")
+        return 69
+    done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",
+                           os.path.join(RUST_DIR, "Cargo.toml")])
+    if done.returncode != 0:
+        return done.returncode
+    print(json.dumps({"bin_dir": os.path.join(RUST_DIR, "target", "release"),
+                      "tk-gradient": rust_bin("tk-gradient")}))
+    return 0
+
+
 def cmd_describe(a):
     style = gradient_style(a.seed)
     cols, rows = a.size or (120, 40)
@@ -377,7 +394,44 @@ class Gradient:
         return "".join(parts)
 
 
+RUST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rust")
+RATE_FLOOR = 0.95  # cmux-ad 03:40Z: a run below 95 % of its target rate is NOT RUN
+
+
+def rust_bin(name):
+    """The compiled program `name` (tuikit.py build-bins), or None: $CMUX_TUIKIT_BIN_DIR, else rust/target/release."""
+    folder = os.environ.get("CMUX_TUIKIT_BIN_DIR") or os.path.join(RUST_DIR, "target", "release")
+    path = os.path.join(folder, name)
+    return path if os.access(path, os.X_OK) else None
+
+
+def gradient_rust_argv(a, path):
+    """tk-gradient's command line for these options: the seeded style from gradient_style(seed)."""
+    st = gradient_style(a.seed)
+    argv = [path, "--seed", str(a.seed), "--hue", repr(st["hue"]), "--sat", repr(st["sat"]), "--val", repr(st["val"]),
+            "--speed", str(st["speed"]), "--diag", str(st["diag"]), "--word", st["word"], "--cjk", "".join(st["cjk"]),
+            "--emoji", "".join(st["emoji"]), "--fps", repr(float(a.fps)), "--cell", str(a.cell), "--frames",
+            str(a.frames), "--duration", repr(float(a.duration)), "--pace", a.pace, "--spin-ms", repr(float(a.spin_ms))]
+    if not a.sync:
+        argv.append("--no-sync")
+    if a.size:
+        argv += ["--size", "%dx%d" % a.size]
+    if a.fake_clock:
+        argv.append("--fake-clock")
+    if a.log:
+        argv += ["--log", a.log]
+    return argv
+
+
 def cmd_gradient(a):
+    if a.engine != "python":
+        path = rust_bin("tk-gradient")
+        if path:
+            sys.stdout.flush()
+            os.execv(path, gradient_rust_argv(a, path))  # the pane runs the compiled program itself
+        if a.engine == "rust":
+            sys.stderr.write("gradient: no tk-gradient (run `tuikit.py build-bins` on this Mac)\n")
+            return 2
     out = Out()
     log = Log(a.log)
     winch = [True]
@@ -387,10 +441,11 @@ def cmd_gradient(a):
     g = Gradient(a)
     run, pacer = Run(a), Pacer(a.fps, a.pace, a.spin_ms)
     k = 0
+    first = last = None
     try:
         out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
         log.event("start", program="gradient", seed=a.seed, fps=a.fps, pace=a.pace, spin_ms=a.spin_ms,
-                  darwin_bg=darwin_bg(), pid=os.getpid())
+                  darwin_bg=darwin_bg(), pid=os.getpid(), engine="python")
         while not run.done(k):
             if winch[0]:
                 winch[0] = False
@@ -400,6 +455,8 @@ def cmd_gradient(a):
                     log.event("size", cols=cols, rows=rows, frame=k)
             late = pacer.wait(k)
             drawn, drawn_wall = time.monotonic(), time.time()
+            first = drawn if first is None else first
+            last = drawn
             text = g.frame(k, shown_time(a, k, a.fps, run.t0))
             out.write(text)
             # late_ms: how late the frame starts after its wait (a sleep that woke late counts);
@@ -413,7 +470,10 @@ def cmd_gradient(a):
     finally:
         calm()
         out.write(ESU + RESET + WRAP_ON + SHOW + ALT_OFF)
-        log.event("end", frames=k, darwin_bg=darwin_bg())
+        achieved = (k - 1) / (last - first) if k > 1 and last > first else 0.0
+        verdict = "n/a" if a.fake_clock or k < 2 else ("NOT RUN" if achieved < RATE_FLOOR * a.fps else "ok")
+        log.event("end", frames=k, darwin_bg=darwin_bg(), achieved_fps=round(achieved, 3), target_fps=a.fps,
+                  verdict=verdict, engine="python")
         log.close()
     return 0
 
@@ -1308,7 +1368,11 @@ def build_parser():
     pace_args(p, "spin")
     p.add_argument("--cell", type=int, choices=(1, 2), default=1, help="columns per gradient color step")
     p.add_argument("--no-sync", dest="sync", action="store_false", help="no synchronized-update brackets")
+    p.add_argument("--engine", choices=("auto", "rust", "python"), default="auto",
+                   help="auto (default): the compiled tk-gradient when built (build-bins), else Python")
     p.set_defaults(fn=cmd_gradient)
+    p = sub.add_parser("build-bins", help="build the compiled programs (cargo, on this Mac)")
+    p.set_defaults(fn=cmd_build_bins)
     p = sub.add_parser("describe", help="gradient's element positions for --size")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--size", type=parse_size)
