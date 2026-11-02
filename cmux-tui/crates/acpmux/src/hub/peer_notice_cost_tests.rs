@@ -1,8 +1,9 @@
-//! What one peer notice costs as other peers' rows grow. Every streamed record of a peer's
-//! session (`session/update`, `_acpmux/event`), each `session_changed` and each ask check finds
-//! its row; with a walk over every peer's rows, a Mac linked to peers listing thousands of
-//! sessions spent a core in the notice loop (cosmic-gray, 2026-11-02: 77-105% CPU, ~1,700 rows
-//! from one peer). A notice reads only its own peer's rows, so its cost holds as the others grow.
+//! What peer rows cost the daemon as they grow. A Mac linked to 43 peers that list 8,044 rows
+//! sat at 77-105% of a core (cosmic-gray, 2026-11-02): each `_acpmux/resolve` (every lifecycle
+//! command names its session through it) copied and sorted every row, and each streamed record
+//! of a peer's session (`session/update`, `_acpmux/event`), `session_changed` and ask check walked
+//! every peer's rows to find its own. A notice reads only its own peer's rows, and a resolve
+//! copies only the rows its query could name.
 
 use super::*;
 use crate::peer::{Peer, PeerNotice};
@@ -104,4 +105,61 @@ fn a_peer_notice_costs_the_same_however_many_rows_other_peers_list() {
     let peer = large_peers.last().unwrap();
     let rows = large.remote_sessions.lock().unwrap();
     assert_eq!(rows.values().filter(|r| r.peer == peer.name).count(), ROWS);
+}
+
+/// One full list: what each `_acpmux/resolve` built before, and its fallbacks again.
+fn full_list_cost(hub: &Hub) -> Duration {
+    let started = Instant::now();
+    std::hint::black_box(hub.all_session_summaries_including_closed());
+    started.elapsed()
+}
+
+/// Resolves of the kinds lifecycle commands send: an exact peer name, a host-qualified name, a
+/// prefix, a short name and a miss.
+fn resolves_cost(hub: &Hub) -> Duration {
+    let started = Instant::now();
+    for query in ["peer-49/lane-7", "lane-12", "peer-3/lane-39", "lane-39", "nobody-here"] {
+        let _ = std::hint::black_box(hub.locate(query, false, true));
+    }
+    started.elapsed()
+}
+
+#[test]
+fn a_resolve_among_thousands_of_peer_rows_copies_only_those_it_could_name() {
+    let (hub, _peers) = linked(50, 160);
+    assert_eq!(hub.remote_sessions().len(), 8_000);
+    let full = full_list_cost(&hub).min(full_list_cost(&hub));
+    let resolves = resolves_cost(&hub).min(resolves_cost(&hub));
+    eprintln!(
+        "locate-cost rows=8000 full_list_us={:.0} five_resolves_us={:.0}",
+        full.as_secs_f64() * 1e6,
+        resolves.as_secs_f64() * 1e6,
+    );
+    // Before, each of the five built at least one full list (a miss four): about eight in all.
+    assert!(resolves < full * 2, "five resolves {resolves:?}, one full list {full:?}");
+}
+
+#[test]
+fn a_resolve_still_finds_what_it_named_among_peers() {
+    let (hub, _peers) = linked(3, 40);
+    let found = |q: &str| {
+        let reply = hub.locate(q, false, true).unwrap();
+        let mut names: Vec<String> = reply["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["name"].as_str().unwrap().to_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    // An exact qualified name, a bare name on every peer, a host-qualified prefix, a short
+    // name, and a peer's own session id.
+    assert_eq!(found("peer-1/lane-7"), ["peer-1/lane-7"]);
+    assert_eq!(found("lane-7"), ["peer-0/lane-7", "peer-1/lane-7", "peer-2/lane-7"]);
+    assert_eq!(found("peer-2/lane-3"), ["peer-2/lane-3"]);
+    assert_eq!(found("peer-2/lane-1").len(), 1, "an exact name before its prefixes");
+    assert_eq!(found("s5").len(), 3);
+    let miss = hub.locate("lane-9999", false, true).unwrap_err();
+    assert_eq!(miss.code, -32002);
 }
