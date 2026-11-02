@@ -84,7 +84,7 @@ struct CacheTtlTarget {
 }
 
 impl CacheTtlTarget {
-    fn from_chat(chat: &Chat, timers: HashMap<String, Vec<CacheTtlSpec>>) -> Self {
+    fn from_chat(chat: &Chat, mut timers: HashMap<String, Vec<CacheTtlSpec>>) -> Self {
         Self {
             session: chat.session.clone(),
             name: chat.name.clone(),
