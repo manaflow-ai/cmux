@@ -33,6 +33,31 @@ struct CodexResumePermissionEvidenceReaderTests {
         #expect(complete == expected)
     }
 
+    @Test("The default window ignores evidence beyond 4 MiB")
+    func defaultWindowStopsBeforeOldEvidence() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("rollout.jsonl")
+        let content = record() + "\n" + String(repeating: record(year: 2036) + "\n", count: 26_000)
+        #expect(content.utf8.count > 4 * 1024 * 1024)
+        try content.write(to: file, atomically: true, encoding: .utf8)
+        let result = await CodexResumePermissionEvidenceReader()
+            .permissionArguments(transcriptPath: file.path, before: cutoff)
+        #expect(result.isEmpty)
+    }
+
+    @Test("A complete record at the exact window edge is recovered", arguments: [true, false])
+    func completeRecordAtWindowEdge(trailingNewline: Bool) async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("rollout.jsonl")
+        let tail = record() + (trailingNewline ? "\n" : "")
+        try ("ignored\n" + tail).write(to: file, atomically: true, encoding: .utf8)
+        let result = await CodexResumePermissionEvidenceReader(maximumBytes: tail.utf8.count)
+            .permissionArguments(transcriptPath: file.path, before: cutoff)
+        #expect(result == expected)
+    }
+
     @Test("Chunk boundaries and final newlines preserve the latest eligible record", arguments: [true, false])
     func recordBoundaries(trailingNewline: Bool) async throws {
         let root = try directory()
