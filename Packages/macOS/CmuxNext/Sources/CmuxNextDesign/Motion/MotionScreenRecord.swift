@@ -349,11 +349,14 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         input.expectsMediaDataInRealTime = true
         guard writer.canAdd(input) else { return }
         writer.add(input)
+        // The adaptor must exist before startWriting: AVFoundation raises an Objective-C exception for an adaptor
+        // made on an input that already started, and the process aborts (cmux18 and cmux24, 2026-11-02 02:15Z).
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
         guard writer.startWriting() else { return }
         writer.startSession(atSourceTime: .zero)
         self.writer = writer
         self.input = input
-        adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
+        self.adaptor = adaptor
     }
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {
