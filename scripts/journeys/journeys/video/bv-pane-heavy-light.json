@@ -89,18 +89,15 @@
    "seconds": 1.6
   },
   {
-   "do": "bv_open",
-   "page": "heavy",
-   "title": "navigate the new pane's tab (a focused Chromium tab on the page)"
+   "do": "smoke_type",
+   "text": "${bv_base}/heavy.html",
+   "enter": true,
+   "mark": "navigate-1",
+   "title": "navigate: the URL typed in the new pane's address bar by real keys, then Return (no agent call touches the page while it records: a first agent call rebuilds a Chromium page)"
   },
   {
    "do": "wait",
-   "seconds": 1.0
-  },
-  {
-   "do": "bv_state",
-   "page": "heavy",
-   "note": "open-1"
+   "seconds": 2.0
   },
   {
    "do": "hid_key",
@@ -155,11 +152,6 @@
   {
    "do": "wait",
    "seconds": 1.0
-  },
-  {
-   "do": "bv_state",
-   "page": "heavy",
-   "note": "resized-1"
   },
   {
    "do": "hid_key",
@@ -225,18 +217,15 @@
    "seconds": 1.6
   },
   {
-   "do": "bv_open",
-   "page": "heavy",
-   "title": "navigate the new pane's tab (a focused Chromium tab on the page)"
+   "do": "smoke_type",
+   "text": "${bv_base}/heavy.html",
+   "enter": true,
+   "mark": "navigate-2",
+   "title": "navigate: the URL typed in the new pane's address bar by real keys, then Return (no agent call touches the page while it records: a first agent call rebuilds a Chromium page)"
   },
   {
    "do": "wait",
-   "seconds": 1.0
-  },
-  {
-   "do": "bv_state",
-   "page": "heavy",
-   "note": "open-2"
+   "seconds": 2.0
   },
   {
    "do": "hid_key",
@@ -291,11 +280,6 @@
   {
    "do": "wait",
    "seconds": 1.0
-  },
-  {
-   "do": "bv_state",
-   "page": "heavy",
-   "note": "resized-2"
   },
   {
    "do": "hid_key",
@@ -361,18 +345,15 @@
    "seconds": 1.6
   },
   {
-   "do": "bv_open",
-   "page": "heavy",
-   "title": "navigate the new pane's tab (a focused Chromium tab on the page)"
+   "do": "smoke_type",
+   "text": "${bv_base}/heavy.html",
+   "enter": true,
+   "mark": "navigate-3",
+   "title": "navigate: the URL typed in the new pane's address bar by real keys, then Return (no agent call touches the page while it records: a first agent call rebuilds a Chromium page)"
   },
   {
    "do": "wait",
-   "seconds": 1.0
-  },
-  {
-   "do": "bv_state",
-   "page": "heavy",
-   "note": "open-3"
+   "seconds": 2.0
   },
   {
    "do": "hid_key",
@@ -427,11 +408,6 @@
   {
    "do": "wait",
    "seconds": 1.0
-  },
-  {
-   "do": "bv_state",
-   "page": "heavy",
-   "note": "resized-3"
   },
   {
    "do": "hid_key",
