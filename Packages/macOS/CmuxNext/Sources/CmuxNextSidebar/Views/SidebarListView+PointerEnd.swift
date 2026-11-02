@@ -95,7 +95,8 @@ extension SidebarListViewComponents {
     /// a gesture is held (`escapeSeen`: it cancels the gesture, wherever the keys go); the caller removes it.
     func observePointerEnds() -> Any? {
         NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .keyDown]) { [weak self] event in
-            self?.pointerMonitorSaw(event) ?? event
+            guard let self else { return event }
+            return self.pointerMonitorSaw(event)
         }
     }
 
