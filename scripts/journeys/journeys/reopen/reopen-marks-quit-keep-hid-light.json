@@ -85,6 +85,18 @@
   },
   {
    "do": "expect",
+   "title": "REOPEN-F7: in every cycle the first window frame came within 300 ms of main() (app clock)",
+   "timeout": 2,
+   "all": [
+    {
+     "reopen_window_frame_within": {
+      "ms": 300
+     }
+    }
+   ]
+  },
+  {
+   "do": "expect",
    "title": "REOPEN-F1/F6: in every cycle, every visible terminal had its saved last frame by the first window frame (app clock)",
    "timeout": 2,
    "all": [

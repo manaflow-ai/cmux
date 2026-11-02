@@ -1186,6 +1186,30 @@ def cond_reopen_frames_in_first_window_frame(j, want, cache):
     return not bad, {"cycles": len(records), "bad": len(bad), "first": bad[:8], "not_visible": not_visible[:8]}
 
 
+def cond_reopen_window_frame_within(j, want, cache):
+    """REOPEN-F7, from the app's own clock: in every cycle of the reopen_video steps before, the first window frame
+    (first_window_frame_committed, the completion of the first commit) came within MS (default 300) of main()
+    (main_start). Both marks are ms since the process start, the app's clock: no driver time is used. A cycle
+    without either mark fails with that reason."""
+    limit = float((want or {}).get("ms", 300)) if isinstance(want, dict) else 300.0
+    records = getattr(j, "reopen_records", None)
+    if not records:
+        return False, {"why": "no reopen_video step ran before this check"}
+    rows, bad = [], []
+    for rec in records:
+        marks = rec.get("marks") or {}
+        main, frame = marks.get("main_start"), marks.get("first_window_frame_committed")
+        if not isinstance(main, (int, float)) or not isinstance(frame, (int, float)):
+            bad.append({"cycle": rec["cycle"], "why": "no main_start or first_window_frame_committed mark"})
+            continue
+        ms = round(frame - main, 1)
+        rows.append(ms)
+        if ms > limit:
+            bad.append({"cycle": rec["cycle"], "window_ms": ms})
+    return not bad, {"limit_ms": limit, "window_ms": rows, "bad": bad[:10]}
+
+
 STEPS = {"require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
-CONDITIONS = {"reopen_frames_in_first_window_frame": ("app", cond_reopen_frames_in_first_window_frame),
+CONDITIONS = {"reopen_window_frame_within": ("app", cond_reopen_window_frame_within),
+              "reopen_frames_in_first_window_frame": ("app", cond_reopen_frames_in_first_window_frame),
               "reopen_keys_received": ("app", cond_reopen_keys_received), "cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}
