@@ -155,18 +155,15 @@ impl ColumnStrip {
 
     /// Width of the uncovered window.
     pub fn visible_width(&self) -> f64 {
-        // RED: rule not ported yet.
-        self.viewport_width
+        swift_max(1., self.viewport_width - self.leading_cover - self.trailing_cover)
     }
 
     pub fn max_offset(&self) -> f64 {
-        // RED: rule not ported yet.
-        0.
+        swift_max(0., self.content_width - self.viewport_width)
     }
 
     pub fn clamp(&self, offset: f64) -> f64 {
-        // RED: rule not ported yet.
-        offset
+        swift_min(swift_max(offset, 0.), self.max_offset())
     }
 
     pub fn index_of(&self, column: ColumnId) -> Option<usize> {
@@ -182,38 +179,38 @@ impl ColumnStrip {
     /// A column at least as wide as the viewport cannot show whole (it is
     /// left-aligned). Narrower columns shrink their padding instead.
     pub fn is_wide(&self, frame: Rect) -> bool {
-        // RED: rule not ported yet.
-        let _ = frame;
-        false
+        frame.w() >= self.visible_width() - 0.5
     }
 
     /// Padding: the gap, shrunk when the column is nearly as wide as the view.
     pub fn padding(&self, width: f64) -> f64 {
-        // RED: rule not ported yet.
-        let _ = width;
-        0.
+        swift_min(swift_max((self.visible_width() - width) / 2., 0.), self.gap)
     }
 
     /// True when `rect` (with its padding) lies inside the viewport at `offset`.
     pub fn is_fully_visible(&self, rect: Rect, offset: f64) -> bool {
-        // RED: rule not ported yet.
-        let _ = (rect, offset);
-        false
+        let pad = self.padding(rect.w());
+        rect.min_x() - pad >= offset + self.leading_cover - 0.5
+            && rect.max_x() + pad <= offset + self.leading_cover + self.visible_width() + 0.5
     }
 
     /// A column counts as visible when it shows whole, or when it is wider
     /// than the view and covers all of it.
     pub fn is_column_visible(&self, index: usize, offset: f64) -> bool {
-        // RED: rule not ported yet.
-        let _ = (index, offset);
-        false
+        let Some(column) = self.columns.get(index) else { return false };
+        let frame = column.frame;
+        if self.is_wide(frame) {
+            return frame.min_x() <= offset + self.leading_cover + 0.5
+                && frame.max_x() >= offset + self.leading_cover + self.visible_width() - 0.5;
+        }
+        self.is_fully_visible(frame, offset)
     }
 
     /// Relative order of the columns present in both strips is unchanged
     /// (only insertions, removals and width changes happened).
     pub fn keeps_order(&self, other: &ColumnStrip) -> bool {
-        // RED: rule not ported yet.
-        let _ = other;
-        true
+        let mine = self.columns.iter().map(|c| c.id).filter(|id| other.index_of(*id).is_some());
+        let theirs = other.columns.iter().map(|c| c.id).filter(|id| self.index_of(*id).is_some());
+        mine.eq(theirs)
     }
 }

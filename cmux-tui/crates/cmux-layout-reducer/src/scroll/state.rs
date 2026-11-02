@@ -194,9 +194,119 @@ impl ColumnScrollState {
     }
 
     pub fn reduce(&mut self, event: ColumnScrollEvent) -> ColumnScrollEffects {
-        // RED: rule not ported yet.
-        let _ = event;
-        ColumnScrollEffects::default()
+        let mut effects = ColumnScrollEffects::default();
+        match event {
+            ColumnScrollEvent::Sync { strip, focused, source, animated, reveals, anchor } => {
+                let before = self.spring.target;
+                let shift = self.sync(strip, focused, source, reveals, anchor);
+                // A sync that leaves the target where the camera shift put it never snaps: a
+                // fling or wheel spring in flight keeps moving while pane layout motion is off
+                // (motion.md rule 9).
+                let clamped =
+                    self.strip.as_ref().map_or(self.spring.target, |s| s.clamp(self.spring.target));
+                let moved = (clamped - (before + shift)).abs() > 0.25;
+                self.finish(animated || !moved, &mut effects);
+            }
+            ColumnScrollEvent::Center { pane, animated } => {
+                if self.gesture.is_some() {
+                    return effects;
+                }
+                let Some(strip) = self.strip.as_ref() else { return effects };
+                let Some(index) = strip.index_of_pane(pane) else { return effects };
+                self.spring.target =
+                    view_offset::center(strip.columns[index].frame, self.spring.target, strip);
+                self.finish(animated, &mut effects);
+            }
+            ColumnScrollEvent::Reveal { pane, animated } => {
+                if self.gesture.is_some() {
+                    return effects;
+                }
+                let Some(strip) = self.strip.as_ref() else { return effects };
+                let Some(index) = strip.index_of_pane(pane) else { return effects };
+                self.spring.target = view_offset::target(
+                    index,
+                    Some(pane),
+                    self.spring.target,
+                    CenterFocusedColumn::Never,
+                    None,
+                    strip,
+                );
+                self.finish(animated, &mut effects);
+            }
+            ColumnScrollEvent::GestureBegan => {
+                // The gesture takes over from the presented value: an automatic
+                // scroll in flight stops where it is.
+                self.gesture = Some(Gesture { raw: self.spring.value });
+                self.samples.clear();
+                self.spring.velocity = 0.;
+                self.spring.target = self.spring.value;
+            }
+            ColumnScrollEvent::GestureChanged { delta_x, time } => {
+                let Some(mut live) = self.gesture else { return effects };
+                let Some(strip) = self.strip.as_ref() else { return effects };
+                live.raw -= delta_x;
+                self.samples.push(Sample { time, delta: -delta_x });
+                self.samples.retain(|sample| kept_by_remove_all(time - sample.time));
+                self.gesture = Some(live);
+                self.spring.value =
+                    rubber_band(live.raw, strip.content_width, strip.viewport_width);
+                self.spring.target = self.spring.value;
+            }
+            ColumnScrollEvent::GestureEnded { time, animated } => {
+                if self.gesture.take().is_none() {
+                    return effects;
+                }
+                let mut velocity = 0.;
+                // Swift: `recent.reduce(0) { $0 + $1.delta } / max(time - first.time, 1 / 120)`
+                // when `recent` has more than one sample.
+                let recent = || self.samples.iter().filter(|sample| time - sample.time <= 0.1);
+                if let Some(first) = recent().next()
+                    && recent().nth(1).is_some()
+                {
+                    let sum = recent().fold(0., |sum, sample| sum + sample.delta);
+                    velocity = sum / super::swift_max(time - first.time, 1. / 120.);
+                }
+                self.samples.clear();
+                let Some(strip) = self.strip.as_ref() else { return effects };
+                view_offset::snaps_into(strip, self.mode, &mut self.snaps);
+                self.offsets.clear();
+                self.offsets.extend(self.snaps.iter().map(|snap| snap.offset));
+                let target = snap_target(self.spring.value, velocity, &self.offsets);
+                let forward = target >= self.spring.value;
+                self.spring.target = target;
+                self.spring.velocity = velocity;
+                self.move_focus_after_scroll(target, forward, &mut effects);
+                effects.report_on_settle = true;
+                self.finish(animated, &mut effects);
+            }
+            ColumnScrollEvent::Page { to, animated } => {
+                if self.gesture.is_some() {
+                    return effects;
+                }
+                let Some(strip) = self.strip.as_ref() else { return effects };
+                let target = strip.clamp(to);
+                let forward = target >= self.spring.target;
+                self.spring.target = target;
+                view_offset::snaps_into(strip, self.mode, &mut self.snaps);
+                self.move_focus_after_scroll(target, forward, &mut effects);
+                effects.report_on_settle = true;
+                self.finish(animated, &mut effects);
+            }
+            ColumnScrollEvent::Wheel { direction, animated } => {
+                if self.gesture.is_some() {
+                    return effects;
+                }
+                let Some(strip) = self.strip.as_ref() else { return effects };
+                view_offset::snaps_into(strip, self.mode, &mut self.snaps);
+                self.offsets.clear();
+                self.offsets.extend(self.snaps.iter().map(|snap| snap.offset));
+                self.spring.target = adjacent_snap(self.spring.target, direction, &self.offsets);
+                self.move_focus_after_scroll(self.spring.target, direction > 0, &mut effects);
+                effects.report_on_settle = true;
+                self.finish(animated, &mut effects);
+            }
+        }
+        effects
     }
 
     fn finish(&mut self, animated: bool, effects: &mut ColumnScrollEffects) {

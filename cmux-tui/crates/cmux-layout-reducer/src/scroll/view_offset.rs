@@ -11,17 +11,32 @@ use crate::PaneId;
 /// padding); otherwise align the edge that needs less motion. A rect as wide
 /// as the view is left-aligned.
 pub fn fit(rect: Rect, current: f64, strip: &ColumnStrip) -> f64 {
-    // RED: rule not ported yet.
-    let _ = (rect, strip);
-    current
+    // Measured in the uncovered window (F6): `lead` is what a floating
+    // leading dock covers, so the window starts at `current + lead`.
+    let width = strip.visible_width();
+    let lead = strip.leading_cover;
+    if width <= rect.w() {
+        return strip.clamp(rect.min_x() - lead);
+    }
+    let pad = strip.padding(rect.w());
+    let left = rect.min_x() - pad;
+    let right = rect.max_x() + pad;
+    let start = current + lead;
+    if start <= left + 0.5 && right <= start + width + 0.5 {
+        return strip.clamp(current);
+    }
+    let to_left = (start - left).abs();
+    let to_right = (start + width - right).abs();
+    strip.clamp((if to_left <= to_right { left } else { right - width }) - lead)
 }
 
 /// Centered reveal (F2): the column in the middle; a column as wide as the
 /// view is left-aligned like [`fit`].
 pub fn center(rect: Rect, current: f64, strip: &ColumnStrip) -> f64 {
-    // RED: rule not ported yet.
-    let _ = (rect, strip);
-    current
+    if strip.visible_width() <= rect.w() {
+        return fit(rect, current, strip);
+    }
+    strip.clamp(rect.mid_x() - strip.visible_width() / 2. - strip.leading_cover)
 }
 
 /// On-overflow reveal (F3), plus the focused pane of a column wider than the
@@ -35,9 +50,48 @@ pub fn target(
     previous: Option<usize>,
     strip: &ColumnStrip,
 ) -> f64 {
-    // RED: rule not ported yet.
-    let _ = (index, pane, mode, previous, strip);
-    current
+    let Some(column) = strip.columns.get(index) else { return strip.clamp(current) };
+    let frame = column.frame;
+    if strip.is_wide(frame)
+        && let Some(pane_frame) = pane.and_then(|pane| strip.pane_frame(index, pane))
+    {
+        // Inside a wide column the pane's own edges count, not its padding.
+        if shows(pane_frame, current, strip) {
+            return strip.clamp(current);
+        }
+        let left_aligned = strip.clamp(frame.min_x() - strip.leading_cover);
+        if shows(pane_frame, left_aligned, strip) {
+            return left_aligned;
+        }
+        return fit(pane_frame, current, strip);
+    }
+    match mode {
+        CenterFocusedColumn::Never => fit(frame, current, strip),
+        CenterFocusedColumn::Always => center(frame, current, strip),
+        CenterFocusedColumn::OnOverflow => {
+            let Some(previous) =
+                previous.filter(|&previous| previous != index && previous < strip.columns.len())
+            else {
+                return fit(frame, current, strip);
+            };
+            // The source is always the target's neighbor on the side focus came from.
+            let source = if previous > index {
+                (index + 1).min(strip.columns.len() - 1)
+            } else {
+                index.saturating_sub(1)
+            };
+            let a = strip.columns[source].frame;
+            let b = frame;
+            let span = super::swift_max(a.max_x(), b.max_x())
+                - super::swift_min(a.min_x(), b.min_x())
+                + strip.gap * 2.;
+            if span <= strip.visible_width() + 0.5 {
+                fit(b, current, strip)
+            } else {
+                center(b, current, strip)
+            }
+        }
+    }
 }
 
 /// The rect lies inside the viewport, or covers all of it.
@@ -68,9 +122,52 @@ pub fn snaps(strip: &ColumnStrip, mode: CenterFocusedColumn) -> Vec<Snap> {
 
 /// [`snaps`] into `out` (cleared first), reusing its buffer.
 pub fn snaps_into(strip: &ColumnStrip, mode: CenterFocusedColumn, out: &mut Vec<Snap>) {
-    // RED: rule not ported yet.
-    let _ = (strip, mode);
     out.clear();
+    if strip.columns.is_empty() {
+        return;
+    }
+    let width = strip.visible_width();
+    let lead = strip.leading_cover;
+    for (index, column) in strip.columns.iter().enumerate() {
+        let frame = column.frame;
+        let centered = strip.clamp(
+            (if width <= frame.w() { frame.min_x() } else { frame.mid_x() - width / 2. }) - lead,
+        );
+        if mode == CenterFocusedColumn::Always {
+            out.push(Snap { offset: centered, column: index });
+            continue;
+        }
+        let pad = strip.padding(frame.w());
+        let overflows = |neighbor: Option<usize>| {
+            let Some(neighbor) = neighbor.filter(|&n| n < strip.columns.len()) else {
+                return false;
+            };
+            mode == CenterFocusedColumn::OnOverflow
+                && strip.columns[neighbor].frame.w() + strip.gap * 3. + frame.w() > width
+        };
+        let left = if overflows(Some(index + 1)) {
+            centered
+        } else {
+            strip.clamp(frame.min_x() - pad - lead)
+        };
+        let right = if overflows(index.checked_sub(1)) {
+            centered
+        } else {
+            strip.clamp(frame.max_x() + pad - width - lead)
+        };
+        out.push(Snap { offset: left, column: index });
+        out.push(Snap { offset: right, column: index });
+    }
+    // Swift sorts by the tuple `(offset, column)`. A NaN offset (only from a NaN frame) takes
+    // `total_cmp`'s place so the order stays total and `sort_by` never panics.
+    out.sort_by(|a, b| {
+        a.offset
+            .partial_cmp(&b.offset)
+            .unwrap_or_else(|| a.offset.total_cmp(&b.offset))
+            .then(a.column.cmp(&b.column))
+    });
+    // Keep a snap only when it is more than 0.5 pt from the last kept one.
+    out.dedup_by(|snap, kept| !more_than_half_point_apart(kept.offset, snap.offset));
 }
 
 /// Swift's dedup test `abs(last - next) > 0.5`; false for a NaN distance.
@@ -89,7 +186,23 @@ pub fn focus_after_scroll(
     forward: bool,
     strip: &ColumnStrip,
 ) -> Option<usize> {
-    // RED: rule not ported yet.
-    let _ = (focused, snap_column, target, forward, strip);
-    None
+    if let Some(focused) = focused
+        && focused < strip.columns.len()
+        && strip.is_column_visible(focused, target)
+    {
+        return None;
+    }
+    let visible = (0..strip.columns.len()).filter(|&i| strip.is_column_visible(i, target));
+    let distance = |i: usize| i.abs_diff(snap_column);
+    let mut index = swift_min_by(visible, |a, b| distance(*a) < distance(*b))?;
+    if forward {
+        while index + 1 < strip.columns.len() && strip.is_column_visible(index + 1, target) {
+            index += 1;
+        }
+    } else {
+        while index > 0 && strip.is_column_visible(index - 1, target) {
+            index -= 1;
+        }
+    }
+    if Some(index) == focused { None } else { Some(index) }
 }

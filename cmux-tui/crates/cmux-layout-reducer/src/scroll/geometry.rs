@@ -12,31 +12,61 @@ const FLING_THRESHOLD: f64 = 300.;
 
 /// Where a fling released at `offset` with `velocity` would coast to.
 pub fn projected_offset(offset: f64, velocity: f64) -> f64 {
-    // RED: rule not ported yet.
-    let _ = velocity;
-    offset
+    offset + (velocity / 1000.) * DECELERATION_RATE / (1. - DECELERATION_RATE)
 }
 
 /// The snap offset a release should settle on: the one nearest the projected
 /// coast position. A fast fling always advances at least one snap point in
 /// its direction. `snaps` ascend.
 pub fn snap_target(release_offset: f64, velocity: f64, snaps: &[f64]) -> f64 {
-    // RED: rule not ported yet.
-    let _ = (velocity, snaps);
-    release_offset
+    let projected = projected_offset(release_offset, velocity);
+    let Some(mut best) =
+        swift_min_by(snaps.iter().copied(), |a, b| (a - projected).abs() < (b - projected).abs())
+    else {
+        return release_offset;
+    };
+    if velocity > FLING_THRESHOLD && best <= release_offset + 0.5 {
+        if let Some(&next) = snaps.iter().find(|&&snap| snap > release_offset + 0.5) {
+            best = next;
+        }
+    } else if velocity < -FLING_THRESHOLD && best >= release_offset - 0.5 {
+        if let Some(&previous) = snaps.iter().rev().find(|&&snap| snap < release_offset - 0.5) {
+            best = previous;
+        }
+    }
+    best
 }
 
 /// The adjacent snap offset from `offset` in `direction` (+1 or -1), for
 /// discrete mouse wheel steps.
 pub fn adjacent_snap(offset: f64, direction: i32, snaps: &[f64]) -> f64 {
-    // RED: rule not ported yet.
-    let _ = (direction, snaps);
-    offset
+    if direction > 0 {
+        return snaps
+            .iter()
+            .copied()
+            .find(|&snap| snap > offset + 0.5)
+            .or_else(|| snaps.last().copied())
+            .unwrap_or(offset);
+    }
+    snaps
+        .iter()
+        .rev()
+        .copied()
+        .find(|&snap| snap < offset - 0.5)
+        .or_else(|| snaps.first().copied())
+        .unwrap_or(offset)
 }
 
 /// Rubber-band resistance past the ends, like AppKit elastic scrolling.
 pub fn rubber_band(offset: f64, content_width: f64, viewport_width: f64) -> f64 {
-    // RED: rule not ported yet.
-    let _ = (content_width, viewport_width);
+    let upper = swift_max(0., content_width - viewport_width);
+    let dimension = swift_max(viewport_width, 1.);
+    let resist = |overshoot: f64| (1. - 1. / (overshoot * 0.55 / dimension + 1.)) * dimension;
+    if offset < 0. {
+        return -resist(-offset);
+    }
+    if offset > upper {
+        return upper + resist(offset - upper);
+    }
     offset
 }
