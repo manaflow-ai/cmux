@@ -388,8 +388,11 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
         Ok(json!({}))
     };
     let first = copy.run(&path, &push);
-    let retry = StartCopy { key: copy.key.to_lowercase(), ..copy.clone() }
-        .run_with_probe(&path, &push, &|_, _| Ok(true));
+    let retry = StartCopy { key: copy.key.to_lowercase(), ..copy.clone() }.run_with_probe(
+        &path,
+        &push,
+        &|_, _| Ok(true),
+    );
     assert_eq!(*count.borrow(), 1);
     assert_eq!(retry["copied"], json!(false));
     assert_eq!(retry["chat"], first["chat"]);
@@ -429,7 +432,11 @@ fn a_cached_chat_checks_the_guest_and_never_recopies_over_old_work() {
     assert_eq!(unavailable["error_code"], json!("checkout.unavailable"));
     assert_eq!(unavailable["checkout_state"], json!("unverified"));
     assert_eq!(unavailable["dependencies_state"], json!("unverified"));
-    assert_eq!(std::fs::read(&path).unwrap(), ledger_before, "retry must keep original pin and copy");
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        ledger_before,
+        "retry must keep original pin and copy"
+    );
     let recovered = copy.run_with_probe(&path, &no_push, &|_, _| Ok(true));
     assert_eq!(recovered["ok"], json!(true), "{recovered}");
     assert_eq!(recovered["copied"], json!(false));
@@ -1543,7 +1550,8 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     // A second send from the SAME Mac workspace has a new send key. The platform must recheck the
     // machine's boot request, using its original create key, before the new send is pinned to it.
     let second = self::key();
-    let reused = plan_with(&path, &request(&second, "user-leo/"), &mut "token-2\n".as_bytes(), &made);
+    let reused =
+        plan_with(&path, &request(&second, "user-leo/"), &mut "token-2\n".as_bytes(), &made);
     assert_eq!(reused["machine"], json!("vm-hot"), "{reused}");
     assert_eq!(asked.borrow().len(), 2);
     assert_eq!(asked.borrow()[1].0["clientKey"], json!(Keys::of(&key).create));
@@ -1580,7 +1588,8 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(pin(&legacy_path, &self::key(), ACCOUNT, "vm-app", Some("ws-1"))["ok"], json!(true));
     let mut legacy: Value = serde_json::from_str(&request(&self::key(), ACCOUNT)).unwrap();
     legacy["stored"] = json!(["vm-app"]);
-    let no_platform = |_: &Ensure, _: &str| -> Result<Value, E> { panic!("App machine must not ensure") };
+    let no_platform =
+        |_: &Ensure, _: &str| -> Result<Value, E> { panic!("App machine must not ensure") };
     let legacy_answer =
         plan_with(&legacy_path, &legacy.to_string(), &mut "token-4\n".as_bytes(), &no_platform);
     assert_eq!(legacy_answer["machine"], json!("vm-app"), "{legacy_answer}");
@@ -1603,14 +1612,19 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     // A platform that made no machine (no route here, no sign-in) leaves it to the App; no credential reads as 401.
     let no_route =
         |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status: 404, code: "" }) };
-    let fallback =
-        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &no_route);
+    let fallback = plan_with(
+        &fallback_path,
+        &request(&self::key(), "user-leo/"),
+        &mut "t\n".as_bytes(),
+        &no_route,
+    );
     assert_eq!(
         (fallback["ok"].clone(), fallback["machine"].clone()),
         (json!(true), Value::Null),
         "{fallback}"
     );
-    let empty = plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "".as_bytes(), &never);
+    let empty =
+        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "".as_bytes(), &never);
     assert_eq!(
         (empty["ok"].clone(), empty["machine"].clone()),
         (json!(true), Value::Null),
@@ -1621,8 +1635,12 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     let theirs = |_: &Ensure, _: &str| -> Result<Value, E> {
         Err(E::Status { status: 404, code: "cloud_environment.not_found" })
     };
-    let refused =
-        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &theirs);
+    let refused = plan_with(
+        &fallback_path,
+        &request(&self::key(), "user-leo/"),
+        &mut "t\n".as_bytes(),
+        &theirs,
+    );
     assert_eq!(refused["error_code"], json!("cloud_environment.not_found"));
     for (status, code, expected) in [
         (401, "", "refused"),
@@ -1634,9 +1652,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         (503, "workspace_machine.usage_unavailable", "workspace_machine.usage_unavailable"),
         (503, "workspace_machine.admission_changed", "workspace_machine.admission_changed"),
     ] {
-        let denied = |_: &Ensure, _: &str| -> Result<Value, E> {
-            Err(E::Status { status, code })
-        };
+        let denied = |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status, code }) };
         let outcome = plan_with(
             &fallback_path,
             &request(&self::key(), "user-leo/"),
@@ -1655,7 +1671,12 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     let lost =
         |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Unreachable("timed out".into())) };
     assert_eq!(
-        plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &lost)["error_code"],
+        plan_with(
+            &fallback_path,
+            &request(&self::key(), "user-leo/"),
+            &mut "t\n".as_bytes(),
+            &lost
+        )["error_code"],
         json!("unreachable")
     );
     assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
