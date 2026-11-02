@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4139084486201",
+  "notes": "notes/4139084486201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31678,
+      "title": "cmux NEXT transcript: the Retry arrow's head joins its arc, sized like Copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31826,
+      "title": "cef-layer-verify: CuaDriver input and screen capture; select, popup and DevTools rows (layer hosting items 2 and 5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31786,
+      "title": "fix(nightly-next): rollback only on concrete launch crashes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31825,
+      "title": "Transcript: a Codex turn header reads N previous messages over a mix, Worked for over one stretch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31804,
+      "title": "fix(webviews): new tab shell mode asks no commands and a cleared draft forgets its arrow pick",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31605,
+      "title": "ci: run the workflow guard profile on base pushes that touch it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31815,
+      "title": "cmux NEXT: the chat header's Changes opens the turn's changes on the right outside a repository, not the palette",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31801,
+      "title": "fix(webviews): use motion scale for attachment reorder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31806,
+      "title": "fix(ci): register the tui-kit Rust workspace",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
