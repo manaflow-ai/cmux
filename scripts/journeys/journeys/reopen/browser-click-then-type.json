@@ -65,7 +65,7 @@
    "lines": [
     "<!doctype html><html><head><title>keys</title><script>",
     "var s='',ev=[];",
-    "function show(){document.getElementById('o').textContent='seen'+s.split('').reverse().join('');",
+    "function show(){document.getElementById('o').textContent='seen'+s.split('').reverse().join('')+'end'+s.length;",
     "document.getElementById('e').textContent='ev '+ev.slice(-12).join(' ');",
     "var a=document.activeElement;document.getElementById('h').textContent='hasfocus '+(document.hasFocus()?'yes':'no')+' active '+(a?a.tagName.toLowerCase():'none')}",
     "addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key}ev.push('kd');show()},true);",
@@ -73,10 +73,10 @@
     "setInterval(show,200);",
     "</script></head><body style='font:24px sans-serif'>",
     "<p id=r></p><input id=f autofocus autocomplete=off style='font:24px sans-serif;width:600px'><p id=o></p><p id=h></p><p id=e></p>",
-    "<script>document.getElementById('r').textContent='pg'+'ok'+(6*7);show()</script>",
+    "<script>document.getElementById('r').textContent='pg'+'ok'+(6*7)+'cy'+(new URLSearchParams(location.search).get('c')||'0');show()</script>",
     "</body></html>"
    ],
-   "title": "set-up: a local page (127.0.0.1, a driver thread) with an autofocused text field; it shows every key it gets, reversed, document.hasFocus() and the active element"
+   "title": "set-up: a local page (127.0.0.1, a driver thread) with an autofocused text field; it shows every key it gets, reversed and counted ('seen' + keys reversed + 'end' + count), document.hasFocus(), the active element, and its cycle (?c=N)"
   },
   {
    "do": "key",
@@ -105,7 +105,7 @@
   },
   {
    "do": "type",
-   "text": "${page_url}",
+   "text": "${page_url}?c=1",
    "mark": "url1"
   },
   {
@@ -116,15 +116,15 @@
   },
   {
    "do": "expect",
-   "title": "cycle 1: the page loaded from the address bar; the focus model and the page agree the page's text field has focus",
+   "title": "cycle 1: the page loaded from the address bar; the page's text field is its active element and the focus model says browserPage",
    "since": "loaded1",
    "timeout": 20,
    "all": [
     {
-     "frame_text": "pgok42"
+     "frame_text": "pgok42cy1"
     },
     {
-     "frame_text": "hasfocus yes active input"
+     "frame_text": "active input"
     },
     {
      "key_window_focus": {
@@ -149,7 +149,7 @@
    "timeout": 10,
    "all": [
     {
-     "frame_text": "seenkosyekdleif"
+     "frame_text": "seenkosyekdleifend11"
     },
     {
      "frame_text": "fieldkeysok"
@@ -189,7 +189,7 @@
   },
   {
    "do": "type",
-   "text": "${page_url}",
+   "text": "${page_url}?c=2",
    "mark": "url2"
   },
   {
@@ -200,15 +200,15 @@
   },
   {
    "do": "expect",
-   "title": "cycle 2: the page loaded from the address bar; the focus model and the page agree the page's text field has focus",
+   "title": "cycle 2: the page loaded from the address bar; the page's text field is its active element and the focus model says browserPage",
    "since": "loaded2",
    "timeout": 20,
    "all": [
     {
-     "frame_text": "pgok42"
+     "frame_text": "pgok42cy2"
     },
     {
-     "frame_text": "hasfocus yes active input"
+     "frame_text": "active input"
     },
     {
      "key_window_focus": {
@@ -233,7 +233,7 @@
    "timeout": 10,
    "all": [
     {
-     "frame_text": "seenkodrowdnoces"
+     "frame_text": "seenkodrowdnocesend12"
     },
     {
      "frame_text": "secondwordok"
