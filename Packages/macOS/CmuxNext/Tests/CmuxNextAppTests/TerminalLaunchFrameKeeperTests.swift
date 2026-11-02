@@ -62,7 +62,7 @@ import Testing
         return condition()
     }
 
-    @Test func aShownTerminalsFrameIsOnDiskWithNoQuitAndTheNextLaunchShowsIt() async throws {
+    @Test(arguments: 0..<96) func aShownTerminalsFrameIsOnDiskWithNoQuitAndTheNextLaunchShowsIt(trial: Int) async throws {
         let shown = try await Shown()
         defer { shown.close() }
         let state = FileManager.default.temporaryDirectory.appending(path: "keeper-\(UUID().uuidString)")
