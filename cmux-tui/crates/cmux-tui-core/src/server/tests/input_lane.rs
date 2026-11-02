@@ -131,43 +131,42 @@ fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
     mux.shutdown();
 }
 
-/// A rolled-back routing change (a respawn whose durable commit failed restores the state it cloned:
-/// `terminal_respawn.rs`, `*state = before`) restores the old table without an insert or remove; the kept terminal
-/// found in between must not be used after it.
+/// A durable mutation that routes nothing (a rename, a focus or layout change) clones the session state and drops a
+/// copy. That must not drop the terminal kept for the person's keys: if it did, the next key would take the session
+/// lock again and wait behind automation, the F4 delay this lane removes (#31940 review).
 #[cfg(unix)]
 #[test]
-fn a_rolled_back_route_drops_the_kept_terminal() {
+fn a_mutation_that_routes_nothing_keeps_the_key_off_the_session_lock() {
     let mux = test_mux();
-    let (old, client, writer) = attached_terminal(&mux);
-    let before = mux.with_state(|state| state.clone());
-    // A routing change that the next key sees and keeps.
-    let removed = mux.remove_surface_runtime_for_test(old.id).expect("the placement had a runtime");
-    let interim =
-        crate::Surface::spawn_for_test(old.id, SurfaceOptions::default(), std::sync::Weak::new())
-            .unwrap();
-    let (interim_sent, interim_input) = mpsc::channel();
-    interim.replace_input_writer_for_test(Box::new(InputRecorder(interim_sent)));
-    mux.insert_surface_runtime_for_test(interim);
-    handle_command(&mux, client, key(old.id, b'a'), &writer).unwrap();
-    assert_eq!(
-        interim_input.try_recv().ok(),
-        Some(b"a".to_vec()),
-        "the key reached the interim terminal"
-    );
-    // The rollback: the whole state, its tables included, goes back to the clone.
-    let (old_sent, old_input) = mpsc::channel();
-    old.replace_input_writer_for_test(Box::new(InputRecorder(old_sent)));
-    mux.replace_state_for_test(before);
-    handle_command(&mux, client, key(old.id, b'b'), &writer).unwrap();
-    assert_eq!(
-        old_input.try_recv().ok(),
-        Some(b"b".to_vec()),
-        "after the rollback the key did not reach the restored terminal"
-    );
+    let (typing, client, writer) = attached_terminal(&mux);
+    handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
+    // A pane rename (a durable mutation through the mutation plan) and a state clone dropped, as plans do.
+    let pane = mux.with_state(|state| state.pane_of(typing.id).unwrap());
+    assert!(mux.rename_pane(pane, "renamed".into()), "the rename did not apply");
+    drop(mux.with_state(|state| state.clone()));
+
+    let (held, holding) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
+    let holder = std::thread::spawn({
+        let mux = mux.clone();
+        move || {
+            mux.with_state(|_| {
+                held.send(()).unwrap();
+                let _ = released.recv_timeout(Duration::from_millis(300));
+            });
+        }
+    });
+    holding.recv().unwrap();
+    let started = Instant::now();
+    let sent = handle_command(&mux, client, key(typing.id, b'b'), &writer);
+    let waited = started.elapsed();
+    let _ = release.send(());
+    holder.join().unwrap();
+    sent.unwrap();
+    eprintln!("INPUT-LANE key after a mutation that routes nothing: {waited:?}");
     assert!(
-        interim_input.try_recv().is_err(),
-        "after the rollback the key went to the rolled-back terminal"
+        waited < Duration::from_millis(150),
+        "after a mutation that routes nothing the key waited {waited:?} for the session lock (budget 150 ms)"
     );
-    drop(removed);
     mux.shutdown();
 }
