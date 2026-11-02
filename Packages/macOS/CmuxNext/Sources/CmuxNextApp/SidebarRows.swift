@@ -61,11 +61,10 @@ final class SidebarRows {
         return visible
     }
 
-    /// The layout `window` draws, the model's (the one rule: its tests compare with it): `visibleLayout` (App
-    /// Store only under Preview Features) without the band's workspaces another window owns or its space hides,
-    /// and without the groups and Pinned items another space owns (`room`), so a new window starts clean. Only
-    /// on the sidebar document, whose band moves anchor on a drawn neighbour; the older owner's index ops count
-    /// the stored layout; the bridge translates visible item indexes back.
+    /// The layout `window` draws, the model's (the one rule: its tests compare with it): `visibleLayout` (App Store
+    /// only under Preview Features) without the band's workspaces another window owns or its space hides, nor another
+    /// space's groups and Pinned items (`room`): a new window starts clean. Only on the sidebar document, whose band
+    /// moves anchor on a drawn neighbour; the older owner's index ops count the stored layout; the bridge maps back.
     static func visibleLayout(_ services: AppServices, window: WindowState) -> SidebarLayoutDocument {
         let visible = visibleLayout(services.sidebarLayout.document, showAppStore: services.settings?.snapshot.previewFeatures == true)
         guard services.sidebarDoc.isActive else { return visible }
