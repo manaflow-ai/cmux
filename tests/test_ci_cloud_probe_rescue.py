@@ -115,7 +115,7 @@ class RescueTests(unittest.TestCase):
         api.run.side_effect = [run(), run(), {"status": "cancelled", "run_attempt": 1, "path": r.WORKFLOW_PATH}]
         decision = r.rescue_control(api, run(), now=lambda: NOW, sleep=lambda _: None)
         self.assertEqual(decision.next_label, r.WATCH_LABELS[1])
-        api.cancel.assert_called_once_with(9)
+        api.cancel.assert_called_once_with(9, before_send=mock.ANY)
         api.rerun.assert_called_once_with(9, 2)
         api.force_cancel.assert_not_called()
 
@@ -201,6 +201,120 @@ class RescueTests(unittest.TestCase):
         self.assertEqual(sleep.call_args_list, [mock.call(180), mock.call(r.NO_START_SECONDS)])
         api.run.assert_called_once_with(9)
         self.assertEqual(run_once.call_count, 2)
+
+
+class RetryingTransport:
+    """Main's before_send contract: validate again after a refused POST waits."""
+
+    def __init__(self):
+        self.current = run()
+        self.watcher = watch()
+        self.seconds = 0
+        self.read_seconds = 0
+        self.sent = []
+        self.reruns = []
+        self.retry_path = "cancel"
+        self.on_retry = lambda: None
+        self.hold_cancel = False
+        self.on_jobs = lambda: None
+
+    def run(self, run_id):
+        return dict(self.current)
+
+    def jobs(self, run_id, attempt):
+        self.seconds += self.read_seconds
+        result = [dict(self.watcher)]
+        self.on_jobs()
+        return result
+
+    def request(self, method, path, *, before_send=None):
+        if method == "GET":
+            api = mock.Mock()
+            RescueTests.mark(api)
+            return api.request.return_value
+        action = path.rsplit("/", 1)[-1]
+        before_send()
+        if action == self.retry_path:
+            # The first POST received 429 and did nothing. A watcher may have
+            # started while main's transport waited for its retry budget.
+            self.on_retry()
+            before_send()
+        self.sent.append(action)
+        if action == "force-cancel" or not self.hold_cancel:
+            self.current["status"] = "completed"
+
+    def cancel(self, run_id, *, before_send):
+        self.request("POST", f"/actions/runs/{run_id}/cancel", before_send=before_send)
+
+    def rerun(self, run_id, attempt):
+        self.reruns.append((run_id, attempt))
+
+    def sleep(self, seconds):
+        self.seconds += seconds
+
+    def rescue(self):
+        return r.rescue_control(self, run(), now=lambda: NOW + dt.timedelta(seconds=self.seconds),
+                                monotonic=lambda: self.seconds, sleep=self.sleep)
+
+
+class SendGuardTests(unittest.TestCase):
+    def test_queued_watcher_can_cancel_and_rerun_after_transport_retry(self):
+        api = RetryingTransport()
+        self.assertEqual(api.rescue().action, "rescue")
+        self.assertEqual(api.sent, ["cancel"])
+        self.assertEqual(api.reruns, [(9, 2)])
+
+    def test_cancel_retry_stops_when_watcher_starts_or_run_changes(self):
+        changes = (
+            lambda api: api.watcher.update(status="in_progress", runner_name="runner"),
+            lambda api: api.current.update(run_attempt=2),
+            lambda api: api.current.update(head_repository={"full_name": "other/repo"}),
+            lambda api: api.current.update(head_sha="b" * 40),
+        )
+        for change in changes:
+            with self.subTest(change=change):
+                api = RetryingTransport()
+                api.on_retry = lambda: change(api)
+                self.assertEqual(api.rescue().action, "noop")
+                self.assertEqual(api.sent, [])
+                self.assertEqual(api.reruns, [])
+
+    def test_force_cancel_retry_stops_when_watcher_starts_or_attempt_changes(self):
+        for change in (
+            lambda api: api.watcher.update(status="in_progress", runner_name="runner"),
+            lambda api: api.current.update(run_attempt=2),
+        ):
+            with self.subTest(change=change):
+                api = RetryingTransport()
+                api.hold_cancel = True
+                api.retry_path = "force-cancel"
+                api.on_retry = lambda: change(api)
+                self.assertEqual(api.rescue().action, "noop")
+                self.assertEqual(api.sent, ["cancel"])
+                self.assertEqual(api.reruns, [])
+
+    def test_force_cancel_still_finishes_an_unassigned_watcher(self):
+        api = RetryingTransport()
+        api.hold_cancel = True
+        api.retry_path = "force-cancel"
+        self.assertEqual(api.rescue().action, "rescue")
+        self.assertEqual(api.sent, ["cancel", "force-cancel"])
+        self.assertEqual(api.reruns, [(9, 2)])
+
+    def test_nested_read_wait_aborts_instead_of_sending_stale_validation(self):
+        api = RetryingTransport()
+        api.read_seconds = r.SEND_CHECK_MAX_SECONDS + 1
+        result = api.rescue()
+        self.assertIn("freshness budget", result.reason)
+        self.assertEqual(api.sent, [])
+        self.assertEqual(api.reruns, [])
+
+    def test_attempt_change_during_guard_jobs_read_aborts(self):
+        api = RetryingTransport()
+        api.on_retry = lambda: setattr(api, "on_jobs", lambda: api.current.update(run_attempt=2))
+        self.assertEqual(api.rescue().action, "noop")
+        self.assertEqual(api.sent, [])
+        self.assertEqual(api.reruns, [])
 
 
 if __name__ == "__main__":
