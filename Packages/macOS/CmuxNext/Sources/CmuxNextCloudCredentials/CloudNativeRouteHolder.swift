@@ -30,7 +30,7 @@ public final class CloudNativeRouteHolder: CloudLinkLaunching {
         guard auth.isSignedIn else { throw NativeDeviceEnrollmentError.signedOut }
         // The selection is a Stack ID; Native APIs take the authenticated Worker's team ID.
         let token = try await identity.installToken()
-        guard let team = MacInstallIdentity.team(ofToken: token) else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        guard let team = MacInstallIdentity.team(ofToken: token) else { throw NativeDeviceEnrollmentError.identity() }
         if route == nil || routeTeam != team {
             try await route?.revoke()
             let auth = auth
