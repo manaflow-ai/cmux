@@ -5450,21 +5450,23 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 /* A count summary's verb takes its own width, not the column's (ToolVerb.tsx `tight`). */
 .cv-tool__verb.is-tight::after { content: none; }
 .cv-tool__verb { flex: none; }
-/* The action row sits in .cv-user__body (display: contents) since the pending-steer footer slot. */
-.cv-user:not(:has(.cv-user__pending)) > .cv-user__actions,
-.cv-user:not(:has(.cv-user__pending)) > .cv-user__body > .cv-user__actions {
+/* The action row sits in .cv-user__body (display: contents) since the pending-steer footer slot.
+   Under a bubble it takes no layout height, a waiting steer's (Send now, X) as a sent prompt's: it
+   is laid in the turn gap, half the gap's spare under the bubble, overhanging col-right by the
+   control's inset. Sending a steer then changes neither the row's place nor its height (design/grid.md
+   5.5: the row's glyphs sit 4 under the message "in every case"; queued-user-footer.test.ts). */
+.cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
+.cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
   position: absolute;
   right: calc(-1 * var(--cv-action-overhang));
   top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
   margin: 0;
   padding: 0;
 }
-/* A waiting steer keeps its action row in flow (model.ts userMetaHeight reserves it), but draws it
-   where the sent prompt's row sits: half the turn gap's spare under the bubble, overhanging
-   col-right by the control's inset. Sending it then moves nothing (design/grid.md 5.5: the row's
-   glyphs sit 4 under the message "in every case"; queued-user-footer.test.ts). */
-.cv-user:has(.cv-user__pending) > .cv-user__actions,
-.cv-user:has(.cv-user__pending) > .cv-user__body > .cv-user__actions {
+/* A waiting steer of images alone has no bubble: its action row stays in flow under the images
+   (model.ts userMetaHeight reserves it), drawn at the same offset. */
+.cv-user:has(.cv-user__pending):not(:has(.cv-user__bubble)) > .cv-user__actions,
+.cv-user:has(.cv-user__pending):not(:has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
   position: relative;
   top: calc((var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
   right: calc(-1 * var(--cv-action-overhang));
