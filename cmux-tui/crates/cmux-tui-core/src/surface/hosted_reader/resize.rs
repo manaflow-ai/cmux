@@ -21,11 +21,12 @@ impl HostedReader {
             cell_width: cell_pixels.map(|pixels| pixels.0).unwrap_or(geometry.cell_width),
             cell_height: cell_pixels.map(|pixels| pixels.1).unwrap_or(geometry.cell_height),
         };
-        let changed = match pty.commit_hosted_geometry(&mut geometry, next_geometry, false) {
-            Ok(changed) => changed,
+        let commit = match pty.commit_hosted_geometry(&mut geometry, next_geometry, false) {
+            Ok(commit) => commit,
             Err(_) => return Flow::Break,
         };
         drop(geometry);
+        let changed = pty.publish_geometry_commit(commit);
         if changed && let Some(mux) = mux.upgrade() {
             mux.emit(MuxEvent::SurfaceResized {
                 surface: surface.id,
