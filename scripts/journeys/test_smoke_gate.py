@@ -906,13 +906,13 @@ class GoldenRun(unittest.TestCase):
 class GoBudget(unittest.TestCase):
     """--go-spec: the run never waits hours for GOs the spec will not give (lead 15:2xZ)."""
 
-    def run_gate(self, tmp, rounds, extra, taken=0):
+    def run_gate(self, tmp, rounds, extra, taken=0, ci_state="done"):
         rounds_dir = os.path.join(tmp, "rounds")
         os.makedirs(rounds_dir, exist_ok=True)
         if rounds is not None:
             write_spec(tmp, rounds, taken=taken, name="g")
         ci = os.path.join(tmp, "fake-ci")
-        open(ci, "w").write("#!/bin/sh\necho '{\"state\": \"done\"}'\n")
+        open(ci, "w").write("#!/bin/sh\necho '{\"state\": \"%s\"}'\n" % ci_state)
         os.chmod(ci, 0o755)
         runner = os.path.join(tmp, "fake_run.py")
         open(runner, "w").write(FAKE)
@@ -937,7 +937,7 @@ class GoBudget(unittest.TestCase):
             self.assertLess(time.time() - t, 30)
             self.assertIn("gives 9 more GO(s)", done.stderr)
             self.assertIn("needs 12 (10 round(s) + 2 golden case(s))", done.stderr)
-            self.assertIn('"rounds" to at least 13', done.stderr)
+            self.assertIn('"rounds" to at least 13 (23 leaves room for 10 replacement rounds)', done.stderr)
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\nb-nf\n")
             done = self.run_gate(tmp, 1, ("--goldens", "only"))
@@ -972,6 +972,25 @@ class GoBudget(unittest.TestCase):
             self.assertIn("within the wait", why)
             write_spec(tmp, 0, name="g")  # no round limit
             self.assertEqual(mod.go_budget("g")[0], None)
+            # a spec the scheduler marked done gives no GO, whatever its "rounds" says now (review FIX 26013f95976)
+            write_spec(tmp, 5, name="g")
+            json.dump({"specs": {"g": {"rounds_taken": 2, "done": True}}}, open(os.path.join(tmp, "state.json"), "w"))
+            self.assertEqual(mod.go_budget("g")[0], 0)
+            go, why = mod.await_go("g", ["cmux99"], set(), time.time() + 3600, poll=0.1)
+            self.assertIn("marked spec g done", why)
+            json.dump({"kind": "lease-round", "rounds": "ten"}, open(os.path.join(tmp, "specs", "g.json"), "w"))
+            self.assertIn("not a number", mod.go_budget("g")[2])
+
+    def test_a_done_spec_is_refused_before_the_build_wait_and_names_a_new_spec(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\n")
+            os.makedirs(os.path.join(tmp, "rounds"))
+            write_spec(tmp, 5, name="g")
+            json.dump({"specs": {"g": {"rounds_taken": 2, "done": True}}}, open(os.path.join(tmp, "state.json"), "w"))
+            done = self.run_gate(tmp, None, ("--goldens", "only"), ci_state="running")
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("use a new spec name", done.stderr)
+            self.assertNotIn("needs a finished build", done.stderr)
 
 
 class OpenP0(unittest.TestCase):

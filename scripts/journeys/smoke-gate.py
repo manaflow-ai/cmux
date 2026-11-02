@@ -364,7 +364,8 @@ def go_done(spec, go, cell, status=None):
 def go_budget(spec):
     """(left, taken, why): how many more GOs the scheduler will give SPEC (its "rounds" minus the rounds it counted taken;
     an open GO is not counted until its hold ends, so it is part of LEFT), None for a spec with no round limit, or
-    (0, 0, why) when the spec cannot be read (no GO will come). TAKEN: the rounds the scheduler counted."""
+    (0, taken, why) when no GO will come: the spec cannot be read, its "rounds" is not a number, or the scheduler
+    marked it done (a done spec stays done when "rounds" is raised: it needs a new spec name)."""
     queue = SCHED_ROUNDS.parent
     try:
         sp = json.loads((queue / "specs" / f"{spec}.json").read_text())
@@ -372,13 +373,20 @@ def go_budget(spec):
         return 0, 0, f"the scheduler spec {queue / 'specs' / (spec + '.json')} cannot be read ({error.__class__.__name__})"
     if not isinstance(sp, dict):
         return 0, 0, f"the scheduler spec {spec} is not an object"
-    limit = int(sp.get("rounds") or (1 if sp.get("recur") == "once" else 0)) or None
-    if limit is None:
-        return None, 0, "no round limit"
     try:
-        taken = int((json.loads((queue / "state.json").read_text()).get("specs") or {}).get(spec, {}).get("rounds_taken") or 0)
+        limit = int(sp.get("rounds") or (1 if sp.get("recur") == "once" else 0)) or None
+    except (TypeError, ValueError):
+        return 0, 0, f"the scheduler spec {spec} has a \"rounds\" that is not a number ({sp.get('rounds')!r})"
+    try:
+        st = (json.loads((queue / "state.json").read_text()).get("specs") or {}).get(spec) or {}
+        taken, done = int(st.get("rounds_taken") or 0), st.get("done") is True
     except (OSError, ValueError, AttributeError, TypeError):
-        taken = 0  # no scheduler state yet: nothing taken
+        taken, done = 0, False  # no scheduler state yet: nothing taken
+    if done:
+        return 0, taken, (f"the scheduler marked spec {spec} done ({taken} taken); raising its \"rounds\" does not "
+                          "reopen it: use a new spec name")
+    if limit is None:
+        return None, taken, "no round limit"
     return max(0, limit - taken), taken, f"spec {spec} has \"rounds\": {limit}, {taken} already counted taken"
 
 
@@ -710,23 +718,26 @@ def main(argv=None):
     go_used, go_deadline = set(), time.time() + opts.go_wait_hours * 3600
     opts.go_used, opts.go_deadline = go_used, go_deadline
     if opts.go_spec:
+        # Every GO the run needs must be on offer before it starts (lead 15:2xZ: never wait hours for GOs that will
+        # not come): one per smoke round and one per listed golden case. Checked before the build wait (files only).
+        # Replacement rounds (no pressure) take more; when none is left, await_go stops them at once.
+        listed = golden_list()
+        cases = (len({f[0] for f in listed[1]}) if listed[0] == "listed" and opts.goldens != "skip"
+                 and not (opts.diagnostic and opts.goldens == "after") else 0)
+        rounds_needed = 0 if opts.goldens == "only" else opts.rounds
+        needed = rounds_needed + cases
+        left, taken, why = go_budget(opts.go_spec)
+        if left is not None and left < needed:
+            fix = ("use a new spec name" if "done" in why or "cannot" in why or "not a number" in why
+                   else f"set the spec's \"rounds\" to at least {taken + needed}"
+                        + (f" ({taken + needed + rounds_needed} leaves room for {rounds_needed} replacement rounds)"
+                           if rounds_needed and opts.goldens != "only" else ""))
+            ap.error(f"--go-spec {opts.go_spec} gives {left} more GO(s) ({why}), but this run needs {needed} "
+                     f"({rounds_needed} round(s) + {cases} golden case(s)): {fix}, or give --goldens skip / fewer --rounds")
         state = build_state(opts.build, go_deadline)
         if state != "done":
             ap.error(f"--go-spec needs a finished build: job {opts.build} is {state} (run.py would wait for it inside "
                      "the GO's window and take its lease after the GO ends)")
-        # Every GO the run needs must be on offer before it starts (lead 15:2xZ: never wait hours for GOs that will
-        # not come): one per smoke round and one per listed golden case. Replacement rounds (no pressure) take more;
-        # when none is left, await_go stops them at once.
-        listed = golden_list()
-        cases = (len({f[0] for f in listed[1]}) if listed[0] == "listed" and opts.goldens != "skip"
-                 and not (opts.diagnostic and opts.goldens == "after") else 0)
-        needed = (0 if opts.goldens == "only" else opts.rounds) + cases
-        left, taken, why = go_budget(opts.go_spec)
-        if left is not None and left < needed:
-            ap.error(f"--go-spec {opts.go_spec} gives {left} more GO(s) ({why}), but this run needs {needed} "
-                     f"({0 if opts.goldens == 'only' else opts.rounds} round(s) + {cases} golden case(s)): set the "
-                     f"spec's \"rounds\" to at least {taken + needed}, "
-                     "or give --goldens skip / fewer --rounds")
     # The lease settings of every run.py this gate starts (smoke rounds and golden cases); see the round loop.
     env_base = {**os.environ,
                 "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600"),
