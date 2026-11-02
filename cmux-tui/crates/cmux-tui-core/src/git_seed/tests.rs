@@ -564,6 +564,27 @@ fn a_full_seed_retry_keeps_ignored_files_when_ignore_rules_change() {
 }
 
 #[test]
+fn a_full_seed_retry_refuses_changed_cloud_sparse_checkout_settings() {
+    let world = World::new("reseed-sparse");
+    let original = world.snapshot("first", &[&world.base]);
+    let folder = world.home.join("work/project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &original))["state"], "done");
+
+    git(&folder, &["config", "core.sparseCheckout", "true"]);
+    write(&folder.join(".git/info/sparse-checkout"), "/*\n");
+    write(&world.mac.join("b"), "b\nMac change\n");
+    let newer = world.snapshot("second", &[&world.base]);
+    let status = seed(&world, &world.start_params(&folder, &newer));
+    assert_eq!(status["state"], "failed", "{status}");
+    assert_eq!(status["error_code"], "seed.machine_changed", "{status}");
+    assert_eq!(git(&folder, &["config", "--get", "core.sparseCheckout"]), "true");
+    assert_eq!(
+        std::fs::read_to_string(folder.join(".git/info/sparse-checkout")).unwrap(),
+        "/*\n",
+    );
+}
+
+#[test]
 fn a_full_seed_retry_refuses_cloud_stash_or_assume_unchanged_edits() {
     let world = World::new("reseed-hidden");
     let original = world.snapshot("first", &[&world.base]);
