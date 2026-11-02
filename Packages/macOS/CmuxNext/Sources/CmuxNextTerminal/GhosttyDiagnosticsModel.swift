@@ -1,6 +1,5 @@
-import Foundation
+public import Foundation
 import Observation
-import CmuxNextTerminal
 import CmuxNextCompat
 
 /// The R92 diagnostics of the applied Ghostty config, kept current: read
@@ -9,21 +8,21 @@ import CmuxNextCompat
 /// `cmux.settings.host.changed`); the socket's `ghostty.diagnostics`
 /// computes the same list on demand.
 @MainActor @Observable
-final class GhosttyDiagnosticsModel {
-    static let shared = GhosttyDiagnosticsModel()
+public final class GhosttyDiagnosticsModel {
+    public static let shared = GhosttyDiagnosticsModel()
 
     /// Nil until the first read finished (the page then shows nothing,
     /// never a false "everything applies").
-    private(set) var diagnostics: [GhosttyConfigDiagnostic]?
+    public private(set) var diagnostics: [GhosttyConfigDiagnostic]?
     /// The theme colors the user's Ghostty files set themselves, which no theme can change (the
     /// Theme section's notice). Read with the config, so current at once.
-    private(set) var colorOverrides: [GhosttyColorOverride] = []
+    public private(set) var colorOverrides: [GhosttyColorOverride] = []
 
     @ObservationIgnored private let read: @MainActor () -> GhosttyConfigDiagnosticsSnapshot?
     @ObservationIgnored private var observer: MainActorObservation?
     @ObservationIgnored private var generation = 0
 
-    init(read: @escaping @MainActor () -> GhosttyConfigDiagnosticsSnapshot? = { GhosttyRuntime.shared.configDiagnosticsSnapshot },
+    public init(read: @escaping @MainActor () -> GhosttyConfigDiagnosticsSnapshot? = { GhosttyRuntime.shared.configDiagnosticsSnapshot },
          notifications: NotificationCenter = .default) {
         self.read = read
         refresh()
@@ -34,7 +33,7 @@ final class GhosttyDiagnosticsModel {
 
     /// Reads the applied config again; the keybind lines are read off the
     /// main actor, and only the newest read is kept.
-    func refresh() {
+    public func refresh() {
         generation += 1
         let current = generation
         guard let snapshot = read() else {

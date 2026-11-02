@@ -30,8 +30,7 @@ extension InternalPageView: PaneFirstPaintGated {
     }
 }
 
-/// A terminal shown again whose output waited in the daemon while it was hidden: the pane keeps the tab it showed
-/// until the terminal drew that output, so its first frame is the newest one (SWITCH FRAMES SF-5, pre-show).
+/// A terminal shown again keeps the last tab until it drew the output held while hidden (`TerminalCatchUp`).
 extension TerminalHostView: PaneFirstPaintGated {
     public var awaitsFirstPaint: Bool { awaitsCatchUp }
     public func whenFirstPainted(_ body: @escaping () -> Void) { whenCaughtUp(body) }

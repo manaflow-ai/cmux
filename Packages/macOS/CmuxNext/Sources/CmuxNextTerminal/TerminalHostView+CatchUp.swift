@@ -19,3 +19,38 @@ public extension TerminalHostView {
         session.whenCaughtUp(body)
     }
 }
+
+/// The terminals a workspace shows (in no hidden view): the ones a switch to it waits for.
+@MainActor
+public struct TerminalsCatchingUp {
+    public let terminals: [TerminalHostView]
+
+    public init(in root: NSView) {
+        var found: [TerminalHostView] = []
+        func visit(_ view: NSView) {
+            for child in view.subviews where !child.isHidden {
+                if let terminal = child as? TerminalHostView { found.append(terminal) } else { visit(child) }
+            }
+        }
+        visit(root)
+        terminals = found
+    }
+
+    /// One waits now, or (`predicting`, before the switch reveals them) would once shown.
+    public func awaits(predicting: Bool) -> Bool {
+        terminals.contains { $0.awaitsCatchUp || (predicting && $0.catchesUpWhenShown) }
+    }
+
+    /// Runs `body` once every terminal that waits drew its newest screen (now with none).
+    public func whenCaughtUp(_ body: @escaping () -> Void) {
+        let waiting = terminals.filter(\.awaitsCatchUp)
+        var left = waiting.count
+        guard left > 0 else { return body() }
+        for terminal in waiting {
+            terminal.whenCaughtUp {
+                left -= 1
+                if left == 0 { body() }
+            }
+        }
+    }
+}
