@@ -206,6 +206,84 @@ def judge_round(root, entry, stills, window_px):
     return res
 
 
+def judge_events(root, entry, stills):
+    """Item 2 and 3 movies: per event (a key or an action, its send time), the first changed frame, the settle, near-white
+    flashes (dark theme), and for the browser pane: frames without the page's magenta marker while the page should
+    show (blank or stale), and a marker that is not its square size (a stretched page) or a column that differs
+    from the settled page beside the marker."""
+    movie = os.path.join(root, entry["movie"])
+    times, period, rows = load_frames(movie)
+    frames = list(decode(movie))
+    n = min(len(frames), len(times))
+    frames, times = frames[:n], times[:n]
+    events = entry["events"]
+    dark = entry["theme"] == "dark"
+    dpr = 2.0
+    out = {"case": entry["case"], "theme": entry["theme"], "round": entry["round"], "kind": "events",
+           "period_ms": round(period * 1000, 3), "frames": n, "events": []}
+    page_phase = {"navigate", "switch back", "resize left", "resize right"}
+    ref_col = None
+    for k, ev in enumerate(events):
+        t0 = ev["t_send"]
+        t1 = events[k + 1]["t_send"] if k + 1 < len(events) else float("inf")
+        idx = [i for i, t in enumerate(times) if t0 <= t < t1]
+        prev_i = max([i for i, t in enumerate(times) if t < t0], default=None)
+        res = {"label": ev["label"], "via": ev.get("via"), "frames": len(idx), "first": None, "settle": None,
+               "flash": [], "blank": [], "stretch": []}
+        if prev_i is None or not idx:
+            out["events"].append(res)
+            continue
+        prev = frames[prev_i]
+        base_white = float((prev.min(axis=2) >= WHITE).mean())
+        end_white = float((frames[idx[-1]].min(axis=2) >= WHITE).mean())
+        res["white_before"], res["white_settled"] = round(base_white, 3), round(end_white, 3)
+        last = prev
+        slug = ev["label"].replace(" ", "-")
+        for i in idx:
+            f = frames[i]
+            refreshes = round((times[i] - t0) / period, 2)
+            diff = changed_mask(f, last)
+            if diff.mean() > CHANGED:
+                if res["first"] is None:
+                    res["first"] = {"frame": i, "refreshes": refreshes, "bbox": bbox(diff)}
+                    save(f, os.path.join(stills, f"{entry['theme']}-{entry['case']}-r{entry['round']}-{slug}-first-f{i}.png"))
+                res["settle"] = {"frame": i, "refreshes": refreshes}
+            last = f
+            if dark:
+                share = float((f.min(axis=2) >= WHITE).mean())
+                if share - max(base_white, end_white) > 0.10:
+                    res["flash"].append({"frame": i, "refreshes": refreshes, "white": round(share, 3)})
+                    if len(res["flash"]) <= 3:
+                        save(f, os.path.join(stills, f"{entry['theme']}-{entry['case']}-r{entry['round']}-{slug}-flash-f{i}.png"))
+            if entry["case"].startswith("pane-") and ev["label"] in page_phase:
+                m = find(f, magenta)
+                settled_first = ev["label"] == "navigate" and (res["first"] is None or i < res["first"]["frame"] + 30)
+                if m is None:
+                    if not settled_first and not (ev["label"] == "switch back" and res["first"] is None):
+                        res["blank"].append({"frame": i, "refreshes": refreshes})
+                        if len(res["blank"]) <= 3:
+                            save(f, os.path.join(stills, f"{entry['theme']}-{entry['case']}-r{entry['round']}-{slug}-nomarker-f{i}.png"))
+                    continue
+                w, h = m[2] - m[0] + 1, m[3] - m[1] + 1
+                if abs(w - h) > 2 or abs(w - 32 * dpr) > 3:
+                    res["stretch"].append({"frame": i, "refreshes": refreshes, "marker": [w, h]})
+                    if len(res["stretch"]) <= 3:
+                        save(f, os.path.join(stills, f"{entry['theme']}-{entry['case']}-r{entry['round']}-{slug}-stretch-f{i}.png"))
+                x, y = m[0] - round(8 * dpr), m[1] - round(8 * dpr)
+                crop = f[y:y + round(400 * dpr), x:x + round(500 * dpr)]
+                if ref_col is None and ev["label"] == "navigate" and i == idx[-1]:
+                    ref_col = crop.copy()
+                elif ref_col is not None and crop.shape == ref_col.shape:
+                    changed = int((np.abs(crop.astype(np.int16) - ref_col.astype(np.int16)).sum(axis=2) > DIFF).sum())
+                    if changed >= 400:
+                        res["stretch"].append({"frame": i, "refreshes": refreshes, "column_changed_px": changed})
+        out["events"].append(res)
+    for extra in ("readiness", "state_open"):
+        if entry.get(extra) is not None:
+            out[extra] = entry[extra]
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("dir")
@@ -225,6 +303,13 @@ def main():
         scale = (entry.get("record") or {}).get("scale") or 2
         win = None
         try:
+            if entry.get("kind") == "events":
+                res = judge_events(root, entry, stills)
+                results.append(res)
+                for ev in res["events"]:
+                    print(f"  {ev['label']:<18} first {ev['first'] and ev['first']['refreshes']} settle {ev['settle'] and ev['settle']['refreshes']} "
+                          f"flash {len(ev['flash'])} blank {len(ev['blank'])} stretch {len(ev['stretch'])}", flush=True)
+                continue
             res = judge_round(root, entry, stills, win)
         except Exception as error:  # noqa: BLE001  one bad round does not stop the rest
             res = {"case": entry["case"], "round": entry["round"], "theme": entry["theme"], "error": repr(error)}

@@ -64,7 +64,8 @@ class Run:
         return reply if reply is not None else {}
 
     def eval(self, script, tab):
-        reply = self.rpc("browser.page.eval", {"script": script, "tab": tab}) or {}
+        params = {"script": script, **({"tab": tab} if tab else {})}
+        reply = self.rpc("browser.page.eval", params) or {}
         return reply.get("value") if isinstance(reply, dict) else None
 
     def page_state(self, tab):
@@ -156,6 +157,119 @@ class Run:
                   f"after {entry['state_after']} frames {((entry['stopped'] or {}).get('read') or {}).get('complete')}", flush=True)
             time.sleep(0.6)
 
+    def press(self, label, key, modifiers=(), **extra):
+        before = uptime()
+        reply = self.rpc("debug.key", {"key": key, "modifiers": list(modifiers), **extra})
+        return {"label": label, "t_send": before, "t_reply": uptime(), "via": f"debug.key {'+'.join([*modifiers, key])}",
+                "reply": reply}
+
+    def act(self, label, method, params, timeout=60):
+        before = uptime()
+        reply = self.rpc(method, params, timeout)
+        return {"label": label, "t_send": before, "t_reply": uptime(), "via": method, "reply": reply}
+
+    def away_workspace(self):
+        """A second workspace (a terminal) to switch to and back from: Cmd-2 and Cmd-1."""
+        if getattr(self, "_away", None):
+            return
+        self.rpc("action.run", {"action": "newTab", "args": {"name": "bv-away", "focus": False}})
+        time.sleep(1.0)
+        self._away = True
+
+    def events_round(self, name, index, steps, extra=None):
+        """Records one movie while `steps` run: each a (pause after, callable returning an event dict)."""
+        movie = os.path.join(self.out, f"{name}-r{index}.mov")
+        entry = {"theme": self.theme, "case": name, "round": index, "movie": os.path.relpath(movie, self.opts.out),
+                 "kind": "events", "events": [], **(extra or {})}
+        entry["geometry_before"] = self.geometry()
+        entry["record"] = self.record(movie)
+        time.sleep(self.opts.lead)
+        for pause, step in steps:
+            event = step()
+            if event:
+                entry["events"].append(event)
+            time.sleep(pause)
+        entry["stopped"] = self.stop()
+        entry["geometry_after"] = self.geometry()
+        self.rounds.append(entry)
+        print(f"browser-video: {self.theme} {name} r{index}: events {[e['label'] for e in entry['events']]} "
+              f"frames {((entry['stopped'] or {}).get('read') or {}).get('complete')}", flush=True)
+        return entry
+
+    def pane_case(self, page):
+        """Item 2: open a browser pane (Opt-Cmd-D), navigate, switch away and back (Cmd-2, Cmd-1), resize it
+        (Ctrl-Cmd-Left / Right, the spring), close it (Cmd-W)."""
+        self.away_workspace()
+        url = f"{self.base}/{page}.html"
+        for index in range(1, self.opts.rounds + 1):
+            self.rpc("debug.key", {"key": "1", "modifiers": ["cmd"]})  # the first workspace
+            time.sleep(0.8)
+            state = {}
+
+            def navigate():
+                event = self.act("navigate", "browser.page.navigate", {"url": url})
+                wait(lambda: self.eval("document.title", None) == f"bv {page}", 30, 0.1)
+                self.eval("scrollTo(0, 400)", None)
+                state["open"] = self.page_state(None)
+                return event
+
+            steps = [
+                (1.6, lambda: self.press("open browser pane", "d", ("cmd", "option"))),
+                (1.6, navigate),
+                (1.0, lambda: self.press("switch away", "2", ("cmd",))),
+                (1.2, lambda: self.press("switch back", "1", ("cmd",))),
+                (1.0, lambda: self.press("resize left", "left", ("ctrl", "cmd"))),
+                (1.0, lambda: self.press("resize right", "right", ("ctrl", "cmd"))),
+                (1.2, lambda: self.press("close", "w", ("cmd",))),
+            ]
+            entry = self.events_round(f"pane-{page}", index, steps, {"page": page})
+            entry["state_open"] = state.get("open")
+            time.sleep(0.6)
+
+    def agent_case(self, load):
+        """Item 3: open an agent chat (palette.newAgentChat), type and send, a streamed reply (debug.agent_pane
+        stream), switch away and back while it streams, under `load` (heavy: the heavy page in a split beside it)."""
+        self.away_workspace()
+        for index in range(1, self.opts.rounds + 1):
+            self.rpc("debug.key", {"key": "1", "modifiers": ["cmd"]})  # the first workspace
+            time.sleep(0.8)
+            if load == "heavy" and index == 1:
+                self.rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": f"{self.base}/heavy.html"}, "focus": True})
+                time.sleep(3)
+            stats = {}
+
+            def type_send():
+                agent = lambda action, **p: self.rpc("debug.agent_pane", dict(p, action=action), timeout=30) or {}
+                wait(lambda: agent("readiness").get("composer_visible"), 20, 0.05)
+                agent("focus_composer")
+                for letter in "hello stream":
+                    self.rpc("debug.key", {"key": "space" if letter == " " else letter})
+                    time.sleep(0.05)
+                return self.press("send", "return")
+
+            def stream():
+                return self.act("stream", "debug.agent_pane", {"action": "stream", "rows": 400, "seconds": 6,
+                                                              "chunk_chars": 24, "chunk_ms": 16}, timeout=30)
+
+            def readiness(label):
+                def read():
+                    stats[label] = self.rpc("debug.agent_pane", {"action": "readiness"}, timeout=10)
+                return read
+
+            steps = [
+                (1.8, lambda: self.act("open chat", "action.run", {"action": "palette.newAgentChat", "origin": "user"}, timeout=30)),
+                (0.8, type_send),
+                (1.5, stream),
+                (0.0, readiness("streaming")),
+                (0.8, lambda: self.press("switch away", "2", ("cmd",))),
+                (1.5, lambda: self.press("switch back", "1", ("cmd",))),
+                (2.5, readiness("after")),
+                (1.0, lambda: self.press("close", "w", ("cmd",))),
+            ]
+            entry = self.events_round(f"agent-{load}", index, steps, {"load": load})
+            entry["readiness"] = stats
+            time.sleep(0.6)
+
     def end(self):
         self.app.stop()  # debug.quit, then TERM and KILL of the PID it started, then the tag's daemons
 
@@ -182,9 +296,13 @@ def main():
         try:
             run.launch()
             for case in opts.cases.split(","):
-                kind, dock, page = case.split(":")
+                kind, dock, page = (case.split(":") + ["", ""])[:3] if case.count(":") == 2 else (case.split(":")[0], "", case.split(":")[1])
                 if kind == "devtools":
                     run.devtools_case(dock, page)
+                elif kind == "pane":
+                    run.pane_case(page)
+                elif kind == "agent":
+                    run.agent_case(page)
         except BaseException as error:  # noqa: BLE001  keep what was recorded; the report names the failure
             report["errors"].append(f"{theme}: {error!r}")
             print(f"browser-video: {theme} failed: {error!r}", flush=True)
