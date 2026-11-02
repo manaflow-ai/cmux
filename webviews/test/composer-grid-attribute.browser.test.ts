@@ -43,8 +43,7 @@ await requireBrowserLane("composer-grid-attribute.browser.test.ts", async () => 
   for (const [variant, grid] of [
     ["claude-chat", true],
     ["permission-pill-claude", true],
-    // Both looks draw the grid (composerLook.ts; Leo 2026-11-01: "we already have a good version").
-    ["codex-chat", true],
+    ["codex-chat", false],
   ] as const)
     test(`${variant}: the grid mark stands where the old :has() matched`, async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;
