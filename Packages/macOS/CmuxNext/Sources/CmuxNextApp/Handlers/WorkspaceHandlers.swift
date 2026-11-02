@@ -139,7 +139,7 @@ enum WorkspaceHandlers {
     }
 
     /// A new workspace holding one browser tab at `url` (the new-tab page when nil).
-    private static func newBrowserWorkspace(services: AppServices, url: String?) {
+    static func newBrowserWorkspace(services: AppServices, url: String?) {
         let browserTabs = services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let fallbacks = browserTabs.fallbacks, machine = services.activeDaemon.machineID
