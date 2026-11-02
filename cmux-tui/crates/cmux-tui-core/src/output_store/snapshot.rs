@@ -281,7 +281,8 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
                     (state.generation.clone(), state.next_offset(), state.note_size(size))
                 };
-                let seen = Seen { digest, settled, end, size: Some(size), upload: false };
+                let upload = terminal.kitty_upload_in_progress();
+                let seen = Seen { digest, settled, end, size: Some(size), upload };
                 if !plan.wants_snapshot(digest, size, size_settled, full, tail, quitting) {
                     return Some((seen, size, Capture::None));
                 }
@@ -602,10 +603,17 @@ fn flush_tail(
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
         let sync_due =
             state.tail_synced_at.is_none_or(|at| at.elapsed() >= super::TAIL_SYNC_INTERVAL);
-        if state.pending.is_empty() || (state.tail_digest == Some(seen.digest) && !quitting) {
+        // An unfinished Kitty upload's bytes change nothing the digest sees
+        // but are content: never held as redraws.
+        let redraw = state.tail_digest == Some(seen.digest) && !seen.upload;
+        if state.pending.is_empty() || (redraw && !quitting) {
             // Everything is stored and the capture saw exactly it: its
             // digest names the stored content, so the next redraw waits.
-            if state.pending.is_empty() && seen.settled && seen.end == state.pending_start {
+            if state.pending.is_empty()
+                && seen.settled
+                && !seen.upload
+                && seen.end == state.pending_start
+            {
                 state.tail_digest = Some(seen.digest);
             }
             // Held redraws past the idle cap (a snapshot would replace them,
@@ -685,7 +693,7 @@ fn flush_tail(
             // The digest names these bytes only when the capture saw exactly
             // them: a chunk in flight, or bytes that came after the capture,
             // must not be taken for redraws of stored content.
-            let exact = seen.settled && seen.end == state.pending_start;
+            let exact = seen.settled && !seen.upload && seen.end == state.pending_start;
             state.tail_digest = exact.then_some(seen.digest);
             let more = !state.pending.is_empty() || !exact;
             if sync {
