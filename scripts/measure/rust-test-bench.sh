@@ -6,7 +6,7 @@
 # cannot: the acpmux harness CPU-class question (cmux #30057, lead 2026-11-01 04:30Z).
 #
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/rust-test-bench.sh \
-#     --ref SHA --arg CRATE --arg FILTER [--arg source=SHA] [--arg target=lib|test:NAME] \
+#     --ref SHA --arg CRATE --arg FILTER [--arg source=SHA] [--arg target=lib|test:NAME] [--arg ignored=yes] \
 #     --artifact artifacts/rust-test-bench/output.txt
 #
 # CRATE    a package of the cmux-tui workspace, e.g. acpmux.
@@ -20,6 +20,9 @@
 # target=lib|test:NAME
 #          only the crate's library unit tests, or only its integration test NAME (tests/NAME.rs);
 #          default: both (`--lib --tests`), no doc tests.
+# ignored=yes
+#          also run `#[ignore]`d tests the filter names (`--include-ignored`): a measurement
+#          written as an ignored test, which no suite runs.
 #
 # Output: the test's own output (--nocapture, one test thread) in the step log and the artifact,
 # then RUST-TEST-BENCH lines: the measured tree, the host, `vm.loadavg` and the processes over
@@ -36,7 +39,7 @@ main() {
   source "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/lib/fleet-only.sh"
 
   # --- Arguments (checked before anything else runs) ----------------------
-  local usage="usage: rust-test-bench.sh CRATE FILTER [source=SHA] [target=lib|test:NAME]"
+  local usage="usage: rust-test-bench.sh CRATE FILTER [source=SHA] [target=lib|test:NAME] [ignored=yes]"
   [[ $# -ge 2 ]] || { echo "$usage" >&2; exit 2; }
   local a
   for a in "$@"; do
@@ -48,7 +51,7 @@ main() {
     { echo "rust-test-bench.sh: CRATE must be a cmux-tui package name (got '$crate')" >&2; exit 2; }
   [[ "$filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_:]*$ ]] ||
     { echo "rust-test-bench.sh: FILTER must be a Rust test path (letters, digits, _ :; got '$filter')" >&2; exit 2; }
-  local source_sha="" target="" arg key seen=" "
+  local source_sha="" target="" ignored="" arg key seen=" "
   for arg in "$@"; do
     key=${arg%%=*}
     if [[ "$arg" != *=?* || "$seen" == *" $key "* ]]; then
@@ -58,11 +61,18 @@ main() {
     case "$key" in
       source) source_sha=${arg#source=} ;;
       target) target=${arg#target=} ;;
+      ignored) ignored=${arg#ignored=} ;;
       *) echo "rust-test-bench.sh: unknown argument '$arg'; $usage" >&2; exit 2 ;;
     esac
   done
   [[ -z "$source_sha" || "$source_sha" =~ ^[0-9a-f]{40}$ ]] ||
     { echo "rust-test-bench.sh: source= takes a full 40-character commit sha (got '$source_sha')" >&2; exit 2; }
+  local ignored_args=()
+  case "$ignored" in
+    "") ;;
+    yes) ignored_args=(--include-ignored) ;;
+    *) echo "rust-test-bench.sh: ignored= takes yes (got '$ignored')" >&2; exit 2 ;;
+  esac
   local target_args=(--lib --tests)
   case "$target" in
     "") ;;
@@ -135,7 +145,7 @@ main() {
   t0=$SECONDS
   local status
   set +e
-  cargo test --locked -p "$crate" "${target_args[@]}" -- "$filter" --nocapture --test-threads=1 2>&1 |
+  cargo test --locked -p "$crate" "${target_args[@]}" -- "$filter" ${ignored_args[@]+"${ignored_args[@]}"} --nocapture --test-threads=1 2>&1 |
     tee "$out/test.log" | tee -a "$report"
   local -a test_pipe=("${PIPESTATUS[@]}")
   set -e

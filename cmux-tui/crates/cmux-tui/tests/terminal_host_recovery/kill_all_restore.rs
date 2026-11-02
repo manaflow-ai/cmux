@@ -302,24 +302,21 @@ fn logical_writes(pid: u32) -> Option<u64> {
     }
 }
 
-/// Measurement, not a check (it runs only with `CMUX_KILL_ALL_HEAVY_SECS`
-/// set, the window in seconds): the daemon's disk writes
+/// Measurement, not a check (ignored; `scripts/measure/rust-test-bench.sh
+/// cmux-tui kill_all_heavy target=test:terminal_host_recovery ignored=yes`):
+/// the daemon's disk writes
 /// under the HEAVY load of the reopen films, 12 panes of a full-screen TUI
 /// that repaints 40 rows with new content at about 60 Hz. Prints
 /// `kill-all-heavy: {...}` with the logical write bytes per pane per second
 /// and the state folder size. Run it at the base and at the fix for the
 /// before/after.
 #[test]
+#[ignore = "measurement: rust-test-bench.sh ignored=yes"]
 fn kill_all_heavy_load_disk_writes_per_pane() {
     const PANES: usize = 12;
-    let Some(window) = std::env::var("CMUX_KILL_ALL_HEAVY_SECS")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .map(Duration::from_secs)
-    else {
-        return;
-    };
+    const WINDOW: Duration = Duration::from_secs(20);
     let _exclusive = exclusive_process_test();
+    let window = WINDOW;
     let harness = production_harness("kill-all-heavy");
     let frame = "i=0; while :; do i=$((i+1)); printf '\\033[?2026h\\033[H'; j=0; \
                  while [ $j -lt 40 ]; do printf 'row %02d frame %08d build step output text\\033[K\\r\\n' $j $i; \
