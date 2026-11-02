@@ -75,7 +75,7 @@ pub(super) fn try_handle(
     let writer = writer.clone();
     let workspaces = Arc::clone(mux);
     std::thread::spawn(move || {
-        let hides = |key: &str| workspaces.workspace_key_is_ephemeral(key);
+        let hides = |id: &str| hides_workspace(&workspaces, id);
         let prompt_id = expected_prompt_id;
         let result = match AcpmuxLink::connect(&socket, move |inbound| {
             if let Inbound::Notification(method, notification) = inbound
@@ -233,10 +233,33 @@ fn visible(link: &AcpmuxLink, session: &str, hides: &dyn Fn(&str) -> bool) -> bo
     };
     let recorded = info.get("workspaceId").and_then(Value::as_str);
     let env = info.pointer("/sessionEnv/CMUX_WORKSPACE_ID").and_then(Value::as_str);
-    [recorded, env]
-        .into_iter()
-        .flatten()
-        .all(|id| !hides(&crate::state::agent_message_policy::workspace_key(id)))
+    [recorded, env].into_iter().flatten().all(|id| !hides(id))
+}
+
+/// Whether the workspace a chat names is incognito. The chat may name it in
+/// another spelling than the store's (an uppercase or dashless UUID), so
+/// every form the key may be stored in is checked.
+pub(super) fn hides_workspace(mux: &Mux, id: &str) -> bool {
+    workspace_key_forms(id).iter().any(|key| mux.workspace_key_is_ephemeral(key))
+}
+
+/// `id` as given, lowercased, and as the store's dashed lowercase UUID
+/// (`Mux::new_workspace_key`) when it is one.
+fn workspace_key_forms(id: &str) -> Vec<String> {
+    let mut forms = vec![id.to_owned(), id.to_ascii_lowercase()];
+    let hex = crate::state::agent_message_policy::workspace_key(id);
+    if hex.len() == 32 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        forms.push(format!(
+            "{}-{}-{}-{}-{}",
+            &hex[..8],
+            &hex[8..12],
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..]
+        ));
+    }
+    forms.dedup();
+    forms
 }
 
 /// The answer a chat the phone may not see gets: the same as one that does not exist.
@@ -514,8 +537,8 @@ mod tests {
         false
     }
 
-    fn incognito(key: &str) -> bool {
-        key == crate::state::agent_message_policy::workspace_key(INCOGNITO)
+    fn incognito(id: &str) -> bool {
+        workspace_key_forms(id).iter().any(|key| key == INCOGNITO)
     }
 
     /// `_acpmux/info` for a chat of an ordinary workspace.
@@ -649,7 +672,9 @@ mod tests {
         assert_eq!(ids, ["s1"]);
 
         // Named by its env only, as a chat started from the workspace's terminal is.
-        let env = json!({"sessionId": "s2", "sessionEnv": {"CMUX_WORKSPACE_ID": INCOGNITO}});
+        // In another spelling than the store's, as the Mac app's uppercase UUID is.
+        let env = json!({"sessionId": "s2",
+                         "sessionEnv": {"CMUX_WORKSPACE_ID": INCOGNITO.to_uppercase()}});
         let (link, _dir) = scripted(vec![env.clone()], None);
         let history = dispatch(
             &link,
