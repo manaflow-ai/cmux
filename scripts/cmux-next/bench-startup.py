@@ -71,6 +71,9 @@ FINAL_MARK = "first_terminal_frame"
 VISIBLE_MARK = "launch.visible_terminals_drawn"
 VISIBLE_GRACE_S = 1.5
 AGENT_MARK = "agent_pane.handshake_end"
+# A seeding launch may build its state once the daemon's first tree is in: a fresh profile (after reset_state) shows
+# the first-run page, which draws no terminal and no agent page, so neither content mark ever comes there.
+SEED_READY = [FINAL_MARK, AGENT_MARK, "daemon.first_tree_applied"]
 
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
@@ -788,8 +791,9 @@ def seed_realistic(tag, scratch, timeout):
     reset_state(tag)
     prime = Launch(tag, scratch)
     try:
-        if not prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True):
-            raise SystemExit(f"tag {tag}: the seeding launch never drew a terminal")
+        if not prime.wait_for(SEED_READY, timeout, any_of=True):
+            raise SystemExit(f"tag {tag}: the seeding launch never connected to its daemon "
+                             f"(marks: {', '.join(sorted(prime.marks)) or 'none'})")
         daemon = Client(daemon_socket(tag), timeout=10)
 
         def workspaces():
@@ -866,8 +870,9 @@ def seed_stress(tag, scratch, timeout):
     reset_state(tag)
     prime = Launch(tag, scratch)
     try:
-        if not prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True):
-            raise SystemExit(f"tag {tag}: the seeding launch never drew a terminal")
+        if not prime.wait_for(SEED_READY, timeout, any_of=True):
+            raise SystemExit(f"tag {tag}: the seeding launch never connected to its daemon "
+                             f"(marks: {', '.join(sorted(prime.marks)) or 'none'})")
         app_client(tag).close()  # the control socket answers
         socket_path = next(path for path in socket_candidates(tag) if os.path.exists(path))
         session = stress.Stress(stress.socket_rpc(socket_path))
@@ -967,7 +972,13 @@ def one_run(tag, mode, timeout, profile=None):
         if reached and "terminal.launch_frame_shown" in launch.marks:
             # The last visible terminal's saved frame can land after the first live frame: wait briefly for it, so a
             # run never drops the reopen number (a build without the per-pane mark waits this long and has none).
+            # Only that mark is kept from the grace: other marks landing in it would count for a build without the
+            # mark (it waits the whole grace) and not for one with it (it ends at once), so the rows would differ.
+            before = set(launch.marks)
             launch.wait_for(VISIBLE_MARK, VISIBLE_GRACE_S)
+            for late in set(launch.marks) - before - {VISIBLE_MARK}:
+                launch.marks.pop(late, None)
+                launch.arrived.pop(late, None)
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
