@@ -912,6 +912,8 @@ def step_reopen_video(j, step):
         record["app_marks_ms"] = {k: marks_ms.get(k) for k in (
             "main_start", "first_window_frame_committed", "terminal.launch_frame_shown", "first_terminal_frame",
             "launch.visible_terminals_drawn", "sidebar_rows_shown") if k in marks_ms}
+        # Every launch mark the app wrote (its own clock, ms since process start): the split of a reopen's time.
+        record["app_marks_all"] = {k: v for k, v in marks_ms.items() if isinstance(v, (int, float))}
         record["launch_terminals"] = timings.get("launch_terminals")
         record["launch_terminals_frame_shown_max_ms"] = timings.get("launch_terminals_frame_shown_max_ms")
         main = marks_ms.get("main_start")
