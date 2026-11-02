@@ -11420,6 +11420,7 @@ CmuxNextTerminal	class	TerminalCopyMode	0	LOGIC	100	0	Packages/macOS/CmuxNext/So
 CmuxNextTerminal	extension	CopyModeModifiers	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalCopyMode.swift	from struct CopyModeSession:16: Copy-mode selection and motion state machine
 CmuxNextTerminal	struct	CopyModeSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalCopyMode.swift	Copy-mode selection and motion state machine
 CmuxNextTerminal	class	TerminalCopyModeBadge	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalCopyModeBadge.swift	Terminal view, frame, pasteboard, input and chrome code
+CmuxNextTerminal	class	TerminalDictation	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalDictation.swift	Terminal dictation session wiring (#31862): mic claim, preview overlay on the pinned host, host-close hook, finals to the owner's paste; the committed/volatile split is DictationTranscript's
 CmuxNextTerminal	class	TerminalFinalGridTrace	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalFinalGridTrace.swift	from class TerminalFinalGridTrace:15: Terminal view, frame, pasteboard, input and chrome code
 CmuxNextTerminal	class	TerminalFindBarView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalFindBarView.swift	Find direction and target seams
 CmuxNextTerminal	extension	FindPillIcons	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalFindBarView.swift	from class TerminalFindBarView:12: Find direction and target seams

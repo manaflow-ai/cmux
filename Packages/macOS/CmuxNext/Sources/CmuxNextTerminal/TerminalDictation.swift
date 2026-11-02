@@ -12,7 +12,6 @@ public final class TerminalDictation {
     private var session: DictationSession?
     private var targetPaste: (@MainActor (String) -> Void)?
     private weak var targetHost: TerminalHostView?
-    private var committedText = ""
     private let preview = TerminalDictationPreview()
 
     public init(
@@ -58,7 +57,6 @@ public final class TerminalDictation {
         let session = activeSession()
         targetPaste = paste
         targetHost = host
-        committedText = ""
         targetHost?.onClose = { [weak self, weak host = targetHost] in
             guard let self, self.targetHost === host else { return }
             self.close()
@@ -71,16 +69,10 @@ public final class TerminalDictation {
     private func activeSession() -> DictationSession {
         if let session { return session }
         let made = makeSession()
-        made.onFinalText = { [weak self] delta in self?.insert(delta) }
+        made.onFinalText = { [weak self] delta in self?.targetPaste?(delta) }
         made.onUpdate = { [weak self] update in self?.deliver(update) }
         session = made
         return made
-    }
-
-    private func insert(_ delta: String) {
-        guard let paste = targetPaste else { return }
-        committedText += delta
-        paste(delta)
     }
 
     private func deliver(_ update: DictationUpdate) {
@@ -90,13 +82,8 @@ public final class TerminalDictation {
             claims.release(self)
             return
         }
-        let volatile: String
-        if update.text.hasPrefix(committedText) {
-            volatile = String(update.text.dropFirst(committedText.count))
-        } else {
-            volatile = update.text
-        }
-        preview.show(volatileText: volatile.trimmingCharacters(in: .whitespaces))
+        // The session's own split (DictationTranscript): only words not pasted yet show.
+        preview.show(volatileText: (session?.volatileText ?? "").trimmingCharacters(in: .whitespaces))
         targetHost?.needsLayout = true
     }
 
@@ -105,7 +92,6 @@ public final class TerminalDictation {
         targetHost?.topOverlay = nil
         targetHost = nil
         targetPaste = nil
-        committedText = ""
     }
 
     public static func defaultSession() -> DictationSession {
