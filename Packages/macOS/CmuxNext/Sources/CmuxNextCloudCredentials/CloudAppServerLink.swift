@@ -15,18 +15,14 @@ public struct CloudAppServerLink {
                 choice: CloudNativeFirstLauncher.Choice = CloudNativeFirstLauncher.choice(),
                 native: () -> (any CloudLinkLaunching)?, onFallback: @escaping (any Error) -> Void) {
         if !appServer {
-            launcher = nil
-            route = { "legacy" }
+            (launcher, route) = (nil, { "legacy" })
         } else if choice == .link {
-            launcher = link
-            route = { "link" }
+            (launcher, route) = (link, { "link" })
         } else if let native = native() {
             let first = CloudNativeFirstLauncher(native: native, link: link, onFallback: onFallback)
-            launcher = first
-            route = { first.route }
+            (launcher, route) = (first, { first.route })
         } else {
-            launcher = link
-            route = { "link (native asked; no Native route holder for this app)" }
+            (launcher, route) = (link, { "link (native asked; no Native route holder for this app)" })
         }
     }
 }
