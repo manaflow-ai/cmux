@@ -1,0 +1,259 @@
+{
+  "title": "Sidebar Text Size: Default, Large and Larger (ChatGPT size), light and dark",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "A group Projects with its first workspace",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.newInNewGroup",
+        "--name",
+        "Projects"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Work on the sidebar",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Work on the sidebar"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Visible files list",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Visible files list"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Casual check-in",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Casual check-in"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Review two pull requests",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Review two pull requests"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Capabilities overview",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Capabilities overview"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Architecture refactor summary",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Architecture refactor summary"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Check traffic and document actions",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Check traffic and document actions"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Fix split node parity",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Fix split node parity"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Speed up parity gates",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Speed up parity gates"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Why JavaScript instead of Rust?",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Why JavaScript instead of Rust?"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Find a session ID",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Find a session ID"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Start background task with stdout",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Start background task with stdout"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Window tiling support",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Window tiling support"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Light, Default: the original 12 pt titles on 26 pt rows",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.textSize",
+        "default"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Light, Large: 13 pt titles on 29 pt rows",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.textSize",
+        "large"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Light, Larger: 14 pt titles on 31 pt rows, the ChatGPT app's size",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.textSize",
+        "larger"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Dark, Larger: 14 pt titles on 31 pt rows",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Dark, Large: 13 pt titles on 29 pt rows",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.textSize",
+        "large"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Dark, Default: the original size",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.textSize",
+        "default"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Removed: back to Default",
+      "cmux": [
+        "settings",
+        "unset",
+        "sidebar.textSize"
+      ],
+      "wait": 1,
+      "shot": false
+    }
+  ]
+}

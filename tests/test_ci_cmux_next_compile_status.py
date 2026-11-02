@@ -109,6 +109,11 @@ class StatusMapping(unittest.TestCase):
     def test_the_wait_is_one_blocking_read_per_attempt_and_bounded(self):
         _, _, reads = self.run_step(self.reply("pass"))
         self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=1800"])
+        # A pull request's read names it, so the controller can queue a head it never saw (cmuxterm-hq#5571).
+        _, _, reads = self.run_step(self.reply("pass"), PR="28059")
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1800"])
+        _, _, reads = self.run_step(self.reply("pass"), PR="1;x")
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=1800"])
         _, _, reads = self.run_step(self.reply("running"))
         self.assertLessEqual(len(reads), 3)
         # Every read asks for no more than what is left of the overall deadline.
@@ -149,6 +154,71 @@ class Placement(unittest.TestCase):
         self.assertEqual(mint["with"]["permission-statuses"], "write")
         self.assertIn("secrets.CMUX_BOT_APP_KEY", mint["with"]["private-key"])
         self.assertIn("'pull_request' && 'ci-routing-agent' || ''", j["environment"])
+
+
+
+@unittest.skipUnless(shutil.which("jq"), "jq is not installed")
+class FastCheckLinuxRoute(unittest.TestCase):
+    """release-compile-fast with no idle gateway runner reads the same fleet result on Linux instead of
+    skipping into the Mac queue (2026-11-02: pushes 622a6b75 and 0fa148c5 queued their Mac Release compile over
+    two hours while this result had passed both). Pass and fail are verdicts; anything else is unavailable, and
+    the Mac fallback runs. A fail keeps the step red, as the gateway path's does."""
+
+    def run_step(self, reply: dict | None, gateway: str = "", **env: str) -> tuple[int, str, list[str]]:
+        step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+                    ["release-compile-fast"]["steps"] if step.get("id") == "compile")
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp, "bin")
+            bin_dir.mkdir()
+            curl = bin_dir / "curl"
+            curl.write_text(FAKE_CURL)
+            curl.chmod(0o755)
+            if reply is not None:
+                Path(tmp, "reply.json").write_text(json.dumps(reply))
+            output = Path(tmp, "output")
+            done = subprocess.run(
+                ["bash", "-c", step["run"]], capture_output=True, text=True, timeout=60,
+                env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": tmp, "REF": SHA, "REPO": REPO,
+                     "GATEWAY": gateway, "RESULTS": "https://results/v1", "GITHUB_OUTPUT": str(output),
+                     "HOME": tmp, "RUNNER_NAME": "r", "REPLY": str(Path(tmp, "reply.json")),
+                     "POSTS": str(Path(tmp, "posts")), "READS": str(Path(tmp, "reads")), **env})
+            verdict = dict(line.split("=", 1) for line in output.read_text().splitlines()).get("verdict", "") \
+                if output.exists() else ""
+            reads = Path(tmp, "reads").read_text().splitlines() if Path(tmp, "reads").exists() else []
+            return done.returncode, verdict, reads
+
+    def reply(self, state: str, **overrides) -> dict:
+        return {"repo": REPO, "sha": SHA, "state": state, "configuration": "release-onone", "recipe_version": 2,
+                **overrides}
+
+    def test_the_fleet_result_is_the_verdict_fail_closed(self):
+        for reply, verdict, ok in (
+            (self.reply("pass"), "pass", True),
+            (self.reply("fail"), "fail", False),
+            (self.reply("unavailable"), "unavailable", True),
+            (self.reply("pass", sha="b" * 40), "unavailable", True),
+            (self.reply("pass", repo="someone/cmux"), "unavailable", True),
+            (self.reply("pass", recipe_version=1), "unavailable", True),
+            (self.reply("pass", configuration="debug"), "unavailable", True),
+            (self.reply("running"), "unavailable", True),
+            (None, "unavailable", True),
+        ):
+            with self.subTest(reply=reply):
+                code, got, reads = self.run_step(reply, WAIT_SECONDS="400")
+                self.assertEqual((got, code == 0), (verdict, ok))
+                self.assertTrue(reads and all(read.startswith(f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=")
+                                              for read in reads), reads)
+
+    def test_a_gateway_runner_submits_its_own_check_and_never_reads_the_result(self):
+        # No client on this stand-in gateway: the existing path's unavailable, with no result read.
+        code, verdict, reads = self.run_step(self.reply("pass"), gateway="glaeda-gateway-xcode-26.6")
+        self.assertEqual((code, verdict, reads), (0, "unavailable", []))
+
+    def test_the_wait_fits_the_job(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-fast"]
+        run = next(step["run"] for step in job["steps"] if step.get("id") == "compile")
+        self.assertIn("WAIT_SECONDS:-1200", run)
+        self.assertLessEqual(1200 + 120, job["timeout-minutes"] * 60 - 300)
 
 
 if __name__ == "__main__":

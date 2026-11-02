@@ -3,6 +3,7 @@
 //! answer holds it. With it, a Mac whose `gh` has no keyring login runs a lent action with a
 //! token the cmux GitHub App mints for that one repository (a stand-in cmux API on loopback),
 //! and with neither login the action fails closed.
+#![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;

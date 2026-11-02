@@ -68,6 +68,14 @@ impl Mux {
     }
 
     pub fn emit(&self, event: MuxEvent) {
+        // A selection may show a workspace whose respawns wait in line: they
+        // check again (terminal_respawn.rs). Free when none waits.
+        if matches!(
+            event,
+            MuxEvent::TreeChanged | MuxEvent::TreeSelectionChanged | MuxEvent::TreeDelta(_)
+        ) {
+            self.respawn_gate.wake_waiters();
+        }
         self.activity.observe(&event);
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);
@@ -81,6 +89,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(super) fn terminal_event_placements(&self, surface_id: SurfaceId) -> Vec<SurfaceId> {
         let state = self.state.lock().unwrap();
         let Some(surface) =

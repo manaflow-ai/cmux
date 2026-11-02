@@ -11,6 +11,8 @@
 //!   y / n / 1-9  answer permission  Ctrl-q   quit (agents keep running)
 //!   (on a question, y opens the answer flow: digits pick, Enter confirms)
 
+use cmux_json::JsonSet as _;
+
 pub mod actions;
 mod answering;
 mod events;
@@ -100,7 +102,7 @@ impl Reread {
                 }
             }
             Reread::Sessions => {
-                if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
+                if let Ok(v) = client.whole_list(method::MUX_SESSIONS, json!({})).await {
                     let _ = tx.send(AppMsg::Sessions(
                         v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
                     ));
@@ -501,7 +503,7 @@ impl App {
         tokio::spawn(async move {
             let mut params = json!({"sessionId": id, "limit": 3000});
             if let Some(after) = after_seq {
-                params["afterSeq"] = json!(after);
+                params.set("afterSeq", json!(after));
             }
             match client.request(method::MUX_ATTACH, params).await {
                 Ok(v) => {
@@ -535,7 +537,7 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
+            if let Ok(v) = client.whole_list(method::MUX_SESSIONS, json!({})).await {
                 let _ = tx.send(AppMsg::Sessions(
                     v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
                 ));

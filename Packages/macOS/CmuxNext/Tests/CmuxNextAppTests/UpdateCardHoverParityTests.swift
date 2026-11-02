@@ -5,17 +5,17 @@ import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-19 (msg 2371): "The hover-on update ready card ... needs to have the same
 /// style, behavior, and styling ... like the hover-on workspace cards. Right now it has a
 /// different entry animation, which I don't like."
 ///
 /// The Update Ready card's highlights card used to grow out of the card on the `.appear` spring
-/// (the menu popup's scale-in, `openPopup`) and shrink back on close. A workspace or tab card
-/// fades in while it slides a few points away from its target on the `.panel` spring, and fades
-/// out without moving. These tests show both cards in real windows and compare what each one
-/// actually animates, so the two cannot drift apart again.
-@MainActor @Suite(.serialized) struct UpdateCardHoverParityTests {
+/// (the menu popup's scale-in, `openPopup`) and shrink back on close. Update and tab cards
+/// keep the hover-card entrance slide and fade. Leo's 2026-10-28 request makes a workspace
+/// card appear at rest after its dwell instead. Both kinds still fade out without moving.
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateCardHoverParityTests {
     /// The highlights page, measured and drawn (as the App's React surface reports it).
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 120))
@@ -33,8 +33,10 @@ import Testing
         var card: SidebarUpdateCardView { sidebar.updateCardView }
 
         func tearDown() {
+            // The card windows the test showed, closed (not only ordered out) once hidden.
+            let children = window.childWindows ?? []
             card.hideNotes()
-            for child in window.childWindows ?? [] { child.orderOut(nil) }
+            for child in children { child.close() }
             window.close()
         }
     }
@@ -100,7 +102,7 @@ import Testing
         return window.convertToScreen(host.convert(host.card.frame, to: nil))
     }
 
-    @Test func theUpdateCardEntersExactlyLikeAWorkspaceCard() async throws {
+    @Test func theUpdateCardKeepsItsEntranceWhileAWorkspaceCardAppearsAtRest() async throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let h = try await make()
@@ -108,31 +110,37 @@ import Testing
         try #require(!h.card.isHidden, "the staged update shows no card")
 
         let workspace = workspaceCardEntrance(in: h.window)
-        defer { workspace.panel.orderOut(nil) }
-        #expect(workspace.played.slideFrom != nil, "the workspace card played no entrance to compare with")
+        defer { workspace.panel.close() }
+        #expect(workspace.played.slideFrom == nil, "the workspace card must appear at rest after its dwell")
+        #expect(workspace.panel.alphaValue == 1, "the workspace card must appear fully visible")
 
         h.card.highlights = Highlights()
         h.card.showNotes()
         let popup = try #require(h.window.childWindows?.first { $0 !== workspace.panel }, "no update hover card")
         let update = Played(popup)
         #expect(update.pureTranslation, "the update card scales in (its own popup entrance), not the hover cards' slide")
-        #expect(update == workspace.played, "the update card enters with \(update), a workspace card with \(workspace.played)")
+        #expect(update.slideFrom == HoverCardPanel.entryVector(for: .beside), "the update card lost its entrance slide")
+        #expect(update.spring != nil, "the update card lost its entrance spring")
     }
 
-    @Test func theUpdateCardSitsAtTheWorkspaceCardsGap() async throws {
+    @Test func theUpdateCardKeepsItsPixelGapWhileWorkspaceCardsTouch() async throws {
         let h = try await make()
         defer { h.tearDown() }
         try #require(!h.card.isHidden, "the staged update shows no card")
         let workspace = workspaceCardEntrance(in: h.window)
-        defer { workspace.panel.orderOut(nil) }
+        defer { workspace.panel.close() }
 
         h.card.highlights = Highlights()
         h.card.showNotes()
         let popup = try #require(h.window.childWindows?.first { $0 !== workspace.panel }, "no update hover card")
         let card = h.window.convertToScreen(h.card.convert(h.card.bounds, to: nil))
         let surface = Self.surface(of: popup)
-        #expect(abs((surface.minX - card.maxX) - workspace.gap) <= 0.5,
-                "the update card sits \(surface.minX - card.maxX) pt from its card, a workspace card \(workspace.gap) pt from its row")
+        let pixel = 1 / max(h.window.backingScaleFactor, 1)
+        let updateGap = surface.minX - card.maxX
+        #expect(updateGap > 0 && updateGap <= pixel + 0.001,
+                "the non-sidebar update card keeps its one-device-pixel gap, rounded toward its target")
+        #expect(workspace.gap <= 0.001 && workspace.gap > -pixel,
+                "the workspace preview touches its row, with less than one device pixel of inward snapping")
         #expect(abs(surface.maxY - card.maxY) <= 1, "the update card is not top-aligned with its card")
     }
 
@@ -145,6 +153,7 @@ import Testing
         h.card.highlights = Highlights()
         h.card.showNotes()
         let popup = try #require(h.window.childWindows?.first, "no update hover card")
+        defer { popup.close() }
         popup.contentView?.layer?.removeAllAnimations()
         h.card.hideNotes()
         let exit = Played(popup)

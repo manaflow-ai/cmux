@@ -1,0 +1,21 @@
+[package]
+name = "cmux-automations"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux automations on one machine: schedules, catch-up after sleep, deterministic run ids, the durable local store and the runner (docs/automations-platonic-ideal.md)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+libc.workspace = true
+
+# Windows: whether a run's process is alive (OpenProcess, GetExitCodeProcess).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }

@@ -58,8 +58,8 @@ await requireBrowserLane("new-tab-headline-selection-cls.test.ts", async () => {
                     ".nt-composer",
                     ".nt-composer .acpmux-location-label",
                     ".nt-foot .acpmux-access-trigger",
-                    ".nt-foot .acpmux-location-leading",
-                    '.nt-foot .acpmux-location-picker[data-kind="computer"]',
+                    ".nt-above .acpmux-location-leading",
+                    '.nt-above .acpmux-location-picker[data-kind="computer"]',
                   ].map((selector) => {
                     const r = document.querySelector(selector)?.getBoundingClientRect();
                     return [selector, r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null];
@@ -88,10 +88,12 @@ await requireBrowserLane("new-tab-headline-selection-cls.test.ts", async () => {
                       currentRect: DOMRectReadOnly;
                     }[];
                   };
-                  // A selected folder changes its content-sized button. Its label/chevron may
-                  // move inside the reserved slot; every other painted shift still fails.
+                  // A selected folder changes its content-sized button over the box (Leo 2026-10-29:
+                  // "stop making them take up so much space"), so the folder's label and chevron
+                  // and the machine pill after it may move along the strip; every other painted
+                  // shift still fails.
                   const projectContent =
-                    ".nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child :is(.acpmux-location-label, .ui-ghost-icon:last-child)";
+                    ".nt-above .acpmux-location-leading :is(.acpmux-location-label, .ui-ghost-icon, .acpmux-location-picker[data-kind='computer'], .acpmux-location-picker[data-kind='computer'] *)";
                   const expected =
                     shift.sources?.length &&
                     shift.sources.every((source) => {
@@ -139,17 +141,18 @@ await requireBrowserLane("new-tab-headline-selection-cls.test.ts", async () => {
             expect(after[".nt-composer"]).toEqual(before[".nt-composer"]);
             expect(after[".nt-headline"]).toEqual(before[".nt-headline"]);
             expect(after[".nt-foot .acpmux-access-trigger"]).toEqual(before[".nt-foot .acpmux-access-trigger"]);
-            expect(after[".nt-foot .acpmux-location-leading"]).toEqual(before[".nt-foot .acpmux-location-leading"]);
-            const machine = '.nt-foot .acpmux-location-picker[data-kind="computer"]';
+            expect(after[".nt-above .acpmux-location-leading"]).toEqual(before[".nt-above .acpmux-location-leading"]);
+            // The machine pill follows the folder's name along the strip: only its x may change.
+            const machine = '.nt-above .acpmux-location-picker[data-kind="computer"]';
             expect(after[machine]).not.toBeNull();
-            expect(after[machine]).toEqual(before[machine]);
+            expect({ ...after[machine]!, x: 0 }).toEqual({ ...before[machine]!, x: 0 });
             expect(reopened[".nt-headline .acpmux-project-button"]).toEqual(
               after[".nt-headline .acpmux-project-button"],
             );
             expect((await trigger.getAttribute("title")) ?? (await trigger.getAttribute("data-tooltip"))).toContain(
               name,
             );
-            const controls = await page.locator(".nt-foot button[aria-haspopup]").evaluateAll((nodes) =>
+            const controls = await page.locator(":is(.nt-foot, .nt-above) button[aria-haspopup]").evaluateAll((nodes) =>
               nodes.map((node) => {
                 const { x, y, width, height } = node.getBoundingClientRect();
                 return { x, y, width, height };

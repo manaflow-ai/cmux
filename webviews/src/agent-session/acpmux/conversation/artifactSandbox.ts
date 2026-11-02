@@ -1,24 +1,27 @@
 // Passive previews run public-safe markup in srcdoc. Explicit Run uses the native /artifact endpoint,
 // whose response CSP and navigation delegate also deny self-navigation (CSP cannot).
 export const ARTIFACT_FRAME_URL = "cmux-agent://render/artifact";
-export const PAGE_ARTIFACT_FRAME_URL = "cmux-page://cmux.agent/__artifact";
+export const SHARED_ARTIFACT_FRAME_URL = "cmux-page://cmux.agent/__artifact";
 
-/** Exact bundled parent origins only. An arbitrary page or another custom-scheme host cannot
- * opt into script execution by importing the shared preview. Keep the legacy agent route intact. */
+/// Only the native agent pane origins and the Artifacts page (which shares the agent page's opaque
+/// artifact host) provide the offline script frame. Other shared pages and web pages retain
+/// source-only previews; the public gallery supplies its own fixture frame below.
 export function artifactFrameURL(): string | undefined {
   if (typeof location === "undefined") return undefined;
   try {
-    const url = new URL(location.href);
-    if (url.username || url.password || url.port) return undefined;
-    const host = url.hostname.toLowerCase();
-    if (url.protocol === "cmux-agent:" && host === "pane") return ARTIFACT_FRAME_URL;
-    if (url.protocol === "cmux-page:" && (host === "cmux.agent" || host === "cmux.artifacts"))
-      return PAGE_ARTIFACT_FRAME_URL;
+    const page = new URL(location.href);
+    if (page.username || page.password || page.port) return undefined;
+    const host = page.hostname.toLowerCase();
+    if (page.protocol === "cmux-agent:" && host === "pane") return ARTIFACT_FRAME_URL;
+    if (page.protocol === "cmux-page:" && (host === "cmux.agent" || host === "cmux.artifacts"))
+      return SHARED_ARTIFACT_FRAME_URL;
   } catch {
-    // An absent or malformed location grants no native capability.
+    // A page with no usable URL has no native artifact endpoint.
   }
   return undefined;
 }
+export const artifactCanRender = () => artifactFrameURL() !== undefined;
+
 export const artifactGallery = () =>
   typeof location !== "undefined" &&
   location.pathname.endsWith("/frame.html") &&

@@ -17,22 +17,29 @@ inline bool IsArtifactFrameURL(const std::string& url) {
   return url.substr(0, url.find_first_of("?#")) == kArtifactFrameURL;
 }
 
+inline bool IsPageOriginURL(const std::string& url, const std::string& origin) {
+  return url.compare(0, origin.size(), origin) == 0 &&
+         (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' ||
+          url[origin.size()] == '#');
+}
+
+inline bool IsAgentPageURL(const std::string& url) { return IsPageOriginURL(url, "cmux-page://cmux.agent"); }
+
+// Pages whose srcdoc frames hold saved documents (PageDescriptor.passiveFrames): the agent page
+// and the Artifacts page. Such a frame can neither navigate nor load anything but inline media.
+inline bool IsPassiveFramePageURL(const std::string& url) {
+  return IsAgentPageURL(url) || IsPageOriginURL(url, "cmux-page://cmux.artifacts");
+}
+
 // The canonical artifact route is shared by exactly these parent origins. A prefix
 // match alone would also trust lookalike hosts, credentials or ports.
 inline bool IsArtifactParentPageURL(const std::string& url) {
-  if (IsArtifactFrameURL(url)) return false;
-  for (const auto* origin : {"cmux-page://cmux.agent", "cmux-page://cmux.artifacts"}) {
-    const std::string parent(origin);
-    if (url.compare(0, parent.size(), parent) == 0 &&
-        (url.size() == parent.size() || url[parent.size()] == '/' || url[parent.size()] == '?' ||
-         url[parent.size()] == '#')) return true;
-  }
-  return false;
+  return !IsArtifactFrameURL(url) && IsPassiveFramePageURL(url);
 }
 
 inline bool ArtifactContextRestricted(const std::string& frame, const std::string& parent) {
   return IsArtifactFrameURL(frame) || IsArtifactFrameURL(parent) ||
-         (frame == "about:srcdoc" && IsArtifactParentPageURL(parent));
+         (frame == "about:srcdoc" && IsPassiveFramePageURL(parent));
 }
 
 // Only an empty, direct child of an allowed page may load the bootstrap once.

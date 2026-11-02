@@ -91,7 +91,7 @@ test("exact agent and artifacts page origins have native rendering; other origin
     locate(url);
     await draw("<p>trusted preview</p>");
     expect(button("Preview")).toBeDefined();
-    expect(host.querySelector("iframe")?.getAttribute("sandbox")).toBe("");
+    expect(host.querySelector("iframe")?.getAttribute("src")).toBe("cmux-page://cmux.agent/__artifact");
   }
   // Keep the existing bundled agent host while refusing other hosts on that scheme.
   locate("cmux-agent://pane/index.html");
@@ -113,9 +113,9 @@ for (const url of trusted) {
     await draw("<p>passive</p>");
     const passive = host.querySelector("iframe");
     expect(passive).not.toBeNull();
-    expect(passive!.getAttribute("sandbox")).toBe("");
-    expect(passive!.getAttribute("src")).toBeNull();
-    expect(passive!.getAttribute("srcdoc")).toContain("connect-src 'none'");
+    // Inert markup goes to the shared host's offline frame, whose policy allows no connection.
+    expect(passive!.getAttribute("src")).toBe("cmux-page://cmux.agent/__artifact");
+    expect(passive!.getAttribute("srcdoc")).toBeNull();
 
     const code = "<script>document.body.textContent='one'</script>";
     await draw(code);
@@ -153,7 +153,7 @@ test("the shared preview independently enforces host capability and resets Run o
   root = createRoot(host);
   ranRenders.clear();
   const drawPreview = (html: string) =>
-    act(() => root!.render(<ArtifactPreview html={html} title="Preview" runLabel="Run" />));
+    act(() => root!.render(<ArtifactPreview html={html} title="Preview" />));
   for (const url of rejected) {
     locate(url);
     drawPreview("<p>no preview capability</p>");
@@ -162,7 +162,7 @@ test("the shared preview independently enforces host capability and resets Run o
   }
   locate("cmux-page://cmux.artifacts/");
   drawPreview("<p>static preview</p>");
-  expect(host.querySelector("iframe")?.getAttribute("sandbox")).toBe("");
+  expect(host.querySelector("iframe")?.getAttribute("src")).toBe("cmux-page://cmux.agent/__artifact");
   const code = "<script>document.title='shared'</script>";
   drawPreview(code);
   expect(host.querySelector("iframe")).toBeNull();
@@ -202,7 +202,7 @@ test("trusted native origins use the native endpoint even with a gallery-looking
     ranRenders.clear();
     act(() => root?.unmount());
     root = createRoot(host);
-    act(() => root!.render(<ArtifactPreview html="<script>void 0</script>" title="Preview" runLabel="Run" />));
+    act(() => root!.render(<ArtifactPreview html="<script>void 0</script>" title="Preview" />));
     act(() => button("Run")!.click());
     const frame = host.querySelector("iframe")!;
     expect(frame.getAttribute("src")).toBe("cmux-page://cmux.agent/__artifact");

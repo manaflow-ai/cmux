@@ -27,7 +27,7 @@ export function NumberListEditor({ row, value, disabled, labelId }: EditorProps)
     if (!numbers.includes(parsed)) write([...numbers, parsed]);
   };
   return (
-    <span className="host-list">
+    <span className="host-list number-list">
       <span className="tokens">
         {numbers.map((number) => {
           const label = displayNumber(number, row.range);

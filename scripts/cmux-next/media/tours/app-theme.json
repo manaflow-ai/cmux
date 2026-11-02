@@ -1,0 +1,53 @@
+{
+  "title": "App Theme vs Terminal Theme: the window chrome (sidebar, tab strips, titlebar) takes the App Theme; terminals keep the Terminal Theme; Settings says what each row colors",
+  "settings": {
+    "appearance": {
+      "theme": "Soft Blue"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "A workspace with a terminal",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "app"
+      ],
+      "wait": 2,
+      "shot": false,
+      "optional": "needs the daemon"
+    },
+    {
+      "title": "Terminal Theme Soft Blue, App Theme Match Terminal Theme",
+      "wait": 2
+    },
+    {
+      "title": "App Theme set to Soft Blue Light: the sidebar, tabs and titlebar should turn light; the terminal stays Soft Blue",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.appTheme",
+        "Soft Blue Light"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Settings > Theme: what each row colors",
+      "cmux": [
+        "action",
+        "run",
+        "openSettings",
+        "--arg",
+        "setting=appearance.appTheme"
+      ],
+      "wait": 4,
+      "optional": "Settings may open on another section"
+    }
+  ]
+}

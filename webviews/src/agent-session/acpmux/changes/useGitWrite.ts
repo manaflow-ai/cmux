@@ -8,6 +8,7 @@ import {
   canPush,
   commitParams,
   failureText,
+  isNoRepository,
   pushParams,
   readCommitDone,
   readNewFiles,
@@ -44,6 +45,9 @@ export type GitWrite = {
   /// Reads the status again, reloads the scope and drops the outcome (a stale view, or a
   /// status read that failed).
   refresh: () => void;
+  /// Reads the status again only while the folder was found outside a repository, so a `git init`
+  /// made while the view is open brings Commit and Push back (the view calls it on each scope load).
+  recheck: () => void;
   dismiss: () => void;
 };
 
@@ -58,7 +62,11 @@ export function useGitWrite(
   onChanged: (op?: GitWriteOp) => void,
   keys?: WriteKeys,
 ): GitWrite {
-  const available = !!(source?.status && source.commit && source.push);
+  const capable = !!(source?.status && source.commit && source.push);
+  // A folder outside a repository has no branch to read: no Commit or Push, and no error either.
+  const [noRepository, setNoRepository] = useState(false);
+  const noRepositoryRef = useRef(false);
+  const available = capable && !noRepository;
   const [status, setStatus] = useState<WriteStatus>();
   const [statusFailed, setStatusFailed] = useState(false);
   const [state, setState] = useState<GitWriteState>();
@@ -79,13 +87,18 @@ export function useGitWrite(
         statusRef.current = next;
         setStatus(next);
         setStatusFailed(!next);
+        noRepositoryRef.current = false;
+        setNoRepository(false);
       }
       return next;
-    } catch {
+    } catch (error) {
       if (read === reads.current) {
+        const outside = isNoRepository(error);
         statusRef.current = undefined;
         setStatus(undefined);
-        setStatusFailed(true);
+        setStatusFailed(!outside);
+        noRepositoryRef.current = outside;
+        setNoRepository(outside);
       }
       return undefined;
     }
@@ -93,8 +106,8 @@ export function useGitWrite(
 
   // The status is read when the view opens.
   useEffect(() => {
-    if (available) void readStatus();
-  }, [available, readStatus]);
+    if (capable) void readStatus();
+  }, [capable, readStatus]);
 
   const run = useCallback(
     async (op: GitWriteOp, params: Record<string, unknown>): Promise<boolean> => {
@@ -174,6 +187,9 @@ export function useGitWrite(
     void readStatus();
     onChanged();
   }, [readStatus, onChanged]);
+  const recheck = useCallback(() => {
+    if (capable && noRepositoryRef.current) void readStatus();
+  }, [capable, readStatus]);
   const dismiss = useCallback(() => setState(undefined), []);
   const listNewFiles = useCallback(async () => {
     const files = source ? readNewFiles(await source.diff("uncommitted")) : undefined;
@@ -182,7 +198,7 @@ export function useGitWrite(
     return files;
   }, [source]);
 
-  return { available, status, statusFailed, state, commit, listNewFiles, push, retry, refresh, dismiss };
+  return { available, status, statusFailed, state, commit, listNewFiles, push, retry, refresh, recheck, dismiss };
 }
 
 function doneText(op: GitWriteOp, result: unknown): string {

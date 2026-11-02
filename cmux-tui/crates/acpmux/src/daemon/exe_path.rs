@@ -107,7 +107,9 @@ fn bundled(exe: &Path) -> bool {
         })
         .collect();
     names.iter().any(|n| n == "AppTranslocation")
-        || names.windows(2).any(|w| w[0].ends_with(".app") && w[1] == "Contents")
+        || names
+            .windows(2)
+            .any(|w| matches!(w, [app, next] if app.ends_with(".app") && *next == "Contents"))
 }
 
 /// What starting a daemon from `exe` for state folder `home` does.

@@ -138,6 +138,25 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   xmark: <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />,
+  "contextualmenu.and.cursorarrow": (
+    <>
+      <rect x="1.6" y="1.8" width="9.4" height="8.6" rx="1.6" />
+      <path d="M3.8 4.6h5M3.8 7.6h3.4M10 9.4l4.2 1.6-1.8.7-.7 1.8L10 9.4Z" />
+    </>
+  ),
+  "arrow.turn.down.right": <path d="M3.5 3v4.6a2.4 2.4 0 0 0 2.4 2.4h7M10 7l3 3-3 3" />,
+  grip: <path d="M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01" />,
+  "eye.slash": (
+    <path d="M2.6 2.6l10.8 10.8M6.4 4.1A6.4 6.4 0 0 1 8 3.9c3.3 0 5.6 3.1 6 4.1-.2.5-.8 1.5-1.8 2.4M4 5.3C2.9 6.2 2.2 7.4 2 8c.4 1 2.7 4.1 6 4.1 1 0 1.9-.3 2.7-.7M6.7 6.8a1.8 1.8 0 0 0 2.5 2.5" />
+  ),
+  eye: (
+    <>
+      <path d="M2 8c.4-1 2.7-4.1 6-4.1S13.6 7 14 8c-.4 1-2.7 4.1-6 4.1S2.4 9 2 8Z" />
+      <circle cx="8" cy="8" r="1.8" />
+    </>
+  ),
+  "arrow.up.to.line": <path d="M3.4 2.6h9.2M8 13.4V5.4M4.8 8.4 8 5.2l3.2 3.2" />,
+  "arrow.down.to.more": <path d="M8 2.6v7.6M4.8 7.2 8 10.4l3.2-3.2M4 13.4h.01M8 13.4h.01M12 13.4h.01" />,
 };
 
 export function Icon({ name, className }: { name: string; className?: string }) {

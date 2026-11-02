@@ -44,10 +44,11 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable {
         return "/" + parts.joined(separator: "/")
     }
 
-    /// The home folder or the disk's root: never copied to a machine.
+    /// The home folder or the disk's root: never copied to a machine. The rule is Rust's
+    /// (cmux-cloud-start-core `start::too_broad`); this spells both paths as Foundation standardizes them.
     public var isTooBroad: Bool {
-        let path = URL(fileURLWithPath: root).standardizedFileURL.path
-        return path == "/" || path == URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
+        CloudStartCore().isTooBroad(root: URL(fileURLWithPath: root).standardizedFileURL.path,
+                                    home: URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path)
     }
 
     /// The folder's name on a machine: its own name and a short hash of where it

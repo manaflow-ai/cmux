@@ -68,7 +68,7 @@ const stackTeamsOf = async (env: Env, p: Principal, deps: UserTeamsDeps): Promis
 const syncTeam = async (env: Env, team: string, stackTeam: string, user: string, now: number): Promise<void> => {
   try {
     const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> }
-    const reply = await stub.stackWebhook(team, { svix_id: `user-teams:${user}:${Math.floor(now / HEAL_WINDOW_MS)}`, type: "team.updated", stack_team: stackTeam })
+    const reply = await stub.stackWebhook(team, { svix_id: `user-teams:${user}:${Math.floor(now / HEAL_WINDOW_MS)}`, type: "team.updated", stack_team: stackTeam, urgent: true })
     console.log(JSON.stringify({ msg: "team list synced a stack team", team, outcome: reply.ok ? reply.outcome : reply.reason }))
   } catch (e) {
     logged("team list stack sync failed", e)

@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// VoiceOver reads the command palette (cx-9ce.44): its panel exposes the query field, each visible
 /// row as an element with its title, and which row is selected, so VoiceOver and an AX-driven test
 /// find a row by title. Found by the cx-d0d.65 live check: the panel exposed no elements.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaletteAccessibilityTests {
     /// One node of the panel's accessibility tree, as an AX client reads it.
     private struct Node {
@@ -52,7 +54,7 @@ struct PaletteAccessibilityTests {
         _ = NSApplication.shared
         let palette = PaletteController(registry: .standard(), frecencyPersistence: nil)
         palette.show(.commands)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         for _ in 0..<200 where palette.model.rows.count < 3 || palette.model.selectedItem == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
