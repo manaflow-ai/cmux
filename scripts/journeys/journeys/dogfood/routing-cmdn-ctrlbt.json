@@ -15,6 +15,11 @@
       "title": "stop a recording a failed check left open (its movie is the evidence)"
     },
     {
+      "do": "env_windows",
+      "at": "end",
+      "title": "host dialogs at the end (SMOKE ENV mark)"
+    },
+    {
       "do": "rpc",
       "method": "debug.focus",
       "title": "the focus and key-hold state at the end (records only)"
@@ -33,6 +38,10 @@
     {
       "do": "smoke_ready",
       "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
     },
     {
       "do": "smoke_remember_workspaces"

@@ -133,5 +133,32 @@ def step_video_close_open(j, step):
                 closed=rec["name"])
 
 
-STEPS = {"typing_keys": step_typing_keys, "typing_rect": step_typing_rect, "video_close_open": step_video_close_open}
+# Apps whose on-screen window means a host dialog is open (cmux-ad 01:30Z: a round on a mini with an open CuaDriver
+# bypass dialog is SMOKE ENV, not a result): CuaDriver itself, the TCC / notification and settings agents.
+HOST_DIALOG_APPS = ("CuaDriver", "cua-driver", "UserNotificationCenter", "System Settings", "SecurityAgent",
+                    "universalAccessAuthWarn", "tccd", "CoreServicesUIAgent")
+
+
+def step_env_windows(j, step):
+    """Records every on-screen window of another app (CuaDriver list_windows; input-side only, no capture) and marks
+    the round SMOKE ENV when one belongs to a host dialog app (HOST_DIALOG_APPS). Never fails the journey: the mark
+    goes to the result (`smoke_env`) and the round's judge must not count it as a result."""
+    try:
+        code, answer = _realkey()._cua("list_windows", {})
+    except Exception as error:  # noqa: BLE001 -- a record step: an unreadable host is SMOKE ENV, never a crash
+        j.smoke_env = True
+        return {"at": step.get("at", "start"), "smoke_env": True, "error": str(error)[:200]}
+    rows = answer.get("windows") or answer.get("structuredContent", {}).get("windows") or []
+    other = [{"app": w.get("app_name") or w.get("owner_name") or w.get("owner"), "title": w.get("title") or w.get("name"),
+              "pid": w.get("pid") or w.get("owner_pid"), "layer": w.get("layer")}
+             for w in rows if int(w.get("pid") or w.get("owner_pid") or -1) != j.app.pid
+             and w.get("is_on_screen", w.get("on_screen", True))]
+    dialogs = [w for w in other if any(a.lower() in str(w["app"] or "").lower() for a in HOST_DIALOG_APPS)
+               and (w.get("layer") or 0) >= 0]
+    j.smoke_env = bool(getattr(j, "smoke_env", False) or dialogs)
+    return {"at": step.get("at", "start"), "smoke_env": j.smoke_env, "host_dialogs": dialogs, "other_windows": other[:30],
+            "list_exit": code}
+
+
+STEPS = {"env_windows": step_env_windows, "typing_keys": step_typing_keys, "typing_rect": step_typing_rect, "video_close_open": step_video_close_open}
 CONDITIONS = {}

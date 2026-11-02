@@ -14,8 +14,10 @@ import sys
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "journeys" / "video"
-HEAD = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_remember_workspaces"}, {"do": "smoke_make_key"}]
-FINALLY = [{"do": "video_close_open", "title": "stop a recording a failed step left open"}, {"do": "smoke_close_all"}]
+HEAD = [{"do": "smoke_ready", "timeout": 60}, {"do": "env_windows", "at": "start"}, {"do": "smoke_remember_workspaces"},
+        {"do": "smoke_make_key"}]
+FINALLY = [{"do": "video_close_open", "title": "stop a recording a failed step left open"},
+           {"do": "env_windows", "at": "end", "title": "host dialogs at the end (SMOKE ENV mark)"}, {"do": "smoke_close_all"}]
 KEYS = {"count": 60, "seed": 1, "gap_ms": [90, 210], "charset": "abcdefghijklmnopqrstuvwxyz"}
 
 

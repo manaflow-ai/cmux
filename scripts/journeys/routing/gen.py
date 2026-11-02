@@ -15,8 +15,10 @@ import sys
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "journeys" / "dogfood"
-HEAD = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_remember_workspaces"}, {"do": "smoke_make_key"}]
+HEAD = [{"do": "smoke_ready", "timeout": 60}, {"do": "env_windows", "at": "start"}, {"do": "smoke_remember_workspaces"},
+        {"do": "smoke_make_key"}]
 FINALLY = [{"do": "video_close_open", "title": "stop a recording a failed check left open (its movie is the evidence)"},
+           {"do": "env_windows", "at": "end", "title": "host dialogs at the end (SMOKE ENV mark)"},
            {"do": "rpc", "method": "debug.focus", "title": "the focus and key-hold state at the end (records only)"},
            {"do": "app_log", "seconds": 90, "grep": "newTab|closeTab|creation.hold|focus|firstResponder|keyRouter",
             "title": "the app log of the last 90 s (records only)"},

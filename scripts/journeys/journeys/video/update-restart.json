@@ -14,6 +14,10 @@
       "do": "video_close_open"
     },
     {
+      "do": "env_windows",
+      "at": "end"
+    },
+    {
       "do": "smoke_close_all"
     }
   ],
@@ -21,6 +25,10 @@
     {
       "do": "smoke_ready",
       "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
     },
     {
       "do": "smoke_remember_workspaces"
