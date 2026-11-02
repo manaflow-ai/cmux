@@ -27,6 +27,12 @@ public struct MobileHostState: Sendable, Equatable {
     public var teamID: String?
     /// This Mac's mobile device id, once online.
     public var deviceID: String?
+    /// Rust-owned Remote Control policy, replayed with every Settings state update so a late app
+    /// observer cannot miss the initial or an acknowledgement state event.
+    public var sessionExposureConfigured = false
+    public var exposedSessionIDs: Set<String> = []
+    public var blockedSessionIDs: Set<String> = []
+    public var sessionExposureKnown = false
 
     public init(phase: Phase = .off) {
         self.phase = phase
@@ -38,16 +44,27 @@ public struct MobileHostState: Sendable, Equatable {
         switch event {
         case .connecting:
             phase = .connecting
+            sessionExposureKnown = false
         case .online(let device, let team):
             phase = .online
             deviceID = device
             teamID = team
         case .waiting(let reason, _):
             phase = .waiting(reason)
+            sessionExposureKnown = false
         case .removed:
             phase = .removed
             phones = []
+            sessionExposureKnown = false
         case .needToken, .needAcpmux, .needCloudLinks, .pairRequest, .unpaired, .needBrowser, .browserStop, .needSurface, .surfaceStop:
+            break
+        case let .sessionExposureState(configured, sessions, blockedSessions):
+            sessionExposureConfigured = configured
+            exposedSessionIDs = Set(sessions)
+            blockedSessionIDs = Set(blockedSessions)
+            sessionExposureKnown = true
+        case .sessionExposureError:
+            // Keep the last authoritative policy. A later state event replaces it atomically.
             break
         case .phoneUp(var link):
             link.since = now
@@ -76,5 +93,6 @@ public struct MobileHostState: Sendable, Equatable {
     public mutating func reset(to phase: Phase) {
         self.phase = phase
         phones = []
+        sessionExposureKnown = false
     }
 }

@@ -53,11 +53,18 @@ pub struct LiveApplier {
     /// The app's daemon socket (the `daemon` service's default session).
     pub daemon_socket: PathBuf,
     pub chief_socket: Option<PathBuf>,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 }
 
 impl Applier for LiveApplier {
     fn apply<'a>(&'a self, reply: &'a Reply) -> BoxFuture<'a, Result<(), Rejection>> {
         Box::pin(async move {
+            if let (Some(session), Some(exposure)) = (&reply.target.session_id, &self.session_exposure) {
+                let state = exposure.borrow().clone();
+                if !state.available || state.blocked.contains(session) {
+                    return Err(refused("this chat is not exposed to iPhone Remote Control"));
+                }
+            }
             match reply.kind.as_str() {
                 "question" | "permission" => self.respond(reply).await,
                 "completed" | "failed" => self.prompt(reply).await,
@@ -232,7 +239,9 @@ pub async fn reply_to_notification(
     let agents = lines.call_daemon(&policy, &agents_line(found)).await?;
     match agent_session(&agents, found) {
         AgentOnTerminal::None => {}
-        AgentOnTerminal::Unknown => return Err(refused("an agent runs in that terminal; answer it in the app")),
+        AgentOnTerminal::Unknown => {
+            return Err(refused("an agent runs in that terminal; answer it in the app"));
+        }
         AgentOnTerminal::Session(session) => {
             let identify =
                 lines.call_daemon(&policy, &json!({"id": "mailbox-identify", "cmd": "identify"})).await?;
@@ -766,7 +775,10 @@ mod tests {
         assert_eq!(agent_session(&filtered, 7), AgentOnTerminal::Session("s-1".into()));
         assert_eq!(agents_line(7)["surface"], 7);
         let daemon = DaemonPolicy::new("phone-1");
-        assert!(!matches!(daemon.evaluate(&serde_json::to_vec(&agents_line(7)).unwrap()), Verdict::Refuse(_)));
+        assert!(!matches!(
+            daemon.evaluate(&serde_json::to_vec(&agents_line(7)).unwrap()),
+            Verdict::Refuse(_)
+        ));
     }
 
     #[test]

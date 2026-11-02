@@ -11,12 +11,26 @@
 //! phone's Face ID signature.
 
 use serde_json::{Value, json};
+use std::collections::HashSet;
+
+use crate::control::SessionExposure;
 
 /// The modes a phone may switch an agent to: Claude Code's `default` and
 /// `plan`, the Codex bridge's `ask` (acpmux `ASKING_MODES`,
 /// `BRIDGE_ASKING_MODES`). acpmux still checks each against the session's
 /// family.
 pub const PHONE_MODES: &[&str] = &["default", "plan", "ask"];
+
+const GLOBAL_METHODS: &[&str] = &[
+    "initialize",
+    "session/new",
+    "acp.session.new",
+    "session/list",
+    "acp.session.list",
+    "_acpmux/status",
+    "_acpmux/sessions",
+    "_acpmux/watch",
+];
 
 /// The JSON-RPC error a phone gets for a refused message (code -32602,
 /// `data.reason` `phone.mode_not_asking`), or None to forward it. A batch is
@@ -104,6 +118,176 @@ pub fn controlled_session(message: &str) -> Option<(Value, String)> {
     Some((value.get("id").cloned().unwrap_or(Value::Null), session))
 }
 
+fn request_session(request: &Value) -> Option<String> {
+    let params = request.get("params")?;
+    let values = ["sessionId", "session", "name"]
+        .iter()
+        .filter_map(|key| params.get(*key).and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    if values.windows(2).any(|pair| pair[0] != pair[1]) {
+        return None;
+    }
+    values.first().map(|value| (*value).to_owned())
+}
+
+/// Every request id and target session in a JSON-RPC message, including batch
+/// items. The service uses this to bind responses and revoke a live link.
+pub fn request_targets(message: &str) -> Vec<(String, String)> {
+    let Ok(value) = serde_json::from_str::<Value>(message) else { return Vec::new() };
+    let requests = match &value {
+        Value::Array(items) => items.iter().collect::<Vec<_>>(),
+        other => vec![other],
+    };
+    requests
+        .into_iter()
+        .filter_map(|request| {
+            let id = request.get("id")?.to_string();
+            Some((id, request_session(request)?))
+        })
+        .collect()
+}
+
+pub fn response_id(message: &str) -> Option<String> {
+    serde_json::from_str::<Value>(message).ok()?.get("id").map(Value::to_string)
+}
+
+fn exposure_error(id: Value, reason: &str) -> String {
+    json!({"jsonrpc":"2.0", "id": id, "error": {"code": -32602,
+        "message": "This chat is not exposed to iPhone Remote Control",
+        "data": {"reason": reason}}})
+    .to_string()
+}
+
+fn allowed(state: &SessionExposure, session: &str, _bound: &HashSet<String>) -> bool {
+    if !state.available {
+        return false;
+    }
+    if state.blocked.contains(session) {
+        return false;
+    }
+    // The acpmux resolver accepts aliases (`name` and short IDs). Until a
+    // trusted response binds a canonical ID, reject short aliases under a
+    // configured policy rather than guessing which chat they denote.
+    if state.configured && session.len() < 16 && !_bound.contains(session) {
+        return false;
+    }
+    // `bound` carries the successful result of session/new for this live link.
+    // Missing sessions inherit the Mac-wide setting until explicitly revoked.
+    true
+}
+
+/// Refuse a request that is not explicitly global or that names a blocked chat.
+/// This runs before Full Access marking; credentials never bypass exposure.
+pub fn exposure_refusal(message: &str, state: &SessionExposure, bound: &HashSet<String>) -> Option<String> {
+    exposure_refusal_with_replies(message, state, bound, &HashSet::new())
+}
+
+/// As [`exposure_refusal`], while accepting method-less JSON-RPC replies to
+/// requests the server already issued on this link (approval answers).
+pub fn exposure_refusal_with_replies(
+    message: &str,
+    state: &SessionExposure,
+    bound: &HashSet<String>,
+    replies: &HashSet<String>,
+) -> Option<String> {
+    let value: Value = match serde_json::from_str(message) {
+        Ok(value) => value,
+        Err(_) => return Some(exposure_error(Value::Null, "remote_control.invalid_json")),
+    };
+    let requests = match &value {
+        Value::Array(items) => items.iter().collect::<Vec<_>>(),
+        other => vec![other],
+    };
+    for request in requests {
+        let id = request.get("id").cloned().unwrap_or(Value::Null);
+        let Some(method) = request.get("method").and_then(Value::as_str) else {
+            if replies.contains(&id.to_string()) {
+                continue;
+            }
+            return Some(exposure_error(id, "remote_control.invalid_request"));
+        };
+        if GLOBAL_METHODS.contains(&method) {
+            continue;
+        }
+        let Some(session) = request_session(request) else {
+            return Some(exposure_error(id, "remote_control.session_required"));
+        };
+        if !allowed(state, &session, bound) {
+            return Some(exposure_error(id, "remote_control.session_not_exposed"));
+        }
+    }
+    None
+}
+
+/// Record session IDs returned by `session/new` so the live link retains the
+/// newly-created chat even when the server response contains no other fields.
+pub fn returned_session_id(message: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(message).ok()?;
+    value.get("result")?.get("sessionId").and_then(Value::as_str).map(str::to_owned)
+}
+
+pub fn returned_sessions(message: &str) -> Vec<(String, String)> {
+    let Ok(value) = serde_json::from_str::<Value>(message) else { return Vec::new() };
+    let replies = match &value {
+        Value::Array(items) => items.iter().collect::<Vec<_>>(),
+        other => vec![other],
+    };
+    replies
+        .into_iter()
+        .filter_map(|reply| {
+            Some((reply.get("id")?.to_string(), reply.get("result")?.get("sessionId")?.as_str()?.to_owned()))
+        })
+        .collect()
+}
+
+fn contains_blocked_session(value: &Value, state: &SessionExposure, bound: &HashSet<String>) -> bool {
+    match value {
+        Value::Object(object) => object.iter().any(|(key, value)| {
+            if matches!(key.as_str(), "sessionId" | "session") {
+                return value.as_str().is_some_and(|id| !allowed(state, id, bound));
+            }
+            contains_blocked_session(value, state, bound)
+        }),
+        Value::Array(values) => values.iter().any(|value| contains_blocked_session(value, state, bound)),
+        _ => false,
+    }
+}
+
+/// Filter a server reply/notification. Session-list rows are removed one by
+/// one; an opaque reply naming a blocked session is dropped fail closed.
+pub fn filter_response(message: &str, state: &SessionExposure, bound: &HashSet<String>) -> Option<String> {
+    if !state.available {
+        return None;
+    }
+    if !state.configured {
+        return Some(message.to_owned());
+    }
+    let mut value: Value = serde_json::from_str(message).ok()?;
+    fn filter_lists(value: &mut Value, state: &SessionExposure, bound: &HashSet<String>) {
+        match value {
+            Value::Object(object) => {
+                if let Some(Value::Array(rows)) = object.get_mut("sessions") {
+                    rows.retain(|row| !contains_blocked_session(row, state, bound));
+                }
+                for child in object.values_mut() {
+                    filter_lists(child, state, bound);
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    filter_lists(item, state, bound);
+                }
+            }
+            _ => {}
+        }
+    }
+    filter_lists(&mut value, state, bound);
+    if contains_blocked_session(&value, state, bound) {
+        return None;
+    }
+    Some(value.to_string())
+}
+
 /// The refusal for a control request on a session whose current mode (acpmux
 /// `_acpmux/info` `currentModeId`) does not ask; None when it asks or is unknown
 /// (acpmux's own guard decides then).
@@ -155,6 +339,15 @@ fn mode_ok(mode: Option<&Value>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn exposure(blocked: &[&str]) -> SessionExposure {
+        SessionExposure {
+            available: true,
+            configured: true,
+            allowed: HashSet::new(),
+            blocked: blocked.iter().map(|id| (*id).to_owned()).collect(),
+        }
+    }
 
     fn set_mode(mode: &str) -> String {
         json!({"jsonrpc": "2.0", "id": 7, "method": "session/set_mode", "params": {"sessionId": "s", "modeId": mode}})
@@ -212,6 +405,54 @@ mod tests {
         }
         let no_id = json!({"jsonrpc": "2.0", "id": 1, "method": "session/set_config_option", "params": {"sessionId": "s", "value": "x"}});
         assert!(refusal(&no_id.to_string()).is_some());
+    }
+
+    #[test]
+    fn exposure_keeps_unmentioned_chats_and_rejects_blocked_batches() {
+        let state = exposure(&["session-hidden-0001"]);
+        let visible = r#"{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"session-visible-0001"}}"#;
+        assert_eq!(exposure_refusal(visible, &state, &HashSet::new()), None);
+        let batch = format!(
+            "[{visible},{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/prompt\",\"params\":{{\"sessionId\":\"session-hidden-0001\"}}}}]"
+        );
+        assert!(exposure_refusal(&batch, &state, &HashSet::new()).is_some());
+    }
+
+    #[test]
+    fn nested_lists_are_filtered_and_binary_is_not_used_as_json() {
+        let state = exposure(&["session-hidden-0001"]);
+        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{"data":{"sessions":[{"sessionId":"session-visible-0001"},{"sessionId":"session-hidden-0001"}]}}}"#;
+        let filtered = filter_response(reply, &state, &HashSet::new()).unwrap();
+        assert!(filtered.contains("session-visible-0001"));
+        assert!(!filtered.contains("session-hidden-0001"));
+        assert!(filter_response("not-json", &state, &HashSet::new()).is_none());
+    }
+
+    #[test]
+    fn server_approval_replies_are_allowed_only_when_correlated() {
+        let state = exposure(&[]);
+        let answer = r#"{"jsonrpc":"2.0","id":"approval-1","result":{"approved":true}}"#;
+        assert!(exposure_refusal(answer, &state, &HashSet::new()).is_some());
+        let mut replies = HashSet::new();
+        replies.insert("\"approval-1\"".into());
+        assert_eq!(exposure_refusal_with_replies(answer, &state, &HashSet::new(), &replies), None);
+    }
+
+    #[test]
+    fn aliases_and_conflicting_target_keys_fail_closed() {
+        let state = exposure(&["session-hidden-0001"]);
+        let alias = json!({"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"short"}}).to_string();
+        assert!(exposure_refusal(&alias, &state, &HashSet::new()).is_some());
+        let conflicting = json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"session-visible-0001","name":"session-hidden-0001"}}).to_string();
+        assert!(exposure_refusal(&conflicting, &state, &HashSet::new()).is_some());
+    }
+
+    #[test]
+    fn session_new_batch_response_binds_each_returned_chat() {
+        let reply = r#"[{"jsonrpc":"2.0","id":1,"result":{"sessionId":"session-one-0001"}},{"jsonrpc":"2.0","id":2,"result":{"sessionId":"session-two-0002"}}]"#;
+        let mut sessions = returned_sessions(reply);
+        sessions.sort();
+        assert_eq!(sessions, vec![("1".into(), "session-one-0001".into()), ("2".into(), "session-two-0002".into())]);
     }
 
     /// A Mac-started Codex chat in `agent` (no asking) is not driven from a phone.

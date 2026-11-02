@@ -16,18 +16,60 @@ extension IPhoneHostService {
             guard let settings = settings() else { throw CocoaError(.featureUnsupported) }
             try await settings.setSetting(at: MobileSettings.allowIPhoneConnectionsPath, to: .bool(on), by: .user)
         }
+        // A chat row changes only its own durable Rust-owned exposure entry. A page without a
+        // session retains the legacy account-wide switch for new-tab/old-host compatibility.
+        control.setForSession = { [weak self] on, sessionID in
+            guard let self else { throw CocoaError(.featureUnsupported) }
+            if let sessionID, !sessionID.isEmpty {
+                try await self.supervisor.setSessionExposure(sessionID: sessionID, allowed: on)
+            } else {
+                guard let settings = settings() else { throw CocoaError(.featureUnsupported) }
+                try await settings.setSetting(at: MobileSettings.allowIPhoneConnectionsPath, to: .bool(on), by: .user)
+            }
+        }
+        control.sessionState = { [weak self] sessionID in
+            guard let self, let settings = settings() else { return nil }
+            return Self.remoteControlState(signedIn: auth.isSignedIn, servesPhones: servesPhones,
+                                           allowed: settings.snapshot.mobile.allowIPhoneConnections,
+                                           sessionID: sessionID, exposureConfigured: sessionExposureConfigured,
+                                           exposedSessionIDs: exposedSessionIDs,
+                                           exposureKnown: sessionExposureKnown,
+                                           revision: sessionExposureRevision)
+        }
         // Set last: setting it pushes the state to the open pages.
         control.state = { [weak self] in
             guard let self, let settings = settings() else { return nil }
             return Self.remoteControlState(signedIn: auth.isSignedIn, servesPhones: servesPhones,
-                                           allowed: settings.snapshot.mobile.allowIPhoneConnections)
+                                           allowed: settings.snapshot.mobile.allowIPhoneConnections,
+                                           sessionID: nil, exposureConfigured: sessionExposureConfigured,
+                                           exposedSessionIDs: exposedSessionIDs,
+                                           exposureKnown: sessionExposureKnown,
+                                           revision: sessionExposureRevision)
         }
     }
 
     /// The switch Session Info shows: none while no account is signed in (phones have no account to
     /// match) or the build has no iPhone host; otherwise on as the setting is.
-    nonisolated static func remoteControlState(signedIn: Bool, servesPhones: Bool, allowed: Bool) -> AgentPaneRemoteControl.State? {
+    nonisolated static func remoteControlState(signedIn: Bool, servesPhones: Bool, allowed: Bool,
+                                               sessionID: String? = nil, exposureConfigured: Bool = false,
+                                               exposedSessionIDs: Set<String> = [], exposureKnown: Bool = true,
+                                               revision: Int = 0) -> AgentPaneRemoteControl.State? {
         guard signedIn, servesPhones else { return nil }
-        return AgentPaneRemoteControl.State(on: allowed)
+        let on: Bool
+        if !allowed {
+            on = false
+        } else if let sessionID {
+            on = exposureKnown ? (exposureConfigured ? exposedSessionIDs.contains(sessionID) : allowed) : false
+        } else if sessionID != nil {
+            // A running host has not supplied an authoritative policy yet; do not present an
+            // exposed chat while that state is unknown. New-tab/legacy callers retain master
+            // fallback because they have no session to authorize.
+            on = false
+        } else {
+            // Before the first per-chat choice, preserve the legacy Mac-wide behavior. A new tab
+            // has no session id yet and therefore follows this branch as well.
+            on = allowed
+        }
+        return AgentPaneRemoteControl.State(on: on, revision: revision)
     }
 }

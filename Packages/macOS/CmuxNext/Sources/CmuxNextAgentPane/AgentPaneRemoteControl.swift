@@ -18,7 +18,13 @@ public final class AgentPaneRemoteControl {
     /// The switch as the page shows it.
     public nonisolated struct State: Equatable, Sendable {
         public var on: Bool
-        public init(on: Bool) { self.on = on }
+        /// A host-owned generation used to wake pages when the per-chat allow set changes while
+        /// the aggregate master switch remains on. It is deliberately omitted from the wire event.
+        private var revision: Int
+        public init(on: Bool, revision: Int = 0) {
+            self.on = on
+            self.revision = revision
+        }
     }
 
     /// The switch now, read through Observation (the App reads its settings and the iPhone host);
@@ -26,8 +32,13 @@ public final class AgentPaneRemoteControl {
     public var state: @MainActor () -> State? = { nil } {
         didSet { observation?.cancel(); observation = nil; follow(); for view in views.allObjects { send(to: view) } }
     }
+    /// Session-aware state. The legacy ``state`` closure remains the fallback for callers that do
+    /// not have a chat session (for example a new-tab page).
+    public var sessionState: (@MainActor (String?) -> State?)?
     /// Writes the switch as the person's own change (the App's settings write, `by: .user`).
     public var set: (@MainActor (Bool) async throws -> Void)?
+    /// Writes one chat's exposure. A nil session falls back to the legacy account-wide setting.
+    public var setForSession: (@MainActor (Bool, String?) async throws -> Void)?
 
     /// The pages pushed so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
@@ -37,7 +48,11 @@ public final class AgentPaneRemoteControl {
     func event(for view: AgentPaneView) -> AgentPageEvent {
         views.add(view)
         follow()
-        return Self.event(state())
+        return Self.event(state(for: view.model.sessionId))
+    }
+
+    func state(for sessionID: String?) -> State? {
+        sessionState?(sessionID) ?? state()
     }
 
     static func event(_ state: State?) -> AgentPageEvent {
@@ -58,7 +73,7 @@ public final class AgentPaneRemoteControl {
     }
 
     private func send(to view: AgentPaneView) {
-        let state = state()
+        let state = state(for: view.model.sessionId)
         view.deliver([Self.event(state)], scripts: [Self.script(state)])
     }
 
@@ -82,7 +97,7 @@ public final class AgentPaneRemoteControl {
     /// Mac while the switch is shown.
     @MainActor
     static func reply(on: Bool, in model: AgentPaneModel, userGesture: Bool) async -> [String: Any] {
-        guard !model.remoteChat, let control = model.remoteControl, control.state() != nil, let set = control.set else {
+        guard !model.remoteChat, let control = model.remoteControl, control.state(for: model.sessionId) != nil else {
             return AgentPaneModel.unsupported("pane.setRemoteControl")
         }
         // Which phones reach this Mac is the person's call: a page script cannot make a gesture.
@@ -90,7 +105,13 @@ public final class AgentPaneRemoteControl {
             return AgentPaneModel.transportFailure(.gestureRequired)
         }
         do {
-            try await set(on)
+            if let setForSession = control.setForSession {
+                try await setForSession(on, model.sessionId)
+            } else if let set = control.set {
+                try await set(on)
+            } else {
+                return AgentPaneModel.unsupported("pane.setRemoteControl")
+            }
             return AgentPaneReply.success()
         } catch {
             return AgentPaneReply.failure(code: "settings_write_failed", message: error.localizedDescription)

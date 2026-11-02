@@ -510,6 +510,7 @@ pub async fn run(
     acpmux: AcpmuxTarget,
     daemon_socket: Option<std::path::PathBuf>,
     sealer: Option<Arc<crate::sealed_notify::Sealer>>,
+    session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 ) {
     let reporter = Reporter::new(base_url, device_id, tokens).with_sealer(sealer);
     let places = Arc::new(Places::default());
@@ -519,7 +520,7 @@ pub async fn run(
     let mut classifier = Classifier::with_places(places);
     let mut backoff = Duration::from_secs(2);
     loop {
-        match watch_once(&reporter, &acpmux, &mut classifier).await {
+        match watch_once(&reporter, &acpmux, &mut classifier, session_exposure.clone()).await {
             Ok(()) => backoff = Duration::from_secs(2),
             Err(reason) => {
                 tracing::debug!(reason, "push watch ended");
@@ -546,6 +547,7 @@ async fn watch_once(
     reporter: &Reporter,
     acpmux: &AcpmuxTarget,
     classifier: &mut Classifier,
+    mut session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 ) -> Result<(), String> {
     let socket = crate::services::connect_acpmux(acpmux).await.map_err(|r| r.reason)?;
     let (mut sink, mut source) = socket.split();
@@ -563,6 +565,13 @@ async fn watch_once(
         let deadline = waiting.next_deadline();
         let message = tokio::select! {
             message = source.next() => message,
+            changed = async {
+                let Some(exposure) = session_exposure.as_mut() else { std::future::pending().await };
+                exposure.changed().await
+            }, if session_exposure.is_some() => {
+                if changed.is_err() { session_exposure = None; }
+                continue;
+            }
             () = async {
                 match deadline {
                     Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
@@ -586,6 +595,11 @@ async fn watch_once(
             Message::Text(text) => text.to_string(),
             Message::Close(_) => break,
             _ => continue,
+        };
+        let exposure =
+            session_exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+        let Some(text) = crate::acpmux_policy::filter_response(&text, &exposure, &HashSet::new()) else {
+            continue;
         };
         let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
         let (queries, events) = waiting.receive(&value, classifier)?;
