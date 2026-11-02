@@ -308,6 +308,38 @@ impl Drop for GroupSeat<'_> {
     }
 }
 
+std::thread_local! {
+    /// What [`with_group_join_notice`] runs when this thread's creation
+    /// joins a group.
+    static JOIN_NOTICE: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Restores the notice that was set before [`with_group_join_notice`].
+struct RestoreNotice(Option<Box<dyn FnOnce()>>);
+
+impl Drop for RestoreNotice {
+    fn drop(&mut self) {
+        let previous = self.0.take();
+        JOIN_NOTICE.with(|notice| *notice.borrow_mut() = previous);
+    }
+}
+
+/// Run `body`; when a creation it makes joins a creation group that takes
+/// other members, run `notice` once, right after the join. A connection
+/// that commits its creations in request order starts its next split then,
+/// so the splits of one connection can share one group (SPLIT BURST).
+pub(crate) fn with_group_join_notice<R>(notice: Box<dyn FnOnce()>, body: impl FnOnce() -> R) -> R {
+    let _restore = RestoreNotice(JOIN_NOTICE.with(|slot| slot.replace(Some(notice))));
+    body()
+}
+
+fn notify_group_joined() {
+    if let Some(notice) = JOIN_NOTICE.with(|slot| slot.borrow_mut().take()) {
+        notice();
+    }
+}
+
 /// What a creation's own steps left.
 pub(super) enum StagedCreationOutcome {
     /// Its answer: a replay, a failure or a settlement.
@@ -334,6 +366,9 @@ impl Mux {
         stage: impl FnOnce() -> StagedCreationOutcome,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mut seat = self.creation_groups.join(groupable, keys);
+        if groupable {
+            notify_group_joined();
+        }
         let fence = seat.is_leader().then(|| {
             let fence = self.creation_wait(|| self.resource_creation_execution.lock().unwrap());
             seat.fence_held();
