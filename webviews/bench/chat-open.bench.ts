@@ -403,6 +403,7 @@ try {
         nodes: {
           id: number;
           callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
+          children?: number[];
         }[];
         samples: number[];
         timeDeltas: number[];
@@ -431,6 +432,32 @@ try {
       const bucket = `${Math.floor(clock / 25) * 25} ms`;
       byWindow.set(bucket, (byWindow.get(bucket) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
     });
+    // The busiest functions (self time, with their callers' file) in each 100 ms of the load.
+    const perWindow = new Map<number, Map<string, number>>();
+    const parents = new Map<number, (typeof profile.nodes)[number]>();
+    for (const node of profile.nodes) for (const child of node.children ?? []) parents.set(child, node);
+    let at = 0;
+    profile.samples.forEach((id, index) => {
+      const delta = (profile.timeDeltas[index] ?? 0) / 1000;
+      at += delta;
+      const node = byId.get(id)!;
+      if (node.callFrame.functionName === "(idle)") return;
+      // A native frame (layout, style, compile) is named with its nearest JS caller.
+      let named = node;
+      while (named && !named.callFrame.url) named = parents.get(named.id) ?? (undefined as never);
+      const frame = named?.callFrame ?? node.callFrame;
+      const key = `${node.callFrame.functionName || "(anon)"}${named && named !== node ? ` <- ${frame.functionName || "(anon)"} ${mapper(frame.url.split("/").pop() ?? "", frame.lineNumber, frame.columnNumber)}` : ` ${mapper(frame.url.split("/").pop() ?? "", frame.lineNumber, frame.columnNumber)}`}`;
+      const window = Math.floor(at / 100) * 100;
+      const bucket = perWindow.get(window) ?? new Map<string, number>();
+      bucket.set(key, (bucket.get(key) ?? 0) + delta);
+      perWindow.set(window, bucket);
+    });
+    for (const [window, bucket] of [...perWindow].sort((a, b) => a[0] - b[0]).slice(0, 8)) {
+      const busy = [...bucket.values()].reduce((a, b) => a + b, 0);
+      console.log(`window ${window}-${window + 100} ms: busy ${busy.toFixed(0)} ms`);
+      for (const [key, ms] of [...bucket].sort((a, b) => b[1] - a[1]).slice(0, 7))
+        console.log(`  ${ms.toFixed(1)}\t${key.replace(/home\/runner\/_work\/cmux\/cmux\/.fast-checks-checkout\/webviews\//g, "").slice(0, 150)}`);
+    }
     console.log("profile by script (ms):");
     for (const [key, ms] of [...byFile].sort((a, b) => b[1] - a[1]).slice(0, 15)) console.log(`${ms.toFixed(1)}\t${key}`);
     console.log("busy per 25 ms window from profile start (ms):");
