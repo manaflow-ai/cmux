@@ -68,6 +68,22 @@ test("the startup checklist skips clone without a repository and explains a miss
   expect(rows[2]?.detail).toContain("Add a setup script");
 });
 
+test("opening a chat never certifies missing repository setup evidence", () => {
+  const started: CloudStartProgress = {
+    key: "k",
+    task: "work on this repo",
+    state: "starting",
+    hasRepository: true,
+    initialized: true,
+  };
+  expect(startupChecklist(started)[2]?.status).toBe("pending");
+  expect(startupChecklist({ ...started, initialized: false })[2]?.status).toBe("pending");
+  // The no-setup-script case remains a deliberate skip.
+  expect(startupChecklist({ ...started, setup: { state: "skipped", hasScript: false } })[2]?.status).toBe("skipped");
+  // A real verified prepared snapshot remains complete even after the chat initializes.
+  expect(startupChecklist({ ...started, setup: { state: "done", status: "ready" } })[2]?.status).toBe("done");
+});
+
 test("a warm base snapshot cannot mark dependencies ready in the checklist", () => {
   const startWithUnverified: CloudStartProgress = {
     key: "k",
