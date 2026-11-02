@@ -132,8 +132,13 @@ fn a_create_that_panics_still_starts_the_next_one() {
     // The new-pane-right panics once the split behind it is launched and
     // waits to start.
     let waiting = scheduler.clone();
+    let launched_behind = Arc::new(AtomicBool::new(false));
+    let seen = launched_behind.clone();
     mux.set_creation_before_effect_hook_for_test(Box::new(move || {
-        assert!(reaches(|| waiting.launched_creations_waiting_for_test() == 1));
+        seen.store(
+            reaches(|| waiting.launched_creations_waiting_for_test() == 1),
+            Ordering::SeqCst,
+        );
         // crash-allow: unit test only; the panic stands in for a defect inside a create.
         panic!("a create panics");
     }));
@@ -155,6 +160,7 @@ fn a_create_that_panics_still_starts_the_next_one() {
         scheduler.wait_for_completion(Some(Duration::from_secs(10))),
         "the split behind a create that panicked never started"
     );
+    assert!(launched_behind.load(Ordering::SeqCst), "the split never waited, launched, behind");
     let replied = std::iter::from_fn(|| outbound.try_pop())
         .map(|line| serde_json::from_str::<Value>(&line).unwrap())
         .any(|reply| reply["id"] == json!(31) && reply["ok"] == json!(true));

@@ -405,6 +405,8 @@ impl ConnectionSurfaceScheduler {
             crate::debug_spans::follow(terminal_id);
         }
         let cancelled = self.cancelled.is_cancelled();
+        // Runs after the create, also when it panics.
+        let cleanup = CreateCleanup { mux, slot, launched: launched.clone(), cancelled };
         let keep_open = match pending {
             // A closed connection drops its queued requests unexecuted.
             Some(_) if cancelled => true,
@@ -426,16 +428,7 @@ impl ConnectionSurfaceScheduler {
             }
             None => true,
         };
-        // Input queued for the new terminal goes to it now, before any later input, or back to
-        // its senders when the create failed or was dropped.
-        if let Some((terminal_id, generation)) = &slot.creating_terminal {
-            mux.finish_creating_input(terminal_id, *generation, cancelled.then_some("cancelled"));
-        }
-        crate::debug_spans::mark("reply.queued");
-        crate::debug_spans::finish(crate::debug_spans::take());
-        if let Some(terminal_hex) = launched {
-            mux.discard_prelaunched_terminal(&terminal_hex);
-        }
+        drop(cleanup);
         keep_open
     }
 
@@ -447,6 +440,35 @@ impl ConnectionSurfaceScheduler {
         let mut state = self.state.lock().recover_poison();
         state.active_creations -= 1;
         self.changed.notify_all();
+    }
+}
+
+/// The end of one create's commit, on return or on a panic: input queued
+/// for the new terminal goes to it now, before any later input, or back to
+/// its senders when the create failed, was dropped or panicked; an unused
+/// prelaunched host is discarded.
+struct CreateCleanup<'a> {
+    mux: &'a Arc<Mux>,
+    slot: &'a CreationSlot,
+    launched: Option<String>,
+    cancelled: bool,
+}
+
+impl Drop for CreateCleanup<'_> {
+    fn drop(&mut self) {
+        if let Some((terminal_id, generation)) = &self.slot.creating_terminal {
+            let failure = if std::thread::panicking() {
+                Some("failed")
+            } else {
+                self.cancelled.then_some("cancelled")
+            };
+            self.mux.finish_creating_input(terminal_id, *generation, failure);
+        }
+        crate::debug_spans::mark("reply.queued");
+        crate::debug_spans::finish(crate::debug_spans::take());
+        if let Some(terminal_hex) = self.launched.take() {
+            self.mux.discard_prelaunched_terminal(&terminal_hex);
+        }
     }
 }
 
