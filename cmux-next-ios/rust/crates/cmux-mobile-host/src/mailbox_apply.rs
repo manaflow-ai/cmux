@@ -412,6 +412,15 @@ fn failed(reply: &Value) -> Option<String> {
 }
 
 impl LiveApplier {
+    fn exposure_allows(&self, session: Option<&str>) -> Result<(), Rejection> {
+        if let (Some(session), Some(exposure)) = (session, &self.session_exposure) {
+            let state = exposure.borrow().clone();
+            if !state.available || state.blocked.contains(session) {
+                return Err(refused("this chat is not exposed to iPhone Remote Control"));
+            }
+        }
+        Ok(())
+    }
     async fn respond(&self, reply: &Reply) -> Result<(), Rejection> {
         let mut acpmux = Acpmux::connect(&self.acpmux).await?;
         let info = acpmux.call("_acpmux/info", json!({"sessionId": reply.target.session_id})).await?;
@@ -426,6 +435,7 @@ impl LiveApplier {
             .cloned()
             .ok_or(Rejection::NotPending)?;
         let params = permission_params(reply, &pending)?;
+        self.exposure_allows(reply.target.session_id.as_deref())?;
         acpmux.call("_acpmux/permission_respond", params).await.map(|_| ())
     }
 
@@ -435,6 +445,7 @@ impl LiveApplier {
             .call("_acpmux/info", json!({"sessionId": reply.target.session_id}))
             .await
             .map_err(|_| Rejection::NotPending)?;
+        self.exposure_allows(reply.target.session_id.as_deref())?;
         acpmux.prompt(prompt_params(reply)).await
     }
 

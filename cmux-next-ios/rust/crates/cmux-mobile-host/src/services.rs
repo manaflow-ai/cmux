@@ -1067,7 +1067,6 @@ async fn acpmux(
                     // keep a live channel's exposure alive.
                     for (id, session) in crate::acpmux_policy::request_targets(&text) {
                         bound_sessions.insert(session.clone());
-                        server_reply_ids.remove(&id);
                     }
                     // An agent a phone drives stays in a mode that asks
                     // (`acpmux_policy`): a refused mode set is answered here.
