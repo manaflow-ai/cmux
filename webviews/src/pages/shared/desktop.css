@@ -648,6 +648,9 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-gap-foot: calc(4px * var(--cmux-interface-scale, 1)); /* Gap from the composer box to its quiet row. */
   --grid-transcript-action-control: calc(28px * var(--cmux-interface-scale, 1)); /* Row action box ending on the column edge. */
   --grid-transcript-action-trail-center: calc(14px * var(--cmux-interface-scale, 1)); /* Row action center from column right edge. */
+  --grid-transcript-footer-control: calc(32px * var(--cmux-interface-scale, 1)); /* A reply footer's button, ChatGPT's 32. */
+  --grid-transcript-footer-icon: calc(20px * var(--cmux-interface-scale, 1)); /* A reply footer's glyph box, ChatGPT's 20. */
+  --grid-gap-footer: calc(8px * var(--cmux-interface-scale, 1)); /* Gap from a reply's last line to its footer's buttons. */
   --grid-cards-padding: calc(12px * var(--cmux-interface-scale, 1)); /* Card content padding. */
   --grid-cards-lead: calc(12px * var(--cmux-interface-scale, 1)); /* Card header icon left edge. */
   --grid-cards-text: calc(36px * var(--cmux-interface-scale, 1)); /* Card header and body text start. */

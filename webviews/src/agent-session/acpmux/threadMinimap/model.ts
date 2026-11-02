@@ -2,6 +2,7 @@
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
 import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
+import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
@@ -25,6 +26,9 @@ export type MinimapTurn = {
   key: string;
   /// The prompt, preserving its line breaks for the card's bounded three-line title.
   prompt: string;
+  /// Who sent it, when it is another session's message and not the person's (promptSender): its
+  /// tick draws apart from the person's and its card names the sender.
+  from?: string;
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
   metadata?: MinimapTurnMetadata;
@@ -32,8 +36,8 @@ export type MinimapTurn = {
 
 /// The rail's geometry and timing, measured from 60 Hz recordings of the Codex desktop app's prompt
 /// rail (lane notes: minimap-ref/SPEC.md). CSS px and ms; the drawn sizes live in threadMinimap.css.
-/// The rail shows from this many prompts...
-export const MIN_PROMPTS = 4;
+/// Every prompt has a tick, even when the whole chat fits on one screen.
+export const MIN_PROMPTS = 1;
 /// One row per prompt: a fixed 10 px pitch (not proportional to the thread), 36 px wide to hit.
 export const ROW_PITCH = 10;
 export const ROW_WIDTH = 36;
@@ -306,7 +310,19 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
 
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
 /// does, not when the reply it previews streams on.
-export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt">;
+export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from">;
+
+/// Who sent a prompt that is not the person's (conversation/incomingMessage.ts): another session's
+/// message, or acpmux's inbox notice of several. The rail keeps their ticks, set apart from the
+/// person's own prompts (Leo, 2026-10-27: "Messages sent from other sessions, like do they really
+/// need to be forming a part of the side area? Like shouldn't they be designated as like a special
+/// sort of thing?").
+export function promptSender(row: AcpmuxRow): string | undefined {
+  const incoming = row.incoming;
+  if (incoming?.kind === "message") return incoming.message.name || undefined;
+  if (incoming?.kind === "inbox") return inboxCounts(incoming.notice).senders.join(", ") || undefined;
+  return undefined;
+}
 
 /// The turns of `rows`, the ticks they draw, and the rows they were read from.
 export type MinimapTurns = {
@@ -411,6 +427,7 @@ export function minimapTurns(
         // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
         // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
         prompt: (user.text ?? "").trim(),
+        ...withSender(user),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
       };
@@ -449,7 +466,12 @@ export function minimapTurns(
     if (old?.[keep + at] !== turn) sameTurns = false;
     const tick = oldTicks?.[keep + at];
     // A tick keeps its key (its turn's, or that and its row: ticksOf) while its turn does.
-    if ((tick?.key !== turn.key && tick?.key !== repeatKey(turn)) || tick.prompt !== turn.prompt || tick.id !== turn.id)
+    if (
+      (tick?.key !== turn.key && tick?.key !== repeatKey(turn)) ||
+      tick.prompt !== turn.prompt ||
+      tick.id !== turn.id ||
+      tick.from !== turn.from
+    )
       sameTicks = false;
   }
   // Changed turns go into the spare list, never into `old`: it holds `old`'s turns up to where the
@@ -477,6 +499,7 @@ export function minimapTurns(
           id: row.id,
           key: turnKey(sessionId, row),
           prompt: (row.text ?? "").trim(),
+          ...withSender(row),
           reply: [],
         }));
     const turns = [...earlier, ...loadedTurns];
@@ -504,6 +527,12 @@ export function minimapTurns(
   agreed.set(old, { list, same: keep });
   const loaded = sameTicks ? oldTicks! : ticksOf(list, oldTicks);
   return withEarlier(list, loaded, old as MinimapTurn[]);
+}
+
+/// A turn's `from`, only when it has one, so a person's turn keeps the shape it had.
+function withSender(row: AcpmuxRow): Pick<MinimapTurn, "from"> {
+  const from = promptSender(row);
+  return from !== undefined ? { from } : {};
 }
 
 /// A turn's key: its prompt's promptId, which the row keeps from the moment this pane sends it
@@ -565,9 +594,9 @@ function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[]
       taken.add(key);
     }
     const tick = previous[index];
-    return tick && tick.key === key && tick.prompt === turn.prompt && tick.id === turn.id
+    return tick && tick.key === key && tick.prompt === turn.prompt && tick.id === turn.id && tick.from === turn.from
       ? tick
-      : { key, id: turn.id, prompt: turn.prompt };
+      : { key, id: turn.id, prompt: turn.prompt, ...(turn.from !== undefined ? { from: turn.from } : {}) };
   });
 }
 

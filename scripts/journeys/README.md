@@ -443,7 +443,7 @@ kit has its own `top`). Every program takes `--seed N` (the same seed draws the 
 ```bash
 K=scripts/journeys/tui-kit/tuikit.py
 python3 $K gradient --seed 7 --duration 60 --log /tmp/g.jsonl   # 120 fps truecolor gradient, box art, CJK and emoji
-python3 $K gradient --pace spin ...                             # pacing: sleep (default), hybrid (--spin-ms), spin
+python3 $K gradient --pace sleep ...                            # pacing: spin (gradient default, one core), hybrid, sleep
 python3 scripts/journeys/tui-kit/pace_probe.py --seconds 30      # frame intervals per pacing variant on this host
 python3 $K describe --seed 7 --size 120x40                        # where gradient puts each element (columns, rows)
 python3 $K sigwinch --seed 7 --duration 60 --log /tmp/w.jsonl   # one reflow per new size; every SIGWINCH logged
@@ -462,7 +462,8 @@ python3 scripts/journeys/tui-kit/test_tuikit.py                  # the kit's own
 
 What the analyzer reads in a frame:
 
-- `gradient`: top-left `F<frame> t=<s> seed=<n> <cols>x<rows>`; on row 2 a barcode: a magenta guard
+- `gradient`: it spins to each frame's due time by default (`--pace spin`, one core): on a fleet mini a
+  sleeping 120 fps loop woke in bursts (frame interval p95 47 ms, pace_probe job 0a364ec0ef40). Top-left `F<frame> t=<s> seed=<n> <cols>x<rows>`; on row 2 a barcode: a magenta guard
   cell, 20 cells of the frame index (white 1, black 0, most significant first), a cyan guard; a 3x5
   block-digit counter bottom right (panes of 50x18 or more). The frame log gives each frame's write
   time, so a video frame maps to a program frame. Frames are inside synchronized-update brackets
@@ -484,6 +485,23 @@ a browser pane and an agent chat pane (the terminal stand-in when the build cann
 manifest says why). It writes `heavy.json` (ids, which pane runs what, refusals, a `snapshot.get`
 check) after each step; `teardown` closes what it made and stops its page server. `heavy_profile.py
 plan` prints the plan with no app.
+
+Background load for TYPING UNDER LOAD (`load_profiles.py`, each one command, each runnable at the same
+time as the others; never moves focus; only the `--app-socket` named, and never the shipped bundle):
+
+```bash
+L=scripts/journeys/tui-kit/load_profiles.py
+python3 $L run L1 --app-socket SOCK --home HOME --keep PANE --seed 7 --duration 120 --rate 100  # CLI storm
+python3 $L run L2 --app-socket SOCK ...      # 4 MCP clients back to back (no REPL tools: shared host socket)
+python3 $L run L3 --app-socket SOCK --keep PANE ...   # 30 browser tabs, 4 beside PANE, page clicks via cmux browser
+python3 $L run L4 --app-socket SOCK [--acp] ...       # 6 streaming agent panes (terminal; --acp tries chats)
+python3 $L run L5 --app-socket SOCK ...      # the heavy profile, --no-focus
+python3 $L run L6 --app-socket SOCK --keep PANE ...   # L1..L5 at once
+```
+
+Each prints `LOAD-READY <L> t_mono= t_wall=` when the load is at full rate and `LOAD-DONE <L> ...` at the
+end, and writes `<out>/<L>/manifest.json`, `calls.jsonl` and `focus.jsonl` (the focus guard). The module
+docstring has every rule; `test_load_profiles.py` checks them against a stand-in app.
 
 The fleet check (no app, no GUI): `cmux-ci run --class exclusive --script
 scripts/measure/tui-kit-selftest.sh --ref SHA` runs the tests with the Mac's Python and reports the

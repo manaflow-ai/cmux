@@ -199,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CATransaction.setCompletionBlock { [weak self] in
                 MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
                     DebugTimings.markLaunch("first_window_frame_committed")
+                    TerminalLaunchFrames.closeLaunches() // the terminals that asked by now are this frame's
                     self?.firstFrame.open()
                 }
             }

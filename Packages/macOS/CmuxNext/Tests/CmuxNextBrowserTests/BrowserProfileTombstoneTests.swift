@@ -63,4 +63,47 @@ import Testing
         #expect(fresh.name == "Fresh")
         #expect(book.pendingCleanup == [id])
     }
+
+    /// One cleanup per deleted id: a second pass skips an id still in flight and an id whose store an
+    /// engine opened, and claims the in-flight one again only after its cleanup released it.
+    @Test func aCleanupClaimsEachDeletedIDOnceUntilItIsReleased() {
+        var claims = BrowserProfileCleanupClaims()
+        let opened = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        let openedProfile = BrowserProfileRecord.engineProfile(for: opened)
+        let isOpen: (BrowserProfileID) -> Bool = { $0 == openedProfile }
+        #expect(claims.claim([id, opened], isOpen: isOpen) == [id])
+        #expect(claims.inFlight == [id])
+        #expect(claims.claim([id, opened], isOpen: isOpen).isEmpty, "an in-flight id gets no second cleanup")
+        claims.release([id])
+        #expect(claims.inFlight.isEmpty)
+        #expect(claims.claim([id], isOpen: isOpen) == [id])
+    }
+
+    /// The daemon-backed create runs the same check as the book's own create.
+    @Test func requireReusableRefusesOnlyAPendingDeletion() throws {
+        var book = BrowserProfileBook()
+        _ = try book.create(id: id, name: "First", color: nil, icon: nil)
+        try book.requireReusable(id)
+        try book.delete(id)
+        #expect(throws: BrowserProfileBookError.pendingCleanup) { try book.requireReusable(id) }
+        book.finishCleanup([id])
+        try book.requireReusable(id)
+    }
+
+    /// An import whose id still waits for a deleted profile's data keeps the migration ticket (false);
+    /// the others still migrate, invalid ids are skipped, and each failure's reason reaches the log.
+    @MainActor @Test func importMigrationWaitsForAPendingDeletion() async {
+        struct Failure: Error {}
+        let other = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", broken = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        var migrated: [String] = [], failures: [String] = []
+        let finished = await BrowserProfileBook.migrateImports([id, "not an id", other, broken], id: { $0 }, migrate: { record in
+            if record == id { throw BrowserProfileBookError.pendingCleanup }
+            if record == broken { throw Failure() }
+            migrated.append(record)
+        }, failed: { record, reason in failures.append("\(record): \(reason)") })
+        #expect(!finished)
+        #expect(migrated == [other])
+        #expect(failures == ["\(id): browser profile is pending deletion", "\(broken): Failure()"])
+        #expect(await BrowserProfileBook.migrateImports([other], id: { $0 }, migrate: { _ in }, failed: { _, _ in }))
+    }
 }
