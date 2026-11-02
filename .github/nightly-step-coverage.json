@@ -367,6 +367,7 @@
         "Verify stapled cmux NIGHTLY DMG artifact": {"nightly_only": "statically verifies the notarized stapled legacy DMG and records its exact digest without launching app code"},
         "Hand the tested app's Info.plist to publish": {"nightly_only": "mounts the tested legacy DMG read-only and copies its app's Info.plist", "note": "tests/test_nightly_legacy_publish_linux.py checks it follows the verify step and the tested digest"}},
       "legacy-signer-app": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"},
+        "Check the build's commit carries NIGHTLY_LEGACY_REQUIRED_COMMITS": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
         "Prepare the app as cmux NIGHTLY": {"nightly_only": "stamps the cmux NIGHTLY identity (nightly_next_identity.py --legacy, tested by tests/test_release_signer_nightly.py) and embeds the release environment's NIGHTLY profile"},
         "Sign the app as cmux NIGHTLY, the Computer Use helper notarized first": {"nightly_only": "signs with the release environment's Developer ID; the signer's rules are tested by its script tests"},
         "Notarize and staple the app": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"},
