@@ -241,7 +241,13 @@ def _shows(j, ws, name):
         if focused.get("workspace") == ws.get("id"):
             return "id"
         return "pane" if focused.get("pane") in pane_ids else None
-    how = _wait(held, 30, "workspace %s did not show" % name)
+    try:
+        how = _wait(held, 3, "workspace %s did not show" % name)
+    except D.StepError:
+        # A script's new workspace shows only when no text input has the person's keyboard (the Home composer
+        # on the dogfood line has it at launch): show it as `cmux workspace ID focus` does (set-up, not under test).
+        j.app.cmux("workspace", ws.get("id"), "focus")
+        how = _wait(held, 30, "workspace %s did not show" % name)
     j.switch_id_match = getattr(j, "switch_id_match", set()) | {how}
     return how
 
@@ -262,6 +268,17 @@ def step_switch_profile(j, step):
     settings = {}
     for path, value in (("sidebar.numbering", "workspacesOnly"), ("sidebar.cmd9", "ninth")):
         settings[path] = j.app.rpc("settings.set", {"path": path, "value": value})
+    # Background workspaces first: new workspaces list on top, so Cmd-1..9 reach the beacon workspaces made last.
+    background = []
+    for k in range(int(step.get("background", 0))):
+        name = "%s-bg-%d" % (prefix, k + 1)
+        j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
+                                                                "command": _beacon_command(20 + k, 0, dict(step, hz=10))}})
+        ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
+        _shows(j, ws, name)
+        for t in range(1, int(step.get("background_tabs", 1))):
+            _new_terminal(j, name, "newSurface", prompt=False)
+        background.append(name)
     for i in range(1, count + 1):
         name = "%s-%d" % (prefix, i)
         j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
@@ -283,16 +300,6 @@ def step_switch_profile(j, step):
                 beacons.append(_start_beacon(j, term, i, p, step))
         made.append({"index": i, "name": name, "id": _ws_named(j, name).get("id"),
                      "terminals": _terminals_of(_ws_named(j, name))})
-    background = []
-    for k in range(int(step.get("background", 0))):
-        name = "%s-bg-%d" % (prefix, k + 1)
-        j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
-                                                                "command": _beacon_command(20 + k, 0, dict(step, hz=10))}})
-        ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
-        _shows(j, ws, name)
-        for t in range(1, int(step.get("background_tabs", 1))):
-            _new_terminal(j, name, "newSurface", prompt=False)
-        background.append(name)
     missing = _check_beacons(j, beacons, float(step.get("beacon_timeout", 30)))
     if missing:
         raise D.StepError("switch_profile: %d beacon panes never started: %s" % (len(missing), missing[:6]))
