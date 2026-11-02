@@ -11,10 +11,20 @@ public struct SidebarMapping {
     public static let shared = Self()
     /// The face rules (Rust, through `SidebarFaceFFI`): this Mac's home folder is read once there.
     private let rules: SidebarFaceFFI
+    /// This Mac's home folder as a native string, read once: `NSHomeDirectory()` hands back a bridged
+    /// NSString, and comparing or appending to it on every call copied it through `getBytes` (a 2.7 s
+    /// NIGHTLY hang in a row flush, 2026-10-29).
+    private let home: String
+    /// `home` followed by "/".
+    private let homeFolderPrefix: String
 
     /// A mapping that shortens `home` (this Mac's home folder by default) to `~`.
     init(home: String = NSHomeDirectory()) {
         rules = home == NSHomeDirectory() ? .shared : SidebarFaceFFI(home: home)
+        var native = home
+        native.makeContiguousUTF8()
+        self.home = native
+        homeFolderPrefix = native + "/"
     }
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
@@ -424,8 +434,14 @@ public struct SidebarMapping {
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
-    /// A folder of this Mac with its home folder as `~` (the face rules, `SidebarFaceFFI`).
-    func abbreviate(_ path: String) -> String { rules.abbreviate(path) }
+    /// A folder of this Mac with its home folder as `~`, for the tab strip, hover card and screen bar, which map one
+    /// tab per call: it stays in Swift until those callers map a pane's tabs in one batched Rust call (the row map
+    /// already uses the Rust rule, `sidebar_face::abbreviate`, inside the face).
+    func abbreviate(_ path: String) -> String {
+        if path == home { return "~" }
+        if path.hasPrefix(homeFolderPrefix) { return "~" + path.dropFirst(home.count) }
+        return path
+    }
 
     /// A workspace's sidebar icon: its icon with its color (a tinted symbol,
     /// an emoji on a color chip, a stored image or SVG as drawn by `asset`,

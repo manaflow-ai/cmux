@@ -479,8 +479,6 @@ typedef struct CmuxSidebarFaceText {
 CmuxSidebarFace *cmux_sidebar_face_new(void);
 void cmux_sidebar_face_free(CmuxSidebarFace *faces);
 const CmuxSidebarFaceReply *cmux_sidebar_face_rows(CmuxSidebarFace *faces, const CmuxSidebarFaceRequest *request, const uint8_t *strings, size_t strings_len);
-/* path with this Mac's home as ~ (both byte ranges of strings). */
-const CmuxSidebarFaceText *cmux_sidebar_face_abbreviate(CmuxSidebarFace *faces, CmuxSidebarFaceRange path, CmuxSidebarFaceRange home, const uint8_t *strings, size_t strings_len);
 /* The daemon's next default workspace name: names[0 ..< existing_count] are the
  * machine's listed names (its home left out), the rest the reserved ones. */
 const CmuxSidebarFaceText *cmux_sidebar_face_default_name(CmuxSidebarFace *faces, const CmuxSidebarFaceRange *names, uint32_t count, uint32_t existing_count, const uint8_t *strings, size_t strings_len);

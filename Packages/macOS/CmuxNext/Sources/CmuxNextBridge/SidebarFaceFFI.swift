@@ -153,20 +153,6 @@ final class SidebarFaceFFI {
                     strings: Array(UnsafeBufferPointer(start: reply.strings, count: Int(reply.strings_len))))
     }
 
-    /// `path` with this Mac's home as `~`; the request is built on the stack (a row map calls this per tab).
-    func abbreviate(_ path: String) -> String {
-        var path = path
-        return path.withUTF8 { path in
-            withUnsafeTemporaryAllocation(of: UInt8.self, capacity: home.count + path.count) { buffer in
-                _ = buffer.initialize(fromContentsOf: home)
-                _ = buffer[home.count...].initialize(fromContentsOf: path)
-                let reply = cmux_sidebar_face_abbreviate(handle, CmuxSidebarFaceRange(offset: UInt32(clamping: home.count), len: UInt32(clamping: path.count)),
-                                                         CmuxSidebarFaceRange(offset: 0, len: UInt32(clamping: home.count)), buffer.baseAddress, buffer.count)
-                return Self.string(reply) ?? String(decoding: path, as: UTF8.self)
-            }
-        }
-    }
-
     /// The daemon's next default workspace name: `existing` listed names, then `reserved` ones.
     func defaultWorkspaceName(existing: [String], reserved: [String]) -> String? {
         var strings: [UInt8] = [], names: [CmuxSidebarFaceRange] = []
