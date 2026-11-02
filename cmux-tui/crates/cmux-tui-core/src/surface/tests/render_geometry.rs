@@ -151,6 +151,43 @@ fn lagging_render_tap_never_delivers_a_frame_before_the_scroll_that_moved_its_ro
     assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
 }
 
+/// A resize's viewport move replaces a scroll position output deferred to the
+/// next frame (FrameRequests): the frame producer must not publish the older
+/// position after the resize's newer one, or bus and byte subscribers keep a
+/// stale offset (the hosted reader's resize and the deferred cell-pixel ack go
+/// through `publish_geometry_commit`).
+#[test]
+fn geometry_commit_scroll_replaces_a_deferred_output_scroll() {
+    const OUTPUT_OFFSET: u64 = 91_001;
+    const RESIZE_OFFSET: u64 = 91_002;
+    let mux = Mux::new_for_test("geometry-commit-scroll", SurfaceOptions::default());
+    let events = mux.subscribe();
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+
+    pty.frame_requests.defer_scroll(OUTPUT_OFFSET, false);
+    pty.publish_geometry_commit(crate::surface::pty_surface::GeometryCommit {
+        changed: true,
+        scroll: Some((RESIZE_OFFSET, false)),
+    });
+    pty.frame_requests.flush_scroll(&mux, surface.id);
+
+    let mut published = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if let MuxEvent::ScrollChanged { offset, .. } = event
+            && (offset == OUTPUT_OFFSET || offset == RESIZE_OFFSET)
+        {
+            published.push(offset);
+        }
+    }
+    assert_eq!(
+        published,
+        vec![RESIZE_OFFSET],
+        "the resize's position is the last one published; the deferred output position is dropped"
+    );
+}
+
 #[test]
 fn render_attachments_are_bounded_across_a_mux() {
     const EXPECTED_MAX_ATTACHMENTS: usize = 64;
