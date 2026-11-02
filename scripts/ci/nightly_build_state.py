@@ -27,8 +27,13 @@ runs only nightly-next's app build, so it keeps one DerivedData per identity and
 each new tip on it. An incremental build is a real compile of every changed file. It
 starts clean (CLEAN_REASONS) when:
 - the last build on it did not finish (no `mark-built` after `prepare`);
-- the key changed: the toolchain (Xcode, SDK, DEVELOPER_DIR) or any lockfile, toolchain
-  pin or submodule commit (KEY_PATHS);
+- the key changed: the toolchain (Xcode, SDK, DEVELOPER_DIR) or a lockfile, toolchain
+  pin or submodule commit (KEY_PATHS). A Cargo.lock is not one: the Release build's cargo
+  phases (Build Diff Sidecar, Bundle optchat-chief, Bundle cmux-mobile-host) list their lockfiles
+  as inputs and build separate executables into Resources/bin, so Xcode reruns them and cargo
+  rebuilds incrementally; the Rust the Swift code links is a pinned binary (Package.swift,
+  Package.resolved); and the nightly bundles cmux-tui after the build (CMUX_NEXT_TUI_MODE=deferred). Three of the last five builder runs started clean on a
+  cmux-tui Cargo.lock change alone;
 - a file that shapes modules or linking changed since the last built commit
   (STRUCTURE_PATHS: Package.swift, *.pbxproj, *.xcconfig, *.modulemap, ...), or an
   import or include line was added or removed in a source file. That is the case the
@@ -58,7 +63,7 @@ STATE_ROOT = 'Library/Caches/cmux-nightly-next'
 # bounds that tail anyway: every 10th build is clean (a clean one, then at most 9 incremental).
 CLEAN_EVERY = 10
 INCREMENTAL_STATE = 'incremental.json'
-KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|Cargo\.lock|build\.zig\.zon|rust-toolchain(\.toml)?|\.xcode-version'
+KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|build\.zig\.zon|rust-toolchain(\.toml)?|\.xcode-version'
                        r'|cef-manifest\.json|ensure-cef\.sh|ensure-remote-browser-host\.sh|download-prebuilt-ghosttykit\.sh'
                        r'|nightly-swift-defines\.sh|run-xcodebuild-with-diagnostics\.sh|fleet-compilation-cache\.sh'
                        r'|app-build-release\.sh|compilation-cache\.sh)$')
