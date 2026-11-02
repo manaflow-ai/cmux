@@ -101,6 +101,9 @@ pub(super) struct ProcessTable {
     by_id: std::collections::HashMap<String, usize>,
     /// First process with a tool-call ID (the historical Vec::position behavior).
     by_tool: std::collections::HashMap<String, usize>,
+    /// Only live process slots, ascending by append order. Completed history can grow
+    /// without making idle checks or lost-process propagation scan every old task.
+    running: std::collections::BTreeSet<usize>,
     /// Processes a person asked to stop: their end is the person's.
     stopping: std::collections::HashSet<String>,
 }
@@ -109,12 +112,19 @@ pub(super) struct ProcessTable {
 #[path = "processes_index_tests.rs"]
 mod process_index_tests;
 
+#[cfg(test)]
+#[path = "processes_active_tests.rs"]
+mod process_active_tests;
+
 impl ProcessTable {
     /// All appends go here, including records replayed from a logged process update.
     fn insert(&mut self, process: Process) -> usize {
         let at = self.processes.len();
         self.by_id.insert(process.id.clone(), at);
         self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
+        if process.state == ProcessState::Running {
+            self.running.insert(at);
+        }
         self.processes.push(process);
         at
     }
@@ -214,6 +224,7 @@ impl ProcessTable {
             p.exit_code = update.get("exitCode").and_then(Value::as_i64);
         }
         p.logged = false;
+        self.running.remove(&i);
         Some(i)
     }
 
@@ -242,7 +253,13 @@ impl ProcessTable {
             && let Some(slot) = self.processes.get_mut(at)
         {
             let new_tool = process.tool_call_id.clone();
+            let live = process.state == ProcessState::Running;
             let old_tool = std::mem::replace(slot, process).tool_call_id;
+            if live {
+                self.running.insert(at);
+            } else {
+                self.running.remove(&at);
+            }
             if old_tool == new_tool {
                 return;
             }
@@ -284,7 +301,9 @@ impl ProcessTable {
     /// `logged`: their `process_update` is written now.
     fn lose_running(&mut self, at: u64, reason: &str, logged: bool) -> Vec<Process> {
         let mut lost = Vec::new();
-        for p in self.processes.iter_mut().filter(|p| p.state == ProcessState::Running) {
+        // The ordered slots retain the original oldest-first notification order.
+        for index in std::mem::take(&mut self.running) {
+            let p = &mut self.processes[index];
             self.stopping.remove(&p.id);
             p.state = ProcessState::Lost;
             p.ended_at = Some(at);
@@ -471,14 +490,14 @@ impl Hub {
     /// (`idle.rs`).
     pub(super) fn any_process_running(&self, session: &Session) -> bool {
         let table = self.process_table(session);
-        table.processes.iter().any(|p| p.state == ProcessState::Running)
+        !table.running.is_empty()
     }
 
     /// How many of the session's background processes run, from a table this
     /// daemon has read already: never a log scan (`host_load.rs` asks for every chat).
     pub(super) fn running_processes_read(&self, session: &Session) -> usize {
         let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
-        table.processes.iter().filter(|p| p.state == ProcessState::Running).count()
+        table.running.len()
     }
 
     /// `_acpmux/process/list`: the session's processes; without one, those of

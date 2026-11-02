@@ -156,7 +156,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onAction?(id: string): void;
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
-  onOpenChat?(key: string): void;
+  onOpenChat?(key: string): void | Promise<unknown>;
   /// Open in terminal from an All chats row's right-click menu.
   onOpenChatInTerminal?(key: string): void;
   onViewChat?(key: string): void;
@@ -923,7 +923,17 @@ export function NewTabScreen(props: Props) {
   );
   const openCard = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
-    if (key && props.onOpenChat) return props.onOpenChat(key);
+    if (key && props.onOpenChat) {
+      // A recent chat's native open can fail without navigating. Keep its refusal on New Tab.
+      try {
+        void Promise.resolve(props.onOpenChat(key)).catch((error: unknown) => {
+          setStartError(errorMessage(error) || t("switch.unknownError"));
+        });
+      } catch (error) {
+        setStartError(errorMessage(error) || t("switch.unknownError"));
+      }
+      return;
+    }
     props.onOpenSession(id);
   };
   // A card's Open in Terminal, by its chat's key, as All chats opens one (only cards with a key offer it).
