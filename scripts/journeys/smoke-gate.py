@@ -507,6 +507,9 @@ def typing_row_ok(row):
     # cmux-ad 03:40Z: no timestamp from Python counts. A row whose key starts are not the keys' own NSEvent times is
     # provisional and never counts (pass or breach); a row whose achieved rate is under 95% of its target is not run.
     if row.get("start_clock") != "nsevent":
+        # Lost keys and a wrong order come from the echoed bytes, not from any clock: they block even here.
+        if row.get("lost") or row.get("order_ok") is not True:
+            return True, True, f"keys: lost {row.get('lost')}, order_ok {row.get('order_ok')} (provisional timing)"
         return False, False, "provisional (key start from a Python post time, not the NSEvent time): " + "; ".join(slow + broke)
     if row.get("rate_ok") is not True:
         return False, False, f"not run (achieved {row.get('achieved_keys_per_s')} keys/s of {row.get('target_keys_per_s')})"

@@ -109,20 +109,19 @@ def main():
         hit = [t for t in starts if e["t_post"] - 0.002 <= t <= e["t_back"] + 0.002]
         if hit:
             e["t_start"] = hit[0]
-    if starts and sum(1 for e in events if "t_start" in e) < 0.95 * len(events):
-        start_clock = "t_post"  # the probe missed keys: do not mix clocks
+    if starts and any("t_start" not in e for e in events):
+        start_clock = "t_post"  # a key has no NSEvent time: the row is provisional (no Python time in a counted row)
         for e in events:
             e.pop("t_start", None)
     # Achieved typing rate next to its target (cmux-ad 03:40Z rule 4), from the keys' own NSEvent times when the probe
     # has them (else from the Python post times: provisional). Below 95% of the plan's rate: NOT RUN.
-    times = sorted(e["t_start"] for e in events if "t_start" in e) if start_clock == "nsevent" else sorted(e["t_post"] for e in events)
+    key = "t_start" if start_clock == "nsevent" else "t_post"
     plan_span = sum((p["result"]["events"][-1]["t"] - p["result"]["events"][0]["t"]) for p in plays if p["result"]["events"])
     target_kps = round(len(events) / plan_span, 3) if plan_span else None
-    spans, k0 = 0.0, 0
-    for p in plays:
-        n = len(p["result"]["events"])
-        part = times[k0:k0 + n]
-        k0 += n
+    spans = 0.0
+    by_id = {(e["i"], e["t_post"]): e for e in events}
+    for p in plays:  # each part from its own keys (review must-fix 1 at c199c2a43a6)
+        part = sorted(by_id[(e["i"], e["t_post"])][key] for e in p["result"]["events"] if key in by_id[(e["i"], e["t_post"])])
         if len(part) > 1:
             spans += part[-1] - part[0]
     achieved_kps = round(len(events) / spans, 3) if spans else None

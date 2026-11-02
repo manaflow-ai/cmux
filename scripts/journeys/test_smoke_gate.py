@@ -685,8 +685,11 @@ class TypingRule(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.rows(mod, tmp, dict(self.GOOD, start_clock="t_post"))
             self.assertIn("no judged L6", mod.typing_blockers("J")[0][1])
-            self.rows(mod, tmp, self.GOOD, dict(self.GOOD, start_clock="t_post", lost=[3]))
+            self.rows(mod, tmp, self.GOOD, dict(self.GOOD, start_clock="t_post", p95_refreshes=4))
             self.assertEqual(mod.typing_blockers("J"), [])
+            # a lost key is a byte fact, not a time: it blocks even in a provisional row
+            self.rows(mod, tmp, self.GOOD, dict(self.GOOD, start_clock="t_post", lost=[3], out="/r"))
+            self.assertIn("break the rule", mod.typing_blockers("J")[0][1])
 
     def test_a_low_rate_row_is_not_run(self):
         mod = load_gate()
