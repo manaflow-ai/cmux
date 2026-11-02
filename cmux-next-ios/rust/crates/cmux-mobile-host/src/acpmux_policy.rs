@@ -168,7 +168,7 @@ fn allowed(state: &SessionExposure, session: &str, _bound: &HashSet<String>) -> 
     // The acpmux resolver accepts aliases (`name` and short IDs). Until a
     // trusted response binds a canonical ID, reject short aliases under a
     // configured policy rather than guessing which chat they denote.
-    if state.configured && session.len() < 16 && !_bound.contains(session) {
+    if state.configured && uuid::Uuid::parse_str(session).is_err() && !_bound.contains(session) {
         return false;
     }
     // `bound` carries the successful result of session/new for this live link.
@@ -409,22 +409,22 @@ mod tests {
 
     #[test]
     fn exposure_keeps_unmentioned_chats_and_rejects_blocked_batches() {
-        let state = exposure(&["session-hidden-0001"]);
-        let visible = r#"{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"session-visible-0001"}}"#;
+        let state = exposure(&["00000000-0000-7000-8000-000000000001"]);
+        let visible = r#"{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"00000000-0000-7000-8000-000000000002"}}"#;
         assert_eq!(exposure_refusal(visible, &state, &HashSet::new()), None);
         let batch = format!(
-            "[{visible},{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/prompt\",\"params\":{{\"sessionId\":\"session-hidden-0001\"}}}}]"
+            "[{visible},{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/prompt\",\"params\":{{\"sessionId\":\"00000000-0000-7000-8000-000000000001\"}}}}]"
         );
         assert!(exposure_refusal(&batch, &state, &HashSet::new()).is_some());
     }
 
     #[test]
     fn nested_lists_are_filtered_and_binary_is_not_used_as_json() {
-        let state = exposure(&["session-hidden-0001"]);
-        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{"data":{"sessions":[{"sessionId":"session-visible-0001"},{"sessionId":"session-hidden-0001"}]}}}"#;
+        let state = exposure(&["00000000-0000-7000-8000-000000000001"]);
+        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{"data":{"sessions":[{"sessionId":"00000000-0000-7000-8000-000000000002"},{"sessionId":"00000000-0000-7000-8000-000000000001"}]}}}"#;
         let filtered = filter_response(reply, &state, &HashSet::new()).unwrap();
-        assert!(filtered.contains("session-visible-0001"));
-        assert!(!filtered.contains("session-hidden-0001"));
+        assert!(filtered.contains("00000000-0000-7000-8000-000000000002"));
+        assert!(!filtered.contains("00000000-0000-7000-8000-000000000001"));
         assert!(filter_response("not-json", &state, &HashSet::new()).is_none());
     }
 
@@ -440,19 +440,26 @@ mod tests {
 
     #[test]
     fn aliases_and_conflicting_target_keys_fail_closed() {
-        let state = exposure(&["session-hidden-0001"]);
-        let alias = json!({"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"short"}}).to_string();
+        let state = exposure(&["00000000-0000-7000-8000-000000000001"]);
+        let alias = json!({"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"short"}})
+            .to_string();
         assert!(exposure_refusal(&alias, &state, &HashSet::new()).is_some());
-        let conflicting = json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"session-visible-0001","name":"session-hidden-0001"}}).to_string();
+        let conflicting = json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"00000000-0000-7000-8000-000000000002","name":"00000000-0000-7000-8000-000000000001"}}).to_string();
         assert!(exposure_refusal(&conflicting, &state, &HashSet::new()).is_some());
     }
 
     #[test]
     fn session_new_batch_response_binds_each_returned_chat() {
-        let reply = r#"[{"jsonrpc":"2.0","id":1,"result":{"sessionId":"session-one-0001"}},{"jsonrpc":"2.0","id":2,"result":{"sessionId":"session-two-0002"}}]"#;
+        let reply = r#"[{"jsonrpc":"2.0","id":1,"result":{"sessionId":"00000000-0000-7000-8000-000000000003"}},{"jsonrpc":"2.0","id":2,"result":{"sessionId":"00000000-0000-7000-8000-000000000004"}}]"#;
         let mut sessions = returned_sessions(reply);
         sessions.sort();
-        assert_eq!(sessions, vec![("1".into(), "session-one-0001".into()), ("2".into(), "session-two-0002".into())]);
+        assert_eq!(
+            sessions,
+            vec![
+                ("1".into(), "00000000-0000-7000-8000-000000000003".into()),
+                ("2".into(), "00000000-0000-7000-8000-000000000004".into())
+            ]
+        );
     }
 
     /// A Mac-started Codex chat in `agent` (no asking) is not driven from a phone.
