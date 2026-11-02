@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
@@ -10,7 +11,7 @@ import Testing
 /// router mode on) went straight to the window's first responder, before the window's key hold could take it: the
 /// focus named the restored terminal, its surface came on a later frame, and the key went to no view.
 ///
-/// The test brings a workspace back cold with the frame's surface budget already spent, so its terminal's surface is
+/// The test brings the first workspace back cold with the frame's surface budget already spent, so its terminal's surface is
 /// not shown in the turn the window shows it, and types a line in that same turn. The keys go through the app's key
 /// path (the key router, then the window); a held key runs again the same way (the test window is never key).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
@@ -46,11 +47,15 @@ struct ColdFocusedTerminalTypeAheadTests {
                 "workspace \(controller.workspaceContent?.workspace.id ?? "-") panes \(controller.workspaceContent?.panes.values.map { "\($0.paneKey): \($0.currentTabKey ?? "-")" } ?? [])"
                     + " focus \(controller.focus.state.resolved) first responder \(String(describing: window.firstResponder))"
             }
+            /// Workspace `id` shown with a terminal; a person's Ctrl-` makes one when it shows only a page (a Home or New Tab page).
             @MainActor func show(_ id: String) async throws -> Terminal {
                 try await PinnedPageTests.until({
                     if controller.workspaceContent?.workspace.id != id { services.windows.show(workspaceID: id, in: controller.state) }
-                    return terminal(of: id) != nil
-                }, within: .seconds(30), report: { "waiting for workspace \(id)'s terminal: \(describe())" })
+                    return controller.workspaceContent?.workspace.id == id && controller.workspaceContent?.panes.isEmpty == false
+                }, within: .seconds(30), report: { "waiting for workspace \(id): \(describe())" })
+                try? await PinnedPageTests.until({ terminal(of: id) != nil }, within: .seconds(5))
+                if terminal(of: id) == nil { _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user)) }
+                try await PinnedPageTests.until({ terminal(of: id) != nil }, within: .seconds(30), report: { "waiting for workspace \(id)'s terminal: \(describe())" })
                 return try #require(terminal(of: id))
             }
             func screen(_ surface: SurfaceID) async -> String {
@@ -66,21 +71,26 @@ struct ColdFocusedTerminalTypeAheadTests {
                 return shown
             }
 
-            // A second workspace with one terminal, which gets the keyboard; its shell is ready before anything is typed.
-            let cold = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: NSTemporaryDirectory(), name: "reopen-f4-cold"), into: controller.state.id)
+            // The first workspace's terminal gets the keyboard; its shell is ready before anything is typed.
+            let cold = first
             let typed = try await show(cold)
             try await PinnedPageTests.until({ controller.focus.state.resolved == .terminal(pane: typed.pane, tab: typed.tab)
                     && (window.firstResponder as? NSView)?.isDescendant(of: controller.workspaceContent?.paneController(key: typed.pane)?.view ?? NSView()) == true },
-                report: { "waiting for the keyboard on the new terminal: \(describe())" })
-            try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "waiting for the create's hold to end" })
+                report: { "waiting for the keyboard on the first terminal: \(describe())" })
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "waiting for the launch's hold to end" })
             try await connection.send(typed.surface, text: "echo ready$((3*3))\r")
             #expect(await until(typed.surface, shows: "ready9", within: .seconds(20)).contains("ready9"), "the shell of \(typed.tab) never answered")
 
-            // Back to the first workspace; the second one's view and its terminal's surface go (it comes back cold).
-            let other = try await show(first)
-            #expect(controller.discardParkedWorkspace(cold), "the second workspace was not parked: \(describe())")
+            // A second workspace (on this line it opens a New Tab page); the first one's view and its terminal's surface
+            // go (it comes back cold).
+            let other = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: NSTemporaryDirectory(), name: "reopen-f4-other"), into: controller.state.id)
+            try await PinnedPageTests.until({
+                if controller.workspaceContent?.workspace.id != other { services.windows.show(workspaceID: other, in: controller.state) }
+                return controller.workspaceContent?.workspace.id == other && controller.workspaceContent?.panes.isEmpty == false
+            }, within: .seconds(30), report: { "waiting for the other workspace: \(describe())" })
+            #expect(controller.discardParkedWorkspace(cold), "the first workspace was not parked: \(describe())")
             services.cache.discardTerminal(typed.tab)
-            #expect(!services.cache.hasContent(for: typed.tab), "the second workspace's terminal kept its surface")
+            #expect(!services.cache.hasContent(for: typed.tab), "the first workspace's terminal kept its surface")
 
             // In one turn: the frame's surface budget is spent, the workspace shows cold, and the line is typed.
             let nonce = String(UInt32.random(in: 100_000...999_999))
@@ -109,7 +119,10 @@ struct ColdFocusedTerminalTypeAheadTests {
             let shown = await until(typed.surface, shows: "f4\(nonce)x42", within: .seconds(15))
             #expect(shown.contains("f4\(nonce)x42"), "the line typed as the workspace showed never ran whole in its focused terminal: \(shown)\n\(describe())\nkey paths: \(paths)")
             #expect(shown.contains("echo f4\(nonce)x$((6*7))"), "the focused terminal's line is not the typed line, in order: \(shown)")
-            #expect(!(await screen(other.surface)).contains("f4\(nonce)"), "keys typed for the cold workspace's terminal reached the other workspace's")
+            for tab in services.daemon.store.panesByHandle.values.flatMap(\.tabs) where tab.kind == .pty && tab.surface != typed.surface
+                && !ProvisionalTab.isProvisional(surface: tab.surface) {
+                #expect(!(await screen(tab.surface)).contains("f4\(nonce)"), "keys typed for the cold workspace's terminal reached terminal \(tab.surface)")
+            }
         }
     }
 }
