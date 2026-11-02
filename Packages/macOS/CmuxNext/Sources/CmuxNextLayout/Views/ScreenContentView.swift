@@ -286,7 +286,7 @@ final class ScreenContentView: NSView {
                 }
                 // Opaque from its first frame: an arriving pane grows in from its edge, never fades.
                 var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
-                if arrivals[pane] != nil { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys)) }
+                if let arrival = arrivals[pane] { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys), giver: arrival.giver) }
                 zoomMotion.returning(pane)
                 frame.setTarget(target, alpha: 1)
                 paneFrames[pane] = frame
@@ -364,9 +364,17 @@ final class ScreenContentView: NSView {
                 let edge = arrivals.isEmpty || handoff != nil ? .zero : start?.shift ?? arrivals.values.first?.edgeOffset ?? .zero
                 var frame = AnimatedFrame(target.rect.offsetBy(dx: edge.dx, dy: edge.dy), alpha: 1)
                 frame.setTarget(target.rect, alpha: 1)
-                // It moves with that edge from its first frame (a split landing mid-motion).
-                if let velocity = start?.velocity {
-                    if target.axis == .horizontal { frame.x.velocity = velocity } else { frame.y.velocity = velocity }
+                // It moves with that edge from its first frame (a split landing mid-motion), and across its axis it
+                // shows where that pane shows (a pane still moving sideways).
+                if let start {
+                    let follows = arrivals.values.contains { $0.giver == start.pane }
+                    if target.axis == .horizontal {
+                        frame.x.velocity = start.velocity
+                        if follows { SplitMotion.follow(&frame.y, &frame.height, beside: start.beside.y, start.beside.height) }
+                    } else {
+                        frame.y.velocity = start.velocity
+                        if follows { SplitMotion.follow(&frame.x, &frame.width, beside: start.beside.x, start.beside.width) }
+                    }
                 }
                 dividerFrames[kind] = frame
             }
