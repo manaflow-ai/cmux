@@ -40,17 +40,28 @@ struct ColdBrowserFocusKeysTests {
                     + " focus \(controller.focus.state.resolved) first responder \(String(describing: window.firstResponder))"
             }
 
-            // The first terminal, with the keyboard, and a second pane beside it.
-            let content = try #require(controller.workspaceContent)
-            let left = try #require(content.focusedPane)
-            let leftTab = try #require(left.currentTabKey)
-            let leftSurface = try #require(left.pane.tabs.first { $0.id == leftTab && $0.kind == .pty }?.surface)
+            // A workspace with two terminals side by side; the left one gets the keyboard.
+            let id = try #require(await services.windows.createWorkspace(into: controller.state.id))
+            @MainActor func terminals() -> [(pane: PaneController, tab: String, surface: SurfaceID)] {
+                guard controller.workspaceContent?.workspace.id == id, let content = controller.workspaceContent else { return [] }
+                return content.panes.values.compactMap { pane in
+                    guard pane.pane.handle.rawValue < ProvisionalPane.firstHandle, let tab = pane.currentTabKey, case .terminal? = pane.currentContent,
+                          let model = pane.pane.tabs.first(where: { $0.id == tab && $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) })
+                    else { return nil }
+                    return (pane, tab, model.surface)
+                }
+            }
+            try await PinnedPageTests.until({
+                if controller.workspaceContent?.workspace.id != id { services.windows.show(workspaceID: id, in: controller.state) }
+                return terminals().count == 1
+            }, report: { "waiting for the workspace's terminal: \(describe())" })
             var split = ActionInvocation(origin: .user)
             split.opensTerminal = true
             #expect(services.registry.perform("splitRight", invocation: split))
-            try await PinnedPageTests.until({ content.panes.count == 2 && content.panes.values.allSatisfy { $0.currentTabKey != nil } },
-                                            report: { "waiting for the split: \(describe())" })
-            let right = try #require(content.panes.values.first { $0 !== left })
+            try await PinnedPageTests.until({ terminals().count == 2 }, report: { "waiting for the split's terminal: \(describe())" })
+            let content = try #require(controller.workspaceContent)
+            let ordered = terminals().sorted { $0.pane.view.frame.minX < $1.pane.view.frame.minX }
+            let left = ordered[0].pane, leftTab = ordered[0].tab, leftSurface = ordered[0].surface, right = ordered[1].pane
             PaneHandlers.focus(left.layoutPaneID, in: content)
             try await PinnedPageTests.until({ controller.focus.state.resolved == .terminal(pane: left.paneKey, tab: leftTab)
                     && (window.firstResponder as? NSView)?.isDescendant(of: left.view) == true },
