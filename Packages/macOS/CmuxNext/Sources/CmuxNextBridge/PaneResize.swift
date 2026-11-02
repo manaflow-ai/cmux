@@ -10,6 +10,8 @@ public nonisolated enum PaneResize {
     public enum Change: Equatable, Sendable {
         case splitRatio(LayoutSplitID, Double)
         case columnWidth(LayoutColumnID, Double)
+        /// Every row height of a rows-v1 column (permille), one row edge moved.
+        case rowHeights(LayoutColumnID, [RowHeight])
     }
 
     /// Default keyboard step: 5% of the split or of the viewport width.
@@ -69,6 +71,9 @@ public nonisolated enum PaneResize {
         case .columnWidth(let column, let width):
             view.keyboardResizeWillChange(screenContaining: pane)
             model.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
+        case .rowHeights(let column, let heights):
+            view.keyboardResizeWillChange(screenContaining: pane)
+            model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
         case nil:
             return false
         }
