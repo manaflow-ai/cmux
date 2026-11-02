@@ -299,7 +299,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           SOURCE_REF: ${{ github.ref }}
           TESTBOX_ID: ${{ inputs.testbox_id }}
-          RUNNER_LABEL: blacksmith-32vcpu-ubuntu-2404
+          RUNNER_LABEL: ${{ fromJSON(vars.RUNNER_POOLS).linux_32 }}
         shell: bash
         run: |
           set -euo pipefail

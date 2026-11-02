@@ -178,7 +178,7 @@ jobs:
           TIP_SHA: ${{ inputs.tip_sha }}
           PARTS: ${{ inputs.parts }}
           PRODUCT_SHA: ${{ inputs.product_sha }}
-          RUNNER_CLASS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+          RUNNER_CLASS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == fromJSON(vars.RUNNER_POOLS).macos_26 && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.runner_class == fromJSON(vars.RUNNER_POOLS).macos_26_large && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26 }}
           CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
           # The Rust helpers' caches live in the kept directory too. optchat-chief stays keyed by commit:
           # its input key includes the rustc identity, which changes once rustup installs the toolchain
