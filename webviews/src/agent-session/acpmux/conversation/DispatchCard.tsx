@@ -57,9 +57,7 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
         aria-label={line}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="cv-tool__icon">
-          {call.kind === "report" ? <Envelope /> : <ToolGroup />}
-        </span>
+        <span className="cv-tool__icon">{call.kind === "report" ? <Envelope /> : <ToolGroup />}</span>
         <span className="cv-tool__text">{line}</span>
         <ChevronRight
           size={14}

@@ -102,13 +102,7 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
         />
       }
       label={t("subsession.startedGroup", { n: entries.length, names: names.join(", ") })}
-      status={
-        status ? (
-          <>
-            {status}
-          </>
-        ) : undefined
-      }
+      status={status || undefined}
     >
       {entries.map(({ call, tool }, index) => (
         <StartedCard key={tool.id || index} call={call} tool={tool} />
