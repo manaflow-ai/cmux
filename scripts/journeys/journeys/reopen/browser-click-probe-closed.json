@@ -1,0 +1,307 @@
+{
+ "id": "browser-click-probe-closed",
+ "priority": "P1",
+ "title": "As browser-click-probe-field, after the tips card and the Safari import bar are closed with real clicks",
+ "why": "Diagnostic for reopen-f4 (STATUS 6631/7259): after a click in a Chromium page's text field debug.focus said key_window ShellWindow while the one controller window was not key, and typed keys did not reach the page. The probes record which window is key (debug.window_list), debug.focus, debug.layers, debug.input and the window server's windows, after the click and after the keys. No quit.",
+ "source": "REOPEN VIDEO for reopen-f4",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "require_whole_host"
+  },
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "term"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo t-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "t"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the terminal works",
+   "since": "t",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "t-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "browser"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: Cmd-Shift-L opens a browser tab whose address bar takes the keys",
+   "since": "browser",
+   "timeout": 15,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.com",
+   "mark": "url"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the page loads and has the keyboard",
+   "since": "loaded",
+   "timeout": 45,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    },
+    {
+     "frame_text": "documentation examples"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newtab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "closetab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "expect",
+   "title": "set-up: after Cmd-T and Cmd-W the browser page has the keyboard again",
+   "since": "closetab",
+   "timeout": 15,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    },
+    {
+     "frame_text": "documentation examples"
+    }
+   ]
+  },
+  {
+   "do": "page_server",
+   "var": "page_url",
+   "lines": [
+    "<!doctype html><html><head><title>keys</title><script>",
+    "var s='';",
+    "addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key;document.getElementById('o').textContent='seen'+s.split('').reverse().join('')}},true);",
+    "</script></head><body style='font:28px sans-serif'>",
+    "<p id=r></p><input id=f autofocus autocomplete=off style='font:28px sans-serif;width:600px'><p id=o></p>",
+    "<script>document.getElementById('r').textContent='pg'+'ok'+(6*7)</script>",
+    "</body></html>"
+   ],
+   "title": "set-up: a local page (127.0.0.1) with a focused text field; its script shows every key the page gets, reversed"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "page4",
+   "title": "set-up: the browser tab goes to the local page"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the address bar takes the keys",
+   "since": "page4",
+   "timeout": 10,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "${page_url}",
+   "mark": "url4"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded4"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the page ran its script and has the keyboard",
+   "since": "loaded4",
+   "timeout": 20,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    },
+    {
+     "frame_text": "pgok42"
+    }
+   ]
+  },
+  {
+   "do": "window_probe",
+   "name": "loaded",
+   "title": "probe: the page loaded and has the keyboard (before any click)"
+  },
+  {
+   "do": "hid_click",
+   "x": 191,
+   "y": 589,
+   "title": "close the tips card (its x; window point 191, 589 in a 1100 x 720 window)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "hid_click",
+   "x": 786,
+   "y": 695,
+   "title": "close the Safari import bar (Not Now; window point 786, 695)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "window_probe",
+   "name": "after-close",
+   "title": "probe: after the two closing clicks"
+  },
+  {
+   "do": "hid_click",
+   "x": 520,
+   "y": 165,
+   "mark": "click",
+   "title": "a real click (CuaDriver desktop scope) at window point 520, 165"
+  },
+  {
+   "do": "window_probe",
+   "name": "after-click",
+   "title": "probe: right after the click"
+  },
+  {
+   "do": "hid_line",
+   "text": "fieldkeysok",
+   "enter": false,
+   "mark": "keys",
+   "title": "real plain keys (CuaDriver desktop scope)"
+  },
+  {
+   "do": "window_probe",
+   "name": "after-keys",
+   "title": "probe: after the typed keys"
+  },
+  {
+   "do": "expect",
+   "title": "the page got every key in order (shown reversed); with the click in the field, the field shows the word",
+   "since": "keys",
+   "timeout": 10,
+   "all": [
+    {
+     "frame_text": "seenkosyekdleif"
+    },
+    {
+     "frame_text": "fieldkeysok"
+    },
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 300
+  }
+ ]
+}

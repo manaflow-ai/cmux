@@ -1360,6 +1360,41 @@ def focus_probe(j):
                         for w in wins]}
 
 
+ALL_WINDOWS_JXA = """
+ObjC.import('CoreGraphics');
+const list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0)));
+JSON.stringify(list.map((w, i) => ({order: i, pid: w.kCGWindowOwnerPID, number: w.kCGWindowNumber,
+  layer: w.kCGWindowLayer, alpha: w.kCGWindowAlpha, name: w.kCGWindowName || null,
+  x: w.kCGWindowBounds.X, y: w.kCGWindowBounds.Y, w: w.kCGWindowBounds.Width, h: w.kCGWindowBounds.Height})));
+"""
+
+
+def step_window_probe(j, step):
+    """Records, for the window that has the keyboard: debug.window_list (every NSApp window: class, number, frame,
+    visible, key, parent, level), debug.focus, debug.layers, debug.input, the window server's on-screen windows of the
+    app (front to back) and a snapshot, to probe-NAME.json / probe-NAME.png. Evidence only: no check, and a method this
+    build does not have is recorded as its error."""
+    name = re.sub(r"[^A-Za-z0-9_-]", "_", step["name"])
+    out = {"front_pid": front_pid(), "app_pid": j.app.pid}
+    for method in ("debug.window_list", "debug.focus", "debug.layers", "debug.input"):
+        try:
+            out[method] = j.app.rpc(method, timeout=15)
+        except (D.StepError, OSError, ValueError) as error:
+            out[method] = {"error": str(error)[:300]}
+    out["server_windows"] = [w for w in _jxa_json(ALL_WINDOWS_JXA, []) if w.get("pid") == j.app.pid]
+    try:
+        out["snapshot"] = j.app.snapshot(Path(j.out) / f"probe-{name}.png").name
+    except (D.StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+        out["snapshot"] = {"error": str(error)[:300]}
+    (Path(j.out) / f"probe-{name}.json").write_text(json.dumps(out, indent=1, default=str) + "\n")
+    wins = ((out.get("debug.window_list") or {}).get("windows") or []) if isinstance(out.get("debug.window_list"), dict) else []
+    focus = out.get("debug.focus") if isinstance(out.get("debug.focus"), dict) else {}
+    return {"file": f"probe-{name}.json", "front_is_app": out["front_pid"] == j.app.pid,
+            "key_window": focus.get("key_window"),
+            "key_windows": [{k: w.get(k) for k in ("id", "kind", "class", "parent", "visible")} for w in wins if w.get("key")],
+            "windows": len(wins), "server_windows": len(out["server_windows"])}
+
+
 def step_focus_probe(j, step):
     """Records focus_probe (no check): evidence for a key check that follows."""
     return focus_probe(j)
@@ -1464,7 +1499,7 @@ def cond_terminal_in_other_workspace(j, want, cache):
     return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
 
 
-STEPS = {"focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+STEPS = {"window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"key_window_focus": ("app", cond_key_window_focus),
               "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
               "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),
