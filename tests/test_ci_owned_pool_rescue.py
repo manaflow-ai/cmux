@@ -2435,6 +2435,42 @@ class SideLanes(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
         self.assertIn("nothing of it was running", summary)
 
+    def test_a_tip_push_run_left_by_the_rescue_is_cancelled_once_a_newer_push_supersedes_it(self):
+        # The watch goes on after "not rescued yet": a push run left at its tip is looked at again every
+        # FAILOVER_LOOK_SECONDS, so a newer push that lands later frees the branch group it holds.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        clock = Clock()
+
+        def queued_only(seconds):
+            return [job("cmux-next fast tier", labels=[SIDE])]
+        api = SupersedingAPI(clock, queued_only)
+        real = api.newer_push_runs
+
+        def newer(path, run_id, branch):
+            found = real(path, run_id, branch)
+            return [RUN_ID + 9] if api.calls.count(f"newer:{branch}") > 1 else found
+        api.newer_push_runs = newer
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls.count("cancel"), 1)
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("nothing of it was running", summary)
+
+    def test_a_superseded_push_run_with_a_running_linux_job_is_not_cancelled(self):
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        target = rescue.target_from_event(payload, "manaflow-ai/cmux")
+        clock = Clock()
+        api = SupersedingAPI(clock, lambda seconds: [
+            job("cmux-next fast tier", labels=[SIDE]),
+            job("cmux-next checks", labels=["blacksmith-16vcpu-ubuntu-2404"], status="in_progress", runner="bs")],
+            newer=[RUN_ID + 7])
+        result = rescue.superseded_push_cancel(api, target, "a newer push run", clock.sleep, lambda _: None)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("cmux-next checks", result)
+
     def test_a_superseded_push_runs_cancel_is_dropped_when_a_job_starts_first(self):
         payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
                              head_branch="feat-cmux-next")
@@ -6845,6 +6881,22 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun", api.calls)
         self.assertTrue(any(line.startswith(rescue.OPEN_HEAD_FAILOVER) and SESSION in line for line in lines), lines)
+
+    def test_a_push_lands_between_the_look_and_the_cancel(self):
+        # The failover's guard asks again right before the cancel: a re-run of a superseded push run would join the
+        # branch group and replace the newer run's waiting job.
+        clock, api, target = self.push_world(self.gates)
+        reads = {"n": 0}
+
+        def newer(path, run_id, branch):
+            reads["n"] += 1
+            api.calls.append(f"newer:{branch}")
+            return [RUN_ID + 1] if reads["n"] > 2 else []
+        api.newer_push_runs = newer
+        result, _ = self.run_rescue(api, clock, target)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("feat-cmux-next's tip", result)
 
     def test_a_superseded_cmux_next_push_run_never_fails_over(self):
         clock, api, target = self.push_world(self.gates, newer=[RUN_ID + 1])

@@ -4190,6 +4190,25 @@ def started_delivery_work(api: GitHub, target: Target, sleep: Callable[[float], 
     return _started_delivery_jobs(jobs, allow_decide=_allows_next_bootstrap_decide(target))
 
 
+# How rescue() answers a cmux-next push run at its branch tip the failover does not move yet; follow() looks again
+# every FAILOVER_LOOK_SECONDS until the watch limit (the label may go quiet, or a newer push may supersede the run).
+PUSH_TIP_LEFT = "not rescued yet"
+
+
+def push_tip_guard(api: GitHub, target: Target, sleep: Callable[[float], None], log: Callable[[str], None],
+                   before_cancel: Callable[[], None] | None) -> Callable[[], None]:
+    """rescue()'s before_cancel for a push run's failover (push_tip_failover()): after the failover's own guard, the run
+    must still be the branch's newest push run (pull_moved()). A re-run of a superseded one would join the branch
+    job group and replace the newer run's waiting job, so the cancel is dropped (OpenHeadStarted)."""
+    def check() -> None:
+        if before_cancel is not None:
+            before_cancel()
+        moved = pull_moved(api, target, sleep, log)
+        if moved:
+            raise OpenHeadStarted(moved)
+    return check
+
+
 # The log line that names a superseded cmux-next push run cancelled to free its branch groups (superseded_push_cancel()).
 SUPERSEDED_PUSH_CANCEL = "superseded push cancel"
 
@@ -4320,8 +4339,8 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         found = open_head_failover(api, target, now=now, sleep=sleep, log=log, first_seen=first_seen)
         failover, plan = found.why, found.plan
         if not failover and not target.pr_number:
-            return (f"not rescued: run {target.run_id} is {target.push_branch}'s tip push run; only the stall-aware "
-                    "failover moves it (a re-run of its failed jobs would rejoin the owned queue)")
+            return (f"{PUSH_TIP_LEFT}: run {target.run_id} is {target.push_branch}'s tip push run; only the "
+                    "stall-aware failover moves it (a re-run of its failed jobs would rejoin the owned queue)")
         if not failover:
             return f"not rescued: PR #{target.pr_number} is open at the run's head; {OPEN_HEAD_RULE}"
     if failover and found.settled:
@@ -4340,6 +4359,8 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # outputs): with every job, or (cmux-next) with the jobs that need it, keeping the rest's results.
         failed_only = False
         before_cancel = open_head_guard(api, target, sleep, log, before_cancel, plan)
+    if failover and push_tip_failover(target):
+        before_cancel = push_tip_guard(api, target, sleep, log, before_cancel)
     if run.get("status") != "completed" and deadline is not None and \
             (deadline - now()).total_seconds() < CANCEL_WAIT_SECONDS + RERUN_MARGIN_SECONDS + max(
                 0.0, RATE_LIMIT_WAIT_SECONDS - getattr(api, "rate_limit_waited", RATE_LIMIT_WAIT_SECONDS)):
@@ -4380,6 +4401,8 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     except NightlyBusy as busy_now:
         return f"{NIGHTLY_BUSY} ({busy_now}); it started just before the cancel, and started delivery work is never cancelled"
     except OpenHeadStarted as started_now:
+        if not target.pr_number:
+            return f"not rescued: run {target.run_id} was left at {target.push_branch}'s tip ({started_now})"
         return f"not rescued: PR #{target.pr_number} is open at the run's head; {OPEN_HEAD_RULE} ({started_now})"
     if receipt is not None:
         receipt()
@@ -4858,10 +4881,15 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                         refused=(outcome == "refused") if target.e2e or target.side else None,
                         refusal=outcome == "refused", first_seen=seen)
         log(result)
-        if result.startswith(NIGHTLY_BUSY):
+        if result.startswith(NIGHTLY_BUSY) or result.startswith(PUSH_TIP_LEFT):
             # A sibling started after the look: watch on, as before, until nothing else runs or the watch ends.
+            # A push run left at its tip is looked at again every FAILOVER_LOOK_SECONDS: its label may go quiet
+            # (the failover), or a newer push may supersede it (superseded_push_cancel()).
             if clock() >= deadline:
-                return "stopped: watch limit reached with a started nightly still running"
+                return ("stopped: watch limit reached with a started nightly still running"
+                        if result.startswith(NIGHTLY_BUSY) else f"stopped: watch limit reached; {result}")
+            if result.startswith(PUSH_TIP_LEFT):
+                sleep(FAILOVER_LOOK_SECONDS)
             outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep, log=log,
                                     deadline=deadline, floor_seconds=effective_seconds, seen=seen,
                                     sign_seen=sign_seen, sign_text=sign_text)
