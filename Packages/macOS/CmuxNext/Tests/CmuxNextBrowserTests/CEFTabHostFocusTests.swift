@@ -176,7 +176,84 @@ import Testing
     }
     #endif
 
+    /// browser-click-then-type (STATUS 7374, dogfood tip 44dc8431): in process, the grant gave the page focus but its
+    /// page window did not become key. The cmux window kept the keys with itself as first responder, and every plain
+    /// key typed for the page reached no view. The page window takes the keys from the cmux window that shows it.
+    @Test func inProcessAGrantThatMovesNoKeyHandsTheKeysToThePageWindow() throws {
+        let runtime = try Self.runtime(hostMode: false)
+        let (host, tab) = try Self.livePane(runtime)
+        let (window, page) = Self.shown(tab, in: host)
+        defer { page.close(); window.close() }
+        let keys = KeyRecorder(key: window)
+        tab.keyWindows = keys.seam
+
+        tab.setFocused(true)
+        #expect(FocusSpy.setFocus.map(\.focus) == [1])
+        #expect(keys.key === page, "the page has focus but the cmux window kept the keys")
+        #expect(keys.made.count == 1)
+    }
+
+    /// The grant that waited for the browser (focus asked before it existed) hands the keys over the same way.
+    @Test func inProcessAGrantAtAttachThatMovesNoKeyAlsoHandsTheKeysToThePageWindow() throws {
+        let runtime = try Self.runtime(hostMode: false)
+        let (host, tab) = Self.pane(runtime)
+        let (window, page) = Self.shown(tab, in: host)
+        defer { page.close(); window.close() }
+        let keys = KeyRecorder(key: window)
+        tab.keyWindows = keys.seam
+        tab.setFocused(true)
+        #expect(FocusSpy.setFocus.isEmpty, "no browser yet")
+        if !runtime.pendingWindows.values.contains(where: { $0 === host }) { host.ensureCreated(tab) }
+        let request = try #require(runtime.pendingWindows.keys.first { runtime.pendingWindows[$0] === host })
+
+        runtime.handle(.afterCreated(browser: Self.firstBrowser, request: request, window: 1))
+
+        #expect(FocusSpy.setFocus.map(\.focus) == [1])
+        #expect(keys.key === page, "the grant at attach left the keys on the cmux window")
+        #expect(keys.made.count == 1)
+    }
+
+    /// No hand-over when CEF moved the keys itself, when the app is inactive (no key window), or when another window
+    /// has the keys.
+    @Test func inProcessAGrantTakesNoKeysWhenCEFMovedThemOrAnotherWindowOrNoneHasThem() throws {
+        let runtime = try Self.runtime(hostMode: false)
+        let (host, tab) = try Self.livePane(runtime)
+        let (window, page) = Self.shown(tab, in: host)
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 50, height: 50), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { page.close(); window.close(); other.close() }
+        let keys = KeyRecorder(key: window)
+        tab.keyWindows = keys.seam
+
+        FocusSpy.onGrant = { MainActor.assumeIsolated { keys.key = page } }
+        defer { FocusSpy.onGrant = nil }
+        tab.setFocused(true)
+        #expect(keys.made.isEmpty, "CEF moved the keys and the grant moved them again")
+
+        FocusSpy.onGrant = nil
+        for key in [nil, other] {
+            tab.setFocused(false)
+            keys.key = key
+            tab.setFocused(true)
+            #expect(keys.key === key, "the page took the keys from \(key.map { String(describing: $0) } ?? "an inactive app")")
+        }
+        #expect(keys.made.isEmpty)
+    }
+
     // MARK: Fixtures
+
+    /// `tab` shown in a cmux window, and Chromium's page window over it (a child at its view's screen rect).
+    private static func shown(_ tab: CEFTab, in host: CEFPaneHost) -> (NSWindow, NSWindow) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(tab.contentView) // the tab presents itself in its own container
+        if host.hostView.superview == nil { host.present(tab, in: tab.contentView) }
+        let frame = window.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil))
+        let page = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: true)
+        page.isReleasedWhenClosed = false
+        page.setFrame(frame, display: false)
+        window.addChildWindow(page, ordered: .above)
+        return (window, page)
+    }
 
     private static let firstBrowser: Int32 = 1
 
@@ -253,6 +330,21 @@ import Testing
     }
 }
 
+/// The app's key window in a test: every change a grant makes is recorded.
+@MainActor private final class KeyRecorder {
+    var key: NSWindow?
+    private(set) var made: [NSWindow] = []
+
+    init(key: NSWindow?) { self.key = key }
+
+    var seam: CEFKeyWindows {
+        CEFKeyWindows(keyWindow: { [unowned self] in key }, makeKey: { [unowned self] window in
+            key = window
+            made.append(window)
+        })
+    }
+}
+
 /// Never attaches: these tests drive panes against the spy shim and never start Chromium.
 @MainActor private final class FocusNoHost: ChromiumHostSupervising {
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
@@ -267,6 +359,8 @@ import Testing
 private nonisolated enum FocusSpy {
     nonisolated(unsafe) static var setFocus: [(browser: Int32, focus: Int32)] = []
     nonisolated(unsafe) static var embedderActive: [(browser: Int32, active: Int32)] = []
+    /// Runs inside a grant (CEF's SetFocus(true)), as a page window becoming key would.
+    nonisolated(unsafe) static var onGrant: (() -> Void)?
 
     static func reset() {
         setFocus = []
@@ -277,6 +371,7 @@ private nonisolated enum FocusSpy {
         let lastReplyToken: CEFRemoteShim.LastReplyTokenFn = { 0 }
         let setFocus: @convention(c) (Int32, Int32) -> Void = { browser, focus in
             FocusSpy.setFocus.append((browser, focus))
+            if focus == 1 { FocusSpy.onGrant?() }
         }
         let embedderActive: @convention(c) (Int32, Int32) -> Int32 = { browser, active in
             FocusSpy.embedderActive.append((browser, active))
