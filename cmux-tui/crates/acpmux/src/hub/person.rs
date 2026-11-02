@@ -1076,6 +1076,8 @@ impl Hub {
                     .is_some_and(|a| a.iter().any(|v| v.as_str().is_some_and(guarded)));
                 if sets || removes {
                     Err(person_required("the handoff target and agent hold tags"))
+                } else if self.identity_tag_locked(params) {
+                    Err(person_required("changing a manager tag while its chat is taken over"))
                 } else {
                     Ok(())
                 }

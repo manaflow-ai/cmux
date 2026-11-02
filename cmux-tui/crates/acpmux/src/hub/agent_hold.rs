@@ -12,7 +12,10 @@
 //!
 //! Only the person sets or clears the hold: the method is the person's on this machine
 //! (`server/agent_messages.rs`), and `_acpmux/tag` refuses the tag to anyone else
-//! (`person.rs`), so a manager cannot lift its own hold.
+//! (`person.rs`), so a manager cannot lift its own hold. Nor can it stop being the manager:
+//! while a chat is held, `_acpmux/tag` refuses an agent a change to the identity tags
+//! `manages` reads (`mux.parent` on the held chat, `cmux.chief` on a session that manages
+//! one), see [`Hub::identity_tag_locked`].
 
 use super::*;
 
@@ -87,6 +90,44 @@ impl Hub {
         Self::agent_held(receiver) && Self::manages(sender, receiver)
     }
 
+    /// Whether an agent's `_acpmux/tag` call changes or removes an identity tag `manages` reads
+    /// while a hold depends on it: `mux.parent` on a held chat, or `cmux.chief` on a session that
+    /// manages a held chat. Setting the value a tag already has changes nothing and passes.
+    pub(crate) fn identity_tag_locked(&self, params: &Value) -> bool {
+        let Some(target) =
+            crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
+        else {
+            return false;
+        };
+        let touches = |key: &str| {
+            let current = target
+                .meta
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .tags
+                .get(key)
+                .map(|t| t.value.clone());
+            let sets = params
+                .get("set")
+                .and_then(|o| o.get(key))
+                .is_some_and(|v| current.is_some() && v.as_str() != current.as_deref());
+            let removes = current.is_some()
+                && params
+                    .get("remove")
+                    .and_then(Value::as_array)
+                    .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(key)));
+            sets || removes
+        };
+        if touches(CHIEF_PARENT_TAG) && Self::agent_held(&target) {
+            return true;
+        }
+        touches(CHIEF_TAG)
+            && self
+                .sessions()
+                .iter()
+                .any(|s| s.id != target.id && Self::held_for_person(&target, s))
+    }
+
     /// `_acpmux/agent_hold {sessionId, held}`: the person takes `session` over (`held`), or hands
     /// it back, which delivers its managers' held messages, in order.
     pub fn agent_hold(
@@ -98,9 +139,9 @@ impl Hub {
         if held {
             let mut set = serde_json::Map::new();
             set.insert(HOLD_TAG.to_owned(), json!("person"));
-            self.set_tags(session, Some(&set), &[], None);
+            self.set_tags_answered(session, Some(&set), &[], None)?;
         } else {
-            self.set_tags(session, None, &[HOLD_TAG.to_owned()], None);
+            self.set_tags_answered(session, None, &[HOLD_TAG.to_owned()], None)?;
         }
         if was != held {
             self.append(session, "mux", "agent_hold", json!({"held": held}));

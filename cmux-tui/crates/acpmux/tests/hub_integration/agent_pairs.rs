@@ -1019,7 +1019,8 @@ async fn a_taken_over_chat_holds_its_managers_messages_until_handed_back() {
     assert!(!c.ran(&kid, "c1").await, "a person prompt does not release a taken-over chat's hold");
 
     // The manager cannot lift the hold through tags.
-    let lift = c.reply("_acpmux/tag", json!({"sessionId": kid, "remove": ["acpmux.agentHold"]})).await;
+    let lift =
+        c.reply("_acpmux/tag", json!({"sessionId": kid, "remove": ["acpmux.agentHold"]})).await;
     assert!(lift.get("error").is_some(), "{lift}");
     let after_lift = c.message(&chief, &kid, "c3", "ok continuing").await;
     assert!(held(&after_lift), "{after_lift}");
@@ -1039,6 +1040,45 @@ async fn a_taken_over_chat_holds_its_managers_messages_until_handed_back() {
     assert!(later.get("error").is_none(), "{later}");
 }
 
+/// While the chat is held, the Chief cannot stop being its manager by changing or removing its
+/// own `cmux.chief` tag or the chat's `mux.parent`: the tag calls are refused and its next
+/// message is still held.
+#[tokio::test]
+async fn a_manager_cannot_change_its_identity_tags_to_pass_a_hold() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (chief, kid) = (c.new_session().await, c.new_session().await);
+    c.call("_acpmux/tag", json!({"sessionId": chief, "set": {"cmux.chief": "home1"}})).await;
+    c.call("_acpmux/tag", json!({"sessionId": kid, "set": {"mux.parent": "optchat-chief:home1"}}))
+        .await;
+    let mut person = Client::person(&hub).await;
+    person.call(HOLD, json!({"sessionId": kid, "held": true})).await;
+
+    // Re-setting the same value changes nothing and passes.
+    let same =
+        c.reply("_acpmux/tag", json!({"sessionId": chief, "set": {"cmux.chief": "home1"}})).await;
+    assert!(same.get("error").is_none(), "{same}");
+    for (session, call) in [
+        (&chief, json!({"remove": ["cmux.chief"]})),
+        (&chief, json!({"set": {"cmux.chief": "elsewhere"}})),
+        (&kid, json!({"remove": ["mux.parent"]})),
+        (&kid, json!({"set": {"mux.parent": "someone-else"}})),
+    ] {
+        let mut params = call.clone();
+        params["sessionId"] = json!(session);
+        let refused = c.reply("_acpmux/tag", params).await;
+        assert!(refused.get("error").is_some(), "{call}: {refused}");
+    }
+    let still = c.message(&chief, &kid, "c1", "carry on").await;
+    assert!(held(&still), "{still}");
+    assert_eq!(still.pointer("/error/data/trip"), Some(&json!("taken_over")), "{still}");
+
+    // Once handed back, the tags are the Chief's to change again.
+    person.call(HOLD, json!({"sessionId": kid, "held": false})).await;
+    let freed = c.reply("_acpmux/tag", json!({"sessionId": chief, "remove": ["cmux.chief"]})).await;
+    assert!(freed.get("error").is_none(), "{freed}");
+}
+
 /// A Chief of another home does not manage the chat: its message passes a hold.
 #[tokio::test]
 async fn another_chiefs_turn_is_not_the_manager() {
@@ -1051,7 +1091,10 @@ async fn another_chiefs_turn_is_not_the_manager() {
     let mut person = Client::person(&hub).await;
     // The person gives the chat its first work, so the other Chief is not its delegator either.
     let first = person
-        .reply("session/prompt", json!({"sessionId": kid, "prompt": [{"type": "text", "text": "start"}]}))
+        .reply(
+            "session/prompt",
+            json!({"sessionId": kid, "prompt": [{"type": "text", "text": "start"}]}),
+        )
         .await;
     assert!(first.get("error").is_none(), "{first}");
     person.call(HOLD, json!({"sessionId": kid, "held": true})).await;
