@@ -65,9 +65,7 @@ const agents = [
   { id: "toolu_agent", agentId: "a39e817af38ddf5e7", task: "Unstick DEV tip publish" },
 ] as unknown as Subagent[];
 
-const card = () => (
-  <MessageCard item={{ kind: "tool", text: tool.title, tool }} message={agentMessage(tool)!} />
-);
+const card = () => <MessageCard item={{ kind: "tool", text: tool.title, tool }} message={agentMessage(tool)!} />;
 
 test("a SendMessage's recipient chip opens the subagent it names, and only that", async () => {
   const opened: string[] = [];
