@@ -39,10 +39,25 @@ function Mark({ look, size }: { look: SpinnerLook; size: number }) {
       return <span className="spinner-looks__conic" style={{ width: size, height: size }} aria-hidden="true" />;
     case "spokes":
       return (
-        <svg className="spinner-looks__spokes" width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <svg
+          className="spinner-looks__spokes"
+          width={size}
+          height={size}
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden="true"
+        >
           <g stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
             {SPOKES.map(({ angle, opacity }) => (
-              <line key={angle} x1="8" y1="1.75" x2="8" y2="4.75" opacity={opacity} transform={`rotate(${angle} 8 8)`} />
+              <line
+                key={angle}
+                x1="8"
+                y1="1.75"
+                x2="8"
+                y2="4.75"
+                opacity={opacity}
+                transform={`rotate(${angle} 8 8)`}
+              />
             ))}
           </g>
         </svg>

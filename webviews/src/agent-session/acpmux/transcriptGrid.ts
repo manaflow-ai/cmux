@@ -3,6 +3,7 @@ import grid from "../../../../schemas/layout-grid/layout-grid.json";
 
 export const gridLength = (name: string): number => {
   const metric = grid.metrics.find((value) => value.name === name);
+  // l10n-allow: a developer invariant on the bundled grid schema; it fails at load, never in front of a person.
   if (!metric) throw new Error(`Missing layout grid metric: ${name}`);
   return metric.pt;
 };

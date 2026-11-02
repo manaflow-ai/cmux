@@ -32,9 +32,11 @@ function pageOf<S extends Summary>(reply: any): SessionPage<S> {
   const sessions = (Array.isArray(reply?.sessions) ? reply.sessions : []).filter(
     (session: any): session is S => typeof session?.sessionId === "string" && session.sessionId !== "",
   );
-  const next = typeof reply?.nextCursor === "string" && sessions.length > 0 ? reply.nextCursor : undefined;
+  // A page may contain no usable rows yet still have a continuation. The cursor
+  // belongs to the daemon's page, independently of what the client can display.
+  const next = typeof reply?.nextCursor === "string" ? reply.nextCursor : undefined;
   const tab = typeof reply?.tabSessionId === "string" && reply.tabSessionId ? reply.tabSessionId : undefined;
-  return { sessions, ...(next ? { next } : {}), ...(tab ? { tab } : {}) };
+  return { sessions, ...(next !== undefined ? { next } : {}), ...(tab ? { tab } : {}) };
 }
 
 /**
@@ -139,7 +141,7 @@ export class SessionPager<S extends Summary> {
     const run = first.run;
     let next = first.next;
     const seen = new Set<string>();
-    while (next) {
+    while (next !== undefined) {
       if (run !== this.run) return false;
       let page: SessionPage<S>;
       if (seen.has(next) || seen.size >= MAX_PAGES) page = { sessions: await this.whole() };

@@ -3659,7 +3659,7 @@ a.cv-sha:focus-visible {
   display: none;
 }
 /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
-   right edge, the actions after the time. */
+   right edge. */
 :root[data-turn-actions-placement="right"] .cv-turn-actions {
   justify-content: flex-end;
   padding-inline: 0 2px;
@@ -3674,8 +3674,9 @@ a.cv-sha:focus-visible {
 }
 /* The row's first glyph starts where the reply's text does, as Codex's and Claude's copy glyph does
    (Leo, 2026-10-30: "WE NEED TO LINE OUR SHIT UP LIKE THEIRS"; design/grid.md 5.5, the action row's
-   first glyph on col-left): its 24px button overhangs the column by the glyph's inset, 4px. A
-   footer that says its time first ("Worked for 5s") starts that label on the column instead. */
+   first glyph on col-left): its 24px button overhangs the column by the glyph's inset, 4px. The
+   buttons always lead the row; "Worked for 5s" and Continue come after them (Leo, 2026-11-02:
+   "those buttons should always just be there left aligned"). */
 .cv-reply-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
 .cv-turn-actions .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
   margin-inline-start: calc((var(--cv-glyph-slot) - var(--cv-meta-row)) / 2);
@@ -3784,7 +3785,8 @@ a.cv-sha:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 /* Hidden, its space kept, but for a failed turn, the turn the reader points at (data-turn-revealed,
-   VirtualTranscript) or keyboard focus. */
+   VirtualTranscript), keyboard focus, or the turn that ends the chat (App.tsx `acpmux-row--final-footer`):
+   once the agent is done its Copy shows without a hover, as Claude's and ChatGPT's (Leo, 2026-11-02). */
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
@@ -3794,7 +3796,8 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
-.acpmux-turnSummary .cv-turn-actions--resumable {
+.acpmux-turnSummary .cv-turn-actions--resumable,
+.acpmux-row--final-footer .cv-turn-actions {
   opacity: 1;
 }
 /* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
@@ -5409,6 +5412,17 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
   margin: 0;
   padding: 0;
+}
+/* A waiting steer keeps its action row in flow (model.ts userMetaHeight reserves it), but draws it
+   where the sent prompt's row sits: half the turn gap's spare under the bubble, overhanging
+   col-right by the control's inset. Sending it then moves nothing (design/grid.md 5.5: the row's
+   glyphs sit 4 under the message "in every case"; queued-user-footer.test.ts). */
+.cv-user:has(.cv-user__pending) > .cv-user__actions,
+.cv-user:has(.cv-user__pending) > .cv-user__body > .cv-user__actions {
+  position: relative;
+  top: calc((var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
+  right: calc(-1 * var(--cv-action-overhang));
+  padding-right: 0;
 }
 
 
