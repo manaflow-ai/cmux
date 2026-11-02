@@ -1713,7 +1713,7 @@ pub fn main() -> std::process::ExitCode {
     // Before any mode can serve `identify` or `ping`, or run acpmux.
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
-    acpmux::hub::install_build(acpmux_build_id::BUILD);
+    acpmux::hub::install_build(acpmux_build_id::build());
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
