@@ -439,9 +439,12 @@ private final class SessionInfoWaveView: NSView {
         updateAnimation()
     }
 
-    deinit {
-        if let occlusionObserver {
-            NotificationCenter.default.removeObserver(occlusionObserver)
+    nonisolated deinit {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated {
+            if let occlusionObserver {
+                NotificationCenter.default.removeObserver(occlusionObserver)
+            }
         }
     }
 
