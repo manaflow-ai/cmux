@@ -220,4 +220,25 @@ import Testing
         let rekept = try await Self.eventually { !Self.files("tab_hidden_busy", in: directory).isEmpty }
         #expect(rekept, "a terminal shown again after hidden output was never kept again")
     }
+
+    /// Review of #32384: the keeper is told when its own "on screen" changes, not only when drawing changes. With a
+    /// live hover mirror (forced drawing) a hide leaves drawing on, so the keeper never heard of it: the hidden
+    /// terminal's frame stayed on disk, and after a hidden check nothing kept it again when it showed.
+    @Test func aHideWhileMirroredStillTellsTheKeeper() async throws {
+        let shown = try await Shown()
+        defer { shown.close() }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "keeper-mirrored-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = TerminalLaunchFrames(directory: directory)
+        frames.keep("tab_mirrored", session: shown.session, work: Self.work)
+        try #require(try await Self.eventually { !Self.files("tab_mirrored", in: directory).isEmpty }, "the shown frame was never kept")
+        shown.session.mirrorDemand = 1 // a hover card mirrors it: it draws whatever else holds
+        defer { shown.session.mirrorDemand = 0 }
+        shown.session.view.isHidden = true
+        let removed = try await Self.eventually(3) { Self.files("tab_mirrored", in: directory).isEmpty }
+        #expect(removed, "a terminal hidden while mirrored kept its frame on disk: the keeper was never told")
+        shown.session.view.isHidden = false
+        let rekept = try await Self.eventually { !Self.files("tab_mirrored", in: directory).isEmpty }
+        #expect(rekept, "a terminal shown again while mirrored was never kept again")
+    }
 }
