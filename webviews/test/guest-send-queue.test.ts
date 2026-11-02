@@ -132,3 +132,17 @@ test("permanent refusals remain decided; end cancels unsent messages and timers"
   f.clock.advance(5_000);
   expect(f.sent.map((msg) => msg.text)).toEqual(["accepted"]);
 });
+
+test("a timeout refusal can be superseded by a delayed held and owner decision", () => {
+  const f = fixture();
+  f.queue.snapshot([]);
+  const prompt = f.add("eventually accepted");
+  f.queue.status({ client_id: prompt.clientId, state: "refused", reason: "agent_session.timeout" });
+  expect(f.prompts.list()[0]?.state).toBe("refused");
+  f.queue.status({ client_id: prompt.clientId, state: "held" });
+  expect(f.prompts.list()[0]?.state).toBe("held");
+  f.queue.status({ client_id: prompt.clientId, state: "approved" });
+  expect(f.prompts.list()[0]?.state).toBe("approved");
+  expect(f.sent).toHaveLength(1);
+  f.queue.stop();
+});
