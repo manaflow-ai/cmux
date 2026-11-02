@@ -370,11 +370,12 @@ fn embedded_build(bytes: &[u8]) -> Option<String> {
             continue;
         }
         // The version before " (": back to the space (or other byte) before it.
-        let start = bytes[..at]
+        let prefix = bytes.get(..at).unwrap_or_default();
+        let start = prefix
             .iter()
             .rposition(|&b| !(b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'+'))
-            .map_or(0, |p| p + 1);
-        let before = &bytes[..start];
+            .map_or(0, |p| p.saturating_add(1));
+        let before = prefix.get(..start).unwrap_or_default();
         if before.ends_with(b"acpmux ") {
             return Some(text.to_owned());
         }
