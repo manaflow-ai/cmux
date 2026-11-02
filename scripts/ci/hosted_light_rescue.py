@@ -165,6 +165,26 @@ def at_head(run: Mapping[str, Any]) -> bool:
         for pr in prs)
 
 
+def pull_at_head(client: Any, run: Mapping[str, Any]) -> bool:
+    """A pull request of the run is open at the run's head.
+
+    Read from the pull request itself; when the token may not read pull requests (HTTP 403 or 404: the overflow
+    watch's GITHUB_TOKEN has no pull-requests scope), the run just read again stands in (at_head()), which GitHub
+    keeps at each pull request's current head."""
+    numbers = [pr["number"] for pr in run.get("pull_requests") or ()
+               if isinstance(pr, Mapping) and isinstance(pr.get("number"), int)]
+    refused = False
+    for number in numbers:
+        try:
+            if client.pull_head(number) == run.get("head_sha"):
+                return True
+        except RuntimeError as error:
+            if not re.search(r"HTTP (403|404)$", str(error)):
+                raise
+            refused = True
+    return refused and at_head(run)
+
+
 def candidate(run: Mapping[str, Any]) -> bool:
     return (run.get("event") in EVENTS and run.get("run_attempt") == 1 and run.get("status") in IN_FLIGHT
             and at_head(run))
@@ -236,18 +256,20 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             lines.append(f"{where}: {names} stalled; would cancel and re-run its failed jobs (dry run)")
             rescued += 1
             continue
-        # Right before the cancel: the pull request is still open at this head, and nothing has started since the
-        # jobs were read (a runner may have taken the stalled job meanwhile).
+        # Right before the cancel: the run is still attempt 1 and in flight at its pull request's head (read again,
+        # so a concurrent re-run is never cancelled), the pull request is still open at this head, and nothing has
+        # started since the jobs were read (a runner may have taken the stalled job meanwhile).
         try:
-            numbers = [pr["number"] for pr in run.get("pull_requests") or ()
-                       if isinstance(pr, Mapping) and isinstance(pr.get("number"), int)]
-            live_head = any(client.pull_head(number) == run.get("head_sha") for number in numbers)
+            fresh = {**client.run(run["id"])}
+            live_head = candidate(fresh) and fresh.get("head_sha") == run.get("head_sha")
+            if live_head:
+                live_head = pull_at_head(client, fresh)
             again, _ = verdict(client.jobs(run["id"]), now) if live_head else ("none", [])
         except Exception as error:  # noqa: BLE001 - unread means unknown: leave the run
             lines.append(f"{where}: could not re-read before the cancel ({error}); left alone")
             continue
         if not live_head:
-            lines.append(f"{where}: the pull request moved past this head or closed; left alone")
+            lines.append(f"{where}: the run or its pull request moved on (attempt, status, head or closed); left alone")
             continue
         if again != "rescue":
             lines.append(f"{where}: a job started or finished since the read; left alone")
