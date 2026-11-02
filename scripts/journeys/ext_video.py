@@ -204,7 +204,47 @@ def _desktop_pixels(j, point):
     return (round(sx * scale), round(sy * scale)), scale
 
 
+def _cua_tools(j):
+    """CuaDriver's tool list with input schemas (once per journey): the drag tool's arguments differ by version."""
+    cached = getattr(j, "cua_tools", None)
+    if cached is None:
+        tools = R._session(j).request("tools/list", {})
+        cached = j.cua_tools = {t.get("name"): t.get("inputSchema") for t in (tools.get("tools") or []) if isinstance(t, dict)}
+    return cached
+
+
+def _mouse_events_since(j, seq):
+    """The app's input-journal mouse entries after SEQ: [(phase, x, y)] (what the app received, window points)."""
+    out = []
+    for e in R._journal_entries(j, 400):
+        if int(e.get("seq") or 0) <= seq:
+            continue
+        kind = e.get("kind") or {}
+        mouse = kind.get("mouse")
+        mouse = (mouse or {}).get("_0", mouse) if isinstance(mouse, dict) else None
+        if isinstance(mouse, dict):
+            out.append((mouse.get("phase"), mouse.get("x"), mouse.get("y")))
+    return out
+
+
+def _drag_args(j, mode, start, end, duration, steps):
+    """CuaDriver drag arguments. `desktop`: true screen pixels from the primary display's top-left. `window`: the
+    app's main window by id, window-local screenshot pixels (points x the screen scale)."""
+    if mode == "desktop":
+        (fx, fy), scale = _desktop_pixels(j, start)
+        (tx, ty), _ = _desktop_pixels(j, end)
+        return {"scope": "desktop", "from_x": fx, "from_y": fy, "to_x": tx, "to_y": ty, "duration_ms": duration,
+                "steps": steps}, scale
+    bad, size, raw = R._session(j).call("get_screen_size", {})
+    scale = float((size or {}).get("scale_factor") or 1.0)
+    return {"pid": j.app.pid, "window_id": R._main_window(j), "delivery_mode": "foreground",
+            "from_x": round(start[0] * scale), "from_y": round(start[1] * scale), "to_x": round(end[0] * scale),
+            "to_y": round(end[1] * scale), "duration_ms": duration, "steps": steps}, scale
+
+
 def step_hid_drag(j, step):
+    """A real drag. The mode that reaches the app is found once per journey (`desktop` first, then `window`) and
+    proven by the app's own input journal: a mouse-down and moves after the call. No mode that reaches it: not run."""
     R.require_front(j)
     start = _target_point(j, step["target"])
     if "to" in step:
@@ -212,29 +252,42 @@ def step_hid_drag(j, step):
     else:
         dx, dy = (float(v) for v in step["by"])
         end = (start[0] + dx, start[1] + dy)
-    (fx, fy), scale = _desktop_pixels(j, start)
-    (tx, ty), _ = _desktop_pixels(j, end)
     duration = int(step["duration_ms"])
     steps = int(step.get("steps", max(2, duration // 8)))
-    args = {"scope": "desktop", "from_x": fx, "from_y": fy, "to_x": tx, "to_y": ty, "duration_ms": duration,
-            "steps": steps}
-    if step.get("hold_ms"):
-        args["hold_ms"] = int(step["hold_ms"])
-    if step.get("modifiers"):
-        args["modifier"] = [R.MODIFIERS.get(m, m) for m in step["modifiers"]]
-    if step.get("mark"):
-        j.marks[step["mark"]] = D.now()
-    sent = D.now()
-    bad, data, raw = R._session(j).call("drag", args)
-    returned = D.now()
-    _hid_log(j, "drag", {**args, "window_from": list(start), "window_to": list(end)}, sent, returned,
-             {"bad": bad, "effect": data.get("effect")})
-    if bad or data.get("effect") in ("refused", "failed", "error"):
-        tools = R._session(j).request("tools/list", {})
-        names = [t.get("name") for t in (tools.get("tools") or []) if isinstance(t, dict)]
-        raise D.NotRun(f"hid_drag: CuaDriver did not drag: {json.dumps(raw)[:400]}; its tools: {names}")
-    return {"from": list(start), "to": list(end), "pixels": [fx, fy, tx, ty], "scale": scale, "duration_ms": duration,
-            "steps": steps, "sent": round(sent, 6), "returned": round(returned, 6), "drag_s": round(returned - sent, 4)}
+    modes = [getattr(j, "hid_drag_mode", None)] if getattr(j, "hid_drag_mode", None) else ["desktop", "window"]
+    tried = []
+    for mode in modes:
+        args, scale = _drag_args(j, mode, start, end, duration, steps)
+        if step.get("hold_ms"):
+            args["hold_ms"] = int(step["hold_ms"])
+        if step.get("modifiers"):
+            args["modifier"] = [R.MODIFIERS.get(m, m) for m in step["modifiers"]]
+        seq = R._journal_last_seq(j)
+        if step.get("mark"):
+            j.marks[step["mark"]] = D.now()
+        sent = D.now()
+        bad, data, raw = R._session(j).call("drag", args)
+        returned = D.now()
+        time.sleep(0.15)
+        got = _mouse_events_since(j, seq)
+        downs = sum(1 for e in got if e[0] == "down")
+        _hid_log(j, "drag", {**args, "mode": mode, "window_from": list(start), "window_to": list(end)}, sent, returned,
+                 {"bad": bad, "effect": data.get("effect"), "app_mouse_events": len(got), "app_downs": downs})
+        tried.append({"mode": mode, "effect": data.get("effect"), "bad": bad, "app_mouse_events": len(got),
+                      "app_downs": downs, "first": got[:2], "last": got[-2:]})
+        if downs and not bad:
+            j.hid_drag_mode = mode
+            return {"mode": mode, "from": list(start), "to": list(end), "args": args, "scale": scale,
+                    "duration_ms": duration, "steps": steps, "sent": round(sent, 6), "returned": round(returned, 6),
+                    "drag_s": round(returned - sent, 4), "app_mouse_events": len(got), "first": got[:2], "last": got[-2:]}
+    raise D.NotRun(f"hid_drag: no CuaDriver drag reached the app (its journal has no mouse-down): {json.dumps(tried)[:700]}; "
+                   f"drag schema: {json.dumps(_cua_tools(j).get('drag'))[:600]}")
+
+
+def step_hid_probe(j, step):
+    """Records CuaDriver's tools and their argument schemas (no input)."""
+    tools = _cua_tools(j)
+    return {"tools": sorted(t for t in tools if t), "drag": tools.get("drag"), "click": tools.get("click")}
 
 
 def step_hid_click(j, step):
@@ -275,5 +328,5 @@ def step_layout_note(j, step):
     return note
 
 
-STEPS = {"video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag,
+STEPS = {"video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
          "hid_click": step_hid_click, "hid_key": step_hid_key, "layout_note": step_layout_note}

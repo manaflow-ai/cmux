@@ -17,6 +17,19 @@
    "do": "smoke_make_key"
   },
   {
+   "do": "window_place",
+   "title": "set-up: the window fills the screen (3 columns fit, no strip scroll)",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "hid_probe"
+  },
+  {
    "do": "new_terminal",
    "via": "key",
    "name": "rv"
@@ -170,6 +183,12 @@
      "pane_frame_text": "rv-done-${nonce}"
     }
    ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
   }
  ]
 }
