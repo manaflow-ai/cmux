@@ -72,9 +72,14 @@ if "CHANNEL_FEED_BASE/appcast-arm64.xml" not in delta or "live_build != NIGHTLY_
     failures.append("republish-nightly-deltas must skip unless the live NEXT appcast still serves this build")
 if "if: steps.current.outputs.current == 'true'" not in notes_publish:
     failures.append("publish-release-notes must skip stale notes after a newer publication")
+# Notes keep the publish lock (their writes have no compare-and-swap): publish-nightly's R2 lease,
+# taken before the live feed is read and released last (tests/test_nightly_delivery_concurrency.py).
+if ("    concurrency:\n" in notes_publish
+        or notes_publish.find("publish-lease.sh lock") < 0
+        or not notes_publish.find("publish-lease.sh lock") < notes_publish.find("id: current")
+        or "env: *next-publish-lease" not in notes_publish):
+    failures.append("publish-release-notes must hold publish-nightly's R2 lease, in no concurrency group")
 for writer, group in (
-    # Notes keep the publish lock: their writes have no compare-and-swap.
-    ("publish-release-notes", "release-publish-${{ needs.decide.outputs.release_tag }}"),
     # nightly-next: its own group (the feed write is a compare-and-swap); classic and RC keep the publish lock.
     ("republish-nightly-deltas", "release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
                                  "${{ needs.decide.outputs.release_tag }}"),

@@ -43,6 +43,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["workspace", "create", "--cwd", "/tmp", "--", "make", "watch"], "workspace.create"),
         (vec!["workspace", "create", "--shell", "make watch"], "workspace.create"),
         (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
+        // A create that finds the space's group of that name instead of making one (#32097).
+        (vec!["workspace", "group", "create", "--name", "n", "--reuse"], "workspace_group.create"),
         // closed.delete takes either a group (with members) or all, and all
         // takes retention bounds.
         (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),

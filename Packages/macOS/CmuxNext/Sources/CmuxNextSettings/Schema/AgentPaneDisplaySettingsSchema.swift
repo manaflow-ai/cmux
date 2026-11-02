@@ -24,6 +24,11 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
     /// Every row's key (agents may set them: looks only).
     static var keys: Set<String> { Set(descriptors.map(\.id)) }
 
+    /// `agentPane.display.sessionInfo.placement`, the Session Info row (Push or Overlay).
+    static let sessionInfoPlacementPath = section + ["sessionInfo", "placement"]
+    /// The key the Session Info row had before (``RenamedSettingKeys``); a file that still holds it applies.
+    static let legacySessionInfoPlacementPath = section + ["inspector", "placement"]
+
     /// `agentPane.display.minimap`, the Chat Minimap row.
     static let minimapKey = (section + ["minimap"]).joined(separator: ".")
 
@@ -86,7 +91,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                                          "Code as a share of the chat's text size. Empty uses the Markdown viewer's."),
                 .number(SettingNumber(0.6...1.25, step: 0.025, unit: .fraction, placeholder: codeScaleFallback)), nil,
                 ["code", "font", "size", "monospace", "scale"]),
-            row(["inspector", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
+            row(["sessionInfo", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
                 help: SettingsText.keyed("settings.agentPane.display.inspector.help",
                                          "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."),
                 .choice([

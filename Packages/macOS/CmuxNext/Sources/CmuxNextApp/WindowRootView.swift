@@ -126,7 +126,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     /// - Parameter revealClock: Times the collapsed band's close delay.
     init(sidebar: SidebarContainerView, activeLook: ActiveLookScope? = nil,
-         reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
+         reduceTransparency: @escaping @MainActor () -> Bool = { ReduceTransparency.shared.isEnabled },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealClock: any Clock<Duration> = ContinuousClock()) {
         (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook))
