@@ -639,7 +639,8 @@ impl Ensure {
             let path = format!("/v1/environments/{}", percent_segment(environment_id));
             if let Ok(environment) =
                 platform.get_with_timeout(&path, std::time::Duration::from_secs(10))
-                && let Some(setup) = setup_state(&environment, body.get("snapshot").and_then(Value::as_str))
+                && let Some(setup) =
+                    setup_state(&environment, body.get("snapshot").and_then(Value::as_str))
                 && let Some(object) = body.as_object_mut()
             {
                 object.insert("setup".into(), setup);
@@ -698,7 +699,9 @@ pub(super) fn setup_state(environment: &Value, boot_snapshot: Option<&str>) -> O
             Some("failed") => {
                 setup.insert("state".into(), json!("failed"));
                 setup.insert("status".into(), json!("failed"));
-                if let Some(detail) = install.and_then(|step| step.get("detail").and_then(Value::as_str)) {
+                if let Some(detail) =
+                    install.and_then(|step| step.get("detail").and_then(Value::as_str))
+                {
                     setup.insert("error".into(), json!(detail));
                 }
             }
@@ -741,35 +744,33 @@ pub(super) fn percent_segment(segment: &str) -> String {
 pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>) -> Value {
     use crate::cli::PlatformCallError as E;
     match answer {
-        Ok(body) => {
-            match body.pointer("/machine/id").and_then(Value::as_str) {
-                Some(id) => {
-                    let mut line = json!({
-                        "ok": true,
-                        "machine": id,
-                        "team": body.get("team"),
-                        "created": body.get("created").and_then(Value::as_bool).unwrap_or(false),
-                        "snapshot": body.get("snapshot"),
-                        "environment": body.get("environment"),
-                    });
-                    if let Some(environment) = body.get("environment")
-                        && let Some(environment_id) = environment.get("id").and_then(Value::as_str)
-                    {
-                        if let Some(object) = line.as_object_mut() {
-                            object.insert("environment_id".into(), json!(environment_id));
-                        }
-                        if let Some(setup) = body.get("setup").cloned().or_else(|| {
-                            setup_state(environment, body.get("snapshot").and_then(Value::as_str))
-                        }) && let Some(object) = line.as_object_mut()
-                        {
-                            object.insert("setup".into(), setup);
-                        }
+        Ok(body) => match body.pointer("/machine/id").and_then(Value::as_str) {
+            Some(id) => {
+                let mut line = json!({
+                    "ok": true,
+                    "machine": id,
+                    "team": body.get("team"),
+                    "created": body.get("created").and_then(Value::as_bool).unwrap_or(false),
+                    "snapshot": body.get("snapshot"),
+                    "environment": body.get("environment"),
+                });
+                if let Some(environment) = body.get("environment")
+                    && let Some(environment_id) = environment.get("id").and_then(Value::as_str)
+                {
+                    if let Some(object) = line.as_object_mut() {
+                        object.insert("environment_id".into(), json!(environment_id));
                     }
-                    line
+                    if let Some(setup) = body.get("setup").cloned().or_else(|| {
+                        setup_state(environment, body.get("snapshot").and_then(Value::as_str))
+                    }) && let Some(object) = line.as_object_mut()
+                    {
+                        object.insert("setup".into(), setup);
+                    }
                 }
-                None => refused("bad_answer", "the cmux platform answered without the machine"),
+                line
             }
-        }
+            None => refused("bad_answer", "the cmux platform answered without the machine"),
+        },
         Err(E::Status { status: 404, code: "" | "not_found" }) => {
             refused("unavailable", "this cmux platform has no workspace machines (it answered 404)")
         }
