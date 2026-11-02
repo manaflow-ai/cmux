@@ -81,7 +81,7 @@ export const CloudMachineProviderStateParams = Schema.Struct({
   state: Schema.NullOr(Schema.String),
   // Optional for previously committed observations, which predate the fence.
   observed_revision: Schema.optionalKey(Revision),
-  observed_provider_name: Schema.optionalKey(Schema.String.check(isMinLength(1))),
+  observed_provider_name: Schema.optionalKey(Schema.String),
   observed_transport: Schema.optionalKey(Schema.Literals(["direct", "vm-api"]))
 })
 
