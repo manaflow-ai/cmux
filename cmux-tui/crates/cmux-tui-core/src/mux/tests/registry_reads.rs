@@ -290,4 +290,34 @@ fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
     mux.shutdown();
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
+
+/// Review of #32326: a progress publish that drops the session lock early
+/// must keep the registry connection pinned until its commit, or the
+/// journal writer (which takes only the connection) can commit between
+/// the publish's registry reads and its commit.
+#[test]
+fn a_progress_report_keeps_the_registry_connection_until_its_commit() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let held = Arc::new(Mutex::new(None));
+    let probe = {
+        let mux = Arc::downgrade(&mux);
+        let held = held.clone();
+        Arc::new(move || {
+            let Some(mux) = mux.upgrade() else { return };
+            let free = std::thread::scope(|scope| {
+                scope.spawn(|| mux.registry_connection.try_get().is_some()).join().unwrap()
+            });
+            *held.lock().unwrap() = Some(!free);
+        })
+    };
+    mux.set_state_commit_after_apply_hook_for_test(Some(probe));
+    let published = mux.publish_terminal_progress(&surface, "terminal.progress.test");
+    mux.set_state_commit_after_apply_hook_for_test(None);
+    published.unwrap();
+    assert_eq!(
+        *held.lock().unwrap(),
+        Some(true),
+        "another thread could take the registry connection between the publish's reads and its commit"
+    );
 }

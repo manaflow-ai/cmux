@@ -658,3 +658,174 @@ fn a_kill_all_respawns_the_visible_workspace_first_in_bounded_waves() {
         first_wave.len()
     );
 }
+
+/// A workspace the person selects while the respawns of a kill of everything
+/// still wait in line is the one they now see: its terminal goes first, not
+/// after the waves ahead of it, as the start's adoption gate already does for
+/// a terminal a request waits on.
+///
+/// 8 shells in 8 workspaces, the middle one selected, a kill of everything,
+/// then a restart with 1 slot and each respawn held 1 s in its turn: the
+/// visible terminal holds the only slot. Another workspace is selected at
+/// once; its terminal takes the next free slot, so it respawns about two
+/// holds after the selection (the slot's current hold, then its own; under
+/// 4 here, for slow runners), not after the 7 waves ahead of it.
+#[test]
+fn a_workspace_selected_during_the_respawn_waves_respawns_without_waiting_a_wave() {
+    const TERMINALS: usize = 8;
+    const HOLD_MS: u64 = 1_000;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("respawn-jump");
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({"id": 100 + index, "cmd": "run", "argv": ["/bin/cat"],
+                "new_workspace": true, "name": format!("jump-{index}")}),
+        );
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    let visible_index = TERMINALS / 2;
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 300, "cmd": "select-workspace", "index": visible_index}),
+    );
+    let tree = request(&harness.socket, serde_json::json!({"id": 301, "cmd": "list-workspaces"}));
+    let terminal_at = |index: usize| {
+        let name = tree["workspaces"][index]["name"].as_str().unwrap();
+        terminals[name.trim_start_matches("jump-").parse::<usize>().unwrap()].clone()
+    };
+    let target_index = 0;
+    let target = terminal_at(target_index);
+    assert_ne!(target, terminal_at(visible_index));
+    std::thread::sleep(Duration::from_millis(500));
+
+    harness.signal_daemon(libc::SIGSTOP);
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    harness.sigkill();
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
+    harness.restart();
+    let selected = request(
+        &harness.socket,
+        serde_json::json!({"id": 302, "cmd": "select-workspace", "index": target_index}),
+    );
+    let selected_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+
+    let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    let respawned_ms = loop {
+        let at = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["event"] == "terminal_respawned")
+            .find(|event| event["terminal_id"] == target.as_str())
+            .and_then(|event| event["at_ms"].as_u64());
+        if let Some(at) = at {
+            break at;
+        }
+        assert!(Instant::now() < deadline, "the selected terminal never respawned: {selected}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let waited = respawned_ms.saturating_sub(selected_ms);
+    assert!(
+        waited < 4 * HOLD_MS,
+        "the selected workspace's terminal respawned {waited} ms after its selection; \
+         one hold is {HOLD_MS} ms, so it waited for more than the next slot"
+    );
+}
+
+/// A terminal of the workspace the person sees that dies while hidden
+/// respawns still wait in line takes its ticket while shown: it must still
+/// go first, not after the hidden ones (review of #32288).
+///
+/// 8 shells in 8 workspaces, the target's selected. Every host but the
+/// target's is killed with the daemon; the restart adopts the target and
+/// queues 7 hidden respawns behind 1 slot, each held 1 s. Then the target's
+/// host is killed: its respawn takes the next free slot, so it comes about
+/// two holds later (the slot's current hold, then its own; under 4 here, for
+/// slow runners), not after the hidden queue.
+#[test]
+fn a_shown_terminal_lost_behind_a_respawn_backlog_respawns_without_waiting_for_it() {
+    const TERMINALS: usize = 8;
+    const HOLD_MS: u64 = 1_000;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("respawn-backlog");
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({"id": 100 + index, "cmd": "run", "argv": ["/bin/cat"],
+                "new_workspace": true, "name": format!("backlog-{index}")}),
+        );
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    let target_index = TERMINALS / 2;
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 300, "cmd": "select-workspace", "index": target_index}),
+    );
+    let tree = request(&harness.socket, serde_json::json!({"id": 301, "cmd": "list-workspaces"}));
+    let target_name = tree["workspaces"][target_index]["name"].as_str().unwrap().to_string();
+    let target =
+        terminals[target_name.trim_start_matches("backlog-").parse::<usize>().unwrap()].clone();
+    std::thread::sleep(Duration::from_millis(500));
+
+    harness.signal_daemon(libc::SIGSTOP);
+    let mut target_record = None;
+    for (record_path, record) in &records {
+        if record.terminal_id == target {
+            target_record = Some((record_path.clone(), record.clone()));
+        } else {
+            kill_shell_then_host(record_path, record);
+        }
+    }
+    let (target_path, target_host) = target_record.expect("the target has a host record");
+    harness.sigkill();
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
+    harness.restart();
+    // The target's surviving host is adopted: it runs again.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"cmd":"resolve-terminal","terminal_id":target}),
+        );
+        if resolved["surface"].as_u64().is_some() && resolved["lifecycle"] == "running" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the target was not adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let killed_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+    kill_shell_then_host(&target_path, &target_host);
+
+    let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    let respawned_ms = loop {
+        let at = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["event"] == "terminal_respawned")
+            .find(|event| event["terminal_id"] == target.as_str())
+            .and_then(|event| event["at_ms"].as_u64());
+        if let Some(at) = at {
+            break at;
+        }
+        assert!(Instant::now() < deadline, "the shown terminal never respawned");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let waited = respawned_ms.saturating_sub(killed_ms);
+    assert!(
+        waited < 4 * HOLD_MS,
+        "the shown terminal respawned {waited} ms after its host died; one hold is \
+         {HOLD_MS} ms, so it waited behind the hidden respawns, not for the next slot"
+    );
+}
