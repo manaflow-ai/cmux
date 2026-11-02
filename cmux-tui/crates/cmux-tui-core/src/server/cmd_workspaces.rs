@@ -5,6 +5,7 @@
 use super::workspace_group_json;
 use super::workspace_groups_json;
 use crate::panic_free::JsonFields;
+use cmux_json::JsonSet as _;
 
 use super::MutationRequest;
 use super::list_workspaces_reply;
