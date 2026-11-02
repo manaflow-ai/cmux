@@ -12,7 +12,10 @@
 #include <set>
 #include <string>
 
+#include "devtools_ready.h"
+#include "include/base/cef_callback.h"
 #include "include/cef_command_ids.h"
+#include "include/wrapper/cef_closure_task.h"
 #include "shim_internal.h"
 
 namespace cmux_shim {
@@ -78,16 +81,60 @@ void SelectPanel(CefRefPtr<CefBrowser> devtools, const std::string& panel, bool 
   devtools->GetMainFrame()->ExecuteJavaScript(script, "devtools://cmux/show-panel", 0);
 }
 
-class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKeyboardHandler, public CefLoadHandler {
+// The window that shows DevTools browser's view, when it is a window of its own (a Chromium child window over the
+// host's parent view); nil when the view sits in the parent's own window (never hide that one).
+NSWindow* DevToolsOwnWindow(CefRefPtr<CefBrowser> browser, void* parent_view) {
+  if (!browser) return nil;
+  NSView* view = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
+  NSWindow* window = view.window;
+  NSWindow* parent = parent_view ? ((__bridge NSView*)parent_view).window : nil;
+  if (!window || window == parent) return nil;
+  return window;
+}
+
+// Shows a DevTools window kept invisible until its frontend loaded (DevToolsClient). Reads no parent view: the
+// backstop runs later, when the host view may be gone; an opaque window (the parent's own) stays as it is.
+// The DevTools windows this file made invisible (weak: a closed DevTools' window just leaves).
+NSHashTable<NSWindow*>* HiddenDevToolsWindows() {
+  static NSHashTable<NSWindow*>* table = [NSHashTable weakObjectsHashTable];
+  return table;
+}
+
+void RevealDevTools(CefRefPtr<CefBrowser> browser) {
+  if (!browser) return;
+  NSView* view = (__bridge NSView*)browser->GetHost()->GetWindowHandle();
+  NSWindow* window = view.window;
+  if (!window || ![HiddenDevToolsWindows() containsObject:window]) return;
+  [HiddenDevToolsWindows() removeObject:window];
+  window.alphaValue = 1;
+}
+
+class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKeyboardHandler, public CefLoadHandler,
+                       public CefDisplayHandler {
  public:
-  DevToolsClient(int inspected, bool docked) : inspected_(inspected), docked_(docked) {}
+  DevToolsClient(int inspected, void* parent_view)
+      : inspected_(inspected), docked_(parent_view != nullptr), parent_view_(parent_view) {}
 
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+  CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
+
+  // The frontend's ready marker (devtools_ready.h): it reported loadCompleted and drew a frame since. Not logged.
+  bool OnConsoleMessage(CefRefPtr<CefBrowser> browser, cef_log_severity_t, const CefString& message, const CefString&,
+                        int) override {
+    if (!IsDevToolsReadyMessage(message.ToString())) return false;
+    RevealDevTools(browser);
+    return true;
+  }
 
   void OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int) override {
     if (!frame || !frame->IsMain()) return;
+    if (docked_) {
+      // Relay the frontend's loadCompleted (devtools_ready.h); a frontend that never reports shows after the backstop.
+      frame->ExecuteJavaScript(DevToolsReadyScript(), "devtools://cmux/frontend-ready", 0);
+      CefPostDelayedTask(TID_UI, base::BindOnce(&RevealDevTools, browser), kDevToolsRevealBackstopMs);
+    }
     loaded_frontends().insert(inspected_);
     auto it = pending_panels().find(inspected_);
     if (it != pending_panels().end()) {
@@ -96,7 +143,21 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
     }
   }
 
+  void OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode, const CefString&,
+                   const CefString&) override {
+    if (frame && frame->IsMain()) RevealDevTools(browser);
+  }
+
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
+    // BROWSER VIDEO F1b: until its frontend loaded, a docked (or panel) DevTools paints its document unthemed, white
+    // in a dark theme. As Chrome's DevToolsWindow shows DevTools only after loadCompleted, its window stays
+    // invisible over the pane's themed ground (the host view under it) until the frontend's ready marker.
+    if (docked_) {
+      if (NSWindow* window = DevToolsOwnWindow(browser, parent_view_)) {
+        [HiddenDevToolsWindows() addObject:window];
+        window.alphaValue = 0;
+      }
+    }
     auto& map = devtools_browsers();
     if (map.count(inspected_) == 0) {
       map[inspected_] = browser;
@@ -139,6 +200,7 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
  private:
   int inspected_;
   bool docked_;
+  void* parent_view_;  // NSView*, the host view DevTools docks over; nullptr for Chromium's own window
   IMPLEMENT_REFCOUNTING(DevToolsClient);
 };
 
@@ -163,7 +225,7 @@ void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<C
   }
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
   window_info = info;
-  client = new DevToolsClient(inspected, placement.parent_view != nullptr);
+  client = new DevToolsClient(inspected, placement.parent_view);
   if (use_default_window) {
     // Never a Views-hosted popup: the window info above decides.
     *use_default_window = true;
