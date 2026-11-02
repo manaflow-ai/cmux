@@ -1,5 +1,5 @@
 import AppKit
-@testable import CmuxNextApp
+@testable import CmuxNextFocusUI
 import Testing
 
 @MainActor @Suite(.serialized)

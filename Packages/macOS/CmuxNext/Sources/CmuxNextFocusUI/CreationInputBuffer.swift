@@ -178,6 +178,17 @@ public final class CreationInputBuffer {
         return id
     }
 
+    /// The focused terminal this hold waits to show (``awaitSurface(of:)``); nil for a creation's hold.
+    public private(set) var awaitedTab: String?
+
+    /// The hold waits for the surface of `lane`'s terminal, which the focus names before it shows (a reopened
+    /// window, a workspace shown cold): keys typed while the focus names it are its own, and go to that terminal
+    /// at the hold's end even when its view never came (by the daemon), never to another one (REOPEN-F4).
+    public func awaitSurface(of lane: HeldLane) {
+        awaitedTab = lane.tab
+        _ = adopt(lane)
+    }
+
     /// The terminal lane `id` delivers to; nil for no lane.
     private func heldLane(_ id: Int?) -> HeldLane? { id.flatMap { id in laneTabs[id].map { HeldLane(tab: $0, machine: laneMachines[id]) } } }
 
