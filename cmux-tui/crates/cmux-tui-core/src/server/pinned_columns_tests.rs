@@ -205,10 +205,11 @@ fn pinned_tab_cannot_close_through_the_socket_or_the_resource_api() {
 fn pinned_column_takes_no_new_tab_until_allow_tabs_is_on() {
     let (mut wire, panes) = Wire::home();
     let home = wire.tabs(panes[0])[0];
-    refused(&wire.send(json!({"cmd": "new-tab", "pane": panes[0]})));
+    // A terminal tab aimed at it opens in a new column right of it instead (FC-1); none enters it.
+    wire.ok(json!({"cmd": "new-tab", "pane": panes[0]}));
     let params =
         json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
-    refused(&resource(&wire.mux, "tab.create_terminal", params.clone(), Some("new-in-home")));
+    resource_ok(&resource(&wire.mux, "tab.create_terminal", params.clone(), Some("new-in-home")));
     assert_eq!(wire.tabs(panes[0]), vec![home], "no tab entered the pinned column");
 
     resource_ok(&wire.column_update(json!({"allow_tabs": true})));
@@ -388,22 +389,109 @@ fn a_screens_only_tab_becomes_a_lone_pinned_dock_without_a_respawn() {
     assert_eq!(dock.role, Some(crate::model::DockRole::AgentChat));
 }
 
+/// The screen's columns as (width, pinned), left to right, and the column index holding `pane`.
+fn columns_and_column_of(wire: &Wire, pane: PaneId) -> (Vec<(f32, bool)>, Option<usize>) {
+    wire.mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        let columns = screen
+            .layout_columns
+            .iter()
+            .map(|c| (c.width, c.dock.is_some_and(|d| d.pinned)))
+            .collect();
+        (columns, screen.layout_columns.iter().position(|column| column.root.contains(pane)))
+    })
+}
+
+/// FC-1 (fuzz catalog, 2026-11-01): right after launch, Home's dock is pinned before it takes tabs (`allow_tabs`),
+/// and a terminal tab aimed at it was refused (`dock-column-pinned`): the first New Terminal Tab from a script, the
+/// CLI, MCP, a config command or a login opener failed. A terminal tab aimed at a pinned column that takes no tabs
+/// opens in a new column right of the dock instead, through every terminal-tab entrypoint (the JSON-lines `new-tab`
+/// the app sends and `tab.create_terminal` of the CLI and MCP), whether the dock is alone on its screen or not. The
+/// dock keeps only its pinned tab.
+#[test]
+fn a_terminal_tab_aimed_at_a_pinned_dock_that_takes_no_tabs_opens_in_a_new_column_right_of_it() {
+    let (mut wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let right = wire.tabs(panes[1])[0];
+    wire.ok(json!({"cmd": "close-surface", "surface": right}));
+
+    // Home's dock alone: the app's `new-tab`.
+    let created = wire.ok(json!({"cmd": "new-tab", "pane": panes[0]}));
+    let surface: SurfaceId = serde_json::from_value(created["surface"].clone()).unwrap();
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the dock keeps only its pinned tab");
+    let beside =
+        wire.mux.with_state(|state| state.pane_of(surface)).expect("the new tab has a pane");
+    let (columns, column) = columns_and_column_of(&wire, beside);
+    assert_eq!(columns.len(), 2, "{columns:?}");
+    assert!(columns[0].1, "the dock stays first and pinned: {columns:?}");
+    assert_eq!(columns[1], (crate::mux::LONE_DOCK_NEIGHBOR_WIDTH, false), "{columns:?}");
+    assert_eq!(column, Some(1), "the terminal is in the column right of the dock");
+
+    // With a column beside the dock: a named `tab.create_terminal` (CLI, MCP) aimed at the dock opens a new column
+    // right of it, and keeps its name.
+    let params = json!({
+        "machine": "current", "session": "current", "pane": wire.pane_id(panes[0]), "name": "beside",
+    });
+    let reply =
+        resource(&wire.mux, "tab.create_terminal", params.clone(), Some("terminal-beside-dock"));
+    resource_ok(&reply);
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the dock keeps only its pinned tab: {reply}");
+    let new_pane = newest_pane(&wire, &[panes[0], beside]);
+    let (columns, column) = columns_and_column_of(&wire, new_pane);
+    assert_eq!(columns.len(), 3, "a new column, not a tab in the dock: {columns:?}");
+    assert!(columns[0].1 && !columns[1].1 && !columns[2].1, "{columns:?}");
+    assert_eq!(column, Some(1), "the new column is right of the dock");
+    let named = wire.tabs(new_pane);
+    assert_eq!(named.len(), 1, "it holds the new terminal");
+    let name = wire.mux.with_state(|state| state.surfaces[&named[0]].name());
+    assert_eq!(name.as_deref(), Some("beside"), "the terminal keeps its name");
+
+    // The same request again (a retry with its key) replays, also after the dock took tabs: no conflict, no new tab.
+    resource_ok(&wire.column_update(json!({"allow_tabs": true})));
+    let replay = resource(&wire.mux, "tab.create_terminal", params, Some("terminal-beside-dock"));
+    resource_ok(&replay);
+    assert_eq!(replay["result"]["replayed"], true, "{replay}");
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the replay made no tab in the dock");
+    resource_ok(&wire.column_update(json!({"allow_tabs": false})));
+
+    // `pane.run` and the receipted creation (the TUI, the SDKs) aimed at the dock open beside it too. The test
+    // client negotiates `creation-receipts-v1` first, as the TUI and the SDK clients do.
+    wire.ok(json!({
+        "cmd": "set-client-info", "name": "fc1 receipt test", "kind": "tui",
+        "capabilities": [crate::server::CREATION_RECEIPTS_CAPABILITY],
+    }));
+    let run = json!({
+        "machine": "current", "session": "current", "pane": wire.pane_id(panes[0]), "shell": "true",
+    });
+    resource_ok(&resource(&wire.mux, "pane.run", run, Some("run-beside-dock")));
+    let receipted = wire.ok(json!({
+        "cmd": "create-surface-with-receipt", "operation": "new-tab", "origin": "fc1-test",
+        "receipt": "fc1-receipted-new-tab", "pane": panes[0],
+    }));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the dock keeps only its pinned tab: {receipted}");
+    let (columns, _) = columns_and_column_of(&wire, beside);
+    assert_eq!(columns.len(), 5, "each made its own column: {columns:?}");
+}
+
+/// The pane of `wire`'s first screen that is not in `known`, the newest one.
+fn newest_pane(wire: &Wire, known: &[PaneId]) -> PaneId {
+    let panes = wire.mux.with_state(|state| state.workspaces[0].screens[0].root.pane_ids_vec());
+    let new = panes.iter().copied().filter(|pane| !known.contains(pane)).collect::<Vec<_>>();
+    assert_eq!(new.len(), 1, "one new pane: {panes:?} (known {known:?})");
+    new[0]
+}
+
 /// `pinned-dock-alone-v1`: the pinned dock alone still takes no tab. A
 /// browser tab made in it (an agent's page beside its chat, a conversation
 /// tab) opens in a new column right of it in the same commit, so nothing is
-/// ever left in the dock; a background tab leaves the focus in the dock. A
-/// terminal tab is refused as before.
+/// ever left in the dock; a background tab leaves the focus in the dock. (A
+/// terminal tab opens beside it too, FC-1: the test above.)
 #[test]
 fn a_browser_tab_made_in_a_lone_pinned_dock_opens_in_a_new_column_beside_it() {
     let (mut wire, panes) = Wire::home();
     let home = wire.tabs(panes[0])[0];
     let right = wire.tabs(panes[1])[0];
     wire.ok(json!({"cmd": "close-surface", "surface": right}));
-    let params =
-        json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
-    refused(&resource(&wire.mux, "tab.create_terminal", params, Some("lone-terminal")));
-    assert_eq!(wire.tabs(panes[0]), vec![home], "no terminal entered the dock");
-
     wire.mux.focus_pane(panes[0]);
     let record = crate::workspace_registry::FrontendBrowserRecord {
         engine: "webkit".into(),

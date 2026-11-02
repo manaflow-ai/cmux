@@ -350,7 +350,7 @@ pub use layout_ratio_error::LayoutRatioError;
 pub(crate) use pinned_columns::{
     LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,
     ensure_pinned_tabs_not_closed, lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column,
-    pinned_columns, pinned_dock_tabs,
+    pinned_columns, pinned_dock_tabs, terminal_column_beside_closed_dock,
 };
 pub use presentation::{
     PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
