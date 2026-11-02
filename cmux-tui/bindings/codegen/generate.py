@@ -199,7 +199,8 @@ def main(argv: list[str] | None = None) -> int:
             from . import page_router
             from .swift_app import generate as swift_app
         page_router_status = page_router.main([f"--{mode}"])
-        swift_app_status = swift_app.main([f"--{mode}"])
+        schema_arguments = [] if arguments.schema == DEFAULT_SCHEMA else ["--schema", str(arguments.schema)]
+        swift_app_status = swift_app.main([f"--{mode}", *schema_arguments])
         return page_router_status or swift_app_status
     return 0
 

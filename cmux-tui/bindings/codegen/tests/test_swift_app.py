@@ -384,9 +384,34 @@ class SdkGeneratorHookTests(unittest.TestCase):
 class RepositoryBindingsTests(unittest.TestCase):
     def test_the_repository_bindings_render_against_the_repository_schema(self) -> None:
         bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
+        self.assertTrue(generate.output_root(REPO, bindings).is_dir())
         files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
-        for path in files:
-            self.assertTrue(path.endswith(".generated.swift"), path)
+        self.assertEqual(len(files), sum(
+            len(family.get("enums", {})) + len(family.get("requests", {}))
+            for family in bindings.get("families", {}).values()
+        ))
+
+    def test_the_layout_bindings_render_against_the_repository_schema(self) -> None:
+        """The binding the Layout family will use (backlog A4b) still renders against today's schema."""
+        bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
+        bindings["ids"] = {"column": "ColumnID", "pane": "PaneID", "split": "SplitID", "zoomed_pane": "PaneID"}
+        bindings["types"] = {"RowHeight": "RowHeightValue"}
+        bindings["families"] = {"Layout": {
+            "enums": {"ColumnMoveDirection": {}, "PaneDirection": {}},
+            "requests": {
+                "move-column": {"name": "MoveColumnRequest", "response": "EmptyResponse"},
+                "set-column-dock": {"name": "SetColumnDockRequest", "response": "EmptyResponse"},
+                "set-row-heights": {"name": "SetRowHeightsRequest", "response": "EmptyResponse"},
+                "set-split-ratio": {"name": "SetSplitRatioRequest"},
+                "set-viewport-pane-width": {"name": "SetColumnWidthRequest", "response": "EmptyResponse"},
+                "swap-pane": {"name": "SwapPaneRequest", "fields": {"target": {"type": "PaneID"}}},
+                "undo-layout": {"name": "UndoLayoutRequest", "response": "hand-written"},
+                "zoom-pane": {"name": "ZoomPaneRequest", "response": "generate"},
+            },
+        }}
+        files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
+        self.assertEqual(len(files), 10)
+        self.assertIn('public static let command = "set-viewport-pane-width"', files["Layout/SetColumnWidthRequest.generated.swift"])
 
 
 if __name__ == "__main__":

@@ -3,9 +3,13 @@
 The schema owns the wire: command names, capabilities, field names, which fields are required, nullable or
 optional, enum values and result shapes. bindings.json owns only what the schema cannot say about the Swift
 side: the Swift type name, the typed id (`PaneID`, `SplitID`) an `Id` field carries, the Swift type a schema
-object is bound to, the order of the init's parameters, how the app reads a result, and doc comments. Every
-shape the bindings do not cover is refused with a BindingError, so a schema change cannot quietly produce a
-Swift type nobody chose.
+object is bound to, the order of the init's parameters, how the app reads a result, and doc comments. A type
+the bindings do not cover (an `Id` field with no Swift id type, an object or enum neither bound nor generated,
+a union, a non-empty result with no response binding, a required field gated by a capability) is refused with
+a BindingError, so a schema change cannot quietly produce a Swift type nobody chose. An optional field the
+schema gates by a capability is generated with a doc line naming it; the caller leaves it nil for a daemon
+that does not serve it, as the hand-written types did. Family keys and Swift type names must be plain Swift
+identifiers: they become the output paths.
 
 Wire rules (the same JSON the hand-written types sent):
 - every field has an explicit coding key that is its wire name;
@@ -66,6 +70,7 @@ _REQUEST_KEYS = frozenset({
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol",
 })
 _FIELD_KEYS = frozenset({"name", "type", "doc"})
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class BindingError(ValueError):
@@ -197,6 +202,8 @@ class _Renderer:
         self.families: Mapping[str, Any] = bindings.get("families", {})
         self.enums: dict[str, tuple[str, Mapping[str, Any]]] = {}
         for family, spec in sorted(self.families.items()):
+            if not _IDENTIFIER.fullmatch(family):
+                raise BindingError(f"family {family!r} must be one folder name of letters, digits and _")
             spec = _check_keys(f"families.{family}", spec, _FAMILY_KEYS)
             for name, enum_spec in spec.get("enums", {}).items():
                 _check_keys(f"families.{family}.enums.{name}", enum_spec, _ENUM_KEYS)
@@ -282,6 +289,15 @@ class _Renderer:
             optional = not required or (spec["nullable"] and swift_type != JSON_VALUE)
             doc = list(override.get("doc") or ([spec["description"]] if spec.get("description") else []))
             doc += _constraint_lines(spec.get("constraints", ()))
+            if spec.get("capability"):
+                if required:
+                    raise BindingError(
+                        f"{where}.{wire}: a required field gated by {spec['capability']} has no Swift shape"
+                    )
+                since = f" (protocol {spec['since']})" if spec.get("since") is not None else ""
+                doc.append(
+                    f"Needs `{spec['capability']}`{since}; leave it nil for a daemon that does not serve it."
+                )
             result.append(_Field(
                 wire=wire,
                 name=_escaped(override["name"]) if "name" in override else swift_name(wire),
@@ -302,6 +318,8 @@ class _Renderer:
         seen: set[str] = set()
 
         def add(family: str, name: str, lines: list[str]) -> None:
+            if not _IDENTIFIER.fullmatch(name) or name in _KEYWORDS:
+                raise BindingError(f"{family}: {name!r} is not a Swift type name")
             if name in seen:
                 raise BindingError(f"two bindings generate the Swift type {name}")
             seen.add(name)
