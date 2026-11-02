@@ -26,6 +26,47 @@ pub struct Rect {
     pub h: f64,
 }
 
+impl Rect {
+    pub fn min_x(&self) -> f64 {
+        self.x.min(self.x + self.w)
+    }
+
+    pub fn max_x(&self) -> f64 {
+        self.x.max(self.x + self.w)
+    }
+
+    pub fn min_y(&self) -> f64 {
+        self.y.min(self.y + self.h)
+    }
+
+    pub fn max_y(&self) -> f64 {
+        self.y.max(self.y + self.h)
+    }
+
+    pub fn width(&self) -> f64 {
+        self.w.abs()
+    }
+
+    pub fn height(&self) -> f64 {
+        self.h.abs()
+    }
+
+    /// The same rect with a non-negative size.
+    pub fn standardized(&self) -> Rect {
+        Rect { x: self.min_x(), y: self.min_y(), w: self.width(), h: self.height() }
+    }
+
+    /// `CGRect.intersection`: none when the rects do not meet (`CGRect.null`).
+    pub fn intersection(&self, other: &Rect) -> Option<Rect> {
+        let (min_x, max_x) = (self.min_x().max(other.min_x()), self.max_x().min(other.max_x()));
+        let (min_y, max_y) = (self.min_y().max(other.min_y()), self.max_y().min(other.max_y()));
+        if max_x < min_x || max_y < min_y {
+            return None;
+        }
+        Some(Rect { x: min_x, y: min_y, w: max_x - min_x, h: max_y - min_y })
+    }
+}
+
 /// The facts about one target tab and the windows that could show it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -214,6 +255,123 @@ pub enum Visibility {
 }
 
 /// Where the cursor for `target` draws in `snapshot`.
-pub fn resolve(_target: &str, _snapshot: &Snapshot) -> Visibility {
-    Visibility::NotDrawn { reason: NotDrawnReason::TabClosed }
+pub fn resolve(target: &str, snapshot: &Snapshot) -> Visibility {
+    let Some(tab) = &snapshot.tab else {
+        return Visibility::NotDrawn { reason: NotDrawnReason::TabClosed };
+    };
+    // The front-most window that shows the workspace, else one that lists it.
+    let shows_workspace =
+        |w: &&Window| w.shown_workspace.as_deref() == Some(tab.workspace.as_str());
+    let Some(window) =
+        snapshot.windows.iter().find(shows_workspace).or_else(|| {
+            snapshot.windows.iter().find(|w| w.listed_workspaces.contains(&tab.workspace))
+        })
+    else {
+        return Visibility::NotDrawn { reason: NotDrawnReason::NotInAnyWindow };
+    };
+    // CURSOR-SCREENS: another display draws; minimized or another Space does not.
+    if window.minimized {
+        return Visibility::NotDrawn { reason: NotDrawnReason::Minimized };
+    }
+    if !window.on_active_space {
+        return Visibility::NotDrawn { reason: NotDrawnReason::OtherSpace };
+    }
+    if window.shown_workspace.as_deref() != Some(tab.workspace.as_str()) {
+        return workspace_anchor(&tab.workspace, window);
+    }
+    let pane = window.panes.iter().find(|p| p.id == tab.pane);
+    let Some((pane, frame, clip)) = pane.and_then(|p| Some((p, p.frame?, p.clip?))) else {
+        // The pane is not on the active screen of the workspace.
+        return hidden(&window.id, Anchor::WindowEdge, window_edge(&window.overlay));
+    };
+    if !shows(&frame, &clip) {
+        return column_edge(&frame, &clip, &window.id);
+    }
+    let page = match (&pane.selected_tab, &pane.page) {
+        (Some(selected), Some(page)) if selected == target => page,
+        // A background tab (or a selected page not laid out yet): its chip.
+        _ => return chip_anchor(target, pane, &clip, &window.id),
+    };
+    let viewport = page.viewport;
+    if !shows(&viewport, &clip) {
+        return column_edge(&viewport, &clip, &window.id);
+    }
+    Visibility::Visible {
+        window: window.id.clone(),
+        viewport: viewport.standardized(),
+        clip: overlap(&viewport, &clip),
+        zoom: page.zoom,
+        scale: page.scale.unwrap_or(1.0),
+    }
+}
+
+fn hidden(window: &str, anchor: Anchor, rect: Rect) -> Visibility {
+    Visibility::Hidden { window: window.to_owned(), anchor, rect: rect.standardized() }
+}
+
+/// The part of `rect` in `clip`; only called after [`shows`] said they meet.
+fn overlap(rect: &Rect, clip: &Rect) -> Rect {
+    rect.intersection(clip).unwrap_or_else(|| clip.standardized())
+}
+
+/// Another workspace of the window: its sidebar row, else the window edge.
+fn workspace_anchor(workspace: &str, window: &Window) -> Visibility {
+    match window.sidebar_rows.get(workspace) {
+        Some(row) if !window.sidebar_hidden => hidden(&window.id, Anchor::WorkspaceRow, *row),
+        _ => hidden(&window.id, Anchor::WindowEdge, window_edge(&window.overlay)),
+    }
+}
+
+fn chip_anchor(target: &str, pane: &Pane, clip: &Rect, window: &str) -> Visibility {
+    if let Some(chip) = pane.chips.get(target).filter(|chip| shows(chip, clip)) {
+        return hidden(window, Anchor::TabChip, overlap(chip, clip));
+    }
+    if let Some(strip) = pane.strip.filter(|strip| shows(strip, clip)) {
+        return hidden(window, Anchor::TabStrip, overlap(&strip, clip));
+    }
+    let frame = pane.frame.unwrap_or(*clip);
+    hidden(window, Anchor::TabStrip, overlap(&frame, clip))
+}
+
+/// The strip edge on the side `rect` left `clip` through.
+fn column_edge(rect: &Rect, clip: &Rect, window: &str) -> Visibility {
+    let t = EDGE_THICKNESS;
+    let side = if rect.max_x() <= clip.min_x() + 0.5 {
+        Edge::Leading
+    } else if rect.min_x() >= clip.max_x() - 0.5 {
+        Edge::Trailing
+    } else if rect.max_y() <= clip.min_y() + 0.5 {
+        Edge::Top
+    } else {
+        Edge::Bottom
+    };
+    let anchor = match side {
+        Edge::Leading | Edge::Trailing => {
+            let (min_y, max_y) = span(rect.min_y(), rect.max_y(), clip.min_y(), clip.max_y());
+            let x = if side == Edge::Leading { clip.min_x() } else { clip.max_x() - t };
+            Rect { x, y: min_y, w: t, h: max_y - min_y }
+        }
+        Edge::Top | Edge::Bottom => {
+            let (min_x, max_x) = span(rect.min_x(), rect.max_x(), clip.min_x(), clip.max_x());
+            let y = if side == Edge::Top { clip.min_y() } else { clip.max_y() - t };
+            Rect { x: min_x, y, w: max_x - min_x, h: t }
+        }
+    };
+    hidden(window, Anchor::ColumnEdge(side), anchor)
+}
+
+/// The overlapping range of two intervals, or the second interval when they
+/// do not overlap.
+fn span(a0: f64, a1: f64, b0: f64, b1: f64) -> (f64, f64) {
+    let (lo, hi) = (a0.max(b0), a1.min(b1));
+    if hi > lo { (lo, hi) } else { (b0, b1) }
+}
+
+fn window_edge(overlay: &Rect) -> Rect {
+    Rect { x: overlay.min_x(), y: overlay.min_y(), w: EDGE_THICKNESS, h: overlay.height() }
+}
+
+/// At least half a point of `rect` lies in `clip` on both axes.
+fn shows(rect: &Rect, clip: &Rect) -> bool {
+    rect.intersection(clip).is_some_and(|o| o.w > 0.5 && o.h > 0.5)
 }
