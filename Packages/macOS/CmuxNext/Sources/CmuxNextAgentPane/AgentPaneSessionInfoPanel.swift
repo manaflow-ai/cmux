@@ -1,24 +1,24 @@
 import AppKit
 import CmuxNextDesign
 
-/// The chat's Session Info, drawn by the App (``AgentPaneSessionInfo``): the shared overlay glass
-/// floating over the agent pane at its right, from under the header to the pane's foot (Leo,
+/// The chat's Session Info, drawn by the App (``AgentPaneSessionInfo``): its content on the pane's
+/// own glass, with no card, fill or rounded surface behind it (Leo, 2026-11-01: "why is the
+/// background STILL not removed"), at the agent pane's right, from under the header to the pane's foot (Leo,
 /// 2026-10-26: "you still haven't done the full-length thing"). It floats: it never takes a column
 /// and never moves the chat's layout; the page supplies the current push or overlay geometry. No close button and no band at its top:
 /// its header toggle and Esc close it. Its left edge drags its width.
 final class AgentPaneSessionInfoPanel: NSView {
     let store: AgentPaneSessionInfoStore
-    private let glass: OverlaySurfaceView
+    private let content: AgentPaneSessionInfoContent
     private let edge = AgentPaneSessionInfoEdge()
 
     init(store: AgentPaneSessionInfoStore) {
         self.store = store
-        let content = AgentPaneSessionInfoContent(store: store)
-        glass = Glass.makeOverlayPanel(content: content)
+        content = AgentPaneSessionInfoContent(store: store)
         super.init(frame: .zero)
-        glass.translatesAutoresizingMaskIntoConstraints = true
-        glass.autoresizingMask = [.width, .height]
-        addSubview(glass)
+        content.translatesAutoresizingMaskIntoConstraints = true
+        content.autoresizingMask = [.width, .height]
+        addSubview(content)
         edge.autoresizingMask = [.height, .maxXMargin]
         addSubview(edge)
         edge.onDrag = { [weak self] delta, ended in self?.store.drag(by: delta, ended: ended) }
@@ -36,7 +36,7 @@ final class AgentPaneSessionInfoPanel: NSView {
 
     override func layout() {
         super.layout()
-        glass.frame = bounds
+        content.frame = bounds
         edge.frame = CGRect(x: 0, y: 0, width: AgentPaneSessionInfoEdge.width, height: bounds.height)
     }
 
