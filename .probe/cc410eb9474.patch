@@ -1,0 +1,131 @@
+diff --git a/webviews/src/agent-session/acpmux/conversation/TranscriptRowAlignment.gallery.ts b/webviews/src/agent-session/acpmux/conversation/TranscriptRowAlignment.gallery.ts
+index ca14854c5328..eb27f3f82c1e 100644
+--- a/webviews/src/agent-session/acpmux/conversation/TranscriptRowAlignment.gallery.ts
++++ b/webviews/src/agent-session/acpmux/conversation/TranscriptRowAlignment.gallery.ts
+@@ -114,7 +114,7 @@ export default agentPaneEntry({
+       documentAttributes: { "transcript-status-gap": "off" },
+     },
+     footer: {
+-      note: "The pointer on the first turn's footer: the copy glyph starts on the reply's left edge, as Codex and Claude draw it, and Worked for starts there too.",
++      note: "The pointer on the first turn's footer: the copy glyph starts on the reply's left edge, as Codex and Claude draw it, with Worked for after the buttons.",
+       snapshot,
+       play: revealFooter,
+     },
+diff --git a/webviews/src/agent-session/acpmux/conversation/TurnFooter.test.tsx b/webviews/src/agent-session/acpmux/conversation/TurnFooter.test.tsx
+index fc569afbf989..a559e8cc2186 100644
+--- a/webviews/src/agent-session/acpmux/conversation/TurnFooter.test.tsx
++++ b/webviews/src/agent-session/acpmux/conversation/TurnFooter.test.tsx
+@@ -36,6 +36,16 @@ test("a 5 s turn still says Worked for 5s", () => {
+   expect(renderToStaticMarkup(<TurnFooter row={row} />)).toContain("Worked for 5s");
+ });
+ 
++// Leo, 2026-11-02, on "Worked for" drawn in front of Copy: "this should not be placed in front of
++// the copy/whatever buttons. those buttons should always just be there left aligned".
++test("the buttons lead the footer row; Worked for comes after them", () => {
++  const markup = renderToStaticMarkup(<TurnFooter row={footer({ durationMs: 5_000, text: "Done." })} />);
++  const group = markup.indexOf("cv-turn-action-group");
++  expect(group).toBeGreaterThan(-1);
++  expect(markup.indexOf("Copy")).toBeGreaterThan(group);
++  expect(markup.indexOf("cv-turn-summary")).toBeGreaterThan(markup.indexOf("Copy"));
++});
++
+ test("a turn stopped within a second still says it stopped", () => {
+   expect(footerLabel(t, footer({ durationMs: 400, status: "cancelled" }))).toBe("You stopped after 0s");
+ });
+diff --git a/webviews/src/agent-session/acpmux/conversation/TurnRows.tsx b/webviews/src/agent-session/acpmux/conversation/TurnRows.tsx
+index a794860c99eb..7200195a7ad7 100644
+--- a/webviews/src/agent-session/acpmux/conversation/TurnRows.tsx
++++ b/webviews/src/agent-session/acpmux/conversation/TurnRows.tsx
+@@ -394,33 +394,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
+         }
+       >
+         <MessageFooterRow className="cv-turn-footer-row">
+-          {!messages && label && (
+-            <span className="cv-turn-summary">
+-              {label}
+-              {hasTokens(row.tokens) && (
+-                <>
+-                  <span className="cv-worked__sep" aria-hidden="true">
+-                    {" · "}
+-                  </span>
+-                  <TurnTokens split={row.tokens} />
+-                </>
+-              )}
+-            </span>
+-          )}
+-          {resumable && (
+-            <button
+-              type="button"
+-              className="cv-iconbtn cv-turn-continue"
+-              disabled={resuming}
+-              onClick={() => {
+-                setResuming(true);
+-                void resume().finally(() => setResuming(false));
+-              }}
+-            >
+-              {t("turn.continue")}
+-              <ArrowRight size={ROW_ICON} aria-hidden="true" />
+-            </button>
+-          )}
+           <span className="cv-turn-action-group">
+             {!messages && copy && <MessageCopy text={copy} />}
+             {failedRetry && (
+@@ -461,6 +434,33 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
+               </button>
+             )}
+           </span>
++          {!messages && label && (
++            <span className="cv-turn-summary">
++              {label}
++              {hasTokens(row.tokens) && (
++                <>
++                  <span className="cv-worked__sep" aria-hidden="true">
++                    {" · "}
++                  </span>
++                  <TurnTokens split={row.tokens} />
++                </>
++              )}
++            </span>
++          )}
++          {resumable && (
++            <button
++              type="button"
++              className="cv-iconbtn cv-turn-continue"
++              disabled={resuming}
++              onClick={() => {
++                setResuming(true);
++                void resume().finally(() => setResuming(false));
++              }}
++            >
++              {t("turn.continue")}
++              <ArrowRight size={ROW_ICON} aria-hidden="true" />
++            </button>
++          )}
+           {!messages && <MessageTime at={row.at} className="cv-turn-time" />}
+         </MessageFooterRow>
+       </div>
+diff --git a/webviews/src/agent-session/acpmux/conversation/conversation.css b/webviews/src/agent-session/acpmux/conversation/conversation.css
+index c361d3a92f41..c86d3f85bc22 100644
+--- a/webviews/src/agent-session/acpmux/conversation/conversation.css
++++ b/webviews/src/agent-session/acpmux/conversation/conversation.css
+@@ -3659,7 +3659,7 @@ a.cv-sha:focus-visible {
+   display: none;
+ }
+ /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
+-   right edge, the actions after the time. */
++   right edge. */
+ :root[data-turn-actions-placement="right"] .cv-turn-actions {
+   justify-content: flex-end;
+   padding-inline: 0 2px;
+@@ -3674,8 +3674,9 @@ a.cv-sha:focus-visible {
+ }
+ /* The row's first glyph starts where the reply's text does, as Codex's and Claude's copy glyph does
+    (Leo, 2026-10-30: "WE NEED TO LINE OUR SHIT UP LIKE THEIRS"; design/grid.md 5.5, the action row's
+-   first glyph on col-left): its 24px button overhangs the column by the glyph's inset, 4px. A
+-   footer that says its time first ("Worked for 5s") starts that label on the column instead. */
++   first glyph on col-left): its 24px button overhangs the column by the glyph's inset, 4px. The
++   buttons always lead the row; "Worked for 5s" and Continue come after them (Leo, 2026-11-02:
++   "those buttons should always just be there left aligned"). */
+ .cv-reply-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
+ .cv-turn-actions .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
+   margin-inline-start: calc((var(--cv-glyph-slot) - var(--cv-meta-row)) / 2);

@@ -1,0 +1,64 @@
+diff --git a/webviews/src/agent-session/acpmux/App.tsx b/webviews/src/agent-session/acpmux/App.tsx
+index f7be20a934a0..da39a9831126 100644
+--- a/webviews/src/agent-session/acpmux/App.tsx
++++ b/webviews/src/agent-session/acpmux/App.tsx
+@@ -2114,6 +2114,7 @@ const RowFrame = React.memo(function RowFrame({
+   replyActions,
+   status,
+   lastFooter,
++  finalFooter,
+   continuationFooter,
+   lastTurn,
+   index,
+@@ -2151,6 +2152,10 @@ const RowFrame = React.memo(function RowFrame({
+   status: StatusEdge | undefined;
+   /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
+   lastFooter: boolean;
++  /// The footer that ends the chat (nothing drawn after it): its turn has ended, so its Copy row
++  /// shows without a hover (Leo, 2026-11-02: "i should be able to see the copy buttons on your
++  /// responses when your things end").
++  finalFooter: boolean;
+   /// The next drawn turn belongs to this same assistant: half the normal turn gap.
+   continuationFooter: boolean;
+   /// The final row of a latest turn without a footer: preserve the normal turn gap at the composer.
+@@ -2260,7 +2265,7 @@ const RowFrame = React.memo(function RowFrame({
+       id={rowDomId(row.id)}
+       data-row-id={row.id}
+       data-row-card={row.ended ? "true" : undefined}
+-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
++      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+       data-transcript-active={active ? "true" : undefined}
+       data-transcript-selected={selected ? "true" : undefined}
+       aria-current={active ? "true" : undefined}
+@@ -5401,6 +5406,7 @@ export function VirtualTranscript({
+                       replyActions={keepsReplyRoom(row, next)}
+                       status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
+                       lastFooter={isLastFooter(row, next)}
++                      finalFooter={row.kind === "turnSummary" && !next}
+                       continuationFooter={isContinuationFooter(row, next)}
+                       lastTurn={row.lastTurn === true}
+                       index={absoluteIndex}
+diff --git a/webviews/src/agent-session/acpmux/conversation/conversation.css b/webviews/src/agent-session/acpmux/conversation/conversation.css
+index c86d3f85bc22..6ba0469ec9bc 100644
+--- a/webviews/src/agent-session/acpmux/conversation/conversation.css
++++ b/webviews/src/agent-session/acpmux/conversation/conversation.css
+@@ -3785,7 +3785,8 @@ a.cv-sha:focus-visible {
+   font-variant-numeric: tabular-nums;
+ }
+ /* Hidden, its space kept, but for a failed turn, the turn the reader points at (data-turn-revealed,
+-   VirtualTranscript) or keyboard focus. */
++   VirtualTranscript), keyboard focus, or the turn that ends the chat (App.tsx `acpmux-row--final-footer`):
++   once the agent is done its Copy shows without a hover, as Claude's and ChatGPT's (Leo, 2026-11-02). */
+ .acpmux-turnSummary .cv-turn-actions {
+   opacity: 0;
+ }
+@@ -3795,7 +3796,8 @@ a.cv-sha:focus-visible {
+ .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
+ .acpmux-turnSummary .cv-turn-actions:focus-within,
+ .acpmux-turnSummary .cv-turn-actions--failed,
+-.acpmux-turnSummary .cv-turn-actions--resumable {
++.acpmux-turnSummary .cv-turn-actions--resumable,
++.acpmux-row--final-footer .cv-turn-actions {
+   opacity: 1;
+ }
+ /* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
