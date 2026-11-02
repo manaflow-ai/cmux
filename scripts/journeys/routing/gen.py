@@ -87,14 +87,17 @@ def filmed(case, n, attempt_steps):
         [{"do": "video_stop", "name": name, "tail": 0.6}]
 
 
-def journey(ident, title, why, steps, budget):
+def journey(ident, title, why, steps, budget, key_path="real"):
+    """KEY_PATH "real": real HID keys (CuaDriver); "debug.key": the app's debug.key, the smoke gate's own key path in
+    its debug.key rounds (the -dk journeys: no CuaDriver, so any mini)."""
     if not FILM:
         ident, title = ident + "-nf", title + " (no film: the verdict is the app's and the daemon's state)"
     # Each filmed attempt adds the recorder's start (frames must come), its 0.6 s tail and the file write.
     budget += 12 * sum(1 for st in steps if st.get("do") == "video_start")
     return {"id": ident, "priority": "P1", "title": title, "why": why,
             "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
-            "budget_seconds": budget, "options": {"key_path": "real"}, "continue_not_judged": True,
+            "budget_seconds": budget, "options": {"key_path": "real"} if key_path == "real" else {},
+            "continue_not_judged": True,
             "finally": FINALLY, "steps": HEAD + steps}
 
 
@@ -210,6 +213,12 @@ def cases(attempts):
     out.append(journey("routing-smoke-seq", "Routing H: the smoke gate's sequence, 3 x (Cmd-N, Ctrl-`, a line at once); "
                        "each line runs in its own new terminal", "the 1-in-7 failure of smoke step 16 before #30827 "
                        "(STATUS 4124, 4288)", steps, 120))
+    # H-dk: the same sequence on debug.key, the key path of the smoke gate round that saw the held Ctrl-` (STATUS
+    # 3967, round 2): real HID keys take 100+ ms a call, so the B and H rounds may type too slowly to meet the race.
+    out.append(journey("routing-smoke-seq-dk", "Routing H-dk: the smoke gate's sequence on debug.key, 3 x (Cmd-N, "
+                       "Ctrl-`, a line at once); each line runs in its own new terminal", "the 1-in-7 held Ctrl-` of "
+                       "smoke step 12/16 before #30827 came in a debug.key round (STATUS 3967)", steps, 120,
+                       key_path="debug.key"))
     return out
 
 

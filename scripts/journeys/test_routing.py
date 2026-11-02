@@ -159,5 +159,57 @@ class WorkspaceKeyMapTests(unittest.TestCase):
         self.assertEqual(pressed[:4], [1, 2, 3, 4])
 
 
+class TypeNowKeyPathTests(unittest.TestCase):
+    """routing_type_now: with no key_path=real (the -dk journeys) every key goes through debug.key into the journey's
+    key window at once and its handled_by is recorded; CuaDriver is never called."""
+
+    def test_debug_key_path_types_every_key_into_the_key_window(self):
+        sent = []
+
+        class Fake:
+            spec = {"options": {}}
+            key_window = "win1"
+            hold_from = 1.0
+
+            class app:
+                @staticmethod
+                def rpc(method, params=None):
+                    if method == "debug.window_list":
+                        return {"windows": [{"id": "win1", "kind": "main", "key": True, "visible": True}]}
+                    return {"windows": [{"model": {"resolved": "terminal"}}]}
+
+            def sub(self, text):
+                return text
+
+            def key(self, key, mods, window):
+                sent.append((key, tuple(mods), window))
+                return {"handled_by": "app" if key == "e" else "responder"}
+
+        saved_rk = ext_routing._realkey
+        ext_routing._realkey = lambda: (_ for _ in ()).throw(AssertionError("CuaDriver called on the debug.key path"))
+        saved_d = ext_routing.D
+        ext_routing.install(D)
+        try:
+            j = Fake()
+            rec = ext_routing.step_routing_type_now(j, {"text": "echo x"})
+        finally:
+            ext_routing._realkey, ext_routing.D = saved_rk, saved_d
+        self.assertEqual([k for k, _m, _w in sent], list("echo x") + ["return"])
+        self.assertTrue(all(w == "win1" and m == () for _k, m, w in sent))
+        self.assertEqual(rec["key_path"], "debug.key")
+        self.assertEqual(rec["keys"], 7)
+        self.assertEqual(rec["held_keys"], 1)
+        self.assertEqual(rec["focus_resolved"], "terminal")
+        self.assertIsNone(j.hold_from)
+
+    def test_dk_journey_is_the_h_sequence_without_real_keys(self):
+        import json
+        base = json.loads((HERE / "journeys/dogfood/routing-smoke-seq-nf.json").read_text())
+        dk = json.loads((HERE / "journeys/dogfood/routing-smoke-seq-dk-nf.json").read_text())
+        self.assertEqual(base["options"], {"key_path": "real"})
+        self.assertEqual(dk["options"], {})
+        self.assertEqual(dk["steps"], base["steps"])
+
+
 if __name__ == "__main__":
     unittest.main()

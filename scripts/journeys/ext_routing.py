@@ -254,10 +254,10 @@ def step_routing_type_now(j, step):
     """TEXT and Return as real HID keys at once, like smoke_type_now, but it never refuses: a person's keys go
     wherever the app has the keyboard, so the routing check must see where they land. It records which window was
     key when the first key went out (debug.windows: a New Tab page's child Chromium window, a panel) and the
-    debug.focus model, for the finding. Real keys only (key_path=real)."""
-    if (j.spec.get("options") or {}).get("key_path") != "real":
-        raise D.NotRun("routing_type_now: real keys only (journey option key_path=real)")
-    sm, rk = _smoke(), _realkey()
+    debug.focus model, for the finding. Without key_path=real (the routing-*-dk journeys) the keys go through
+    debug.key into the journey's key window, the path the dogfood smoke gate's debug.key rounds took when it saw the
+    1-in-7 held Ctrl-` (STATUS 3967): no HID wait between the keys, and each key's `handled_by` is recorded."""
+    sm = _smoke()
     key_now, windows = sm._main_key(j)
     try:
         focus = (j.app.rpc("debug.focus") or {}).get("windows", [{}])[0].get("model", {}).get("resolved")
@@ -265,6 +265,15 @@ def step_routing_type_now(j, step):
         focus = None
     text = j.sub(step["text"])
     j.hold_from = None
+    if (j.spec.get("options") or {}).get("key_path") != "real":
+        sent = D.now()
+        replies = [j.key(ch, [], j.key_window) for ch in text] + [j.key("return", [], j.key_window)]
+        paths = [str(r.get("handled_by")) if isinstance(r, dict) else "?" for r in replies]
+        return {"typed": text, "keys": len(replies), "at": round(sent, 4), "send_ms": round((D.now() - sent) * 1000, 1),
+                "key_path": "debug.key", "handled_by": paths, "held_keys": paths.count("app"),
+                "main_window_key": key_now, "focus_resolved": focus,
+                "key_windows": [w for w in windows if w.get("key") is True]}
+    rk = _realkey()
     rk.require_front(j)
     sent = D.now()
     for ch in text:
