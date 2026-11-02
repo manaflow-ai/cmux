@@ -40,16 +40,18 @@ extension MacInstallIdentity {
         // Validate caller selectors before token minting or any read.
         _ = try NativeDeviceScope(team: team, tenant: "selector", mesh: mesh ?? "mesh_" + String(repeating: "0", count: 26))
         let context = try await nativeContext(team: team)
-        let body = try JSONEncoder().encode(NativeNetworkTargetCall(params: .init(mesh: mesh)))
-        let reply = try await nativeOwnerRead(body, context: context)
+        // The platform serves this read on its own route (cmux-platform NativeNetwork.ts), not as an op on
+        // /v1/read: TeamDO answers that with "unknown read host.network.target". The mesh is a validated
+        // NativeMeshId (above), so it needs no escaping.
+        let reply = try await nativeOwnerGet(mesh.map { "/v1/host/network/target?mesh=\($0)" } ?? "/v1/host/network/target",
+                                             context: context)
         guard reply.status == 200, reply.body.count <= 1_048_576 else {
             // validation.invalid here is a tenant with more than one mesh; selector.not_found is none.
             NativeNetworkRefusal.log("host.network.target", status: reply.status, body: reply.body)
             throw NativeDeviceEnrollmentError.refused(reply.status)
         }
-        let decoded = try JSONDecoder().decode(NativeNetworkTargetEnvelope.self, from: reply.body)
-        guard decoded.op == "host.network.target" else { throw NativeDeviceEnrollmentError.invalidIdentity }
-        let target = try NativeNetworkTarget(decoded.value, team: team, mesh: mesh, context: context)
+        let decoded = try JSONDecoder().decode(NativeNetworkTargetReply.self, from: reply.body)
+        let target = try NativeNetworkTarget(decoded, team: team, mesh: mesh, context: context)
         try await nativeCheck(context)
         return target
     }
@@ -76,6 +78,3 @@ struct NativeNetworkRefusal: Decodable {
             .error("\(step, privacy: .public) refused \(status): \(code, privacy: .public): \(message, privacy: .public)")
     }
 }
-private struct NativeNetworkTargetEnvelope: Decodable { let op: String; let value: NativeNetworkTargetReply }
-private struct NativeNetworkTargetParams: Encodable { let mesh: String? }
-private struct NativeNetworkTargetCall: Encodable { let op = "host.network.target"; let params: NativeNetworkTargetParams }
