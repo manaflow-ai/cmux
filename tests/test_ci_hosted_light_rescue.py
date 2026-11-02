@@ -27,7 +27,7 @@ def run(run_id: int, *, event: str = "pull_request", attempt: int = 1, head: str
         status: str = "in_progress", workflow: str = "pr-checks.yml") -> dict:
     return {"id": run_id, "event": event, "run_attempt": attempt, "status": status, "head_sha": head,
             "head_branch": f"lane/{run_id}", "created_at": ago(600), "path": f".github/workflows/{workflow}",
-            "pull_requests": [] if pr_head is None else [{"head": {"sha": pr_head}}]}
+            "pull_requests": [] if pr_head is None else [{"number": run_id, "head": {"sha": pr_head}}]}
 
 
 def job(name: str, *, status: str = "queued", labels=("ubuntu-24.04",), runner_id=0, waited: float = 400) -> dict:
@@ -42,14 +42,24 @@ class Fake:
         self.settles_after, self.cancel_error = settles_after, cancel_error
         self.calls: list[tuple] = []
         self.reads: dict[int, int] = {}
+        self.heads: dict[int, str | None] = {}
+        self.second_jobs: dict[int, list[dict]] = {}
+        self.job_reads: dict[int, int] = {}
 
     def runs(self, workflow, status, start, end):
         self.calls.append(("runs", workflow, status))
         return [r for r in self.runs_by_workflow.get(workflow, []) if r["status"] == status]
 
     def jobs(self, run_id):
-        self.calls.append(("jobs", run_id))
+        self.job_reads[run_id] = self.job_reads.get(run_id, 0) + 1
+        if self.job_reads[run_id] == 1:
+            self.calls.append(("jobs", run_id))
+        elif run_id in self.second_jobs:
+            return self.second_jobs[run_id]
         return self.jobs_by_run.get(run_id, [])
+
+    def pull_head(self, number):
+        return self.heads.get(number, HEAD)
 
     def run(self, run_id):
         self.reads[run_id] = self.reads.get(run_id, 0) + 1
@@ -151,6 +161,20 @@ class Sweep(unittest.TestCase):
         lines = sweep(fake)
         self.assertEqual(mutations(fake), [("cancel", 7)])
         self.assertTrue(any("cancel refused" in line for line in lines))
+
+    def test_a_pull_request_that_moved_on_is_not_cancelled(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake.heads[7] = "d" * 40
+        lines = sweep(fake)
+        self.assertEqual(mutations(fake), [])
+        self.assertTrue(any("moved past" in line for line in lines))
+
+    def test_a_job_a_runner_took_after_the_read_is_not_cancelled(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake.second_jobs[7] = [job("PR size", status="in_progress", runner_id=1000292999)]
+        lines = sweep(fake)
+        self.assertEqual(mutations(fake), [])
+        self.assertTrue(any("since the read" in line for line in lines))
 
     def test_a_dry_run_mutates_nothing(self):
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})

@@ -129,11 +129,17 @@ class GitHub:
         return json.loads(body) if body.strip() else {}
 
     def runs(self, workflow: str, status: str, start: dt.datetime, end: dt.datetime) -> list[dict[str, Any]]:
-        query = urllib.parse.urlencode({"status": status, "per_page": 100, "created": f"{iso(start)}..{iso(end)}"})
+        # Filtered to pull_request runs server-side, so push and dispatch runs never fill the one page.
+        query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100,
+                                        "created": f"{iso(start)}..{iso(end)}"})
         return list(self.request("GET", f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or [])
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
         return list(self.request("GET", f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs") or [])
+
+    def pull_head(self, number: int) -> str | None:
+        pull = self.request("GET", f"/pulls/{number}")
+        return pull.get("head", {}).get("sha") if pull.get("state") == "open" else None
 
     def run(self, run_id: int) -> dict[str, Any]:
         return self.request("GET", f"/actions/runs/{run_id}")
@@ -220,6 +226,22 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         if dry_run:
             lines.append(f"{where}: {names} stalled; would cancel and re-run its failed jobs (dry run)")
             rescued += 1
+            continue
+        # Right before the cancel: the pull request is still open at this head, and nothing has started since the
+        # jobs were read (a runner may have taken the stalled job meanwhile).
+        try:
+            numbers = [pr["number"] for pr in run.get("pull_requests") or ()
+                       if isinstance(pr, Mapping) and isinstance(pr.get("number"), int)]
+            live_head = any(client.pull_head(number) == run.get("head_sha") for number in numbers)
+            again, _ = verdict(client.jobs(run["id"]), now) if live_head else ("none", [])
+        except Exception as error:  # noqa: BLE001 - unread means unknown: leave the run
+            lines.append(f"{where}: could not re-read before the cancel ({error}); left alone")
+            continue
+        if not live_head:
+            lines.append(f"{where}: the pull request moved past this head or closed; left alone")
+            continue
+        if again != "rescue":
+            lines.append(f"{where}: a job started or finished since the read; left alone")
             continue
         try:
             client.cancel(run["id"])
