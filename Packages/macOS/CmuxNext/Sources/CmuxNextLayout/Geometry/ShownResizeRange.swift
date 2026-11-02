@@ -53,9 +53,11 @@ public nonisolated struct ShownResizeRange {
         // Permille as placed: a filled stack scales every row by 1000 / sum.
         let scale = fills && sum > 0 ? Double(sum) / 1000 : 1
         func floor(_ row: LayoutRow) -> Int {
+            // Rounded UP from the exact inverse of `pixelHeight` (not from `permille(forPixelHeight:)`, which rounds to the
+            // nearest): a permille below this shows at the minimum, so a press there would move nothing.
             let points = SplitGeometry.minimumSize(of: row.root, style: style).height
-            let placed = Double(RowStackGeometry.permille(forPixelHeight: points, columnHeight: stack.frame.height, gap: stack.gap))
-            return max(LayoutRow.heightRange.lowerBound, Int((placed * scale).rounded(.up)))
+            let exact = Double((points + stack.gap) / (stack.frame.height + stack.gap)) * 1000 * scale
+            return max(LayoutRow.heightRange.lowerBound, Int((exact - 1e-9).rounded(.up)))
         }
         let step = Int((delta * 1000 * scale).rounded())
         guard step != 0 else { return nil }
