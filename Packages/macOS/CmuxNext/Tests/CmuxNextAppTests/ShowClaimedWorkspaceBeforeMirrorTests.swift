@@ -55,4 +55,30 @@ struct ShowClaimedWorkspaceBeforeMirrorTests {
         #expect(controller.workspaceContent?.workspace.key?.rawValue == "new-ws",
                 "the window shows \(controller.workspaceContent?.workspace.key?.rawValue ?? "nothing") after the store listed the new workspace")
     }
+
+    /// A create that fails while its window waits for it gives the window back: it shows its first workspace
+    /// again (review of #32053: the claim went, and nothing showed the window again).
+    @Test func aWindowWaitingForAWorkspaceWhoseCreateFailedShowsItsFirstWorkspace() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        let store = services.machines.local.store
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: Self.tree(["home-ws"]))
+        let controller = try #require(services.windows.openWindow(workspaces: ["home-ws"], frame: CGRect(x: 200, y: 200, width: 900, height: 600)))
+        defer {
+            controller.teardown()
+            controller.window?.close()
+        }
+        for _ in 0..<200 where controller.state.workspaceID != "home-ws" { try await Task.sleep(for: .milliseconds(10)) }
+        services.windows.claimNew(workspaceID: "new-ws", window: controller.state.id)
+        services.windows.show(workspaceID: "new-ws", in: controller.state)
+        try #require(controller.state.workspaceID == "new-ws", "the window does not wait for the claimed workspace")
+        _ = services.windows.createFailed("new-ws", DaemonError.notConnected)
+        #expect(controller.state.workspaceID == "home-ws", "the window still waits for a workspace whose create failed")
+        #expect(controller.workspaceContent?.workspace.key?.rawValue == "home-ws")
+    }
 }

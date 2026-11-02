@@ -230,8 +230,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let requested, services.windows.claims.awaits(requested, in: state.id) { return content == nil ? showConnecting() : () }  // keeps the request
         let members = services.windows.registry.members(of: state.id)
         if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
-        // Keep what is shown (the old content stays until the manager
-        // closes or refills this window); a window with nothing yet waits.
+        // Keep what is shown (it stays until the manager closes or refills this window); a window with nothing yet waits.
         if content == nil { showConnecting() }
     }
 
