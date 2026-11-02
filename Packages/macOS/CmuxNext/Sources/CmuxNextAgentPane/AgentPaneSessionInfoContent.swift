@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 
 /// What a section or row needs from the panel: its colors and how a click reaches the page. A value,
@@ -9,13 +10,15 @@ struct SessionInfoInk {
     let rect: (NSView) -> CGRect?
     let move: (String, NSView, NSPoint) -> Void
     let flush: () -> Void
+    let registry: ActionRegistry
 
-    init(colors: AgentPaneSessionInfoColors, act: @escaping (String, CGRect?) -> Void, rect: @escaping (NSView) -> CGRect?, move: @escaping (String, NSView, NSPoint) -> Void = { _, _, _ in }, flush: @escaping () -> Void = {}) {
+    init(colors: AgentPaneSessionInfoColors, act: @escaping (String, CGRect?) -> Void, rect: @escaping (NSView) -> CGRect?, move: @escaping (String, NSView, NSPoint) -> Void = { _, _, _ in }, flush: @escaping () -> Void = {}, registry: ActionRegistry = ActionRegistry()) {
         self.colors = colors
         self.act = act
         self.rect = rect
         self.move = move
         self.flush = flush
+        self.registry = registry
     }
 }
 
@@ -130,6 +133,7 @@ final class AgentPaneSessionInfoContent: NSView {
     private let scroll = NSScrollView()
     private let list = SessionInfoListView()
     private let edgeFadeMask = CAGradientLayer()
+    private let menuRegistry = ActionRegistry()
     private weak var store: AgentPaneSessionInfoStore?
     private var lastItems: [SessionInfoItem] = []
     private var lastColors = AgentPaneSessionInfoColors()
@@ -195,7 +199,7 @@ final class AgentPaneSessionInfoContent: NSView {
         // menu tracking, keyboard focus and hover state across bridge updates.
         if items != lastItems || store.colors != lastColors {
             let act = store.act
-            if list.show(items, ink: SessionInfoInk(colors: store.colors, act: { id, rect in act(id, rect) }, rect: store.rectForView, move: { [weak self] id, view, point in self?.list.move(from: id, view: view, point: point) }, flush: { [weak self] in self?.list.flushPending() })) {
+            if list.show(items, ink: SessionInfoInk(colors: store.colors, act: { id, rect in act(id, rect) }, rect: store.rectForView, move: { [weak self] id, view, point in self?.list.move(from: id, view: view, point: point) }, flush: { [weak self] in self?.list.flushPending() }, registry: menuRegistry)) {
                 lastItems = items
                 lastColors = store.colors
             }
@@ -726,10 +730,17 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
         for item in line.menu {
-            // The row runs the line's own session-info action, the one its buttons run (`ink.act`).
-            let action = item.action
-            let menuItem = AgentPaneMenuAction.item(item.label, symbol: item.symbol ?? "") { [weak self] in self?.runMenuAction(action) }
-            menuItem.image = item.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: item.label) }
+            let id = ActionID(rawValue: item.action)
+            ink.registry.register(Action(id: id, title: item.label, isEnabled: { item.disabled != true }, handler: { [weak self] in
+                guard let self else { return }
+                self.ink.act(item.action, self.ink.rect(self))
+                self.ink.flush()
+            }))
+            guard let menuItem = ink.registry.makeMenuItem(for: id) else { continue }
+            menuItem.keyEquivalent = ""
+            if let symbol = item.symbol {
+                menuItem.image = NSImage(systemSymbolName: symbol, accessibilityDescription: item.label)
+            }
             menuItem.isEnabled = item.disabled != true
             menu.addItem(menuItem)
         }
@@ -740,11 +751,6 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
 
     func menuDidClose(_ menu: NSMenu) {
         isMenuOpen = false
-        ink.flush()
-    }
-
-    private func runMenuAction(_ action: String) {
-        ink.act(action, ink.rect(self))
         ink.flush()
     }
 
