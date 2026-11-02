@@ -74,6 +74,8 @@ export type NativeSessionInfoProps = {
   revealed?: { section: SessionInfoSectionId; at: number };
   onRevealed?: () => void;
   summary?: Summary;
+  /// The same compacted context usage shown by the web panel.
+  usage?: { used: number; size: number };
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   repository?: string;
@@ -295,7 +297,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       ),
       contextSection(
         {
-          usage: summary?.usage,
+          usage: props.usage,
           breakdown: summary?.contextBreakdown,
           agent: props.agent,
           language,

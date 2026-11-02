@@ -55,6 +55,7 @@ import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { compactingUsage } from "../usageStats";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -729,6 +730,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side, height: paneHeight } = usePaneRoom(shell, drawn, beside);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats);
   // How far the chat's content reaches past the column the model expects (chatContentOverflow),
   // read while the panel floats: a panel that would lie over any of it pushes the chat left (Leo,
   // 2026-11-01: "why does the session info not push the layout left ever anymore"). It keeps its
@@ -891,6 +893,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onBack={scope?.onBack}
           backLabel={scope ? t("sessionInfo.subagent.back", { name: scope.parent }) : undefined}
           summary={summary}
+          usage={usage}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
           repository={repository}
@@ -1338,7 +1341,7 @@ export function SessionInfo({
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
   const [gallery, setGallery] = useState(false);
-  const usage = summary?.usage;
+  const usage = compactingUsage(summary?.usage, summary?.usageStats);
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
