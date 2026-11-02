@@ -211,7 +211,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
   /** Waits until the open menus have stopped moving, so a press lands where their rows rest. */
   const menusAtRest = (page: Page) =>
     page.waitForFunction(() =>
-      [...document.querySelectorAll(".ui-popup")].every((popup) =>
+      [...document.querySelectorAll<HTMLElement>(".ui-popup:not([data-ending-style])")].every((popup) =>
         popup.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running"),
       ),
     );
@@ -271,6 +271,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           for (const name of stage.chips) {
             await pressAt(page, chip(name));
             expect({ name, open: await settle(page, stage.chips, [name]) }).toEqual({ name, open: [name] });
+            await menusAtRest(page);
             await pressAt(page, chip(name));
             expect({ name, open: await settle(page, stage.chips, []) }).toEqual({ name, open: [] });
           }
@@ -284,6 +285,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
               if (from === to) continue;
               await pressAt(page, chip(from));
               expect({ from, open: await settle(page, stage.chips, [from]) }).toEqual({ from, open: [from] });
+              await menusAtRest(page);
               // A menu that covers the other chip takes the press itself.
               if (await onTop(page, to)) {
                 await pressAt(page, chip(to));
@@ -315,6 +317,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
             for (const target of [".acpmux-mic", stage.field]) {
               await pressAt(page, chip(name));
               expect({ name, open: await settle(page, stage.chips, [name]) }).toEqual({ name, open: [name] });
+              await menusAtRest(page);
               const point = await clearPoint(page, target);
               if (!point) {
                 await page.keyboard.press("Escape");
