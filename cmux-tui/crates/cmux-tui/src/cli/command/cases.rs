@@ -790,6 +790,7 @@ fn state_resource_cases<'a>(
             "workspace_group.update",
         ),
         (vec!["workspace", "group", "g", "delete"], "workspace_group.delete"),
+        (vec!["workspace", "group", "g", "delete", "--merge-into", "k"], "workspace_group.delete"),
         (vec!["workspace", "group", "g", "move", "--index", "1"], "workspace_group.move"),
         (vec!["tab", tab, "pin"], "tab.pin"),
         (vec!["tab", tab, "unpin"], "tab.unpin"),

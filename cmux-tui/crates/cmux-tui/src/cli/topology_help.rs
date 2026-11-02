@@ -42,7 +42,7 @@ USAGE
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
     [--icon <icon>|--clear-icon] [--pinned true|false]
     [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
-  cmux workspace group <group> delete
+  cmux workspace group <group> delete [--merge-into <group>]
   cmux workspace group <group> move --index <n>
   cmux workspace group <group> add --workspace <selector> [--index <n>]
   cmux workspace group remove --workspace <selector>

@@ -255,7 +255,10 @@ pub(super) fn delete_group(mux: &Mux, client: u64, id: &str) -> anyhow::Result<V
         "workspace_group.delete",
         None,
         &Mux::ordinary_resource_selectors(),
-        crate::state::personal::PersonalChange::GroupDelete { group: id.to_string() },
+        crate::state::personal::PersonalChange::GroupDelete {
+            group: id.to_string(),
+            merge_into: None,
+        },
     )?;
     let ungrouped = commit
         .result

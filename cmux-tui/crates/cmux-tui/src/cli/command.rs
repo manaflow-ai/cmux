@@ -2984,6 +2984,9 @@ mod tests {
         let group = protocol(&["workspace", "group", "create", "--name", "Work"]);
         assert_eq!(operation(&group), "workspace_group.create");
         assert_eq!(group.params["name"], "Work");
+        let merge = protocol(&["workspace", "group", "grp_b", "delete", "--merge-into", "grp_a"]);
+        assert_eq!(operation(&merge), "workspace_group.delete");
+        assert_eq!(merge.params["merge_into"], "grp_a");
         let remove = protocol(&[
             "workspace",
             "group",

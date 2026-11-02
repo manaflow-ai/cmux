@@ -700,6 +700,48 @@ impl WorkspaceRegistry {
         Ok(members)
     }
 
+    /// Moves every member of group `from` into group `into` of the same room, keeping
+    /// each member's place in the personal order. Returns the members moved.
+    pub(crate) fn merge_personal_group_in(
+        tx: &Transaction<'_>,
+        from: &str,
+        into: &str,
+    ) -> anyhow::Result<Vec<(String, String)>> {
+        validate_workspace_group_id(from)?;
+        validate_workspace_group_id(into)?;
+        anyhow::ensure!(from != into, "group {from} cannot merge into itself");
+        let source =
+            read_group(tx, from)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {from}"))?;
+        let target =
+            read_group(tx, into)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {into}"))?;
+        anyhow::ensure!(
+            source.profile == target.profile,
+            "group {from} is in room {} and group {into} in room {}: a merge stays in one room",
+            source.profile,
+            target.profile
+        );
+        let members = {
+            let mut statement = tx.prepare(
+                "SELECT session_id, workspace_key FROM personal_workspaces WHERE group_id = ?1
+                 ORDER BY position ASC",
+            )?;
+            statement
+                .query_map([from], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        tx.execute(
+            "UPDATE personal_workspaces SET group_id = ?2 WHERE group_id = ?1",
+            params![from, into],
+        )?;
+        commit_personal(
+            tx,
+            "personal.group.merged",
+            vec![subject("personal_group", from), subject("personal_group", into)],
+            &json!({"group_id": from, "into": into, "moved": members}),
+        )?;
+        Ok(members)
+    }
+
     pub(crate) fn move_personal_group_in(
         tx: &Transaction<'_>,
         id: &str,

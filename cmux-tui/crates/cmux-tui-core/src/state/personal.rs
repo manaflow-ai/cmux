@@ -57,6 +57,12 @@ pub(crate) enum PersonalChange {
     },
     GroupDelete {
         group: String,
+        /// Its members join this group of the same room first, and the
+        /// deleted group keeps no closed-history record: nothing of it is
+        /// lost (a duplicate's tidy, `cmux workspace group tidy`). Omitted
+        /// when absent, so older mutation fingerprints keep their shape.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        merge_into: Option<String>,
     },
     GroupMove {
         group: String,
@@ -332,12 +338,28 @@ fn apply_personal_change(
             }
             Ok(StateChanges::new(value, changes))
         }
-        PersonalChange::GroupDelete { group } => {
+        PersonalChange::GroupDelete { group, merge_into } => {
             // RECOVERABLE-BY-DEFAULT: the group is one closed-history record
             // with no member (its workspaces stay open), so Reopen Closed
             // forms it again, also after a restart.
             if personal::workspace_group_snapshot(tx, &group)?.is_none() {
                 return Err(state_not_found("workspace_group", &group));
+            }
+            if let Some(into) = merge_into {
+                if personal::workspace_group_snapshot(tx, &into)?.is_none() {
+                    return Err(state_not_found("workspace_group", &into));
+                }
+                let moved = personal::merge_group(tx, &group, &into)
+                    .map_err(|error| typed(error, "workspace_group", &into))?;
+                personal::delete_group(tx, &group)
+                    .map_err(|error| typed(error, "workspace_group", &group))?;
+                let mut changes = vec![state_delete("workspace_group", &group)];
+                changes.extend(all_groups(tx)?);
+                changes.extend(all_placements(tx)?);
+                return Ok(StateChanges::new(
+                    serde_json::json!({"id": group, "merged_into": into, "moved": refs(tx, &moved)?}),
+                    changes,
+                ));
             }
             let archive = group_archive::snapshot_group(tx, &group)?;
             pend_group(tx, &new_closed_id(), &serde_json::json!({"group": archive}))?;

@@ -421,7 +421,13 @@ pub(super) fn parse_workspace_group(
                     top_index(&mut params, flags)?;
                     Op::WorkspaceGroupUpdate
                 }
-                "delete" => Op::WorkspaceGroupDelete,
+                "delete" => {
+                    // A duplicate's tidy: its members join that group first.
+                    if let Some(into) = flags.take("merge-into") {
+                        params.state("merge_into", &into, Op::WorkspaceGroupList)?;
+                    }
+                    Op::WorkspaceGroupDelete
+                }
                 "move" => {
                     required_index(&mut params, flags)?;
                     Op::WorkspaceGroupMove

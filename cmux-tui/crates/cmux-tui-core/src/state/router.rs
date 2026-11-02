@@ -1008,7 +1008,9 @@ fn personal_change(
                 pinned: fields.get("pinned").and_then(Value::as_bool),
             }
         }
-        Op::WorkspaceGroupDelete => PersonalChange::GroupDelete { group: group() },
+        Op::WorkspaceGroupDelete => {
+            PersonalChange::GroupDelete { group: group(), merge_into: string(fields, "merge_into") }
+        }
         Op::WorkspaceGroupMove => {
             PersonalChange::GroupMove { group: group(), index: index(fields, "index").unwrap_or(0) }
         }

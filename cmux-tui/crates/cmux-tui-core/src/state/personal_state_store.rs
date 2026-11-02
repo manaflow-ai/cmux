@@ -257,6 +257,14 @@ pub(crate) fn delete_group(
     WorkspaceRegistry::delete_personal_group_in(tx, id)
 }
 
+pub(crate) fn merge_group(
+    tx: &Transaction<'_>,
+    from: &str,
+    into: &str,
+) -> anyhow::Result<Vec<(String, String)>> {
+    WorkspaceRegistry::merge_personal_group_in(tx, from, into)
+}
+
 pub(crate) fn move_group(
     tx: &Transaction<'_>,
     id: &str,
