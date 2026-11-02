@@ -17,6 +17,7 @@ extension CmuxRemoteService {
                       tokens: @escaping @Sendable () async throws -> String) -> CmuxRemoteDevices? {
         guard !started, let executable = ComputerUseRemoteSource.executable() else { return nil }
         markStarted()
+        computerUseHelper = computerUse
         let devices = CmuxRemoteDevices(open: { [weak self] in
             guard let self else { throw CmuxRemoteError.unavailable }
             return try await openChannel("screen-sharing").socket
@@ -55,9 +56,12 @@ extension CmuxRemoteService {
         return devices
     }
 
-    /// Sends the person's switches whenever `config` (read inside an observation) changes.
-    public func follow(_ settings: SettingsController, config: @escaping @MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool)) {
+    /// Sends the person's switches whenever `config` (read inside an observation) changes, and
+    /// starts Computer Use app approvals with `phone` (the iPhone host) as their phone collector.
+    public func follow(_ settings: SettingsController, phone: (any ComputerUsePhoneHost)? = nil,
+                       config: @escaping @MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool)) {
         currentConfig = config
+        if let computerUseHelper { computerUseApprovals.start(helper: computerUseHelper, settings: settings, phone: phone) }
         // task-owner: lives with the app; follows the settings, the sign-in and the daemon.
         Task { [weak self, weak settings] in
             guard let settings else { return }

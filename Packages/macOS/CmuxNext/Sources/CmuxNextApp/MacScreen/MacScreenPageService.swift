@@ -201,8 +201,7 @@ extension AppServices {
     /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen
     /// Sharing; ``CmuxRemoteService`` does the work, this only passes it the app's parts.
     func startCmuxRemote(_ settings: SettingsController) {
-        let bundleID = environment.launch.bundleID ?? "com.cmuxterm.app.next"
-        let auth = cloud.auth
+        let bundleID = environment.launch.bundleID ?? "com.cmuxterm.app.next", auth = cloud.auth
         guard let devices = cmuxRemote.start(bundleID: bundleID, deviceHub: deviceHub, pages: macScreenPages,
                                              computerUse: ComputerUseHelperDaemon.shared.upstream,
                                              tokens: { try await auth.tokens().access }) else { return }
@@ -218,7 +217,7 @@ extension AppServices {
             // task-owner: one consent line to the worker; it serves with the app quit too.
             Task { await devices.consent(enabled: on, view: view, full: full) }
         }
-        cmuxRemote.follow(settings) { [weak self, weak settings] in
+        cmuxRemote.follow(settings, phone: iphone) { [weak self, weak settings] in
             guard let self, let settings else { return (false, false, true) }
             let computerUse = settings.snapshot.computerUse
             _ = daemon.identity?.capabilities.count // a reconnected daemon sends the switches again
@@ -230,7 +229,6 @@ extension AppServices {
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
     func startDeviceHub(_ settings: SettingsController) {
         // cmux Remote first: the hub it serves is made with its device identity.
-        computerUseApprovals.start(helper: ComputerUseHelperDaemon.shared.upstream, settings: settings, phone: iphone)
         startCmuxRemote(settings)
         deviceHub.start(settings: settings)
         cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }

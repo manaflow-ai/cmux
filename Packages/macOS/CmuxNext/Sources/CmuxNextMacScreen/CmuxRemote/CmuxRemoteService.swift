@@ -30,6 +30,10 @@ public final class CmuxRemoteService {
     private var lastConfig: (computerUse: Bool, screenSharing: Bool, headless: Bool)?
     /// The anchor's hourly refresh (PROTOCOL.md, Device renewal).
     private let anchorTimer = DemandTimer(owner: "cmux-remote.anchor")
+    /// Computer Use app approvals (docs/computer-use-approvals.md): this build's saved list, the cards, the phone.
+    public private(set) lazy var computerUseApprovals = ComputerUseApprovalService(client: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next")
+    /// The Computer Use helper ``start(bundleID:deviceHub:pages:computerUse:tokens:)`` runs as cmux Remote's worker.
+    weak var computerUseHelper: ComputerUseHelperV2?
     /// The person's switches now (the App sets it): Computer Use on with cmux Remote, signed in, headless.
     public var currentConfig: (@MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool))?
 

@@ -69,6 +69,8 @@ public enum CmuxRemoteActions {
                 }
             })
         }
+        // Computer Use approvals' palette actions (docs/computer-use-approvals.md, Controls).
+        remote.computerUseApprovals.bindActions(into: registry, window: environment.window)
         _ = registry.bindEffect("macScreen.deviceAccess", effect: { _ in
             environment.openDevices()
             return .done
@@ -88,9 +90,10 @@ public enum CmuxRemoteActions {
         }
     }
 
-    /// `remote.confirm {action: share|access, device?, scope?}`.
+    /// `remote.confirm {action: share|access, device?, scope?}`, and Computer Use approvals'
+    /// `computer_use.*` methods.
     public static func methods(environment: CmuxRemoteActionEnvironment) -> [ControlMethod] {
-        [
+        environment.remote.computerUseApprovals.controlMethods(window: environment.window) + [
             .mainActor("remote.confirm") { call in
                 let action = call.params["action"]?.stringValue ?? ""
                 let device = call.params["device"]?.stringValue ?? ""
