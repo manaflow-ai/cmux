@@ -6,7 +6,12 @@
 // these records, draw exactly as before.
 import { expect, test } from "bun:test";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "../src/agent-session/acpmux/conversation/backgroundTurns";
-import { messageRevealTarget, turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import {
+  messageRevealTarget,
+  turnFoldFor,
+  turnView,
+  turnViewFrom,
+} from "../src/agent-session/acpmux/conversation/turns";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
@@ -317,4 +322,101 @@ test("Find and a link open the background line that hides a row", async () => {
   } finally {
     client.close();
   }
+});
+
+// The quiet background turn may have ended before a subagent it started. If that subagent ends
+// after another person's prompt, its done line is inserted under that later turn by end time.
+// It must still fold under the *original* quiet background line (cmux#30535).
+test("a subagent done after the next user prompt stays folded with its owner background turn", () => {
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    at,
+    kind,
+    version: 1,
+    ...fields,
+  });
+  const owner = "backgroundTurn-bg-cross";
+  const rows: AcpmuxRow[] = [
+    row("prompt-1", 1, "user", { text: "Watch CI" }),
+    row("answer-1", 2, "assistant", { text: "Watching." }),
+    row("summary-1", 3, "turnSummary", { status: "completed" }),
+    row(owner, 4, BACKGROUND_TURN, {
+      background: { id: "bg-cross", trigger: "scheduled", running: false, quiet: true },
+    }),
+    row("group", 5, "subagents", {
+      inBackground: "bg-cross",
+      subagents: [
+        {
+          id: "child-cross",
+          parent: null,
+          name: "CI observer",
+          kind: "general-purpose",
+          state: "completed",
+          startedAt: 5,
+          endedAt: 11,
+          background: true,
+        },
+      ],
+    }),
+    row("prompt-2", 7, "user", { text: "Show me the status" }),
+    row("answer-2", 8, "assistant", { text: "Still working." }),
+    row("summary-2", 9, "turnSummary", { status: "completed" }),
+  ];
+  const tray = withSubagentLines(rows);
+  const done = tray.find((item) => item.kind === SUBAGENT_DONE)!;
+  expect(done.inBackground).toBe("bg-cross");
+  expect(tray.indexOf(done)).toBeGreaterThan(tray.findIndex((item) => item.id === "prompt-2"));
+
+  // Closing the original quiet line hides only its own done line, wherever it arrived.
+  const closed = drawn([...tray]);
+  expect(closed.some((item) => item.id === done.id)).toBe(false);
+  expect(closed.some((item) => item.id === "prompt-2")).toBe(true);
+  expect(closed.some((item) => item.id === "answer-2")).toBe(true);
+
+  // Disclosure of the original background line reveals the late completion in chronology order.
+  const opened = drawn([...tray], [owner]);
+  expect(opened.some((item) => item.id === done.id)).toBe(true);
+  expect(opened.indexOf(opened.find((item) => item.id === done.id)!)).toBeGreaterThan(
+    opened.findIndex((item) => item.id === "prompt-2"),
+  );
+});
+
+test("an earlier background owner update invalidates every later reused turn", () => {
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    at,
+    kind,
+    version: 1,
+    ...fields,
+  });
+  const owner = "backgroundTurn-bg-reuse";
+  const base: AcpmuxRow[] = [
+    row("prompt-1", 1, "user", { text: "Watch CI" }),
+    row("answer-1", 2, "assistant", { text: "Watching." }),
+    row(owner, 3, BACKGROUND_TURN, {
+      background: { id: "bg-reuse", trigger: "scheduled", running: true },
+    }),
+    row("owned", 4, "assistant", { text: "Still watching.", inBackground: "bg-reuse" }),
+    row("summary-1", 5, "turnSummary", { status: "completed" }),
+    row("prompt-2", 6, "user", { text: "Status?" }),
+    row("answer-2", 7, "assistant", { text: "Still green." }),
+    row("late", 8, "assistant", { text: "Background done.", inBackground: "bg-reuse" }),
+    row("summary-2", 9, "turnSummary", { status: "completed" }),
+    row("prompt-3", 10, "user", { text: "Ship it" }),
+    row("answer-3", 11, "assistant", { text: "Shipped." }),
+    row("summary-3", 12, "turnSummary", { status: "completed" }),
+  ];
+  const expanded = new Set<string>();
+  const previous = turnViewFrom(base, expanded, { now: 100 });
+  const updated = base.map((item) =>
+    item.id === owner
+      ? {
+          ...item,
+          background: { id: "bg-reuse", trigger: "scheduled", running: false, quiet: false },
+        }
+      : item,
+  );
+  const incremental = turnViewFrom(updated, expanded, { now: 100 }, previous);
+  expect(incremental.rows).toEqual(turnView(updated, expanded, { now: 100 }));
+  expect(incremental.rows.find((item) => item.id === "late")).toBeDefined();
 });

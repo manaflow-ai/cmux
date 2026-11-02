@@ -1807,6 +1807,7 @@
     "agent-pane.transcript#chips-and-previews": 0,
     "agent-pane.transcript#codex-turn-command-under-messages": 0,
     "agent-pane.transcript#codex-turn-drafts-replace": 0,
+    "agent-pane.transcript#codex-turn-headers": 0,
     "agent-pane.transcript#codex-turn-live": 0,
     "agent-pane.transcript#codex-turn-raw-commands": 0,
     "agent-pane.transcript#codex-turn-run-open": 0,

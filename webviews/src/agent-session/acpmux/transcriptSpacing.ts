@@ -42,7 +42,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 35.375,
     tolerance: 1,
     source: "11.375 + 8 to a 32 button + 16; claude.ai 8 to its button, chatgpt.com 5",
-    pending: "grid-system footer PR 1b (sizes and 8/24 rhythm, after #31609)",
   },
   {
     id: "footer-to-next",
@@ -50,7 +49,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 51,
     tolerance: 1,
     source: "16 + 24 + 11; claude.ai and Claude Code desktop 24 from the button row to the next block",
-    pending: "grid-system footer PR 1b (sizes and 8/24 rhythm, after #31609)",
   },
   {
     id: "step-to-prompt",
@@ -58,7 +56,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 43,
     tolerance: 1,
     source: "11 + grid turn gap 32; Codex desktop ~16, Claude Code desktop ~24 after its action row",
-    pending: "transcript spacing: room around runs and prompts",
   },
   {
     id: "prompt-to-step",
@@ -90,7 +87,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "Claude Code desktop verbose rows 22; Codex desktop 26; chat-transcript.md one-line row pitch (#29965)",
-    pending: "#31497",
   },
   {
     id: "run-to-step",
@@ -98,7 +94,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "consecutive one-line rows sit flush, whether in one run or two rows",
-    pending: "#31497",
   },
   {
     id: "step-to-live",
@@ -106,7 +101,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "the live line is a one-line row",
-    pending: "#31497",
   },
   {
     id: "live-to-step",
@@ -114,7 +108,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "the waiting group's head is a one-line row",
-    pending: "#31497",
   },
 ];
 
@@ -127,7 +120,7 @@ export const FOOTER = {
   button: 32,
   /** Button to button, left edge to left edge: the buttons touch in both apps. */
   pitch: 32,
-  pending: "grid-system footer PR 1b (sizes and 8/24 rhythm, after #31609)" as string | undefined,
+  pending: undefined as string | undefined,
 } as const;
 
 /** The person's prompt bubble (design/transcript-spacing.md, "Prompt bubble"). */
