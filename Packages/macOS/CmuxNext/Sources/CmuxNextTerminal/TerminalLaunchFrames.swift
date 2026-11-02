@@ -196,13 +196,28 @@ public final class TerminalLaunchFrames {
     }
 
     private func noteShown(_ key: String) {
+        // Once-only (the first frame shown), as before, for older readers; the launch number is ``visibleTerminalsDrawn``.
+        mark("terminal.launch_frame_shown")
         guard var pane = panes[key], pane.shown == nil else { return }
         pane.shown = Date()
         pane.missed = nil
         panes[key] = pane
-        // Kept once-only (the first pane) for older readers; the launch number is ``visibleTerminalsDrawn``.
-        mark("terminal.launch_frame_shown")
         markDrawnIfComplete()
+    }
+
+    /// The frame shown ahead in `content`, if it is still that view's (a view made at a freed one's address is not).
+    private func aheadEntry(in content: NSView) -> Ahead? {
+        guard let entry = ahead[ObjectIdentifier(content)] else { return nil }
+        guard entry.content === content else {
+            ahead[ObjectIdentifier(content)] = nil
+            return nil
+        }
+        return entry
+    }
+
+    /// `content` shows something else now: an ask ahead of its surface made before the read ended is void.
+    private func dropAheadWaiters(in content: NSView) {
+        waiting = waiting.filter { $0.value.session != nil || ($0.value.content.map { $0 !== content } ?? false) }
     }
 
     private func noteMissed(_ key: String, _ reason: String) {
@@ -229,7 +244,7 @@ public final class TerminalLaunchFrames {
                 show(key, on: session, in: content, reveal: waiter.reveal)
             } else {
                 // Asked ahead of its surface; a surface that came meanwhile asked for itself.
-                guard ahead[ObjectIdentifier(content)] == nil, !taken.contains(key) else { continue }
+                guard aheadEntry(in: content) == nil, !taken.contains(key) else { continue }
                 showAhead(key, in: content, reveal: waiter.reveal)
             }
         }
@@ -245,7 +260,7 @@ public final class TerminalLaunchFrames {
     public func showAhead(_ key: String, in content: NSView, reveal: LaunchReveal = .shared) -> Bool { // perf-hot: 1ms launch-first-frame (each visible terminal at launch)
         guard let read else { return false }
         noteAsked(key)
-        if let shown = ahead[ObjectIdentifier(content)] {
+        if let shown = aheadEntry(in: content) {
             if shown.key == key { return false }
             withdrawAhead(in: content)
         }
@@ -282,13 +297,15 @@ public final class TerminalLaunchFrames {
 
     /// Takes away the frame shown ahead in `content` (its pane shows other content now).
     public func withdrawAhead(in content: NSView) {
-        guard let shown = ahead.removeValue(forKey: ObjectIdentifier(content)) else { return }
+        dropAheadWaiters(in: content)
+        guard let shown = aheadEntry(in: content) else { return }
+        ahead[ObjectIdentifier(content)] = nil
         shown.view.removeFromSuperview()
     }
 
     /// Whether `content` shows a frame ahead of its terminal's surface (tests).
     func showsAhead(in content: NSView) -> Bool {
-        ahead[ObjectIdentifier(content)].map { $0.view.superview === content } ?? false
+        aheadEntry(in: content).map { $0.view.superview === content } ?? false
     }
 
     /// Shows `key`'s frame from the last quit over `session` until its live content draws
@@ -301,7 +318,9 @@ public final class TerminalLaunchFrames {
     @discardableResult
     public func show(_ key: String, on session: TerminalSession, in content: NSView, reveal: LaunchReveal = .shared) -> Bool {
         // A frame shown ahead of this surface: the surface takes it over in this transaction (no frame between).
-        let early = ahead.removeValue(forKey: ObjectIdentifier(content))
+        dropAheadWaiters(in: content)
+        let early = aheadEntry(in: content)
+        ahead[ObjectIdentifier(content)] = nil
         early?.view.removeFromSuperview()
         let frame: Frame
         if let early, early.key == key {
@@ -321,9 +340,9 @@ public final class TerminalLaunchFrames {
             frame = found
         }
         if let missed = takeOver(frame, on: session, in: content) {
+            // Shown ahead at a size the surface does not have: the pane stays shown (its terminal's background until
+            // its first frame), never held clear again: a clear frame after a shown one is a flash.
             noteMissed(key, missed)
-            // Shown ahead at a size the pane no longer has: held again, as with no frame (live content shows at once).
-            if early?.key == key, missed != "live" { reveal.hold(content, until: .pane) }
             return false
         }
         reveal.release(content)

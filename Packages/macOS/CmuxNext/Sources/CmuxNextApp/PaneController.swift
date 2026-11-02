@@ -117,6 +117,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel()
         tabItems.cancelAll()
         services.presentation.cancel(self)
+        launchFrames.withdrawAhead(in: view.contentHost)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
         services.cache.hibernation?.paneDidGo(ObjectIdentifier(self))
