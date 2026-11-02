@@ -180,6 +180,17 @@ public final class CreationInputBuffer {
     /// Nil when the hold has none, or its reply has not come (``hasPendingCreation`` holds the keys then).
     public var awaitedWorkspace: String? { workspaceTickets.max().flatMap { madeWorkspaces[$0] } }
 
+    /// Whether a creation of this hold, asked under the person's newest intent `generation`, keeps the window's keyboard.
+    public func ownsKeyboard(generation: UInt64) -> Bool { holdsCreation && newestGeneration == generation }
+
+    /// The keys held for a new workspace's terminal (no terminal lane yet) go into `tab` on `machine` (nil: no terminal
+    /// found, they keep no lane): once the window shows the workspace they run in that terminal, never in what has the
+    /// keyboard instead (Home's message box beside the pinned dock).
+    public func bindNewWorkspaceKeys(to tab: String?, machine: String?) {
+        guard let tab else { return }
+        for id in workspaceTickets where laneTabs[id] == nil { (laneTabs[id], laneMachines[id]) = (tab, machine) }
+    }
+
     /// Drops the held keys typed for a new workspace's terminal that the window does not show (`shown`: the workspace it
     /// shows now): still on its way, or never shown. They are never run into what has the focus instead (Home's Chief
     /// message box: dogfood v2.2.3, terminal input must never reach an agent). True when it dropped a creation's keys.

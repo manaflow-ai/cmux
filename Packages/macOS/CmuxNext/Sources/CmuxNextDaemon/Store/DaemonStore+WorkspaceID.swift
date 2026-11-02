@@ -6,4 +6,10 @@ extension DaemonStore {
         _ = workspaces
         return index.workspacesByID[id]
     }
+
+    /// The first daemon terminal of workspace `id` (never a provisional stand-in): the terminal the keys typed for a new
+    /// workspace go into once the window shows it.
+    public func firstTerminalTab(ofWorkspace id: String) -> TabModel? {
+        workspace(id: id)?.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }
+    }
 }

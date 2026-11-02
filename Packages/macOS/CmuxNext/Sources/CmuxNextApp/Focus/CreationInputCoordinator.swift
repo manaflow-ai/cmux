@@ -62,9 +62,7 @@ final class CreationInputCoordinator {
     /// Whether a creation in `window` the person has not moved on from holds its keys, or their new terminal claims the
     /// keyboard: no primary input (Home's message box) takes it by itself (`NSWindow.pendingCreationOwnsKeyboard`).
     func claimsKeyboard(in window: NSWindow, generation: UInt64) -> Bool {
-        if claimHolds(in: window) { return true }
-        guard let buffer = buffers[window.windowNumber], buffer.holdsCreation else { return false }
-        return buffer.newestGeneration == generation
+        claimHolds(in: window) || buffers[window.windowNumber]?.ownsKeyboard(generation: generation) == true
     }
 
     /// The person acted in `window` (a click, one of their actions), answering input `event`: their claim there ends.
@@ -374,6 +372,8 @@ final class CreationInputCoordinator {
         buffers[window.windowNumber] = nil
         // A forced end drops the keys of a new workspace the window does not show, and the window's focus applies again.
         if buffer.dropKeys(ofWorkspacesOtherThan: shown), let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
+        let daemon = controller.content?.daemon
+        if buffer.awaitedWorkspace == shown, let daemon { buffer.bindNewWorkspaceKeys(to: shown.flatMap(daemon.store.firstTerminalTab(ofWorkspace:))?.id, machine: daemon.machineID) }
         let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
         let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) { self.shortcut($0, tab: $1, in: window) != nil }
         if end == .limitReached {
