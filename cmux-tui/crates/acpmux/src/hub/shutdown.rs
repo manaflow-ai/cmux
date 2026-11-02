@@ -122,8 +122,9 @@ impl Hub {
         // pass over every chat of a large store took minutes, and since nothing yielded, the
         // daemon's own shutdown deadline could not end it (a NIGHTLY daemon sat with its lock
         // held and its socket already removed, 2026-11-02). So chats with a retry mark go
-        // first, each stop yields, and the pass ends at its own budget; a chat left over keeps
-        // only a retry its journal held that the startup had not restored yet.
+        // first, each stop yields, and the pass ends at its own budget, which each scan also
+        // checks line by line; a chat left over, or whose scan was cut short, keeps only a
+        // retry its journal held that the startup had not restored yet.
         if !preserve_auto_resume {
             let budget = tokio::time::Instant::now() + RETRY_STOP_BUDGET;
             let (marked, unmarked): (Vec<_>, Vec<_>) =
@@ -136,7 +137,7 @@ impl Hub {
                     );
                     break;
                 }
-                self.stop_retry_at_shutdown(s);
+                self.stop_retry_at_shutdown(s, budget.into_std());
                 tokio::task::yield_now().await;
             }
         }
