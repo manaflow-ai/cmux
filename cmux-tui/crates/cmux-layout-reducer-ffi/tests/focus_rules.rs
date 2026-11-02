@@ -357,6 +357,12 @@ fn a_record_for_the_shown_workspace_focuses_its_saved_pane() {
         json!({"responder": {"_0": {"content": {"pane": "home"}}, "source": "programmatic"}});
     let (state, _) = restore_after_the_workspace_shows(&[home_took_it]);
     assert_eq!(json!(state.resolved()), browser, "a view's own grab does not keep the restore");
+    // A platform pick that moved the target (the saved pane's own address bar, programmatic) is no
+    // person's choice either: the restore puts the keyboard back on the page.
+    let platform_pick =
+        json!({"responder": {"_0": {"addressBar": {"pane": "right"}}, "source": "programmatic"}});
+    let (state, _) = restore_after_the_workspace_shows(&[platform_pick]);
+    assert_eq!(json!(state.resolved()), browser, "a programmatic target move kept the restore off");
     // The person chose Home after the window opened: that choice stays.
     let clicked = json!({"focusPane": {"_0": "home", "source": "mouse"}});
     let (state, _) = restore_after_the_workspace_shows(&[clicked]);
