@@ -9,6 +9,9 @@ public nonisolated struct CreationHoldLog: Equatable, Sendable {
     /// Tabs whose page hold ended at its bound: their page may never come, so no new page hold opens for them.
     public private(set) var pageExpired: Set<String> = []
 
+    /// `tab`'s page exists: a later cold show of it may hold its keys again.
+    public mutating func pageArrived(_ tab: String) { pageExpired.remove(tab) }
+
     public init() {}
 
     /// A creation of `window`'s current hold failed.

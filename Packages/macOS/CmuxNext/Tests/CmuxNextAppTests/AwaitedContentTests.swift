@@ -49,4 +49,16 @@ import Testing
         #expect(AwaitedContent.pageHoldKeeps(isChord: false, holdIsEmpty: true, command: nil))
         #expect(AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: false, command: "nextTab"), "a shortcut passed a held key")
     }
+
+    /// A page hold that ended at its bound excludes that tab from new page holds (its page may never come), until the
+    /// page arrives (review of #32030): a later cold show of it holds again.
+    @Test func aTabExcludedAfterItsBoundIsHeldAgainOnceItsPageArrived() {
+        var log = CreationHoldLog()
+        _ = log.end(in: 1, forced: .limitReached, pageTab: "b")
+        #expect(log.pageExpired.contains("b"))
+        log.pageArrived("b")
+        #expect(!log.pageExpired.contains("b"))
+        _ = log.end(in: 1, forced: .focusLeft, pageTab: "c")
+        #expect(!log.pageExpired.contains("c"), "a hold the focus left is not a page that never comes")
+    }
 }
