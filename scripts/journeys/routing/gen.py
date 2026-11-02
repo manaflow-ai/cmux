@@ -36,12 +36,16 @@ def type_now(case, n):
     return {"do": "routing_type_now", "text": f"echo {text}-$((6*7))"}
 
 
-def check(case, n, on, title, since, extra=(), **marker_opts):
+def check(case, n, on, title, since, extra=(), shown=True, **marker_opts):
+    """SHOWN false: the line's workspace is no longer on screen when it is judged (H1, H2: two more Cmd-N came after),
+    so neither the app's viewport nor the frame can show it; the daemon verdict and "no shown pane has it" stay."""
     _text, line = marker(case, n)
+    if not shown:
+        marker_opts = dict(marker_opts, app_shown=False)
     return {"do": "expect", "title": title, "since": since, "timeout": 20,
             "all": [{"routing_marker": dict({"line": line, "on": on, "attempt": f"{case}{n}"}, **marker_opts)},
                     {"smoke_key_window": {}},
-                    {"frame_screen": {"shows": [line]}}, *extra]}
+                    *([{"frame_screen": {"shows": [line]}}] if shown else []), *extra]}
 
 
 def home_terminal(name, tag):
@@ -209,7 +213,7 @@ def cases(attempts):
     # three lines (a red on one check ends the journey: the tally shows the first red line of a run).
     steps = filmed("H", 0, seq + [check("H", n, f"new:h{n}..h{n + 1}" if n < 3 else "new:h3",
                                    f"H{n}: the line typed at once after Ctrl-` {n} of 3 ran in its new terminal only",
-                                   "h1", in_new_workspace=True) for n in range(1, 4)])
+                                   "h1", in_new_workspace=True, shown=n == 3) for n in range(1, 4)])
     out.append(journey("routing-smoke-seq", "Routing H: the smoke gate's sequence, 3 x (Cmd-N, Ctrl-`, a line at once); "
                        "each line runs in its own new terminal", "the 1-in-7 failure of smoke step 16 before #30827 "
                        "(STATUS 4124, 4288)", steps, 120))

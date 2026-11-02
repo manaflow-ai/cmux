@@ -180,18 +180,12 @@
             "line": "RH1-${nonce}-42",
             "on": "new:h1..h2",
             "attempt": "H1",
-            "in_new_workspace": true
+            "in_new_workspace": true,
+            "app_shown": false
           }
         },
         {
           "smoke_key_window": {}
-        },
-        {
-          "frame_screen": {
-            "shows": [
-              "RH1-${nonce}-42"
-            ]
-          }
         }
       ]
     },
@@ -206,18 +200,12 @@
             "line": "RH2-${nonce}-42",
             "on": "new:h2..h3",
             "attempt": "H2",
-            "in_new_workspace": true
+            "in_new_workspace": true,
+            "app_shown": false
           }
         },
         {
           "smoke_key_window": {}
-        },
-        {
-          "frame_screen": {
-            "shows": [
-              "RH2-${nonce}-42"
-            ]
-          }
         }
       ]
     },

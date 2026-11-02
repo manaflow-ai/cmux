@@ -80,6 +80,33 @@ class RoutingMarkerTests(unittest.TestCase):
         self.assertEqual(detail["verdict"], "right")
         self.assertTrue(any("does not show it" in p for p in detail["problems"]))
 
+    def test_app_shown_false_judges_a_hidden_workspace_by_the_daemon_alone(self):
+        # H1/H2: the line's workspace is off screen (debug.surfaces lists only shown panes), so no viewport has it.
+        j = Journey(App({"term_2": LINE}, {"p1": ""}))
+        ok, detail = ext_routing.cond_routing_marker(j, {"line": LINE, "on": "right", "app_shown": False}, {})
+        self.assertTrue(ok, detail)
+        ok, _ = ext_routing.cond_routing_marker(Journey(App({"term_2": LINE}, {"p1": ""})), {"line": LINE, "on": "right"}, {})
+        self.assertFalse(ok)
+        # Still no pass when a shown pane has it, or when the daemon has it on another terminal.
+        ok, detail = ext_routing.cond_routing_marker(Journey(App({"term_2": LINE}, {"p1": LINE})),
+                                                     {"line": LINE, "on": "right", "app_shown": False}, {})
+        self.assertFalse(ok)
+        self.assertTrue(any("another pane shows" in p for p in detail["problems"]))
+        ok, detail = ext_routing.cond_routing_marker(Journey(App({"term_1": LINE}, {})),
+                                                     {"line": LINE, "on": "right", "app_shown": False}, {})
+        self.assertFalse(ok)
+        self.assertEqual(detail["verdict"], "wrong")
+
+    def test_h_judges_only_the_shown_line_on_screen(self):
+        import json
+        spec = json.loads((HERE / "journeys/dogfood/routing-smoke-seq-nf.json").read_text())
+        checks = [st for st in spec["steps"] if st.get("do") == "expect" and "of 3 ran" in st.get("title", "")]
+        self.assertEqual(len(checks), 3)
+        for n, st in enumerate(checks, 1):
+            marker = next(c["routing_marker"] for c in st["all"] if "routing_marker" in c)
+            frames = [c for c in st["all"] if "frame_screen" in c]
+            self.assertEqual(marker.get("app_shown", True), n == 3)
+            self.assertEqual(len(frames), 1 if n == 3 else 0)
 
     def test_unjudged_when_the_harness_cannot_name_one_expected_terminal(self):
         j = Journey(App({"term_2": LINE}, {"p2": LINE}))

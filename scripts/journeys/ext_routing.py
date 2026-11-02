@@ -36,7 +36,9 @@ Conditions (inside `expect.all`):
                   (workspace, pane, the name of the pane if it has one); `unjudged` when the harness cannot name one
                   expected terminal (never a product verdict). IN_NEW_WORKSPACE (with new:SNAP): the new terminal must
                   also be in a workspace the snapshot did not have (Cmd-N made it). The tally of a run is read from
-                  these details (routing/tally.py).
+                  these details (routing/tally.py). APP_SHOWN false (default true): the expected pane is in a
+                  workspace no longer on screen (debug.surfaces lists only shown panes), so its viewport is not
+                  required to show LINE; no shown pane may show it.
 """
 import json
 import time
@@ -146,7 +148,7 @@ def cond_routing_marker(j, want, cache):
                         f"expected {why}")
     elif verdict == "right":
         want_pane = terms[expect][1]
-        if want_pane not in shown:
+        if want.get("app_shown", True) and want_pane not in shown:
             problems.append(f"the daemon has {line} on the expected terminal, but its pane {want_pane} does not show it "
                             f"in the app (shown in panes {shown})")
         if any(p != want_pane for p in shown):
