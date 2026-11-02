@@ -182,6 +182,8 @@ import Testing
             try await Task.sleep(for: .milliseconds(30)) // test: keystroke rate
         }
         #expect(frames.keepSaves > saves, "a busy terminal was not saved at its new size: the launch refuses its old-size frame")
-        #expect(frames.keepSavedSize("tab_busy_resized") == resized, "the save was not at the new size")
+        // The save's size is recorded after its GPU render ends.
+        let atNewSize = try await Self.eventually(3) { frames.keepSavedSize("tab_busy_resized") == resized }
+        #expect(atNewSize, "the save was not at the new size")
     }
 }
