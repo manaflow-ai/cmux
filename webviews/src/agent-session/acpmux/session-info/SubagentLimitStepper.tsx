@@ -29,6 +29,80 @@ function Glyph({ d }: { d: string }) {
   );
 }
 
+export type SubagentLimitController = {
+  /// The effective value to display, including the latest optimistic request.
+  max: number;
+  /// The requested value while one or more calls are in flight for this chat.
+  pendingMax?: number;
+  /// `pending` while a request is in flight, `failed` for the short refusal message.
+  state?: "pending" | "failed";
+  set(value: number | null, from?: number): void;
+  step(by: number): void;
+  reset(): void;
+};
+
+/**
+ * Keeps the running-limit interaction optimistic while preserving out-of-order replies.
+ *
+ * Each request remembers the limit values it was based on. A reply only removes the optimistic
+ * value after the last request settles; an older reply therefore cannot overwrite a newer click.
+ * A rejection is surfaced for the same four seconds as the visible stepper.
+ */
+export function useSubagentLimitController({
+  chatId,
+  limits,
+  onSet,
+}: {
+  chatId?: string;
+  limits?: SubsessionLimits;
+  onSet?: (maxRunning: number | null, from?: number) => Promise<unknown>;
+}): SubagentLimitController {
+  const [asked, setAsked] = useState<{ chat?: string; over: readonly number[]; value: number }>();
+  const [refused, setRefused] = useState<{ chat?: string; at: number }>();
+  const [inFlightCount, setInFlightCount] = useState(0);
+  const inFlight = useRef(0);
+  useEffect(() => {
+    if (!refused) return;
+    const timer = setTimeout(() => setRefused(undefined), REFUSAL_MS);
+    return () => clearTimeout(timer);
+  }, [refused]);
+
+  const current = limits?.maxRunning ?? MAX_RUNNING.min;
+  const standing = asked !== undefined && asked.chat === chatId && asked.over.includes(current);
+  const pendingMax = standing ? asked?.value : undefined;
+  const max = pendingMax ?? current;
+  const set = (value: number | null, from?: number) => {
+    if (!onSet || !limits) return;
+    const chat = chatId;
+    setRefused(undefined);
+    if (value !== null) {
+      const over = standing && asked ? [...asked.over, asked.value] : [current];
+      setAsked({ chat, over, value });
+    }
+    inFlight.current += 1;
+    setInFlightCount(inFlight.current);
+    const answered = () => {
+      inFlight.current = Math.max(0, inFlight.current - 1);
+      setInFlightCount(inFlight.current);
+      if (inFlight.current === 0) setAsked(undefined);
+    };
+    Promise.resolve()
+      .then(() => onSet(value, from))
+      .then(answered, () => {
+        answered();
+        setRefused({ chat, at: Date.now() });
+      });
+  };
+  return {
+    max,
+    ...(pendingMax !== undefined ? { pendingMax } : {}),
+    ...(refused?.chat === chatId ? { state: "failed" as const } : inFlightCount > 0 ? { state: "pending" as const } : {}),
+    set,
+    step: (by) => set(clampRunning(max + by), max),
+    reset: () => set(null),
+  };
+}
+
 export function SubagentLimitStepper({
   chatId,
   limits,
@@ -46,47 +120,10 @@ export function SubagentLimitStepper({
   onSet?: (maxRunning: number | null, from?: number) => Promise<unknown>;
 }) {
   const t = useT();
-  // The value a click asked for, until acpmux's answer: kept with the chat and the limits it may
-  // still stand over (the one the first click saw, then each value asked since), so another chat,
-  // or a limit from acpmux that is none of those (another client, a refusal), replaces it. An
-  // earlier click's reply landing (16 → 17 while 18 is still asked) keeps the newer ask.
-  const [asked, setAsked] = useState<{ chat?: string; over: readonly number[]; value: number }>();
-  const [refused, setRefused] = useState<{ chat?: string; at: number }>();
-  // Clicks acpmux has not answered yet: the asked value stands until the last one is answered.
-  const inFlight = useRef(0);
-  useEffect(() => {
-    if (!refused) return;
-    const timer = setTimeout(() => setRefused(undefined), REFUSAL_MS);
-    return () => clearTimeout(timer);
-  }, [refused]);
+  const controller = useSubagentLimitController({ chatId, limits, onSet });
   if (!limits) return null;
-  const standing = asked !== undefined && asked.chat === chatId && asked.over.includes(limits.maxRunning);
-  const pending = standing && asked ? asked.value : undefined;
-  const max = pending ?? limits.maxRunning;
-  const failed = refused !== undefined && refused.chat === chatId;
+  const { max, state, step } = controller;
   const { running, queued } = slotCounts(limits, sessions);
-  const set = (value: number | null, from?: number) => {
-    if (!onSet) return;
-    const chat = chatId;
-    setRefused(undefined);
-    if (value !== null) {
-      const over = standing && asked ? [...asked.over, asked.value] : [limits.maxRunning];
-      setAsked({ chat, over, value });
-    }
-    inFlight.current += 1;
-    const answered = () => {
-      inFlight.current -= 1;
-      if (inFlight.current === 0) setAsked(undefined);
-    };
-    // A handler that returns no promise, or throws, still settles the line (never an unhandled error).
-    Promise.resolve()
-      .then(() => onSet(value, from))
-      .then(answered, () => {
-        answered();
-        setRefused({ chat, at: Date.now() });
-      });
-  };
-  const step = (by: number) => set(clampRunning(max + by), max);
   const own = limits.maxRunningSource === "session";
   return (
     <div className="acpmux-subagent-limit">
@@ -100,7 +137,7 @@ export function SubagentLimitStepper({
         )}
       </span>
       <output className="acpmux-subagent-limit__refused">
-        {failed ? t("sessionInfo.subagents.limit.refused") : ""}
+        {state === "failed" ? t("sessionInfo.subagents.limit.refused") : ""}
       </output>
       {onSet && (
         <span className="acpmux-subagent-limit__controls">
@@ -110,7 +147,7 @@ export function SubagentLimitStepper({
               className="acpmux-subagent-limit__reset"
               aria-label={t("sessionInfo.subagents.limit.resetLabel")}
               title={t("sessionInfo.subagents.limit.resetLabel")}
-              onClick={() => set(null)}
+              onClick={() => controller.reset()}
             >
               {t("sessionInfo.subagents.limit.reset")}
             </button>
