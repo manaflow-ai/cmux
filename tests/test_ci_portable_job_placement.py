@@ -12,10 +12,10 @@ import base64
 import contextlib
 import datetime as dt
 import gzip
+import importlib.util
 import io
 import json
 import os
-import importlib.util
 import sys
 import tempfile
 import unittest

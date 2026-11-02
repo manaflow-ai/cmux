@@ -87,6 +87,7 @@ class ControlRunnerPickerTests(unittest.TestCase):
         self.assertEqual(selected, self.ENV["CI_SIDE_LANE_RUNNER"])
         self.assertEqual(clock[0], picker.POLL_SECONDS)
         self.assertEqual(sum("/10/runners" in path for path in paths), 1)
+        self.assertEqual(len(paths), 3)
 
     def test_runner_and_snapshot_reads_use_their_declared_tokens(self):
         tokens = []
@@ -95,7 +96,7 @@ class ControlRunnerPickerTests(unittest.TestCase):
             def __init__(self, token, repo):
                 tokens.append(token)
 
-            def runners(self):
+            def runners(self, *, use_state=True):
                 return []
 
             def snapshot(self, *, now):
@@ -118,7 +119,7 @@ class ControlRunnerPickerTests(unittest.TestCase):
             def __init__(self, token, repo):
                 pass
 
-            def runners(self):
+            def runners(self, *, use_state=True):
                 return [{"status": "online", "busy": False, "os": "Linux",
                           "labels": [{"name": "cmux-fleet-linux-x64"}]}]
 
