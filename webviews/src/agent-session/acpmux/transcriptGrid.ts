@@ -51,6 +51,11 @@ export const MARK_FOOTER_ROW = 6;
 /// ends, at the footer's place and height, so the end moves nothing (chat-transcript.md "A turn that
 /// ends moves nothing").
 export const MARK_FOOTER_SLOT = 7;
+/// A status row that is not a step row (model.ts `isStatusRow`: a background task's or a subagent's
+/// end, a compaction, a failover, ...): one quiet line that joins no row flush, but is as far from
+/// the prose around it as a run is (row-alignment.test.ts: every status row between two replies has
+/// one gap above and one below).
+export const MARK_STATUS = 8;
 
 type MarkedRow = {
   kind: string;
@@ -89,9 +94,9 @@ export function transcriptGap(previous: number, next: number): number {
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
   // The live line under a run is one more line of it (#29965): flush too.
   if (previous === MARK_STEP && (next === MARK_STEP || next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return 0;
-  // A run and the reply's prose around it sit 16 apart, either way.
-  if ((previous === MARK_STEP && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && next === MARK_STEP))
-    return TRANSCRIPT_RUN_GAP;
+  // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
+  const line = (mark: number) => mark === MARK_STEP || mark === MARK_STATUS;
+  if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;
 }
 

@@ -9,6 +9,7 @@ import {
   TRANSCRIPT_TURN_GAP,
   MARK_MESSAGE,
   MARK_PROMPT,
+  MARK_STATUS,
   MARK_STEP,
   transcriptGap,
 } from "./transcriptGrid";
@@ -175,7 +176,10 @@ test("a run and the reply's prose sit the run gap apart, either way", () => {
   expect(TRANSCRIPT_RUN_GAP).toBe(16);
   expect(transcriptGap(MARK_STEP, MARK_MESSAGE)).toBe(TRANSCRIPT_RUN_GAP);
   expect(transcriptGap(MARK_MESSAGE, MARK_STEP)).toBe(TRANSCRIPT_RUN_GAP);
+  expect(transcriptGap(MARK_STATUS, MARK_MESSAGE)).toBe(TRANSCRIPT_RUN_GAP);
+  expect(transcriptGap(MARK_MESSAGE, MARK_STATUS)).toBe(TRANSCRIPT_RUN_GAP);
   expect(transcriptGap(MARK_STEP, MARK_STEP)).toBe(0);
+  expect(transcriptGap(MARK_STATUS, MARK_STEP)).toBe(TRANSCRIPT_BLOCK_GAP);
   expect(transcriptGap(MARK_STEP, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
   expect(transcriptGap(MARK_PROMPT, MARK_STEP)).toBe(TRANSCRIPT_TURN_GAP);
 });

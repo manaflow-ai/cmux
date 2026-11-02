@@ -2,12 +2,12 @@ import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
   gridLength,
+  MARK_STATUS,
   MARK_STEP,
   rowMark,
   gridScale,
   restBand,
   tailGap,
-  TRANSCRIPT_BLOCK_GAP,
   TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
@@ -2116,7 +2116,7 @@ export function layoutConversation(
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
-    marks[index] = isStepRow(row) ? MARK_STEP : rowMark(row);
+    marks[index] = isStepRow(row) ? MARK_STEP : isStatusRow(row) ? MARK_STATUS : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
