@@ -14,8 +14,8 @@
 //! Other requests may be answered before an earlier create's reply.
 //!
 //! Splits are the exception that keeps the order (SPLIT BURST): a split
-//! starts once every earlier create of its connection is a split that has
-//! joined its creation group (`Mux::run_in_creation_group`). A burst of
+//! (`split`, `new-pane`) starts once every earlier create of its connection
+//! that still runs is a split that has joined its creation group (`Mux::run_in_creation_group`). A burst of
 //! Cmd-D splits on one connection then commits as one group, in request
 //! order (the group runs its members in the order they joined), with one
 //! projection write. Each create's reply still waits for the reply of the
@@ -262,12 +262,18 @@ impl ConnectionSurfaceScheduler {
                 slot
             };
             let joined = Arc::new(AtomicBool::new(false));
-            let keep_open = crate::mux::with_group_join_notice(
-                self.join_notice(mux, client, writer, joined.clone()),
-                || self.commit_creation(mux, client, &slot, writer),
-            );
-            self.finish_slot(&slot, joined.load(Ordering::Acquire));
-            self.finish_creation();
+            // Ends the slot also when the create panics (the pool catches
+            // it): later creates of the connection wait for this one.
+            let end = SlotEnd { scheduler: self, slot: &slot, joined: &joined };
+            let keep_open = if slot.groupable {
+                crate::mux::with_group_join_notice(
+                    self.join_notice(mux, client, writer, joined.clone()),
+                    || self.commit_creation(mux, client, &slot, writer),
+                )
+            } else {
+                self.commit_creation(mux, client, &slot, writer)
+            };
+            drop(end);
             if !keep_open {
                 self.close();
             }
@@ -303,6 +309,12 @@ impl ConnectionSurfaceScheduler {
                 let _ = mux.submit_terminal_work(job);
             }
         })
+    }
+
+    /// Wake the creates that wait to reply: the connection closed.
+    pub(super) fn wake_reply_waiters(&self) {
+        let _queue = self.creations.state.lock().recover_poison();
+        self.creations.replied.notify_all();
     }
 
     /// A started create ended: release its hold on later starts and let
@@ -404,6 +416,20 @@ impl ConnectionSurfaceScheduler {
     }
 }
 
+/// Ends a started create's slot when it drops, on return or on a panic.
+struct SlotEnd<'a> {
+    scheduler: &'a ConnectionSurfaceScheduler,
+    slot: &'a CreationSlot,
+    joined: &'a AtomicBool,
+}
+
+impl Drop for SlotEnd<'_> {
+    fn drop(&mut self) {
+        self.scheduler.finish_slot(self.slot, self.joined.load(Ordering::Acquire));
+        self.scheduler.finish_creation();
+    }
+}
+
 /// A create's replies, held until every earlier create of its connection
 /// replied (see the module docs). Everything else goes straight through.
 struct OrderedReplySink {
@@ -414,13 +440,14 @@ struct OrderedReplySink {
 
 impl OrderedReplySink {
     /// Wait for this create's turn to reply: every earlier create ended.
-    /// An earlier create always ends, also on a closed connection, and it
-    /// never waits for a later one (a group's earlier member gets its
-    /// answer before any later member replies).
+    /// An earlier create always ends (also when it panics, see `SlotEnd`),
+    /// and it never waits for a later one (a group's earlier member gets
+    /// its answer before any later member replies). A closed connection
+    /// ends the wait: its reply goes nowhere.
     fn wait_turn(&self) {
         let creations = &self.scheduler.creations;
         let mut queue = creations.state.lock().recover_poison();
-        while queue.next_reply < self.seq {
+        while queue.next_reply < self.seq && !self.scheduler.cancelled.is_cancelled() {
             queue = creations.replied.wait(queue).recover_poison();
         }
     }
