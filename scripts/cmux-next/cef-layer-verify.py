@@ -36,17 +36,38 @@ window and skip that. The python process needs the host's event-posting permissi
   scroll      HID scroll wheel events over the page scroll it
   drag        an HID drag inside the page fires the page's pointer events (mousedown, moves, mouseup)
   context     an HID right click opens Chromium's context menu (the page sees a contextmenu event)
+  select      (hid and cua input) a click on the page's <select> opens Chromium's select popup, a window of the app
+              above it (CGWindowList, layer > 0, no grant needed); with --input cua its pixels are not blank in the
+              display image; a click on its last item picks that option (the select's value changes)
+  popup.*     a click on the page's button opens a window.open popup (debug.popups): `popup.hosted` hosted_pages grows
+              by one (on) or stays 0 (off); `popup.pixels` its red bar shows above its blue bar, in the popup's own
+              window image (debug.popups snapshot_dir) or, with --input cua, in the display image cut to its frame;
+              `popup.click` a click on the popup's button reaches it (it posts a message to the opener)
+  devtools.*  docked DevTools (devtools.openDocked): `devtools.hosted` hosted_pages grows by one (on) or stays 0 (off);
+              `devtools.pixels` its area shows a drawn page (not one flat colour) in the display image (--input cua)
+              or the app's window image; `devtools.click` a click in its area makes the DevTools page window key
+              (debug.cef devtools child_windows), after a click on the page made the page's window key
+
+--input cua drives every input and screen image through the CuaDriver daemon on the host (`cua-driver call`), which
+holds Accessibility and Screen Recording on the capture minis, so a step whose own process has neither grant still
+posts real events at screen points (desktop scope: the WindowServer routes them, as for hid) and reads the display
+(get_desktop_state). The run records the daemon's `permissions status` in its facts; a host without the daemon or
+its grants fails the input rows with the daemon's answer.
 
 --checks hosted runs only `valid`, `hosted`, `hosted.fork` and `show.again` (cef-layer-ab.py's check of each mode). --tunables build sets the
 tunable in the build's own debug-tunables.json (the path `debug.tunables` reports, which the benches read) instead
 of a scratch file, and records that path.
 
 Each row prints PASS or FAIL; OUT/verify-<mode>.json holds them, the debug.cef values and the tunables file. IME,
-accessibility, DevTools, popups and full screen are not covered here (see the design doc's feature table).
+accessibility, extension popups and full screen are not covered here (see the design doc's feature table).
 
 Run on a GUI fleet host, never a laptop:
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/cef-layer-verify.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS" --mode on
+On a capture mini (CuaDriver granted), through the measure suite:
+  cmux-ci run --class exclusive --measurement --label measure --display --target-worker cmux11s-Mac-mini.local \\
+    --script scripts/measure/split-spring.sh --arg=--suite=cef-api30 --arg=--parts=verify-on-cua,verify-off-cua \\
+    --ref SHA --artifact artifacts/split-spring/bundle.tar.gz
 """
 import argparse, ctypes, glob, json, os, pathlib, signal, socket, struct, subprocess, sys, tempfile, time
 
@@ -56,9 +77,11 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--mode", default="on", choices=["on", "off"])
 parser.add_argument("--keep", action="store_true", help="leave the app running")
-parser.add_argument("--input", default="hid", choices=["hid", "debug"],
+parser.add_argument("--input", default="hid", choices=["hid", "debug", "cua"],
                     help="hid: real CGEvents (nx-remote --needs input); debug: debug.mouse/debug.key into the app's queue "
-                         "(any GUI slot; proves the page window takes AppKit's events, not the WindowServer's routing)")
+                         "(any GUI slot; proves the page window takes AppKit's events, not the WindowServer's routing); "
+                         "cua: real events and display images through the host's CuaDriver daemon (capture minis)")
+parser.add_argument("--cua-driver", default="/Applications/CuaDriver.app/Contents/MacOS/cua-driver")
 parser.add_argument("--checks", default="all", choices=["all", "hosted"], help="hosted: only the valid, hosted, hosted.fork and show.again rows")
 parser.add_argument("--tunables", default="scratch", choices=["scratch", "build"],
                     help="build: set the tunable in the build's own debug-tunables.json (what the benches read)")
@@ -84,12 +107,25 @@ PAGE = """<!doctype html><meta charset=utf-8><title>layer probe</title>
 #top{position:fixed;top:0;left:0;right:0;height:40px;background:#ff0000}
 #bottom{position:fixed;bottom:0;left:0;right:0;height:40px;background:#0000ff}
 #mid{position:fixed;left:10%;right:10%;top:calc(50% - 60px);height:120px;display:flex;gap:10px}
-button,input{flex:1;font-size:20px}#tall{height:4000px}</style>
+#row2{position:fixed;left:10%;right:10%;top:calc(50% + 80px);height:60px;display:flex;gap:10px}
+button,input,select{flex:1;font-size:20px}#tall{height:4000px}</style>
 <div id=top></div><div id=bottom></div>
 <div id=mid><button id=b onclick="window.__clicks=(window.__clicks||0)+1">click</button><input id=t></div>
+<div id=row2><button id=pop onclick="window.open('popup.html','layerpopup','popup,width=520,height=420,left=220,top=180')">popup</button>
+<select id=s><option value=a>alpha</option><option value=b>beta</option><option value=c>gamma</option></select></div>
 <div id=tall></div>
 <script>window.__events=[];for(const t of ['mousedown','mousemove','mouseup','contextmenu'])
-addEventListener(t,e=>{if(t!=='mousemove'||e.buttons)window.__events.push(t)},true)</script>"""
+addEventListener(t,e=>{if(t!=='mousemove'||e.buttons)window.__events.push(t)},true)
+addEventListener('message',e=>{if(e.data==='popup-click')window.__popupClicks=(window.__popupClicks||0)+1})</script>"""
+# The window.open popup (popup.html beside the probe): the same bars, and a button that tells the opener it was clicked
+# (file pages are cross-origin to each other, so a message, not a shared global).
+POPUP_PAGE = """<!doctype html><meta charset=utf-8><title>layer popup</title>
+<style>html,body{margin:0;height:100%;background:#20a040;font:16px system-ui}
+#top{position:fixed;top:0;left:0;right:0;height:40px;background:#ff0000}
+#bottom{position:fixed;bottom:0;left:0;right:0;height:40px;background:#0000ff}
+button{position:fixed;left:15%;right:15%;top:calc(50% - 40px);height:80px;font-size:20px}</style>
+<div id=top></div><div id=bottom></div>
+<button onclick="opener&&opener.postMessage('popup-click','*')">popup click</button>"""
 
 
 def rpc(method, params=None, timeout=30):
@@ -168,6 +204,59 @@ def post(event):
 
 
 DEBUG_MOUSE = {5: "move", 1: "down", 2: "up", 6: "drag", 3: "down", 4: "up"}
+CUA = {}
+
+
+def cua(tool, args=None, timeout=30):
+    """One CuaDriver tool call through the host's daemon (it holds the grants); its JSON answer, or {"error": ...}."""
+    try:
+        done = subprocess.run([opts.cua_driver, "call", tool, json.dumps(args or {})], capture_output=True, text=True,
+                              timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"error": f"cua-driver {tool}: {error}"}
+    try:
+        answer = json.loads(done.stdout) if done.stdout.strip() else None
+    except ValueError:
+        answer = None
+    if done.returncode != 0 or not isinstance(answer, dict) or answer.get("isError") or answer.get("error"):
+        failure = {"error": f"cua-driver {tool}: exit {done.returncode}: {(done.stderr.strip() or done.stdout.strip())[-300:]}"}
+        CUA.setdefault("errors", []).append(failure["error"])
+        return failure
+    return answer
+
+
+def cua_scale():
+    """Desktop image pixels per point of the main display (get_screen_size), read once."""
+    if "scale" not in CUA:
+        size = cua("get_screen_size")
+        CUA["scale"] = float(size.get("scale_factor") or 0) or 1.0
+        CUA["screen"] = {k: size.get(k) for k in ("width", "height", "scale_factor")}
+    return CUA["scale"]
+
+
+def cua_px(point):
+    """A global top-left point in desktop image pixels (the main display's origin is 0, 0)."""
+    scale = cua_scale()
+    return round(point[0] * scale), round(point[1] * scale)
+
+
+def cua_mouse(kind, point):
+    x, y = cua_px(point)
+    if kind == 5:
+        cua("move_cursor", {"scope": "desktop", "x": x, "y": y})
+    elif kind in (1, 3):
+        CUA["down"] = (x, y)
+    elif kind == 6:
+        CUA["drag_to"] = (x, y)
+    elif kind in (2, 4):
+        # A press and its release are one call: a click where the press was, or a drag from it to here.
+        start = CUA.pop("down", (x, y))
+        CUA.pop("drag_to", None)
+        if start != (x, y):
+            cua("drag", {"scope": "desktop", "from_x": start[0], "from_y": start[1], "to_x": x, "to_y": y,
+                         "steps": 8, "duration_ms": 300})
+        else:
+            cua("click", {"scope": "desktop", "x": x, "y": y, "button": "right" if kind == 4 else "left"})
 
 
 def to_window(point):
@@ -180,6 +269,9 @@ def to_window(point):
 
 
 def hid_mouse(kind, point, button=0):
+    if opts.input == "cua":
+        cua_mouse(kind, point)
+        return
     if opts.input == "debug":
         x, y = to_window(point)
         params = {"action": DEBUG_MOUSE[kind], "x": x, "y": y}
@@ -200,6 +292,10 @@ def hid_click(point, right=False):
 
 
 def hid_key(name):
+    if opts.input == "cua":
+        cua("press_key", {"scope": "desktop", "key": name})  # the frontmost app: the click before activated it
+        time.sleep(0.02)  # test harness: keys in order
+        return
     if opts.input == "debug":
         rpc("debug.key", {"key": name})
         return
@@ -232,18 +328,41 @@ def page_point(fx=0.5, fy=0.5):
     return None
 
 
-def snapshot_bars(path):
-    """(rows with the red bar, rows with the blue bar) of the snapshot, top to bottom."""
+def read_bmp(path):
+    """The image as BMP bytes: (data, pixel offset, width, height, bytes per pixel, stride)."""
     bmp = path + ".bmp"
     subprocess.run(["sips", "-s", "format", "bmp", path, "--out", bmp], capture_output=True, timeout=60)
     data = open(bmp, "rb").read()
+    os.remove(bmp)
     offset, width, height, bpp = struct.unpack_from("<I", data, 10)[0], *struct.unpack_from("<iiHH", data, 18)[:2], struct.unpack_from("<H", data, 28)[0]
-    stride = ((width * bpp + 31) // 32) * 4
-    step = bpp // 8
+    return data, offset, width, height, bpp // 8, ((width * bpp + 31) // 32) * 4
+
+
+def bmp_line(height, y):
+    return y if height < 0 else abs(height) - 1 - y  # BMP rows are bottom-up unless height < 0
+
+
+def image_detail(path):
+    """How many distinct colours (5 bits a channel) a sample of the image holds: 1-2 for a blank or flat area."""
+    try:
+        data, offset, width, height, step, stride = read_bmp(path)
+    except (OSError, struct.error, IndexError):
+        return 0
+    colours = set()
+    for y in range(0, abs(height), 4):
+        base = offset + bmp_line(height, y) * stride
+        for x in range(0, width, 4):
+            b, g, r = data[base + x * step], data[base + x * step + 1], data[base + x * step + 2]
+            colours.add((r >> 3, g >> 3, b >> 3))
+    return len(colours)
+
+
+def snapshot_bars(path):
+    """(rows with the red bar, rows with the blue bar) of the snapshot, top to bottom."""
+    data, offset, width, height, step, stride = read_bmp(path)
     red, blue = [], []
     for y in range(0, abs(height), 2):
-        line = y if height < 0 else abs(height) - 1 - y  # BMP rows are bottom-up unless height < 0
-        base = offset + line * stride
+        base = offset + bmp_line(height, y) * stride
         counts = [0, 0]
         for x in range(0, width, 8):
             b, g, r = data[base + x * step], data[base + x * step + 1], data[base + x * step + 2]
@@ -266,16 +385,40 @@ def page_rect():
     return None
 
 
-def capture_bars(name):
-    """(red rows, blue rows, image rows) of a screencapture of the page rect now, or None without a rect or image."""
-    rect = page_rect()
-    if not rect:
-        return None
+def screen_image(rect, name):
+    """A PNG of the display cut to RECT (AppKit screen points, y from the bottom) now, or None: screencapture, or with
+    --input cua the CuaDriver daemon's display image (its own Screen Recording grant) cut with sips."""
     main = CG.CGDisplayBounds(CG.CGMainDisplayID())
     x, y, w, h = rect
-    path = os.path.join(opts.out, f"verify-{opts.mode}-{name}.png")
-    subprocess.run(["screencapture", "-x", "-R", f"{int(x)},{int(main.size.y - y - h)},{int(w)},{int(h)}", path],
-                   capture_output=True, timeout=60)
+    top = main.size.y - y - h
+    path = os.path.join(os.path.realpath(opts.out), f"verify-{opts.mode}-{name}.png")  # CuaDriver refuses /tmp's symlink
+    if os.path.exists(path):
+        os.remove(path)
+    if opts.input != "cua":
+        subprocess.run(["screencapture", "-x", "-R", f"{int(x)},{int(top)},{int(w)},{int(h)}", path],
+                       capture_output=True, timeout=60)
+        return path if os.path.exists(path) else None
+    full = path[:-4] + "-display.png"
+    reply = cua("get_desktop_state", {"screenshot_out_file": full})
+    if "error" in reply or not os.path.exists(full):
+        FACTS.setdefault("capture_errors", []).append({name: reply.get("error") or "no display image"})
+        return None
+    scale = (float(reply.get("screenshot_width") or 0) / float(reply.get("screen_width") or 1)) or cua_scale()
+    subprocess.run(["sips", "-c", str(round(h * scale)), str(round(w * scale)), "--cropOffset", str(round(top * scale)),
+                    str(round(x * scale)), full, "--out", path], capture_output=True, timeout=60)
+    os.remove(full)  # the whole display can show more than the app: keep only the cut
+    return path if os.path.exists(path) else None
+
+
+def capture_bars(name, rect=None):
+    """(red rows, blue rows, image rows) of a display image of RECT (default the page rect) now, or None without a rect
+    or image."""
+    rect = rect or page_rect()
+    if not rect:
+        return None
+    path = screen_image(rect, name)
+    if not path:
+        return None
     try:
         red, blue = snapshot_bars(path)
     except (OSError, struct.error, IndexError):
@@ -366,6 +509,208 @@ def check_show_again():
     wait(lambda: page_rect() is not None, 5, 0.05)
 
 
+def app_windows(pid):
+    """PID's on-screen windows, front to back: window, layer, bounds {x, y, width, height} in top-left points
+    (CGWindowList: bounds and layers need no grant)."""
+    vp = ctypes.c_void_p
+    CG.CGWindowListCopyWindowInfo.restype = vp
+    CG.CGWindowListCopyWindowInfo.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+    CF.CFArrayGetCount.restype = ctypes.c_long
+    CF.CFArrayGetCount.argtypes = [vp]
+    CF.CFArrayGetValueAtIndex.restype = vp
+    CF.CFArrayGetValueAtIndex.argtypes = [vp, ctypes.c_long]
+    CF.CFDictionaryGetValue.restype = vp
+    CF.CFDictionaryGetValue.argtypes = [vp, vp]
+    CF.CFStringCreateWithCString.restype = vp
+    CF.CFStringCreateWithCString.argtypes = [vp, ctypes.c_char_p, ctypes.c_uint32]
+    CF.CFNumberGetValue.restype = ctypes.c_bool
+    CF.CFNumberGetValue.argtypes = [vp, ctypes.c_int, vp]
+    keys = {}
+
+    def num(d, name):
+        if name not in keys:
+            keys[name] = CF.CFStringCreateWithCString(None, name.encode(), 0x08000100)
+        value, out = CF.CFDictionaryGetValue(d, keys[name]), ctypes.c_double()
+        return out.value if value and CF.CFNumberGetValue(value, 13, ctypes.byref(out)) else 0.0  # kCFNumberDoubleType
+
+    array = CG.CGWindowListCopyWindowInfo(1 | 16, 0)  # on screen only, no desktop elements
+    windows = []
+    try:
+        for i in range(CF.CFArrayGetCount(array) if array else 0):
+            d = CF.CFArrayGetValueAtIndex(array, i)
+            if int(num(d, "kCGWindowOwnerPID")) != pid:
+                continue
+            num(d, "kCGWindowBounds")  # makes the key
+            b = CF.CFDictionaryGetValue(d, keys["kCGWindowBounds"])
+            windows.append({"window": int(num(d, "kCGWindowNumber")), "layer": int(num(d, "kCGWindowLayer")),
+                            "bounds": {k: num(b, k[0].upper() + k[1:]) for k in ("x", "y", "width", "height")}})
+    finally:
+        if array:
+            CF.CFRelease(array)
+        for made in keys.values():
+            if made:
+                CF.CFRelease(made)
+    return windows
+
+
+def appkit_rect(rect):
+    """[x, y, w, h] in AppKit screen points from a debug reply's rect ([x, y, w, h] or {x, y, width, height})."""
+    return [rect["x"], rect["y"], rect["width"], rect["height"]] if isinstance(rect, dict) else list(rect)
+
+
+def rect_center(rect, dy=0.0):
+    """The global top-left point at the middle of an AppKit rect (dy points lower)."""
+    main = CG.CGDisplayBounds(CG.CGMainDisplayID())
+    x, y, w, h = appkit_rect(rect)
+    return x + w / 2, main.size.y - (y + h / 2) + dy
+
+
+def element_point(element_id):
+    """The global point at the middle of the page element ELEMENT_ID (its client rect over the page's rect)."""
+    where = page(f"(()=>{{const r=document.getElementById('{element_id}').getBoundingClientRect();"
+                 "return [(r.left+r.width/2)/innerWidth,(r.top+r.height/2)/innerHeight]}})()")
+    return screen_point(*where) if isinstance(where, list) and len(where) == 2 else None
+
+
+def hosted_pages():
+    return ((rpc("debug.cef") or {}).get("tracker") or {}).get("hosted_pages", 0)
+
+
+def hosted_grew(before):
+    """hosted_pages after a new Chromium page opened: one more (on) or still 0 (off), within 5 s; (ok, now)."""
+    want = (lambda n: n >= before + 1) if opts.mode == "on" else (lambda n: n == 0)
+    now = wait(lambda: (lambda n: n if want(n) else None)(hosted_pages()), 5)
+    return (now is not None), (now if now is not None else hosted_pages())
+
+
+def check_select(pid):
+    """select: a click on the <select> opens Chromium's popup window; a click on its last item picks it."""
+    if opts.input == "debug":
+        row("select", False, {"note": "not run with --input debug: an open select popup's tracking holds the socket "
+                                      "that debug.mouse goes through (use --input cua or hid)"})
+        return
+    page("document.getElementById('s').value = 'a'")
+    point = element_point("s")
+    if not point:
+        row("select.popup", False, {"note": "no page point for the select"})
+        return
+    before = {w["window"] for w in app_windows(pid) if w["layer"] > 0}
+    hid_click(point)
+    time.sleep(1)  # test harness: the popup opens (its tracking holds the app's main thread: no socket call until it closes)
+    menus = [w for w in app_windows(pid) if w["layer"] > 0 and w["window"] not in before]
+    detail = None
+    if menus and opts.input == "cua":
+        main = CG.CGDisplayBounds(CG.CGMainDisplayID())
+        b = menus[0]["bounds"]
+        image = screen_image([b["x"], main.size.y - b["y"] - b["height"], b["width"], b["height"]], "select-popup")
+        detail = image_detail(image) if image else 0
+    row("select.popup", bool(menus) and (detail is None or detail > 8),
+        {"at": [round(v) for v in point], "popup_windows": menus[:3], "colours": detail,
+         "note": None if menus else "no new window of the app above layer 0 after the click"})
+    if not menus:
+        row("select.click", False, {"note": "no popup to click"})
+        return
+    # The last of three items: the menu's rows share its height less a few points of padding at each end.
+    b, pad = menus[0]["bounds"], 6
+    item = (b["height"] - 2 * pad) / 3
+    hid_click((b["x"] + b["width"] / 2, b["y"] + b["height"] - pad - item / 2))
+    time.sleep(0.5)  # test harness: the menu closes
+    still = [w for w in app_windows(pid) if w["window"] == menus[0]["window"]]
+    if still:
+        hid_key("escape")
+    value = wait(lambda: (lambda v: v if v and v != "a" else None)(page("document.getElementById('s').value")), 3)
+    row("select.click", value == "c", {"value": value or page("document.getElementById('s').value"),
+                                       "popup_still_open": bool(still)})
+
+
+def popup_panel():
+    panels = (rpc("debug.popups") or {}).get("panels") or []
+    return next((p for p in panels if p.get("visible") and str(p.get("url") or "").endswith("popup.html")), None)
+
+
+def check_popup():
+    """popup.*: window.open from a click opens a popup window that hosts (or not, by mode), draws and takes a click."""
+    before = hosted_pages()
+    page("window.__popupClicks = 0")
+    point = element_point("pop")
+    if point:
+        hid_click(point)
+    panel = wait(popup_panel, 10, 0.25)
+    if not panel:
+        row("popup.open", False, {"at": point and [round(v) for v in point], "popups": json.dumps(rpc("debug.popups"))[:300]})
+        return
+    ok, now = hosted_grew(before)
+    row("popup.hosted", ok, {"hosted_pages_before": before, "hosted_pages": now, "engine": panel.get("engine")})
+    time.sleep(1.5)  # test harness: the popup's first frames
+    snapshots = os.path.join(opts.out, f"verify-{opts.mode}-popup")
+    panel = next((p for p in (rpc("debug.popups", {"snapshot_dir": snapshots}) or {}).get("panels") or []
+                  if str(p.get("url") or "").endswith("popup.html")), panel)
+    seen = {}
+    if panel.get("snapshot"):
+        try:
+            seen["window"] = snapshot_bars(panel["snapshot"])
+        except (OSError, struct.error, IndexError):
+            seen["window"] = None
+    if opts.input != "debug":
+        bars = capture_bars("popup-screen", appkit_rect(panel["frame"]))
+        seen["screen"] = bars[:2] if bars else None
+    row("popup.pixels", any(b and bars_ok(b[0], b[1]) for b in seen.values()),
+        {name: ({"red_rows": [min(b[0]), max(b[0])] if b[0] else None, "blue_rows": [min(b[1]), max(b[1])] if b[1] else None}
+                if b else None) for name, b in seen.items()} | {"frame": panel.get("frame")})
+    # The page's own window over the popup (a child window) when there is one, else the popup's middle under its bar.
+    children = [c for c in panel.get("child_windows") or [] if c.get("visible")]
+    target = rect_center(children[0]["frame"]) if children else rect_center(panel["frame"], 20)
+    clicks, tries = None, 0
+    for tries in (1, 2):  # the first click may only make the popup key
+        hid_click(target)
+        clicks = wait(lambda: page("window.__popupClicks || 0"), 2)
+        if clicks:
+            break
+    row("popup.click", bool(clicks), {"clicks": clicks, "clicks_sent": tries, "at": [round(v) for v in target],
+                                      "child_windows": children[:2]})
+    rpc("debug.popups", {"action": "close"})
+    wait(lambda: popup_panel() is None, 5)
+
+
+def devtools_entry():
+    return next((d for d in (rpc("debug.cef") or {}).get("devtools") or [] if d.get("open") and d.get("devtools_frame")), None)
+
+
+def check_devtools():
+    """devtools.*: docked DevTools hosts (or not, by mode), draws, and a click in it makes its page window key."""
+    before = hosted_pages()
+    reply = action("devtools.openDocked")
+    entry = wait(devtools_entry, 15, 0.25)
+    if not entry:
+        row("devtools.open", False, {"reply": json.dumps(reply)[:200], "devtools": json.dumps((rpc("debug.cef") or {}).get("devtools"))[:300]})
+        return
+    ok, now = hosted_grew(before)
+    row("devtools.hosted", ok, {"hosted_pages_before": before, "hosted_pages": now, "dock": entry.get("dock")})
+    time.sleep(2.5)  # test harness: the DevTools front end loads and draws
+    entry = devtools_entry() or entry
+    image = screen_image(appkit_rect(entry["devtools_frame"]), "devtools-screen")
+    detail = image_detail(image) if image else 0
+    row("devtools.pixels", detail > 8, {"colours": detail, "devtools_frame": entry.get("devtools_frame"),
+                                         "via": "cua" if opts.input == "cua" else "screencapture"})
+    if entry.get("page_frame"):
+        hid_click(rect_center(entry["page_frame"]))  # the page's window key first
+        time.sleep(0.3)  # test harness: key window settles
+    point = rect_center(entry["devtools_frame"])
+
+    def devtools_key():
+        found = devtools_entry()
+        return found if found and any(c.get("devtools") and c.get("key") for c in found.get("child_windows") or []) else None
+    key = None
+    for _ in (1, 2):  # the first click may only activate
+        hid_click(point)
+        key = wait(devtools_key, 2)
+        if key:
+            break
+    final = key or devtools_entry() or {}
+    row("devtools.click", bool(key), {"at": [round(v) for v in point], "child_windows": (final.get("child_windows") or [])[:4]})
+    action("devtools.close")
+
+
 def main():
     global SOCKET
     if os.path.exists(SOCKET):
@@ -420,6 +765,10 @@ def main():
                 return
         probe = os.path.join(SCRATCH, "probe.html")
         open(probe, "w").write(PAGE)
+        open(os.path.join(SCRATCH, "popup.html"), "w").write(POPUP_PAGE)
+        if opts.input == "cua":
+            status = subprocess.run([opts.cua_driver, "permissions", "status"], capture_output=True, text=True, timeout=30)
+            FACTS["cua"] = {"permissions": (status.stdout or status.stderr).strip()[:400], "screen": (cua_scale(), CUA.get("screen"))[1]}
         opened = action("openBrowser.chromium", {"url": pathlib.Path(probe).as_uri()}, timeout=120)
         if not wait(lambda: page("document.readyState === 'complete' && document.title === 'layer probe'"), 60, 0.5):
             row("page", False, f"the probe never loaded: {json.dumps(opened)[:200]} cef {json.dumps(rpc('debug.cef'))[:300]}")
@@ -441,12 +790,8 @@ def main():
         images["window"] = (shot, {k: reply.get(k) for k in ("method", "child_windows", "child_windows_failed")})
         rect = page_rect()
         if rect:
-            main = CG.CGDisplayBounds(CG.CGMainDisplayID())
-            x, y, w, h = rect
-            screen = os.path.join(opts.out, f"verify-{opts.mode}-screen.png")
-            subprocess.run(["screencapture", "-x", "-R", f"{int(x)},{int(main.size.y - y - h)},{int(w)},{int(h)}", screen],
-                           capture_output=True, timeout=60)
-            images["screen"] = (screen, {})
+            screen = screen_image(rect, "screen")
+            images["screen"] = (screen or os.path.join(opts.out, f"verify-{opts.mode}-screen.png"), {"via": opts.input if opts.input == "cua" else "screencapture"})
         for name, (path, info) in images.items():
             try:
                 red, blue = snapshot_bars(path)
@@ -478,7 +823,10 @@ def main():
         sp = screen_point(0.5, 0.8)
         hid_mouse(5, sp)
         for _ in range(10):
-            if opts.input == "debug":
+            if opts.input == "cua":
+                x, y = cua_px(sp)
+                cua("scroll", {"scope": "desktop", "x": x, "y": y, "direction": "down", "amount": 3, "by": "line"})
+            elif opts.input == "debug":
                 x, y = to_window(sp)
                 rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": -40})
             else:
@@ -499,9 +847,18 @@ def main():
 
         page("window.__events = []")
         hid_click(dp, right=True)
+        if opts.input != "debug":
+            # An open context menu's tracking holds the app's main thread, so the socket answers only once it closes.
+            time.sleep(1)  # test harness: the menu opens
+            hid_key("escape")
         events = wait(lambda: page("window.__events.join(',')"), 3) or ""
         row("context", "contextmenu" in events, {"events": events[:120]})
-        hid_key("escape")
+        if opts.input == "debug":
+            hid_key("escape")
+
+        check_select(app.pid)
+        check_popup()
+        check_devtools()
 
         # The page gets shorter: its red bar must stay at the top edge while Chromium catches up and after.
         action("splitDown")

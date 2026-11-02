@@ -271,7 +271,8 @@ if "--suite=perf-gate" in sys.argv:
     sys.exit(0 if os.path.exists(report_path) else (code or 1))
 # MEASURE-ONLY (lane/ux-cef-api30-measure, never for feat-cmux-next): `--suite=cef-api30` runs every layer-hosting
 # check and bench on the step's app in one step and packs <out> into <out>/bundle.tar.gz (the step's one artifact):
-# verify on (hid), verify on (debug), verify off (debug), cef-layer-ab.py off vs on, cef-resize-sync-bench.py.
+# verify on (hid), verify on (debug), verify off (debug), cef-layer-ab.py off vs on, cef-resize-sync-bench.py;
+# verify-on-cua and verify-off-cua (CuaDriver input and display images) only when --parts names them.
 if "--suite=cef-api30" in sys.argv:
     import tarfile
     here = os.path.dirname(os.path.abspath(__file__))
@@ -283,6 +284,9 @@ if "--suite=cef-api30" in sys.argv:
         "verify-on-hid": ["cef-layer-verify.py", "--mode", "on"],
         "verify-on": ["cef-layer-verify.py", "--mode", "on", "--input", "debug"],
         "verify-off": ["cef-layer-verify.py", "--mode", "off", "--input", "debug"],
+        # Real input and display images through the host's CuaDriver daemon (a capture mini: --target-worker).
+        "verify-on-cua": ["cef-layer-verify.py", "--mode", "on", "--input", "cua"],
+        "verify-off-cua": ["cef-layer-verify.py", "--mode", "off", "--input", "cua"],
         "verify-on-late": ["cef-layer-verify.py", "--mode", "on", "--input", "debug"],
         "verify-off-late": ["cef-layer-verify.py", "--mode", "off", "--input", "debug"],
         "ab": ["cef-layer-ab.py"],
