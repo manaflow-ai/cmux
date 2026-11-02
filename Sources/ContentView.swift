@@ -9862,8 +9862,14 @@ struct ContentView: View {
         Self.commandPaletteWorkspaceDisplayName(workspace)
     }
 
-    private func panelDisplayName(workspace: Workspace, panelId: UUID, fallback: String) -> String {
-        let title = workspace.panelTitle(panelId: panelId)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    private func panelDisplayName(
+        workspace: Workspace,
+        panelId: UUID,
+        fallback: String,
+        includesBadge: Bool = true
+    ) -> String {
+        let title = workspace.panelTitle(panelId: panelId, includesBadge: includesBadge)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !title.isEmpty {
             return title
         }
@@ -11060,10 +11066,13 @@ struct ContentView: View {
             NSSound.beep()
             return
         }
+        // Seed the editor without the badge, or saving it would copy the
+        // badge into the custom title and show it twice.
         let panelName = panelDisplayName(
             workspace: panelContext.workspace,
             panelId: panelContext.panelId,
-            fallback: panelContext.panel.displayTitle
+            fallback: panelContext.panel.displayTitle,
+            includesBadge: false
         )
         let target = CommandPaletteRenameTarget(
             kind: .tab(workspaceId: panelContext.workspace.id, panelId: panelContext.panelId),

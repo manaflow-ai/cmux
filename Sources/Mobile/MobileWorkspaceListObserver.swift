@@ -321,6 +321,8 @@ final class MobileWorkspaceListObserver {
                 // Renaming a terminal sets `panelCustomTitles` (not `panelTitles`),
                 // so without this a terminal rename never re-emits to the phone.
                 workspace.$panelCustomTitles.map { _ in () }.eraseToAnyPublisher(),
+                // A badge is part of the resolved terminal title too.
+                workspace.$panelBadges.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$title.map { _ in () }.eraseToAnyPublisher(),
                 // Description and color are durable workspace identity shown in
                 // the phone sidebar. Mac-side edits must invalidate mobile rows.

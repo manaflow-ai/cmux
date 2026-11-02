@@ -5,6 +5,7 @@ import Foundation
 final class FakeTabActionControlCommandContext: ControlCommandContext {
     var resolution: ControlTabActionResolution = .tabManagerUnavailable
     private(set) var actionKey: String?
+    private(set) var badge: String?
     private(set) var surfaceID: UUID?
     private(set) var force = false
 
@@ -12,6 +13,7 @@ final class FakeTabActionControlCommandContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         actionKey: String?,
         title: String?,
+        badge: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
@@ -19,6 +21,7 @@ final class FakeTabActionControlCommandContext: ControlCommandContext {
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution {
         self.actionKey = actionKey
+        self.badge = badge
         self.surfaceID = surfaceID
         self.force = force
         return resolution

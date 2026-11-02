@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxCore
 import Foundation
 
 /// The system-domain action witnesses (`workspace.action`, `surface.action` /
@@ -32,6 +33,7 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         actionKey: String?,
         title: String?,
+        badge: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
@@ -172,6 +174,26 @@ extension TerminalController {
         case "clear_name":
             workspace.setPanelCustomTitle(panelId: panelId, title: nil)
             return finish(.none)
+
+        case "set_badge", "clear_badge":
+            // A remote tmux mirror's tab labels follow the remote session's
+            // window names, which would drop a badge on the next rename.
+            if workspace.isRemoteTmuxMirror || workspace.isRemoteTmuxControlContainer(panelId) {
+                return .bridged(.err(
+                    code: "invalid_state",
+                    message: "Badges aren't supported on remote tmux tabs",
+                    data: .object(["surface_id": .string(panelId.uuidString)])
+                ))
+            }
+            guard action == "set_badge" else {
+                workspace.setPanelBadge(panelId: panelId, badge: nil)
+                return finish(.badge(nil))
+            }
+            guard let badgeText = badge.flatMap(PanelBadgeText.init) else {
+                return .invalidBadge(maximumCharacters: PanelBadgeText.maximumCharacters)
+            }
+            workspace.setPanelBadge(panelId: panelId, badge: badgeText)
+            return finish(.badge(badgeText.value))
 
         case "pin":
             workspace.setPanelPinned(panelId: panelId, pinned: true)
