@@ -449,7 +449,8 @@ export type AcpmuxRow = {
   /// it is open the row names the call, so the line does not (conversation/turns.ts `ownRow`).
   doingGroup?: string;
   doingGroupOpen?: boolean;
-  /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
+  /// A "Worked for" disclosure whose fold mixes the agent's messages with its work reads "N previous
+  /// messages", as Codex's does (conversation/turns.ts `foldMixesMessages`).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
   queued?: string;
