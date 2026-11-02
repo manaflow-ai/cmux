@@ -1769,6 +1769,7 @@
     "agent-pane.transcript-chevron-column#light": 0,
     "agent-pane.transcript-row-alignment#finished": 0,
     "agent-pane.transcript-row-alignment#finished-hover": 0,
+    "agent-pane.transcript-row-alignment#finished-work": 0,
     "agent-pane.transcript-row-alignment#footer": 0,
     "agent-pane.transcript-row-alignment#mix": 0,
     "agent-pane.transcript-row-alignment#off": 0,
