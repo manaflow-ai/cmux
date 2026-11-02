@@ -40,6 +40,7 @@ struct HomePendingTerminalFocusTests {
         }) { services, connection in
             let (window, home) = try await HomeSplitKeysTests.showHome(services, connection)
             let shell = try #require(window.window)
+            defer { shell.closeWithHomePopovers() } // the Chief Settings panel its Home host made up front
             let dockKey = try #require(window.focusedPane?.paneKey, "Home's dock has no focus")
             // The dock pane's content: Home's page, whose view is the docked Home (Messages, its default view).
             @MainActor func dockView() -> HomeDockView? {
