@@ -132,6 +132,7 @@ def main():
         reads = [json.loads(l) for l in (jdir / "echo.jsonl").read_text().splitlines() if '"bytes"' in l]
         keys = keys_check.check(events, reads)
     refreshes, stalls, refresh_ms, judged, missing = [], [], None, 0, 0
+    impossible = 0
     state = {}  # the typed line continues from part 1 into part 2: its origin and cursor cell carry over
     import judge as line_judge
     import judge_keys
@@ -164,6 +165,11 @@ def main():
         if rep.get("summary", {}).get("origin"):
             state = {"origin": tuple(rep["summary"]["origin"]), "end": rep["summary"]["end"]}
         (mov.with_suffix(".keys.json")).write_text(json.dumps(rep, indent=1))
+        # A frame before the PTY read of its own key is impossible: the judge took another change (review note 3).
+        read_t = {(r["i"], r["t_post"]): reads[r["read"]]["t"] for r in keys.get("rows", []) if r.get("got")} if keys else {}
+        impossible += sum(1 for r in rep["keys"] if r.get("t_frame") is not None
+                          and (r["i"], next((e["t_post"] for e in part if e["i"] == r["i"]), None)) in read_t
+                          and r["t_frame"] < read_t[(r["i"], next(e["t_post"] for e in part if e["i"] == r["i"]))])
         judged += 1
         refreshes += [r["refreshes"] for r in rep["keys"] if r.get("refreshes") is not None]
         missing += rep["summary"]["missing"]
@@ -173,7 +179,7 @@ def main():
     load_ok = bool(loads) and all(l.get("alive_at_stop") and l.get("focus_changed") is False for l in loads)
     hog = hog_held_gb(run, min(e["t_post"] for e in events), max(e["t_back"] for e in events))
     lag = max([p["result"].get("post_late_ms", {}).get("max") or 0 for p in plays] or [0])
-    source = "video" if judged == len(plays) == 2 and (refreshes or missing) else "in-app"
+    source = "video" if judged == len(plays) == 2 and (refreshes or missing) and not impossible else "in-app"
     profile = a.journey.split("typing-load-")[1].split("-")[0].upper()
     full = refreshes + [10 ** 6] * missing  # a key never shown is a breach (review must-fix 1)
     refreshes = full
@@ -182,7 +188,7 @@ def main():
            "refresh_ms": refresh_ms, "source": source, "keys": len(events),
            "p50_refreshes": pct(refreshes, 50), "p95_refreshes": pct(refreshes, 95), "p99_refreshes": pct(refreshes, 99),
            "max_refreshes": max(refreshes) if refreshes else None, "missing_frames": missing,
-           "start_clock": start_clock, "parts": len(plays), "planned_keys": planned,
+           "judge_impossible_frames": impossible, "start_clock": start_clock, "parts": len(plays), "planned_keys": planned,
            "target_keys_per_s": target_kps, "achieved_keys_per_s": achieved_kps, "rate_ok": rate_ok,
            "provisional": start_clock != "nsevent",
            "load_ok": load_ok if profile != "L0" else True, "loads": loads, "hog_held_gb": hog, "typist_late_ms_max": lag,
