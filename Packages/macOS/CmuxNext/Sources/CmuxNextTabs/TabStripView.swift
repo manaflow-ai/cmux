@@ -221,6 +221,8 @@ public final class TabStripView: NSView {
     private(set) lazy var escapeMonitor = TabDragEscapeMonitor(strip: self)
     /// A dropped tab keeps the placeholder's geometry when it arrives.
     var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?
+    /// Identifies the committed drop whose result may still roll back this strip.
+    var dropCommitID: UUID?
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")

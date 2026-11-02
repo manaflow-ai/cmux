@@ -441,3 +441,18 @@ test("an inherited page folder is not preflighted before the host names a chat s
     await act(async () => page.root.unmount());
   }
 });
+
+test("a tilde start folder does not become an invalid target auth cwd", async () => {
+  for (const startCwd of ["~", "~/project"]) {
+    const page = await newTabPage({ auth: { ...READY, state: "expired" }, startCwd });
+    try {
+      expect(page.queries).toEqual([{ target: { harness: "codex" } }]);
+      await page.pressReturn();
+      expect(page.asks).toEqual([]);
+      expect(page.field.value).toBe("fix the flaky upload test");
+      expect(page.alert()).toContain("expired");
+    } finally {
+      await act(async () => page.root.unmount());
+    }
+  }
+});
