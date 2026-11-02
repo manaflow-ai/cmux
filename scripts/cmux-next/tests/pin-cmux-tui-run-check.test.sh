@@ -11,7 +11,13 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # Waits run on a virtual clock: `took` is the time the script would have waited, exactly.
 source "$ROOT/scripts/cmux-next/tests/lib/fake-clock.sh"
 fake_clock_install "$TMP/clock"
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# Quiet git that still says why when it fails: a bare exit 128 told nobody which call broke.
+git_q() {
+  local err status=0
+  err=$(git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" 2>&1 >/dev/null) || status=$?
+  (( status == 0 )) || printf 'git_q %s: exit %d\n%s\n' "$*" "$status" "$err" >&2
+  return "$status"
+}
 
 git_q init "$TMP/src"
 mkdir -p "$TMP/src/cmux-tui" "$TMP/src/scripts/cmux-next"

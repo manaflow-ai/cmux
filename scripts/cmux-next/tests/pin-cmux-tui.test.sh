@@ -9,7 +9,13 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# Quiet git that still says why when it fails: a bare exit 128 told nobody which call broke.
+git_q() {
+  local err status=0
+  err=$(git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" 2>&1 >/dev/null) || status=$?
+  (( status == 0 )) || printf 'git_q %s: exit %d\n%s\n' "$*" "$status" "$err" >&2
+  return "$status"
+}
 
 # origin: a repo whose feat-cmux-next tip changes cmux-tui.
 git_q init "$TMP/src"

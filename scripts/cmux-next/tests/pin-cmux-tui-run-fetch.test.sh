@@ -6,9 +6,17 @@
 # cmux-next path routing past its 10-minute limit (2026-10-27).
 # No network: origin is a local bare repo, the CDN and the GitHub API are stubs.
 set -euo pipefail
+# Name the line of any other command that ends the test (set -e exits silently).
+trap 'rc=$?; printf "%s: line %d exited %d\n" "$0" "$LINENO" "$rc" >&2' ERR
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# Quiet git that still says why when it fails: a bare exit 128 told nobody which call broke.
+git_q() {
+  local err status=0
+  err=$(git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" 2>&1 >/dev/null) || status=$?
+  (( status == 0 )) || printf 'git_q %s: exit %d\n%s\n' "$*" "$status" "$err" >&2
+  return "$status"
+}
 fail() { printf '%s\n' "$1" >&2; [[ -n "${2:-}" ]] && printf 'output:\n%s\n' "$2" >&2; exit 1; }
 
 git_q init "$TMP/src"
