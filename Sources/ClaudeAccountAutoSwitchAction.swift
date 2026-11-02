@@ -2,7 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 
 /// What cmux does about one Claude usage-limit report while `automation.claudeAccountAutoSwitch`
-/// is on. Decided by ``ClaudeAccountAutoSwitchRequest/action(pane:isEnabled:storedExhaustion:ledger:isUsable:isTrusted:now:timeZone:homeDirectory:)``.
+/// is on. Decided by ``ClaudeAccountAutoSwitchRequest/action(policy:pane:isEnabled:storedExhaustion:ledger:sourceScreen:sourceTextBoxHasDraft:isUsable:isTrusted:now:timeZone:)``.
 enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
     /// Nothing: the setting went off, the pane is gone, runs on another machine, is already
     /// switching, has no Claude session cmux knows, or the report predates its last switch.

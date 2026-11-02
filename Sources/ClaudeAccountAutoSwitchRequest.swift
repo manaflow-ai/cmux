@@ -68,6 +68,7 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
     /// account without finishing a turn.
     ///
     /// - Parameters:
+    ///   - policy: Chooses the next account; its home directory resolves exhaustion keys.
     ///   - pane: What cmux knows about the pane.
     ///   - isEnabled: The setting, read again after the asynchronous trust read.
     ///   - storedExhaustion: The exhaustion file's entries.
@@ -79,6 +80,7 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
     ///   - sourceTextBoxHasDraft: Whether the pane's text box holds an unsent draft, which the
     ///     restart would also discard.
     func action(
+        policy: ClaudeAccountAutoSwitchPolicy,
         pane: Pane,
         isEnabled: Bool,
         storedExhaustion: [String: Date],
@@ -88,10 +90,10 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
         isUsable: (ClaudeAccount) -> Bool,
         isTrusted: (ClaudeAccount) -> Bool,
         now: Date,
-        timeZone: TimeZone,
-        homeDirectory: String
+        timeZone: TimeZone
     ) -> ClaudeAccountAutoSwitchAction {
         guard isEnabled, case .local(let current, let registry, _) = pane else { return .ignore }
+        let homeDirectory = policy.homeDirectory
         // The replaced Claude's report, delivered late, is not about the account the pane runs now.
         if let lastSwitch = ledger.lastAutomaticSwitchAtMs(panelId: panelId), occurredAtMs < lastSwitch {
             return .ignore
@@ -113,13 +115,12 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
         let others = registry.accounts.filter { $0.exhaustionKey(homeDirectory: homeDirectory) != currentKey }
         // An account without a Claude config is passed over like an exhausted one.
         let unusableKeys = others.filter { !isUsable($0) }.map { $0.exhaustionKey(homeDirectory: homeDirectory) }
-        switch ClaudeAccountAutoSwitchPolicy.decide(
+        switch policy.decide(
             failureDetail: detail,
             current: current,
             registry: registry,
             exhaustedKeys: ledger.exhaustedKeys(stored: storedExhaustion, now: now).union(unusableKeys),
-            isTrusted: isTrusted,
-            homeDirectory: homeDirectory
+            isTrusted: isTrusted
         ) {
         case .notUsageLimit:
             // Unreachable: a request always carries the usage-limit token.

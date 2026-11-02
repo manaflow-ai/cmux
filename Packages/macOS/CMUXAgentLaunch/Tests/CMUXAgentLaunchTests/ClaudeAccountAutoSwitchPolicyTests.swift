@@ -21,9 +21,9 @@ import Testing
         exhausted: Set<String> = [],
         trusted: (ClaudeAccount) -> Bool = { _ in true }
     ) -> ClaudeAccountAutoSwitchDecision {
-        ClaudeAccountAutoSwitchPolicy.decide(
+        ClaudeAccountAutoSwitchPolicy(homeDirectory: home).decide(
             failureDetail: detail, current: current, registry: registry,
-            exhaustedKeys: exhausted, isTrusted: trusted, homeDirectory: home
+            exhaustedKeys: exhausted, isTrusted: trusted
         )
     }
 

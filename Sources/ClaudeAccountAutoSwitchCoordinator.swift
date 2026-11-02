@@ -22,6 +22,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
     static let statusKey = "claude_account_switch"
 
     private let homeDirectory: String
+    private let policy: ClaudeAccountAutoSwitchPolicy
     private let exhaustionStore: ClaudeAccountExhaustionStore
     private var ledger = ClaudeAccountAutoSwitchLedger()
     /// Panes whose report is being handled. A report arriving meanwhile is dropped: the pane is
@@ -54,6 +55,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
     ///     reads (`~/.cmuxterm/claude-account-exhaustion.json`).
     init(homeDirectory: String = NSHomeDirectory(), exhaustionStore: ClaudeAccountExhaustionStore? = nil) {
         self.homeDirectory = homeDirectory
+        self.policy = ClaudeAccountAutoSwitchPolicy(homeDirectory: homeDirectory)
         self.exhaustionStore = exhaustionStore ?? ClaudeAccountExhaustionStore(
             fileURL: ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: homeDirectory)
         )
@@ -125,6 +127,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
         let candidates = await Self.candidateFacts(pane: pane, homeDirectory: home)
         let now = Date()
         var action = request.action(
+            policy: policy,
             pane: pane,
             isEnabled: isEnabled,
             storedExhaustion: exhaustionStore.exhaustedUntil(now: now),
@@ -134,8 +137,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
             isUsable: { candidates.usable.contains($0.exhaustionKey(homeDirectory: home)) },
             isTrusted: { candidates.trusted.contains($0.exhaustionKey(homeDirectory: home)) },
             now: now,
-            timeZone: .current,
-            homeDirectory: home
+            timeZone: .current
         )
         // A report that counts supersedes a continue still waiting from an earlier switch; a late
         // one from the replaced Claude leaves it alone.

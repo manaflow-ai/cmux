@@ -71,6 +71,7 @@ struct ClaudeAccountAutoSwitchFixture {
         now: Date? = nil
     ) -> ClaudeAccountAutoSwitchAction {
         request.action(
+            policy: ClaudeAccountAutoSwitchPolicy(homeDirectory: home),
             pane: pane,
             isEnabled: isEnabled,
             storedExhaustion: stored,
@@ -80,8 +81,7 @@ struct ClaudeAccountAutoSwitchFixture {
             isUsable: isUsable,
             isTrusted: isTrusted,
             now: now ?? self.now,
-            timeZone: seoul,
-            homeDirectory: home
+            timeZone: seoul
         )
     }
 
