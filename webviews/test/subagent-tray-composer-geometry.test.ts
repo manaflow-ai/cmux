@@ -100,14 +100,17 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
           within(row.row.left, geometry.composer.left);
           within(row.row.right, geometry.composer.right);
           within(center(row.chevron).x, center(geometry.mic).x);
+          // The time and the state are one cluster at the line's end, one tray gap apart, and one
+          // gap before the line's next control: Stop's track on a line with Stop, else the chevron
+          // (cmux#31492: "8m 56s Done" floated a Stop track and a status track's slack away).
+          const next = row.stop ? row.stopTrack.left : row.chevron.left;
           const gaps = [
             row.status.left - row.time.right,
-            row.stopTrack.left - row.status.right,
+            next - row.status.right,
             row.chevron.left - row.stopTrack.right,
           ];
           expect(gaps[0]).toBeGreaterThan(0);
           for (const gap of gaps) within(gap, gaps[0]!);
-          within(row.status.left, geometry.rows[0]!.status.left);
           within(row.stopTrack.left, geometry.rows[0]!.stopTrack.left);
           within(row.chevron.right, geometry.rows[0]!.chevron.right);
           within(geometry.composer.right - row.chevron.right, geometry.composer.right - geometry.mic.right);

@@ -528,19 +528,31 @@ button.cv-subagent > :last-child {
   padding-inline: var(--acpmux-tray-inset);
   height: var(--ui-row-height, 28px);
 }
+/* The time and the state word as one cluster at the line's end (AgentLine.tsx, cmux#31492): it
+   sizes to its words and sits against the chevron, or against Stop on a line that has one. The time
+   never cuts; a long state word gives way first. Workflow progress stays beside the title. */
+.acpmux-running-tray .acpmux-agent-line__trail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--acpmux-tray-gap);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* The time keeps its own fixed box, its digits against the state word: a tick never changes its
+   width or moves the word. */
 .acpmux-running-tray .acpmux-agent-line__time {
   box-sizing: border-box;
-  flex: 0 0 var(--acpmux-tray-time-width);
-  min-width: var(--acpmux-tray-time-width);
+  flex: none;
+  width: var(--acpmux-tray-time-width);
   overflow: hidden;
   text-align: right;
   white-space: nowrap;
 }
-/* Status has its own fixed track after the time. Workflow progress stays beside the title. */
 .acpmux-running-tray .acpmux-agent-line__meta {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -572,12 +584,11 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-row="inline"] .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-summary-text {
   flex: 0 1 auto;
 }
-.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__meta {
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__trail {
   justify-content: flex-start;
 }
 .acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__time {
-  flex: 0 0 auto;
-  min-width: 0;
+  width: auto;
   text-align: start;
 }
 .acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__stop-track {
@@ -630,8 +641,8 @@ button.cv-subagent > :last-child {
   align-items: center;
   justify-content: center;
 }
-/* A line's trailing tracks, in order: its time, its state, Stop's track (empty where it has no Stop,
-   so nothing moves), then the chevron's. */
+/* A line's trailing tracks, in order: its time and state (one cluster), Stop's track (given to that
+   cluster where the line has no Stop), then the chevron's. */
 .acpmux-running-tray .acpmux-agent-line__stop-track {
   flex: 0 0 var(--acpmux-tray-stop-width);
 }
@@ -715,14 +726,15 @@ button.cv-subagent > :last-child {
   min-width: 0;
   margin-left: calc(14px + var(--acpmux-line-icon-gap, 8px) + var(--acpmux-tray-indent, 0px));
 }
-.acpmux-running-tray .acpmux-agent-line__time {
-  grid-area: 1 / 2;
+/* The time and state cluster spans the duration and status tracks and ends where Stop begins. A
+   line with no Stop (one that ended, or that cannot be stopped) gives the cluster Stop's empty
+   track too, so its time and state sit right beside the chevron (cmux#31492). */
+.acpmux-running-tray .acpmux-agent-line__trail {
+  grid-row: 1;
+  grid-column: 2 / 4;
 }
-.acpmux-running-tray .acpmux-agent-line__meta {
-  grid-area: 1 / 3;
-  width: 100%;
-  max-width: none;
-  justify-content: flex-start;
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__stop-slot:empty) .acpmux-agent-line__trail {
+  grid-column: 2 / 5;
 }
 .acpmux-running-tray .acpmux-agent-line__stop-track {
   grid-area: 1 / 4;
@@ -768,8 +780,15 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
   }
-  .acpmux-running-tray :is(.acpmux-agent-line__time, .acpmux-agent-line__meta, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
+  .acpmux-running-tray :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
     grid-row: 2;
+  }
+  /* The controls line has the title's track free: a long state word takes that room first. */
+  .acpmux-running-tray .acpmux-agent-line__trail {
+    grid-column: 1 / 4;
+  }
+  .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__stop-slot:empty) .acpmux-agent-line__trail {
+    grid-column: 1 / 5;
   }
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
     top: auto;
