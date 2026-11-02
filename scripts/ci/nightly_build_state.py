@@ -80,6 +80,9 @@ IMPORT_LINE = re.compile(r'^[+-](?![+-]).*\bimport\s|^[+-]\s*#\s*(import|include
                          r'|^[+-](?![+-])\s*#\s*(if|ifdef|ifndef|elif|elseif|else|endif)\b')
 STRUCTURE_PATHS = re.compile(r'(^|/)(Package\.swift|[^/]+\.pbxproj|[^/]+\.xcconfig|[^/]+\.modulemap'
                              r'|[^/]+\.xcscheme|[^/]+\.entitlements|[^/]+\.xcfilelist)$')
+# Top-level trees the Release app build never reads (no project or package in it references them), so
+# a change there leaves the kept DerivedData valid.
+OUTSIDE_APP_BUILD = ('Prototypes/',)
 NOTICES_CACHE = 'notices-crates'
 NOTICES_CACHE_MAX_BYTES = 8 << 30
 
@@ -153,11 +156,13 @@ def structure_changed(workspace: Path, since: str) -> str | None:
         names = git(workspace, 'diff', '--name-only', '--no-renames', since, 'HEAD').splitlines()
     except subprocess.CalledProcessError:
         return None
-    changed = next((name for name in names if STRUCTURE_PATHS.search(name)), '')
+    changed = next((name for name in names
+                    if STRUCTURE_PATHS.search(name) and not name.startswith(OUTSIDE_APP_BUILD)), '')
     if changed:
         return changed
     try:
-        diff = git(workspace, 'diff', '-U0', '--no-renames', since, 'HEAD', '--', *IMPORT_SOURCES)
+        diff = git(workspace, 'diff', '-U0', '--no-renames', since, 'HEAD', '--', *IMPORT_SOURCES,
+                   *(f':(exclude){tree}' for tree in OUTSIDE_APP_BUILD))
     except subprocess.CalledProcessError:
         return None
     current = ''

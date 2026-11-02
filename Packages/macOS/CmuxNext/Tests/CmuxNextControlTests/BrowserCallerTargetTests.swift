@@ -117,14 +117,53 @@ import Testing
         #expect(error.data?["workspace"] == "ws-agent")
     }
 
-    @Test func aCallWithNoCallerOrAnUnknownOneKeepsTheFocusedTab() async throws {
+    @Test func noCallerUsesTheFocusedTabButAnExplicitTabAlwaysWins() async throws {
         let (router, _) = install(Self.snapshot())
         #expect(try await state(router, caller: nil).get()["tab"] == "tab-front")
-        #expect(try await state(router, caller: ["terminal_id": "term-gone"]).get()["tab"] == "tab-front")
-        // A named tab is always that tab.
+        // An explicit tab overrides the caller, even if that caller has since closed.
         let named = try await router.handle(ControlRequest(method: "browser.page.state",
-                                                           params: ["tab": "tab-front", "caller": Self.agent])).get()
+                                                           params: ["tab": "tab-front", "caller": ["terminal_id": "term-gone"]])).get()
         #expect(named["tab"] == "tab-front")
+    }
+
+    @Test func staleCallerNeverReadsOrNavigatesThePersonsFocusedBrowser() async throws {
+        let (router, executor) = install(Self.snapshot())
+        let stale: JSONValue = ["terminal_id": "term-gone"]
+        #expect(await state(router, caller: stale).failure?.code == "caller_unavailable")
+        let navigate = await router.handle(ControlRequest(method: "browser.page.navigate",
+            params: ["url": "https://example.test/", "caller": stale]))
+        #expect(navigate.failure?.code == "caller_unavailable")
+        #expect(executor.last == nil)
+    }
+
+    @Test func staleCallerNeverRunsBrowserActionsOrListsAnotherWorkspace() async throws {
+        let (router, executor) = install(Self.snapshot())
+        let stale: JSONValue = ["terminal_id": "term-gone"]
+        let action = await router.handle(ControlRequest(method: "action.run",
+            params: ["action": "browserReload", "caller": stale]))
+        #expect(action.failure?.code == "caller_unavailable")
+        #expect(executor.last == nil)
+        let tabs = await router.handle(ControlRequest(method: "browser.page.tabs", params: ["caller": stale]))
+        #expect(tabs.failure?.code == "caller_unavailable")
+        // A deliberately unscoped list still works without relying on the focused workspace.
+        let all = try await router.handle(ControlRequest(method: "browser.page.tabs",
+            params: ["caller": stale, "all": true])).get()
+        #expect((all["tabs"]?.arrayValue ?? []).count > 1)
+    }
+
+    @Test func emptyOrInvalidCallerCannotSilentlyBecomeFocusedTab() async throws {
+        let (router, _) = install(Self.snapshot())
+        let emptyCallers: [JSONValue] = [.object([:]), ["terminal_id": ""], ["home_chat": false]]
+        for caller in emptyCallers {
+            #expect(await state(router, caller: caller).failure?.code == "invalid_params")
+            let action = await router.handle(ControlRequest(method: "action.run",
+                params: ["action": "browserReload", "caller": caller]))
+            #expect(action.failure?.code == "invalid_params")
+            let all = await router.handle(ControlRequest(method: "browser.page.tabs",
+                params: ["caller": caller, "all": true]))
+            #expect(all.failure?.code == "invalid_params")
+        }
+        #expect(await state(router, caller: ["terminal_id": 1]).failure?.code == "invalid_params")
     }
 
     @Test func identifyAndTheTabListReportTheCallersBrowser() async throws {

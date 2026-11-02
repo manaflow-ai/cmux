@@ -56,6 +56,11 @@
       "bench": "scripts/cmux-next/drag-lag-live.py",
       "owner": "Performance Lead"
     },
+    "launch-first-frame": {
+      "what": "each visible pane at launch or reopen, before the window's first frame: a terminal's saved frame shown ahead of its surface (one layer, decoded off the main thread)",
+      "bench": "scripts/cmux-next/bench-startup.py (launch.visible_terminals_drawn) and the REOPEN VIDEO film (reopen_judge.py)",
+      "owner": "PL-launch"
+    },
     "tab-switch": {
       "what": "tab select to committed frame",
       "bench": "scripts/cmux-next/tab-switch-matrix.py (debug.tab_switch)",
