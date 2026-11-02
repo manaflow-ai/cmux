@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+@testable import CmuxNextDaemon
 import Foundation
 import Observation
 import Testing
@@ -12,6 +13,22 @@ import Testing
 @MainActor
 struct CloudStartChatMachineTests {
     private static let me = "user-leo"
+
+    @Test func aRetryUsesTheDurablePaneAfterReorderingAndHandleReuse() throws {
+        let store = DaemonStore()
+        func tree(_ reordered: Bool) -> DaemonTree {
+            let target = PaneSnapshot(id: PaneID(rawValue: reordered ? 9 : 1), resourceID: ResourceID(rawValue: "pane_target"))
+            let other = PaneSnapshot(id: 1, resourceID: ResourceID(rawValue: "pane_other"))
+            let screen = ScreenSnapshot(id: 1, layout: .leaf(target.id), panes: reordered ? [other, target] : [target])
+            return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "ws-key"), name: "chat", screens: [screen])])
+        }
+        store.apply(snapshot: tree(false))
+        #expect(CloudStartChat.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 1))
+        store.apply(snapshot: tree(true))
+        #expect(CloudStartChat.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 9))
+        #expect(CloudStartChat.targetAnchor("pane_missing", in: store) == nil)
+        #expect(CloudStartChat.targetAnchor("pane:1", in: store) == nil)
+    }
 
     /// Router review at 2a315af: a team switch keeps the user signed in and the previous team's
     /// machines in the store until the new list lands. A send is kept under the account it was sent

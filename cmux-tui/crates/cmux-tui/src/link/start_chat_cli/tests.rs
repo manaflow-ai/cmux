@@ -21,6 +21,47 @@ const TEAMMATE: &str = "user-austin";
 /// The account a send began in, as the App spells it: the user and the team.
 const ACCOUNT: &str = "user-leo/team-a";
 
+#[test]
+fn a_lost_create_answer_keeps_its_name_team_and_pending_create_before_a_workspace_pick() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats"), json!({"ok": true}));
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "billed-team"), json!({"ok": true}));
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats-2"), json!({"ok": true}));
+    Ledger::update(&path, |pins| pins.bind("ws-1", ACCOUNT, "other-vm")).expect("bind");
+    let retry = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
+        "user": ME, "machines": [{"id": "other-vm", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
+    let answer = plan(&path, &retry);
+    assert_eq!(answer["machine"], Value::Null);
+    assert_eq!(answer["new_name"], "cloud-chats");
+    assert_eq!(answer["create_team"], "billed-team");
+    assert_eq!(answer["create_sent"], true);
+    assert_eq!(answer["create_key"], Keys::of(&key).create);
+    assert_eq!(pin(&path, &key, ACCOUNT, "created-vm", None)["ok"], true);
+    assert_eq!(
+        plan(&path, &json!({"key": key, "account": ACCOUNT, "loaded": false}).to_string())["machine"],
+        "created-vm"
+    );
+}
+
+#[test]
+fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-a", None)["ok"], true);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-a", "pane_durable")["ok"], true);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-a", "pane_reordered")["ok"], false);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-b", "pane_durable")["ok"], false);
+    let retry = json!({"key": key, "account": ACCOUNT, "loaded": false}).to_string();
+    let answer = plan(&path, &retry);
+    assert_eq!(answer["machine"], "vm-a");
+    assert_eq!(answer["target_pane"], "pane_durable");
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-b", None)["ok"], true);
+    assert_eq!(plan(&path, &retry)["target_pane"], Value::Null);
+}
+
 fn send(key: &str) -> Send {
     Send::new(key, ACCOUNT)
 }

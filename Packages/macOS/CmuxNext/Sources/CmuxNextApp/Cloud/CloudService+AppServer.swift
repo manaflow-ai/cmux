@@ -33,14 +33,16 @@ extension CloudService {
     /// answers its first machine instead of making a second.
     func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
-                         onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+                         onSent: @escaping @MainActor @Sendable () async -> Void,
+                         persistSent: @escaping @MainActor @Sendable (String) async throws -> Void = { _ in }) async throws -> CloudMachine {
         let pinned = creation?.request ?? request
         let identity = installIdentity
         let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }
         // The team the relay's create bills: the install token's team claim, captured now. A Retry
         // stays with the first send's team, and is refused if the token now bills another one.
         let team = try Self.appServerTeam(current: try await currentTeam(), request: pinned)
-        let sent: @MainActor @Sendable () async -> Void = { [weak creation] in
+        let sent: @MainActor @Sendable () async throws -> Void = { [weak creation] in
+            try await persistSent(team)
             creation?.markRequestSent(team: team)
             await onSent()
         }
@@ -134,10 +136,11 @@ extension CloudService {
     /// is refused, unsent, if the install switched teams meanwhile (during the confirmation or a
     /// retry's backoff). Only a call that passes marks the request sent.
     nonisolated static func pinnedRun(team: String, currentTeam: @escaping @Sendable () async throws -> String,
-                                      sent: @escaping @MainActor @Sendable () async -> Void, ops: @escaping CloudAppOp) -> CloudAppOp {
+                                      sent: @escaping @MainActor @Sendable () async throws -> Void, ops: @escaping CloudAppOp) -> CloudAppOp {
         { op, args, key, origin in
             guard try await currentTeam() == team else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
-            await sent()
+            try await sent()
+            guard try await currentTeam() == team else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
             return try await ops(op, args, key, origin)
         }
     }

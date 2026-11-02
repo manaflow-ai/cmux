@@ -99,6 +99,29 @@ import Testing
 
     @MainActor final class Sends { var count = 0 }
 
+    @Test func aFailedDurableSentWriteSendsNoCreate() async throws {
+        let backend = Backend()
+        let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { "team_a" },
+            sent: { throw CancellationError() }, ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
+            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+        await #expect(throws: CancellationError.self) {
+            _ = try await flow.create(name: "cloud-chats", startedByPerson: true, key: "lost-answer")
+        }
+        #expect(backend.keys.isEmpty)
+        #expect(backend.machines.isEmpty)
+    }
+
+    @Test func aTeamSwitchWhilePersistingTheSendSendsNoCreate() async throws {
+        let backend = Backend()
+        let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
+            sent: { backend.team = "team_b" }, ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
+            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+        await #expect(throws: ActionFailure.self) {
+            _ = try await flow.create(name: "cloud-chats", startedByPerson: true, key: "lost-answer")
+        }
+        #expect(backend.keys.isEmpty)
+    }
+
     @Test func aTeamSwitchBeforeTheFirstSendSendsNothing() async throws {
         let backend = Backend(), sends = Sends()
         backend.team = "team_b"

@@ -71,6 +71,8 @@ struct Entry {
     place: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     copied_chat: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target_pane: Option<String>,
 }
 
 impl Entry {
@@ -92,6 +94,23 @@ pub(crate) struct AppEntry {
     pub(crate) place: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PendingCreate {
+    pub(crate) key: String,
+    pub(crate) account: String,
+    pub(crate) name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) team: Option<String>,
+    #[serde(default)]
+    pub(crate) sent: bool,
+}
+
+impl PendingCreate {
+    fn is(&self, send: &Send) -> bool {
+        self.key == send.key && self.account == send.account
+    }
+}
+
 /// The machine a Mac workspace picked, in the account it sent in. The file allows other
 /// workspaces on it too; the pick gives each workspace its own for now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,6 +125,8 @@ struct Binding {
 struct File {
     sends: Vec<Entry>,
     #[serde(default)]
+    pending_creates: Vec<PendingCreate>,
+    #[serde(default)]
     workspaces: Vec<Binding>,
 }
 
@@ -113,6 +134,7 @@ struct File {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Ledger {
     entries: Vec<Entry>,
+    pending_creates: Vec<PendingCreate>,
     workspaces: Vec<Binding>,
 }
 
@@ -120,6 +142,59 @@ impl Ledger {
     /// The machine `send` ran on, if it ran.
     pub(crate) fn machine(&self, send: &Send) -> Option<String> {
         self.entry(send).map(|entry| entry.machine_id.clone())
+    }
+
+    pub(crate) fn pending_create(&self, send: &Send) -> Option<PendingCreate> {
+        self.pending_creates.iter().rev().find(|pending| pending.is(send)).cloned()
+    }
+
+    pub(crate) fn begin_create(&mut self, send: &Send, name: &str) {
+        if self.pending_create(send).is_some() {
+            return;
+        }
+        self.pending_creates.push(PendingCreate {
+            key: send.key.clone(),
+            account: send.account.clone(),
+            name: name.to_string(),
+            team: None,
+            sent: false,
+        });
+        let over = self.pending_creates.len().saturating_sub(LIMIT);
+        self.pending_creates.drain(..over);
+    }
+
+    pub(crate) fn mark_create_sent(&mut self, send: &Send, team: &str) -> bool {
+        let Some(pending) = self.pending_creates.iter_mut().rev().find(|pending| pending.is(send))
+        else {
+            return false;
+        };
+        if !pending.sent {
+            pending.team = Some(team.to_string());
+            pending.sent = true;
+        }
+        true
+    }
+
+    pub(crate) fn target_pane(&self, send: &Send, machine: &str) -> Option<String> {
+        self.entry(send)
+            .filter(|entry| entry.machine_id == machine)
+            .and_then(|entry| entry.target_pane.clone())
+    }
+
+    pub(crate) fn record_target_pane(&mut self, send: &Send, machine: &str, pane: &str) -> bool {
+        let Some(entry) = self
+            .entries
+            .iter_mut()
+            .rev()
+            .find(|entry| entry.is(send) && entry.machine_id == machine)
+        else {
+            return false;
+        };
+        if let Some(kept) = &entry.target_pane {
+            return kept == pane;
+        }
+        entry.target_pane = Some(pane.to_string());
+        true
     }
 
     /// Every machine a kept send of the account `account` ran on, or one of
@@ -187,15 +262,18 @@ impl Ledger {
     /// Pins `send` to `machine` (before anything runs there). A pin to the
     /// same machine keeps its copy's place and finished copy.
     pub(crate) fn record(&mut self, machine: &str, send: &Send) {
+        self.pending_creates.retain(|pending| !pending.is(send));
         let same = self.entry(send).filter(|entry| entry.machine_id == machine);
-        let (place, copied_chat) =
-            same.map_or((None, None), |entry| (entry.place.clone(), entry.copied_chat.clone()));
+        let (place, copied_chat, target_pane) = same.map_or((None, None, None), |entry| {
+            (entry.place.clone(), entry.copied_chat.clone(), entry.target_pane.clone())
+        });
         self.put(Entry {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
             place,
             copied_chat,
+            target_pane,
         });
     }
 
@@ -225,6 +303,7 @@ impl Ledger {
             machine_id: machine.to_string(),
             place: Some(place.to_string()),
             copied_chat: None,
+            target_pane: self.target_pane(send, machine),
         });
     }
 
@@ -236,6 +315,7 @@ impl Ledger {
             machine_id: machine.to_string(),
             place: Some(place.to_string()),
             copied_chat: Some(chat.to_string()),
+            target_pane: self.target_pane(send, machine),
         });
     }
 
@@ -260,6 +340,7 @@ impl Ledger {
                 machine_id: old.machine_id.clone(),
                 place: old.place.clone(),
                 copied_chat: old.copied_chat.clone(),
+                target_pane: None,
             });
         }
         let count = imported.len();
@@ -273,6 +354,7 @@ impl Ledger {
     /// Drops `send`'s pin (its machine is gone).
     pub(crate) fn forget(&mut self, send: &Send) {
         self.entries.retain(|entry| !entry.is(send));
+        self.pending_creates.retain(|pending| !pending.is(send));
     }
 
     fn entry(&self, send: &Send) -> Option<&Entry> {
@@ -337,11 +419,15 @@ impl Ledger {
         };
         let file = serde_json::from_slice::<File>(&bytes).or_else(|error| {
             serde_json::from_slice::<Vec<Entry>>(&bytes)
-                .map(|sends| File { sends, workspaces: Vec::new() })
+                .map(|sends| File { sends, pending_creates: Vec::new(), workspaces: Vec::new() })
                 .map_err(|_| error)
         });
         match file {
-            Ok(file) => Ok(Self { entries: file.sends, workspaces: file.workspaces }),
+            Ok(file) => Ok(Self {
+                entries: file.sends,
+                pending_creates: file.pending_creates,
+                workspaces: file.workspaces,
+            }),
             Err(error) => {
                 let aside = unreadable_path(path);
                 std::fs::rename(path, &aside).with_context(|| {
@@ -369,7 +455,11 @@ impl Ledger {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&part)
             .with_context(|| format!("cannot write {}", part.display()))?;
-        let ledger = File { sends: self.entries.clone(), workspaces: self.workspaces.clone() };
+        let ledger = File {
+            sends: self.entries.clone(),
+            pending_creates: self.pending_creates.clone(),
+            workspaces: self.workspaces.clone(),
+        };
         file.write_all(&serde_json::to_vec(&ledger)?)?;
         file.sync_all()?;
         std::fs::rename(&part, path).with_context(|| format!("cannot write {}", path.display()))
