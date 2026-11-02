@@ -13,6 +13,7 @@ import path from "node:path";
 import { webkit } from "playwright";
 import { createServer } from "vite";
 import { warmViteServer } from "../test/support/warmDevServer";
+import { perfRow, TARGET_MS } from "./perfRow";
 
 const ROWS = Number(process.argv[2] ?? 3000);
 const ROUNDS = Number(process.argv[3] ?? 3);
@@ -123,6 +124,20 @@ try {
   };
   flings.forEach(({ fling, perf }, round) => line(`fling#${round}`, fling, perf));
   wheels.forEach(({ perf, ...frame }, round) => line(`wheel#${round}`, frame, perf));
+  // The transcript's own work per frame (React, layout), median over rounds of each round's p50 and p95.
+  // Frame intervals are left out: a headless runner's frame clock is not a display's.
+  const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
+  for (const [how, perfs] of [
+    ["fling", flings.map((run) => run.perf)],
+    ["wheel", wheels.map((run) => run.perf)],
+  ] as const)
+    for (const kind of ["react", "layout"] as const)
+      perfRow({
+        name: `transcript_scroll.${how}.${kind}_ms`,
+        p50: median(perfs.map((perf) => perf[kind].p50_ms)),
+        p95: median(perfs.map((perf) => perf[kind].p95_ms)),
+        target: TARGET_MS.frameWork,
+      });
 } finally {
   await browser.close();
   await vite.close();

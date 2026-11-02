@@ -107,6 +107,7 @@ async function mount(
     /** A custom harness whose only icon is acpmux's generic glyph (no brand mark behind it). */
     glyphHarness?: boolean;
     update?: UpdateOffer;
+    addAccount?: (account: Record<string, unknown>) => Promise<void>;
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -149,6 +150,7 @@ async function mount(
   const asked: string[] = [];
   const added: string[] = [];
   const accounts = {
+    ...(options.addAccount ? { add: options.addAccount } : {}),
     list: async (sessionId: string) => {
       asked.push(sessionId);
       return readChatAccounts(listed);
@@ -503,12 +505,11 @@ test("the composer keeps its Account switcher, with Cmux routers under a Provide
   expect(sent).toEqual([{ method: "route", value: "work" }]);
 });
 
-test("with no routes, Account offers the CLI login and says how to add one", async () => {
+test("with no routes, Account offers only the CLI login until a family is known", async () => {
   await mount({ routes: [] });
   await open();
   const account = await openSub("Account");
-  // `cmux route` is gone (Leo, 2026-10-21): an account is a route file, so the note names its folder.
-  expect(itemsOf(account)).toEqual(["CLI login", "Add accounts as route files in ~/.config/cmux/routes"]);
+  expect(itemsOf(account)).toEqual(["CLI login"]);
   expect(account.textContent).not.toContain("cmux route");
 });
 
@@ -1031,3 +1032,80 @@ test.each([
   expect(updated).toBe(1);
   expect(menu()).toBeNull();
 });
+
+test.each(["claude", "codex"])(
+  "Add account submits a local native request and refreshes the picker without switching routes (%s)",
+  async (family) => {
+    const { postNative, setNativeHost } = await import("../src/agent-session/acpmux/native");
+    const calls: { method: string; params: Record<string, unknown> }[] = [];
+    const listed = {
+      family,
+      routes: [{ id: "personal", name: "Personal", kind: "direct-subscription", serves: true }],
+      active: { routeId: "personal", scope: "chat" },
+    };
+    setNativeHost(async (method, params) => {
+      if (method !== "account.add") return undefined;
+      calls.push({ method, params });
+      listed.routes.push({ id: String(params.id), name: String(params.name), kind: String(params.kind), serves: true });
+      return { id: params.id };
+    });
+    try {
+      const state = await mount(listed, {
+        addAccount: async (params) => {
+          await postNative("account.add", params);
+        },
+      });
+      await open();
+      const account = await openSub("Account");
+      const add = Array.from(account.querySelectorAll<HTMLElement>("[role=menuitem]")).find((item) =>
+        item.textContent?.includes("Add account"),
+      );
+      expect(add).toBeDefined();
+      await act(async () => add!.click());
+      await settle();
+      const dialog = dom.window.document.querySelector<HTMLElement>('[role="dialog"]')!;
+      expect(dialog).not.toBeNull();
+      const fill = async (name: string, value: string) => {
+        const input = dialog.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, value);
+          input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+        });
+      };
+      await fill("id", "work");
+      await fill("name", "Work login");
+      await fill("accountHome", "/Users/demo/.claude-work");
+      await act(async () =>
+        dialog
+          .querySelector("form")!
+          .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
+      );
+      await settle();
+      expect(calls).toEqual([
+        {
+          method: "account.add",
+          params: {
+            id: "work",
+            name: "Work login",
+            kind: "direct-subscription",
+            family,
+            accountHome: "/Users/demo/.claude-work",
+          },
+        },
+      ]);
+      expect(state.sent.filter((item) => item.method === "route")).toEqual([]);
+      expect(dom.window.document.querySelector('[role="dialog"]')).toBeNull();
+      const reopened = await openSub("Account");
+      const choices = [...reopened.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+      const work = choices.find((item) => item.textContent?.includes("Work login"));
+      expect(work).toBeDefined();
+      expect(work!.hasAttribute("disabled")).toBe(false);
+      expect(work!.getAttribute("aria-disabled")).not.toBe("true");
+      expect(work!.getAttribute("aria-checked")).toBe("false");
+      expect(choices.find((item) => item.textContent?.includes("Personal"))?.getAttribute("aria-checked")).toBe("true");
+      expect(state.asked.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      setNativeHost(undefined);
+    }
+  },
+);
