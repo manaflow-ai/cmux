@@ -167,7 +167,7 @@ def close(pane, mark, title=None):
 CASES = []
 
 
-def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tail=1.2, sample=False):
+def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tail=1.2, sample=False, recorder=True, xtp=False):
     for load, look in variants:
         heavy, dark = load == "heavy", look == "dark"
         jid = f"rv-{cid}-{load}-{look}"
@@ -182,16 +182,27 @@ def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tai
         probes_off = [{"do": "rpc", "method": "debug.frames", "params": {"action": "stop", "raw": True}, "title": "probe: per-frame main thread (raw)"},
                       {"do": "rpc", "method": "debug.main_budget", "params": {}, "title": "probe: main budget since the reset"},
                       {"do": "rpc", "method": "debug.hangs", "params": {}, "title": "probe: hangs"}]
-        steps = [theme(dark)] + first_pane(jid, heavy) + build(heavy) + play[:lead] + [settle(1.5)] + probes_on + [kit_record_start(jid, seconds)]
+        start = kit_record_start(jid, seconds) if recorder else {"do": "trace_only_start", "name": "close",
+                                                                    "title": "the geometry trace, no recorder"}
+        steps = [theme(dark)] + first_pane(jid, heavy) + build(heavy) + play[:lead] + [settle(1.5)] + probes_on + [start]
         # The recorder's record_start stalls the main thread 48-72 ms (STATUS 4500): 0.6 s of lead before the motion.
         steps.append({"do": "wait", "seconds": 0.6, "title": "lead: the recorder's start stall passes before the motion"})
         if sample:
             steps.append({"do": "sample_start", "name": "closesample", "seconds": 1.0, "interval_ms": 1,
                           "title": "a 1 ms main-thread sample of the app around the motion"})
+        if xtp:
+            steps.append({"do": "xtp_start", "name": "xtp", "seconds": 2.0,
+                          "title": "xctrace Time Profiler on the app for 2 s from just before the key"})
         steps += play[lead:]
         if sample:
             steps.append({"do": "sample_stop", "name": "closesample"})
-        steps += [kit_record_stop(jid, tail)] + probes_off + after_check()
+        stop = kit_record_stop(jid, tail) if recorder else {"do": "trace_only_stop", "name": "close"}
+        if not recorder:
+            steps.append({"do": "wait", "seconds": tail, "title": "the motion ends"})
+        steps += [stop] + probes_off
+        if xtp:
+            steps.append({"do": "xtp_stop", "name": "xtp"})
+        steps += after_check()
         CASES.append({"id": jid, "priority": "P1", "title": f"{title} ({load} load, {look})",
                       "why": "Lawrence 2026-11-02: every layout animation pixel perfect at 120 Hz with a 12-pane TUI load. "
                              "The movie and trace are judged per frame (gap, overlap, stretch, stale content, jump, dropped frames).",
@@ -211,6 +222,9 @@ case("close-in-row-sampled", "Close the middle of 3 split panes in a row, with a
      lambda h: splits_in_row(3, h), close("p1", "close"), variants=(("heavy", "dark"), ("idle", "dark")), sample=True)
 case("close-mid-3col-sampled", "Close the middle of 3 strip columns, with a 1 ms sample of the app (F1 cause)",
      lambda h: columns(3, h), close("p1", "close"), variants=(("heavy", "dark"),), sample=True)
+# F1 BEFORE (fix owner, STATUS 4609): xctrace Time Profiler around the close, no recorder (its builds may abort).
+case("close-in-row-xtp", "Close the middle of 3 split panes in a row, xctrace Time Profiler, no recorder (F1 before/after)",
+     lambda h: splits_in_row(3, h), close("p1", "close"), variants=(("idle", "dark"), ("heavy", "dark")), recorder=False, xtp=True)
 # 2. Close a pane in a column (3 stacked): the other two grow.
 case("close-in-column", "Close the middle of 3 panes stacked in one column: the other two grow to fill",
      lambda h: splits_in_column(3, h), close("p1", "close"), variants=ALL)
