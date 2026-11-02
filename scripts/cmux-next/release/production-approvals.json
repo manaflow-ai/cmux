@@ -37,6 +37,7 @@
     "INFERENCE_PRIMARY_PROVIDER=vercel": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
     "INFERENCE_CF_GATEWAY_ID=cmux-ai-proxy": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
     "INFERENCE_AZURE_ENDPOINT=https://lawrence-1614-resource.services.ai.azure.com": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
-    "INFERENCE_VERCEL_RELAY_URL=https://console.cmux.dev/api/ai-gateway/chat/completions": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider"
+    "INFERENCE_VERCEL_RELAY_URL=https://console.cmux.dev/api/ai-gateway/chat/completions": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
+    "CLOUD_PLAN_ENTITLEMENTS=on": "paid NEXT Cloud entitlements in production (paid-product-DESIGN.md section 9.2); this PR is held until the coordinator decides when"
   }
 }
