@@ -43,6 +43,16 @@ struct SessionPriorityLaunchArgumentsTests {
         #expect(SessionPriorityLaunchArguments.value(ofOption: "--model", in: ["claude", "--", "--model", "x"]) == nil)
     }
 
+    /// A bare option right before `--` has no value: the terminator and the prompt after it stay.
+    @Test
+    func aBareOptionBeforeTheTerminatorTakesNoValue() {
+        #expect(
+            SessionPriorityLaunchArguments.replacing(option: "--model", with: "opus", in: ["claude", "--model", "--", "fix"])
+                == ["claude", "--model", "opus", "--", "fix"]
+        )
+        #expect(SessionPriorityLaunchArguments.value(ofOption: "--model", in: ["claude", "--model", "--", "fix"]) == nil)
+    }
+
     @Test
     func ignoresArgvZero() {
         #expect(SessionPriorityLaunchArguments.value(ofOption: "--model", in: ["--model=opus"]) == nil)
