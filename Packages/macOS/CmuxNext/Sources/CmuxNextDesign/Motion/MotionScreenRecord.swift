@@ -71,7 +71,7 @@ final class MotionScreenRecord {
             url: URL(fileURLWithPath: path), width: width, height: height, prores: params["codec"] as? String == "prores",
             bitsPerSecond: Int(((params["mbps"] as? NSNumber)?.doubleValue ?? 300) * 1_000_000),
             rows: lines("rows", windowHeight, height), columns: lines("columns", windowWidth, width),
-            seconds: min(120, max(0.5, (params["seconds"] as? NSNumber)?.doubleValue ?? 30)))
+            seconds: min(120, max(0.5, (params["seconds"] as? NSNumber)?.doubleValue ?? 30)), scale: Double(scale))
         let recording: ScreenRecording
         do {
             try FileManager.checked.createDirectory(at: options.url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -101,7 +101,7 @@ final class MotionScreenRecord {
 
 /// One `record_*` recording: ScreenCaptureKit's frames go to an AVAssetWriter and a scanline file, both on
 /// `queue`, off the main thread.
-// Counts live in a Mutex. start() starts the writer before the stream exists; finish() hops onto `queue` to close.
+// Counts live in a Mutex. The writer is made on `queue` at the first frame; finish() hops onto `queue` to close.
 // crash-allow: the writer, its input and the scan bytes are not Sendable but are touched on `queue` only (see above).
 nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     nonisolated struct Options: Sendable {
@@ -113,6 +113,8 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         let rows: [Int]
         let columns: [Int]
         let seconds: Double
+        /// The window's backing scale (device pixels per point).
+        let scale: Double
     }
 
     nonisolated struct Failure: Error, CustomStringConvertible {
@@ -139,7 +141,25 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         var written = false
         var movieStatus = ""
         var stoppedBy: String?
+        /// Sample callbacks of any kind (the first proves the stream delivers), and the variant that delivered.
+        var callbacks = 0
+        var variant = ""
+        var tries: [String] = []
     }
+
+    /// The stream set-ups tried in order until one delivers a frame within ``firstFrameLimit``: the screen-size
+    /// frame with child windows first (a window resize is never scaled and page windows show), then without child
+    /// windows, then the window's own size as the animation pixel harness captures it.
+    nonisolated struct Variant: Sendable {
+        let name: String
+        let childWindows: Bool
+        let screenSize: Bool
+    }
+
+    static let variants = [Variant(name: "screen+children", childWindows: true, screenSize: true),
+                           Variant(name: "screen", childWindows: false, screenSize: true),
+                           Variant(name: "window", childWindows: false, screenSize: false)]
+    static let firstFrameLimit: Duration = .milliseconds(1500)
 
     /// Seconds any one ScreenCaptureKit call may take (a disconnected replayd never answers; the animation pixel
     /// harness hung 180 s on one).
@@ -147,15 +167,18 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
 
     private let options: Options
     private let queue = DispatchQueue(label: "debug.motion.record", qos: .userInitiated)
-    private let writer: AVAssetWriter
-    private let input: AVAssetWriterInput
-    private let adaptor: AVAssetWriterInputPixelBufferAdaptor
+    /// Made on `queue` at the first complete frame, at that frame's size (the set-up that delivers decides it).
+    private var writer: AVAssetWriter?
+    private var input: AVAssetWriterInput?
+    private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
     /// The scan file's bytes, written whole at the end (no file handle stays open while frames come).
     private var scan = Data()
     // concurrency-allow: the counts are touched by ScreenCaptureKit's queue and the main actor; each hold copies or
     // appends a value and never waits on I/O, a call out or an await.
     private let state = Mutex(State())
     private let limit = DemandTimer(owner: "debug.motion.record.limit")
+    // concurrency-allow: held only to take or set the first-frame callback; it is called after the unlock.
+    private let firstFrame = Mutex<(@Sendable (Result<Bool, any Error>) -> Void)?>(nil)
     @MainActor private var stream: SCStream?
     @MainActor private var finishing = false
 
@@ -167,22 +190,6 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
 
     init(_ options: Options) throws {
         self.options = options
-        writer = try AVAssetWriter(outputURL: options.url, fileType: .mov)
-        var settings: [String: Any] = [AVVideoWidthKey: options.width, AVVideoHeightKey: options.height]
-        if options.prores {
-            settings[AVVideoCodecKey] = AVVideoCodecType.proRes4444
-        } else {
-            settings[AVVideoCodecKey] = AVVideoCodecType.hevc
-            settings[AVVideoCompressionPropertiesKey] = [
-                AVVideoAverageBitRateKey: options.bitsPerSecond, AVVideoExpectedSourceFrameRateKey: 120,
-                AVVideoMaxKeyFrameIntervalKey: 120, AVVideoAllowFrameReorderingKey: false,
-            ] as [String: Any]
-        }
-        input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
-        input.expectsMediaDataInRealTime = true
-        adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
-        guard writer.canAdd(input) else { throw Failure(description: "the movie writer refused the video input") }
-        writer.add(input)
         super.init()
         let header: [String: Any] = ["width": options.width, "height": options.height, "rows": options.rows,
                                      "columns": options.columns, "format": "BGRA", "time": "float64-le host seconds"]
@@ -200,9 +207,46 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         guard let target = content.value.windows.first(where: { $0.windowID == windowNumber }) else {
             throw Failure(description: "ScreenCaptureKit lists no window \(windowNumber) of this process")
         }
+        var started: SCStream?
+        for variant in Self.variants {
+            let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: target),
+                                  configuration: configuration(variant, target: target), delegate: self)
+            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+            state.withLock { $0.tries.append(variant.name) }
+            let _: Bool = try await deadline("start the capture") { done in
+                stream.startCapture { error in done(error.map { .failure($0) } ?? .success(true)) }
+            }
+            // A stream that starts but never calls back (the first harness round on cmux24, 2026-11-02 01:12Z) is
+            // stopped, and the next set-up is tried.
+            let delivered: Bool? = try? await deadline("give a first frame", limit: Self.firstFrameLimit) { done in
+                if state.withLock({ $0.callbacks > 0 }) { done(.success(true)) } else { firstFrame.withLock { $0 = done } }
+            }
+            firstFrame.withLock { $0 = nil }
+            if delivered == true {
+                state.withLock { $0.variant = variant.name }
+                started = stream
+                break
+            }
+            _ = try? await deadline("stop the capture") { done in stream.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) } }
+        }
+        guard let stream = started else {
+            throw Failure(description: "ScreenCaptureKit gave no frame with any set-up (\(Self.variants.map(\.name)))")
+        }
+        guard !finishing else {
+            _ = try? await deadline("stop the capture") { done in stream.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) } }
+            return
+        }
+        self.stream = stream
+        state.withLock { $0.capturing = true }
+        limit.schedule(after: .seconds(options.seconds)) { @MainActor [weak self] in self?.finish() }
+    }
+
+    @MainActor
+    private func configuration(_ variant: Variant, target: SCWindow) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
-        configuration.width = options.width
-        configuration.height = options.height
+        let scale = options.scale
+        configuration.width = variant.screenSize ? options.width : max(2, Int((target.frame.width * scale).rounded()))
+        configuration.height = variant.screenSize ? options.height : max(2, Int((target.frame.height * scale).rounded()))
         // Faster than any display: ScreenCaptureKit then gives every composited frame.
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 240)
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
@@ -213,20 +257,8 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         configuration.scalesToFit = false
         configuration.backgroundColor = CGColor.clear
         configuration.ignoreShadowsSingleWindow = true
-        configuration.includeChildWindows = true
-        let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: target), configuration: configuration, delegate: self)
-        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
-        guard writer.startWriting() else { throw Failure(description: "the movie writer did not start: \(String(describing: writer.error))") }
-        let _: Bool = try await deadline("start the capture") { done in
-            stream.startCapture { error in done(error.map { .failure($0) } ?? .success(true)) }
-        }
-        guard !finishing else {
-            _ = try? await deadline("stop the capture") { done in stream.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) } }
-            return
-        }
-        self.stream = stream
-        state.withLock { $0.capturing = true }
-        limit.schedule(after: .seconds(options.seconds)) { @MainActor [weak self] in self?.finish() }
+        if #available(macOS 14.2, *) { configuration.includeChildWindows = variant.childWindows }
+        return configuration
     }
 
     /// Ends the capture once, then closes the movie and the side files on `queue` (`written` in the counts).
@@ -258,14 +290,14 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         if let data = try? JSONSerialization.data(withJSONObject: index) {
             try? data.blockingWrite(to: options.url.appendingPathExtension("frames.json"))
         }
-        guard writer.status == .writing else {
-            let status = "not written: \(writer.status.rawValue) \(String(describing: writer.error))"
+        guard let writer, let input, writer.status == .writing else {
+            let status = "not written: \(writer.map { "\($0.status.rawValue) \(String(describing: $0.error))" } ?? "no frame came")"
             state.withLock { $0.written = true; $0.capturing = false; $0.movieStatus = status }
             return
         }
         input.markAsFinished()
         writer.finishWriting { [self] in
-            let status = writer.status == .completed ? "completed" : "failed: \(String(describing: writer.error))"
+            let status = self.writer?.status == .completed ? "completed" : "failed: \(String(describing: self.writer?.error))"
             state.withLock { $0.written = true; $0.capturing = false; $0.movieStatus = status }
         }
     }
@@ -275,10 +307,16 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         return ["capturing": state.capturing, "written": state.written, "movie_status": state.movieStatus,
                 "path": options.url.path, "frames": state.frames.count, "complete": state.complete, "idle": state.idle,
                 "encoder_not_ready": state.notReady, "first_t": state.frames.first?.time ?? 0,
-                "last_t": state.frames.last?.time ?? 0, "stopped_by": state.stoppedBy ?? ""]
+                "last_t": state.frames.last?.time ?? 0, "stopped_by": state.stoppedBy ?? "", "callbacks": state.callbacks,
+                "variant": state.variant, "tries": state.tries]
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        state.withLock { $0.callbacks += 1 }
+        if let first = firstFrame.withLock({ slot -> (@Sendable (Result<Bool, any Error>) -> Void)? in
+            defer { slot = nil }
+            return slot
+        }) { first(.success(true)) }
         guard type == .screen,
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let info = attachments.first, let raw = info[.status] as? Int, let status = SCFrameStatus(rawValue: raw) else { return }
@@ -298,9 +336,9 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
             return (time, true)
         }
         guard let start else { return }
-        if start.isFirst { writer.startSession(atSourceTime: .zero) }
+        if start.isFirst { openWriter(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer)) }
         var appended = false
-        if input.isReadyForMoreMediaData {
+        if let input, let adaptor, input.isReadyForMoreMediaData {
             appended = adaptor.append(buffer, withPresentationTime: CMTime(seconds: time - start.first, preferredTimescale: 1_000_000))
         }
         writeScanlines(buffer, time: time)
@@ -309,6 +347,30 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
             state.complete += 1
             if !appended { state.notReady += 1 }
         }
+    }
+
+    /// On `queue`, at the first complete frame: the movie writer at that frame's size.
+    private func openWriter(width: Int, height: Int) {
+        var settings: [String: Any] = [AVVideoWidthKey: width, AVVideoHeightKey: height]
+        if options.prores {
+            settings[AVVideoCodecKey] = AVVideoCodecType.proRes4444
+        } else {
+            settings[AVVideoCodecKey] = AVVideoCodecType.hevc
+            settings[AVVideoCompressionPropertiesKey] = [
+                AVVideoAverageBitRateKey: options.bitsPerSecond, AVVideoExpectedSourceFrameRateKey: 120,
+                AVVideoMaxKeyFrameIntervalKey: 120, AVVideoAllowFrameReorderingKey: false,
+            ] as [String: Any]
+        }
+        guard let writer = try? AVAssetWriter(outputURL: options.url, fileType: .mov) else { return }
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+        input.expectsMediaDataInRealTime = true
+        guard writer.canAdd(input) else { return }
+        writer.add(input)
+        guard writer.startWriting() else { return }
+        writer.startSession(atSourceTime: .zero)
+        self.writer = writer
+        self.input = input
+        adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {
@@ -352,15 +414,16 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
     /// Runs `call` with a completion `done` and returns its result, or throws after ``callLimit``. The
     /// continuation resumes once: on the result or the deadline, whichever comes first; a late callback is dropped.
     @MainActor
-    private func deadline<T: Sendable>(_ what: String, _ call: (@escaping @Sendable (Result<T, any Error>) -> Void) -> Void) async throws -> T {
+    private func deadline<T: Sendable>(_ what: String, limit: Duration = callLimit,
+                                       _ call: (@escaping @Sendable (Result<T, any Error>) -> Void) -> Void) async throws -> T {
         let once = Once<T>()
         let timer = DemandTimer(owner: "debug.motion.record.deadline")
         defer { timer.cancel() }
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
             once.set(continuation)
             call { once.resume($0) }
-            timer.schedule(after: Self.callLimit) {
-                once.resume(.failure(Failure(description: "ScreenCaptureKit did not \(what) within \(Self.callLimit)")))
+            timer.schedule(after: limit) {
+                once.resume(.failure(Failure(description: "ScreenCaptureKit did not \(what) within \(limit)")))
             }
         }
     }
