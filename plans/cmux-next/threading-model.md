@@ -777,6 +777,8 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `SentryRecorderTransport` writes one envelope file per Sentry event; the capturing thread only serializes, p09-observability-086),
   `com.cmuxterm.app.next.blocking-drain` (utility), `com.cmux.host-pressure` (utility),
   `debug.window_record` (user-initiated), `debug.motion.record` (user-initiated),
+  `debug.motion.trace` (utility; a `debug.motion` `trace_stop`/`trace_read` with `path`: the report's JSON and its file
+  write, serial, one item per call, so no back-pressure),
   `com.cmuxterm.app.next.hang-reports.store` (utility; the `HangReportStore` actor's executor: its small pending,
   outbox and send-log file reads and writes block this queue, never a pool thread),
   `com.cmuxterm.app.next.hang-reports.field-data` (utility; the `HangReportFieldSources` actor's executor, schema 3
