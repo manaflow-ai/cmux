@@ -113,7 +113,7 @@ impl<B: Backend> Server<B> {
         let target = match (kind, target) {
             ("page", Some(pane)) => match self.shown_tab(&pane) {
                 Ok(tab) => Some(tab),
-                Err(answer) => return self.undo_split(made, answer),
+                Err(answer) => return self.failed_open(made, answer),
             },
             (_, target) => target,
         };
@@ -129,9 +129,30 @@ impl<B: Backend> Server<B> {
         }
         let answer = self.call_action(tool, &run);
         if answer.get("isError").and_then(Value::as_bool) == Some(true) {
-            return self.undo_split(made, answer);
+            return self.failed_open(made, answer);
         }
         answer
+    }
+
+    /// Only a confirmed refusal may undo an owned split. An app action can
+    /// complete before its acknowledgement arrives; on in_progress the
+    /// viewer may already be open, and closing its pane would discard it.
+    fn failed_open(&self, made: Option<String>, answer: Value) -> Value {
+        if answer.pointer("/structuredContent/state").and_then(Value::as_str) == Some("in_progress")
+        {
+            let Some(pane) = made else { return answer };
+            let Some(mut receipt) = answer.get("structuredContent").cloned() else {
+                return answer;
+            };
+            let Some(record) = receipt.as_object_mut() else { return answer };
+            record.insert("created_pane".into(), json!(pane));
+            record.insert(
+                "recovery".into(),
+                json!("The app may already have opened the viewer. Inspect created_pane and the app tab list before starting another open. If the app returned an idempotency_key, reuse it only for the same app action."),
+            );
+            return tool_error(receipt);
+        }
+        self.undo_split(made, answer)
     }
 
     /// After a failed open, closes the pane the call split for it, so a refused open leaves
@@ -308,7 +329,7 @@ impl<B: Backend> Server<B> {
         })();
         match docked {
             Ok(_) => Ok((Some(pane.clone()), Some(pane))),
-            Err(answer) => Err(self.undo_split(Some(pane), answer)),
+            Err(answer) => Err(self.failed_open(Some(pane), answer)),
         }
     }
 

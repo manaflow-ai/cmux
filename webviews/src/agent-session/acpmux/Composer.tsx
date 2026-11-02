@@ -124,6 +124,7 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
+import { SLASH_MAX_VIEWPORT_PX, slashActiveAfterScroll, slashScrollForActive, slashViewport } from "./slashViewport";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -1184,7 +1185,7 @@ export function Composer({
 
   // The row the arrows chose: Return picks it whatever was typed (returnPicks).
   const [arrowed, setArrowed] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setActive(0);
     setArrowed(false);
   }, [query]);
@@ -2401,6 +2402,7 @@ export function Composer({
             {open && (
               <ComposerListLayer>
                 <SlashMenu
+                  key={query}
                   matches={matches}
                   active={selected}
                   empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
@@ -2532,7 +2534,7 @@ function SlashMenu({
   matches: SlashMatch[];
   active: number;
   empty: string;
-  /// The chat's fast mode, which the `/fast` row's sentence follows (undefined: not reported).
+  /// The chat's fast mode, which the /fast row's sentence follows (undefined: not reported).
   fast?: "on" | "off";
   onHover(index: number): void;
   onPick(command: SlashCommand): void;
@@ -2542,6 +2544,16 @@ function SlashMenu({
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
+  // The full match list owns keyboard ranking. Only a bounded viewport gets DOM nodes.
+  const virtual = matches.length > 40;
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportPx, setViewportPx] = useState(SLASH_MAX_VIEWPORT_PX);
+  const wantedTop = virtual ? slashScrollForActive(active, matches.length, scrollTop, viewportPx) : 0;
+  const view = slashViewport(matches.length, wantedTop, viewportPx);
+  const start = virtual ? view.start : 0;
+  const end = virtual ? view.end : matches.length;
+
+  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
   const escape = useEscapingList("top", 6, undefined, box);
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
@@ -2550,9 +2562,35 @@ function SlashMenu({
     },
     [escape],
   );
+  // The menu may be squeezed below its CSS 296px cap in a short pane.
   useLayoutEffect(() => {
-    list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [active]);
+    const node = list.current;
+    if (!node || !virtual) return;
+    const measure = () => {
+      if (node.clientHeight <= 0) return;
+      const css = node.ownerDocument.defaultView?.getComputedStyle(node);
+      const padding = (parseFloat(css?.paddingTop ?? "0") || 0) + (parseFloat(css?.paddingBottom ?? "0") || 0);
+      const height = Math.max(1, node.clientHeight - padding);
+      setViewportPx((old) => (old === height ? old : height));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [virtual]);
+
+  useLayoutEffect(() => {
+    const node = list.current;
+    if (!node) return;
+    if (virtual) {
+      if (Math.abs(node.scrollTop - view.scrollTop) > 0.5) node.scrollTop = view.scrollTop;
+      return;
+    }
+    // Keep the existing behavior for ordinary short command lists.
+    node.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [active, virtual, view.scrollTop]);
+
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
   if (matches.length === 0)
     return (
@@ -2574,11 +2612,25 @@ function SlashMenu({
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
       aria-label={t(COMPOSER_LABELS.commands)}
+      data-matched-count={matches.length}
+      onScroll={
+        virtual
+          ? (event) => {
+              const top = event.currentTarget.scrollTop;
+              setScrollTop(top);
+              const next = slashViewport(matches.length, top, viewportPx);
+              const selected = slashActiveAfterScroll(active, matches.length, next);
+              if (selected !== active) onHover(selected);
+            }
+          : undefined
+      }
     >
-      {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
-      {matches.map((match, index) => {
-        // The harness's `/fast` reads as ChatGPT's Fast row (Leo 2026-10-22): the bolt, the plain
-        // name, and what picking it does now. Picking it still writes `/fast ` (applyCommand).
+      {/* Keep the full-list scrollbar without creating offscreen options. */}
+      {virtual && <div aria-hidden="true" style={{ height: view.topSpace }} />}
+      {/* Virtual focus: the prompt's aria-activedescendant always names a mounted row. */}
+      {matches.slice(start, end).map((match, offset) => {
+        const index = start + offset;
+        // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
         const fastRow = isFastCommand(match.command);
         const fastName = t("picker.tierFast");
         return (
@@ -2589,6 +2641,8 @@ function SlashMenu({
             role="option"
             tabIndex={-1}
             aria-selected={index === active}
+            aria-posinset={index + 1}
+            aria-setsize={matches.length}
             className={
               (index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row") +
               (fastRow ? " acpmux-slash-fast" : "")
@@ -2597,6 +2651,7 @@ function SlashMenu({
               if (index !== active) onHover(index);
             }}
             onMouseDown={(event) => {
+              if (event.button !== 0) return;
               event.preventDefault();
               onPick(match.command);
             }}
@@ -2646,6 +2701,7 @@ function SlashMenu({
           </div>
         );
       })}
+      {virtual && <div aria-hidden="true" style={{ height: view.bottomSpace }} />}
     </div>
   );
 }
