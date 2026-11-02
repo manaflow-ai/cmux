@@ -15,6 +15,10 @@ description = "Seeded terminal load at a held rate for the layout-animation and 
 name = "tk-gradient"
 path = "src/bin/tk-gradient.rs"
 
+[[bin]]
+name = "tk-storm"
+path = "src/bin/tk-storm.rs"
+
 [profile.release]
 opt-level = 3
 debug = false

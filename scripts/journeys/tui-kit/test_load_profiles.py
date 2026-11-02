@@ -290,7 +290,8 @@ class Reach(Base):
 
 class StormL1(Base):
     def test_rate_mix_focus_and_teardown(self):
-        done, out, app = self.run_tool("L1", "--duration", "3", "--rate", "60", "--keep", "pane_keep")
+        done, out, app = self.run_tool("L1", "--duration", "3", "--rate", "60", "--keep", "pane_keep",
+                                       "--engine", "python")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertRegex(done.stdout, r"LOAD-READY L1 t_mono=\d")
         m = self.manifest(out, "L1")
@@ -307,6 +308,36 @@ class StormL1(Base):
         with open(os.path.join(out, "L1", "calls.jsonl")) as f:
             for line in f:
                 workers.add(json.loads(line)["worker"])
+        self.assertEqual(workers, set(range(8)))
+        self.assert_no_focus_verbs()
+        self.assert_torn_down(app)
+
+    def test_python_engine_verdict(self):
+        done, out, _ = self.run_tool("L1", "--duration", "2", "--rate", "60", "--engine", "python")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        m = self.manifest(out, "L1")
+        self.assertEqual(m["engine"], "python")
+        self.assertIn(m["calls"]["verdict"], ("ok", "NOT RUN"))
+        self.assertIn("verdict=", done.stdout)
+
+    def test_rust_storm_holds_the_rate(self):
+        import tuikit
+        if not tuikit.rust_bin("tk-storm"):
+            if os.environ.get("CMUX_TUIKIT_REQUIRE_RUST") == "1":
+                self.fail("tk-storm is not built (tuikit.py build-bins)")
+            self.skipTest("tk-storm is not built (tuikit.py build-bins)")
+        done, out, app = self.run_tool("L1", "--duration", "4", "--rate", "50", "--keep", "pane_keep",
+                                       "--engine", "rust")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        m = self.manifest(out, "L1")
+        self.assertEqual(m["engine"], "rust")
+        calls = m["calls"]
+        self.assertEqual(calls["engine"], "rust")
+        self.assertEqual(calls["verdict"], "ok", calls)
+        self.assertGreaterEqual(calls["achieved_per_s"], 0.95 * 50, calls)
+        self.assertEqual(calls["failed"], 0, calls)  # the stand-in CLI refuses argv outside the real shapes
+        with open(os.path.join(out, "L1", "storm-calls.jsonl")) as f:
+            workers = {json.loads(line)["worker"] for line in f}
         self.assertEqual(workers, set(range(8)))
         self.assert_no_focus_verbs()
         self.assert_torn_down(app)

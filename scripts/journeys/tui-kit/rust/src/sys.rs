@@ -21,8 +21,24 @@ struct Winsize {
     ws_ypixel: u16,
 }
 
+// nfds_t: unsigned int on macOS, unsigned long on Linux.
+#[cfg(target_os = "macos")]
+type Nfds = u32;
+#[cfg(not(target_os = "macos"))]
+type Nfds = c_ulong;
+
+#[repr(C)]
+struct Pollfd {
+    fd: c_int,
+    events: i16,
+    revents: i16,
+}
+
 extern "C" {
     fn clock_gettime(clock_id: c_int, tp: *mut Timespec) -> c_int;
+    fn poll(fds: *mut Pollfd, nfds: Nfds, timeout: c_int) -> c_int;
+    #[cfg(target_os = "macos")]
+    fn getpriority(which: c_int, who: u32) -> c_int;
     fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
     fn signal(signum: c_int, handler: extern "C" fn(c_int)) -> usize;
 }
@@ -107,6 +123,39 @@ pub fn install_signals(winch: bool) {
         unsafe {
             signal(SIGWINCH, on_winch);
         }
+    }
+}
+
+/// Waits up to 1 s until `fd` can take a write (POLLOUT); a non-blocking stdout that was full.
+pub fn wait_writable(fd: c_int) {
+    let mut p = Pollfd {
+        fd,
+        events: 0x0004,
+        revents: 0,
+    };
+    // SAFETY: one valid pollfd, nfds 1.
+    let _ = unsafe { poll(&mut p, 1, 1000) };
+}
+
+/// Whether this process is in the Darwin background class: "yes", "no", or "n/a" off macOS
+/// (tuikit.py `darwin_bg`).
+pub fn darwin_bg() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: PRIO_DARWIN_PROCESS (4) of this process (0); no pointers.
+        let value = unsafe { getpriority(4, 0) };
+        if value == -1 {
+            return "err";
+        }
+        if value & 0x1000 != 0 {
+            "yes"
+        } else {
+            "no"
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "n/a"
     }
 }
 

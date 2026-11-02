@@ -118,9 +118,12 @@ class Calls:
                    "achieved_per_s": achieved,
                    "ok_per_s": round((self.load_calls - self.load_failed) / span, 2) if span > 0 else 0.0,
                    "asked_per_s": self.asked}
-            if self.asked and achieved < 0.9 * self.asked:
-                out["below_asked"] = "achieved %.1f of %d calls/s asked: the workers wait on the CLI (rate cap about " \
-                                     "workers / call latency)" % (achieved, self.asked)
+            if self.asked:
+                # cmux-ad 03:40Z: below 95 % of the asked rate the run is NOT RUN
+                out["verdict"] = "NOT RUN" if achieved < tuikit.RATE_FLOOR * self.asked else "ok"
+                if out["verdict"] != "ok":
+                    out["below_asked"] = "achieved %.1f of %d calls/s asked: the workers wait on the CLI (rate cap " \
+                                         "about workers / call latency)" % (achieved, self.asked)
             return out
 
     def close(self):
@@ -391,6 +394,12 @@ class L1(Profile):
                         "--source", "tk-load", worker=worker)
 
     def load(self):
+        path = tuikit.rust_bin("tk-storm") if self.a.engine != "python" else None
+        if path:
+            return self.load_rust(path)
+        if self.a.engine == "rust":
+            raise heavy_profile.Refused("no tk-storm (run `tuikit.py build-bins` on this Mac)")
+        self.manifest["engine"] = "python"
         bucket = Bucket(self.a.rate)
 
         def worker(index):
@@ -407,6 +416,33 @@ class L1(Profile):
         self.stop.wait()
         for t in threads:
             t.join(35)
+
+    def load_rust(self, path):
+        """tk-storm runs the same mix on a held schedule; this process only waits for the stop."""
+        self.manifest["engine"] = "rust"
+        summary_path = os.path.join(self.dir, "storm-summary.json")
+        argv = [path, "--cli", self.app.cli, "--socket", self.app.daemon_sock, "--app-socket", self.app.app_sock,
+                "--home", self.app.home, "--workspace", self.ws["workspace_id"], "--pane", self.ws["pane_id"],
+                "--terminal", self.ws["terminal_id"], "--workers", str(self.WORKERS), "--rate", str(self.a.rate),
+                "--duration", "0", "--seed", str(self.a.seed), "--calls", os.path.join(self.dir, "storm-calls.jsonl"),
+                "--summary", summary_path]
+        proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=open(os.path.join(self.dir, "tk-storm.err"), "w"))
+        self.manifest["processes"].append({"pid": proc.pid, "label": "tk-storm", "argv": argv})
+        self.save()
+        self.stop.wait()
+        proc.terminate()  # tk-storm ends at its next call and writes its summary
+        try:
+            proc.wait(60)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        try:
+            with open(summary_path) as f:
+                self.storm = json.load(f)
+        except (OSError, ValueError) as error:
+            raise heavy_profile.Refused("tk-storm wrote no summary (exit %s): %s" % (proc.returncode, error))
+        self.manifest["made"]["tabs"].extend(self.storm.get("leftover_tabs") or [])
+        self.save()
 
     def teardown(self):
         for tab in list(self.manifest["made"]["tabs"]):
@@ -885,7 +921,8 @@ def l6_exit(codes):
 
 def passthrough(a):
     out = ["--app-socket", a.app_socket, "--seed", str(a.seed), "--duration", str(a.duration), "--rate", str(a.rate),
-           "--agent-cps", str(a.agent_cps), "--agents-where", a.agents_where, "--heavy-shape", a.heavy_shape]
+           "--agent-cps", str(a.agent_cps), "--agents-where", a.agents_where, "--heavy-shape", a.heavy_shape,
+           "--engine", a.engine]
     for flag, value in (("--home", a.home), ("--keep", a.keep), ("--socket", a.socket), ("--cli", a.cli),
                         ("--app", a.app)):
         if value:
@@ -970,6 +1007,9 @@ def cmd_run(a):
         except (heavy_profile.Refused, OSError, ValueError) as error:
             profile.refused("teardown", error)
         summary = profile.calls.summary()
+        storm = getattr(profile, "storm", None)
+        if storm:  # the compiled storm made the load's calls; the Python log has set-up and teardown only
+            summary = dict(storm, setup_and_teardown_calls=summary["all_calls"])
         profile.calls.close()
         changed = bool(profile.guard and profile.guard.changes)
         profile.manifest.update({"ended_wall": time.time(), "calls": summary, "focus_changed": changed,
@@ -978,8 +1018,9 @@ def cmd_run(a):
         profile.save()
         if changed or profile.manifest["refusals"]:
             code = code or 1
-        print("LOAD-DONE %s calls=%d failed=%d achieved_per_s=%.2f focus_changed=%s refusals=%d" % (
-            profile.name, summary["calls"], summary["failed"], summary["achieved_per_s"], changed,
+        print("LOAD-DONE %s calls=%d failed=%d achieved_per_s=%.2f verdict=%s engine=%s focus_changed=%s refusals=%d" % (
+            profile.name, summary["calls"], summary["failed"], summary["achieved_per_s"],
+            str(summary.get("verdict", "n/a")).replace(" ", "_"), profile.manifest.get("engine", "python"), changed,
             len(profile.manifest["refusals"])), flush=True)
     return code
 
@@ -1023,6 +1064,8 @@ def main(argv=None):
     p.add_argument("--no-devtools", dest="devtools", action="store_false", help=argparse.SUPPRESS)
     p.add_argument("--acp", action="store_true", help="L4: try real agent chats first (see L4 above)")
     p.add_argument("--heavy-shape", default="40,200,12", help="L5: workspaces,tabs,visible TUI panes")
+    p.add_argument("--engine", choices=("auto", "rust", "python"), default="auto",
+                   help="L1: the compiled tk-storm when built (tuikit.py build-bins), else Python")
     p.set_defaults(fn=cmd_run)
     p = sub.add_parser("plan")
     p.add_argument("profile", choices=PROFILES)

@@ -92,8 +92,8 @@ def read_log(log):
 
 
 def run_variant(name, wrap, pace, hook, seconds, size, out):
-    engine = "rust" if name.startswith("rust-") else "python"
     """The variant's summary, or {"error": ...} when it could not run (the others still run)."""
+    engine = "rust" if name.startswith("rust-") else "python"
     log = os.path.join(out, "pace-%s.jsonl" % name)
     if os.path.exists(log):
         os.remove(log)

@@ -488,7 +488,7 @@ def cmd_build(a):
         return 2
     rec.data["app"] = {"socket": app.app_sock, "daemon_socket": app.daemon_sock, "cli": app.cli,
                        "app_path": app.app_path, "identity": app.identity}
-    if a.build_bins and not tuikit.rust_bin("tk-gradient"):
+    if a.build_bins:  # always: an incremental build is a no-op when the programs are current
         done = subprocess.run([plan["python"], plan["kit"], "build-bins"], capture_output=True, text=True, timeout=1200)
         rec.data["build_bins"] = {"exit": done.returncode, "out": (done.stdout + done.stderr).strip()[-400:]}
     engine = "rust" if tuikit.rust_bin("tk-gradient") else "python"
@@ -594,7 +594,7 @@ def shape(p):
     p.add_argument("--python", default="/usr/bin/python3")
     p.add_argument("--out", help="manifest, logs and pages (default $TMPDIR/tk-heavy-SEED)")
     p.add_argument("--build-bins", action="store_true",
-                   help="build the compiled programs first when they are missing (cargo on this Mac)")
+                   help="build the compiled programs first (cargo on this Mac; a no-op when they are current)")
     p.add_argument("--no-focus", action="store_true",
                    help="do not focus the shown workspace at the end (a background load under typing)")
 
