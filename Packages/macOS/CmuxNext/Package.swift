@@ -1257,6 +1257,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextRemote", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                // The sidebar row face rules (cmux_sidebar_face_*, cmux-layout-reducer sidebar_face).
+                "CCmuxAppFFI",
             ],
             swiftSettings: uiSwiftSettings
         ),

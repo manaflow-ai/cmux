@@ -90,6 +90,6 @@ struct SidebarChatFrontTests {
         let mapping = SidebarMapping.shared
         let front = mapping.frontTab(workspace, selectedTab: { _ in nil })
         #expect(front?.kind == .pty)
-        #expect(mapping.labelTab(front, workspace.screens.flatMap(\.panes).flatMap(\.tabs))?.agentSession?.session == "s1")
+        #expect(mapping.faceTab(workspace, selectedTab: { _ in nil })?.agentSession?.session == "s1")
     }
 }
