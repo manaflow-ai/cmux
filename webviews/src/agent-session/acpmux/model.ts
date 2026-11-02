@@ -67,7 +67,6 @@ import {
   applyHeightChanges,
   type HeightChange,
   type IndexedLayoutGeometry,
-  type LayoutGeometry,
 } from "./conversationGeometry";
 
 export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
