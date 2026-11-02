@@ -109,40 +109,18 @@ extension CloudService {
         )
     }
 
-    /// The server refused the create before making anything (no plan, the plan's machine limit or
-    /// size, an approval denied or expired, which the contract asks again with a new key), an answer
-    /// a same-key Retry would only replay. A lost answer, a timeout or a relay that is down is
-    /// uncertain, so it keeps the key.
     nonisolated static func isDefinitiveRefusal(_ failure: CloudAppOpFailure) -> Bool {
-        ["plan_required", "plan.required", "quota_exceeded", "quota.exceeded", "size_locked", "size.locked",
-         "approval_denied", "approval.denied", "approval_expired", "approval.expired",
-         // cloud.environment.boot: secrets the Vault can't serve yet, no usable snapshot, an environment
-         // or snapshot that is gone. Each is stored with the key; a Retry after the fix needs a new one.
-         "secrets_unavailable", "no_snapshot_configured", "not_found"]
-            .contains { failure.code.hasSuffix($0) }
+        CloudMachineCreateRetry().isDefinitiveRefusal(failure)
     }
 
-    /// The team an app-server create goes to: the install token's team `current`, or, once
-    /// `request` was sent, the team of its first send, which `current` must still be: the key is
-    /// scoped per team, so the same key in another team would be a second machine.
     static func appServerTeam(current: String, request: CloudMachineRequest) throws -> String {
-        guard request.wasSent, let first = request.team else { return current }
-        guard first == current else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
-        return first
+        try CloudMachineCreateRetry().team(current: current, request: request, changedTeam: ActionFailure(message: CloudStrings.createRetryOtherTeam))
     }
 
-    /// The relay call of a create pinned to `team`: every call, the first and each same-key retry
-    /// after an approval, checks the install token still bills `team` right before it goes out, and
-    /// is refused, unsent, if the install switched teams meanwhile (during the confirmation or a
-    /// retry's backoff). Only a call that passes marks the request sent.
     nonisolated static func pinnedRun(team: String, currentTeam: @escaping @Sendable () async throws -> String,
                                       sent: @escaping @MainActor @Sendable () async throws -> Void, ops: @escaping CloudAppOp) -> CloudAppOp {
-        { op, args, key, origin in
-            guard try await currentTeam() == team else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
-            try await sent()
-            guard try await currentTeam() == team else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
-            return try await ops(op, args, key, origin)
-        }
+        CloudMachineCreateRetry().pinnedRun(team: team, currentTeam: currentTeam, sent: sent,
+            changedTeam: { ActionFailure(message: CloudStrings.createRetryOtherTeam) }, ops: ops)
     }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the

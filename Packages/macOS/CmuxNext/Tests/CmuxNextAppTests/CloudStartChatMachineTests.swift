@@ -23,11 +23,11 @@ struct CloudStartChatMachineTests {
             return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "ws-key"), name: "chat", screens: [screen])])
         }
         store.apply(snapshot: tree(false))
-        #expect(CloudStartChat.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 1))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 1))
         store.apply(snapshot: tree(true))
-        #expect(CloudStartChat.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 9))
-        #expect(CloudStartChat.targetAnchor("pane_missing", in: store) == nil)
-        #expect(CloudStartChat.targetAnchor("pane:1", in: store) == nil)
+        #expect(CloudMachineWorkspace.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 9))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_missing", in: store) == nil)
+        #expect(CloudMachineWorkspace.targetAnchor("pane:1", in: store) == nil)
     }
 
     /// Router review at 2a315af: a team switch keeps the user signed in and the previous team's

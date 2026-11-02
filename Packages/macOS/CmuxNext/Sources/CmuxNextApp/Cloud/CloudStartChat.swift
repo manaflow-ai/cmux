@@ -169,7 +169,7 @@ struct CloudStartChat {
         let context = AppActionContext(services: services)
         let anchor: (id: String, key: WorkspaceKey, pane: PaneModel)
         if let targetPane {
-            guard let found = Self.targetAnchor(targetPane, in: machine.daemon.store) else {
+            guard let found = CloudMachineWorkspace.targetAnchor(targetPane, in: machine.daemon.store) else {
                 throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
             }
             anchor = found
@@ -193,16 +193,6 @@ struct CloudStartChat {
                                                                                         account: origin.account, machineID: machine.machineID)
         await origin.close()
         return machine.machine.title
-    }
-
-    static func targetAnchor(_ paneID: String, in store: DaemonStore) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
-        for workspace in store.workspaces {
-            guard let key = workspace.key else { continue }
-            if let pane = workspace.screens.flatMap(\.panes).first(where: { $0.resourceID?.rawValue == paneID }) {
-                return (workspace.id, key, pane)
-            }
-        }
-        return nil
     }
 
     /// A chat with no project: nothing is read or copied; the account is checked again as above.
