@@ -31,7 +31,7 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true,
            let url = task.request.url, AgentPaneRenderFrame.isFrame(url) {
             let data = AgentPaneRenderFrame.document
-            let headers = AgentPaneRenderFrame.headers(length: data.count)
+            let headers = AgentPaneRenderFrame.headers(length: data.count, artifact: AgentPaneRenderFrame.isArtifact(url))
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)
             task.didReceive(response ?? URLResponse(url: url, mimeType: "text/html", expectedContentLength: data.count, textEncodingName: "utf-8"))
             task.didReceive(data)

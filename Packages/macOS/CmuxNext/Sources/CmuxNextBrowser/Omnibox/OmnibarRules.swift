@@ -48,6 +48,18 @@ public nonisolated enum OmnibarRules {
         return String(text.unicodeScalars.map { CharacterSet.newlines.contains($0) ? " " : Character($0) })
     }
 
+    /// Text dropped on the omnibox, as Chromium `OmniboxViewViews::PerformDrop` cleans it: runs of
+    /// whitespace become one space, the ends are trimmed, and leading `javascript:` schemes (any
+    /// case, with the spaces after them) are stripped (`omnibox::StripJavascriptSchemas`).
+    static func droppedText(_ text: String) -> String {
+        var cleaned = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        let scheme = "javascript:"
+        while cleaned.lowercased().hasPrefix(scheme) {
+            cleaned = String(cleaned.dropFirst(scheme.count)).trimmingCharacters(in: .whitespaces)
+        }
+        return cleaned
+    }
+
     /// `selection` limited to a text of `length` UTF-16 units. A caret stays
     /// a caret at its own location (`NSIntersectionRange` would turn it into
     /// `{0, 0}`, which once reversed everything typed).

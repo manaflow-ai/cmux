@@ -21,10 +21,10 @@ await requireBrowserLane("session-info-palette.test.ts", async () => {
   const open = async () => {
     const page = await pane.open({ width: 1400, height: 800 });
     await page.evaluate(() => window.cmuxAcpmuxBridge!.applyHeaderState!({ inspector: true, version: 2 }));
-    const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+    const toggle = page.locator("button.acpmux-session-info-toggle");
     await toggle.waitFor();
     if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
-    await page.locator("aside.acpmux-chat-inspector").waitFor({ state: "detached" });
+    await page.locator("aside.acpmux-session-info").waitFor({ state: "detached" });
     return page;
   };
   const capture = async (page: Page, name: string) => {
@@ -39,7 +39,7 @@ await requireBrowserLane("session-info-palette.test.ts", async () => {
     try {
       await page.evaluate(() => window.cmuxAcpmuxBridge!.toggleInspector());
       await page.locator("section.acpmux-inspector").waitFor();
-      expect(await page.locator("aside.acpmux-chat-inspector").count()).toBe(0);
+      expect(await page.locator("aside.acpmux-session-info").count()).toBe(0);
       await capture(page, "before-event-inspector");
       await page.evaluate(() => window.cmuxAcpmuxBridge!.toggleInspector());
       await page.locator("section.acpmux-inspector").waitFor({ state: "detached" });
@@ -51,20 +51,20 @@ await requireBrowserLane("session-info-palette.test.ts", async () => {
   test("the Session Info bridge toggles the header's panel, including after a header click", async () => {
     const page = await open();
     try {
-      const panel = page.locator("aside.acpmux-chat-inspector[data-presence=shown]");
-      const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+      const panel = page.locator("aside.acpmux-session-info[data-presence=shown]");
+      const toggle = page.locator("button.acpmux-session-info-toggle");
       await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
       await panel.waitFor({ timeout: 5_000 });
       expect(await toggle.getAttribute("aria-pressed")).toBe("true");
       expect(await page.locator("section.acpmux-inspector").count()).toBe(0);
       await capture(page, "after-session-info");
       await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-      await page.locator("aside.acpmux-chat-inspector").waitFor({ state: "detached" });
+      await page.locator("aside.acpmux-session-info").waitFor({ state: "detached" });
       expect(await toggle.getAttribute("aria-pressed")).toBe("false");
       await toggle.click();
       await panel.waitFor({ timeout: 5_000 });
       await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-      await page.locator("aside.acpmux-chat-inspector").waitFor({ state: "detached" });
+      await page.locator("aside.acpmux-session-info").waitFor({ state: "detached" });
     } finally {
       await page.close();
     }
@@ -76,7 +76,7 @@ await requireBrowserLane("session-info-palette.test.ts", async () => {
       await page.evaluate(() => window.cmuxAcpmuxBridge!.toggleInspector(true));
       await page.locator("section.acpmux-inspector").waitFor();
       await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-      await page.locator("aside.acpmux-chat-inspector[data-presence=shown]").waitFor({ timeout: 5_000 });
+      await page.locator("aside.acpmux-session-info[data-presence=shown]").waitFor({ timeout: 5_000 });
       await page.locator("section.acpmux-inspector").waitFor({ state: "detached" });
     } finally {
       await page.close();

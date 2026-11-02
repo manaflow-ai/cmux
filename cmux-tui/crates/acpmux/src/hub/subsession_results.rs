@@ -23,6 +23,7 @@
 
 use super::subsessions::RECORD_KIND;
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Longest prompt a `started` record quotes, in characters.
 const MAX_PROMPT_CHARS: usize = 500;
@@ -70,9 +71,9 @@ impl Hub {
     ) {
         let asked = (asked.0.as_deref(), asked.1.as_deref());
         let mut record = Self::subsession_fields(&child.meta(), asked);
-        record["event"] = json!("started");
-        record["state"] = json!("running");
-        record["prompt"] = json!(super::session::masked_preview(prompt, MAX_PROMPT_CHARS));
+        record.set("event", json!("started"));
+        record.set("state", json!("running"));
+        record.set("prompt", json!(super::session::masked_preview(prompt, MAX_PROMPT_CHARS)));
         self.append(parent, "mux", RECORD_KIND, record);
     }
 
@@ -89,15 +90,18 @@ impl Hub {
         let state = end_state(text("status"));
         let error = text("errorText").or_else(|| text("error")).map(crate::secret_scan::mask);
         let mut record = Self::subsession_fields(&m, (None, None));
-        record["event"] = json!("turn_ended");
-        record["state"] = json!(state);
-        record["result"] = json!({
-            "state": state,
-            "turnId": turn_result.get("turnId"),
-            "stopReason": turn_result.get("stopReason"),
-            "reply": m.preview.as_deref().and_then(reply_text),
-            "error": error,
-        });
+        record.set("event", json!("turn_ended"));
+        record.set("state", json!(state));
+        record.set(
+            "result",
+            json!({
+                "state": state,
+                "turnId": turn_result.get("turnId"),
+                "stopReason": turn_result.get("stopReason"),
+                "reply": m.preview.as_deref().and_then(reply_text),
+                "error": error,
+            }),
+        );
         self.append(&parent, "mux", RECORD_KIND, record);
     }
 }

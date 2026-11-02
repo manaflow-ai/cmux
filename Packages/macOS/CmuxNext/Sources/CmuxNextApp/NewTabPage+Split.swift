@@ -17,11 +17,9 @@ private final class SplitPageKey {
 /// and then moves it to a new split on `edge`, the way a new chat reaches its dock (NewChatPlacement.dock).
 extension NewTabPage {
     /// Whether a person's split of `pane` opens the New Tab page: its selected tab is a browser
-    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal, and so does every
-    /// split with `tabs.terminalFirst` on (#23021).
+    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal.
     static func splitsToPage(_ pane: PaneController?, direction: PaneDirection, byPerson: Bool) -> Bool {
-        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey,
-              !NewTabKind.terminalFirst(pane.services) else { return false }
+        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey else { return false }
         return NewTabKind.of(key, tab: pane.selectedTab, services: pane.services) != .terminal
     }
 
@@ -32,7 +30,8 @@ extension NewTabPage {
     @discardableResult
     static func split(_ source: PaneController, edge: PaneEdge, focusesPage: Bool = true, swapsBack: Bool = false) -> Bool {
         let services = source.services
-        var page = Self.page(services, selected: source.selectedTab, pane: source)
+        let machineID = source.daemon.machineID
+        var page = Self.page(services, selected: source.selectedTab, pane: source, paletteActions: false)
         let cwd = page.cwd
         page.openTabs = openTabs(services, in: source.pane)
         let opened = SplitPageKey()
@@ -44,14 +43,14 @@ extension NewTabPage {
         if let keys { input.attachIncoming(keys) }
         // The page moves to the new pane: its choices act in the pane that shows it now.
         var handler = Self.handler(services, cwd: cwd) { [weak services] key, request in
-            guard let services, let pane = Self.hosting(key, services) else { return }
+            guard let services, let pane = Self.hosting(key, services, onMachine: machineID) else { return }
             Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane)
         }
         handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
         let jump = handler.jump
         handler.jump = { [weak services] target, id in
             guard target == .here else { return jump(target, id) }
-            if let services, let key = opened.value { Self.moveHere(id, page: key, services: services) }
+            if let services, let key = opened.value { Self.moveHere(id, page: key, onMachine: machineID, services: services) }
         }
         let split: SplitDirection? = !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
             : edge == .right ? .right : edge == .bottom ? .down : nil
@@ -78,14 +77,13 @@ extension NewTabPage {
         // The split's provisional pane is in the store: the window lays it out and mounts it in
         // this turn, so the page's pane draws in the key's frame (instant-new-surfaces).
         if started, split != nil { BenchSpans.measure("split.layout") { source.workspace?.applyCurrent() } }
+        if started { fillPaletteActions(services) }
         return started
     }
 
     /// The workspace's tabs as the Open Tabs list shows them, but New Tab pages.
     static func openTabs(_ services: AppServices, in pane: PaneModel) -> [AgentPaneOmnibar.Tab] {
-        let workspace = services.machines.allWorkspaces.first { entry in
-            entry.0.screens.contains { screen in screen.panes.contains { $0.handle == pane.handle } }
-        }?.0
+        let workspace = services.daemon(for: pane).store.workspace(containing: pane.handle)
         return (workspace?.screens ?? []).flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
             let agent = services.agentTabs.isAgentTab(tab.id)
             if agent, services.agentTabs.isNewTabPage(tab.id) { return nil }
@@ -102,19 +100,20 @@ extension NewTabPage {
 
     /// The pane showing tab `key` now.
     /// The pane that shows page `key` now (it may have moved since it opened).
-    static func hosting(_ key: String, _ services: AppServices) -> PaneController? {
-        services.locateTab(key).flatMap { services.paneController(for: $0.1) }
+    static func hosting(_ key: String, _ services: AppServices, onMachine machineID: String) -> PaneController? {
+        services.locateTab(key, onMachine: machineID).flatMap { services.paneController(for: $0.1) }
     }
 
     /// Moves the hidden page `key` to a new pane on `edge` of its pane once the store lists it,
     /// then shows it there and focuses it. A failed move shows it where it is.
     private static func moveToSplit(_ key: String, from source: PaneController, edge: PaneEdge, keys: String?, focuses: Bool) {
         let services = source.services
+        let machineID = source.daemon.machineID
         services.registry.track(Task { @MainActor [weak source] in
-            if services.locateTab(key) == nil {
-                for await located in ObservationStream({ services.locateTab(key) != nil }) where located { break }
+            if services.locateTab(key, onMachine: machineID) == nil {
+                for await located in ObservationStream({ services.locateTab(key, onMachine: machineID) != nil }) where located { break }
             }
-            guard case let (tab, pane)? = services.locateTab(key) else { return nil }
+            guard case let (tab, pane)? = services.locateTab(key, onMachine: machineID) else { return nil }
             TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services, keepFocus: !focuses) { moved in
                 let input = services.keyRouter.newTabInputCoordinator
                 // A failed move leaves the page unselected in its pane: the held keys go on now.
@@ -131,8 +130,8 @@ extension NewTabPage {
 
     /// The Open Tabs list picked tab `id`: it moves into the page's pane, where the page was,
     /// and the page closes once it has.
-    private static func moveHere(_ id: String, page key: String, services: AppServices) {
-        guard case let (tab, _)? = services.locateTab(id), tab.id != key, case let (_, pane)? = services.locateTab(key),
+    private static func moveHere(_ id: String, page key: String, onMachine machineID: String, services: AppServices) {
+        guard case let (tab, _)? = services.locateTab(id, onMachine: machineID), tab.id != key, case let (_, pane)? = services.locateTab(key, onMachine: machineID),
               let host = services.paneController(for: pane) else { return }
         let index = pane.tabs.firstIndex { $0.id == key } ?? pane.tabs.count
         host.selectWhenReported(surface: tab.surface)

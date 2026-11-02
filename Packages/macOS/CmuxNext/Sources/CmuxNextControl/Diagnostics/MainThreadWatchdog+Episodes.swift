@@ -36,7 +36,8 @@ extension MainThreadWatchdog {
         let sampled = sampler?.sample { _ in stillBlocked = beatSequence.load(ordering: .acquiring) == beat } ?? []
         let addresses = stillBlocked ? sampled : []
         let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
-        recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others)
+        recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others,
+                        load: load(beat: beat, cpuNanos: mainThreadCPU(sinceBeat: beat)))
         if let sink {
             lastReportNanos = now
             sink(Hang(duration: duration, addresses: addresses, otherThreads: others))
@@ -51,10 +52,12 @@ extension MainThreadWatchdog {
         case .began:
             break
         case let .progressed(beat, elapsed):
-            episodes?.update(beat: beat, duration: .nanoseconds(Int64(clamping: elapsed)), ongoing: true)
+            episodes?.update(beat: beat, duration: .nanoseconds(Int64(clamping: elapsed)), ongoing: true,
+                             load: load(beat: beat, cpuNanos: mainThreadCPU(sinceBeat: beat)))
         case let .ended(beat, lastElapsed):
-            let nanos = closeEpisode(beat: beat, lastElapsedNanos: lastElapsed)
-            episodes?.update(beat: beat, duration: .nanoseconds(Int64(clamping: nanos)), ongoing: false)
+            let (nanos, cpuNanos) = closeEpisodeMeasuring(beat: beat, lastElapsedNanos: lastElapsed)
+            episodes?.update(beat: beat, duration: .nanoseconds(Int64(clamping: nanos)), ongoing: false,
+                             load: load(beat: beat, cpuNanos: cpuNanos))
         }
     }
 
@@ -63,7 +66,24 @@ extension MainThreadWatchdog {
     /// watchdog had opened its episode yet), taken out of the list; else the last length the
     /// watchdog saw. Watchdog thread.
     func closeEpisode(beat: UInt64, lastElapsedNanos: UInt64) -> UInt64 {
+        closeEpisodeMeasuring(beat: beat, lastElapsedNanos: lastElapsedNanos).nanos
+    }
+
+    /// ``closeEpisode(beat:lastElapsedNanos:)`` with the main thread's CPU over the stall, as
+    /// the main thread measured it when the stall ended (nil when its end was not recorded).
+    func closeEpisodeMeasuring(beat: UInt64, lastElapsedNanos: UInt64) -> (nanos: UInt64, cpuNanos: UInt64?) {
         let end = hangEnds.withLock { ends in ends.firstIndex { $0.beat == beat }.map { ends.remove(at: $0) } }
-        return max(end?.nanos ?? 0, lastElapsedNanos)
+        guard let end, end.nanos >= lastElapsedNanos else { return (lastElapsedNanos, nil) }
+        return (end.nanos, end.cpuNanos)
+    }
+
+    /// The hang of `beat`'s load so far: the main thread's CPU (`cpuNanos`) and the process's
+    /// page-ins since the watchdog first sampled the stall. Watchdog thread only.
+    func load(beat: UInt64, cpuNanos: UInt64?) -> HangLoad {
+        let cpu = cpuNanos.map { Duration.nanoseconds(Int64(clamping: $0)) }
+        guard let base = stallEvents.withLock({ $0 }), base.beat == beat, let counts = base.counts else {
+            return HangLoad(mainThreadCPU: cpu)
+        }
+        return counts.load(to: TaskEventCounts.current(), cpu: cpu)
     }
 }

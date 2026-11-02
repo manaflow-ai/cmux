@@ -14,8 +14,8 @@
 // - Column widths: a handle on each column's right edge; a drag sets the width, a double-click fits
 //   the column to its content. Widths are a view setting kept per file (`TableWidths`), never
 //   written to the file: GFM has no column widths, and a resize must not mark the file edited.
-import type { Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
-import { AllSelection, Plugin, TextSelection, type EditorState } from "@milkdown/kit/prose/state";
+import type { Node as ProseNode, ResolvedPos, Schema } from "@milkdown/kit/prose/model";
+import { AllSelection, Plugin, TextSelection, type EditorState, type Selection } from "@milkdown/kit/prose/state";
 import {
   CellSelection,
   TableMap,
@@ -28,6 +28,7 @@ import {
 } from "@milkdown/kit/prose/tables";
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
+import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../scrollers";
 
 /**
  * Column widths, in CSS pixels, for each table of the open file. A table is known by its index in
@@ -250,6 +251,10 @@ export class ResizableTableView extends TableView {
     cellMinWidth = 100,
   ) {
     super(node, cellMinWidth);
+    // A wide table shows that it scrolls by the thin sideways scrollbar, drawn at rest too
+    // (scrollers.ts), never by fading its edge (user 2026-10-31: "why blur?"). Set before the box
+    // is in the page: WebKit picks a scroller's kind when it makes it.
+    this.dom.setAttribute(SIDEWAYS_SCROLLER_ATTRIBUTE, "");
     this.handle = document.createElement("div");
     this.handle.className = "md-col-resize";
     this.handle.contentEditable = "false";
@@ -282,29 +287,12 @@ export class ResizableTableView extends TableView {
    * pointer (shown only if it is on a boundary now), never stays where the pointer no longer is.
    */
   private readonly layoutChanged = (): void => {
-    this.markOverflow();
     if (!this.dragging) this.refresh();
   };
 
   private readonly leave = (): void => {
     this.pointer = null;
     if (!this.dragging) this.hide();
-  };
-
-  /**
-   * Marks which edges have more table past them (`data-overflow`: "start", "end" or both; absent
-   * when the table fits). The stylesheet fades those edges, so a wide table shows that it scrolls
-   * even with overlay scrollbars hidden (MARKDOWN-TABLE-SCROLL, user 2026-10-20).
-   */
-  private readonly markOverflow = (): void => {
-    const box = this.dom;
-    const max = box.scrollWidth - box.clientWidth;
-    const edges = [box.scrollLeft > 1 && "start", box.scrollLeft < max - 1 && "end"].filter(Boolean).join(" ");
-    if (max > 1 && edges) {
-      if (box.dataset.overflow !== edges) box.dataset.overflow = edges;
-    } else if (box.dataset.overflow !== undefined) {
-      delete box.dataset.overflow;
-    }
   };
 
   /**
@@ -772,6 +760,30 @@ export const tableDragOutPlugin = $prose(
     }),
 );
 
+/** The position before the table cell that holds `$pos`, or -1 outside a cell. */
+function cellBefore($pos: ResolvedPos): number {
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const role = $pos.node(depth).type.spec.tableRole;
+    if (role === "cell" || role === "header_cell") return $pos.before(depth);
+  }
+  return -1;
+}
+
+/**
+ * Whether `next` is prosemirror-tables' normalization of `selection`, a text selection from one
+ * cell into another: its from cell's text (a head at the next cell's start) or a caret at its from
+ * (a selection between two cells' edges). tableEditing's appendTransaction makes it.
+ */
+function normalizesAcrossCells(selection: Selection, next: Selection): boolean {
+  if (!(selection instanceof TextSelection) || !(next instanceof TextSelection)) return false;
+  const from = cellBefore(selection.$from);
+  if (from < 0 || from === cellBefore(selection.$to)) return false;
+  return (
+    (next.from === selection.$from.start() && next.to === selection.$from.end()) ||
+    (next.empty && next.from === selection.from)
+  );
+}
+
 /**
  * Pointer selection in tables is text selection (user 2026-10-28). prosemirror-tables turns a drag
  * that crosses into another cell, and a Shift-click from a caret into another cell, into a cell
@@ -779,30 +791,75 @@ export const tableDragOutPlugin = $prose(
  * plugin drops that start unless a cell selection already exists (Cmd-A, then Shift-click extends
  * it), so the browser's own drag selection goes on, and it does the Shift-click itself as a text
  * selection from the anchor to the click.
+ *
+ * While the button is down it also drops prosemirror-tables' normalization of the drag's text
+ * selection: when the pointer crosses a cell's edge, the head lands at the next cell's start, and
+ * tableEditing cuts the selection to the first cell's text (or a caret). Chromium waits for the
+ * mouseup to write the editor's selection back to the page; WebKit, which the app draws in, writes
+ * it at once, and its drag then stayed on the first cell ("Ada" for a drag from Ada to Navy).
  */
-export const tableTextSelectPlugin = $prose(
-  () =>
-    new Plugin({
-      filterTransaction(tr, state) {
-        const anchor = tr.getMeta(tableEditingKey) as number | undefined;
-        if (typeof anchor !== "number" || anchor < 0) return true;
-        return !(tr.selection instanceof CellSelection) || state.selection instanceof CellSelection;
-      },
-      props: {
-        handleDOMEvents: {
-          mousedown(view, event) {
-            if (event.button !== 0 || !event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
-            const { state } = view;
-            if (state.selection instanceof CellSelection) return false;
-            if (!(event.target as Element | null)?.closest?.("td, th")) return false;
-            const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
-            if (!hit) return false;
-            const selection = TextSelection.between(state.selection.$anchor, state.doc.resolve(hit.pos));
-            event.preventDefault();
-            if (!selection.eq(state.selection)) view.dispatch(state.tr.setSelection(selection));
-            return true;
-          },
+export const tableTextSelectPlugin = $prose(() => {
+  // Whether the primary button went down in a cell of this editor and is still down; `release`
+  // ends it. A press can end without a mouseup reaching the page (released over another app or
+  // after a switch away), so the window's blur and a move with the button up end it too, as does
+  // the editor's destroy: a stuck flag would drop a keyboard caret move out of a cross-cell
+  // selection. A key does not: Shift or Cmd pressed mid-drag leaves the button down.
+  let dragging = false;
+  let release: (() => void) | undefined;
+  return new Plugin({
+    view: () => ({ destroy: () => release?.() }),
+    filterTransaction(tr, state) {
+      if (
+        dragging &&
+        tr.steps.length === 0 &&
+        tr.selectionSet &&
+        tr.getMeta("pointer") !== true &&
+        normalizesAcrossCells(state.selection, tr.selection)
+      )
+        return false;
+      const anchor = tr.getMeta(tableEditingKey) as number | undefined;
+      if (typeof anchor !== "number" || anchor < 0) return true;
+      return !(tr.selection instanceof CellSelection) || state.selection instanceof CellSelection;
+    },
+    props: {
+      handleDOMEvents: {
+        mousedown(view, event) {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey) return false;
+          if (!(event.target as Element | null)?.closest?.("td, th")) return false;
+          if (!event.shiftKey) {
+            const window = view.dom.ownerDocument.defaultView;
+            if (!window) return false;
+            release?.();
+            dragging = true;
+            const ends = ["mouseup", "dragstart"] as const;
+            const moved = (move: MouseEvent) => {
+              if ((move.buttons & 1) === 0) stop();
+            };
+            const stop = () => {
+              dragging = false;
+              release = undefined;
+              for (const type of ends) window.removeEventListener(type, stop, true);
+              window.removeEventListener("mousemove", moved, true);
+              window.removeEventListener("blur", stop);
+            };
+            for (const type of ends) window.addEventListener(type, stop, true);
+            window.addEventListener("mousemove", moved, true);
+            // Not capturing: the press itself moves focus into the editor, and that element's blur
+            // reaches a capturing window listener. Only the window's own blur ends the press.
+            window.addEventListener("blur", stop);
+            release = stop;
+            return false;
+          }
+          const { state } = view;
+          if (state.selection instanceof CellSelection) return false;
+          const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
+          if (!hit) return false;
+          const selection = TextSelection.between(state.selection.$anchor, state.doc.resolve(hit.pos));
+          event.preventDefault();
+          if (!selection.eq(state.selection)) view.dispatch(state.tr.setSelection(selection));
+          return true;
         },
       },
-    }),
-);
+    },
+  });
+});

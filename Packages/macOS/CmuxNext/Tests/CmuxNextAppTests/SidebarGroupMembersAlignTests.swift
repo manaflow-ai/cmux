@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-21, on a group's rows sitting ~12 pt right of the rows above them, with the selected
@@ -10,7 +11,7 @@ import Testing
 /// by its header and its members' line, which runs in the list's inset beside the rows, never over
 /// them or pushing them in (his 2026-10-03 rule: "a thin colored vertical line ties members together,
 /// with no extra indent").
-@MainActor @Suite(.serialized) struct SidebarGroupMembersAlignTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupMembersAlignTests {
     static let group = GroupID("g-coordinator")
     static let looseID = WorkspaceID("ws-loose")
     static let leadID = WorkspaceID("ws-lead")

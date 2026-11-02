@@ -54,7 +54,7 @@ Object.assign(scope, replacements);
 // and a scroll offset the test moves as the reader would.
 let viewport = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
-// Wide enough for the minimap's usable gutter (ThreadMinimap RAIL_MIN_GUTTER).
+// Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
 /// The rail's list clamps its offset as a browser does: rows are 10 px, the list as tall as the rail.

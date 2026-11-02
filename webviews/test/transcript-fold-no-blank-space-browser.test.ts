@@ -175,7 +175,7 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
                   animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
               );
             const rows = [...scroller.querySelectorAll<HTMLElement>("article.acpmux-row")]
-              .map((node) => `${node.dataset.rowId}@${node.style.top}`)
+              .map((node) => `${node.dataset.rowId}@${node.style.top}+${node.style.marginTop}`)
               .join(",");
             const now = `${scroller.scrollHeight} ${rows}`;
             alike = !moving && now === last ? alike + 1 : 0;

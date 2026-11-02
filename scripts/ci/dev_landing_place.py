@@ -17,17 +17,22 @@ The order (the rulebook's routing order):
    have none, so a side runner cannot be pinned to a host);
 2. otherwise any free owned runner: the side label when a side runner is free, else a free root
    runner (that host is cold for this tree and warms from now on);
-3. otherwise, after looking again every POLL_SECONDS for WAIT_SECONDS (about two minutes), the
-   Blacksmith overflow label. Runners that cannot be read (no token, an API error) overflow at
-   once: a landing never waits on a queue nobody saw free.
+3. otherwise, after looking again every POLL_SECONDS for WAIT_SECONDS (about two minutes), no compile:
+   runs_on= is empty and dev-landing-compile is skipped (skipped()). The same at once when owned pools are
+   off or the runners cannot be read (no token, an API error). A landing compile only warms a host
+   tree for the next landing, and a Blacksmith macOS VM keeps no tree, so it never overflows there:
+   the DEV run compiles that commit on its own route (Leo, 2026-10-26, on DEV compiles sitting over an
+   hour on Blacksmith's 12 vCPU Macs: "but we have the fleet we have linux blacksmith... why are we
+   STILL TALKING ABOUT BLACKSMITH MACOS"). Until then it overflowed to blacksmith-12vcpu-macos-26,
+   which started nothing for about a day on 2026-10-28 and again on 2026-10-30.
 
 Placement reserves nothing, so the landings in flight are read once (in_flight()): a root runner
 another landing's queued compile is pinned to is not free, and a host where one is compiling holds
 its host lock (this compile would fall back to a per-runner tree), so it is not pinned either.
 
-`place` (default) prints runs_on= (JSON for fromJSON), runner_label=, pool= (owned|blacksmith),
+`place` (default) prints runs_on= (JSON for fromJSON, or empty: no compile), runner_label=, pool= (owned|none),
 host=, holder_sha=, gap= and reason= for $GITHUB_OUTPUT. Env: ROUTE_TOKEN, GITHUB_REPOSITORY,
-GITHUB_REPOSITORY_ID, GITHUB_RUN_ID, SHA, SIDE_LABEL, OVERFLOW_LABEL, WAIT_SECONDS, POLL_SECONDS,
+GITHUB_REPOSITORY_ID, GITHUB_RUN_ID, SHA, SIDE_LABEL, WAIT_SECONDS, POLL_SECONDS,
 GAP_REPO and GAP_REMOTE (a bare repository and the remote to fetch commits into it).
 `gap FROM TO` prints the commits between two commits (either direction), or nothing; every fetch
 has a deadline, so a stalled network never holds the job.
@@ -41,8 +46,12 @@ else, and never waits:
 2. a pick claims a host only when its label resolves to exactly one idle runner: an idle DEV slot or root
    runner pinned by its static label, or the one idle DEV slot when there is only one; the nearest record
    wins, a slot first at equal distance;
-3. otherwise the shared DEV slot label when a slot is idle, then the side label, at once; with nothing
-   owned idle, or the runners unreadable, it prints an empty runs_on and the compile keeps its route.
+3. otherwise the shared DEV slot label when a slot is idle, then the side label, at once;
+4. with nothing owned idle, the shared DEV slot label while a DEV slot is online: it waits there behind feed work
+   only (the slots admit nothing else), never at the back of the side label's queue, which GitHub hands out
+   oldest first (2026-10-30: five DEV daily compiles queued there from 13:55Z behind about 184 PR and side
+   jobs); with no DEV slot online, or the runners unreadable, it prints an empty runs_on and the compile keeps
+   its route.
 """
 from __future__ import annotations
 
@@ -213,14 +222,15 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
           read_in_flight: Callable[[], tuple[set[str], set[str]]] = lambda: (set(), set()),
           sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> dict[str, str]:
     side_label = env.get("SIDE_LABEL", "")
-    overflow = env.get("OVERFLOW_LABEL") or "blacksmith-12vcpu-macos-26"
-    overflowed = {"runs_on": json.dumps(overflow), "runner_label": overflow, "pool": "blacksmith",
-                  "host": "", "holder_sha": "", "gap": ""}
+    def skipped(reason: str) -> dict[str, str]:
+        return {"runs_on": "", "runner_label": "", "pool": "none", "host": "", "holder_sha": "", "gap": "",
+                "reason": reason + "; no landing compile (the DEV run compiles this commit)"}
+
     fresh_label = (env.get("FRESH_LABEL") or "").strip()
     if not side_label.startswith("glaeda-side-"):
         if fresh_label:  # a DEV daily keeps the route its run already has
             return {**DAILY_KEEP, "reason": f"owned pools are off for this run (side route {side_label or 'unset'})"}
-        return {**overflowed, "reason": f"owned pools are off for this run (side route {side_label or 'unset'})"}
+        return skipped(f"owned pools are off for this run (side route {side_label or 'unset'})")
     head, repo_id = env.get("SHA", ""), env.get("GITHUB_REPOSITORY_ID", "")
     gap_repo, gap_remote = env.get("GAP_REPO", ""), env.get("GAP_REMOTE", "")
     wait, poll = float(env.get("WAIT_SECONDS") or 120), max(1.0, float(env.get("POLL_SECONDS") or 30))
@@ -250,12 +260,12 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
         try:
             roots, sides = free_runners(read_runners(), side_label, taken)
         except Exception as error:  # noqa: BLE001 - nobody saw an owned runner free
-            return {**overflowed, "reason": f"owned runners unreadable ({error}); overflow at once"}
+            return skipped(f"owned runners unreadable ({error})")
         picked = choose(roots, sides, side_label, distance_of, busy_hosts)
         if picked:
             return picked
         if clock() - started + poll > wait:
-            return {**overflowed, "reason": f"no owned runner was free in {reads} looks over {int(clock() - started)}s"}
+            return skipped(f"no owned runner was free in {reads} looks over {int(clock() - started)}s")
         sleep(poll)
 
 
@@ -298,7 +308,11 @@ def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Se
     if sides:
         return {**DAILY_KEEP, "runs_on": json.dumps(side_label), "runner_label": side_label, "pool": "owned",
                 "reason": f"no idle runner on a free host with a cache record; {len(sides)} side runners are idle"}
-    return {**DAILY_KEEP, "reason": "no owned runner is idle; the compile keeps its route"}
+    if any(fresh_label in {str(label.get("name")) for label in runner.get("labels") or [] if isinstance(label, Mapping)}
+           for runner in online):
+        return {**DAILY_KEEP, "runs_on": json.dumps(fresh_label), "runner_label": fresh_label, "pool": "owned",
+                "reason": "no owned runner is idle; the compile waits on a busy DEV slot, behind feed work only"}
+    return {**DAILY_KEEP, "reason": "no owned runner is idle and no DEV slot is online; the compile keeps its route"}
 
 
 def gap_main(source: str, head: str) -> int:
@@ -326,11 +340,14 @@ def main(argv: Sequence[str]) -> int:
 
     token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     api = GitHub(token, repo) if token and repo else None
+    first_look = True
 
     def read_runners() -> Sequence[Mapping[str, Any]]:
+        nonlocal first_look
+        use_state, first_look = first_look, False
         if api is None:
             raise RuntimeError("no routing token")
-        return api.runners()
+        return api.runners(use_state=use_state)
 
     def read_holders(host: str) -> Sequence[Mapping[str, Any]]:
         if api is None:

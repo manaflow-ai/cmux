@@ -1,5 +1,5 @@
 // The selected machine: header (rename, connect, pause or resume, delete), overview (size from the
-// record with a memory resize from the plan's sizes, idle policy, image, created), then the sections
+// record with a memory resize from the plan's sizes, cost (cost.ts), idle policy, image, created), then the sections
 // in DetailSections.tsx, PortsSection.tsx and FilesSection.tsx. Delete and resize ask the host's
 // native confirmation. A classic machine (contract 4) is read-only: a "Classic" badge, its overview
 // and snapshots, and Upgrade (a native action) once the user moved their classic machines. Rename is
@@ -8,6 +8,7 @@
 import { useState, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import { canUpgradeClassic } from "./account";
+import { costLine, costTicks, useCostClock } from "./cost";
 import type { MachineDetail } from "./detail";
 import { SnapshotsSection } from "./DetailSections";
 import { FilesSection } from "./FilesSection";
@@ -77,6 +78,8 @@ export function MachineDetailView({
     event.preventDefault();
     event.stopPropagation();
   };
+  const now = useCostClock(costTicks(machine));
+  const cost = costLine(machine, now, t, language);
   const memory = machine.size?.memory_mb ?? undefined;
   const choices = memoryChoices(plan);
   const idle = machine.idle_policy?.idle_seconds ?? 0;
@@ -194,6 +197,12 @@ export function MachineDetailView({
             </select>
           )}
         </dd>
+        {cost && (
+          <>
+            <dt>{t(L.fieldCost)}</dt>
+            <dd className="cloud-machine-cost">{cost}</dd>
+          </>
+        )}
         <dt>{t(L.fieldIdle)}</dt>
         <dd>
           {classic || unavailable.includes(CloudOps.machineIdlePolicySet) ? (

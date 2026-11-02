@@ -5,6 +5,7 @@
 
 use super::person::{REASON, person_required, valid_key};
 use super::*;
+use cmux_json::JsonSet as _;
 
 mod preset_bind;
 pub(crate) use preset_bind::StartGrant;
@@ -142,7 +143,7 @@ pub fn mode_person_required(
     };
     let mut data = json!({"reason": REASON, "mode": mode, "preset": preset});
     if local {
-        data["host"] = json!(host);
+        data.set("host", json!(host));
     }
     RpcError::new(-32000, message).with_data(data)
 }
@@ -209,6 +210,19 @@ impl Hub {
     pub fn proven_caller(&self, (id, token): (String, String)) -> Option<String> {
         let proves = caller_proves(&id, &token) || self.adopted_caller_proves(&id, &token);
         if proves && self.resolve(&id).is_ok_and(|s| s.id == id) { Some(id) } else { None }
+    }
+
+    /// Before a first unix socket `initialize` binds its caller: a token that proves nothing yet
+    /// waits for this run's adoption of the hosts a restart left (`adopt_agent_hosts`). An
+    /// agent's MCP servers connect anew for each call, so right after an update they reach this
+    /// run with the earlier run's token before adoption knows it (`adopt_caller_token`); bound
+    /// then, the call was refused as another chat's (bg tasks lost on 2026-11-01). Waits for
+    /// nothing outside a restart; a token adoption does not know is still refused after it.
+    pub(crate) async fn settle_caller(&self, session_id: &str, token: &str) {
+        if caller_proves(session_id, token) || self.adopted_caller_proves(session_id, token) {
+            return;
+        }
+        let _ = self.adoption_ready.subscribe().wait_for(|ready| *ready).await;
     }
 
     /// Whether `token` is the caller token session `session_id`'s adopted
@@ -520,14 +534,15 @@ impl Hub {
             return e;
         }
         let last = || {
+            // The tail holds cleaned lines (`Session::stderr_stream`).
             session
                 .stderr_tail
                 .lock()
                 .unwrap()
                 .iter()
                 .rev()
-                .map(|l| l.trim().to_owned())
                 .find(|l| super::exit_reason::explains_exit(l))
+                .cloned()
         };
         Self::drain_inbound(session).await;
         let mut found = last();

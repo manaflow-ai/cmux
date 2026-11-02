@@ -38,6 +38,8 @@
 //! one entry per copy, each with its own `ok` and, when false, its
 //! `error_code` (`sync_conflict` with `conflicts`). Unix only, like the link.
 
+use cmux_json::JsonSet as _;
+
 mod grants;
 mod requests;
 mod uploads;
@@ -54,7 +56,8 @@ const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --
        cmux link access revoke --machine ID --session ID [--socket PATH] (--all | FOLDER)
        cmux link access grants [--machine ID] [--session ID]
        cmux link access request [--socket PATH] [--session ID] [--reason TEXT] [--timeout SECONDS] (PATH | --secret NAME)
-       cmux link access upload --socket PATH --remote-root DIR FILE...
+       cmux link access upload --socket PATH --remote-root DIR [--upload-id ID] FILE...
+       cmux link access upload-cancel --socket PATH --remote-root DIR --upload-id ID
        cmux link access triage --socket PATH --machine ID --session ID [--session ID]...
        cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] (--allow PATH --target PATH | --always PATH --target PATH --folder DIR | --share-secret NAME | --deny [--reason TEXT])
          (--share-secret reads the value from stdin, byte for byte: no newline is removed)";
@@ -153,6 +156,7 @@ struct Args {
     machine: Option<String>,
     session: Option<String>,
     remote_root: Option<String>,
+    upload_id: Option<String>,
     mode: Option<String>,
     all: bool,
     positional: Vec<String>,
@@ -197,6 +201,7 @@ fn parse(args: &[String]) -> Option<Args> {
             "--secret" => parsed.secret = Some(rest.next()?.clone()),
             "--share-secret" => parsed.share_secret = true,
             "--remote-root" => parsed.remote_root = Some(rest.next()?.clone()),
+            "--upload-id" => parsed.upload_id = Some(rest.next()?.clone()),
             "--mode" => parsed.mode = Some(rest.next()?.clone()),
             "--all" => parsed.all = true,
             flag if flag.starts_with('-') => return None,
@@ -245,6 +250,10 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     // A secret flag means nothing to any other action: refuse it.
     if (args.secret.is_some() && action != "request") || (args.share_secret && action != "answer") {
+        eprintln!("{USAGE}");
+        return 64;
+    }
+    if args.upload_id.is_some() && !matches!(action.as_str(), "upload" | "upload-cancel") {
         eprintln!("{USAGE}");
         return 64;
     }
@@ -312,7 +321,23 @@ pub(super) fn run(args: &[String]) -> i32 {
                 eprintln!("{USAGE}");
                 return 64;
             };
-            uploads::upload(socket, &root, positional)
+            uploads::upload_with_id(socket, &root, positional, args.upload_id.as_deref())
+        }
+        (
+            "upload-cancel",
+            Args {
+                socket: Some(socket),
+                remote_root: Some(root),
+                upload_id: Some(id),
+                positional,
+                ..
+            },
+        ) if positional.is_empty() => {
+            let Some(root) = grants::remote_root(root) else {
+                eprintln!("{USAGE}");
+                return 64;
+            };
+            uploads::cancel(socket, &root, id)
         }
         (
             "triage",
@@ -375,7 +400,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     match answer {
         Ok(mut line) => {
-            line["ok"] = json!(true);
+            line.set("ok", json!(true));
             println!("{line}");
             0
         }
@@ -398,7 +423,7 @@ fn outdated_line(action: &str, socket: Option<&Path>) -> Option<Value> {
         "triage" | "answer" => {
             cmux_tui_core::server::agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY
         }
-        "grant" | "sync" | "upload" => cmux_tui_core::fs_ops::FS_CAPABILITY,
+        "grant" | "sync" | "upload" | "upload-cancel" => cmux_tui_core::fs_ops::FS_CAPABILITY,
         _ => return None,
     };
     super::machine_gate::outdated(socket?, &[needed]).map(|outdated| outdated.line())
@@ -478,9 +503,9 @@ fn grant(
         && before.remote != grant.remote
     {
         let (removed, _) = forget_copies(&store, Some(socket), &[before]);
-        synced["removed"] = json!(removed);
+        synced.set("removed", json!(removed));
     }
-    synced["grant"] = grant_json(&grant);
+    synced.set("grant", grant_json(&grant));
     Ok(synced)
 }
 
@@ -517,9 +542,9 @@ fn sync(socket: &Path, machine: &str, session: Option<&str>) -> Result<Value, Fa
                         "error": format!("{folder} is no longer the shared folder")}),
         };
         drop(store);
-        entry["folder"] = json!(folder);
-        entry["remote"] = json!(remote);
-        entry["mode"] = json!(mode);
+        entry.set("folder", json!(folder));
+        entry.set("remote", json!(remote));
+        entry.set("mode", json!(mode));
         synced.push(entry);
     }
     Ok(json!({ "synced": synced }))
@@ -559,9 +584,9 @@ fn sync_copy(socket: &Path, folder: &Path, remote: &str, mode: Mode, first: bool
     match sync_cli::push_kept(socket, folder, remote, &keep) {
         Ok(summary) => {
             let mut answer = summary.json();
-            answer["ok"] = json!(true);
+            answer.set("ok", json!(true));
             if !pulled.is_null() {
-                answer["pulled"] = pulled;
+                answer.set("pulled", pulled);
             }
             answer
         }

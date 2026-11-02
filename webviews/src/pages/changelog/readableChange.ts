@@ -195,17 +195,28 @@ const CLAUSE = /,|;| —| - | \(| so | because | while /g;
 const DANGLING = /\b(?:a|an|the|and|or|but|to|of|in|on|for|with|by|even|so|that|which|its|their)$/i;
 
 /** A title of at most `limit` characters: the text when it fits, else its first clause when that
-    fits, has three words and does not end on a joining word, else undefined. Never a cut word or
-    a trailing "…". */
+    fits, has three words and does not end on a joining word, else undefined. Never a cut word, a
+    trailing "…" or a cut inside parentheses ("Routing follow-ups (trim recovered route" was one). */
 export function shortTitle(text: string, limit = 60): string | undefined {
   const clean = text.trim().replace(/[\s.]+$/u, "");
   if (clean.length <= limit) return clean;
   for (const match of clean.matchAll(CLAUSE)) {
+    if (openParens(clean.slice(0, match.index)) > 0) continue;
     const head = clean.slice(0, match.index).replace(/[\s,;:—-]+$/u, "");
     if (head.length > limit) return undefined;
     if (head.split(" ").length >= 3 && !DANGLING.test(head)) return head;
   }
   return undefined;
+}
+
+/** How many "(" in `text` no ")" closes yet. */
+export function openParens(text: string): number {
+  let depth = 0;
+  for (const char of text) {
+    if (char === "(") depth++;
+    else if (char === ")" && depth > 0) depth--;
+  }
+  return depth;
 }
 
 /** What follows `title` in `full`, as a summary: "so a column scrolled in is never blank". */

@@ -31,6 +31,7 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
         eprintln!("cmux: {}", m.empty_message);
         return 2;
     }
+    session.sender = args.sender(super::acpmux_session().as_deref());
     let (seq, id) = match session.send(text) {
         Ok(sent) => sent,
         Err(LinkError::Transport(message)) => {
@@ -46,22 +47,94 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
     let stream = !json && std::io::stdout().is_terminal();
     let links = !json && super::hyperlink::enabled();
     let mut out = Printer { streamed: String::new(), wrote: false, json, links };
-    let mut watch =
-        TurnWatch::new(seq).of_chief(&session.chief).answering(&id, !args.no_wait_agents);
+    let watch = Follow {
+        seq,
+        id: &id,
+        wait_agents: !args.no_wait_agents,
+        stream,
+        timeout_secs: args.timeout_secs,
+    };
+    match follow(&mut session, &watch, &mut out, &|| false) {
+        Ending::Done => 0,
+        Ending::TimedOut => {
+            let secs = args.timeout_secs.unwrap_or_default().to_string();
+            eprintln!("cmux: {}", m.timed_out.replace("{secs}", &secs));
+            124
+        }
+        Ending::Lost => {
+            eprintln!("cmux: {}", m.lost);
+            3
+        }
+        // Pipe mode has no cancel; it ends on a signal.
+        Ending::Cancelled => 130,
+    }
+}
+
+/// Where the Chief's reply goes as it comes: pipe mode's stdout, or the ACP
+/// adapter's `session/update` notifications.
+pub(super) trait ReplySink {
+    /// The live draft of the reply so far (its whole talk text).
+    fn draft(&mut self, talk: &str);
+    /// A posted reply message.
+    fn message(&mut self, message: &Value);
+    /// The Chief has not read the message after a while.
+    fn not_read(&mut self);
+    /// The wait ended (any way).
+    fn end(&mut self);
+}
+
+/// How [`follow`] watches for the reply to one sent message.
+pub(super) struct Follow<'a> {
+    /// The sent message's seq and id.
+    pub seq: u64,
+    pub id: &'a str,
+    /// Wait for the subagents the message started (E22).
+    pub wait_agents: bool,
+    /// Stream the live drafts, not only the posted messages.
+    pub stream: bool,
+    pub timeout_secs: Option<u64>,
+}
+
+/// How a [`follow`] ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Ending {
+    /// The turn that answers the message ended.
+    Done,
+    TimedOut,
+    /// The event stream ended before the turn did.
+    Lost,
+    /// `cancelled()` said so, on an [`CANCEL`] wake.
+    Cancelled,
+}
+
+/// The `Input::Closed` reason that wakes [`follow`] to check `cancelled`.
+pub(super) const CANCEL: &str = "cancel";
+
+/// Follows the Chief's turn that answers message `watch.seq` into `out`, until
+/// the turn ends, the deadline passes, the stream is lost, or `cancelled()`
+/// answers true after an `Input::Closed(CANCEL)` wake.
+pub(super) fn follow(
+    session: &mut Session,
+    watch: &Follow<'_>,
+    out: &mut dyn ReplySink,
+    cancelled: &dyn Fn() -> bool,
+) -> Ending {
+    let mut turn =
+        TurnWatch::new(watch.seq).of_chief(&session.chief).answering(watch.id, watch.wait_agents);
     let mut drafts = Drafts::default();
     let started = Instant::now();
-    let deadline = args.timeout_secs.map(|s| started + Duration::from_secs(s));
+    let deadline = watch.timeout_secs.map(|s| started + Duration::from_secs(s));
     let mut hinted = false;
     let mut printed = 0;
     let mut ended_at: Option<Instant> = None;
-    while !watch.done {
+    while !turn.done {
         let now = Instant::now();
         let mut wait =
             deadline.map_or(Duration::from_secs(3600), |d| d.saturating_duration_since(now));
-        if !hinted && !watch.read {
+        if !hinted && !turn.read {
             wait = wait.min((started + NOT_READ_AFTER).saturating_duration_since(now));
         }
-        if !watch.ended {
+        if !turn.ended {
             // A reply to other messages undoes a typing-off (E22).
             ended_at = None;
         } else {
@@ -76,13 +149,11 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
             Err(RecvTimeoutError::Timeout) => {
                 if deadline.is_some_and(|d| Instant::now() >= d) {
                     out.end();
-                    let secs = args.timeout_secs.unwrap_or_default().to_string();
-                    eprintln!("cmux: {}", m.timed_out.replace("{secs}", &secs));
-                    return 124;
+                    return Ending::TimedOut;
                 }
-                if !hinted && !watch.read && Instant::now() >= started + NOT_READ_AFTER {
+                if !hinted && !turn.read && Instant::now() >= started + NOT_READ_AFTER {
                     hinted = true;
-                    eprintln!("cmux: {}", m.not_read);
+                    out.not_read();
                 }
                 continue;
             }
@@ -90,6 +161,14 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
         };
         let line = match input {
             Input::Daemon(line) => line,
+            Input::Closed(reason) if reason == CANCEL => {
+                if cancelled() {
+                    out.end();
+                    return Ending::Cancelled;
+                }
+                // A cancel of an earlier wait, read late.
+                continue;
+            }
             // The reopened stream's snapshot carries the missed state
             // (cursor, replies, typing), so a lost item never stalls it.
             Input::Closed(reason) if reason == "gap" && session.reopen(GAP_TAIL).is_ok() => {
@@ -99,31 +178,26 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
             Input::Term(_) => continue,
         };
         let Some(event) = adapt(&line, &session.conversation) else { continue };
-        watch.on(&event);
+        turn.on(&event);
         // A snapshot after a gap can add several replies at once.
-        for reply in &watch.replies[printed..] {
+        for reply in turn.replies.get(printed..).unwrap_or_default() {
             out.message(reply);
             drafts.on_message(reply);
         }
-        printed = watch.replies.len();
+        printed = turn.replies.len();
         if let UiEvent::Draft(draft) = &event
-            && stream
-            && watch.working
+            && watch.stream
+            && turn.working
             && draft.participant == session.chief
         {
             drafts.apply(draft);
-            if let Some(turn) = drafts.turns.iter().find(|t| t.turn == draft.turn) {
-                out.draft(&turn.talk());
+            if let Some(t) = drafts.turns.iter().find(|t| t.turn == draft.turn) {
+                out.draft(&t.talk());
             }
         }
     }
     out.end();
-    if watch.done || watch.ended {
-        0
-    } else {
-        eprintln!("cmux: {}", m.lost);
-        3
-    }
+    if turn.done || turn.ended { Ending::Done } else { Ending::Lost }
 }
 
 /// Writes the reply: live draft text first, then what the posted message
@@ -137,7 +211,7 @@ struct Printer {
     links: bool,
 }
 
-impl Printer {
+impl ReplySink for Printer {
     fn draft(&mut self, talk: &str) {
         if let Some(rest) = talk.strip_prefix(self.streamed.as_str())
             && !rest.is_empty()
@@ -160,11 +234,8 @@ impl Printer {
         self.streamed.clear();
     }
 
-    fn write(&mut self, text: &str) {
-        let mut stdout = std::io::stdout().lock();
-        let _ = stdout.write_all(text.as_bytes());
-        let _ = stdout.flush();
-        self.wrote = self.wrote || !text.is_empty();
+    fn not_read(&mut self) {
+        eprintln!("cmux: {}", messages().not_read);
     }
 
     fn end(&mut self) {
@@ -172,6 +243,15 @@ impl Printer {
             self.write("\n");
             self.streamed.clear();
         }
+    }
+}
+
+impl Printer {
+    fn write(&mut self, text: &str) {
+        let mut stdout = std::io::stdout().lock();
+        let _ = stdout.write_all(text.as_bytes());
+        let _ = stdout.flush();
+        self.wrote = self.wrote || !text.is_empty();
     }
 }
 

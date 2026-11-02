@@ -82,7 +82,9 @@ fn cmux_next_machine_catalog_agent_surface_prefix_lookup_uses_one_connection_and
             }
             let request: Value = serde_json::from_str(&line).unwrap();
             let machine = json!({"id":MACHINE,"origin":"ssh","status":"running","platform":{"os":"linux","arch":"aarch64"}});
-            let response = if request["cmd"] == "identify" {
+            let response = if request["cmd"] == "set-client-info" {
+                json!({"id":request["id"],"ok":true,"data":{}})
+            } else if request["cmd"] == "identify" {
                 json!({"id":request["id"],"ok":true,"data":{"app":"cmux-tui","protocol":12,"capabilities":[]}})
             } else {
                 let result =

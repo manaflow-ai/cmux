@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-23, on his sidebar's group line: "THE FUCKING THHIN PURPLE LIINE IS THE GROUP!!!! THE POINT IS WHY
@@ -8,7 +9,7 @@ import Testing
 /// The header's rail reach (Lawrence's ab905adeadd0) puts the line at the header bar's left edge; on it, Leo's
 /// 2026-10-19 Chrome reference: one color for bar and line, a small cut (about 6 pt) under the header, a 2 pt line,
 /// flat ends, and an option that joins the line to the header as one L. Every `sidebar.groupLineLayout` is pinned here.
-@MainActor @Suite(.serialized) struct SidebarGroupLineLayoutTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupLineLayoutTests {
     static let group = GroupID("g-codex-fleet")
     static let closed = GroupID("g-closed")
     static let looseID = WorkspaceID("ws-loose")
@@ -103,19 +104,23 @@ import Testing
             #expect(view.railShape.frame.width == 2 && view.railShape.frame.height >= 4096,
                     "\(layout): the cut shape covers a rail during its bounds spring")
 
-            #expect(line.minX == max(loose.frame.minX - SidebarStyle.groupRailReach, SidebarStyle.groupEdgePadding), "\(layout): the line left the rail, at \(line.minX)")
+            let railPadding = layout == .inside ? 0 : SidebarStyle.groupEdgePadding
+            #expect(line.minX == max(loose.frame.minX - SidebarStyle.groupRailReach, railPadding), "\(layout): the line left the rail, at \(line.minX)")
             #expect(header.pill.frame.minX == 0 && header.pill.frame.width == head.width, "\(layout): the bar spans \(header.pill.frame)")
             switch layout {
             case .edge, .joined:
                 #expect(head.minX == line.minX, "\(layout): the bar starts at \(head.minX), the line at \(line.minX)")
             case .inside:
-                // A top-level bar keeps the edge padding (`groupEdgePadding`, b5400e7e342), and may then start at its line.
-                #expect(head.minX == max(SidebarStyle.groupEdgePadding, line.minX - SidebarStyle.groupLineCornerInset) && head.minX <= line.minX,
+                // Inside keeps the corner overhang until the list edge; its rail stays clear of member fills.
+                #expect(head.minX == max(0, line.minX - SidebarStyle.groupLineCornerInset) && head.minX <= line.minX,
                         "inside: the bar starts at \(head.minX), the line at \(line.minX)")
             }
             #expect(head.minX >= 0, "\(layout): the bar runs off the list at \(head.minX)")
             let cut = line.minY - head.maxY
-            #expect(cut == (layout == .joined ? 0 : SidebarStyle.groupLineCut), "\(layout): a \(cut) pt cut")
+            // The cut is at most the gap down to the first member: the line never starts part way down a row.
+            let first = try #require(list.rowViews[.workspace(Self.members[0])])
+            let gap = max(0, first.frame.minY - head.maxY)
+            #expect(cut == (layout == .joined ? 0 : min(SidebarStyle.groupLineCut, gap)), "\(layout): a \(cut) pt cut, rows \(gap) pt apart")
             let last = try #require(list.rowViews[.workspace(Self.members[2])])
             #expect(line.maxY == last.frame.maxY, "\(layout): the line ends at \(line.maxY), the last member at \(last.frame.maxY)")
 
@@ -182,7 +187,9 @@ import Testing
             sidebar.renderNow() // what the sidebar's observation runs on the change
             let bar = try #require(sidebar.list.rowViews[.group(Self.group)]).frame
             let cut = try #require(sidebar.list.groupLineViews.shown[Self.group]?.frame)
-            #expect(cut.minY == bar.maxY + SidebarStyle.groupLineCut, "line style: the joined line still starts at \(cut.minY), the header ends at \(bar.maxY)")
+            let first = try #require(sidebar.list.rowViews[.workspace(Self.members[0])]).frame
+            #expect(cut.minY == min(bar.maxY + SidebarStyle.groupLineCut, max(bar.maxY, first.minY)),
+                    "line style: the joined line still starts at \(cut.minY), the header ends at \(bar.maxY)")
         }
     }
 
@@ -202,17 +209,14 @@ import Testing
                 }
                 if let member { // a group of subgroups only has no own member to measure the rail from
                     // A top-level rail keeps `groupEdgePadding` from the list's edge (b5400e7e342f4).
-                    let rail = max(list.frame(for: member).minX - SidebarStyle.groupRailReach, SidebarStyle.groupEdgePadding)
+                    let railPadding = layout == .inside ? 0 : SidebarStyle.groupEdgePadding
+                    let rail = max(list.frame(for: member).minX - SidebarStyle.groupRailReach, railPadding)
                     #expect(line.frame.minX == rail, "\(layout): \(line.group.rawValue) left its rail")
                 }
                 for row in list.displayed.rows {
                     let frame = list.frame(for: row)
                     guard frame.minY < line.frame.maxY, frame.maxY > line.frame.minY else { continue } // beside the line
-                    // Debug-only `inside`: a subgroup header reaches 1 pt over its top-level parent's line since that line
-                    // keeps the edge padding (b5400e7e342). Known until the sidebar owner picks the fix.
-                    withKnownIssue("inside layout: a subgroup header overlaps its parent's edge-padded line") {
-                        #expect(line.frame.maxX <= frame.minX, "\(layout): \(line.group.rawValue)'s line runs under \(row.key)")
-                    } when: { layout == .inside && line.frame.maxX > frame.minX }
+                    #expect(line.frame.maxX <= frame.minX, "\(layout): \(line.group.rawValue)'s line runs under \(row.key)")
                 }
             }
         }

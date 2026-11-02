@@ -217,7 +217,7 @@ extension SimulatorSurfaceServer {
                 return startFrames()
             }
             switch type {
-            case "encode": encode(idr: line["idr"]?.bool ?? false, kbps: Int(line["kbps"]?.number ?? 4000))
+            case "encode": encode(idr: line["idr"]?.bool ?? false, kbps: SurfaceFrameEncoder.bitrate(fromWire: line["kbps"]?.number))
             case "visible": setVisible(line["visible"]?.bool ?? true)
             case "touch", "text", "key", "button":
                 guard stillShown() else {

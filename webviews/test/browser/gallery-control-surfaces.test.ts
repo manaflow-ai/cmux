@@ -18,6 +18,22 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
   const ALLOW: { selector: string; kind: "plate" | "hover"; control?: string; reason: string }[] = [
     { selector: ".pw-row", kind: "hover", control: ".pw-row-button", reason: "fixed by #27086" },
     {
+      selector: ".acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled)",
+      kind: "hover",
+      // Stop sits in the line, or in its fixed stop column (#27263's `__stop-slot`).
+      control:
+        ".acpmux-agent-line > :is(.cv-subagent__stop, .acpmux-session-info-stop), " +
+        ".acpmux-agent-line > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop)",
+      reason: "The tray line is one full-width control; its embedded Stop shares its wash, never a second box.",
+    },
+    {
+      selector: ".acpmux-edited-head[data-header-toggle]",
+      kind: "hover",
+      control: ".acpmux-edited-head[data-header-toggle] > .acpmux-edited-toggle",
+      reason:
+        "The edits card's header is one full-width toggle (headerToggle.ts); its chevron is that toggle's keyboard control and shares its wash, never a second box.",
+    },
+    {
       selector: '.diff-pill[role="toolbar"]',
       kind: "plate",
       reason: "The standalone floating diff toolbar is its own glass surface, not trailing tools on a row.",

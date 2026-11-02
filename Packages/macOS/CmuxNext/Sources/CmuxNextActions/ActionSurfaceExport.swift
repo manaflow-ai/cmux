@@ -61,12 +61,12 @@ public nonisolated enum ActionSurfaceExport {
     }
 
     /// The binding table's default entries for `id` beyond its catalog key
-    /// (`KeyBindingDefaults`: the Chrome tab keys, Ctrl-Cmd arrows for pane
-    /// resize, Ctrl-Cmd J/K for pane focus, list navigation, the palette keys, scoped defaults such
+    /// (`KeyBindingDefaults`: Cmd-Shift-] / [ for pane tabs, Ctrl-Cmd arrows for pane
+    /// resize, Ctrl-Cmd H/J/K/L for pane focus, list navigation, the palette keys, scoped defaults such
     /// as Cmd-K outside a terminal): each entry's keys and its `when` clause
     /// (text, or null), in table order, each key sequence once.
     public static func defaultAliases(for id: ActionID) -> [[String: Any]] {
-        let entries = KeyBindingDefaults.tabSwitching + KeyBindingDefaults.actionAliases + KeyBindingDefaults.listNavigation
+        let entries = KeyBindingDefaults.actionAliases + KeyBindingDefaults.listNavigation
             + KeyBindingDefaults.paletteKeys + KeyBindingDefaults.scopedDefaults + KeyBindingDefaults.homeChatSwitching
         var seen: [[Shortcut]] = []
         var aliases: [[String: Any]] = []

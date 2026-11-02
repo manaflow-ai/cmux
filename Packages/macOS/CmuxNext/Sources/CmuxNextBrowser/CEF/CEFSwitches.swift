@@ -49,6 +49,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // separate macOS notification authorization. DesktopNotifier owns the
         // one app-level authorization request when cmux posts a banner.
         result.append("disable-notifications")
+        // That leaves Chromium's macOS notification bridge, made for the profile at startup while
+        // SystemNotifications is on: its UNUserNotificationCenter service asked macOS for
+        // authorization for the app and its Alerts helper on the first launch, with no action of
+        // the person (LAUNCH-NO-TCC-PROMPTS). Off, Chromium makes no bridge.
+        result.append("disable-features=SystemNotifications")
         // Chromium's periodic call-stack profiler runs in the browser process (the
         // app) and suspends its threads at 10 Hz while it collects. Its profiles go
         // to UMA, which cmux does not upload; in some idle sessions it raised the

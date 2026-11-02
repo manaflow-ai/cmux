@@ -12,12 +12,10 @@
  *     bake, an unknown flag, and an entry that already records names.production. No provider access.
  *   bun scripts/cmux-vm-image/prod-copy.ts account-check
  *     Checks the key (FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE) is the production account's. Refuses the
- *     dev account's key: it resolves the dev channel's snapshot name to its recorded id. Once a production
- *     snapshot is recorded (channels/production.json, or names.production in dev.json history), the key must
- *     also resolve one of them to its recorded id, so a third account's key is refused too. The first
- *     production copy has no such record, so the environment names one: FREESTYLE_PROD_ANCHOR, a variable
- *     (not a secret) of cmux-next-vm-image-prod set next to the key, `<slug> <sh-id>` of any snapshot on
- *     the production account. Without an anchor of either kind it refuses. Read-only GETs.
+ *     dev account's key when it resolves the dev channel's snapshot name to its recorded id. The key
+ *     must also resolve a trusted production snapshot recorded in channels/production.json or
+ *     names.production in dev.json history. With no such record, it refuses: a missing dev slug
+ *     does not prove production identity. Read-only GETs; no automatic account bootstrap.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -80,38 +78,52 @@ const isPointer = (p: unknown, prefix: string): p is Pointer => {
 /** Production snapshots the repo records (channels/production.json pointers and previous, names.production in dev.json history). */
 export function productionAnchors(root: string): Pointer[] {
   const file = path.join(root, PRODUCTION);
-  const prod = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Json) : {};
-  const team = (prod.team_vm as Json | undefined) ?? {};
+  const prod = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Json) : undefined;
+  const pointer = (value: unknown, label: string, options: { allowDev?: boolean; allowNull?: boolean; allowEmpty?: (value: unknown) => boolean } = {}): Pointer | undefined => {
+    if (value === undefined || (options.allowNull && value === null)) return undefined;
+    if (isPointer(value, PROD_IMAGE_PREFIX)) return value;
+    // A channel rollback keeps the prior dev pointer in `previous`; it is a valid record, but never
+    // an anchor for the production account.
+    if (options.allowDev && isPointer(value, "cmuxnp-dev-vmimg-")) return undefined;
+    if (options.allowEmpty?.(value)) return undefined;
+    throw new Error(`${label} is malformed; refusing to check a production account`);
+  };
+  const field = (value: Json | undefined, key: string, label: string): unknown => value !== undefined && Object.prototype.hasOwnProperty.call(value, key) ? value[key] : undefined;
+  const current = pointer(prod, `${PRODUCTION} current`, { allowEmpty: (value) => {
+    const envelope = value as Json | undefined;
+    return Boolean(envelope && envelope.env === "production" && !Object.hasOwn(envelope, "snapshot") && !Object.hasOwn(envelope, "snapshot_id"));
+  } });
+  const previous = pointer(field(prod, "previous", `${PRODUCTION} previous`), `${PRODUCTION} previous`, { allowDev: true, allowNull: true });
+  const team = field(prod, "team_vm", `${PRODUCTION} team_vm`) as Json | undefined;
+  const teamCurrent = pointer(team, `${PRODUCTION} team_vm`);
+  const teamPrevious = pointer(field(team, "previous", `${PRODUCTION} team_vm previous`), `${PRODUCTION} team_vm previous`, { allowDev: true, allowNull: true });
   const history = readDev(root).history;
-  const candidates = [prod, prod.previous, team, team.previous, ...(Array.isArray(history) ? (history as Json[]).map((h) => (h.names as Json | undefined)?.production) : [])];
+  const historyProduction = Array.isArray(history) ? (history as Json[]).flatMap((h, i) => {
+    const names = h.names as Json | undefined;
+    return names !== undefined && Object.prototype.hasOwnProperty.call(names, "production")
+      ? [pointer(names.production, `${DEV} history[${i}].names.production`)]
+      : [];
+  }) : [];
+  const candidates = [current, previous, teamCurrent, teamPrevious, ...historyProduction];
   const byId = new Map<string, Pointer>();
   for (const p of candidates) if (isPointer(p, PROD_IMAGE_PREFIX) && !byId.has(p.snapshot_id)) byId.set(p.snapshot_id, p);
   return [...byId.values()];
 }
 
 /**
- * Throws unless `resolve` (one account's view of snapshot names) is the production account's: it must not resolve
- * the dev channel's snapshot to its recorded id, and, once production snapshots are recorded, must resolve one of them.
+ * Throws unless `resolve` (one account's view of snapshot names) resolves a trusted production
+ * snapshot to its recorded id, and does not resolve the dev snapshot to its recorded id.
+ * An absent production anchor fails closed, even when the dev snapshot no longer resolves.
  */
-/** FREESTYLE_PROD_ANCHOR: `<slug> <sh-id>` of a snapshot on the production account; undefined when unset, throws when malformed. */
-export function parseAnchor(raw: string | undefined): Pointer | undefined {
-  const value = raw?.trim();
-  if (!value) return undefined;
-  const m = value.match(/^([a-z0-9][a-z0-9-]*) (sh-[0-9a-f]{32})$/);
-  if (!m) throw new Error("FREESTYLE_PROD_ANCHOR must be `<snapshot slug> <sh-id>` of a snapshot on the production account; refusing");
-  if (m[1]!.startsWith("cmuxnp-dev-")) throw new Error("FREESTYLE_PROD_ANCHOR names a cmuxnp-dev- snapshot, which lives on the dev account; refusing");
-  return { snapshot: m[1]!, snapshot_id: m[2]! };
-}
-
-export async function accountCheck(root: string, resolve: (name: string) => Promise<string | undefined>, anchor?: Pointer): Promise<string> {
+export async function accountCheck(root: string, resolve: (name: string) => Promise<string | undefined>): Promise<string> {
   const dev = readDev(root);
   if (!isPointer(dev, "cmuxnp-dev-vmimg-")) throw new Error(`${DEV} has no dev snapshot name and id to check the key against; refusing`);
   if ((await resolve(dev.snapshot)) === dev.snapshot_id) {
     throw new Error(`the Freestyle key resolves the dev channel's ${dev.snapshot} to ${dev.snapshot_id}: it is the dev account's key, not production's; refusing`);
   }
-  const anchors = [...(anchor ? [anchor] : []), ...productionAnchors(root).filter((a) => a.snapshot_id !== anchor?.snapshot_id)];
+  const anchors = productionAnchors(root);
   if (!anchors.length) {
-    throw new Error("nothing identifies the production account: no production snapshot is recorded and cmux-next-vm-image-prod sets no FREESTYLE_PROD_ANCHOR (`<slug> <sh-id>` of a snapshot on that account); refusing");
+    throw new Error("no trusted production snapshot is recorded; refusing an unidentified account; bootstrap requires an independently verified production snapshot in channel data");
   }
   for (const a of anchors) if ((await resolve(a.snapshot)) === a.snapshot_id) return `account check passed: not the dev account, and ${a.snapshot} resolves to the recorded ${a.snapshot_id}`;
   throw new Error(`the Freestyle key resolves none of the ${anchors.length} known production snapshots (${anchors.map((a) => a.snapshot).join(", ")}) to its id: it is not the production account's key; refusing`);
@@ -136,7 +148,7 @@ if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLTo
       console.log(`FLAGS ${plan.flags.join(" ")}`);
       console.log(`VAR ${plan.var}`);
     } else if (command === "account-check") {
-      console.log(await accountCheck(REPO_ROOT, (name) => freestyleResolve(name), parseAnchor(process.env.FREESTYLE_PROD_ANCHOR)));
+      console.log(await accountCheck(REPO_ROOT, (name) => freestyleResolve(name)));
     } else {
       console.error("usage: prod-copy.ts plan --dev-snapshot <sh-id> | account-check");
       process.exit(2);

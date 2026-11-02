@@ -192,7 +192,7 @@ public final class CmuxDialogCenter {
             dismiss(id)
             return
         }
-        let view = CmuxDialogView(spec: entry.spec)
+        let view = CmuxDialogView(spec: entry.spec, activeLook: scope.window?.backdropActiveLook)
         view.onPress = { [weak self] button in self?.press(id, button: button) }
         entries[id]?.view = view
         host.show(view, in: scope) { [weak self] in self?.dismiss(id) }

@@ -1,0 +1,63 @@
+{
+  "title": "Quick Links opened (a declarative scene app)",
+  "settings": {
+    "labs": {
+      "previewFeatures": true
+    }
+  },
+  "launch_args": [],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "App Store",
+      "cmux": [
+        "action",
+        "run",
+        "appStore.show",
+        "--focus",
+        "--tab",
+        "discover"
+      ],
+      "wait": 4,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift"
+    },
+    {
+      "title": "cmux apps install manaflow-ai/quick-links",
+      "cmux": [
+        "action",
+        "run",
+        "app.install",
+        "--no-wait",
+        "--app",
+        "manaflow-ai/quick-links"
+      ],
+      "wait": 3,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextPages/AppsStoreChange.swift"
+    },
+    {
+      "title": "Confirm the consent card",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "press": "confirm"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Open Quick Links",
+      "cmux": [
+        "action",
+        "run",
+        "app.open",
+        "--focus",
+        "--app",
+        "manaflow-ai/quick-links"
+      ],
+      "wait": 4
+    }
+  ]
+}

@@ -239,7 +239,10 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
       document.querySelector<HTMLElement>(".acpmux-main")!.style.background = "black";
       node.style.background = "red";
       const foot = box.bottom - parseFloat(style.getPropertyValue("--acpmux-dock-space"));
-      return { x: box.left + 2, foot };
+      // In the right-hand gutter, past the rows' column and short of the scrollbar's lane: the rail's
+      // lane on the left keeps full ink by design (conversation.css), so it is no probe for the mask.
+      const lane = parseFloat(style.getPropertyValue("--acpmux-scrollbar-lane")) || 16;
+      return { x: box.right - lane - 1, foot };
     });
     const pixels = PNG.sync.read(await page.screenshot());
     const redAt = (y: number) => pixels.data[(Math.floor(y) * pixels.width + Math.floor(probe.x)) * 4]!;

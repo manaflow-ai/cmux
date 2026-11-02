@@ -1,6 +1,7 @@
-// A shell call that starts another agent (`codex exec …`, `claude -p …`, `acpmux run …`), read
-// from its command so the transcript draws it as a subagent (subagentFold.ts, AgentRunCard.tsx)
-// rather than as a long "Command" row. The command is read with a shell tokenizer (quotes,
+// Command syntax for possible agent invocations (`codex exec …`, `claude -p …`, `acpmux run …`).
+// This parser supplies no session identity: Bash stays a shell row even when it executes one.
+// subagentFold.ts uses a parent-session command only to match an explicit child-session record.
+// The command is read with a shell tokenizer (quotes,
 // escapes, `;`/`&&`/`|`, `{ … }`, heredocs and `<` redirections), never by searching its text:
 // a heredoc that mentions `codex exec`, a `grep "codex exec"` or a `codex exec --help` starts no
 // agent. Wrappers that only run the next words (`timeout 600`, `nohup`, `env X=1`, `sr`, the
@@ -11,6 +12,8 @@
 // subcommand or a flag), which options take a value, and where its model, effort, prompt and
 // session name are. The family is the executable's own (`codex`, `claude`) or, for acpmux, the
 // harness its `-m HARNESS[/MODEL]` names.
+
+import { sliceWhole } from "../../../ui/wholeChars";
 
 /// One agent a shell call starts.
 export type AgentRun = {
@@ -622,7 +625,7 @@ export function promptTitle(prompt: string | undefined): string | undefined {
     .map((text) => text.replace(/^\s*(?:#+|[-*>]|\d+\.)\s+/, "").trim())
     .find(Boolean);
   if (!line) return undefined;
-  return line.length > 120 ? `${line.slice(0, 119)}…` : line;
+  return line.length > 120 ? `${sliceWhole(line, 119)}…` : line;
 }
 
 /// "gpt-6-astra xhigh": the model and effort a run names, for its card's model.

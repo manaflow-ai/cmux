@@ -4,7 +4,7 @@ import CmuxNextTerminal
 
 /// Feeds the Ghostty config's colors into `ThemeStore`, at launch and after
 /// every config change (reload keybind, Reload Configuration action,
-/// light/dark conditional themes), so all chrome follows the terminal theme,
+/// light/dark conditional themes), so all chrome follows the terminal theme (or `appearance.appTheme`),
 /// and its unfocused-split dim into `DesignSettings`, so panes dim as in Ghostty.
 /// cmux.json's window background (`GhosttyRuntime.backgroundOverride`) is
 /// already in that config; resolving it again here is a no-op that keeps
@@ -36,10 +36,9 @@ enum ThemeBridge {
     /// Repaints with cmux.json's window background over the config files' own opacity and blur,
     /// ahead of the config reload that brings the terminals along (an Opacity slider step).
     static func repaintBackground(store: ThemeStore) {
-        var input = store.input
-        (input.backgroundOpacity, input.backgroundBlur) = GhosttyRuntime.backgroundOverride.resolved(
+        let resolved = GhosttyRuntime.backgroundOverride.resolved(
             backgroundOpacity: GhosttyConfigBackground.loaded.opacity, backgroundBlur: GhosttyConfigBackground.loaded.blur)
-        store.apply(input)
+        store.applyBackground(opacity: resolved.backgroundOpacity, blur: resolved.backgroundBlur)
     }
 
     private static func apply(_ runtime: GhosttyRuntime, to store: ThemeStore) {

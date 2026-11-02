@@ -2,9 +2,9 @@ public import Foundation
 
 /// A step of an in-progress switch, reported so the UI can show progress.
 public enum AppChannelSwitchPhase: Equatable, Sendable {
-    /// Downloading the DMG; the completed fraction when known.
+    /// Downloading the DMG or zip; the completed fraction when known.
     case downloading(fractionCompleted: Double?)
-    /// Mounting the DMG and checking the app's signature.
+    /// Mounting the DMG (or extracting the zip) and checking the app's signature.
     case verifying
     /// Copying the verified app into an Applications folder.
     case installing
@@ -24,9 +24,9 @@ public enum AppChannelSwitchOutcome: Equatable, Sendable {
 public enum AppChannelSwitchError: Error, Equatable, Sendable {
     /// The DMG could not be downloaded; carries the underlying description.
     case downloadFailed(String)
-    /// The DMG could not be mounted; carries the underlying description.
+    /// The DMG could not be mounted, or the zip extracted; carries the underlying description.
     case mountFailed(String)
-    /// The mounted DMG holds no app with the target bundle identifier.
+    /// The mounted DMG or extracted zip holds no app with the target bundle identifier.
     case appNotFoundInDiskImage
     /// The app in the DMG failed signature verification and was not installed.
     case verificationFailed(AppSignatureVerificationFailure)
@@ -52,6 +52,7 @@ public struct AppChannelSwitcher: Sendable {
     private let locator: any InstalledAppLocating
     private let downloader: any AppChannelDownloading
     private let mounter: any DiskImageMounting
+    private let zipOpener: any DiskImageMounting
     private let inspector: any AppSignatureInspecting
     private let launcher: any AppLaunching
     private let fileSystem: any AppInstallFileSystem
@@ -65,6 +66,7 @@ public struct AppChannelSwitcher: Sendable {
         locator: any InstalledAppLocating = WorkspaceInstalledAppLocator(),
         downloader: any AppChannelDownloading = URLSessionAppChannelDownloader(),
         mounter: any DiskImageMounting = HdiutilDiskImageMounter(),
+        zipOpener: any DiskImageMounting = DittoZipArchiveOpener(),
         inspector: any AppSignatureInspecting = SecurityAppSignatureInspector(),
         launcher: any AppLaunching = WorkspaceAppLauncher(),
         fileSystem: any AppInstallFileSystem = FileManagerAppInstallFileSystem(),
@@ -76,6 +78,7 @@ public struct AppChannelSwitcher: Sendable {
         self.locator = locator
         self.downloader = downloader
         self.mounter = mounter
+        self.zipOpener = zipOpener
         self.inspector = inspector
         self.launcher = launcher
         self.fileSystem = fileSystem
@@ -96,7 +99,7 @@ public struct AppChannelSwitcher: Sendable {
     /// Opens `target`, installing it first when needed.
     ///
     /// Cancelling the calling task stops the download or install; the DMG is always detached
-    /// and temporary files removed. The app is copied to a hidden staging folder next to the
+    /// (a zip's extracted copy removed) and temporary files removed. The app is copied to a hidden staging folder next to the
     /// destination and only moved into place after that copy passes ``AppSignatureVerifier``.
     ///
     /// - Parameters:
@@ -116,7 +119,8 @@ public struct AppChannelSwitcher: Sendable {
         let workDirectory = temporaryDirectory
             .appendingPathComponent("cmux-app-switch-\(UUID().uuidString)", isDirectory: true)
         defer { fileSystem.removeItem(at: workDirectory) }
-        let image = workDirectory.appendingPathComponent("\(target.rawValue).dmg", isDirectory: false)
+        let image = workDirectory.appendingPathComponent("\(target.rawValue).\(target.archive.rawValue)", isDirectory: false)
+        let opener = target.archive == .zip ? zipOpener : mounter
 
         progress(.downloading(fractionCompleted: nil))
         do {
@@ -136,7 +140,7 @@ public struct AppChannelSwitcher: Sendable {
         progress(.verifying)
         let mountPoint: URL
         do {
-            mountPoint = try await mounter.attach(image)
+            mountPoint = try await opener.attach(image)
         } catch {
             throw AppChannelSwitchError.mountFailed(String(describing: error))
         }
@@ -144,10 +148,10 @@ public struct AppChannelSwitcher: Sendable {
         do {
             installed = try install(target, fromVolume: mountPoint, progress: progress)
         } catch {
-            await mounter.detach(mountPoint)
+            await opener.detach(mountPoint)
             throw error
         }
-        await mounter.detach(mountPoint)
+        await opener.detach(mountPoint)
 
         progress(.launching)
         try await launch(installed)

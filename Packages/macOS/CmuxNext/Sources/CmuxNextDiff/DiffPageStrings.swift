@@ -17,6 +17,20 @@ public nonisolated enum DiffPageStrings {
                table: "DiffPage", bundle: .module)
     }
 
+    /// A diff tab's repository is on `machine` (#25581), which did not answer.
+    public static func machineOffline(_ machine: String) -> String {
+        String(format: String(localized: "diff.page.machineOffline",
+                              defaultValue: "“%@” is not connected. Its diff shows again when it reconnects.",
+                              table: "DiffPage", bundle: .module), machine)
+    }
+
+    /// What a diff tab of another machine's repository cannot do yet: whole files, other bases,
+    /// staging, reverting, the editor app and Finder all read or change this Mac's disk.
+    public static var machineUnsupported: String {
+        String(localized: "diff.page.machineUnsupported", defaultValue: "This is not available for a repository on another machine yet.",
+               table: "DiffPage", bundle: .module)
+    }
+
     static var noFolder: String {
         String(localized: "diff.page.noFolder", defaultValue: "The focused pane has no folder to diff.",
                table: "DiffPage", bundle: .module)

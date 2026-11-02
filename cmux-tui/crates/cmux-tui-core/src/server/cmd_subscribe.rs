@@ -58,6 +58,8 @@ pub(super) fn subscribe_command(
     let page_events = super::origin_gate::page_relay_events(mux, client);
     // Its events are never tree deltas: render none only to drop them.
     let tree_deltas = tree_deltas && page_events.is_none();
+    // A remote device hears nothing of an incognito workspace (#31210).
+    let mut incognito = super::incognito_remote::EventFilter::start(mux, client);
     let pending_pairings = if trusted_pairing_client && page_events.is_none() {
         mux.pending_pairings()
     } else {
@@ -90,7 +92,7 @@ pub(super) fn subscribe_command(
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
-            let value = match &event {
+            let mut value = match &event {
                 MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                     if !trusted_pairing_client =>
                 {
@@ -283,8 +285,14 @@ pub(super) fn subscribe_command(
                         .supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
                     size_state_event_json(*surface, *runtime, state, Some((client, open)))
                 }
+                // Apps clients already hear it on their own sink; only a page
+                // relay (whose page names it) gets it from the event stream.
+                MuxEvent::AppsChanged(_) if page_events.is_none() => continue,
                 _ => subscribed_event_json(&event),
             };
+            if incognito.hides(&event_mux, client, &event, &mut value) {
+                continue;
+            }
             if let Some(events) = page_events
                 && !value
                     .field("event")
@@ -542,6 +550,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::PairingResolved { request } => {
             json!({"event": "pairing-resolved", "request": request})
         }
+        MuxEvent::AppsChanged(payload) => payload.as_ref().clone(),
         MuxEvent::Empty => json!({"event": "empty"}),
     }
 }

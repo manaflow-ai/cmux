@@ -147,8 +147,9 @@ final class CloseUndoToasts {
     /// One gesture over tabs of several panes (a pane's close others): one
     /// question and one toast decision over every closing tab (cx-lb4al).
     static func close(_ parts: [(pane: PaneController, ids: [StripTabID])]) {
-        // A tab still being created is cancelled now, before any question or toast (CancelledCreation).
-        for part in parts { part.pane.close(part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) }) }
+        // A tab still being created is cancelled now and leaves the gesture: no question, read or daemon close for it (CancelledCreation).
+        let pending = Set(parts.flatMap { part in part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) } })
+        for part in parts { part.pane.close(part.ids.filter(pending.contains)) }
         // A tab already closing left the store's visible records with its close intent, so a
         // second close of it (before the daemon answered the first) finds nothing to close.
         // A page's own close of its tab, after a close of several tabs waited for it, joins that close.
@@ -156,7 +157,7 @@ final class CloseUndoToasts {
         // A close of a tab whose page was deciding (the page's own close after it decided, a close
         // button): that decision is over; the close below starts a new one if the page decides again.
         for part in parts { for id in part.ids { undoToasts?.pageClosing.end(id.rawValue) } }
-        let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).filter { !$0.ids.isEmpty }
+        let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).map { part in (pane: part.pane, ids: part.ids.filter { !pending.contains($0) }) }.filter { !$0.ids.isEmpty }
         guard let first = parts.first?.pane else { return }
         let user = isUserClose, services = first.services, daemon = first.daemon
         let tabs = parts.flatMap { part in part.ids.compactMap(part.pane.tab) }
@@ -194,7 +195,7 @@ final class CloseUndoToasts {
         }
         TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window) { [weak services] asked in
             guard user, let undo = services?.closedTabs?.undoToasts else { return closeAll(nil, false) }
-            undo.decideFirst(tabs, on: daemon, asked: asked) { costly in closeAll(undo, costly) }
+            undo.decideFirst(tabs, on: daemon, asked: asked, window: first.view.window) { costly in closeAll(undo, costly) }
         }
     }
 
@@ -202,7 +203,7 @@ final class CloseUndoToasts {
     /// closed terminal ends, and could no longer say what it ran (cx-lb4al).
     /// `asked` holds terminals the close's question already asked; when it
     /// covers every terminal the rule asks about, the close runs at once.
-    func decideFirst(_ tabs: [TabModel], on daemon: DaemonService, asked: RunningPrograms = [:],
+    func decideFirst(_ tabs: [TabModel], on daemon: DaemonService, asked: RunningPrograms = [:], window: NSWindow? = nil,
                      then run: @escaping @MainActor (_ costly: Bool) -> Void) {
         switch services.map({ CloseToastRule(services: $0).decide(tabs) }) ?? .skip {
         case .show: run(true)
@@ -210,8 +211,9 @@ final class CloseUndoToasts {
         case .askTerminals(let terminals) where asked.covers(terminals):
             run(terminals.contains { asked[$0.surface].flatMap { $0 } != nil })
         case .askTerminals(let terminals):
+            let coordinator = services?.keyRouter.creationInputCoordinator, keys = coordinator?.beginClose(of: tabs, in: window)
             // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the close
-            Task { @MainActor in run(!(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty) }
+            Task { @MainActor in run(!(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty); coordinator?.endClose(keys, in: window) }
         }
     }
 

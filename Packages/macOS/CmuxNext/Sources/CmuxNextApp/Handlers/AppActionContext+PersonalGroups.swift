@@ -70,9 +70,13 @@ extension AppActionContext {
         let resource = home.store.personalStateID(session: qualified.session, key: key)
         let life = PersonalGroupLife(machines: services.machines), placement = PersonalSidebarPlanner.Placement(session: qualified.session, key: key, resource: resource)
         // The group it leaves empty goes too (cx-rcby).
-        let resync = { [weak services] in services?.windows.active?.sidebar.resync() }
-        life.commit("set-personal-workspace", ending: life.emptied(by: [placement], into: nil),
-                    recheck: { life.emptied(by: [placement], into: nil) }, failed: { resync() }) {
+        let failed: @MainActor (ActionWorkFailure) -> Void = { [weak services] failure in
+            services?.windows.active?.sidebar.resync()
+            services?.registry.reportFailure(of: "removeWorkspaceFromGroup", failure)
+        }
+        let ending = life.emptied(by: [placement], into: nil)
+        life.commit("set-personal-workspace", ending: ending,
+                    recheck: { ending.filter(life.isEmptyUnpinned) }, failed: failed) {
             try await $0.state.placePersonalWorkspace(session: qualified.session, key: key, resource: resource, group: .clear)
         }
     }

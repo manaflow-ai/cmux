@@ -429,3 +429,56 @@ fn idle_terminals_give_back_scrollback_past_the_total_memory_budget() {
         std::thread::sleep(Duration::from_millis(100));
     }
 }
+
+/// The total budget holds while terminals print, not one writer interval
+/// later (P-AUSTIN B8, #27693, #27702). The budget pass used to run only on
+/// the snapshot writer's timer (30 s), so a flood grew the daemon past the
+/// budget for that whole interval: 16 terminals at 1 MB/s with a 1 GB
+/// `scrollback-limit` took the daemon to 2.25 GB against the 256 MiB budget
+/// before the pass cut it back (cmux20, 2026-10-30). The interval here is one
+/// hour, so only the growth itself can start the pass.
+#[test]
+fn the_total_memory_budget_holds_while_terminals_print_not_one_interval_later() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start_unstarted("output-memory-budget-growth");
+    harness
+        .extra_env
+        .push(("CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS".into(), (3_600_000).to_string()));
+    // 16 MiB for four terminals that each fill a 10 MB scrollback.
+    harness
+        .extra_env
+        .push(("CMUX_TUI_TERMINAL_SCROLLBACK_MEMORY_BYTES".into(), (16 << 20).to_string()));
+    harness.restart();
+    let mut surfaces = Vec::new();
+    for index in 0..4 {
+        let done = format!("growth-done-{index}");
+        let created = request(
+            &harness.socket,
+            serde_json::json!({
+                "id":index,"cmd":"run",
+                "argv":["/bin/sh","-c",format!(
+                    "seq -f 'budget line %g padded to look like a long build log line' 1 40000; \
+                     echo {done}; exec sleep 600"
+                )],
+                "new_workspace":true,"cols":120,"rows":40,
+            }),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        wait_for_screen(&harness.socket, surface, &done);
+        surfaces.push(surface);
+    }
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    loop {
+        let oldest = history_rows(&harness, surfaces[0]);
+        let newest = history_rows(&harness, surfaces[3]);
+        if oldest * 3 < newest {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "four full terminals kept {oldest} and {newest} rows over the 16 MiB budget: \
+             the budget waited for the writer's interval instead of the growth"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}

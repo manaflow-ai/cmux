@@ -33,7 +33,9 @@ nonisolated extension NewTabTemplate {
             let choices = NewTabTemplate.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
             return (nil, SettingsDiagnostic(kind: .invalidValue, path: "tabs.newTabTemplate", message: "expected one of \(choices)"))
         }
-        return (template, nil)
+        // Composer was a separate legacy layout. Keep decoding it so existing configs remain
+        // readable, but expose the shared Minimal layout as its replacement.
+        return (template == .composer ? .minimal : template, nil)
     }
 }
 

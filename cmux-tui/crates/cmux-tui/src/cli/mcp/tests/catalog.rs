@@ -2,7 +2,9 @@ use super::*;
 
 #[test]
 fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
-    let operations = v2_tools::catalog()["operations"].as_object().expect("operations");
+    let catalog: Value =
+        serde_json::from_str(v2_tools::CATALOG_JSON).expect("the checked-in catalog");
+    let operations = catalog["operations"].as_object().expect("operations");
     let tools = v2_tools::tools().iter().map(|tool| tool.wire).collect::<BTreeSet<_>>();
     let excluded = v2_tools::exclusions()
         .into_iter()
@@ -101,7 +103,9 @@ fn tool_schemas_follow_the_catalog() {
     }
     let create = v2_tools::find("workspace_create").expect("workspace_create").input_schema();
     assert_eq!(create["properties"]["initial_content"]["enum"], json!(["terminal", "empty"]));
-    assert!(create["required"].as_array().unwrap().contains(&json!("initial_content")));
+    // The wire requires it; an MCP call may leave it out for a terminal, as the CLI.
+    assert!(!create["required"].as_array().unwrap().contains(&json!("initial_content")));
+    assert_eq!(create["properties"]["initial_content"]["default"], "terminal");
     assert_eq!(create["properties"]["ephemeral"]["type"], "boolean");
     assert!(v2_tools::find("workspace_list").unwrap().paginated);
     assert!(!v2_tools::find("notification_list").unwrap().paginated, "owner's own limit");

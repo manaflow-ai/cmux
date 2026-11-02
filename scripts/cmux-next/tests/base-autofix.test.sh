@@ -88,4 +88,29 @@ git -C "$repo" diff --binary > "$tmp/fmt.patch"; git -C "$repo" checkout -q -- .
 bash "$FIX" --no-fmt --webviews-fmt-patch "$tmp/fmt.patch" "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on a patch it refuses"
 [[ "$(cat "$repo/Native/OptChat/other/x.txt")" == keep && "$(cat "$repo/$page")" == stale ]] || fail "a patch reaching another path outside webviews/ must apply nothing"
 grep -q '^left: the webviews formatting patch reaches Native/OptChat/other/x.txt' "$tmp/out" || fail "the refused path must be reported"
+# The namespace lint's safe rewrites land on base (a pull request only warns on
+# them), except in a frozen file. A stand-in lint rewrites one file of each.
+git -C "$repo" checkout -q -- .
+settings=Packages/macOS/CmuxNext/Sources/CmuxNextSettings/S.swift
+mkdir -p "$repo/Packages/a" "$repo/$(dirname "$settings")"
+echo 'public enum A {}' > "$repo/Packages/a/A.swift"; echo 'public enum S {}' > "$repo/$settings"
+cat > "$repo/scripts/lint-ios-package-conventions.sh" <<'SH'
+[ "${1:-}" = --namespace-fix ] || exit 0
+for f in Packages/a/A.swift Packages/macOS/CmuxNext/Sources/CmuxNextSettings/S.swift; do
+  sed -i.bak 's/public enum \(.\) {}/public struct \1 { public init() {} }/' "$f" && rm -f "$f.bak"
+done
+exit 1
+SH
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm namespaces
+bash "$FIX" --no-fmt --ratchets "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on namespace findings"
+[[ "$(cat "$repo/Packages/a/A.swift")" == 'public struct A { public init() {} }' ]] || fail "a namespace finding must get the lint's safe rewrite"
+[[ "$(cat "$repo/$settings")" == 'public enum S {}' ]] || fail "a frozen file must never get the namespace rewrite"
+grep -q '^fixed: namespace rewrite in Packages/a/A.swift' "$tmp/out" || fail "the namespace rewrite must be reported"
+grep -q "^skipped (frozen): $settings" "$tmp/out" || fail "a frozen namespace rewrite must be reported"
+# A frozen file an earlier step already changed keeps that change and gets no rewrite.
+git -C "$repo" checkout -q -- .
+printf '// edited\npublic enum S {}\n' > "$repo/$settings"
+bash "$FIX" --no-fmt --ratchets "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed beside an edited frozen file"
+[[ "$(cat "$repo/$settings")" == $'// edited\npublic enum S {}' ]] || fail "an edited frozen file must keep its edit and get no rewrite"
+grep -q "^skipped (frozen): $settings" "$tmp/out" || fail "a frozen namespace rewrite beside an edit must be reported"
 echo "base autofix: ok"

@@ -93,7 +93,8 @@ trap 'git -C "$NOTICES_ROOT" checkout -- THIRD_PARTY_LICENSES.md' EXIT
 if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
   scripts/cmux-next/build-web-bundles.sh --force
 fi
-xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+# The Bundle cmux-tui phase bundles none (deferred); this tree's client is installed below.
+CMUX_NEXT_TUI_MODE=deferred xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
 if [ ! -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then
   echo "WARNING: no Chromium engine embedded; this release ships the browser as unavailable" >&2

@@ -45,6 +45,16 @@ impl Hub {
     pub(super) fn before_agent_update(&self, session: &Session, params: Option<&Value>) {
         let Some(update) = params.and_then(|p| p.get("update")) else { return };
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        if kind == "compaction" {
+            let fenced = session.compaction_metadata_fenced.load(Ordering::SeqCst);
+            match update.get("state").and_then(Value::as_str) {
+                Some("running") => session.compacting.store(true, Ordering::SeqCst),
+                Some("completed") | Some("failed") if !fenced => {
+                    session.compacting.store(false, Ordering::SeqCst)
+                }
+                _ => {}
+            }
+        }
         let mut superseded = None;
         {
             let mut st = session.stream.lock().unwrap();

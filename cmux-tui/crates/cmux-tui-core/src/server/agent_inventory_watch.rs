@@ -42,7 +42,7 @@ pub(in crate::server) fn try_handle(
     let id = fields.remove("id");
     let mut admission_receipt = false;
     let result = (|| {
-        if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        if !mux.agent_carrier_allowed(client) {
             return Err(Failure::NotTrusted);
         }
         let expected = fields

@@ -1,4 +1,4 @@
-// The Inspector's running limit (inspector/SubagentLimitStepper.tsx) reads the chat's
+// Session Info's running limit (session-info/SubagentLimitStepper.tsx) reads the chat's
 // `subsessionLimits` from the attach reply's session detail, and acpmux logs a `subsession` record
 // with `event: "limits"` whenever the limit changes (the person, an ancestor, another client). The
 // attach asks for that kind, and the snapshot takes a record newer than the attach; one the page

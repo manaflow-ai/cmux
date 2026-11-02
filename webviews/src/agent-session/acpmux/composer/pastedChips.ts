@@ -36,6 +36,9 @@ export function usePastedChips(
   const plainUntil = useRef(0);
   /// Set while a chip's text goes back into the prompt: that paste is never a chip.
   const expanding = useRef(false);
+  /// How a held block pasted again opens its chip: the composer's own open (ComposerBox's inline
+  /// hook), which keeps the chip for an undo first, as a click on the chip does. Unset, `expand`.
+  const opens = useRef<((id: string) => void) | undefined>(undefined);
   // Any paste ends Paste as Plain Text's turn, one of only files or images too (the field took a
   // text paste before this, at the document, hears it).
   useEffect(() => {
@@ -55,14 +58,37 @@ export function usePastedChips(
     });
     return true;
   };
+  /// Puts chip `id`'s text back in the prompt, as a paste of it, and drops the chip: at the chip's
+  /// place in the text, or at the caret when it has none.
+  const expand = (id: string) => {
+    const chip = attachments.current.find((held) => held.id === id);
+    if (chip?.kind !== "pasted" || chip.text === undefined) return;
+    // Ahead of the render, so a paste of the same block at once makes it a chip again.
+    attachments.current = attachments.current.filter((held) => held.id !== id);
+    setAttachments((current) => current.filter((held) => held.id !== id));
+    field.current?.focus();
+    // Its place in the text goes, and the caret with it, so its text goes in where the chip was
+    // (composer/inlineAttachments.tsx), wherever the caret was before.
+    field.current?.removeInline(id, true);
+    expanding.current = true;
+    try {
+      field.current?.pasteText(chip.text);
+    } finally {
+      expanding.current = false;
+    }
+  };
   return {
     expanding,
+    opens,
     /// Paste as Plain Text is starting: its paste goes in as text.
     plainPaste() {
       plainUntil.current = performance.now() + PLAIN_PASTE_MS;
     },
-    /// Makes pasted `text` a chip when it is huge; true when it did. A composer already holding the
-    /// most chips takes the text as it is.
+    /// Makes pasted `text` a chip when it is huge; true when it did. The same block pasted again
+    /// while its chip is held does what a click on that chip does (`expand`): its text goes into the
+    /// prompt and the chip goes, never a second chip (Leo, 2026-10-28: "double paste of long block
+    /// text should reveal it instead of duplicating the paste", "if you paste that and then paste
+    /// again, then you don't have to click it. It just does it.").
     take(text: string): boolean {
       // Past what a prompt carries it is a file, Paste as Plain Text or not.
       if (attachFile && text.length > PASTE_FILE_CHARS) {
@@ -72,24 +98,17 @@ export function usePastedChips(
         return true;
       }
       if (raw() || !isLargePaste(text)) return false;
+      const same = attachments.current.find((held) => held.kind === "pasted" && held.text === text);
+      if (same) {
+        (opens.current ?? expand)(same.id);
+        return true;
+      }
       const chip = pastedTextAttachment(text);
       // Ahead of the render, so a second paste at once counts this one.
       attachments.current = [...attachments.current, chip];
       setAttachments((current) => [...current, chip]);
       return true;
     },
-    /// Puts chip `id`'s text back in the prompt at the caret, as a paste of it, and drops the chip.
-    expand(id: string) {
-      const chip = attachments.current.find((held) => held.id === id);
-      if (chip?.kind !== "pasted" || chip.text === undefined) return;
-      setAttachments((current) => current.filter((held) => held.id !== id));
-      field.current?.focus();
-      expanding.current = true;
-      try {
-        field.current?.pasteText(chip.text);
-      } finally {
-        expanding.current = false;
-      }
-    },
+    expand,
   };
 }

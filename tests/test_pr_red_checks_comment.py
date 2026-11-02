@@ -221,6 +221,95 @@ def test_the_cmux_next_checks_job_is_tracked():
 
 
 
+# 2026-10-30: 22 pull requests merged webview test reds that then broke the base. The base replay named each
+# new red test, yet this line said "no finished base run to compare" for it (a push never runs the replay)
+# and "base red: does not block" for react-apps-check and Web status, whose one failed step matches any red
+# base. The replay's red now names its tests and blocks; an aggregate follows the other lines.
+BASE_CHECK = "web / react-apps-base-check (3)"
+
+
+def new_red(name):
+    return {"annotation_level": "failure", "title": "Webview test red on this change", "message": name}
+
+
+def test_a_red_base_replay_names_its_new_tests_and_blocks():
+    tests = [f"test/new-tab-{n}.test.tsx > case {n}" for n in range(5)]
+    line = checks_line(FakeGitHub(
+        [run(BASE_CHECK, "failure", id_=11)], [], base_runs=[],
+        annotations={11: [new_red(t) for t in tests] + [
+            {"annotation_level": "warning", "title": "Webview test red on the base too", "message": "test/old.test.ts > x"},
+            {"annotation_level": "failure", "message": "Process completed with exit code 1."}]}))
+    assert line == (f"red: {BASE_CHECK}; NEW webview test reds: {tests[0]}; {tests[1]}; {tests[2]} (+2 more); "
+                    "do not merge until green; see lane-rules"), line
+
+
+def test_a_red_base_replay_that_names_no_test_still_blocks():
+    line = checks_line(FakeGitHub([run(BASE_CHECK, "failure", id_=11)], [], base_runs=[]))
+    assert line.startswith(f"red: {BASE_CHECK}; it named no new red test") and "do not merge until green" in line, line
+
+
+def test_an_aggregate_is_never_a_base_red_when_a_job_it_gathers_is_new():
+    # #24644: react-apps-check's "Check webview test shards" failed the same way on the base, so it read as a base
+    # red; its base replay had named agent-pane-no-capsules as red on the change alone.
+    fake = FakeGitHub(
+        [run("web / react-apps-check", "failure", id_=11), run("web / Web status", "failure", id_=12),
+         run(BASE_CHECK, "failure", id_=13)], [],
+        base_runs=[run("web / react-apps-check", "failure", id_=21), run("web / Web status", "failure", id_=22)],
+        steps={11: [failed("Check webview test shards")], 21: [failed("Check webview test shards")],
+               12: [failed("Check routed web jobs")], 22: [failed("Check routed web jobs")]},
+        annotations={13: [new_red("test/agent-pane-no-capsules.test.ts > rounds its controls")]})
+    lines = checks_line(fake).splitlines()
+    assert len(lines) == 3, lines
+    assert all("base red" not in line and "do not merge until green" in line for line in lines), lines
+    assert lines[2].startswith("red: web / react-apps-check; a job it gathers is red on this change"), lines
+
+
+def test_an_aggregate_whose_jobs_are_all_base_reds_does_not_block():
+    fake = FakeGitHub(
+        [run("web / react-apps-check", "failure", id_=11), run(RAC, "failure", id_=12)], [],
+        base_runs=[run(RAC, "failure", id_=22)],
+        steps={12: [failed("Fail on the eager JS budget")], 22: [failed("Fail on the eager JS budget")]})
+    lines = checks_line(fake).splitlines()
+    assert lines[0] == ("red: web / react-apps-check; follows the jobs it gathers, whose reds are all on the base "
+                        "too; does not block"), lines
+
+
+def test_an_aggregate_red_with_no_red_job_blocks():
+    fake = FakeGitHub([run("web / react-apps-check", "failure", id_=11)], [],
+                      base_runs=[run("web / react-apps-check", "failure", id_=21)],
+                      steps={11: [failed("Check webview test shards")], 21: [failed("Check webview test shards")]})
+    line = checks_line(fake)
+    assert line.startswith("red: web / react-apps-check; none of the jobs it gathers is red"), line
+    assert "do not merge until green" in line, line
+
+
+def test_an_unrelated_base_red_never_excuses_an_aggregate_whose_job_was_cancelled():
+    # Review (gpt-6-astra), 2026-10-30: React Doctor cancelled, both web aggregates red, and a size-cap red that the
+    # base has too. The size cap is no job either aggregate gathers, and the cancelled job is the aggregates' own.
+    size = "cmux-next CmuxNextApp size cap"
+    fake = FakeGitHub(
+        [run("web / react-apps-check", "failure", id_=11), run("web / Web status", "failure", id_=12),
+         run("web / react-doctor", "cancelled", id_=13), run(size, "failure", id_=14), run(RAC, "success", id_=15)], [],
+        base_runs=[run(size, "failure", id_=24), run("web / react-apps-check", "success", id_=21)],
+        steps={14: [failed("Check the app size")], 24: [failed("Check the app size")]})
+    lines = checks_line(fake).splitlines()
+    by = {line.split(";")[0]: line for line in lines}
+    assert "does not block" in by[f"red: {size}"], lines
+    assert by["red: web / react-apps-check"].endswith(
+        "a job it gathers ended without a verdict (web / react-doctor: cancelled); do not merge until green; see lane-rules"), lines
+    assert "a job it gathers is red on this change" in by["red: web / Web status"], lines
+
+
+def test_a_cancelled_job_blocks_its_aggregate_beside_base_reds():
+    fake = FakeGitHub(
+        [run("web / react-apps-check", "failure", id_=11), run(RAC, "failure", id_=12),
+         run("web / react-doctor", "cancelled", id_=13)], [],
+        base_runs=[run(RAC, "failure", id_=22)],
+        steps={12: [failed("Fail on the eager JS budget")], 22: [failed("Fail on the eager JS budget")]})
+    lines = checks_line(fake).splitlines()
+    assert "ended without a verdict (web / react-doctor: cancelled)" in lines[0], lines
+
+
 # OWN_CHECKS_GREEN: the caller's tracked jobs passed. Three workflows call this on every push; with
 # no red line there is nothing for a green caller to change, so it reads no check runs.
 GREEN = {"OWN_CHECKS_GREEN": "true"}

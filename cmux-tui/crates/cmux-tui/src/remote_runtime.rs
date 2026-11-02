@@ -608,6 +608,13 @@ impl ClientRuntimeHandle {
         self.connection.snapshot().await
     }
 
+    /// Whether the daemon no longer has this client's session (it outlived
+    /// the daemon's resume lease, or was closed there). Permanent: the
+    /// connection stops redialing, and only a new session can continue.
+    pub fn session_unavailable(&self) -> bool {
+        self.connection.session_unavailable() || self.multiplexer.session_unavailable()
+    }
+
     pub fn is_finished(&self) -> bool {
         self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
     }
@@ -1154,7 +1161,12 @@ async fn bootstrap_initial_ssh_route(
     shutdown: Option<watch::Receiver<bool>>,
 ) -> anyhow::Result<()> {
     let (destination, port) = ssh_bootstrap_destination(endpoint)?;
-    let mut config = SshBootstrapConfig::defaults(destination, cmux_build_identity::BUILD_IDENTITY);
+    let mut config = SshBootstrapConfig::defaults(
+        destination,
+        cmux_build_identity::BUILD_IDENTITY,
+        crate::distribution::DISTRIBUTION_VERSION,
+        crate::distribution::NPM_BOOTSTRAP_VERSION,
+    );
     config.ssh_binary = ssh.ssh_binary.clone();
     config.port = port;
     config.remote_binary = ssh.remote_binary.clone();
@@ -1487,6 +1499,7 @@ fn route_failure_allows_fallback(error: &ConnectionError) -> bool {
         ) | ConnectionError::Protocol(_)
             | ConnectionError::GenerationExhausted
             | ConnectionError::Closed
+            | ConnectionError::SessionUnavailable
     )
 }
 
@@ -5835,10 +5848,9 @@ mod tests {
         let log = directory.path().join("ssh.log");
         let probe = cmux_remote::ssh_bootstrap::RemoteProbe {
             app: "cmux-tui".into(),
-            version: cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION.into(),
-            distribution_version: Some(cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION.into()),
-            npm_bootstrap_version: cmux_remote::ssh_bootstrap::NPM_BOOTSTRAP_VERSION
-                .map(str::to_owned),
+            version: crate::distribution::DISTRIBUTION_VERSION.into(),
+            distribution_version: Some(crate::distribution::DISTRIBUTION_VERSION.into()),
+            npm_bootstrap_version: crate::distribution::NPM_BOOTSTRAP_VERSION.map(str::to_owned),
             build_identity: Some(cmux_build_identity::BUILD_IDENTITY.into()),
             remote_protocol: cmux_remote_protocol::REMOTE_PROTOCOL_VERSION,
             os: "test".into(),

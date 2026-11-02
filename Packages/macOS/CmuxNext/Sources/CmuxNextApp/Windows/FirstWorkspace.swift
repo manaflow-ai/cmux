@@ -24,9 +24,13 @@ struct FirstWorkspaceLaunch {
         return await manager.createWorkspace(newTabPage: true)
     }
 
-    /// Shows `workspaceID` (the one `create` made) in its window.
-    func land(_ workspaceID: String?) {
-        guard let workspaceID, manager.services.machines.workspace(id: workspaceID) != nil else { return }
+    /// Shows `workspaceID` (the one `create` decided on, before the restore placed what was asked for meanwhile)
+    /// in its window, unless a workspace of the person's own came since (dogfood gate v2.2.3, `type`).
+    func land(_ workspaceID: String?, leftover: [String] = []) {
+        let services = manager.services
+        guard let workspaceID, services.machines.workspace(id: workspaceID) != nil,
+              services.daemon.store.workspaces.needsFirstWorkspace(leftover: leftover + [workspaceID], home: services.home.homeWorkspaceID)
+        else { return }
         _ = manager.reveal(workspaceID: workspaceID)
     }
 }

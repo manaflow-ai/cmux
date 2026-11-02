@@ -154,3 +154,111 @@
   gap: 4px;
   margin-left: 8px;
 }
+
+/* A guest's held message (QueuedMessageCard.tsx, design/chat-multiplayer.md): Approve, the primary
+   text button in the accent, and Decline, quiet, in the line's action area before "Waiting for
+   you". Each highlight covers its own button only; no motion, no dot. */
+.cv-held__actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.cv-held__approve,
+.cv-held__decline {
+  all: unset;
+  box-sizing: border-box;
+  height: var(--ds-control-icon);
+  padding-inline: var(--ds-space-2);
+  border-radius: 5px;
+  font-size: var(--text-control);
+  line-height: var(--ds-control-icon);
+  letter-spacing: var(--text-control--letter-spacing);
+  white-space: nowrap;
+  cursor: default;
+}
+.cv-held__approve {
+  font-weight: 600;
+  color: var(--agent-accent);
+}
+.cv-held__decline {
+  color: var(--cv-text-muted);
+}
+.cv-held__approve:hover {
+  background: color-mix(in srgb, var(--agent-accent) 12%, transparent);
+}
+.cv-held__decline:hover {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+}
+.cv-held__approve:focus-visible,
+.cv-held__decline:focus-visible,
+.cv-declined__line:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.cv-held__approve:disabled,
+.cv-held__decline:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* The card takes the focus so Return approves it: a ring around the message, never a fill. */
+.cv-held[data-held]:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+/* Its Approve and Decline (or its ⋯, the `menu` look) are how the owner answers: always shown in
+   the line's action slot (IncomingMessageCard.tsx, DisclosureRow `actions`), never only on hover. */
+.cv-held .cv-received-actions,
+.cv-held[data-held] .cv-received__hover {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* "Waiting for you", "Updating…": a quiet note after the buttons, in the line's caption type. */
+.cv-held .cv-received__queued {
+  flex: none;
+  margin-inline-start: var(--ds-space-1);
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-quick-item.cv-held__primary {
+  font-weight: 600;
+}
+/* The `bar` look: the two buttons under the message, in from the icon column as the card is. */
+.cv-held__bar {
+  display: flex;
+  margin: 0 0 var(--ds-space-1) 22px;
+}
+
+/* A declined guest message: one quiet line that opens to its text on a click. */
+.cv-declined__line {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  max-width: 100%;
+  height: var(--ds-control-row);
+  border-radius: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  color: var(--cv-text-dim);
+  cursor: default;
+}
+.cv-declined__line:hover {
+  color: var(--cv-text-muted);
+}
+.cv-declined__text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-declined__body {
+  color: var(--cv-text-muted);
+  white-space: pre-wrap;
+}

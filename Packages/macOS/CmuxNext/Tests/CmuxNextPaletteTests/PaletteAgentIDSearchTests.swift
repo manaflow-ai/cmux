@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// about:blank chat rows; the real a612 workspace never showed). The id is the whole query, or its
 /// digits: that row goes first, above every fuzzy match of the id's letters.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct PaletteAgentIDSearchTests {
     @MainActor private final class Workspaces: PaletteWorkspaceSource {
         var workspaces: [PaletteWorkspace] = []
@@ -58,6 +59,7 @@ struct PaletteAgentIDSearchTests {
     @Test(arguments: ["a612", "A612", " a612 ", "612"])
     func theSubagentIDPutsItsWorkspaceFirst(query: String) async {
         let palette = Self.palette()
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         let ids = await Self.search(palette, query)
         #expect(ids.first == "workspace:w612", "\(query): \(ids.prefix(5))")
@@ -65,6 +67,7 @@ struct PaletteAgentIDSearchTests {
 
     @Test func anotherSubagentsIDNeverOutranksTheExactOne() async {
         let palette = Self.palette()
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         let ids = await Self.search(palette, "a612")
         let exact = ids.firstIndex(of: "workspace:w612")
@@ -78,6 +81,7 @@ struct PaletteAgentIDSearchTests {
 
     @Test func theCommandPaletteFindsItToo() async {
         let palette = Self.palette()
+        defer { palette.closeForTest() }
         palette.show(.commands)
         #expect(await Self.search(palette, "a612").first == "workspace:w612")
     }

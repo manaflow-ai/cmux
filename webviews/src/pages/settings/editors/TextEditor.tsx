@@ -4,7 +4,7 @@ import { text } from "../strings";
 import type { EditorProps } from "./types";
 
 /**
- * A text field committed on Return or blur. `check` refuses a value before it is sent and
+ * A text field committed on Return or blur; Escape drops the edit. `check` refuses a value before it is sent and
  * names the message to show; url rows use it, domain rows without published names do not.
  * With `checkStored`, a stored value that `check` refuses (a hand-edited cmux.json) shows the
  * same message until it is replaced.
@@ -21,6 +21,13 @@ export function TextEditor({
   const [draft, setDraft] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const stored = typeof value === "string" ? value : "";
+  // A new stored value (a Reset, a host update) ends whatever was being typed over the old one.
+  const [seen, setSeen] = useState(stored);
+  if (seen !== stored) {
+    setSeen(stored);
+    setDraft(null);
+    setProblem(null);
+  }
   const storedProblem = checkStored && draft === null && problem === null ? (check?.(stored) ?? null) : null;
   const shown = problem ?? storedProblem;
   const commit = () => {
@@ -47,6 +54,12 @@ export function TextEditor({
         onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === "Enter") commit();
+          else if (event.key === "Escape" && (draft !== null || problem !== null)) {
+            // Cancels the edit: blur must not commit what was typed.
+            event.stopPropagation();
+            setDraft(null);
+            setProblem(null);
+          }
         }}
       />
       {shown && (

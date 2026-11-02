@@ -22,11 +22,13 @@ export type ToolFailure = {
   kind: ToolFailureKind;
   /// The command's exit code: the call's own (Codex), else Claude Code's "Exit code N" line.
   exitCode?: number;
-  /// The hook event that refused the call ("PreToolUse").
+  /// The hook event that refused the call ("PreToolUse"). Never drawn: the row says "blocked by hook".
   hook?: string;
-  /// Why, in one line of the tool's own words; undefined when the word says it all.
+  /// Why, in one line of the tool's own words; undefined when the word says it all. A hook's cause
+  /// is never drawn under its row: its words are the opened call's output.
   cause?: string;
-  /// The output without Claude Code's leading "Exit code N" line, which the Shell block says itself.
+  /// The output without Claude Code's leading "Exit code N" line, which the Shell block says itself;
+  /// for a hook's block, the hook's words without the harness's envelope.
   output?: string;
   /// The whole result without colour codes, a fence or injected context, its "Exit code N" line
   /// included: what Copy error copies.
@@ -185,7 +187,24 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
       .slice(hook[0].length)
       .replace(/^\[[^\]\n]*\]\s*:\s*/, "")
       .replace(/^blocked\s*:\s*/i, "");
-    return { kind: "hook", hook: hook[1] ?? hook[2], cause: oneLine(reason), exitCode, output, detail: full };
+    // The row says "blocked by hook" and nothing under it; opened, the call shows the hook's words
+    // as its output, without the harness's "PreToolUse:Bash hook error:" envelope (Leo,
+    // 2026-10-31: "WHY IS THERE PRETOOLUSE").
+    // `text` starts as the trimmed body does, so the match's length cuts the whole body too.
+    const said = body
+      .trimStart()
+      .slice(hook[0].length)
+      .replace(/^\[[^\]\n]*\]\s*:\s*/, "")
+      .replace(/^blocked\s*:\s*/i, "")
+      .trim();
+    return {
+      kind: "hook",
+      hook: hook[1] ?? hook[2],
+      cause: oneLine(reason),
+      exitCode,
+      output: said || output,
+      detail: full,
+    };
   }
   if (!ran && DENIED.test(text))
     return { kind: "denied", cause: oneLine(DENIED_SAID.exec(text)?.[1]), exitCode, output, detail: full };
@@ -215,4 +234,14 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
 export function shellOutput(tool: Tool): string | undefined {
   const output = toolFailure(tool)?.output ?? tool.output;
   return output === undefined ? undefined : stripAnsi(output);
+}
+
+/// A call's result as its opened row draws it: a hook's block without the harness's
+/// "PreToolUse:… hook error:" envelope (Find in Chat counts the same text, chatFind.ts), any other
+/// call's result as it came.
+/// Only a failed call that never ran (no exit code) can be a hook's block, so no other call is read.
+export function callOutput(tool: Tool, failure?: ToolFailure): string | undefined {
+  if (tool.status !== "failed" || tool.exitCode !== undefined) return tool.output;
+  const read = failure ?? toolFailure(tool);
+  return read?.kind === "hook" ? (read.output ?? tool.output) : tool.output;
 }

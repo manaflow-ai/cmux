@@ -134,7 +134,7 @@ impl HostedReader {
             }
             mux.emit_terminal_resized(surface.id, cols, rows, None);
             if let Some((offset, at_bottom)) = scroll_changed {
-                mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                pty.frame_requests.publish_scroll_now(&mux, surface.id, offset, at_bottom);
             }
         }
         Flow::Continue

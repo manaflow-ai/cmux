@@ -2,9 +2,12 @@ name: PR capture check
 
 # A pull request that changes native app UI shows a real capture of it in its description:
 # what `cmux-ci capture` prints (a fleet build driven on a capture mini, light and dark, checked
-# for private text), the media-tour label, or a `No capture: <why>` line. Lanes kept merging UI
+# for private text), the media-tour label, or a `No capture: <why>` line. A capture or media-tour
+# label also requires body proof that the after image was viewed and judged. Lanes kept merging UI
 # changes with no capture or with mock stills. scripts/ci/pr_capture_check.py decides; it runs
 # from the base branch, never the pull request's code. Editing the description re-runs it.
+# It only warns and never fails, so it never blocks a land (Leo, 2026-10-31: "WE DONT NEED FUCKIGN
+# SCREENSHOTS JUST LET ME TRY THE SHIT OUT").
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -19,7 +22,7 @@ concurrency:
 jobs:
   capture:
     name: pr-capture-check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read

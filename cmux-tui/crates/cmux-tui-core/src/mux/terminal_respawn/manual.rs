@@ -13,6 +13,11 @@
 //! The tab id, placement, name, pin and group stay. A restarted keep-layout
 //! tab starts in its recorded directory and stops being kept
 //! (`tab-restart-kept-layout-v1`).
+//!
+//! A tab whose host link failed (`terminal_state` `failed`) is not dead:
+//! its shell may still run. Restarting it is the user's Recover: the
+//! unreachable host is ended and the same shell is rehosted in place
+//! (`recover_failed_link_tab`), so an ssh session survives.
 
 use super::*;
 
@@ -72,6 +77,9 @@ impl Mux {
         self: &Arc<Self>,
         surface: SurfaceId,
     ) -> anyhow::Result<TabRestart> {
+        if let Some(recovered) = self.recover_failed_link_tab(surface) {
+            return Ok(recovered);
+        }
         let plan = self.plan_user_restart(surface)?;
         let accepted = TabRestart {
             terminal: plan.public_id.as_str().to_string(),
@@ -94,6 +102,29 @@ impl Mux {
         _surface: SurfaceId,
     ) -> anyhow::Result<TabRestart> {
         Err(TabRestartError::Unavailable.into())
+    }
+
+    /// Recover in place the tab at `surface` whose terminal still runs
+    /// behind a failed host link (`terminal_state` `failed`): its
+    /// unreachable host is ended and the reconnect loop rehosts the same
+    /// shell on its PTY custody copy, under the same terminal id and
+    /// incarnation (`surface/link_recover.rs`). None for any other tab.
+    #[cfg(unix)]
+    fn recover_failed_link_tab(&self, surface: SurfaceId) -> Option<TabRestart> {
+        let (public_id, runtime) = self.with_state(|state| {
+            let ContentPublicId::Terminal(public_id) =
+                state.resource_indexes.content_ids.get(&surface)?
+            else {
+                return None;
+            };
+            let runtime = state.terminal_catalog.get(public_id)?.clone();
+            Some((public_id.clone(), runtime))
+        })?;
+        let identity = runtime.terminal_host_identity()?;
+        runtime.recover_failed_host_link().then(|| TabRestart {
+            terminal: public_id.as_str().to_string(),
+            previous_incarnation: identity.incarnation,
+        })
     }
 
     /// Check the tab, mark its terminal respawning and take the dead runtime

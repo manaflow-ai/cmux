@@ -58,6 +58,10 @@ extension CloudHandlers {
             runTracked("create Cloud firewall rule", context) { _ = try await cloud.api.createFirewallRule(source: source, destination: destination, description: value["description"] as? String) }
         }
         bind("cloudEnrollMachine", registry, reason: reason) { invocation in try enrollMachine(invocation, context) }
+        bind("cloudSetNetworkAccess", registry, reason: reason) { invocation in
+            try CloudNetworkAccessActions.set(invocation, context, read: { try await cloud.api.networkPolicy($0) },
+                                                write: { try await cloud.api.setNetworkPolicy($0, $1) })
+        }
     }
 
     /// `cloud enroll-machine` (CloudMachineEnrollment): authorizes this Mac's key on the machine and
@@ -97,7 +101,7 @@ extension CloudHandlers {
             let text = try? await work.run(.userBlocking, mayBlock: .files) { try String(blockingContentsOf: URL(fileURLWithPath: keyPath), encoding: .utf8) }
             guard let key = text.flatMap(CloudMachineEnrollment.ed25519Key) else { throw ActionFailure(message: CloudStrings.enrollKeyUnreadable(keyPath)) }
             let enrollment = CloudMachineEnrollment(name: name, machineID: machineID, address: address, publicKey: key)
-            let ran = try await cloud.api.exec(machineID, command: enrollment.authorizeCommand, timeoutMs: execTimeoutMs)
+            let ran = try await cloud.machineAPI.exec(machineID, command: enrollment.authorizeCommand, timeoutMs: execTimeoutMs)
             let hostKey = ran.stdout.split(whereSeparator: \.isNewline).last.flatMap { CloudMachineEnrollment.ed25519Key(String($0)) }
             guard ran.exitCode == 0, let hostKey else {
                 throw ActionFailure(message: CloudStrings.enrollAuthorizeFailed(String((ran.stderr.isEmpty ? ran.stdout : ran.stderr).suffix(300))))

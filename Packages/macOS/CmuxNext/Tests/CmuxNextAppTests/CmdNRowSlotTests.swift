@@ -31,8 +31,8 @@ struct CmdNRowSlotTests {
         let controller = try #require(services.windows.controller(for: window))
         let state = controller.state
         let list = controller.sidebar.container.sidebarView.list
-        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { SidebarDocStore.current?.shown != nil }
-        try #require(SidebarDocStore.current?.shown != nil, "the same-tree daemon serves the sidebar document")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { services.sidebarDoc.store?.shown != nil }
+        try #require(services.sidebarDoc.store?.shown != nil, "the same-tree daemon serves the sidebar document")
         func rows(_ layout: SidebarLayout) -> [String] {
             layout.rows.compactMap { if case let .workspace(id) = $0.key { id.rawValue } else { nil } }
         }
@@ -57,6 +57,12 @@ struct CmdNRowSlotTests {
         let anchor = before[at]
         services.windows.select(anchor, in: state)
         controller.showWorkspace(requested: state.workspaceID)
+        let anchorID = WorkspaceID(anchor)
+        let anchorReady = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
+            guard let row = list.rowViews[.workspace(anchorID)], let layoutRow = list.displayed.row(for: .workspace(anchorID)) else { return false }
+            return row.window != nil && row.frame == list.frame(for: layoutRow)
+        }
+        try #require(anchorReady, "anchor row was not displayed before Cmd-N: \(rows(list.displayed))")
 
         var frames: [[String]] = []
         list.onApply = { frames.append(rows($0)) }
@@ -104,8 +110,8 @@ struct CmdNInGroupRowSlotTests {
         let controller = try #require(services.windows.controller(for: window))
         let state = controller.state
         let list = controller.sidebar.container.sidebarView.list
-        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { SidebarDocStore.current?.shown != nil }
-        try #require(SidebarDocStore.current?.shown != nil, "the same-tree daemon serves the sidebar document")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { services.sidebarDoc.store?.shown != nil }
+        try #require(services.sidebarDoc.store?.shown != nil, "the same-tree daemon serves the sidebar document")
         func rows(_ layout: SidebarLayout) -> [String] {
             layout.rows.compactMap { if case let .workspace(id) = $0.key { id.rawValue } else { nil } }
         }
@@ -125,7 +131,7 @@ struct CmdNInGroupRowSlotTests {
         try #require(loose.count >= 3, "rows before grouping: \(seeded)")
         let members = Array(loose.prefix(2))
         // The sidebar's New Group of both; a refusal shows in the message below.
-        let doc = try #require(SidebarDocStore.current)
+        let doc = try #require(services.sidebarDoc.store)
         var refused: [String] = []
         let previousRefused = doc.onRefused
         doc.onRefused = { refused.append($0); previousRefused($0) }
@@ -157,7 +163,12 @@ struct CmdNInGroupRowSlotTests {
         let anchor = members[0]
         services.windows.select(anchor, in: state)
         controller.showWorkspace(requested: state.workspaceID)
-        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { state.workspaceID == anchor }
+        let anchorID = WorkspaceID(anchor)
+        let anchorReady = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
+            guard state.workspaceID == anchor, let row = list.rowViews[.workspace(anchorID)], let layoutRow = list.displayed.row(for: .workspace(anchorID)) else { return false }
+            return row.window != nil && row.frame == list.frame(for: layoutRow)
+        }
+        try #require(anchorReady, "anchor row was not displayed before Cmd-N: \(rows(list.displayed))")
         let before = rows(list.displayed)
         let at = try #require(before.firstIndex(of: anchor))
 
@@ -171,7 +182,7 @@ struct CmdNInGroupRowSlotTests {
             tags.append(fresh.map { id in
                 let pending = PendingWorkspaceRows.shared.rows(in: window).contains { $0.id == id } ? "+pend" : ""
                 let provisional = services.machines.workspace(id: id)?.0.isProvisional == true ? "+prov" : ""
-                let item = SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : ""
+                let item = services.sidebarDoc.item(workspace: id) != nil ? "+d" : ""
                 let placing = services.windows.pendingPlacements[id] != nil ? "+placing" : ""
                 let lag = doc.version != doc.shownVersion ? "+lag" : ""
                 let sent = doc.lastIntentKey != intentBefore ? "+sent" : ""

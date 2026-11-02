@@ -22,6 +22,8 @@ final class AccountsService: AccountsServices {
     /// Test launches: detect in this fixture home, with the app's own
     /// environment and no Keychain probe, so no real sign-in is read.
     let fixtureHome: URL?
+    /// The DEBUG auth capture fixture's provider side (`authCaptureFixture`); nil otherwise.
+    private let capture: ProviderCaptureFixture?
     /// The showcase profile uses the package's deterministic account fixture;
     /// it must never read or mutate a user's real credentials.
     private let showcaseMock: MockAccountsServices?
@@ -42,11 +44,12 @@ final class AccountsService: AccountsServices {
         #else
         showcaseMock = nil
         #endif
-        fixtureHome = environment[Self.fixtureHomeKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+        capture = services.environment.authCaptureFixture ? ProviderCaptureFixture() : nil // the flag is DEBUG-only
+        fixtureHome = capture?.home ?? environment[Self.fixtureHomeKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
         let bundleID = services.environment.launch.bundleID
         let storeID = fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"
-        keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
-        labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
+        keys = capture?.keys() ?? KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID), loginKeychain: services.loginKeychain)
+        labels = AccountLabelerStore(provider: capture?.labelSalt ?? KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID), loginKeychain: services.loginKeychain))
         activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
             self?.model.appDidBecomeActive()
         }
@@ -55,6 +58,7 @@ final class AccountsService: AccountsServices {
     /// The detection inputs. The login env is captured once per launch
     /// (keys exported in shell rc files count); only presence is used.
     func detectionEnvironment() async -> DetectionEnvironment {
+        if let capture { return capture.detectionEnvironment(labeler: await labeler()) }
         let keys = keys
         let saved = await Task.detached { keys.savedProviders() }.value
         let labeler = await labeler()
@@ -70,6 +74,7 @@ final class AccountsService: AccountsServices {
 
     /// The account labeler; the first call reads or creates the Keychain salt.
     func labeler() async -> AccountLabeler {
+        if let capture { return capture.labeler }
         let labeler = await labels.labeler()
         if handlesStable, let failure = await labels.saltFailure {
             handlesStable = false
@@ -103,6 +108,8 @@ final class AccountsService: AccountsServices {
 
     var activeTeam: ActiveTeam? { showcaseMock != nil ? showcaseMock?.activeTeam : services.cloud.isSignedIn ? services.cloud.auth.activeTeam : nil }
 
+    var teamBackend: (any AccountsTeamBackend)? { showcaseMock.map { $0 as any AccountsTeamBackend } ?? services.cloud.auth }
+
     func linkedAccounts() async throws -> [LinkedAccount] {
         if let showcaseMock { return try await showcaseMock.linkedAccounts() }
         guard let client else { throw CodeRouterError.notSignedIn }
@@ -127,18 +134,22 @@ final class AccountsService: AccountsServices {
     }
 
     @discardableResult
-    func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) -> Bool {
-        if let showcaseMock { return showcaseMock.reauthenticate(provider, plan: plan) }
-        var opened = false
-        plan.run(line: { opened = runInTerminal($0) }, page: { opened = openPage($0) })
-        return opened
+    func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) async -> Bool {
+        if let showcaseMock { return await showcaseMock.reauthenticate(provider, plan: plan) }
+        switch plan {
+        case .command:
+            guard let line = plan.shellLine else { return false }
+            return await runInTerminal(line)
+        case .page(let url): return await openPage(url)
+        case .none: return false
+        }
     }
 
-    func runClaudeSetupToken() { if let showcaseMock { showcaseMock.runClaudeSetupToken() } else { runInTerminal("claude setup-token") } }
+    func runClaudeSetupToken() async { if let showcaseMock { showcaseMock.runClaudeSetupToken() } else { await runInTerminal("claude setup-token") } }
 
-    func openConsole(_ url: URL) {
+    func openConsole(_ url: URL) async {
         if let showcaseMock { showcaseMock.openConsole(url); return }
-        openPage(url)
+        await openPage(url)
     }
 
     func saveKey(_ key: String, for provider: AIProvider) throws {
@@ -149,20 +160,22 @@ final class AccountsService: AccountsServices {
         if let showcaseMock { try showcaseMock.deleteSavedKey(for: provider) } else { try keys.delete(for: provider) }
     }
 
-    /// Types `line` and Return into a new terminal tab of the focused pane,
+    /// Opens `line` in a local terminal, creating a local workspace when needed,
     /// so the provider's own login runs where the user can see and answer it.
     @discardableResult
-    private func runInTerminal(_ line: String) -> Bool {
-        let opened = services.inFrontPane { $0.newTerminalTab(typing: line + "\r") }
-        if !opened { logger.info("no local pane for a terminal tab") }
+    private func runInTerminal(_ line: String) async -> Bool {
+        let line = capture?.terminalLine ?? line
+        let opened = await services.openLocalProviderLogin(line)
+        if !opened { logger.info("could not open a local provider terminal") }
         return opened
     }
 
-    /// Opens `url` in a new browser tab of the main window's local pane.
+    /// Opens `url` in a local browser tab, creating a local workspace when needed.
     @discardableResult
-    private func openPage(_ url: URL) -> Bool {
-        let opened = services.inFrontPane { $0.newBrowserTab(url: url) }
-        if !opened { logger.info("no local pane for a browser tab") }
+    private func openPage(_ url: URL) async -> Bool {
+        let url = capture?.pageURL ?? url
+        let opened = await services.openLocalProviderPage(url)
+        if !opened { logger.info("could not open a local provider browser") }
         return opened
     }
 }

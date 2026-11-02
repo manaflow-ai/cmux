@@ -58,6 +58,15 @@ final class HomeNewMessageView: NSView {
         // The list's New Chief and Invite rows run the same actions as the Home menu and the palette.
         field.onNewChief = { [weak services] in _ = services?.registry.perform("home.newChief", invocation: ActionInvocation(origin: .user)) }
         field.onInvite = { [weak services] in _ = services?.registry.perform("home.invite", invocation: ActionInvocation(origin: .user)) }
+        // A typed email address offers Invite to Team under it: the action's confirmation dialog, prefilled.
+        field.inviteTeam = { [weak services] in
+            guard let cloud = services?.cloud, cloud.isSignedIn else { return nil }
+            return cloud.auth.activeTeam.team?.displayName
+        }
+        field.onInviteToTeam = { [weak services] address in
+            _ = services?.registry.perform("home.inviteToTeam",
+                                           invocation: ActionInvocation(arguments: ["email": .string(address.description)], origin: .user))
+        }
         field.onChange = { [weak self] _ in self?.recipientsChanged() }
         field.onDone = { [weak self] in self?.focusMessageBox() }
         field.onEscape = { [weak self] in

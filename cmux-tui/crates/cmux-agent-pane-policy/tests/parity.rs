@@ -109,12 +109,13 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
     })
 }
 
-/// The full check in Swift's order (tests/cases/check.json; Swift runs the
-/// same file against `AgentPaneTransport.checkOne`).
+/// The full check in Swift's order (tests/cases/check.json). Only this crate
+/// runs the file: no Swift test reads it, so `AgentPaneTransport.checkOne` has
+/// its own Swift tests (for example `AgentPaneForkRelayTests`).
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 54, "check.json: the full order's 54 cases");
+    assert_eq!(all.as_array().unwrap().len(), 63, "check.json: the full order's 63 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -125,8 +126,8 @@ fn full_check_order() {
             scope.add(session.as_str().unwrap());
         }
         let options = PermissionOptions::new();
-        // A question (state `questions`, crate only: Swift does not read it
-        // yet) is one pending request with its denies and the question mark.
+        // A question (state `questions`) is one pending request with its
+        // denies and the question mark.
         let questions: BTreeSet<&str> = s["questions"]
             .as_array()
             .map(|a| a.iter().map(|q| q.as_str().unwrap()).collect())
@@ -145,9 +146,9 @@ fn full_check_order() {
             for d in s["denies"].as_array().unwrap().iter().filter(|d| d[0] == *q) {
                 listed.push(serde_json::json!({"optionId": d[1], "kind": "reject_once"}));
             }
-            // The shared cases keep the question body out of `state`. Mirror the Swift
-            // parity harness by deriving the pending question's item ids from this frame's
-            // `answers` object, so answer cases exercise the same key allowlist in both hosts.
+            // The shared cases keep the question body out of `state`: the pending
+            // question's item ids come from this frame's `answers` object, so the
+            // answer cases exercise the key allowlist.
             let keys: Vec<String> = c["text"]
                 .as_str()
                 .and_then(|text| serde_json::from_str::<Value>(text).ok())
@@ -215,8 +216,8 @@ fn debug_output_is_redacted() {
     assert!(!shown.contains(&token), "{shown}");
 }
 
-/// The pane's scope and the source rule (tests/cases/sources.json; Swift runs
-/// it against `AcpmuxPaneSessions`).
+/// The pane's scope and the source rule (tests/cases/sources.json). Only this
+/// crate runs the file; no Swift test reads it.
 #[test]
 fn scope_and_sources() {
     for c in cases("sources.json").as_array().unwrap() {

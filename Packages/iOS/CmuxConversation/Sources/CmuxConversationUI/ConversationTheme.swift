@@ -208,7 +208,8 @@ enum ConversationTheme {
     static let footerInset: CGFloat = 20
     static var editedFont: UIFont { font(11, style: .caption2) }
     /// Reply quote text: subheadline, 15 pt at the default size.
-    static var quoteFont: UIFont { cachedFont(FontRequest(name: "quote")) { .preferredFont(forTextStyle: .subheadline) } }
+    /// `replyBalloonTextFont`: caption2 (11 pt at Large).
+    static var quoteFont: UIFont { cachedFont(FontRequest(name: "quote")) { .preferredFont(forTextStyle: .caption2) } }
     /// Status, separators and swipe times are 11 pt caption 2 in Messages (iOS 26).
     static var timestampFont: UIFont { font(11, style: .caption2) }
     /// ChatKit's `transcriptBoldFont`: "Today" in separators, names in
@@ -407,17 +408,32 @@ enum ConversationTheme {
     }
     static let tertiaryText = UIColor.tertiaryLabel
     static let notDelivered = UIColor.systemRed
+    /// ChatKit's `replyLineColor` (iOS 27): black 8 % light, white 16 % dark.
     static let replyThread = UIColor.resolving { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(white: 1, alpha: 0.28)
-            : UIColor(white: 0, alpha: 0.18)
+            ? UIColor(white: 1, alpha: 0.16)
+            : UIColor(white: 0, alpha: 0.08)
     }
 
+    /// A quote of their message: `reply_gray_unfilledBalloonColor` outline and
+    /// `reply_gray_nonMaterialBalloonTextColor` text.
     static let quoteStroke = UIColor.resolving { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(white: 1, alpha: 0.30)
-            : UIColor(white: 0, alpha: 0.22)
+            ? UIColor(white: 1, alpha: 0.22)
+            : UIColor(white: 0, alpha: 0.20)
     }
+    static let quoteText = UIColor.resolving { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(white: 1, alpha: 0.44)
+            : UIColor(white: 0, alpha: 0.44)
+    }
+
+    /// A quote of my message: `reply_blue_unfilledBalloonColor` outline and
+    /// `reply_blue_nonMaterialBalloonTextColor` text, system blue at 40/42 % and 80 %.
+    static let quoteOutgoingStroke = UIColor.resolving { traits in
+        UIColor(red: 0, green: 0.478, blue: 1, alpha: traits.userInterfaceStyle == .dark ? 0.42 : 0.40)
+    }
+    static let quoteOutgoingText = UIColor(red: 0, green: 0.478, blue: 1, alpha: 0.80)
 
     /// Composer text paragraph: the bubble's, natural line height, so the
     /// draft's lines sit where Messages' do and where the sent bubble puts them.

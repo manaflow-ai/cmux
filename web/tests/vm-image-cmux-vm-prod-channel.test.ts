@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bakeOptionsFromArgv } from "../scripts/cmux-vm-image/bake";
 import { imageResourceName, lockDigest } from "../scripts/cmux-vm-image/lock";
-import { accountCheck, parseAnchor, planCopy, recordedFlags } from "../scripts/cmux-vm-image/prod-copy";
+import { accountCheck, planCopy, recordedFlags } from "../scripts/cmux-vm-image/prod-copy";
 import { recordCandidate, recordProductionCopy } from "../scripts/cmux-vm-image/promote-record";
 import { runChild } from "./helpers/run-child";
 
@@ -100,11 +100,12 @@ describe("prod-gate", () => {
     expect(r.stdout).toContain("allows branch feat-cmux-next only");
   });
 
-  test("the account check gets the environment's anchor on production only", () => {
+  test("the account check uses the recorded production snapshot, with no environment anchor", () => {
     const plan = bakeWf.jobs.bake!.steps.find((s) => s.name === "Plan the production copy")!;
-    expect(plan.env!.FREESTYLE_PROD_ANCHOR).toBe("${{ vars.FREESTYLE_PROD_ANCHOR }}");
+    expect(plan.env).not.toHaveProperty("FREESTYLE_PROD_ANCHOR");
     const promote = promoteWf.jobs.promote!.steps.find((s) => s.name === "Promote (fresh-clone smoke on the channel's account)")!;
-    expect(promote.env!.FREESTYLE_PROD_ANCHOR).toBe("${{ inputs.channel == 'production' && vars.FREESTYLE_PROD_ANCHOR || '' }}");
+    expect(promote.env).not.toHaveProperty("FREESTYLE_PROD_ANCHOR");
+    expect(promote.run).not.toContain("FREESTYLE_PROD_ANCHOR");
   });
 
   test("every prod-copy step that holds the key passes it to bun only as a 0600 file", () => {
@@ -225,27 +226,19 @@ describe("prod-copy.ts account-check", () => {
     await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : undefined))).rejects.toThrow(/dev account's key/);
   });
 
-  test("before any production snapshot is recorded, only the environment's FREESTYLE_PROD_ANCHOR identifies the account", async () => {
+  test("refuses a third-account key before any production snapshot is recorded", async () => {
     const { root } = fakeRoot([]);
     const asked: string[] = [];
-    // No anchor: refused, whatever the key sees.
-    await expect(accountCheck(root, async (n) => (asked.push(n), undefined))).rejects.toThrow(/nothing identifies the production account/);
-    await expect(accountCheck(root, async () => ID(5))).rejects.toThrow(/nothing identifies the production account/);
+    // Another account cannot see the dev slug (404); that is not proof of production identity.
+    await expect(accountCheck(root, async (n) => (asked.push(n), undefined))).rejects.toThrow(/no trusted production snapshot/);
     expect(asked).toEqual(["cmuxnp-dev-vmimg-ci-100-1"]);
-    const anchor = parseAnchor("cmux-devbox-prod-1 " + ID(77))!;
-    // The production key resolves the anchor to its id; an arbitrary key does not.
-    expect(await accountCheck(root, async (n) => (n === anchor.snapshot ? anchor.snapshot_id : undefined), anchor)).toContain(`cmux-devbox-prod-1 resolves to the recorded ${ID(77)}`);
-    await expect(accountCheck(root, async () => undefined, anchor)).rejects.toThrow(/not the production account's key/);
-    await expect(accountCheck(root, async () => ID(5), anchor)).rejects.toThrow(/not the production account's key/);
-    // The dev key is refused even when it could see the anchor.
-    await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : anchor.snapshot_id), anchor)).rejects.toThrow(/dev account's key/);
   });
 
-  test("FREESTYLE_PROD_ANCHOR is `<slug> <sh-id>`, never a dev snapshot", () => {
-    expect(parseAnchor(undefined)).toBeUndefined();
-    expect(parseAnchor("  ")).toBeUndefined();
-    expect(parseAnchor(`cmuxnp-prod-vmimg-x ${ID(1)}`)).toEqual({ snapshot: "cmuxnp-prod-vmimg-x", snapshot_id: ID(1) });
-    for (const bad of [ID(1), "slug", `slug ${ID(1)} extra`, `Slug ${ID(1)}`, `cmuxnp-dev-vmimg-x ${ID(1)}`]) expect(() => parseAnchor(bad)).toThrow(/refusing/);
+  test("refuses the dev key when its recorded dev snapshot was deleted and no production anchor exists", async () => {
+    const { root } = fakeRoot([]);
+    // The dev key is valid, but the dev slug was deleted: the provider returns 404 too.
+    const devAccount = new Map([["cmuxnp-dev-vmimg-other", ID(101)]]);
+    await expect(accountCheck(root, async (name) => devAccount.get(name))).rejects.toThrow(/no trusted production snapshot/);
   });
 
   test("once production snapshots are recorded, the key must resolve one of them to its id: a third account is refused", async () => {
@@ -263,6 +256,51 @@ describe("prod-copy.ts account-check", () => {
     writeFileSync(path.join(root, "images/cmux-vm/channels/production.json"), JSON.stringify({ snapshot: "cmuxnp-prod-vmimg-ci-500-1", snapshot_id: ID(500), previous: { snapshot: "cmuxnp-dev-vmimg-ci-100-1", snapshot_id: ID(100) } }));
     expect(await accountCheck(root, async (n) => (n === "cmuxnp-prod-vmimg-ci-500-1" ? ID(500) : undefined))).toContain("account check passed");
     await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : undefined))).rejects.toThrow(/dev account's key/);
+  });
+
+  test("fails closed when a recorded production pointer is malformed", async () => {
+    const current = fakeRoot([]);
+    writeFileSync(path.join(current.root, "images/cmux-vm/channels/production.json"), JSON.stringify({ snapshot: "cmuxnp-prod-vmimg-ci-500-1" }));
+    await expect(accountCheck(current.root, async () => undefined)).rejects.toThrow(/production\.json current is malformed/);
+
+    const team = fakeRoot([]);
+    writeFileSync(path.join(team.root, "images/cmux-vm/channels/production.json"), JSON.stringify({
+      snapshot: "cmuxnp-prod-vmimg-ci-500-1",
+      snapshot_id: ID(500),
+      team_vm: { snapshot: "cmuxnp-prod-vmimg-team-500-1" },
+    }));
+    await expect(accountCheck(team.root, async () => undefined)).rejects.toThrow(/production\.json team_vm is malformed/);
+
+    const history = fakeRoot([devEntry(current.lock, { names: { production: { snapshot: "cmuxnp-prod-vmimg-ci-500-1" } } })]);
+    await expect(accountCheck(history.root, async () => undefined)).rejects.toThrow(/names\.production is malformed/);
+
+    const metadata = fakeRoot([]);
+    writeFileSync(path.join(metadata.root, "images/cmux-vm/channels/production.json"), JSON.stringify({ schema: 1, bogus: true }));
+    await expect(accountCheck(metadata.root, async () => undefined)).rejects.toThrow(/production\.json current is malformed/);
+
+    const teamMetadata = fakeRoot([]);
+    writeFileSync(path.join(teamMetadata.root, "images/cmux-vm/channels/production.json"), JSON.stringify({ schema: 1, env: "production", team_vm: { bogus: true } }));
+    await expect(accountCheck(teamMetadata.root, async () => undefined)).rejects.toThrow(/production\.json team_vm is malformed/);
+  });
+
+  test("accepts the normal first production and team-only channel record shapes", async () => {
+    const first = fakeRoot([]);
+    writeFileSync(path.join(first.root, "images/cmux-vm/channels/production.json"), JSON.stringify({
+      schema: 1,
+      env: "production",
+      snapshot: "cmuxnp-prod-vmimg-ci-500-1",
+      snapshot_id: ID(500),
+      previous: null,
+    }));
+    expect(await accountCheck(first.root, async (n) => (n === "cmuxnp-prod-vmimg-ci-500-1" ? ID(500) : undefined))).toContain("account check passed");
+
+    const team = fakeRoot([]);
+    writeFileSync(path.join(team.root, "images/cmux-vm/channels/production.json"), JSON.stringify({
+      schema: 1,
+      env: "production",
+      team_vm: { snapshot: "cmuxnp-prod-vmimg-team-500-1", snapshot_id: ID(501), previous: null },
+    }));
+    expect(await accountCheck(team.root, async (n) => (n === "cmuxnp-prod-vmimg-team-500-1" ? ID(501) : undefined))).toContain("account check passed");
   });
 
   test("fails closed without a dev pointer to check against", async () => {

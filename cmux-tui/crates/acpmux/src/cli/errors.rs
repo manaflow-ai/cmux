@@ -2,11 +2,14 @@
 //!
 //! Exit codes: 0 ok, 1 runtime or agent error, 2 usage, 3 timeout, 4 no
 //! such session, 5 every permission in the turn was denied or the host
-//! refused a new session (`admission_refused`), 130 interrupted. `code`
+//! refused a new session (`admission_refused`), 6 `session stop --if-idle`
+//! refused: the session is not idle (`busy`) or its revision moved
+//! (`revision_moved`, `hub/stop_if_idle.rs`), 130 interrupted. `code`
 //! is the small stable set orchestrators branch on; `detail` is free text
 //! for diagnostics, or the daemon's own `reason` for a refusal that carries one (then `data` holds the daemon's error data, such
 //! as `cwd_missing` with the missing `cwd`).
 
+use cmux_json::JsonSet as _;
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,6 +19,8 @@ pub enum Code {
     Timeout = 3,
     NoSession = 4,
     PermissionDenied = 5,
+    /// A conditional stop refused (`hub/stop_if_idle.rs`): nothing was stopped.
+    NotIdle = 6,
     /// Reserved: a SIGINT ends the process with the shell's own 130.
     #[allow(dead_code)]
     Interrupted = 130,
@@ -29,6 +34,7 @@ impl Code {
             Code::Timeout => "timeout",
             Code::NoSession => "no_session",
             Code::PermissionDenied => "permission_denied",
+            Code::NotIdle => "not_idle",
             Code::Interrupted => "interrupted",
         }
     }
@@ -77,6 +83,29 @@ impl AppError {
             format!("no session matches {key:?}; run `acpmux ls` or `acpmux ensure {key}`"),
         )
     }
+    /// [`Self::no_session`] for a daemon refusal of `key`, with the names the daemon said
+    /// `key` nearly matched (`session_name::not_found`'s `data.candidates`), so the caller
+    /// can pick one without listing every session.
+    pub fn no_session_from(key: &str, e: &anyhow::Error) -> Self {
+        let candidates: Vec<String> = e
+            .downcast_ref::<crate::client::DaemonError>()
+            .and_then(|d| d.0.data.as_ref())
+            .and_then(|d| d.get("candidates")?.as_array())
+            .map(|c| c.iter().filter_map(|n| n.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default();
+        if candidates.is_empty() {
+            return Self::no_session(key);
+        }
+        Self::new(
+            Code::NoSession,
+            "no_session",
+            format!(
+                "no session matches {key:?}; close matches: {}; use one of those names, or run `acpmux ls`",
+                crate::session_name::candidate_list(&candidates)
+            ),
+        )
+        .with_data(serde_json::json!({"candidates": candidates}))
+    }
     pub fn with_session(mut self, id: &str) -> Self {
         self.session_id = Some(id.to_owned());
         self
@@ -105,7 +134,7 @@ impl AppError {
     pub fn envelope(&self) -> serde_json::Value {
         let mut envelope = serde_json::json!({"error": {"code": self.code.name(), "exit": self.exit_status(), "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}});
         if let Some(data) = &self.data {
-            envelope["error"]["data"] = data.clone();
+            envelope.set_path(&["error", "data"], data.clone());
             for key in ["errorKind", "recovery"] {
                 if let Some(v) = data.get(key) {
                     envelope["error"][key] = v.clone();
@@ -154,6 +183,8 @@ pub fn classify(e: &anyhow::Error) -> AppError {
         // when no host qualifies (`hub/admission.rs`).
         let code = if reason == crate::hub::admission::REASON {
             Code::PermissionDenied
+        } else if daemon.is_some_and(|d| d.0.code == crate::hub::stop_if_idle::NOT_IDLE_CODE) {
+            Code::NotIdle
         } else if daemon.is_some_and(|d| d.0.code == -32602) {
             Code::Usage
         } else {
@@ -173,13 +204,20 @@ pub fn classify(e: &anyhow::Error) -> AppError {
         app.detail = kind.to_owned();
         app.data = Some(data.clone());
     }
+    // The names a key nearly matched (`session_name.rs`) reach the JSON envelope.
+    if let Some(data) = data
+        && data.get("candidates").is_some()
+        && app.data.is_none()
+    {
+        app.data = Some(data.clone());
+    }
     app
 }
 
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
-    if lower.contains("connection closed") {
+    if e.is::<crate::client::TransportClosed>() {
         return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
     }
     if lower.contains("no session matches")
@@ -219,6 +257,19 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
         eprintln!("{}", app.envelope());
     } else {
         eprintln!("{}", app.text());
+        // A name several sessions answer to: the exact command for each (`hub/key_route.rs`).
+        if app.detail == crate::hub::key_route::AMBIGUOUS
+            && let Some(data) = &app.data
+        {
+            let args: Vec<String> = std::env::args().collect();
+            let lines = crate::cli::resolve::choice_commands(&args, data);
+            for line in lines.iter().take(10) {
+                eprintln!("  {line}");
+            }
+            if lines.len() > 10 {
+                eprintln!("  … and {} more (`--json` lists every one)", lines.len() - 10);
+            }
+        }
     }
     std::process::exit(app.exit_status());
 }
@@ -272,6 +323,26 @@ mod typed_error_tests {
         );
     }
 
+    /// A refused `session stop --if-idle` exits 6 with the daemon's reason as its detail, and
+    /// the envelope keeps the revision the caller reads again.
+    #[test]
+    fn a_refused_conditional_stop_exits_6_with_its_reason() {
+        use crate::hub::stop_if_idle::{BUSY, NOT_IDLE_CODE, REVISION_MOVED};
+        for (reason, busy_with) in [(BUSY, json!("turn")), (REVISION_MOVED, json!(null))] {
+            let e = RpcError::new(NOT_IDLE_CODE, "session is not idle: not stopped").with_data(
+                json!({"reason": reason, "busyWith": busy_with, "revision": 41u64, "sessionId": "s", "retryable": true}),
+            );
+            let app = classify(&daemon(e));
+            assert_eq!(app.code, Code::NotIdle);
+            assert_eq!(app.exit_status(), 6);
+            assert_eq!(app.detail, reason);
+            assert!(app.retryable);
+            let env = app.envelope();
+            assert_eq!(env["error"]["code"], "not_idle");
+            assert_eq!(env["error"]["data"]["revision"], 41);
+        }
+    }
+
     /// The daemon refusing work while it shuts down says it is restarting.
     #[test]
     fn a_shutting_down_daemon_says_it_is_restarting() {
@@ -300,6 +371,26 @@ mod typed_error_tests {
         let app = classify(&typed("unknown session s-1"));
         assert_eq!(app.code as i32, 4, "{:?}", app.envelope());
         assert_eq!(app.envelope()["error"]["errorKind"], "agent.exited");
+    }
+
+    /// The names the daemon said a key nearly matched reach the message and the envelope;
+    /// the refusal stays no_session (exit 4), so the send relay still takes it.
+    #[test]
+    fn a_no_session_refusal_names_the_close_matches() {
+        let refused = daemon(crate::session_name::not_found("mac-ci", &["a/mac-ci-3".into()]));
+        let app = AppError::no_session_from("mac-ci", &refused);
+        assert_eq!((app.code, app.detail.as_str()), (Code::NoSession, "no_session"));
+        assert!(app.message.contains("close matches: a/mac-ci-3"), "{}", app.message);
+        assert_eq!(app.envelope()["error"]["data"]["candidates"], json!(["a/mac-ci-3"]));
+        let classified = classify(&refused);
+        assert_eq!(classified.code, Code::NoSession);
+        assert_eq!(classified.envelope()["error"]["data"]["candidates"], json!(["a/mac-ci-3"]));
+        let plain = AppError::no_session_from(
+            "x",
+            &daemon(RpcError::not_found("no session matches \"x\"")),
+        );
+        assert_eq!(plain.message, AppError::no_session("x").message);
+        assert!(crate::cli::send_relay::no_such_session(&app.into()));
     }
 
     /// An error with nothing to add prints as before.

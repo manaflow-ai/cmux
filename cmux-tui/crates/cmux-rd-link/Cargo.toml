@@ -1,0 +1,24 @@
+[package]
+name = "cmux-rd-link"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux remote desktop secure link: Noise_XX handshake bound to the session, sealed datagrams with a replay window, an ordered reliable control channel and path probes (pure, injected clock, no I/O)"
+
+[lints]
+workspace = true
+
+[features]
+# The UDP driver (a thread, one socket, STUN candidates) for the host and the viewer.
+net = ["dep:libc"]
+
+[dependencies]
+libc = { version = "0.2", optional = true }
+snow.workspace = true
+cmux-transport = { path = "../cmux-transport" }
+
+[[test]]
+name = "net"
+required-features = ["net"]

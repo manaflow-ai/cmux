@@ -110,6 +110,7 @@ export type CloudConnectInfo = {
     readonly version: string | null
     readonly capabilities: ReadonlyArray<string>
   }
+  readonly vm_kind: "owner" | "team"
   readonly revision: Revision
 }
 
@@ -201,6 +202,8 @@ export type CloudMachine = {
     readonly at: number
   } | null
   readonly pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null
+  readonly hourly_rate_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly running_since?: number | null
   readonly revision: Revision
 }
 
@@ -226,7 +229,7 @@ export type CloudPlan = {
   readonly usage: {
     readonly active: number
     readonly saved: number
-    readonly vm_hours_used: number | "Infinity" | "-Infinity" | "NaN"
+    readonly vm_hours_used: number | "Infinity" | "-Infinity" | "NaN" | null
     readonly period_end: number
   }
 }
@@ -239,6 +242,41 @@ export type CloudSnapshot = {
   readonly status: "creating" | "ready" | "deleting" | "failed"
   readonly created_at: number
   readonly revision: Revision
+}
+
+export type CloudVmNetworkPolicyView = {
+  readonly schema_version: 2
+  readonly machine: MachineId
+  readonly host: HostId
+  readonly epoch: number
+  readonly receiver_generation: string | null
+  readonly user: UserId
+  readonly install: InstallId
+  readonly team: TeamId
+  readonly origin: string
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly vm: string
+  readonly ipv4: string | null
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly checked_at: number
+  readonly expires_at: number
+  readonly acl_version: number
+  readonly policy_digest: string
+  readonly peers: ReadonlyArray<CloudVmReceiverPeer>
+}
+
+export type CloudVmReceiverPeer = {
+  readonly host: HostId
+  readonly user: UserId
+  readonly install: InstallId
+  readonly device: NativeDeviceId
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly services: ReadonlyArray<"daemon" | "ssh">
 }
 
 export type CodeRef = {
@@ -943,6 +981,7 @@ export type ServerNetworkBinding = {
   readonly mesh: NativeMeshId
   readonly device: NativeDeviceId
   readonly confirmed_at: number
+  readonly install_grant?: GrantId
 }
 
 export type ServerNetworkProof = {
@@ -1659,7 +1698,7 @@ export interface CloudOps {
       readonly environment: CloudEnvironment
     }
   }
-  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. */
+  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team). */
   readonly "cloud.machine.connect_info": {
     readonly params: {
       readonly machine?: MachineId
@@ -1705,7 +1744,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
+  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
   readonly "cloud.machine.link_token": {
     readonly params: {
       readonly host: HostId
@@ -1717,6 +1756,7 @@ export interface CloudOps {
       readonly host: HostId
       readonly epoch: number
       readonly services: ReadonlyArray<"daemon" | "ssh">
+      readonly vm_kind: "owner" | "team"
     }
   }
   /** List the team's Cloud machines one page at a time; no cursor = the first page. `revision` is the team's registry revision when the page was read. */
@@ -1858,6 +1898,27 @@ export interface CloudOps {
     }
     readonly result: {
       readonly delivered: boolean
+    }
+  }
+  /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.network_policy": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: CloudVmNetworkPolicyView
+  }
+  /** Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring. */
+  readonly "cloud.vm.receiver.lifecycle": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly phase: "read" | "begin" | "ready" | "end"
+      readonly expected?: string
+      readonly attempt?: string
+    }
+    readonly result: {
+      readonly machine: MachineId
+      readonly generation: string
+      readonly phase: "idle" | "starting" | "ready" | "stopped"
     }
   }
   /** The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine). */
@@ -3808,6 +3869,8 @@ export const cloudOpMeta = {
   "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
   "cloud.vm.event.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.network_policy": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.vm.receiver.lifecycle": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.self.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.status.report": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },

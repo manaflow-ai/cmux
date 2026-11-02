@@ -3,13 +3,14 @@ import AppKit
 import CmuxNextCloud
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// A Cloud machine an agent or a script asks for is created at once on a paid plan: no
 /// "Create a Cloud machine?" card. The Free plan, a plan with no machines, or a full plan gets one
 /// upgrade card instead (never a plain create confirm), and nothing is sent.
-@MainActor @Suite(.serialized) struct CloudCreateWithoutAskingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CloudCreateWithoutAskingTests {
     @MainActor final class Sent {
         var count = 0
         var prompts: [CloudMachineCreateFlow.Prompt] = []

@@ -62,19 +62,16 @@ impl Hub {
         let admitted = self.admit_new(ask).await?;
         let warning = admitted.warning.clone();
         let id = uuid::Uuid::now_v7().to_string();
-        {
-            let mut meta = source.meta.lock().unwrap_or_else(|e| e.into_inner());
-            meta.fork_requests.insert(
-                request.to_owned(),
-                ForkRequest { prompt_id: prompt.to_owned(), child_id: id.clone() },
-            );
-            // Reserve durably before any native copy or new session. Keep the in-memory
-            // reservation on an I/O error too: a failed write may have reached storage.
-            self.store
-                .save(&meta)
-                .and_then(|()| self.store.flush_session(&source.id))
-                .map_err(|e| refused("fork.incomplete", &e.to_string()))?;
-        }
+        source.meta.lock().unwrap_or_else(|e| e.into_inner()).fork_requests.insert(
+            request.to_owned(),
+            ForkRequest { prompt_id: prompt.to_owned(), child_id: id.clone() },
+        );
+        // Reserve durably before any native copy or new session. The chat's ordered writer
+        // commits it, so no older copy can be written after it. Keep the in-memory
+        // reservation on an I/O error too: a failed write may have reached storage.
+        self.write_meta(source)
+            .and_then(|()| self.store.flush_session(&source.id))
+            .map_err(|e| refused("fork.incomplete", &e.to_string()))?;
         let child = admitted
             .run(self.fork_with_boundary(
                 source,
@@ -84,6 +81,7 @@ impl Hub {
                 None,
                 boundary.through_seq,
                 Some((id, boundary)),
+                false,
             ))
             .await?;
         Ok((child, warning))

@@ -21,6 +21,8 @@ public final class WhatsNewCenter {
     public private(set) var presented: [WhatsNewDocument] = []
     /// Set by the App from `updates.showWhatsNew` and `labs.previewFeatures`: whether the card may show.
     public var isItemEnabled = true
+    /// Whether ``isItemEnabled`` holds the settings' value yet (false: still the default).
+    public var isItemEnabledKnown = false
     /// Whether ``load()`` has finished once.
     public private(set) var isLoaded = false
 
@@ -36,8 +38,8 @@ public final class WhatsNewCenter {
     /// The update this build came from, with its changelog (its lines may
     /// be empty), as the old app recorded it when the update staged. Only
     /// ``dismissUpdated()`` clears it; nil on a first install and after an
-    /// update the old app did not record.
-    public private(set) var lastUpdate: WhatsNewLastUpdate?
+    /// update the old app did not record. Settable inside the module so tests seed the record.
+    public internal(set) var lastUpdate: WhatsNewLastUpdate?
 
     public let current: WhatsNewVersion?
     @ObservationIgnored let seen: WhatsNewSeenStore

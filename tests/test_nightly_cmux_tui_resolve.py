@@ -14,8 +14,11 @@ also runs) and records the tree and commit it used.
 import subprocess
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 import re
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 failures: list[str] = []
@@ -26,7 +29,25 @@ def check(condition: bool, message: str) -> None:
         failures.append(message)
 
 
-text = (ROOT / ".github/workflows/nightly.yml").read_text()
+text = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
+
+
+def expand_step_aliases(source: str) -> str:
+    """Inline `- *name` step aliases with their `- &name` anchor's step, so a job that reuses
+    an anchored step (publish-nightly's publication tooling checkout) is read as written out."""
+    anchors = {m.group(2): (m.group(1), m.group(3)) for m in
+               re.finditer(r"^( *)- &([A-Za-z0-9_-]+)\n((?:\1  .*\n|\n(?=\1  ))+)", source, re.MULTILINE)}
+
+    def inline(m: re.Match) -> str:
+        indent, name = m.group(1), m.group(2)
+        if name not in anchors or anchors[name][0] != indent:
+            return m.group(0)
+        body = anchors[name][1]
+        return f"{indent}- " + body[len(indent) + 2:]
+    return re.sub(r"^( *)- \*([A-Za-z0-9_-]+)\n", inline, source, flags=re.MULTILINE)
+
+
+text = expand_step_aliases(text)
 # The job block: from its key to the next job key (two-space indent), no YAML module needed.
 match = re.search(r"^  resolve-nightly-cmux-tui-client:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", text, re.MULTILINE | re.DOTALL)
 job = match.group(1) if match else ""
@@ -77,8 +98,13 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # verify-recovered-nightly-next smokes the DMG recover-nightly-next-notarization
 # continued, with this run's tools. promote-nightly-next and its -acked job run
 # only on main and check out the promote guard at github.sha; they move a branch
-# and build nothing (#21049).
-exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
+# and build nothing (#21049). route-visual-gate-nightly checks out only the
+# runner-routing scripts at github.sha to pick a capture host, and
+# visual-gate-nightly-verdict only the mode script to read the gate's job; the
+# gate itself checks out the resolved build commit.
+# The advisory attester uses workflow controls and the already-built artifact;
+# its checkout contributes no shipped bytes.
+exempt = {"attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}
@@ -139,6 +165,18 @@ check("${{ github.sha }}" in twice[:start] + twice[end:],
       "dropping the tooling checkout must leave a second checkout that shares its text but adds `/*`")
 check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n") is not None,
       "publish-nightly's `sparse-checkout: scripts` is the tooling checkout")
+
+# This picker ships no source. Keep its exception narrower than a general
+# workflow-SHA checkout: exactly one checkout, only runner tooling, no token persisted.
+legacy_steps = yaml.safe_load(text)["jobs"].get("pick-legacy-identity-runner", {}).get("steps", [])
+legacy_checkouts = [step for step in legacy_steps if str(step.get("uses", "")).startswith("actions/checkout@")]
+check(len(legacy_checkouts) == 1,
+      "legacy runner picker must have exactly one tooling checkout")
+if len(legacy_checkouts) == 1:
+    check(legacy_checkouts[0].get("with") == {
+        "ref": "${{ github.sha }}", "persist-credentials": False, "sparse-checkout": "scripts/ci",
+    }, "legacy runner picker must read only scripts/ci at the workflow commit without persisted credentials")
+exempt.add("pick-legacy-identity-runner")
 
 shipping = [name for name, body in blocks.items() if name not in exempt and "actions/checkout@" in body]
 for name in ("build-nightly-app", "build-sign-notarize-nightly", "publish-nightly", "build-nightly-ghostty-cli-helper"):

@@ -26,6 +26,8 @@ public nonisolated struct BrowserPageRetirement: Sendable {
     @MainActor private func close() {
         tab.close()
         tab.contentView.removeFromSuperview()
+        // Page Info and the Extensions bubble keep their panels between opens: they close for good.
+        chrome.closePopupPanels()
         chrome.removeFromSuperview()
     }
 }

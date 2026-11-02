@@ -51,4 +51,17 @@ import Testing
         #expect(try await call("remove", ["id": .string(own)])["bytes"]?.doubleValue == 0)
         await #expect(throws: PageError.self) { try await call("nothing", [:]) }
     }
+
+    @Test func useMyScreenSaverAnswersItsMovingWallpaperOrNone() async throws {
+        let images = BackdropUserImages(folder: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-own-\(UUID().uuidString)"))
+        let aerial = "/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS/never-on-disk-\(UUID().uuidString).mov"
+        let found = BackdropImagesPageProvider(images: images, use: { _ in "" }, screenSaver: { .system(path: aerial) })
+        let reply = try await found.call(BackdropImagesPageProvider.prefix + "screen_saver", params: [:], context: Self.context)
+        #expect(reply["id"]?.stringValue == "system:\(aerial)")
+        // Not downloaded: the page opens the Wallpaper pane instead of choosing it.
+        #expect(reply["pending"] == .bool(true))
+        let none = BackdropImagesPageProvider(images: images, use: { _ in "" }, screenSaver: { nil })
+        let empty = try await none.call(BackdropImagesPageProvider.prefix + "screen_saver", params: [:], context: Self.context)
+        #expect(empty["id"] == .null)
+    }
 }

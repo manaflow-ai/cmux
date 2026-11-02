@@ -34,4 +34,10 @@ describe("Cloud upgrade plan (See plans)", () => {
     expect(quota).toMatchObject({ t: "reject", code: "cloud.quota.exceeded", details: { limit: STUB_PLAN.max_active, resource: "active" } })
     expect(quota.details).toHaveProperty("plan", cloudEntryPlan())
   })
+
+  it("VM-hours used is unknown (null), never a made-up 0, while the meter is not wired", () => {
+    const view = planView(STUB_PLAN, { active: 1, saved: 0 }, Date.UTC(2026, 9, 31))
+    expect(view.usage.vm_hours_used).toBeNull()
+    expect(Exit.isSuccess(Schema.decodeUnknownExit(CloudPlan)(view))).toBe(true)
+  })
 })

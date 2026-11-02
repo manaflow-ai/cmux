@@ -34,9 +34,13 @@ public final class LinkController {
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
     @ObservationIgnored private var heartbeatTask: Task<Void, Never>?
-    /// How often a live link is pinged, and how long a ping may take.
-    nonisolated static let heartbeat: Duration = .seconds(15)
-    nonisolated static let probeTimeout: Duration = .seconds(8)
+    @ObservationIgnored private var probeTask: Task<Void, Never>?
+    /// Foreground silence is detected within 5 s: 2.5 s until a probe,
+    /// 2 s for any inbound frame, and 0.5 s grace for the FFI boundary.
+    nonisolated static let heartbeat: Duration = .milliseconds(2500)
+    nonisolated static let probeTimeout: Duration = .seconds(2)
+    nonisolated static let backgroundHeartbeat: Duration = .seconds(15)
+    nonisolated static let backgroundProbeTimeout: Duration = .seconds(8)
     /// After a foreground a link that does not answer within this is redialed:
     /// a phone back from the background must not wait 8 s on a dead link.
     nonisolated static let foregroundProbeTimeout: Duration = .milliseconds(2000)
@@ -152,8 +156,9 @@ public final class LinkController {
     public var blockUDP: Bool { machine.blockUDP }
 
     public func send(_ event: LinkMachine.Event) {
+        let wasBackgrounded = machine.isBackgrounded
         let effects = machine.handle(event)
-        quickProbe = event == .foreground && effects.contains { if case .probe = $0 { true } else { false } }
+        quickProbe = (event == .foreground || event == .resume) && effects.contains { if case .probe = $0 { true } else { false } }
         if phase != machine.phase {
             log.info("link \(String(describing: self.machine.phase), privacy: .public)")
             phase = machine.phase
@@ -166,6 +171,11 @@ public final class LinkController {
         if case .waiting(_, _, let reason, _) = machine.phase { lastFailure = reason }
         if machine.phase.isConnected { lastFailure = nil }
         for effect in effects { run(effect) }
+        if wasBackgrounded != machine.isBackgrounded, phase.isConnected {
+            probeTask?.cancel()
+            probeTask = nil
+            startHeartbeat(generation: machine.generation)
+        }
     }
 
     private func run(_ effect: LinkMachine.Effect) {
@@ -174,6 +184,8 @@ public final class LinkController {
             dialTask?.cancel()
             watchTask?.cancel()
             heartbeatTask?.cancel()
+            probeTask?.cancel()
+            probeTask = nil
             retryTask?.cancel()
             prepared = nil
             if let link {
@@ -235,7 +247,8 @@ public final class LinkController {
                 self?.send(.retryDue(generation: generation))
             }
         case .probe(let generation):
-            let timeout = quickProbe ? Self.foregroundProbeTimeout : Self.probeTimeout
+            let timeout = quickProbe ? Self.foregroundProbeTimeout
+                : (machine.isBackgrounded ? Self.backgroundProbeTimeout : Self.probeTimeout)
             quickProbe = false
             probe(generation: generation, timeout: timeout)
         case .quickProbe(let generation):
@@ -244,9 +257,9 @@ public final class LinkController {
     }
 
     private func probe(generation: Int, timeout: Duration) {
-        guard let link else { return }
+        guard let link, phase.isConnected, generation == machine.generation, probeTask == nil else { return }
         let clock = clock
-        Task { [weak self] in
+        probeTask = Task { [weak self] in
             // The link's probe: the pong, or any frame from the Mac within the
             // timeout (a pong behind a busy queue on a slow relay is not a dead
             // link; closing such links was the "peer closed the link" 22 to
@@ -255,7 +268,8 @@ public final class LinkController {
             let result = await Self.race(timeout: timeout + Self.probeGrace, clock: clock) {
                 try await link.probe(timeout: timeout)
             }
-            guard let self else { return }
+            guard let self, !Task.isCancelled, generation == self.machine.generation else { return }
+            self.probeTask = nil
             switch result {
             case .success(let rtt):
                 ConnectTimeline.shared.mark("link_alive", detail: rtt.map { "\($0) ms" } ?? "traffic")
@@ -273,16 +287,13 @@ public final class LinkController {
         self.link = link
         watchTask?.cancel()
         let states = link.states
-        var initialPath = LinkPathKind.direct
         watchTask = Task { [weak self] in
             for await state in states {
-                guard let self else { return }
+                guard let self, !Task.isCancelled, generation == self.machine.generation else { return }
                 switch state {
                 case .connected(_, let path, let rtt):
                     if case .connecting = self.machine.phase {
-                        initialPath = path
-                        self.send(.dialSucceeded(generation: generation, path: path))
-                        self.onLink?(link)
+                        self.connected(link, generation: generation, path: path)
                     }
                     self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
                 case .media(let state):
@@ -294,23 +305,33 @@ public final class LinkController {
                     break
                 }
             }
-            _ = initialPath
         }
-        // Measure RTT once up front so the status line has a number quickly,
-        // then keep probing so a silent Mac is noticed.
-        send(.foreground)
         // A link that knows it is up is connected now: the state stream's first
         // element would only say so a main-actor turn later.
         if let path = link.connectedPath, case .connecting = machine.phase {
-            send(.dialSucceeded(generation: generation, path: path))
-            onLink?(link)
+            connected(link, generation: generation, path: path)
         }
+    }
+
+    /// Both adoption paths start liveness only after the machine is connected.
+    private func connected(_ link: any MacLink, generation: Int, path: LinkPathKind) {
+        send(.dialSucceeded(generation: generation, path: path))
+        onLink?(link)
+        guard generation == machine.generation, phase.isConnected else { return }
+        probe(generation: generation, timeout: machine.isBackgrounded ? Self.backgroundProbeTimeout : Self.foregroundProbeTimeout)
+        startHeartbeat(generation: generation)
+    }
+
+    /// Replaced on scene activity changes; cancelled on close, and stops if
+    /// the controller disappears or a newer link generation takes over.
+    private func startHeartbeat(generation: Int) {
         heartbeatTask?.cancel()
         let clock = clock
+        let interval = machine.isBackgrounded ? Self.backgroundHeartbeat : Self.heartbeat
         heartbeatTask = Task { [weak self] in
             while !Task.isCancelled {
-                do { try await clock.sleep(for: Self.heartbeat) } catch { return }
-                guard let self, generation == self.machine.generation else { return }
+                do { try await clock.sleep(for: interval) } catch { return }
+                guard !Task.isCancelled, let self, generation == self.machine.generation, self.phase.isConnected else { return }
                 self.run(.probe(generation: generation))
             }
         }

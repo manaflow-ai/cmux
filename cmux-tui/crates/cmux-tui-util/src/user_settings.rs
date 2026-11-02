@@ -100,6 +100,17 @@ impl NewWorkspacePlacement {
         }
     }
 
+    /// The value a `workspace.create {placement}` names (`top`,
+    /// `after_current`, `bottom`); `None` for any other text.
+    pub fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "top" => Some(Self::Top),
+            "after_current" => Some(Self::AfterCurrent),
+            "bottom" => Some(Self::Bottom),
+            _ => None,
+        }
+    }
+
     /// The value in the settings file at `path`; the default without one.
     /// Only a regular file is read (never a FIFO or a device).
     pub fn from_config_file(path: &Path) -> Self {

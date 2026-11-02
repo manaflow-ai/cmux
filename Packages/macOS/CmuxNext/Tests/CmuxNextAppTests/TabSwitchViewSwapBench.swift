@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 import WebKit
@@ -14,7 +15,7 @@ import WebKit
 /// and a WebKit browser tab. Prints `TAB-SWITCH-SWAP <case> p50 <ms> p90 <ms> max <ms>`; the checks
 /// are behavioral (each switch shows the tab), not timing budgets. Opt-in: `CMUX_TAB_SWITCH_BENCH=1`.
 @MainActor @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_TAB_SWITCH_BENCH"] == "1"),
-                  .timeLimit(.minutes(2)))
+                  .timeLimit(.minutes(2)), .closesItsWindows)
 struct TabSwitchViewSwapBench {
     /// Not ``PaneParkableContent``: the pane takes it out of the window on a switch away.
     final class Unparked: NSView {}

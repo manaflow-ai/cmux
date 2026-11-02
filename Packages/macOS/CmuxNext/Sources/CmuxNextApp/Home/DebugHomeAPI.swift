@@ -8,7 +8,8 @@ import Foundation
 /// from the debug socket, so a behavior check goes through the real owners.
 /// `{call: "inbox"}`, `{call: "snapshot", conversation, tail?}`,
 /// `{call: "submit", op: {kind, ...}}`; see `op(_:)` for the kinds;
-/// `{call: "chief_switch", choice}` (DebugHome+Hosted.swift); `{call: "rename_chief", conversation, name}`.
+/// `{call: "chief_switch", choice}` (DebugHome+Hosted.swift); `{call: "rename_chief", conversation, name}`;
+/// `{call: "edit_picture", conversation, path, zoom, save}`.
 enum DebugHomeAPI {
     static func handle(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         let (router, me) = await MainActor.run { (services.home.homeRouter, services.home.homeSource.me.id) }
@@ -37,6 +38,12 @@ enum DebugHomeAPI {
                     return failure("no Chief conversation")
                 }
                 return await renameChief(id, to: name, services: services)
+            case "edit_picture":
+                // A picture picked or dropped on the Chief card (issue 27915): Move and Scale opens; `save` presses Save.
+                guard let path = params["path"]?.stringValue else { return failure("path required") }
+                let zoom = params["zoom"]?.doubleValue.map { CGFloat($0) }
+                let save = params["save"]?.boolValue ?? false
+                return await editPicture(params["conversation"]?.stringValue, path: path, zoom: zoom, save: save, services: services)
             case "chief_names":
                 // Every surface's name for `conversation`'s Chief (else the default Chief's), issue 26393.
                 return await MainActor.run { chiefNames(params["conversation"]?.stringValue, services: services) }
@@ -48,7 +55,7 @@ enum DebugHomeAPI {
                 guard let id = params["conversation"]?.stringValue else { return failure("conversation required") }
                 return await MainActor.run { DebugHomeWatch.store(services.home.homeStore, conversation: ConversationID(id)) }
             default:
-                return failure("call must be inbox, snapshot, submit, chief_switch, rename_chief, watch_start, watch_read or store")
+                return failure("call must be inbox, snapshot, submit, chief_switch, rename_chief, edit_picture, watch_start, watch_read or store")
             }
         } catch {
             return failure(String(describing: error))
@@ -61,6 +68,23 @@ enum DebugHomeAPI {
         let failure = await services.home.renameChief(conversation: id, to: name)
         return .object(["ok": .bool(failure == nil), "failure": failure.map { .string(String(describing: $0)) } ?? .null,
                         "names": chiefNames(id, services: services)])
+    }
+
+    /// `edit_picture`: Move and Scale over the Home view showing `conversation`'s Chief (else the
+    /// default Chief's); `opened` is whether the editor showed, `saved` whether Save wrote the picture.
+    @MainActor static func editPicture(_ conversation: String?, path: String, zoom: CGFloat?, save: Bool,
+                                       services: AppServices) async -> JSONValue {
+        let home = services.home
+        guard let id = conversation ?? home.defaultChiefConversation else { return failure("no Chief conversation") }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard let view = home.debugHostViews.allObjects.first(where: { $0.debugConversation == id && $0.window != nil }) else {
+            return failure("no Home view shows \(id)")
+        }
+        let result = await view.debugEditPicture(URL(fileURLWithPath: path), zoom: zoom, save: save)
+        return .object(["ok": .bool(result != nil), "opened": .bool(result != nil), "saved": .bool(result == true)])
+        #else
+        return failure("edit_picture is DEBUG only")
+        #endif
     }
 
     /// `chief_names`: the Chief's name as its tile, header and tab show it, its record's, whether a

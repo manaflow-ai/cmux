@@ -1,7 +1,7 @@
 //! The one workspace order. With the sidebar document (`sidebar-doc-v1`),
 //! `workspace.list` (no `order`, or `order: personal`) lists this machine's workspaces in the document's display
 //! order: section by section (Pinned before the machine sections), each
-//! group's members in place right after the group. A live workspace the
+//! group's members (nested groups' too) in place right after the group. A live workspace the
 //! document does not place yet goes where `workspaces.newPlacement` puts a
 //! new one. The reply shape stays the same; only the array order changes.
 //! `workspace.list {order: session}` keeps the session order, and so does
@@ -12,7 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use cmux_layout_reducer::sidebar_doc::Item;
+use cmux_layout_reducer::sidebar_doc::{Doc, Item};
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -36,44 +36,63 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
         return Ok(None);
     }
     let local = local_registry_id(connection)?;
-    store::with_doc(connection, |doc| {
-        let mut ids = Vec::new();
-        let mut seen = HashSet::new();
-        let mut machine_start = None;
-        let mut archived_start = None;
-        let mut push = |ids: &mut Vec<String>, item: &Item| {
-            if let Some(reference) = item.body.workspace()
-                && reference.session_id == local
-                && seen.insert(reference.workspace_id.clone())
-            {
-                ids.push(reference.workspace_id.clone());
+    store::with_doc(connection, |doc| Ok(Some(order_in(doc, &local))))
+}
+
+/// The order of `local`'s workspaces in `doc` ([`document_order`]).
+pub(crate) fn order_in(doc: &Doc, local: &str) -> DocumentOrder {
+    let mut ids = Vec::new();
+    let mut seen = HashSet::new();
+    let mut machine_start = None;
+    let mut archived_start = None;
+    let mut push = |ids: &mut Vec<String>, item: &Item| {
+        if let Some(reference) = item.body.workspace()
+            && reference.session_id == local
+            && seen.insert(reference.workspace_id.clone())
+        {
+            ids.push(reference.workspace_id.clone());
+        }
+    };
+    for section in doc.sections() {
+        let own = section.kind.machine() == Some(local);
+        if machine_start.is_none() && own {
+            machine_start = Some(ids.len());
+        }
+        for item in doc.list(&section.id, None) {
+            if own {
+                // The archived run is the list's tail: it starts at its first item.
+                archived_start = match (item.archived(), archived_start) {
+                    (true, None) => Some(ids.len()),
+                    (true, start) => start,
+                    (false, _) => None,
+                };
             }
-        };
-        for section in doc.sections() {
-            let own = section.kind.machine() == Some(local.as_str());
-            if machine_start.is_none() && own {
-                machine_start = Some(ids.len());
-            }
-            for item in doc.list(&section.id, None) {
-                if own {
-                    // The archived run is the list's tail: it starts at its first item.
-                    archived_start = match (item.archived(), archived_start) {
-                        (true, None) => Some(ids.len()),
-                        (true, start) => start,
-                        (false, _) => None,
+            push(&mut ids, item);
+            // Every member, nested groups' too, at its group's place.
+            if item.body.is_group() {
+                let mut groups = vec![doc.list(&section.id, Some(item.id.as_str()))];
+                while let Some(members) = groups.last_mut() {
+                    let Some(member) = members.next() else {
+                        groups.pop();
+                        continue;
                     };
-                }
-                push(&mut ids, item);
-                if item.body.is_group() {
-                    for member in doc.list(&section.id, Some(item.id.as_str())) {
-                        push(&mut ids, member);
+                    push(&mut ids, member);
+                    if member.body.is_group() {
+                        groups.push(doc.list(&section.id, Some(member.id.as_str())));
                     }
                 }
             }
         }
-        let machine_start = machine_start.unwrap_or(ids.len());
-        Ok(Some(DocumentOrder { ids, machine_start, archived_start }))
-    })
+    }
+    let machine_start = machine_start.unwrap_or(ids.len());
+    DocumentOrder { ids, machine_start, archived_start }
+}
+
+impl DocumentOrder {
+    /// This machine's workspace ids in display order.
+    pub(crate) fn ids(&self) -> &[String] {
+        &self.ids
+    }
 }
 
 /// Sort `workspaces` (reply objects whose `id_field` is the workspace's

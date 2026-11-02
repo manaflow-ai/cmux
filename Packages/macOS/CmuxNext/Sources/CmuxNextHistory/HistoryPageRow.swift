@@ -46,9 +46,12 @@ struct HistoryPageRow: View {
 
     /// An agent session wears its agent's brand mark (design/agent-icons); other kinds a symbol.
     @ViewBuilder private var icon: some View {
-        if case .agent(let session) = entry.payload {
+        switch entry.payload {
+        case .agent(let session):
             AgentBrandMark(agent: session.provider, size: Metrics.iconSize)
-        } else {
+        case .closed(let item) where item.agentSession != nil:
+            AgentBrandMark(agent: item.agentSession?.harness, size: Metrics.iconSize)
+        default:
             Icon(Self.icon(entry.kind), size: Metrics.iconSize)
         }
     }

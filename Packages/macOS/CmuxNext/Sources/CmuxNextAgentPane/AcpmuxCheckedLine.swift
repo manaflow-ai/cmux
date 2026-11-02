@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -15,8 +16,19 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     private var onLine: (@Sendable (Data) -> Void)?
     private var onClose: (@Sendable () -> Void)?
     private var closed = false
+    /// Mirrors "connected, checked and not closed" for ``personProof(nonce:connection:)``, which
+    /// main-actor callers make: reading it must not wait for `queue`, where a send to a peer
+    /// that stopped reading can sit until its send timeout (``sendTimeoutSeconds``).
+    private let isCheckedOpen = Atomic<Bool>(false)
+    /// Set by ``cancel()`` at once, on the caller's thread, before the queue gets to its close: a gated
+    /// write still queued then is never written (it checks this under the same lock, held through its
+    /// write, so once ``cancel()`` returns no gated write starts).
+    private let cancelled = Mutex(false)
     /// Largest line accepted.
     static let maxLine = 16 * 1024 * 1024
+    /// The longest one send may block when acpmux stops reading (`SO_SNDTIMEO`); the connection
+    /// then ends, so nothing waits on a full socket for good.
+    static let sendTimeoutSeconds = 5
 
     public init(environment: AcpmuxEnvironment) {
         self.environment = environment
@@ -35,6 +47,9 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
                 return finish()
             }
             let fd = descriptor
+            var timeout = timeval(tv_sec: Self.sendTimeoutSeconds, tv_usec: 0)
+            _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+            isCheckedOpen.store(true, ordering: .releasing)
             let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             reader.setEventHandler { [weak self] in self?.readable() }
             reader.setCancelHandler { Darwin.close(fd) }
@@ -49,8 +64,7 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     /// Nil before the check passed, or when this app holds no key for this daemon. The key itself
     /// never leaves this process.
     public func personProof(nonce: String, connection: String) -> String? {
-        let checked = queue.sync { descriptor >= 0 && !closed }
-        guard checked else { return nil }
+        guard isCheckedOpen.load(ordering: .acquiring) else { return nil }
         return AcpmuxPersonKey.proof(socketPath: environment.socketPath, transport: .unix, nonce: nonce,
                                      connection: connection)
     }
@@ -60,7 +74,27 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
         queue.async { [self] in write(data) }
     }
 
+    /// Runs `work` on the line's queue, in order with its writes (tests hold the queue with it).
+    func enqueue(_ work: @escaping @Sendable () -> Void) {
+        queue.async(execute: work)
+    }
+
+    /// Sends `data` only through `gate`, on this queue right before the bytes go out: the gate runs the
+    /// write (holding whatever makes its answer final) or refuses it, and a refused one closes the
+    /// connection, so its request answers nil (a consent grant whose ticket went stale is never sent).
+    /// A line cancelled meanwhile (closed, timed out) writes nothing either, even though its close is
+    /// queued behind this.
+    public func send(_ data: Data, through gate: @escaping @Sendable (() -> Void) -> Bool) {
+        queue.async { [self] in
+            let sent = cancelled.withLock { cancelled in !cancelled && gate { self.write(data) } }
+            if !sent { finish() }
+        }
+    }
+
+    /// Closes the connection. A gated write still queued is never written from the moment this returns
+    /// (``send(_:through:)``); the close itself runs on the queue.
     public func cancel() {
+        cancelled.withLock { $0 = true }
         queue.async { [self] in
             onClose = nil
             onLine = nil
@@ -98,6 +132,7 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     private func finish() {
         guard !closed else { return }
         closed = true
+        isCheckedOpen.store(false, ordering: .releasing)
         // The read source closes the descriptor in its cancel handler, after
         // the source let go of it: closing here could close a descriptor
         // number that another connection already reused. Without a source
