@@ -675258,6 +675258,72 @@
             "state": "translated",
             "value": "使用量の上限で Claude アカウントを切り替え"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijeni Claude račun pri ograničenju korištenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift Claude-konto ved forbrugsgrænse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia account Claude al raggiungimento del limite di utilizzo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរគណនី Claude ពេលដល់ដែនកំណត់ការប្រើប្រាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt Claude-konto ved bruksgrense"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz konto Claude po osiągnięciu limitu użycia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar conta do Claude ao atingir o limite de uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключать учётную запись Claude при достижении лимита"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับบัญชี Claude เมื่อถึงขีดจำกัดการใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım sınırında Claude hesabını değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемикати обліковий запис Claude у разі досягнення ліміту"
+          }
         }
       }
     },
@@ -675316,6 +675382,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Claude アカウントが使用量の上限に達したら、agents.claudeAccounts の次のアカウントで会話を続けます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada Claude račun dostigne ograničenje korištenja, razgovor se nastavlja na sljedećem računu iz agents.claudeAccounts."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en Claude-konto når sin forbrugsgrænse, fortsætter samtalen på den næste konto i agents.claudeAccounts."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando un account Claude raggiunge il limite di utilizzo, la conversazione continua sull’account successivo in agents.claudeAccounts."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលគណនី Claude មួយដល់ដែនកំណត់ការប្រើប្រាស់ ការសន្ទនានឹងបន្តនៅលើគណនីបន្ទាប់ក្នុង agents.claudeAccounts។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en Claude-konto når bruksgrensen, fortsetter samtalen på neste konto i agents.claudeAccounts."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy konto Claude osiągnie limit użycia, rozmowa jest kontynuowana na następnym koncie z agents.claudeAccounts."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando uma conta do Claude atinge o limite de uso, a conversa continua na próxima conta de agents.claudeAccounts."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда учётная запись Claude достигает лимита использования, разговор продолжается в следующей учётной записи из agents.claudeAccounts."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อบัญชี Claude ถึงขีดจำกัดการใช้งาน จะดำเนินการสนทนาต่อในบัญชีถัดไปใน agents.claudeAccounts"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir Claude hesabı kullanım sınırına ulaştığında konuşma agents.claudeAccounts içindeki sonraki hesapta sürer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли обліковий запис Claude досягає ліміту використання, розмова продовжується в наступному обліковому записі з agents.claudeAccounts."
           }
         }
       }
@@ -675376,6 +675508,72 @@
             "state": "translated",
             "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude アカウント 切り替え 使用量の上限 クォータ 使い切り 次のアカウント"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude račun promijeni ograničenje korištenja kvota iscrpljen sljedeći račun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude-konto skift forbrugsgrænse kvote opbrugt næste konto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts account Claude cambia limite di utilizzo quota esaurito account successivo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts គណនី Claude ប្ដូរ ដែនកំណត់ការប្រើប្រាស់ កូតា អស់ គណនីបន្ទាប់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude-konto bytt bruksgrense kvote brukt opp neste konto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts konto Claude przełącz limit użycia wyczerpany następne konto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts conta do Claude trocar limite de uso cota esgotada próxima conta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts учётная запись Claude переключить лимит использования квота исчерпана следующая учётная запись"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts บัญชี Claude สลับ ขีดจำกัดการใช้งาน โควตา หมด บัญชีถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude hesabı değiştir kullanım sınırı kota tükendi sonraki hesap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts обліковий запис Claude перемкнути ліміт використання квота вичерпано наступний обліковий запис"
+          }
         }
       }
     },
@@ -675434,6 +675632,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "額度已用盡，至 %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iscrpljen do %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "opbrugt indtil %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esaurito fino a %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អស់កូតារហូតដល់ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "brukt opp til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wyczerpane do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esgotada até %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "исчерпана до %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โควตาหมดจนถึง %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tarihine kadar tükendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "вичерпано до %@"
           }
         }
       }
@@ -675494,6 +675758,72 @@
             "state": "translated",
             "value": "%1$@ 已達到用量上限（%2$@ 重設）。請在 %3$@ 中確認信任此資料夾，然後繼續。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ je dostigao ograničenje korištenja (resetuje se: %2$@). Potvrdite povjerenje u mapu u računu %3$@, pa nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nåede sin forbrugsgrænse (nulstilles %2$@). Bekræft tillid til mappen i %3$@, og fortsæt derefter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ha raggiunto il limite di utilizzo (azzeramento: %2$@). Conferma l’attendibilità della cartella in %3$@, poi continua."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ បានដល់ដែនកំណត់ការប្រើប្រាស់ (កំណត់ឡើងវិញ៖ %2$@)។ សូមបញ្ជាក់ការទុកចិត្តលើថតនៅក្នុង %3$@ រួចបន្ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nådde bruksgrensen (tilbakestilles %2$@). Bekreft at du stoler på mappen i %3$@, og fortsett deretter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto %1$@ osiągnęło limit użycia (reset: %2$@). Potwierdź zaufanie do folderu na koncie %3$@, a potem kontynuuj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ atingiu o limite de uso (redefinição: %2$@). Confirme a confiança na pasta em %3$@ e depois continue."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись %1$@ достигла лимита использования (сброс: %2$@). Подтвердите доверие к папке в %3$@, затем продолжите."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ถึงขีดจำกัดการใช้งานแล้ว (รีเซ็ต %2$@) ยืนยันว่าเชื่อถือโฟลเดอร์ใน %3$@ แล้วดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kullanım sınırına ulaştı (sıfırlanma: %2$@). %3$@ hesabında klasöre güvendiğinizi onaylayın, ardından devam edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис %1$@ досяг ліміту використання (скидання: %2$@). Підтвердьте довіру до папки в %3$@, а потім продовжте."
+          }
         }
       }
     },
@@ -675552,6 +675882,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ 已達到用量上限。請在 %2$@ 中確認信任此資料夾，然後繼續。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ je dostigao ograničenje korištenja. Potvrdite povjerenje u mapu u računu %2$@, pa nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nåede sin forbrugsgrænse. Bekræft tillid til mappen i %2$@, og fortsæt derefter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ha raggiunto il limite di utilizzo. Conferma l’attendibilità della cartella in %2$@, poi continua."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ បានដល់ដែនកំណត់ការប្រើប្រាស់។ សូមបញ្ជាក់ការទុកចិត្តលើថតនៅក្នុង %2$@ រួចបន្ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nådde bruksgrensen. Bekreft at du stoler på mappen i %2$@, og fortsett deretter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto %1$@ osiągnęło limit użycia. Potwierdź zaufanie do folderu na koncie %2$@, a potem kontynuuj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ atingiu o limite de uso. Confirme a confiança na pasta em %2$@ e depois continue."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись %1$@ достигла лимита использования. Подтвердите доверие к папке в %2$@, затем продолжите."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ถึงขีดจำกัดการใช้งานแล้ว ยืนยันว่าเชื่อถือโฟลเดอร์ใน %2$@ แล้วดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kullanım sınırına ulaştı. %2$@ hesabında klasöre güvendiğinizi onaylayın, ardından devam edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис %1$@ досяг ліміту використання. Підтвердьте довіру до папки в %2$@, а потім продовжте."
           }
         }
       }
@@ -675612,6 +676008,72 @@
             "state": "translated",
             "value": "Claude 帳號：%1$@ → %2$@（自動）"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude račun: %1$@ → %2$@ (automatski)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-konto: %1$@ → %2$@ (automatisk)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account Claude: %1$@ → %2$@ (automatico)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គណនី Claude៖ %1$@ → %2$@ (ស្វ័យប្រវត្តិ)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-konto: %1$@ → %2$@ (automatisk)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto Claude: %1$@ → %2$@ (automatycznie)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conta do Claude: %1$@ → %2$@ (automático)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись Claude: %1$@ → %2$@ (автоматически)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บัญชี Claude: %1$@ → %2$@ (อัตโนมัติ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude hesabı: %1$@ → %2$@ (otomatik)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис Claude: %1$@ → %2$@ (автоматично)"
+          }
         }
       }
     },
@@ -675670,6 +676132,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 沒有在 %@ 輸入 continue：已關閉自動切換帳號。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije upisao continue na računu %@: automatska promjena računa je isključena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skrev ikke continue i %@: automatisk kontoskift blev slået fra."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha digitato continue su %@: il cambio automatico dell’account è stato disattivato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនបានវាយ continue នៅលើ %@ ទេ៖ ការប្ដូរគណនីដោយស្វ័យប្រវត្តិត្រូវបានបិទ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skrev ikke continue i %@: automatisk kontobytte ble slått av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie wpisał continue na koncie %@: automatyczne przełączanie kont zostało wyłączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não digitou continue em %@: a troca automática de conta foi desativada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не ввёл continue в %@: автоматическое переключение учётных записей было выключено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่ได้พิมพ์ continue ใน %@: ปิดการสลับบัญชีอัตโนมัติแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ hesabında continue yazmadı: otomatik hesap değiştirme kapatıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не ввів continue в %@: автоматичне перемикання облікових записів було вимкнено."
           }
         }
       }
@@ -675730,6 +676258,72 @@
             "state": "translated",
             "value": "cmux 沒有在 %@ 輸入 continue：終端機正在使用中。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije upisao continue na računu %@: terminal je bio u upotrebi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skrev ikke continue i %@: terminalen var i brug."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha digitato continue su %@: il terminale era in uso."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនបានវាយ continue នៅលើ %@ ទេ៖ ទែមីណាល់កំពុងត្រូវបានប្រើ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skrev ikke continue i %@: terminalen var i bruk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie wpisał continue na koncie %@: terminal był używany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não digitou continue em %@: o terminal estava em uso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не ввёл continue в %@: терминал использовался."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่ได้พิมพ์ continue ใน %@: เทอร์มินัลกำลังถูกใช้งานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ hesabında continue yazmadı: terminal kullanımdaydı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не ввів continue в %@: термінал використовувався."
+          }
         }
       }
     },
@@ -675788,6 +676382,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 沒有在 %@ 輸入 continue：終端機已關閉。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije upisao continue na računu %@: terminal je zatvoren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skrev ikke continue i %@: terminalen blev lukket."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha digitato continue su %@: il terminale è stato chiuso."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនបានវាយ continue នៅលើ %@ ទេ៖ ទែមីណាល់ត្រូវបានបិទ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skrev ikke continue i %@: terminalen ble lukket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie wpisał continue na koncie %@: terminal został zamknięty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não digitou continue em %@: o terminal foi fechado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не ввёл continue в %@: терминал был закрыт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่ได้พิมพ์ continue ใน %@: เทอร์มินัลถูกปิดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ hesabında continue yazmadı: terminal kapatıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не ввів continue в %@: термінал було закрито."
           }
         }
       }
@@ -675848,6 +676508,72 @@
             "state": "translated",
             "value": "cmux 沒有在 %@ 輸入 continue：恢復的 Claude 工作階段已結束。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije upisao continue na računu %@: nastavljena Claude sesija je završila."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skrev ikke continue i %@: den genoptagne Claude-session sluttede."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha digitato continue su %@: la sessione Claude ripresa è terminata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនបានវាយ continue នៅលើ %@ ទេ៖ វគ្គ Claude ដែលបានបន្តបានបញ្ចប់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skrev ikke continue i %@: den gjenopptatte Claude-økten ble avsluttet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie wpisał continue na koncie %@: wznowiona sesja Claude się zakończyła."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não digitou continue em %@: a sessão do Claude retomada terminou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не ввёл continue в %@: возобновлённый сеанс Claude завершился."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่ได้พิมพ์ continue ใน %@: เซสชัน Claude ที่ดำเนินการต่อสิ้นสุดลงแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ hesabında continue yazmadı: sürdürülen Claude oturumu sona erdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не ввів continue в %@: відновлений сеанс Claude завершився."
+          }
         }
       }
     },
@@ -675906,6 +676632,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 沒有在 %@ 輸入 continue：Claude 在一分鐘內沒有回到空白提示。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije upisao continue na računu %@: Claude nije došao do praznog prompta u roku od minute."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skrev ikke continue i %@: Claude nåede ikke frem til en tom prompt inden for et minut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha digitato continue su %@: Claude non ha raggiunto un prompt vuoto entro un minuto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនបានវាយ continue នៅលើ %@ ទេ៖ Claude មិនបានទៅដល់ប្រអប់បញ្ចូលទទេក្នុងរយៈពេលមួយនាទីទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skrev ikke continue i %@: Claude kom ikke til en tom ledetekst innen ett minutt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie wpisał continue na koncie %@: Claude nie dotarł do pustego wiersza poleceń w ciągu minuty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não digitou continue em %@: o Claude não chegou a um prompt vazio em até um minuto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не ввёл continue в %@: Claude не дошёл до пустой строки ввода за минуту."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่ได้พิมพ์ continue ใน %@: Claude ไม่ได้กลับมาที่พรอมต์ว่างภายในหนึ่งนาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ hesabında continue yazmadı: Claude bir dakika içinde boş bir isteme ulaşmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не ввів continue в %@: Claude не дійшов до порожнього рядка введення протягом хвилини."
           }
         }
       }
@@ -675966,6 +676758,72 @@
             "state": "translated",
             "value": "%@ 已達到用量上限。此終端機已輪過所有其他帳號卻未完成任何一輪回應，因此 cmux 不再自動切換。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je dostigao ograničenje korištenja. Ovaj terminal je već prošao kroz sve ostale račune bez ijednog završenog odgovora, pa ga cmux više ne mijenja automatski."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nåede sin forbrugsgrænse. Denne terminal har allerede været igennem alle de andre konti uden at fuldføre et svar, så cmux holdt op med at skifte den automatisk."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha raggiunto il limite di utilizzo. Questo terminale ha già provato tutti gli altri account senza completare una risposta, quindi cmux ha smesso di cambiarlo automaticamente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានដល់ដែនកំណត់ការប្រើប្រាស់។ ទែមីណាល់នេះបានឆ្លងកាត់គណនីផ្សេងទៀតទាំងអស់រួចហើយ ដោយមិនបានបញ្ចប់ការឆ្លើយតបណាមួយ ដូច្នេះ cmux បានឈប់ប្ដូរវាដោយស្វ័យប្រវត្តិ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nådde bruksgrensen. Denne terminalen har allerede vært gjennom alle de andre kontoene uten å fullføre et svar, så cmux sluttet å bytte den automatisk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto %@ osiągnęło limit użycia. Ten terminal przeszedł już przez wszystkie pozostałe konta bez ukończenia żadnej odpowiedzi, więc cmux przestał go automatycznie przełączać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ atingiu o limite de uso. Este terminal já passou por todas as outras contas sem concluir uma resposta, então o cmux parou de trocá-lo automaticamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись %@ достигла лимита использования. Этот терминал уже прошёл через все остальные учётные записи, не завершив ни одного ответа, поэтому cmux перестал переключать его автоматически."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ถึงขีดจำกัดการใช้งานแล้ว เทอร์มินัลนี้ลองบัญชีอื่นครบทุกบัญชีแล้วโดยไม่ได้ตอบจบสักครั้ง cmux จึงหยุดสลับบัญชีให้โดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kullanım sınırına ulaştı. Bu terminal tek bir yanıtı tamamlamadan diğer tüm hesapları zaten denedi, bu yüzden cmux onu otomatik olarak değiştirmeyi bıraktı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис %@ досяг ліміту використання. Цей термінал уже пройшов через усі інші облікові записи, не завершивши жодної відповіді, тому cmux припинив автоматично перемикати його."
+          }
         }
       }
     },
@@ -676024,6 +676882,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 達到用量上限時仍有背景工作在執行。切換帳號會重新啟動終端機並中止該工作，因此 cmux 沒有切換。請在工作完成後手動切換帳號。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je dostigao ograničenje korištenja dok je pozadinski rad još trajao. Promjena računa ponovo pokreće terminal i zaustavila bi taj rad, pa cmux nije promijenio račun. Promijenite račun ručno kada rad završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nåede sin forbrugsgrænse, mens arbejde i baggrunden stadig kørte. Et kontoskift genstarter terminalen og ville stoppe det arbejde, så cmux skiftede ikke. Skift konto manuelt, når det er færdigt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha raggiunto il limite di utilizzo mentre era ancora in corso un lavoro in background. Cambiare account riavvia il terminale e interromperebbe quel lavoro, quindi cmux non ha cambiato account. Cambia account manualmente quando sarà terminato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានដល់ដែនកំណត់ការប្រើប្រាស់ ខណៈដែលការងារផ្ទៃខាងក្រោយនៅតែកំពុងដំណើរការ។ ការប្ដូរគណនីនឹងចាប់ផ្ដើមទែមីណាល់ឡើងវិញ ហើយនឹងបញ្ឈប់ការងារនោះ ដូច្នេះ cmux មិនបានប្ដូរទេ។ សូមប្ដូរគណនីដោយដៃនៅពេលការងារនោះរួចរាល់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nådde bruksgrensen mens arbeid i bakgrunnen fortsatt kjørte. Et kontobytte starter terminalen på nytt og ville stoppe det arbeidet, så cmux byttet ikke. Bytt konto manuelt når det er ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto %@ osiągnęło limit użycia, gdy w tle nadal trwała praca. Przełączenie konta uruchamia terminal ponownie i przerwałoby tę pracę, więc cmux nie przełączył konta. Przełącz konto ręcznie, gdy praca się zakończy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ atingiu o limite de uso enquanto um trabalho em segundo plano ainda estava em execução. Trocar de conta reinicia o terminal e interromperia esse trabalho, então o cmux não trocou. Troque de conta manualmente quando ele terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись %@ достигла лимита использования, когда фоновая работа ещё выполнялась. Смена учётной записи перезапускает терминал и остановила бы эту работу, поэтому cmux не переключился. Переключите учётную запись вручную, когда работа завершится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ถึงขีดจำกัดการใช้งานขณะที่งานเบื้องหลังยังทำงานอยู่ การสลับบัญชีจะเริ่มเทอร์มินัลใหม่และทำให้งานนั้นหยุด cmux จึงไม่ได้สลับ สลับบัญชีด้วยตนเองเมื่องานเสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kullanım sınırına ulaştığında arka planda hâlâ çalışan bir iş vardı. Hesap değiştirmek terminali yeniden başlatır ve bu işi durdururdu, bu yüzden cmux hesap değiştirmedi. İş bittiğinde hesabı elle değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис %@ досяг ліміту використання, коли фонова робота ще тривала. Перемикання облікового запису перезапускає термінал і зупинило б цю роботу, тому cmux не перемкнув. Перемкніть обліковий запис вручну, коли робота завершиться."
           }
         }
       }
@@ -676084,6 +677008,72 @@
             "state": "translated",
             "value": "%@ 已達到用量上限，但 cmux 無法記錄此狀態，因此沒有自動切換帳號。請手動切換帳號以繼續。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je dostigao ograničenje korištenja, ali cmux to nije mogao zabilježiti, pa nije automatski promijenio račun. Promijenite račun ručno da nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nåede sin forbrugsgrænse, men cmux kunne ikke registrere det, så den skiftede ikke konto automatisk. Skift konto manuelt for at fortsætte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha raggiunto il limite di utilizzo, ma cmux non è riuscito a registrarlo, quindi non ha cambiato account automaticamente. Cambia account manualmente per continuare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានដល់ដែនកំណត់ការប្រើប្រាស់ ប៉ុន្តែ cmux មិនអាចកត់ត្រារឿងនេះបានទេ ដូច្នេះវាមិនបានប្ដូរគណនីដោយស្វ័យប្រវត្តិទេ។ សូមប្ដូរគណនីដោយដៃដើម្បីបន្ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nådde bruksgrensen, men cmux kunne ikke registrere det, så den byttet ikke konto automatisk. Bytt konto manuelt for å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto %@ osiągnęło limit użycia, ale cmux nie mógł tego zapisać, więc nie przełączył konta automatycznie. Przełącz konto ręcznie, aby kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ atingiu o limite de uso, mas o cmux não conseguiu registrar isso, então não trocou de conta automaticamente. Troque de conta manualmente para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись %@ достигла лимита использования, но cmux не удалось это сохранить, поэтому он не переключил учётную запись автоматически. Переключите учётную запись вручную, чтобы продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ถึงขีดจำกัดการใช้งานแล้ว แต่ cmux บันทึกข้อมูลนี้ไม่ได้ จึงไม่ได้สลับบัญชีโดยอัตโนมัติ สลับบัญชีด้วยตนเองเพื่อดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kullanım sınırına ulaştı, ancak cmux bunu kaydedemedi, bu yüzden hesabı otomatik olarak değiştirmedi. Devam etmek için hesabı elle değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис %@ досяг ліміту використання, але cmux не вдалося це зберегти, тому він не перемкнув обліковий запис автоматично. Перемкніть обліковий запис вручну, щоб продовжити."
+          }
         }
       }
     },
@@ -676142,6 +677132,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "未切換 Claude 帳號"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude račun nije promijenjen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-konto ikke skiftet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account Claude non cambiato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានប្ដូរគណនី Claude ទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-konto ikke byttet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie przełączono konta Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conta do Claude não trocada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись Claude не переключена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้สลับบัญชี Claude"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude hesabı değiştirilmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис Claude не перемкнено"
           }
         }
       }
@@ -676202,6 +677258,72 @@
             "state": "translated",
             "value": "%@ 已達到用量上限，但之後終端機有輸入，因此 cmux 沒有切換帳號。請手動切換帳號以繼續。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je dostigao ograničenje korištenja, ali je terminal nakon toga korišten, pa cmux nije promijenio račun. Promijenite račun ručno da nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nåede sin forbrugsgrænse, men terminalen blev brugt bagefter, så cmux skiftede ikke konto. Skift konto manuelt for at fortsætte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha raggiunto il limite di utilizzo, ma il terminale è stato usato in seguito, quindi cmux non ha cambiato account. Cambia account manualmente per continuare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានដល់ដែនកំណត់ការប្រើប្រាស់ ប៉ុន្តែទែមីណាល់ត្រូវបានប្រើបន្ទាប់ពីនោះ ដូច្នេះ cmux មិនបានប្ដូរគណនីទេ។ សូមប្ដូរគណនីដោយដៃដើម្បីបន្ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nådde bruksgrensen, men terminalen ble brukt etterpå, så cmux byttet ikke konto. Bytt konto manuelt for å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto %@ osiągnęło limit użycia, ale terminal był potem używany, więc cmux nie przełączył konta. Przełącz konto ręcznie, aby kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ atingiu o limite de uso, mas o terminal foi usado depois, então o cmux não trocou de conta. Troque de conta manualmente para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись %@ достигла лимита использования, но после этого терминалом пользовались, поэтому cmux не переключил учётную запись. Переключите учётную запись вручную, чтобы продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ถึงขีดจำกัดการใช้งานแล้ว แต่มีการใช้เทอร์มินัลหลังจากนั้น cmux จึงไม่ได้สลับบัญชี สลับบัญชีด้วยตนเองเพื่อดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kullanım sınırına ulaştı, ancak terminal daha sonra kullanıldı, bu yüzden cmux hesap değiştirmedi. Devam etmek için hesabı elle değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис %@ досяг ліміту використання, але потім терміналом користувалися, тому cmux не перемкнув обліковий запис. Перемкніть обліковий запис вручну, щоб продовжити."
+          }
         }
       }
     },
@@ -676261,6 +677383,72 @@
             "state": "translated",
             "value": "%1$@ 已達到用量上限（%2$@ 重設）。已在 %3$@ 上恢復對話。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ je dostigao ograničenje korištenja (resetuje se: %2$@). Razgovor je nastavljen na računu %3$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nåede sin forbrugsgrænse (nulstilles %2$@). Samtalen er genoptaget i %3$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ha raggiunto il limite di utilizzo (azzeramento: %2$@). Conversazione ripresa su %3$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ បានដល់ដែនកំណត់ការប្រើប្រាស់ (កំណត់ឡើងវិញ៖ %2$@)។ បានបន្តការសន្ទនានៅលើ %3$@។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nådde bruksgrensen (tilbakestilles %2$@). Samtalen ble gjenopptatt i %3$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto %1$@ osiągnęło limit użycia (reset: %2$@). Wznowiono rozmowę na koncie %3$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ atingiu o limite de uso (redefinição: %2$@). A conversa foi retomada em %3$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись %1$@ достигла лимита использования (сброс: %2$@). Разговор возобновлён в %3$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ถึงขีดจำกัดการใช้งานแล้ว (รีเซ็ต %2$@) ดำเนินการสนทนาต่อใน %3$@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kullanım sınırına ulaştı (sıfırlanma: %2$@). Konuşma %3$@ hesabında sürdürüldü."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис %1$@ досяг ліміту використання (скидання: %2$@). Розмову відновлено в %3$@."
+          }
         }
       }
     },
@@ -676319,6 +677507,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ 已達到用量上限。已在 %2$@ 上恢復對話。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ je dostigao ograničenje korištenja. Razgovor je nastavljen na računu %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nåede sin forbrugsgrænse. Samtalen er genoptaget i %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ha raggiunto il limite di utilizzo. Conversazione ripresa su %2$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ បានដល់ដែនកំណត់ការប្រើប្រាស់។ បានបន្តការសន្ទនានៅលើ %2$@។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nådde bruksgrensen. Samtalen ble gjenopptatt i %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto %1$@ osiągnęło limit użycia. Wznowiono rozmowę na koncie %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ atingiu o limite de uso. A conversa foi retomada em %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Учётная запись %1$@ достигла лимита использования. Разговор возобновлён в %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ถึงขีดจำกัดการใช้งานแล้ว ดำเนินการสนทนาต่อใน %2$@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kullanım sınırına ulaştı. Konuşma %2$@ hesabında sürdürüldü."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис %1$@ досяг ліміту використання. Розмову відновлено в %2$@."
           }
         }
       }
@@ -676628,6 +677882,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "終端機正在使用中，因此 cmux 沒有切換帳號，保持原狀。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je bio u upotrebi, pa ga je cmux ostavio nepromijenjenim umjesto da promijeni račun."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen var i brug, så cmux lod den være uændret i stedet for at skifte konto."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale era in uso, quindi cmux lo ha lasciato invariato invece di cambiare account."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់កំពុងត្រូវបានប្រើ ដូច្នេះ cmux បានទុកវាដដែល ជំនួសឱ្យការប្ដូរគណនី។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen var i bruk, så cmux lot den være uendret i stedet for å bytte konto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal był używany, więc cmux pozostawił go bez zmian zamiast przełączać konto."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal estava em uso, então o cmux o deixou como estava em vez de trocar de conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал использовался, поэтому cmux оставил его без изменений вместо переключения учётной записи."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลกำลังถูกใช้งานอยู่ cmux จึงปล่อยไว้ตามเดิมแทนการสลับบัญชี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal kullanımdaydı, bu yüzden cmux hesap değiştirmek yerine onu olduğu gibi bıraktı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал використовувався, тому cmux залишив його без змін замість перемикання облікового запису."
           }
         }
       }

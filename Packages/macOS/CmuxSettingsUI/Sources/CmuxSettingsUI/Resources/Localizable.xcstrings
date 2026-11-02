@@ -16859,6 +16859,72 @@
             "state": "translated",
             "value": "使用量の上限で Claude アカウントを切り替え"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijeni Claude račun pri ograničenju korištenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift Claude-konto ved forbrugsgrænse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia account Claude al raggiungimento del limite di utilizzo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរគណនី Claude ពេលដល់ដែនកំណត់ការប្រើប្រាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt Claude-konto ved bruksgrense"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz konto Claude po osiągnięciu limitu użycia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar conta do Claude ao atingir o limite de uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключать учётную запись Claude при достижении лимита"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับบัญชี Claude เมื่อถึงขีดจำกัดการใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım sınırında Claude hesabını değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемикати обліковий запис Claude у разі досягнення ліміту"
+          }
         }
       }
     },
@@ -16918,6 +16984,72 @@
             "state": "translated",
             "value": "Claude アカウントが使用量の上限に達したら、agents.claudeAccounts の次のアカウントで会話を続けます。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada Claude račun dostigne ograničenje korištenja, razgovor se nastavlja na sljedećem računu iz agents.claudeAccounts."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en Claude-konto når sin forbrugsgrænse, fortsætter samtalen på den næste konto i agents.claudeAccounts."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando un account Claude raggiunge il limite di utilizzo, la conversazione continua sull’account successivo in agents.claudeAccounts."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលគណនី Claude មួយដល់ដែនកំណត់ការប្រើប្រាស់ ការសន្ទនានឹងបន្តនៅលើគណនីបន្ទាប់ក្នុង agents.claudeAccounts។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en Claude-konto når bruksgrensen, fortsetter samtalen på neste konto i agents.claudeAccounts."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy konto Claude osiągnie limit użycia, rozmowa jest kontynuowana na następnym koncie z agents.claudeAccounts."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando uma conta do Claude atinge o limite de uso, a conversa continua na próxima conta de agents.claudeAccounts."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда учётная запись Claude достигает лимита использования, разговор продолжается в следующей учётной записи из agents.claudeAccounts."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อบัญชี Claude ถึงขีดจำกัดการใช้งาน จะดำเนินการสนทนาต่อในบัญชีถัดไปใน agents.claudeAccounts"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir Claude hesabı kullanım sınırına ulaştığında konuşma agents.claudeAccounts içindeki sonraki hesapta sürer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли обліковий запис Claude досягає ліміту використання, розмова продовжується в наступному обліковому записі з agents.claudeAccounts."
+          }
         }
       }
     },
@@ -16976,6 +17108,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude アカウント 切り替え 使用量の上限 クォータ 使い切り 次のアカウント"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude račun promijeni ograničenje korištenja kvota iscrpljen sljedeći račun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude-konto skift forbrugsgrænse kvote opbrugt næste konto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts account Claude cambia limite di utilizzo quota esaurito account successivo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts គណនី Claude ប្ដូរ ដែនកំណត់ការប្រើប្រាស់ កូតា អស់ គណនីបន្ទាប់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude-konto bytt bruksgrense kvote brukt opp neste konto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts konto Claude przełącz limit użycia wyczerpany następne konto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts conta do Claude trocar limite de uso cota esgotada próxima conta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts учётная запись Claude переключить лимит использования квота исчерпана следующая учётная запись"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts บัญชี Claude สลับ ขีดจำกัดการใช้งาน โควตา หมด บัญชีถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude hesabı değiştir kullanım sınırı kota tükendi sonraki hesap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts обліковий запис Claude перемкнути ліміт використання квота вичерпано наступний обліковий запис"
           }
         }
       }
