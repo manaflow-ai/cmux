@@ -150,31 +150,50 @@ class Journey:
               f"{' error ' + str(error) if error else ''}", flush=True)
         return row
 
+    def new_workspace(self, ids):
+        before = self.shown()[0]
+        reply = self.action("workspace.newAtBottom")
+        deadline = time.monotonic() + 15
+        current = before
+        while time.monotonic() < deadline:
+            current = self.shown()[0]
+            if current and current != before and current not in ids:
+                break
+            time.sleep(0.05)  # harness: the new workspace takes focus
+        if not current or current == before or current in ids:
+            print(f"SETUP workspace not created: {reply}", flush=True)
+            return None
+        time.sleep(1.0)  # harness: let the shell start before typing into it
+        return current
+
     def make_workspaces(self):
-        ids = []
+        """WORKSPACES switch targets (role print, yes or idle; with --heavy each also gets a split running
+        output, a second split, a second terminal tab and a browser tab), then one idle workspace to type in."""
+        ids, roles = [], {}
+        loop = "while :; do date; ls -la /usr/bin | tail -n 20; sleep 0.05; done\r"
         for index in range(self.opts.workspaces):
-            before = self.shown()[0]
-            reply = self.action("workspace.newAtBottom")
-            deadline = time.monotonic() + 15
-            current = before
-            while time.monotonic() < deadline:
-                current = self.shown()[0]
-                if current and current != before and current not in ids:
-                    break
-                time.sleep(0.05)  # harness: the new workspace takes focus
-            if not current or current == before:
-                print(f"SETUP workspace {index} not created: {reply}", flush=True)
+            current = self.new_workspace(ids)
+            if not current:
                 continue
             ids.append(current)
-            time.sleep(1.0)  # harness: let the shell start before typing into it
-            if index % 2 == 0:
-                cmd = "while :; do date; ls -la /usr/bin | tail -n 20; sleep 0.05; done\r"
-            elif index == 1:
-                cmd = "yes | head -n 300000\r"
-            else:
-                cmd = "echo ready\r"
-            self.action("terminal.sendText", {"text": cmd})
-        return ids
+            role = "print" if index % 2 == 0 else ("yes" if index == 1 else "idle")
+            roles[current] = role
+            self.action("terminal.sendText", {"text": {"print": loop, "yes": "yes | head -n 300000\r",
+                                                         "idle": "echo ready\r"}[role]})
+            if self.opts.heavy:
+                for verb, text in (("splitRight", loop), ("splitDown", "echo ready\r")):
+                    self.action(verb)
+                    time.sleep(0.6)  # harness: the split's shell starts
+                    self.action("terminal.sendText", {"text": text})
+                self.action("newSurface")
+                time.sleep(0.4)  # harness: the tab opens
+                self.action("openBrowser", {"url": "https://example.com"})
+                time.sleep(0.4)  # harness: the browser tab opens
+        typing = self.new_workspace(ids)
+        if typing:
+            self.action("terminal.sendText", {"text": "echo ready\r"})
+            roles[typing] = "typing"
+        return ids, roles, typing
 
     def typing(self, root, rounds):
         rows = []
@@ -206,16 +225,16 @@ class Journey:
         pinger.start()
         failures = []
         try:
-            ids = self.make_workspaces()
-            report["workspaces"] = ids
+            ids, roles, prompt = self.make_workspaces()
+            report["workspaces"], report["roles"] = ids, roles
             print(f"SETUP {len(ids)} workspaces: {ids}", flush=True)
             time.sleep(2.0)  # harness: the printing loops run before the switches
-            switches = []
+            switches, failed_in_row = [], 0
             if len(ids) >= 2:
-                # Every workspace in turn, alternating hops of 1 and 3 so each switch leaves and enters a different one.
-                current, failed_in_row = 0, 0
+                # Every workspace in turn.
+                current = 0
                 for i in range(self.opts.rounds):
-                    current = (current + (1 if i % 2 == 0 else 3)) % len(ids)
+                    current = (current + 1) % len(ids)
                     if self.shown()[0] == ids[current]:
                         current = (current + 1) % len(ids)
                     target = ids[current]
@@ -229,14 +248,15 @@ class Journey:
                 for i in range(5 if failed_in_row < 4 else 0):
                     switches.append(self.timed_switch(f"selectFirst {i}", lambda: self.action("workspace.selectFirst"), None))
                     time.sleep(0.15)
-                    switches.append(self.timed_switch(f"selectLast {i}", lambda: self.action("workspace.selectLast"), ids[-1]))
+                    switches.append(self.timed_switch(f"selectLast {i}", lambda: self.action("workspace.selectLast"), prompt or ids[-1]))
                     time.sleep(0.15)
                 for i in range(5 if failed_in_row < 4 else 0):
                     switches.append(self.timed_switch(f"nextSidebarTab {i}", lambda: self.action("nextSidebarTab"), None))
                     time.sleep(0.15)
             report["switches"] = switches
-            # Type into a prompt workspace (the last one sits at a prompt when WORKSPACES is even).
-            prompt = next((w for i, w in enumerate(ids) if i % 2 == 1 and i != 1), None)
+            # Type into the idle workspace made for it.
+            if failed_in_row >= 4:
+                prompt = None  # the app is stuck: typing would only wait out its timeouts
             if prompt:
                 self.action("goToWorkspace", {"workspace": prompt})
                 self.wait_shown(prompt)
@@ -288,6 +308,7 @@ def main():
     parser.add_argument("--rounds", type=int, default=20)
     parser.add_argument("--typing", type=int, default=10)
     parser.add_argument("--samples", type=int, default=6)
+    parser.add_argument("--heavy", action="store_true", help="each workspace also gets two splits, a second tab and a browser tab")
     opts = parser.parse_args()
     smoke.AFTER_RENDER = Journey(opts)
     os.makedirs(opts.out, exist_ok=True)
