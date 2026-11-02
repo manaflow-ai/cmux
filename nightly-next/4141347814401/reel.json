@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4141347814401",
+  "notes": "notes/4141347814401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31988,
+      "title": "austins-day: a run removes the builds it staged on the capture mini when it ends",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31958,
+      "title": "Session Info: add native activity and running-limit models",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31701,
+      "title": "Prompt rail: a short gutter keeps 8-12 px left of the ticks before the inset shrinks to 4",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31994,
+      "title": "journeys tui-kit: L1 builds the compiled storm itself when it is missing (cargo outside a slot HOME)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31908,
+      "title": "P0 typing under load (F6): a sidebar row maps again only for its own workspace's changes",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32007,
+      "title": "Agent chat: no chat title beside the tools in the pane's tab row",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
