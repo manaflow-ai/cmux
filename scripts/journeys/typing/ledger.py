@@ -56,8 +56,9 @@ def probe_starts(path):
 
 
 def hog_held_gb(run, t0, t1):
-    """The LEAST the hog held during the typing window (its log's t_mono, the clock of the key posts); 0 when its log
-    has no sample in the window (review should-fix 4 at 71bef9a1695)."""
+    """The LEAST the hog held during the typing window [t0, t1] in WALL seconds (smoke_hog.py logs `t` = time.time();
+    the caller adds typist_play's wall_minus_mono); 0 when its log has no sample in the window (review 4 at
+    71bef9a1695)."""
     rows = []
     for h in Path(run).glob("hog-*.jsonl"):
         for l in h.read_text(errors="replace").splitlines():
@@ -66,7 +67,7 @@ def hog_held_gb(run, t0, t1):
             except ValueError:
                 pass
     held = [float(r.get("held_mb") or 0) for r in rows if isinstance(r, dict)
-            and isinstance(r.get("t_mono", r.get("t")), (int, float)) and t0 <= float(r.get("t_mono", r.get("t"))) <= t1]
+            and isinstance(r.get("t"), (int, float)) and t0 <= float(r["t"]) <= t1 and not r.get("released")]
     return round(min(held) / 1024, 2) if held else 0.0
 
 
@@ -147,7 +148,9 @@ def main():
         refresh_ms = meta.get("refresh_ms")
     loads = [s.get("result") or {} for s in res.get("steps", []) if s.get("do") == "load_stop" and s.get("result", {}).get("profile")]
     load_ok = bool(loads) and all(l.get("alive_at_stop") and l.get("focus_changed") is False for l in loads)
-    hog = hog_held_gb(run, min(e["t_post"] for e in events), max(e["t_back"] for e in events))
+    off = plays[0]["result"].get("wall_minus_mono")
+    hog = hog_held_gb(run, min(e["t_post"] for e in events) + off, max(e["t_back"] for e in events) + off) \
+        if off is not None else 0.0
     lag = max([p["result"].get("post_late_ms", {}).get("max") or 0 for p in plays] or [0])
     source = "video" if judged == len(plays) == 2 and (refreshes or missing) else "in-app"
     profile = a.journey.split("typing-load-")[1].split("-")[0].upper()
