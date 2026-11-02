@@ -48,6 +48,7 @@ fn state(blocked: &[&str]) -> SessionExposure {
 
 /// An ACP fake that resolves aliases on `_acpmux/info`, records client traffic,
 /// and sends a pending approval after each forwarded prompt.
+#[allow(clippy::result_large_err)] // tungstenite requires an unboxed HTTP response in its handshake callback
 async fn fake_acpmux() -> (String, mpsc::UnboundedReceiver<Value>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("ws://{}/", listener.local_addr().unwrap());
