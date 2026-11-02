@@ -6439,10 +6439,22 @@ export class AcpmuxDirectClient {
   /// A New Tab start suspended for Trust settles when its selection or client goes away.
   private cancelTrustStart?: () => void;
 
+  /// A permission mode picked in a chat that starts with its first send (a Cloud or other remote
+  /// machine's, `startsOnSend`) before that send started it: the session the send starts takes it
+  /// before the prompt goes (ensureSession), as a New Tab start's held pick does (harnessSwitch.ts).
+  /// `ticket`: the pick's gesture, taken at the click (pane-native transport). A failed start keeps
+  /// it for the next send; another chat selected before the send drops it.
+  private heldStartMode?: { modeId: string; ticket?: Promise<string | undefined>; generation: number };
+  holdStartMode(modeId: string, ticket?: Promise<string | undefined>): void {
+    this.heldStartMode = { modeId, ticket, generation: this.selectionGeneration };
+  }
+
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
     if (this.creating || !this.selectedSessionId) {
+      const held = this.heldStartMode?.generation === this.selectionGeneration ? this.heldStartMode : undefined;
+      if (!held) this.heldStartMode = undefined;
       // A rejected seeded peer start stays sessionless. The next Send retries that peer,
       // with its own folder, instead of silently falling back to a local session.
       const sessionId = await (this.creating ??
@@ -6450,6 +6462,13 @@ export class AcpmuxDirectClient {
       // The app also calls this before send(): an empty result must stop that preflight,
       // otherwise send() would ensure again after the failed creation has been cleared.
       if (!sessionId) throw new Error(translate("error.notOpen"));
+      if (held && this.heldStartMode === held) {
+        this.heldStartMode = undefined;
+        // A held mode the agent refuses says so, as the switch's does; the prompt still goes.
+        await this.setMode(held.modeId, await held.ticket?.catch(() => undefined)).catch((error: unknown) => {
+          this.notice(translate("switch.modeFailed", { mode: held.modeId, reason: errorMessage(error) || "?" }));
+        });
+      }
       return sessionId;
     }
     return this.selectedSessionId;
