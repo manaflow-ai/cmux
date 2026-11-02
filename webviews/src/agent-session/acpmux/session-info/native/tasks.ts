@@ -87,7 +87,7 @@ export function tasksSection(
   const { workflows, scheduled, now } = input;
   if (servers.length + commands.length + scheduled.length + workflows.length === 0) return undefined;
   const stop = (id: string, name: string, run: (id: string) => Promise<unknown>, key: string): NativeInfoButton => {
-    const operationKey = key.includes("Workflow") ? `workflow:${id}` : `process:${id}`;
+    const operationKey = key.startsWith("tasks.stopWorkflow:") ? `workflow:${id}` : `process:${id}`;
     const state = input.operations?.[operationKey];
     return {
       label: t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name }),
