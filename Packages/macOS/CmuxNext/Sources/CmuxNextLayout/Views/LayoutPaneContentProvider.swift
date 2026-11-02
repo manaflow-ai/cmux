@@ -16,12 +16,13 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// The host clips the held page and lays it out once when the spring lands.
     func holdsContentInMotion(for pane: PaneID) -> Bool
     /// The pane's content goes: torn down now. Called in the update the pane left the layout, or, for a pane a
-    /// springing close or a zoom retired (``retainContentView(_:for:retired:)``), when that motion lands.
+    /// springing close retired (``retainContentView(_:for:retired:)``), when that motion lands; for a pane a zoom
+    /// covers, when the unzoomed layout no longer has it.
     func releaseContentView(_ view: NSView, for pane: PaneID)
-    /// `retired` true: the pane left the layout in this update, but its host is only hidden until a close's motion
-    /// lands or its zoom ends (`LayoutViewContext.retire`): the provider stops counting it as shown now and keeps its
-    /// content for ``releaseContentView(_:for:)`` or its return. False: the layout took the same host back (a close
-    /// taken back before it landed, an unzoom), as if made again.
+    /// `retired` true: a springing close took the pane out of the layout in this update, but its host is only hidden
+    /// until the motion lands (`LayoutViewContext.retire`): the provider stops counting it as shown now and keeps its
+    /// content for ``releaseContentView(_:for:)`` or its return. False: the layout took that host back (a close taken
+    /// back before it landed), as if made again. A zoom's covered panes stay in the layout model and get neither.
     func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool)
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.
@@ -136,7 +137,7 @@ final class LayoutViewContext {
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
             hosts[pane] = entry.host
-            provider?.retainContentView(entry.host.content, for: pane, retired: false)
+            if entry.until == .landing { provider?.retainContentView(entry.host.content, for: pane, retired: false) }
             return entry.host
         }
         let content = provider?.makeContentView(for: pane) ?? NSView()
@@ -184,8 +185,9 @@ final class LayoutViewContext {
         host.isHidden = true
         host.chrome.isHidden = true
         retired[pane] = (host, screen, until)
-        // It left the layout now: the provider's shown panes lose it in this update, only its teardown waits.
-        provider?.retainContentView(host.content, for: pane, retired: true)
+        // A close took it out of the layout now: the provider's shown panes lose it in this update, only its teardown
+        // waits. A zoom's covered pane is still in the layout (its focus topology, theme, suspend): the provider keeps it.
+        if until == .landing { provider?.retainContentView(host.content, for: pane, retired: true) }
     }
 
     /// Tears down the hosts `screen` retired until `until` (a close's: its motion landed or it settles at once; a

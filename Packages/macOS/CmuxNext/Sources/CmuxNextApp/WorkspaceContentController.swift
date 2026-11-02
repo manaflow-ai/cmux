@@ -33,7 +33,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     unowned let state: WindowState
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
-    private var retiredPanes: [LayoutPaneID: PaneController] = [:] // out of the layout, kept for their teardown (retainContentView)
+    private var retiredPanes: [LayoutPaneID: PaneController] = [:] // closed, kept for their teardown (retainContentView)
     private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
@@ -415,8 +415,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         services.paneMounts.changed()
     }
 
-    /// A springing close or a zoom hid `pane` until its motion lands: it leaves `panes` (what the window shows) in this
-    /// update, so no key, focus or lookup finds a closed pane; only its teardown waits. Taken back, it shows again.
+    /// A springing close hid `pane` until its motion lands: it leaves `panes` (what the window shows) in this update, so
+    /// no key, focus or lookup finds a closed pane; only its teardown waits. Taken back, it shows again.
     func retainContentView(_ view: NSView, for pane: LayoutPaneID, retired: Bool) {
         if retired { retiredPanes[pane] = panes.removeValue(forKey: pane) } else if let back = retiredPanes.removeValue(forKey: pane) { panes[pane] = back; sendTopology() }
         services.paneMounts.changed()
