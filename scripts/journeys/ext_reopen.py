@@ -1374,7 +1374,7 @@ def step_window_probe(j, step):
     visible, key, parent, level), debug.focus, debug.layers, debug.input, the window server's on-screen windows of the
     app (front to back) and a snapshot, to probe-NAME.json / probe-NAME.png. Evidence only: no check, and a method this
     build does not have is recorded as its error."""
-    name = re.sub(r"[^A-Za-z0-9_-]", "_", step["name"])
+    name = re.sub(r"[^a-z0-9-]", "-", step["name"].lower())
     out = {"front_pid": front_pid(), "app_pid": j.app.pid}
     for method in ("debug.window_list", "debug.focus", "debug.layers", "debug.input"):
         try:
