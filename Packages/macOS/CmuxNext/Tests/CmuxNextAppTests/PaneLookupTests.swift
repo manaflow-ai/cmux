@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextDaemon
@@ -130,5 +131,23 @@ struct PaneLookupTests {
         }
         #expect(context.daemonPane(PaneController.zoomInvocation(pane: fixture.localPanes[1].id)) == nil,
                 "a bare paneKey two machines share stays ambiguous")
+    }
+
+    /// An agent tab's open in editor (`file.open` where `editor`, also Session Info Sources and the
+    /// Diff page) and its preview open run on the agent pane's own machine.
+    @Test func agentFileAndPreviewOpensAreScopedToTheirOwnMachine() throws {
+        let fixture = try Fixture()
+        let context = AppActionContext(services: fixture.services)
+        var runs: [ActionInvocation] = []
+        fixture.services.registry.bind(.fileOpen, invoke: { runs.append($0) })
+        fixture.services.registry.bind(.openBrowser, invoke: { runs.append($0) })
+        for (pane, machine) in [(fixture.localPanes[1], MachineRegistry.localID), (fixture.remotePanes[1], fixture.remote.machineID)] {
+            runs = []
+            #expect(fixture.services.registry.openAgentFile(path: "/tmp/a.swift", target: .editor, pane: pane.id, machineID: machine))
+            #expect(fixture.services.registry.openAgentPreview(URL(fileURLWithPath: "/tmp/a.html"), pane: pane.id, machineID: machine))
+            #expect(runs.map(\.targetMachineID) == [machine, machine])
+            #expect(runs.map { $0["where"]?.stringValue } == ["editor", nil])
+            for run in runs { #expect(context.daemonPane(run) === pane) }
+        }
     }
 }
