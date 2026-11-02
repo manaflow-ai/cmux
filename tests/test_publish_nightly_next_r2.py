@@ -346,6 +346,59 @@ class WriteFeedTests(FeedWriteCase):
             self.assertEqual(r2.item_source(merged.encode(), 200), source)
 
 
+# The live feed of 2026-11-01: the newest item binds cmux: inline, an item carried
+# from an older feed uses a bare <cmux:sourceCommit>, and the <rss> root declares
+# only sparkle:. Every XML reader refused it ("unbound prefix").
+UNBOUND_LIVE = ('<?xml version="1.0" encoding="utf-8"?><rss xmlns:sparkle="http://www.andymatuschak.org/'
+                'xml-namespaces/sparkle" version="2.0"><channel><title>cmux NEXT</title>'
+                '<item><sparkle:version>150</sparkle:version><enclosure url="x" length="1" sparkle:edSignature="s"/>'
+                '<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">' + "c" * 40
+                + '</cmux:sourceCommit></item>'
+                '<item><sparkle:version>100</sparkle:version><enclosure url="x" length="1" sparkle:edSignature="s"/>'
+                '<cmux:sourceCommit>' + "b" * 40 + '</cmux:sourceCommit></item></channel></rss>').encode()
+
+
+class FeedPrefixTests(FeedWriteCase):
+    def test_a_carried_item_relying_on_the_old_root_keeps_its_prefix_bound(self) -> None:
+        # The live root declares cmux:, its item does not; this run's new item binds it
+        # inline. That inline binding must not stand in for the root's.
+        live = feed((100, "x", 1), source={100: "b" * 40}).encode()
+        with mock.patch.object(r2, "source_order", return_value=True):
+            self.assertEqual(self.run_with([live], [0], source_sha="a" * 40), 0)
+        written = self.path.read_bytes()
+        root = ET.fromstring(written)
+        self.assertIn('xmlns:cmux="https://cmux.com/xml-namespaces/cmux"', written.split(b">", 2)[1].decode())
+        self.assertEqual(len(root.findall("./channel/item")), 2)
+        self.assertEqual(r2.item_source(written, 200), "a" * 40)
+        self.assertEqual(r2.item_source(written, 100), "b" * 40)
+
+    def test_a_live_feed_with_an_unbound_prefix_is_read_and_repaired(self) -> None:
+        self.assertEqual(r2.newest_build(UNBOUND_LIVE), 150)
+        self.assertEqual(r2.item_source(UNBOUND_LIVE, 150), "c" * 40)
+        with mock.patch.object(r2, "source_order", return_value=True):
+            self.assertEqual(self.run_with([UNBOUND_LIVE], [0], source_sha="a" * 40), 0)
+        self.assertIn("feed_written=true", self.output.read_text())
+        written = self.path.read_bytes()
+        ET.fromstring(written)
+        self.assertEqual(r2.item_source(written, 200), "a" * 40)
+        self.assertEqual(r2.item_source(written, 150), "c" * 40)  # KEEP_BUILDS: 100 drops out
+
+    def test_a_feed_that_does_not_parse_is_never_uploaded(self) -> None:
+        live = feed((100, "x", 1), source={100: "b" * 40}).encode()
+        with mock.patch.object(r2, "source_order", return_value=True), \
+                mock.patch.object(r2, "bind_feed_prefixes", lambda xml: xml):
+            with self.assertRaisesRegex(RuntimeError, "does not parse"):
+                self.run_with([live], [0], source_sha="a" * 40)
+        self.assertEqual(self.calls, [])
+
+    def test_binding_is_idempotent_and_leaves_bound_feeds_alone(self) -> None:
+        bound = feed((100, "x", 1), source={100: "b" * 40}).encode()
+        self.assertEqual(r2.bind_feed_prefixes(bound), bound)
+        once = r2.bind_feed_prefixes(UNBOUND_LIVE)
+        self.assertEqual(r2.bind_feed_prefixes(once), once)
+        self.assertEqual(once.count(b'xmlns:cmux="https://cmux.com/xml-namespaces/cmux"'), 2)  # root + inline
+
+
 class CompiledSourceMigrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.source = "a" * 40

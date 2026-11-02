@@ -15,11 +15,12 @@ import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
 import { cardOffset, type MinimapTurnMetadata, type ReplyBlock } from "./model";
+import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
   const side = Math.max(4, Math.floor((max - 1) / 2));
-  return `${value.slice(0, side)}…${value.slice(-side)}`;
+  return `${sliceWhole(value, side)}…${sliceWholeEnd(value, side)}`;
 };
 
 const linkLabel = (href: string) => {

@@ -19,11 +19,20 @@ function GalleryPicker({ repos }: Props) {
       <SessionInfoPanel width={320} placement="overlay">
         <ul className="acpmux-session-info-list">
           <li>
-            <button ref={anchor} type="button" className="acpmux-session-info-row acpmux-session-info-row--button" onClick={() => setOpen(true)}>
+            <button
+              ref={anchor}
+              type="button"
+              className="acpmux-session-info-row acpmux-session-info-row--button"
+              onClick={() => setOpen(true)}
+            >
               <span className="acpmux-session-info-row__name">Add repository…</span>
             </button>
           </li>
-          {attached.map((repo) => <li key={repo} className="acpmux-session-info-row"><span className="acpmux-session-info-row__name">{repo}</span></li>)}
+          {attached.map((repo) => (
+            <li key={repo} className="acpmux-session-info-row">
+              <span className="acpmux-session-info-row__name">{repo}</span>
+            </li>
+          ))}
         </ul>
         <CloudRepositoryPicker
           session="cloud-demo"

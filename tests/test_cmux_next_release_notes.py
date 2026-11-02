@@ -33,6 +33,20 @@ class ReleaseNotesTests(unittest.TestCase):
         titles = [entry["title"]["en"].lower() for entry in digest["entries"]]
         self.assertEqual(len(titles), len(set(titles)), titles)
 
+    def test_short_title_never_cuts_inside_parentheses(self):
+        # Leo 2026-11-01: What's New showed "Routing follow-ups (trim recovered route" over
+        # "Prepared presets only, cap before split).", one line cut at a comma inside its parens.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_parens", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        line = "Routing follow-ups (trim recovered route, prepared presets only, cap before split)"
+        self.assertIsNone(notes.short_title(line, 60))
+        self.assertEqual(
+            notes.short_title("Routing follow-ups (trim route, presets only), and the cap moves before the split in every pass", 60),
+            "Routing follow-ups (trim route, presets only)",
+        )
+
     def setUp(self):
         self.repo = tempfile.mkdtemp()
         git(self.repo, "init", "-q")

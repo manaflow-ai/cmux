@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import type { RunMode } from "./sandboxRun";
+import { translate } from "./i18n";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -113,6 +114,22 @@ async function open(container: HTMLElement) {
   await settle();
 }
 
+/// The machine list: Machines… on the control's right-click menu (the main list is This Mac and Cloud).
+async function openMachines(container: HTMLElement) {
+  const button = container.querySelector<HTMLButtonElement>(".acpmux-location-button")!;
+  await act(async () =>
+    button.dispatchEvent(
+      new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+    (candidate) => candidate.textContent === translate("composer.machinesList"),
+  );
+  expect(item).toBeTruthy();
+  await act(async () => item!.click());
+  await settle();
+}
+
 async function choose(selector: string) {
   const row = document.querySelector<HTMLElement>(`.acpmux-env-popover ${selector}`);
   expect(row).not.toBeNull();
@@ -142,7 +159,7 @@ test("picking Cloud again changes nothing and still focuses the prompt", async (
 
 test("a machine picked while Cloud is the mode makes the chat a chat here again", async () => {
   const { container, modes, picks } = await render("cloud");
-  await open(container);
+  await openMachines(container);
   await choose('[data-kind="ssh"]');
   expect(modes).toEqual(["persistent"]);
   expect(picks).toEqual(["gpu-box"]);
