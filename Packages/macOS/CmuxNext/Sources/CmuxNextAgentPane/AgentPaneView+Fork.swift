@@ -8,7 +8,7 @@ extension AgentPaneView {
     ///
     /// The request is the user's gesture, as a native permission shortcut is.
     public func forkConversation(to destination: AgentForkDestination, offerDestinations: Bool = false) {
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         if offerDestinations, let event = NSApp.currentEvent, event.type == .leftMouseUp, event.modifierFlags.contains(.option) {
             popUpForkMenu()
         } else {
@@ -17,7 +17,7 @@ extension AgentPaneView {
     }
 
     public func chooseForkDestination() {
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         popUpForkMenu()
     }
 

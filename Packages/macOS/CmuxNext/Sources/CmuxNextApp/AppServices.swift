@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
@@ -55,6 +56,8 @@ final class AppServices {
     let activeLook = ActiveLookScope()
     /// The batch closes of selected sidebar rows under way, read by every batch close and Close Workspace.
     let selectionCloses = WorkspaceSelectionCloseFlow.Running()
+    /// The incognito workspaces' chat purges under way (``IncognitoChats``); the quit drains them.
+    let incognitoChats = IncognitoChats()
     /// The recovery-draft backstop of unsaved documents (R96).
     let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
@@ -160,9 +163,9 @@ final class AppServices {
     })
     /// This Mac's one-line join consent (Settings > Devices' switches, the one-time sheet), behind labs.machineJoin.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
-    /// The app's latest key or mouse input and whether it was the person's (HID system): backs a consent
-    /// grant made in a page. Started at launch.
-    let personInput = PersonInputLedger()
+    /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
+    /// table of posting processes (`personInput.sources`): backs a consent grant made in a page. Started at launch.
+    let personInput = PersonInputLedger(sources: EventSourceProcesses())
     /// Process-wide widening-switch gate shared by every Settings window.
     let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
@@ -408,10 +411,10 @@ final class AppServices {
     /// Each Chief's own uploaded avatar, kept on this Mac only (Application Support/<bundle id>/AvatarUploads).
     let chiefAvatarUploads = ChiefAvatarUploads(folder: ChiefAvatarUploads.defaultFolder)
 
-    /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no
-    /// avatar of its own: its worn upload's first frame, else its pet character's.
-    func characterPicture(of chief: String?) -> URL? {
-        ChiefPetSettingsRows.characterPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot)
+    /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no avatar
+    /// of its own: its worn upload's first frame, else the character it picked, else nil (its monogram).
+    func chosenPicture(of chief: String?) -> URL? {
+        ChiefPetSettingsRows.chosenPicture(of: chief, picks: chiefMascotPicks, uploads: chiefAvatarUploads, in: settings?.snapshot, file: settings?.fileRoot)
     }
 
     /// Chief `chief`'s (nil: the default) upload while it is worn over the character picked now.
@@ -488,6 +491,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
     private(set) lazy var chatQuoteOpeners = ChatQuoteOpeners()
+    /// This Mac's acpmux session lanes: the turn-state watch writes them, readers look a session up by id.
+    let agentLanes = AgentLaneStore.shared
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
     /// Relays the Chats index and editor sources into the daemon's project list.
@@ -716,7 +721,7 @@ final class AppServices {
         _ = previews  // built here, as before
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
-        WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
+        WorkspaceClose.willClose = { [weak self] workspace in guard let self else { return }; remoteTerminals.workspaceClosing(workspace); incognitoChats.closing(workspace, self) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
         // A pane verb on a pane still opening was not sent: the refusal path logs it and shows it (P0 rule a; every

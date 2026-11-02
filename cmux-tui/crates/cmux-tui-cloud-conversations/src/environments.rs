@@ -32,15 +32,7 @@ impl CloudConversations {
         // The verified native app supplies the existing platform resolver's origin and a
         // freshly minted cmux install token. Neither is a page parameter or a Home lease.
         let base = url::Url::parse(origin).map_err(|_| invalid())?;
-        let loopback = matches!(base.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-        let platform = base.host_str().is_some_and(|host| host.ends_with(".debussy.workers.dev"))
-            && base.port().is_none();
-        if !(base.scheme() == "https" && platform || base.scheme() == "http" && loopback)
-            || !base.username().is_empty()
-            || base.password().is_some()
-            || base.query().is_some()
-            || base.fragment().is_some()
-            || base.path() != "/"
+        if !super::platform::accepts_environment_origin(&base)
             || access_token.is_empty()
             || access_token.len() > 8192
         {
@@ -86,7 +78,7 @@ impl CloudConversations {
             }
             "derive" => {
                 if params.keys().any(|key| !["repo", "ref", "environment"].contains(&key.as_str()))
-                    || !params.get("repo").and_then(Value::as_str).is_some_and(|s| !s.is_empty())
+                    || params.get("repo").and_then(Value::as_str).is_none_or(|s| s.is_empty())
                 {
                     return Err(invalid());
                 }

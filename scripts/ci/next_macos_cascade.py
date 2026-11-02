@@ -140,6 +140,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
 import simple_pool_picker as _picker_rule  # noqa: E402 - the one Blacksmith stall rule
+import github_spend  # noqa: E402 - per-token request counts, reported when the step exits
 
 LARGE = "blacksmith-12vcpu-macos-26"
 SMALL = "blacksmith-6vcpu-macos-26"
@@ -367,6 +368,12 @@ class Seen:
     stale: bool = False
     # The LABELS the snapshot, fresh or not, shows dead (dead()).
     dead: frozenset[str] = frozenset()
+    # The owned labels the janitor found unserved (queue_janitor.py's `unserved`, starved_labels.unserved()): a
+    # job queued on the label and none running or started on it within starved_labels.STARVED_AFTER. A label
+    # whose runners are online and busy elsewhere looks like room by its counts, yet starts nothing:
+    # glaeda-session-std-xcode-26.6 held cmux#24295's daemon tests 90 minutes on 2026-10-29 that way, with
+    # five runners online and the queue shorter than them (role_room() in side_lane_placement.py reads this).
+    unserved: frozenset[str] = frozenset()
 
 
 def _fleet_gates(snapshot: Mapping[str, Any] | None, env: Mapping[str, str]) -> Mapping[str, Any] | None:
@@ -552,9 +559,15 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
         reserved = stale_reservations.reserved if stale_reservations is not None else {}
         # Too old for the counts, still read for a queue that was already stalled (late_waits()).
         waits = late_waits(snapshot, now)
+    # A key names every fleet label a job asked for, joined with "+" (starved_labels.fleet_key()); only a
+    # one-label key says that label itself starts nothing. Only a fresh snapshot says so: an older one's
+    # unserved label may have started since.
+    unserved = frozenset(str(key) for key in (snapshot.get("unserved") or ()) if fresh is not None
+                         and isinstance(key, str) and key.startswith("glaeda-") and "+" not in key)
     return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
                 owned_queued=owned_queued, owned_full=full, owned_full_known=known, snapshot=snapshot,
-                observed_at=now, stale=fresh is None, dead=dead(snapshot, now))
+                observed_at=now, stale=fresh is None, dead=dead(snapshot, now),
+                unserved=unserved)
 
 
 def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
@@ -983,8 +996,10 @@ class Api:
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-next-macos-cascade"})
         try:
             with urllib.request.urlopen(request, timeout=15) as response:
+                github_spend.record(request.get_header("Authorization") or "", getattr(response, "headers", None), getattr(response, "status", 200))
                 return json.load(response)
         except urllib.error.HTTPError as error:
+            github_spend.record(request.get_header("Authorization") or "", error.headers, error.code)
             print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}", file=sys.stderr)
             raise
 

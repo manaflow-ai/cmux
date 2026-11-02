@@ -232,4 +232,30 @@ import Testing
         try await Task.sleep(for: .milliseconds(100))
         #expect(requests.count("_acpmux/events") == reads, "read again past the start")
     }
+
+    /// A message steered into a running turn is a `user_message` too, but starts no turn:
+    /// pages are never cut at one, and a long turn's opener is its real prompt.
+    @Test func steeredMessagesAreNotTurnStarts() async throws {
+        let steer = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"seq":9,"dir":"mux","kind":"user_message","msg":{"text":"also check x","steer":true,"promptId":"ps","turnId":"t0"}}"#.utf8))
+        let prompt = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"seq":1,"dir":"mux","kind":"user_message","msg":{"text":"go","promptId":"p0","turnId":"t0"}}"#.utf8))
+        #expect(!AcpmuxSessionSource.isPrompt(steer))
+        #expect(AcpmuxSessionSource.isPrompt(prompt))
+
+        // One long turn with a steer near its end: the open shows the turn under its prompt.
+        let requests = Requests()
+        let first = (seq: 1, json: #"{"sessionId":"s1","seq":1,"at":1,"dir":"mux","kind":"user_message","msg":{"text":"keep going","promptId":"p0","turnId":"t0"}}"#)
+        var log = [first]
+        for seq in 2...3000 {
+            if seq == 2990 {
+                log.append((seq, #"{"sessionId":"s1","seq":2990,"at":2,"dir":"mux","kind":"user_message","msg":{"text":"also check x","steer":true,"promptId":"ps","turnId":"t0"}}"#))
+            } else {
+                log.append((seq, #"{"sessionId":"s1","seq":\#(seq),"at":3,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"w\#(seq) "}}}}}"#))
+            }
+        }
+        let (hub, store) = try await Self.open(log, requests)
+        _ = hub
+        await Self.waitUntil { store.turns.first?.id == "t0" }
+        #expect(store.turns.map(\.id) == ["t0"])
+        #expect(store.turns.first?.prompt == "keep going")
+    }
 }

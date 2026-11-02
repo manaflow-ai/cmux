@@ -841,7 +841,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     /// A prompt record: where a turn starts.
-    static func isPrompt(_ record: JSONValue) -> Bool { record["kind"]?.stringValue == "user_message" }
+    /// A message steered into a running turn (`msg.steer`) is a `user_message` too, and starts none.
+    static func isPrompt(_ record: JSONValue) -> Bool {
+        record["kind"]?.stringValue == "user_message" && record["msg"]?["steer"] != .bool(true)
+    }
 
     /// Reads from `read.after` to the log's end (a first attach: the newest page only, from its
     /// first prompt; older pages come with ``loadEarlierHistory()``). Each request is bounded, and none is sent once the
@@ -895,13 +898,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     // The page is inside one turn longer than itself (a long run): its prompt
                     // alone is read, so the page has a turn to go in. Without it the chat
                     // opened empty.
+                    // A few, since messages steered into the turn are `user_message`s too.
                     let opener = try await request("_acpmux/events", [
                         "sessionId": .string(read.sessionID), "beforeSeq": .number(oldest),
-                        "limit": .number(1), "kinds": .array([.string("user_message")]),
+                        "limit": .number(16), "kinds": .array([.string("user_message")]),
                     ])
-                    let prompts = opener["events"]?.arrayValue ?? []
-                    out.page = prompts + out.page
-                    out.earlier = !prompts.isEmpty && opener["hasMore"] == .bool(true)
+                    let records = opener["events"]?.arrayValue ?? []
+                    let start = records.lastIndex(where: isPrompt)
+                    out.page = start.map { [records[$0]] + out.page } ?? out.page
+                    out.earlier = start.map { $0 > 0 || opener["hasMore"] == .bool(true) } ?? false
                 }
             }
         } catch {
@@ -1068,7 +1073,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var loadingEarlier = false
 
     public func loadEarlierHistory() {
-        guard !loadingEarlier, let before = earlierBefore, let hub, hub.isReady else { return }
+        guard !loadingEarlier else { return }
+        guard let before = earlierBefore, let hub, hub.isReady else {
+            // Nothing to read now (the start is shown, or the link is down): the chat's
+            // loading state ends, so the next scroll up asks again.
+            yieldEarlier([], hasEarlier: earlierBefore != nil)
+            return
+        }
         loadingEarlier = true
         let sessionID = sessionID
         Task { [weak self] in
@@ -1138,14 +1149,23 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             earlierCarry = []
             earlierBefore = Int(seq)
         } else if let oldest = all.first?["seq"]?.numberValue {
+            // Still inside one turn longer than the reads: read on at once (the chat stays
+            // loading), since nothing on screen changes to ask again.
             earlierCarry = all
             earlierBefore = Int(oldest)
+            log.info("earlier \(self.sessionID, privacy: .public) before \(before, privacy: .public): no prompt yet, \(all.count, privacy: .public) records carried")
+            loadEarlierHistory()
+            return
         }
         let events = page.flatMap { records.map($0) }
         let hasEarlier = earlierBefore != nil
         log.info("earlier \(self.sessionID, privacy: .public) before \(before, privacy: .public): \(page.count, privacy: .public) records, failed \(read.failed, privacy: .public), more \(hasEarlier, privacy: .public)")
         // A new reader of this source gets the older turns first, then the rest, in order.
         if !events.isEmpty { replay.insert(contentsOf: events, at: 0) }
+        yieldEarlier(events, hasEarlier: hasEarlier)
+    }
+
+    private func yieldEarlier(_ events: [AgentSessionEvent], hasEarlier: Bool) {
         replay.append(.earlierHistory(hasEarlier))
         for continuation in continuations { continuation.yield(.earlierPage(events, hasEarlier: hasEarlier)) }
     }

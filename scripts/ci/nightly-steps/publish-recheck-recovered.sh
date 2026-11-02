@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # nightly.yml publish-nightly: "Recheck the recovered build against both feeds". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# Inside the publication lock: a run that published meanwhile may have
+# moved a feed above either this run's own nightly-next build or a
+# recovered build. The early check precedes signing and notarization.
+# Two runs can take the same recovered build; the later one finds it
+# already on the feed and publishes nothing (run 38689026338). A build
+# below any feed still fails.
 set -euo pipefail
 feeds=()
 for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do

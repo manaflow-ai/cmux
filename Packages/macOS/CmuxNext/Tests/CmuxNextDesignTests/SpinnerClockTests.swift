@@ -49,13 +49,13 @@ import Testing
         // started 0.37 s apart on the media clock, share a phase whatever the wall clock did.
         let early = StatusIndicatorLayer(clock: SpinnerClock(mediaTime: { 500 }))
         let late = StatusIndicatorLayer(clock: SpinnerClock(mediaTime: { 500.37 }))
-        let plan = StatusIndicatorPlan(glyph: .native, animation: .step, tint: .spinner)
+        let plan = StatusIndicatorPlan.working(tint: .spinner)
         for indicator in [early, late] {
             indicator.frame = CGRect(x: 0, y: 0, width: 16, height: 16)
             indicator.apply(plan, config: StatusIndicatorConfig())
         }
-        let first = try #require(early.nativeLayer?.animation(forKey: "step"))
-        let second = try #require(late.nativeLayer?.animation(forKey: "step"))
+        let first = try #require(early.glyphLayer?.animation(forKey: "spin"))
+        let second = try #require(late.glyphLayer?.animation(forKey: "spin"))
         let turns = (second.beginTime - first.beginTime) / period
         #expect(abs(turns - turns.rounded()) < 1e-6, "begin times \(first.beginTime) and \(second.beginTime) are out of step")
         let clock = SpinnerClock(mediaTime: { 42 })

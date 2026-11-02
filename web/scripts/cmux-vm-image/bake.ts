@@ -54,7 +54,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { renderVmGuestModelPlaneEnvFile, VM_GUEST_MODEL_PLANE_ENV_PATH, vmEdgeAliasDomain, vmGuestModelPlaneEnv } from "../../services/coderouter/vmGuestEnv";
-import { cmuxTuiInstallCommand, cmuxTuiLayoutSelector, cmuxTuiPinCheckCommand, type CmuxTuiSource } from "../../services/vms/drivers/cmuxTuiDaemon";
+import { cmuxTuiInstallCommand, cmuxTuiLayoutSelector, cmuxTuiPinCheckCommand, cmuxTuiServiceInstallCommand, type CmuxTuiSource } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
 import {
   cmuxTuiWebsocketSmokeCommand,
@@ -441,6 +441,7 @@ async function wireCmuxTui(ctx: Ctx): Promise<void> {
   ].join(" && "));
   // The driver's own install command: the pinned files already match, so it downloads nothing and installs the agent hooks.
   await L.step(vm, "cmux-tui-hooks", `export PATH=${STORE_PATH} && ${cmuxTuiInstallCommand(source)} && chown -R root:root ${STORE_DIR} && chown -h ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui-hook`);
+  await L.step(vm, "acpmux-service", cmuxTuiServiceInstallCommand());
   await L.step(vm, "cmux-tui-pin", `${cmuxTuiPinCheckCommand(source)} && mkdir -p /etc/cmux && printf '%s %s\\n' ${source.sha256} ${source.commit} > /etc/cmux/cmux-tui-pin && printf '%s\\n' ${devboxGhosttyVersion()} > /etc/cmux/ghostty-version`);
 }
 

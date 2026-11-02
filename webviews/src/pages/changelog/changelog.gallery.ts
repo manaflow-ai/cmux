@@ -6,7 +6,7 @@ import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
 import realChanges from "./fixtures/real-pr-changes.json";
 import type { ReleaseNotes } from "./types";
 import { clipNotes, clipRoute } from "./clipFixtures";
-import { journalNotes } from "./whatsNewFixtures";
+import { dayOfNightlies, journalNotes } from "./whatsNewFixtures";
 
 /** Where build `index` of the 18 starts in realChanges: each takes (index % 5) + 1, none shared. */
 const start = (index: number) => Array.from({ length: index }, (_, i) => (i % 5) + 1).reduce((a, b) => a + b, 0);
@@ -68,8 +68,22 @@ export default changelogPageEntry({
       notes: realNightlies,
     },
     sheet: {
-      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations): a centered title, the days newest first, each change an accent glyph, a bold title and one muted line.",
+      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations), picked layout A Inline (Leo 2026-11-01 found it too narrow and not info dense enough): up to 920px wide, each change an accent glyph, its bold title and its muted line on one line where they fit.",
       notes: journalNotes,
+    },
+    "sheet-stack": {
+      note: "Sheet layout B Stack (sheet=stack): the same width, the muted line one step smaller and tight under its title.",
+      notes: journalNotes,
+      route: "#/?sheet=stack",
+    },
+    "sheet-grid": {
+      note: "Sheet layout C Grid (sheet=grid): stacked rows in two columns once each column can be 360px wide.",
+      notes: journalNotes,
+      route: "#/?sheet=grid",
+    },
+    "sheet-day-of-nightlies": {
+      note: "A day of nightlies whose digests all name their entries summary-0, summary-1, …: each change once (Leo 2026-11-01 saw rows twice).",
+      notes: dayOfNightlies,
     },
     "sheet-real-nightlies": {
       note: "The sheet over real nightly-next notes: curated changes with their summary's first sentence, a day with no curated note lists its readable changes with their area.",
