@@ -1,3 +1,4 @@
+import Foundation
 /// Evicted terminals' last frames (`TerminalLastFrame`), oldest dropped first past `capacity`.
 /// The bound is the warm set's terminal capacity. Each frame is one full-resolution drawable
 /// (about 20 MB for a full-screen Retina pane), volatile while it waits, so memory pressure
@@ -46,6 +47,14 @@ public struct TerminalLastFrames {
     }
 
     public mutating func note(_ outcome: String) { outcomes[outcome, default: 0] += 1 }
+
+    /// How many evicted terminals keep a last frame: the warm set's hidden terminal capacity.
+    public static func capacity(warm: Int, physicalBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
+        warm
+    }
+
+    /// One frame of a large pane on a 2x display (about 1800 x 1100 points, BGRA): 24 MB.
+    public static let frameCostBytes: UInt64 = 24 << 20
 
     /// The warm set evicts `session` (`key`), still in its window: keeps its frame, unless the
     /// eviction is a pressure drop (`atOnce`). Whatever the screen holds: the frame is what the pane
