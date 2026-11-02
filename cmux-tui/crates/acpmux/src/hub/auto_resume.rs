@@ -18,6 +18,9 @@
 //!   At most [`MAX_CONFIGURED_ATTEMPTS`] entries, each between 1 s and 1 h; an entry that is not
 //!   a whole number of milliseconds of 0 or more is refused with a warning and the default
 //!   waits apply.
+//! - Without `autoResumeDelaysMs`, the person's Settings set the loop (`agents.autoRetry.*`:
+//!   on or off, the seconds before each attempt, how many attempts; [`settings`]), read at each
+//!   retry; their defaults are the default waits.
 //! - Attempt `n` of the prompt `P` has the prompt id `P~resume-n`, so it runs once, across
 //!   restarts too, and a continuation that fails the same way schedules attempt `n + 1`.
 //! - It is skipped when anything else ran or waits in the chat meanwhile (a person's prompt,
@@ -105,6 +108,10 @@ pub(crate) mod retry_turn;
 /// A first send a revoked OAuth token failed goes again once, 2 s later.
 mod first_send;
 
+/// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
+mod settings;
+pub(in crate::hub) use settings::effective_delays;
+
 /// Whether a failed turn's `error` is one acpmux may retry by itself: a transient one
 /// ([`super::turn_errors::resume_cause`]), or a revoked token, which a chat's first send retries
 /// ([`first_send`]). A row shows such a turn's retry being decided until that is settled.
@@ -125,7 +132,7 @@ pub const MAX_CONFIGURED_ATTEMPTS: usize = 12;
 /// transport cut: one per wait, or the default's four when the config says nothing. 0 (`[]`)
 /// turns it off.
 pub(in crate::hub) fn configured_attempts(delays: Option<&Vec<u64>>) -> usize {
-    delays.map_or(DEFAULT_DELAYS_MS.len(), Vec::len)
+    delays.map_or_else(|| effective_delays(None).len(), Vec::len)
 }
 
 /// Shortest and longest configured wait, in milliseconds.
@@ -566,10 +573,8 @@ impl Hub {
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
-            let delays = {
-                let cfg = hub.config.read().await;
-                cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
-            };
+            let configured = hub.config.read().await.auto_resume_delays_ms.clone();
+            let delays = effective_delays(configured);
             let Some(&delay) = delays.get(done) else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {

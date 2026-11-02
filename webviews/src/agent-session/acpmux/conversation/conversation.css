@@ -1912,6 +1912,14 @@ pre.cv-math-source {
   height: var(--cv-footer-button);
   padding-top: 0;
 }
+/* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): 22 tall,
+   its ⌃B hint on its line. */
+.acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
+  height: var(--cv-tool-row-height);
+}
+.acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below .cv-command__bg {
+  top: 0;
+}
 /* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line.
    Hidden, it takes no room, so a long command runs to the line's end; on hover it takes its room
    back and the command's tail goes under it, behind the ellipsis (Leo, 2026-10-24: "if the
@@ -5049,6 +5057,13 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
   min-height: var(--cv-footer-button);
 }
+/* Right under a step row it is one more line of the run instead (model.ts isLiveStep, #29965). */
+.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {
+  height: var(--cv-tool-row-height);
+}
+.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
+  min-height: var(--cv-tool-row-height);
+}
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 /* A failed task keeps its red mark, open or closed. A click opens it in place (`.is-toggle`: the
@@ -5514,6 +5529,13 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
   margin: 0;
   padding: 0;
+}
+/* Over the live line the gap is the block gap (24), not the turn gap (transcriptGrid.ts waiting
+   rule), so the row is centred in that: its 28 hit box overhangs the gap by 2 on each side
+   (grid.md Rule 6 allows 6), and its 16 glyphs keep 4 to the bubble and 4 to the live line. */
+article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
+article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
+  top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
 
 
