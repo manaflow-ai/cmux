@@ -431,7 +431,6 @@ test("Cloud mode without its launch handler still checks the local fallback", as
   }
 });
 
-
 test("an inherited page folder is not preflighted before the host names a chat start folder", async () => {
   const page = await newTabPage({ auth: READY, startCwd: null });
   try {

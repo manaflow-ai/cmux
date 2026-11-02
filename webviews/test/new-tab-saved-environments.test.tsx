@@ -651,7 +651,6 @@ test("a direct start keeps its draft until the first prompt is accepted, includi
   expect(left).toBe(1);
 });
 
-
 test("a folderless local environment preflights the host start folder, not the inherited tab folder", async () => {
   const calls = await mount({ folderless: true, tabCwd: API, startCwd: APP });
   await openMachines();
