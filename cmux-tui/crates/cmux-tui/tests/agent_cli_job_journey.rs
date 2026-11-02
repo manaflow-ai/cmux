@@ -58,7 +58,7 @@ impl AcpmuxOwner {
         config.store.mode = StoreMode::Memory;
         // The cmux-tui binary installs acpmux's build id at start (main.rs); so
         // does this in-process hub, or it reports `unstamped`.
-        acpmux::hub::install_build(acpmux_build_id::BUILD);
+        acpmux::hub::install_build(acpmux_build_id::build());
         let hub = Hub::new(config.clone(), acpmux::store::open(&config.store, dir).unwrap());
         let cache = dir.join("health.json");
         fs::write(

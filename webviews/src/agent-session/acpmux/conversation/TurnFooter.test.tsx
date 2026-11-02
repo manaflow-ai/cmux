@@ -9,6 +9,7 @@ import type { AcpmuxRow } from "../model";
 import { layoutConversation } from "../model";
 import { translate, type Translate } from "../i18n";
 import { footerLabel, isEmptyFooter } from "./turns";
+import { TRANSCRIPT_FOOTER_CONTROL } from "../transcriptGrid";
 import { TurnFooter } from "./TurnRows";
 
 const t: Translate = (key, values) => translate(key, values, "en");
@@ -78,13 +79,12 @@ test("a footer with only hover controls is empty; one with an answer or a failur
 
 const prompt = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 
-test("an empty footer adds no line and still fits its hover controls", () => {
-  // Between two prompts: the 16px turn gap has a 24px floor for the existing hover controls.
-  expect(layoutConversation([prompt("p"), footer({ durationMs: 0 }), prompt("q")], 720).heights[1]).toBe(24);
-  // The chat's last one keeps that same turn gap before the composer.
-  expect(layoutConversation([prompt("p"), footer({ durationMs: 0 })], 720).heights[1]).toBe(24);
-  // A footer with an answer to copy keeps its line.
+test("an empty footer adds no line; a footer with an answer is its 32 line of buttons", () => {
+  // An empty footer's hover controls lie over the gap: no height, between two prompts or at the end.
+  expect(layoutConversation([prompt("p"), footer({ durationMs: 0 }), prompt("q")], 720).heights[1]).toBe(0);
+  expect(layoutConversation([prompt("p"), footer({ durationMs: 0 })], 720).heights[1]).toBe(0);
+  // A footer with an answer to copy is a row of its own, ChatGPT's 32 buttons (design/transcript-spacing.md).
   expect(layoutConversation([prompt("p"), footer({ durationMs: 0, text: "Done." }), prompt("q")], 720).heights[1]).toBe(
-    40,
+    TRANSCRIPT_FOOTER_CONTROL,
   );
 });

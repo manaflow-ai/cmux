@@ -71,15 +71,43 @@ public nonisolated struct BrowserProfileBook: Codable, Hashable, Sendable {
     public mutating func create(id: String = BrowserProfileRecord.newID(), name: String, color: String?, icon: String?,
                                 source: [String: String]? = nil) throws -> BrowserProfileRecord {
         guard BrowserProfileRecord.isValidID(id) else { throw BrowserProfileBookError.invalidID }
-        // A pending deletion still owns this id's disk stores. Reusing it now
-        // can resurrect old cookies or let an in-flight cleanup erase new data.
-        guard !pendingCleanup.contains(id) else { throw BrowserProfileBookError.pendingCleanup }
+        try requireReusable(id)
         if let existing = record(id) { return existing }
         let record = BrowserProfileRecord(id: id, name: try Self.validName(name), color: try Self.validColor(color),
                                           icon: try Self.validIcon(icon), position: (profiles.map(\.position).max() ?? 0) + 1,
                                           source: source)
         profiles.append(record)
         return record
+    }
+
+    /// Throws `pendingCleanup` while a deletion of `id` still owns its disk stores: reusing the id
+    /// then can resurrect old cookies or let an in-flight cleanup erase new data. `create` calls it,
+    /// and so does the App's daemon-backed create (the home daemon stores the record, but this Mac
+    /// still owns the queued Chromium and WebKit deletion).
+    public func requireReusable(_ id: String) throws {
+        guard !pendingCleanup.contains(id) else { throw BrowserProfileBookError.pendingCleanup }
+    }
+
+    /// Moves imports made before browser profiles existed into their own profiles, in order:
+    /// `migrate` runs for each record whose proposed profile id (`id`) is valid, and `failed` gets
+    /// each failure's reason for the log. False when one waits for a deleted profile's data to be
+    /// removed (`pendingCleanup`: a deleted profile may have the same deterministic import id); the
+    /// caller then keeps its migration ticket, and the next launch retries after engine cleanup.
+    @MainActor public static func migrateImports<Record>(_ records: [Record], id: (Record) -> String,
+                                                         migrate: (Record) async throws -> Void,
+                                                         failed: (Record, String) -> Void) async -> Bool {
+        var finished = true
+        for record in records where BrowserProfileRecord.isValidID(id(record)) {
+            do {
+                try await migrate(record)
+            } catch BrowserProfileBookError.pendingCleanup {
+                finished = false
+                failed(record, "browser profile is pending deletion")
+            } catch {
+                failed(record, String(describing: error))
+            }
+        }
+        return finished
     }
 
     public mutating func rename(_ id: String, to name: String) throws {

@@ -61,6 +61,11 @@ export interface CreateDraft {
   from_snapshot?: string;
   /** The team's snapshots (`cloud.snapshot.list {}`). */
   snapshots?: CloudSnapshot[];
+  /**
+   * The snapshot list failed: the sheet says so beside Source and offers Retry, which reads it again
+   * on the same draft (name, size, source and key kept). Base image stays choosable meanwhile.
+   */
+  snapshotsFailed?: boolean;
   submitting: boolean;
   error?: string;
   /** The server code of `error`, when it had one: the page shows its own sentence for known codes. */
@@ -390,9 +395,30 @@ export class CloudStore {
     this.set({
       create: { key, name: "", memoryMb: size, submitting: false, ...(openWhenRunning ? { openWhenRunning } : {}) },
     });
+    this.loadSnapshots(key);
+  }
+
+  /** The sheet's Retry after the snapshot list failed: reads it again, keeping the draft. */
+  retrySnapshots(): void {
+    const draft = this.state.create;
+    if (!draft?.snapshotsFailed || !this.canChange()) return;
+    this.set({ create: { ...draft, snapshotsFailed: undefined } });
+    this.loadSnapshots(draft.key);
+  }
+
+  /**
+   * `cloud.snapshot.list {}` for the draft `key`. The answer lands only on that draft (a closed or
+   * newer sheet, or another account's, drops it); a failure stays on it as `snapshotsFailed`.
+   */
+  private loadSnapshots(key: string): void {
+    const onDraft = (patch: Partial<CreateDraft>) => {
+      const draft = this.state.create;
+      if (draft?.key === key) this.set({ create: { ...draft, ...patch } });
+    };
     void this.client!.call<SnapshotListResult>(CloudOps.snapshotList, {}).then(
-      ({ snapshots }) => this.state.create?.key === key && this.set({ create: { ...this.state.create, snapshots } }),
-      () => undefined,
+      ({ snapshots }) => onDraft({ snapshots, snapshotsFailed: undefined }),
+      // An owner that serves no snapshot list has none to offer: Base image only, no failure.
+      (error) => onDraft(isUnsupported(error) ? { snapshots: [] } : { snapshotsFailed: true }),
     );
   }
 
