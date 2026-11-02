@@ -194,7 +194,6 @@ extension AppActionContext {
         if let machine = invocation.targetMachineID { return services.locatePane(id, onMachine: machine) }
         return services.locatePane(id)
     }
-
     /// The targeted daemon pane, found in any workspace.
     func daemonPane(_ invocation: ActionInvocation) -> PaneModel? {
         if let target = explicitTarget(invocation, kinds: [.pane]) {

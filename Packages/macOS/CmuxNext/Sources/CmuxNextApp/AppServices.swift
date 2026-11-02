@@ -814,11 +814,7 @@ final class AppServices {
         }
         return nil
     }
-    /// Like `locateTab`: only when exactly one machine holds the pane id (forks keep them, cmux#30755).
-    func locatePane(_ id: String) -> PaneModel? {
-        let found = machines.daemons.compactMap { $0.store.pane(idOrResource: id) }
-        return found.count == 1 ? found[0] : nil
-    }
+    func locatePane(_ id: String) -> PaneModel? { machines.daemons.uniquePane(id)?.pane }
     func locatePane(_ id: String, onMachine machineID: String) -> PaneModel? { machines.daemon(machine: machineID)?.store.pane(idOrResource: id) }
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
