@@ -14,7 +14,9 @@ type PromptHistory = {
   byRowId: Map<string, PromptGroup>;
 };
 
-export function usePromptHistory(rows: readonly AcpmuxRow[]) {
+/// `shown`: a sent prompt as the field takes it back (a Codex skill's `/$name` read `/name`,
+/// slashCommands.ts withoutSkillDollars), applied to a prompt only as it is recalled or compared.
+export function usePromptHistory(rows: readonly AcpmuxRow[], shown: (sent: string) => string = (sent) => sent) {
   const history = useMemo<PromptHistory>(() => {
     const groups: PromptGroup[] = [];
     const byRowId = new Map<string, PromptGroup>();
@@ -48,7 +50,7 @@ export function usePromptHistory(rows: readonly AcpmuxRow[]) {
   /// the agent would get it (the field escapes `[`, `*`, URLs); it runs only while one is shown.
   const showing = (current: () => string) => {
     const group = anchorGroup();
-    return group !== undefined && group.text === current().trim();
+    return group !== undefined && shown(group.text) === current().trim();
   };
   /// What ↑ (-1) or ↓ (+1) writes over `current`: undefined when the key is not history's, null
   /// when it is but nothing changes (↑ on the oldest).
@@ -69,7 +71,9 @@ export function usePromptHistory(rows: readonly AcpmuxRow[]) {
     const rowId = group?.rowIds.at(-1);
     if (!group || !rowId) return undefined;
     recalled.current = { rowId, text: group.text };
-    return group.text;
+    return shown(group.text);
   };
-  return { showing, step };
+  /// The recalled prompt as it was sent, while one shows.
+  const recalledRaw = () => anchorGroup()?.text;
+  return { showing, step, recalledRaw };
 }

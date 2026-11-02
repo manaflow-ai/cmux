@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextFeed
+import CmuxNextTestSupport
 import Foundation
 import os
 import Testing
@@ -9,7 +10,7 @@ import Testing
 /// and hands the list each change as row edits, so one owner event moves, inserts or redraws only
 /// its own row and builds no other row's value; rows are built only when shown; an event above the
 /// reader keeps the reader's row in place; a click selects and reads the item.
-@MainActor @Suite struct FeedRowsViewTests {
+@MainActor @Suite(.closesItsWindows) struct FeedRowsViewTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
     private func item(_ index: Int, ago seconds: TimeInterval, dedupe: String? = nil) -> FeedItem {

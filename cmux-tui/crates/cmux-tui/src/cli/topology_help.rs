@@ -4,7 +4,7 @@
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
-  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--correlation-key <value>]
+  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
   cmux workspace <selector> close [--report-closed-ids]
@@ -58,7 +58,10 @@ Nested panes support split --right or --down. Without a selector, status,
 progress and log target the caller's workspace inside a cmux terminal, else
 the current one. Levels: info, progress, success, warning, error. Text that
 starts with a dash goes after --. --ephemeral creates an incognito workspace
-the session closes at its next start. Workspace groups and rooms are
+the session closes at its next start. --top puts the new workspace first in
+the sidebar (below Home), whatever workspaces.newPlacement says. move
+--index <n> moves a workspace to place n of list (the sidebar order) and
+in the session order; it stays in its section and group. Workspace groups and rooms are
 personal: they live in this Mac's home session. --remote makes a remote
 group: it connects <host> (an ~/.ssh/config alias, a Tailscale name or
 user@host) and its new workspaces run there. --parent makes a group inside

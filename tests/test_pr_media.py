@@ -206,6 +206,9 @@ class FakeGh:
                 return self.reply(1, "", "HTTP 403: Resource not accessible")
             self.comments.append(kwargs.get("input", ""))
             return self.reply(0, "")
+        if argv[0] == "ffprobe":
+            # convert() reads the clip's rate for the gif; an unreadable rate starts at the default.
+            return self.reply(0, "")
         raise AssertionError(f"only `gh pr comment` may run, ran {argv}")
 
     def reply(self, code, out, err=""):
@@ -373,6 +376,54 @@ class GifCommandTests(unittest.TestCase):
         self.assertEqual(argv[-1], "out.gif")
 
 
+class GifRateTests(unittest.TestCase):
+    """Leo, 2026-10-31, on 4 and then 10-15 fps previews: "WHY ... IS IT NOT 30/60/120"."""
+
+    def test_the_default_is_smooth(self):
+        self.assertGreaterEqual(MODULE.DEFAULT_GIF_FPS, 30)
+        self.assertEqual(MODULE.gif_attempts((900, 720, 558))[0], (30, 900))
+
+    def test_a_60_fps_clip_starts_at_the_fastest_rate_a_gif_plays(self):
+        # Delays are hundredths of a second and browsers play 1/100 s as 1/10 s: 50 fps is the real ceiling.
+        self.assertEqual(MODULE.GIF_MAX_FPS, 50)
+        self.assertEqual(MODULE.gif_attempts((900,), source_rate=60.0)[0], (50, 900))
+        self.assertEqual(MODULE.gif_attempts((900,), fps=120)[0], (50, 900))
+
+    def test_it_gets_narrower_before_it_gets_choppier(self):
+        attempts = MODULE.gif_attempts((900, 720, 558), source_rate=60.0)
+        self.assertEqual(attempts[:4], [(50, 900), (30, 900), (30, 720), (30, 558)])
+        self.assertEqual(attempts[4:], [(24, 558), (20, 558), (15, 558), (12, 558), (10, 558)])
+
+    def test_a_slow_clip_never_gets_repeated_frames(self):
+        self.assertEqual(MODULE.gif_attempts((900,), source_rate=2.0), [(2, 900)])
+        self.assertTrue(all(rate <= 24 for rate, _ in MODULE.gif_attempts((900,), source_rate=23.976)))
+
+    def test_a_width_or_rate_under_one_is_refused_up_front(self):
+        for flags in (["--gif-width", "0"], ["--gif-width", "-5"], ["--gif-fps", "0"]):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                MODULE.parse_args(["--pr", "1", "clip.mp4", *flags])
+        self.assertIsNone(MODULE.parse_args(["--pr", "1", "clip.mp4"]).gif_fps)
+
+    def test_widths_step_down_from_the_requested_one(self):
+        self.assertEqual(MODULE.gif_widths(900), (900, 720, 558))
+
+    def test_the_source_rate_is_read_from_ffprobe(self):
+        def runner(stdout):
+            return lambda argv, **kwargs: SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+        with mock.patch.object(MODULE.shutil, "which", return_value="/usr/bin/ffprobe"):
+            read = lambda out: MODULE.source_fps(Path("c.mp4"), runner(out))
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"60/1","avg_frame_rate":"30/1"}]}'), 60.0)
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"90000/1","avg_frame_rate":"48/1"}]}'), 48.0)
+            # A variable-rate capture's average undercounts it; it never caps the gif below the default.
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"90000/1","avg_frame_rate":"7/1"}]}'),
+                             float(MODULE.DEFAULT_GIF_FPS))
+            self.assertIsNone(read(""))
+            self.assertIsNone(read('{"streams":[]}'))
+        with mock.patch.object(MODULE.shutil, "which", return_value=None):
+            self.assertIsNone(MODULE.source_fps(Path("c.mp4")))
+
+
 class ConvertTests(unittest.TestCase):
     """`convert` itself, with ffmpeg faked: it decides whether a gif is usable."""
 
@@ -438,6 +489,25 @@ class ConvertTests(unittest.TestCase):
             with self.ffmpeg(runner), self.assertRaises(MODULE.MediaError) as raised:
                 MODULE.convert(self.upload(source), Path(scratch), 10, 900, runner=runner)
             self.assertIn("no gif", str(raised.exception))
+
+    def test_a_gif_over_the_limit_is_made_again_smaller_instead_of_refused(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            source = written(scratch, "clip.mp4", MP4)
+            into = Path(scratch) / "out"
+            into.mkdir()
+            calls = []
+
+            def runner(argv, **kwargs):
+                if argv[0] == "ffprobe":
+                    return SimpleNamespace(returncode=0, stdout='{"streams":[{"r_frame_rate":"60/1"}]}', stderr="")
+                calls.append(argv[argv.index("-filter_complex") + 1].split(",")[0])
+                Path(argv[-1]).write_bytes(GIF + (b"0" * 4096 if len(calls) < 3 else b""))
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with self.ffmpeg(runner):
+                made = MODULE.convert(self.upload(source), into, None, 900, runner=runner, limit=1024)
+            self.assertEqual(calls, ["fps=50", "fps=30", "fps=30"])
+            self.assertEqual(made.read_bytes(), GIF)
 
     def test_a_missing_ffmpeg_names_the_flag_that_skips_it(self):
         with tempfile.TemporaryDirectory() as scratch:

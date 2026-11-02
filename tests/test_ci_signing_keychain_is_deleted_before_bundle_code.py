@@ -45,7 +45,19 @@ statically, so a reordered step fails in review and not on a release day:
    a signing job that starts before it. The one way onto an owned Mac is a
    picker output from scripts/ci/signing_runner.py (Leo, 2026-10-28: the
    release signing jobs may run on our own Macs), on a mini held whole for the
-   job; tests/test_ci_signing_owned_mac.py checks those jobs.
+   job; tests/test_ci_signing_owned_mac.py checks those jobs. Two narrow exceptions,
+   each proven here rather than listed:
+   a. A job glaeda gives the exclusive class (test_ci_signing_owned_mac.SIGNING_JOBS)
+      whose first step is that test's CLAIM_GATE may also fall back to the owned
+      pool variables in OWNED_ROUTE_VARIABLES (nightly.yml's owned-only legacy sign
+      and deltas, Lawrence, 2026-10-30, a7b6a61175c). The gate fails the job on any
+      owned Mac without the whole-mini claim before a credential is in reach, however
+      the label was chosen, and test_ci_signing_owned_mac.py holds the claim script,
+      the always() keychain delete and the rest of its rules for those jobs.
+   b. A job in GATED_SECRET_JOBS reads every signing secret only when its mode
+      variable says so, and that same condition picks a literal ephemeral label
+      before runs-on reads any variable (stable-next.yml's sign: its dry run signs
+      ad hoc with no key on an owned Mac; its publish run signs on Blacksmith).
 8. A job that signs with the release signer (RELEASE_POOL_SIGNERS) makes no
    keychain: it runs on a literal ubuntu label and hands the certificate only
    to its signer script, which keeps the key in its own temporary directory.
@@ -161,6 +173,10 @@ RUNNER_VARIABLE = re.compile(
 )
 ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
+# Rule 7a: owned pool variables a claim-gated signing job may fall back to.
+OWNED_ROUTE_VARIABLES = frozenset({"CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER"})
+# Rule 7b: (workflow, job) -> (env variable, value that means "sign with the release key").
+GATED_SECRET_JOBS = {("stable-next.yml", "sign"): ("SIGN", "developer-id")}
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
 LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
 # `vars.CI_CLOUD_OVERFLOW_SAVED && '<blacksmith label>' ||`: the overflow failover,
@@ -176,6 +192,51 @@ def strip_literal_selectors(runs_on: str) -> str:
     """Drop `vars.X == 'L' && 'L' ||` choices whose label L is ephemeral; anything else stays for the checks."""
     return LITERAL_SELECTOR.sub(
         lambda m: "" if m.group(2) == m.group(3) and EPHEMERAL_LABEL.match(m.group(3)) else m.group(0), runs_on)
+
+
+def claim_gated(name: str, job: dict) -> bool:
+    """Rule 7a: glaeda's exclusive class admits the job and its first step is the verbatim claim gate."""
+    import test_ci_signing_owned_mac as owned_mac  # late: that module imports this one
+
+    steps = job.get("steps") or []
+    first = steps[0] if steps and isinstance(steps[0], dict) else {}
+    return (tuple(name.split(" ", 1)) in owned_mac.SIGNING_JOBS
+            and first.get("id") == owned_mac.CLAIM_GATE_ID
+            and str(first.get("run", "")).strip() == owned_mac.CLAIM_GATE.strip())
+
+
+def secret_gate_failures(name: str, job: dict) -> list[str] | None:
+    """Rule 7b: None when the job is not in GATED_SECRET_JOBS, else what keeps its proof from holding."""
+    gate = GATED_SECRET_JOBS.get(tuple(name.split(" ", 1)))
+    if not gate:
+        return None
+    variable, value = gate
+    problems = []
+    mode = re.fullmatch(r"\$\{\{\s*(.+?)\s*&&\s*'" + re.escape(value) + r"'\s*\|\|\s*'[^']*'\s*\}\}",
+                        str((job.get("env") or {}).get(variable, "")).strip())
+    if not mode:
+        return [f"{name}: env {variable} is not `${{{{ <condition> && '{value}' || '<other>' }}}}`"]
+    condition = mode.group(1)
+    runs_on = str(job.get("runs-on", ""))
+    picked = re.search(re.escape(condition) + r"\s*&&\s*'([^']*)'", runs_on)
+    if not picked or not EPHEMERAL_LABEL.match(picked.group(1)) or ANY_VARS.search(runs_on[:picked.start()]):
+        problems.append(f"{name}: runs-on does not take a literal ephemeral label on `{condition}` before any variable")
+    gated_if = f"env.{variable} == '{value}'"
+    gated_value = re.compile(re.escape(gated_if) + r"\s*&&\s*secrets\.[A-Z0-9_]+\s*\|\|\s*'[^']*'\s*\}\}")
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict) or not SIGNING_SECRET_REFERENCE.search(json.dumps(step)):
+            continue
+        if gated_if in str(step.get("if", "")):
+            continue
+        rest = json.dumps({k: v for k, v in step.items() if k != "env"})
+        env_ok = all(not SIGNING_SECRET_REFERENCE.search(str(v)) or gated_value.search(str(v))
+                     for v in (step.get("env") or {}).values())
+        if SIGNING_SECRET_REFERENCE.search(rest) or not env_ok:
+            label = step.get("name") or step.get("id") or "<step>"
+            problems.append(f"{name}: step {label!r} reads a signing secret outside `{gated_if}`")
+    if SIGNING_SECRET_REFERENCE.search(json.dumps(job.get("env") or {})):
+        problems.append(f"{name}: job-level env reads a signing secret")
+    return problems
 
 
 def commands(run: str) -> list[str]:
@@ -270,6 +331,21 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                     )
     if SIGNING_SECRET_REFERENCE.search(json.dumps(job)):
         runs_on = strip_literal_selectors(str(job.get("runs-on", "")))
+        trusted_linux_pool = (
+            "fromJSON(vars.RUNNER_POOLS).linux" in runs_on
+            and all(label in runs_on for label in (
+                "blacksmith-4vcpu-ubuntu-2404",
+                "blacksmith-16vcpu-ubuntu-2404",
+                "blacksmith-32vcpu-ubuntu-2404",
+            ))
+            and "contains(fromJSON(" in runs_on
+        )
+        gated = secret_gate_failures(name, job)
+        if gated is not None:
+            failures.extend(gated)
+            # Proven above: every signing secret sits behind the condition that picks an ephemeral label.
+            runs_on = ""
+        owned_route = claim_gated(name, job)
         if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
             failures.append(
                 f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
@@ -278,6 +354,10 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
         for match in RUNNER_VARIABLE.finditer(runs_on):
             dotted, bracketed, fallback = match.groups()
             variable = (dotted or bracketed).upper()
+            if trusted_linux_pool and variable == "RUNNER_POOLS":
+                continue
+            if owned_route and variable in OWNED_ROUTE_VARIABLES:
+                continue
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(
                     f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "

@@ -673,6 +673,7 @@ pub(crate) fn dispatch(
                         .collect()
                 }),
                 tab: string(fields, "tab"),
+                workspace: string(fields, "workspace"),
                 fallback_pane: string(fields, "fallback_pane"),
             };
             let commit = mux

@@ -588,6 +588,7 @@ impl Hub {
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
+            cloud_turn: None,
             prompt_id: Some(prompt_id.to_owned()),
             message_id: None,
             message_sender: None,
@@ -611,6 +612,7 @@ impl Hub {
             display_parts: None,
             full_access_device: None,
             no_queue: false,
+            admitted: false,
             send_now: false,
             thread: None,
             inbox: false,

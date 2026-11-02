@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 @testable import CmuxNextLayout
@@ -13,7 +14,7 @@ import QuartzCore
 /// budget is the frame at 120 Hz (8.33 ms). Stub content isolates our layout work from
 /// terminal and page content (the fleet's pane-perf run measures those).
 @MainActor
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_BENCH"] == "1"))
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_BENCH"] == "1"), .closesItsWindows)
 struct PaneMotionBench {
     static let frameBudget = 1.0 / 120
     /// The layout's own share of a frame: what is left for content, Core Animation and the GPU.
@@ -142,6 +143,7 @@ struct PaneMotionBench {
         for _ in 0..<3 {
             // Column close starts focused on the column it closes, so the camera springs back.
             let harness = Harness(before, focused: bench.name == "columnClose" ? PaneID("p\(c)-0") : PaneID("p0-0"))
+            defer { harness.window.closeAfterTest() }
             _ = await harness.frame()
             times += await harness.run(after, focus: bench.name == "column" ? PaneID("p\(c)-0") : nil)
         }

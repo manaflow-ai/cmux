@@ -256,6 +256,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 p["_meta"]["acpmux"]["forceAdmit"] = json!(true);
             }
             let v = client.request(method::SESSION_FORK, p).await?;
+            super::launch::print_new_warnings(&v);
             if json_out {
                 print_json(&v)
             } else {
@@ -774,6 +775,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        // Reads the host; asks a running daemon only, never starts one (`host_load.rs`).
+        Command::Host(PeerCmd::Load) => {
+            let load = crate::host_load::sample().await;
+            print_json(&serde_json::to_value(&load)?);
+            Ok(())
+        }
+        // Only a running daemon's chats: no daemon, no chats to tell.
+        Command::Host(PeerCmd::Notice { text }) => {
+            let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
+            print_json(&client.request("_acpmux/host_notice", json!({"text": text})).await?);
+            Ok(())
+        }
         // A file of this person's: no daemon needed.
         Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
             crate::cli::hosts::hold(name, reason, until, release, json_out)
@@ -907,6 +920,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         println!("{}", crate::cli::peer_status::vm_host_line(name.as_deref(), &v));
                     }
                     return Ok(());
+                }
+                PeerCmd::Load | PeerCmd::Notice { .. } => {
+                    return Err(anyhow!("machine load and notice are handled before connecting"));
                 }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
