@@ -7,13 +7,17 @@ public import CoreGraphics
 public nonisolated struct ShownResizeRange {
     let geometry: ScreenGeometry
     let style: LayoutStyle
+    /// The device pixels per point the geometry was placed on (`ScreenGeometry.compute`'s `scale`).
+    let scale: CGFloat
 
     /// - Parameters:
     ///   - geometry: The screen's geometry at its rest (the one its springs head for).
     ///   - style: The style that geometry was computed with.
-    public init(geometry: ScreenGeometry, style: LayoutStyle) {
+    ///   - scale: The backing scale that geometry was computed at.
+    public init(geometry: ScreenGeometry, style: LayoutStyle, scale: CGFloat = 2) {
         self.geometry = geometry
         self.style = style
+        self.scale = scale
     }
 
     /// The ratios of `split` that place its divider somewhere new: each side keeps its minimum extent.

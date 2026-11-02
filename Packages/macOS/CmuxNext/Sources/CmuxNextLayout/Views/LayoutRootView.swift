@@ -261,7 +261,7 @@ public final class LayoutRootView: NSView {
     /// head for; nil for a screen not sized yet. A keyboard resize steps inside them (RESIZE KEYS K1).
     public func shownResizeRange(ofScreenContaining pane: PaneID) -> ShownResizeRange? {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], view.bounds.width > 0 else { return nil }
-        return ShownResizeRange(geometry: view.baseGeometry, style: context.style)
+        return ShownResizeRange(geometry: view.baseGeometry, style: context.style, scale: view.reconciledScale ?? view.scale)
     }
 
     /// The width `pane`'s content rests at in the layout this view shows: its frame in the geometry its
