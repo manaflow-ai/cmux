@@ -46,6 +46,8 @@ mod host_notice_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
+mod shutdown_scan_tests;
+#[cfg(test)]
 mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
