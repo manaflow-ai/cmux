@@ -106,7 +106,8 @@ private nonisolated final class VisibilityStubDaemon: @unchecked Sendable {  // 
                 case "set-size-counts", "release-attached-view-size":
                     seen.withLock { $0.append(cmd) }
                 case "set-attach-visibility":
-                    seen.withLock { $0.append("\(cmd) \((object["visible"] as? Bool).map(String.init) ?? "?")") }
+                    let entry = "\(cmd) \((object["visible"] as? Bool).map(String.init) ?? "?")"
+                    seen.withLock { $0.append(entry) }
                 default:
                     break
                 }
