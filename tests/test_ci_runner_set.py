@@ -32,14 +32,20 @@ TARGETS = {
 
 
 class RunnerSetTests(unittest.TestCase):
-    def test_secret_bearing_changes_uses_the_live_ephemeral_mirror(self) -> None:
+    def test_secret_bearing_changes_takes_ephemeral_hosted_then_measured_retry(self) -> None:
+        # The router runs before any picker can, so it is a declared hosted light job
+        # (.github/runners.json hosted_light_jobs): ephemeral hosted Ubuntu on attempt 1, Blacksmith
+        # 8 vCPU on a re-run, never LINUX_RUNNER's one size (run 41385632466 sat on its 4 vCPU queue)
+        # and never a persistent fleet label, since the job mints GLAEDA_ROUTE_APP_KEY tokens.
         job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
         runs_on = job["runs-on"]
         self.assertNotIn(POOL, runs_on)
-        self.assertIn("contains(fromJSON", runs_on)
-        self.assertIn("vars.LINUX_RUNNER) && vars.LINUX_RUNNER", runs_on)
-        self.assertIn("blacksmith-8vcpu-ubuntu-2404", runs_on)
+        self.assertNotIn("LINUX_RUNNER", runs_on)
+        self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
+        self.assertTrue(runs_on.rstrip().endswith(
+            "|| vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}"), runs_on)
         self.assertNotIn("cmux-fleet-linux-x64", runs_on)
+        self.assertNotIn("glaeda-", runs_on)
 
     def test_stalled_paths_use_the_live_linux_pool(self) -> None:
         for workflow, names in TARGETS.items():
