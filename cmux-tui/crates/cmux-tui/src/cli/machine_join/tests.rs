@@ -455,6 +455,30 @@ fn a_404_says_joining_is_not_available_and_errors_never_carry_a_secret() {
 }
 
 #[test]
+fn workspace_machine_http_errors_keep_typed_denials_and_generic_404_distinct() {
+    for (status, raw_code, expected) in [
+        (400, Some("workspace_machine.bootstrap_mismatch"), "workspace_machine.bootstrap_mismatch"),
+        (400, Some("workspace_machine.bootstrap_unknown"), "workspace_machine.bootstrap_unknown"),
+        (503, Some("workspace_machine.machine_slots_full"), "workspace_machine.machine_slots_full"),
+        (503, Some("workspace_machine.usage_unavailable"), "workspace_machine.usage_unavailable"),
+        (503, Some("workspace_machine.admission_changed"), "workspace_machine.admission_changed"),
+        (503, Some("cloud_environment.unavailable"), "cloud_environment.unavailable"),
+        (404, Some("machine.snapshot.not_found"), "machine.snapshot.not_found"),
+        (404, Some("future.machine.secret_error"), "platform.unknown_error"),
+        (404, Some("route.not_found"), "route.not_found"),
+        (404, Some("not_found"), "not_found"),
+        (404, None, ""),
+    ] {
+        let server = Arc::new(move |_: &str| {
+            (status, raw_code.map_or_else(|| json!({}), |code| json!({"code": code})).to_string())
+        });
+        let (origin, _requests) = fake(server);
+        let reply = platform(&origin).post("/v1/workspaces/w/machine", json!({"clientKey": "k"}));
+        assert_eq!(reply, Err(CallError::Status { status, code: expected }), "{raw_code:?}");
+    }
+}
+
+#[test]
 fn an_unusable_token_is_refused_without_printing_it() {
     let tokens =
         ["cmj_short", "cmj_has space in it", "cmj_quote'or;semicolon", "notcmj_0123456789"]
