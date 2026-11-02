@@ -145,7 +145,7 @@ jobs:
     # (tests/test_ci_quota_hold_gate.py); the next push writes it.
     needs: base-only
     if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     permissions:
       contents: read
       pull-requests: write
