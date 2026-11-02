@@ -189,6 +189,23 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       };
     });
 
+
+  const tailRows = (page: Page) =>
+    page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+      const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].sort(
+        (a, b) => Number(a.getAttribute("aria-posinset")) - Number(b.getAttribute("aria-posinset")),
+      );
+      return {
+        cardTop: Math.round(card.top),
+        rows: rows.slice(-4).map((row) => {
+          const r = row.getBoundingClientRect();
+          return `${row.getAttribute("aria-posinset")}/${row.getAttribute("aria-setsize")} ${row.className} top=${Math.round(r.top)} h=${Math.round(r.height)} bottom=${Math.round(r.bottom)} text=${(row.textContent ?? "").slice(0, 60)}`;
+        }),
+      };
+    });
+
   /// Resolves once the offset, the content's height and the card's height have held for 200ms of
   /// painted frames, so a read never lands mid-glide or before the last growth is painted.
   const untilStill = (page: Page) =>
@@ -372,6 +389,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
     async (name) => {
       const page = await open(name);
       const before = await measure(page);
+      console.log("DIAG-before", name, JSON.stringify(await tailRows(page), null, 1));
       await growWhileScrolledUp(page);
       const start = await measure(page);
       await startFrames(page);
@@ -394,6 +412,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       await settled;
       const frames = await stopFrames(page);
       const end = await measure(page);
+      console.log("DIAG", name, JSON.stringify({ before, end, tail: await tailRows(page) }, null, 1));
       // At the end, the streamed reply's last line is the transcript's, whole above the card.
       expect({ fromEnd: end.fromEnd, lastIsLatest: end.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
       expect(end.lastLine).toContain("Streamed paragraph 12:");
