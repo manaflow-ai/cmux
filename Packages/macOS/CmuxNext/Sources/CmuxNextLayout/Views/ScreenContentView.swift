@@ -99,6 +99,10 @@ final class ScreenContentView: NSView {
     /// The focus the scroll last followed; a window resize re-syncs with it.
     var lastFocused: PaneID?
     var activeDrag: DividerDragState?
+    /// A person's resize drag as the pane contents hear it (`ScreenContentView+ResizeGesture`).
+    var resizeGesture = PaneResizeGesturePhase.idle
+    /// The pane contents that heard the drag start; the end goes to them.
+    var resizeGestureListeners: [PaneResizeGestureListener] = []
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
     /// The strip scrollbar; created on first use.
@@ -219,6 +223,7 @@ final class ScreenContentView: NSView {
     /// A pane spring left mid-flight could park its pane off screen. Column and row camera
     /// springs may resume when the workspace shows (Lucas 2026-10-19).
     func settleMotion() {
+        defer { if resizeGesture == .landing { finishResizeGesture() } }
         finishPanFling()
         guard hasMotion else { return }
         reconcileAndScroll()
@@ -434,6 +439,7 @@ final class ScreenContentView: NSView {
     func tearDown() {
         // A drag on a screen that goes away gets no release either.
         endDrag()
+        finishResizeGesture()
         holdsGrids = false
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)
