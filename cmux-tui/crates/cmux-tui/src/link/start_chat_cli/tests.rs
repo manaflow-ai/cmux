@@ -1479,6 +1479,26 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(denied_retry["error_code"], json!("workspace_machine.bootstrap_mismatch"));
     assert_eq!(*checks.borrow(), 2, "a refused send must never gain a reusable pin");
 
+    // A platform-owned workspace machine needs a credential for each new send. A failed check pins nothing.
+    let no_token = self::key();
+    let refused_token =
+        plan_with(&path, &request(&no_token, "user-leo/"), &mut "".as_bytes(), &made);
+    assert_eq!(refused_token["error_code"], json!("not_signed_in"), "{refused_token}");
+    let recovered =
+        plan_with(&path, &request(&no_token, "user-leo/"), &mut "token-3\n".as_bytes(), &made);
+    assert_eq!(recovered["machine"], json!("vm-hot"), "{recovered}");
+
+    // An App-created legacy workspace machine has no platform creation identity and reuses as before.
+    let legacy_dir = scratch();
+    let legacy_path = ledger_in(legacy_dir.path());
+    assert_eq!(pin(&legacy_path, &self::key(), ACCOUNT, "vm-app", Some("ws-1"))["ok"], json!(true));
+    let mut legacy: Value = serde_json::from_str(&request(&self::key(), ACCOUNT)).unwrap();
+    legacy["stored"] = json!(["vm-app"]);
+    let no_platform = |_: &Ensure, _: &str| -> Result<Value, E> { panic!("App machine must not ensure") };
+    let legacy_answer =
+        plan_with(&legacy_path, &legacy.to_string(), &mut "token-4\n".as_bytes(), &no_platform);
+    assert_eq!(legacy_answer["machine"], json!("vm-app"), "{legacy_answer}");
+
     // A team's send, and a personal one without the credential flag, keep the App's create.
     let never = |_: &Ensure, _: &str| -> Result<Value, E> { panic!("no ensure") };
     let team =
