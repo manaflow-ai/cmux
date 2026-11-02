@@ -13,7 +13,7 @@
 //!    `auth.expired`) or a completed turn. A target (a chat with no session yet) takes the
 //!    newest such turn of a chat here with the same harness, project directory, account home and route.
 //! 4. With `refresh`, the harness's own check that reads no keychain
-//!    (`harness_health::fresh_auth`).
+//!    (`harness_health::fresh_auth_in`).
 //! 5. Else `unknown`, never signed out. A connection error is never a sign-in state.
 //!
 //! Never the saved harness health (checked every six hours), and never the login keychain.
@@ -527,7 +527,7 @@ impl Hub {
             }
             let id = harness.clone();
             let check = tokio::task::spawn_blocking(move || {
-                crate::harness_health::fresh_auth(&id, &profile, notes.as_ref())
+                crate::harness_health::fresh_auth_in(&id, &profile, notes.as_ref(), cwd.as_deref())
             })
             .await
             .unwrap_or_else(|e| Err(e.to_string()));
