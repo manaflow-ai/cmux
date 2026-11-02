@@ -127,7 +127,12 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         try await Self.withFocusedTerminal { t in
             try await Self.input("cat\r", t)
             try await Self.waitRunning("cat", t)
-            let neighbour = try #require(t.pane.pane.tabs.first { $0.id != t.tab.id && $0.kind == .pty })
+            // A terminal neighbour that the hide shows (the pane's first tab may be an agent chat).
+            let other = try await t.connection.newTab(in: t.pane.pane.handle).surface
+            try await PinnedPageTests.until({ t.store.tab(surface: other).map { t.pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
+            let neighbour = try #require(t.store.tab(surface: other))
+            t.pane.select(TabID(t.tab.id))
+            try await PinnedPageTests.until({ t.pane.stripModel.selectedID?.rawValue == t.tab.id })
             let hold = t.services.daemon.closeReadHold
             hold.arm()
             defer { hold.release() }
