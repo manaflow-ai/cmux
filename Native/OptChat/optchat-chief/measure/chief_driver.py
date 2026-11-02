@@ -116,6 +116,31 @@ def ask(req, timeout=30):
     return out.get("data", out)
 
 
+def ask_bound(participant, token, req, timeout=30):
+    """Make one headless-daemon request as a non-owner conversation participant."""
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(timeout)
+    s.connect(SOCK)
+
+    def call(body):
+        s.sendall((json.dumps(dict(body, id=1)) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = s.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+        result = json.loads(buf.decode())
+        if not result.get("ok", True) and "data" not in result:
+            raise RuntimeError(json.dumps(result)[:400])
+        return result.get("data", result)
+
+    call({"cmd": "conversation-bind", "participant": participant, "token": token})
+    out = call(req)
+    s.close()
+    return out
+
+
 def inspect(path, query=None):
     try:
         return ask({"cmd": "chief-inspect", "path": path, **({"query": query} if query else {})}, timeout=20)
@@ -298,9 +323,11 @@ try:
         json.dump({"contact": f"{host_name}/synthetic-coord", "trace": {"full": True}},
                   open(os.path.join(MUX, "optchat", "settings.json"), "w"))
     daemon_log = open(os.path.join(OUT, "daemon.log"), "w")
+    daemon_env = dict(base_env, CMUX_TUI_STATE_DIR=os.path.join(BRAIN, "daemon", "state"),
+                      CMUX_TUI_CHIEF_TOOLS_SOCKET=TOOLS, ACPMUX_HOME=ACPMUX_HOME)
+    daemon_env.update(dict(kv.split("=", 1) for kv in opts.env))
     d = subprocess.Popen([os.path.join(BINS, "cmux-tui"), "--headless", "--socket", SOCK], stdout=daemon_log, stderr=subprocess.STDOUT,
-                         env=dict(base_env, CMUX_TUI_STATE_DIR=os.path.join(BRAIN, "daemon", "state"), CMUX_TUI_CHIEF_TOOLS_SOCKET=TOOLS,
-                                  ACPMUX_HOME=ACPMUX_HOME))
+                         env=daemon_env)
     pids.append(d.pid)
     for _ in range(200):
         if os.path.exists(SOCK):
@@ -314,7 +341,8 @@ try:
     host_env = dict(base_env, MUX_HOME=MUX, MUX_AGENT_TOKEN_FILE=tok_file, OPTCHAT_INSPECTOR="1", ACPMUX_HOME=ACPMUX_HOME,
                     ACPMUX_SOCKET=os.path.join(ACPMUX_HOME, "acpmux.sock"), ACPMUX_BIN=os.path.join(BINS, "acpmux"),
                     MUX_HARNESS=opts.harness, CMUX_DAEMON_SOCKET=SOCK, OPTCHAT_BACKUP_REMOTE="off", **login_env())
-    host_env.update(dict(kv.split("=", 1) for kv in opts.env))
+    scenario_env = dict(kv.split("=", 1) for kv in opts.env)
+    host_env.update(scenario_env)
     host_started = now_ms()
     h = subprocess.Popen([oc, "host", "--daemon-socket", SOCK, "--mux-home", MUX], stdout=open(os.path.join(OUT, "host.log"), "w"),
                          stderr=subprocess.STDOUT, env=host_env)
@@ -546,7 +574,7 @@ try:
         run["coordinator_session"] = "synthetic-coord"
         token = "PING-" + secrets.token_hex(4).upper()
         pong = "PONG-" + secrets.token_hex(4).upper()
-        owner_text = f"Send your coordinator the word {token} and tell it to answer you with {pong} via acpmux_inbox_reply; tell me when its answer arrives."
+        owner_text = f"Send your coordinator the word {token}; tell me when its answer arrives."
         seq0 = last_seq()
         started = now_ms()
         send(owner_text, f"coordinator-owner-{started}")
@@ -554,13 +582,25 @@ try:
         owner_msgs = agent_texts(poll_messages(seq0))
         owner_posted = bool(owner_msgs)
         chief_session = chief_turn_session()
+        target_row = next((r for r in acp_cli("ls", "--live").get("sessions", [])
+                           if r.get("name") == "synthetic-coord"), {})
+        target_session = target_row.get("sessionId") or target_row.get("id")
         events = acp_tail("synthetic-coord")
         ping_events = token_events(events, token)
-        sender = next((s for e in ping_events for s in sender_values(e)), None)
+        ping_events = [e for e in ping_events
+                       if any(isinstance(s, dict) and s.get("sessionId") == chief_session
+                              for s in sender_values(e))]
+        sender = next((s for e in ping_events for s in sender_values(e)
+                       if isinstance(s, dict) and s.get("sessionId") == chief_session), None)
         sender_id = sender.get("sessionId") if isinstance(sender, dict) else None
         ping_ok = bool(ping_events)
         provenance_ok = bool(sender_id and sender_id == chief_session)
-        pong_in_owner = any(pong.lower() in text.lower() for _, _, text in owner_msgs)
+        pong_in_owner = any(
+            pong.lower() in text.lower()
+            and any(isinstance(s, dict) and s.get("sessionId") == target_session
+                    for s in sender_values(message))
+            for _, message, text in owner_msgs
+        )
         # A real model may finish its first turn before the target's inbox
         # reply arrives. Prompt the normal target once, then ask the owner to
         # read that reply, keeping the proof end to end.
@@ -570,13 +610,21 @@ try:
                     timeout=max(30, int(opts.turn_timeout)))
             followup_seq = last_seq()
             followup_started = now_ms()
-            send("Read your coordinator's reply and tell me its exact PONG token.",
+            send("Read your coordinator's reply and tell me when it arrived.",
                  f"coordinator-followup-{followup_started}")
             wait_turn(followup_seq, followup_started)
-            pong_in_owner = any(pong.lower() in text.lower() for _, _, text in agent_texts(poll_messages(seq0)))
+            pong_in_owner = any(
+                pong.lower() in text.lower()
+                and any(isinstance(s, dict) and s.get("sessionId") == target_session
+                        for s in sender_values(message))
+                for _, message, text in agent_texts(poll_messages(seq0))
+            )
             events = acp_tail("synthetic-coord")
-            ping_events = token_events(events, token)
-            sender = next((s for e in ping_events for s in sender_values(e)), sender)
+            ping_events = [e for e in token_events(events, token)
+                           if any(isinstance(s, dict) and s.get("sessionId") == chief_session
+                                  for s in sender_values(e))]
+            sender = next((s for e in ping_events for s in sender_values(e)
+                           if isinstance(s, dict) and s.get("sessionId") == chief_session), sender)
             sender_id = sender.get("sessionId") if isinstance(sender, dict) else None
             ping_ok = bool(ping_events)
             provenance_ok = bool(sender_id and sender_id == chief_session)
@@ -586,7 +634,7 @@ try:
         inventory = acp_cli("ls", "--live", "--with-tools").get("sessions", [])
         by_id = {r.get("sessionId"): r for r in inventory}
         chief_row = by_id.get(chief_session, {})
-        target_row = next((r for r in inventory if r.get("name") == "synthetic-coord"), {})
+        target_row = next((r for r in inventory if r.get("name") == "synthetic-coord"), target_row)
         tool_list = {
             "chief": {"policy": chief_row.get("policy"), "tools": [t.get("id") for t in chief_row.get("tools", [])]},
             "target": {"policy": target_row.get("policy"), "tools": [t.get("id") for t in target_row.get("tools", [])]},
@@ -595,15 +643,34 @@ try:
 
         ask_token = "ASK-" + secrets.token_hex(4).upper()
         ask_text = f"Forward this coordinator request: send the word {ask_token} and tell me when it's sent."
+        # A Chief turn session is ephemeral; resolve the current one again
+        # after the owner exchange instead of reusing an ended turn id.
+        chief_session = chief_turn_session()
         if not chief_session:
             raise SystemExit("coordinator proof found no Chief turn session")
-        acp_cli("send", "--from", "synthetic-coord", "--class", "block", "--no-wait",
-                chief_session, ask_text)
+        # Make this a real ask-floor turn: the message author is another
+        # conversation participant, rather than an acpmux inbox delivery to
+        # the ephemeral turn session (which would remain an owner turn).
+        ask_participant = "user_coordinator"
+        ask({"cmd": "conversation-op", "conversation": conv,
+             "idempotency_key": "coordinator-ask-participant",
+             "actor": "user_local", "transaction": "tx-coordinator-ask-participant",
+             "op": {"kind": "participants.add", "participant": {
+                 "id": ask_participant, "kind": "human", "display_name": "Coordinator"}}})
+        ask_token_credential = ask({"cmd": "conversation-agent-token", "participant": ask_participant})["token"]
         ask_started = now_ms()
+        ask_bound(ask_participant, ask_token_credential,
+                  {"cmd": "conversation-op", "conversation": conv,
+                   "idempotency_key": f"coordinator-ask-{ask_started}",
+                   "actor": ask_participant, "transaction": f"tx-coordinator-ask-{ask_started}",
+                   "op": {"kind": "message.send", "client_msg_id": f"coordinator-ask-{ask_started}",
+                          "parts": [{"type": "text", "text": ask_text}]}})
         ask_ok = wait_turn(last_seq(), ask_started)
-        ask_events = token_events(trace_events(), ask_token)
-        ask_serialized = "\n".join(serialized(ask_events)).lower()
-        ask_refused = "acpmux_send" in ask_serialized and "refus" in ask_serialized
+        ask_events = [e for e in trace_events()
+                      if e.get("ev") == "tool" and e.get("ts", 0) >= ask_started
+                      and "acpmux_send" in str(e.get("name", ""))
+                      and e.get("ok") is False]
+        ask_refused = bool(ask_events)
         ask_coord_events = token_events(acp_tail("synthetic-coord"), ask_token)
         log(f"COORDINATOR ask_send_refused={'PASS' if ask_ok and ask_refused and not ask_coord_events else 'FAIL'} token={ask_token}")
         run["coordinator"] = {

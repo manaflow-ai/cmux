@@ -53,6 +53,10 @@ for arg in "$@"; do
 done
 [[ "$count_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "chief-first-turn-cost.sh: count_url=http://HOST[:PORT] is required" >&2; exit 2; }
 [[ "$scenario" =~ ^(smoke|coordinator)$ ]] || { echo "chief-first-turn-cost.sh: scenario=smoke|coordinator" >&2; exit 2; }
+if [[ "$scenario" == coordinator && "$real" != 1 ]]; then
+  echo "chief-first-turn-cost.sh: scenario=coordinator requires real=1" >&2
+  exit 2
+fi
 [[ "$limit" =~ ^[1-9][0-9]{2,6}$ ]] || { echo "chief-first-turn-cost.sh: limit is a token count" >&2; exit 2; }
 [[ "$claude_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "chief-first-turn-cost.sh: claude=X.Y.Z" >&2; exit 2; }
 [[ "$force_full_tools" =~ ^[01]$ ]] || { echo "chief-first-turn-cost.sh: force_full_tools=0|1" >&2; exit 2; }
