@@ -778,7 +778,7 @@ impl Mux {
             surface.set_name(Some(name));
         }
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations();
+        let notifications = self.tree_decorations_placing(&surface);
         let mut refused = None;
         let attached = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -931,7 +931,7 @@ impl Mux {
             (viewport_width.is_some() || row_height.is_some()).then(|| self.next_id());
         let base_row_id = row_height.map(|_| self.next_id());
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations();
+        let notifications = self.tree_decorations_placing(&surface);
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
         let transaction =
