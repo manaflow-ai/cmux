@@ -387,3 +387,26 @@ fn a_drop_during_a_snapshot_write_still_asks_for_a_snapshot() {
     let _ = std::fs::remove_dir_all(&directory);
     assert!(retry.is_some(), "the dropped bytes are in no snapshot, and none is asked for");
 }
+
+/// Snapshot mode wakes the writer at once when a terminal's unwritten bytes
+/// cross half the cap (4 MiB), so a flood a healthy disk can take is written
+/// before `append` would drop it at the cap (review note on #31643).
+#[test]
+fn a_flood_crossing_half_the_cap_wakes_the_writer_at_once() {
+    let store = OutputStore::new(None);
+    store.set_tail_enabled(true);
+    let id = TerminalPublicId::parse("term_00000000000000000000000000000f3e").unwrap();
+    let generation: Arc<str> = Arc::from("g");
+    store.append(&id, &generation, b"x", None);
+    let log = store.logs.lock().unwrap().get(&id).cloned().unwrap();
+    log.state.lock().unwrap().pending = vec![b'.'; super::super::TAIL_MAX_UNWRITTEN_BYTES / 2 - 8];
+    store.writer.state.0.lock().unwrap().due = None;
+    store.append(&id, &generation, b"one more chunk", None);
+    let due = store.writer.state.0.lock().unwrap().due;
+    let pending = log.state.lock().unwrap().pending.len();
+    assert!(pending > super::super::TAIL_MAX_UNWRITTEN_BYTES / 2, "the bytes were dropped");
+    assert!(
+        due.is_some_and(|due| due <= std::time::Instant::now()),
+        "the writer is not due at once after the flood crossed half the cap: {due:?}"
+    );
+}
