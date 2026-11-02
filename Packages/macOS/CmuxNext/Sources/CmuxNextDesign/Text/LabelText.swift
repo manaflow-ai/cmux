@@ -105,9 +105,17 @@ enum LabelText {
 
     private static func isWrapping(_ mode: NSLineBreakMode) -> Bool { mode == .byWordWrapping || mode == .byCharWrapping }
 
+    /// The text the shared stack laid out last (tests: whether a measure used TextKit).
+    static var lastLaidOutString: String { storage.string }
+
     /// The layout of `text` (font set, no paragraph settings yet) with `width` points for the
     /// text (nil: unbounded), at `scale` pixels per point.
     static func measure(_ text: NSAttributedString, font: NSFont?, shape: Shape, width: CGFloat?, scale: CGFloat) -> Metrics {
+        laidOutMetrics(text, font: font, shape: shape, width: width, scale: scale)
+    }
+
+    /// ``measure(_:font:shape:width:scale:)`` laid out in the shared TextKit stack.
+    static func laidOutMetrics(_ text: NSAttributedString, font: NSFont?, shape: Shape, width: CGFloat?, scale: CGFloat) -> Metrics {
         // Alignment moves lines, not their breaks or heights: measure left-aligned, so an
         // unbounded width keeps the lines at the left edge.
         var measuring = shape
