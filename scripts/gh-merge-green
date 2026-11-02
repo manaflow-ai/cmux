@@ -402,7 +402,9 @@ fi
 must=()
 excuse_runs=()
 red_lanes=()
-if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
+# ci.yml skips ci-status on pull requests into feat-cmux-next: there it could
+# only pass, and that branch's verdicts are the cmux-next runs checked below.
+if [ "$has_ci" -eq 1 ] && [ "$base" != feat-cmux-next ]; then must+=("ci-status"); fi
 
 # Use a conservative path fallback until the exact-head CI routing is available.
 needs_app_compile=0
@@ -586,7 +588,7 @@ if [ "$base" = feat-cmux-next ]; then
       'retry after GitHub returns valid workflow run metadata'
   fi
   # No run is fine only for a pull request outside the workflow's pull_request
-  # paths filter; ci-status on the exact head still gates it. A change the filter
+  # paths filter; the other checks on the exact head still gate it. A change the filter
   # covers gets a run, so none yet means GitHub has not created it (#18100 merged
   # seconds after a push). Read the filter from this head and fail closed.
   if [ -z "$next_verdicts" ]; then

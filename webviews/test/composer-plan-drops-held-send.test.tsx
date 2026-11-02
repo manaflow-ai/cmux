@@ -13,7 +13,7 @@ import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
 
 const MIB = 1024 * 1024;
-/// Each screenshot's preview: under the 1.5 MiB image budget, so ten of them pass the prompt's.
+/// Each screenshot's preview: under the 1.5 MiB image budget, so twenty of them exceed the prompt's.
 const PREVIEW_BYTES = 1.4 * MIB;
 
 const scope = globalThis as Record<string, unknown>;
@@ -171,8 +171,8 @@ test("a bare /plan drops a send waiting for originals: it never goes on its own 
   await until(() => !!host.querySelector('[role="combobox"]'), "the editor");
   const field = host.querySelector<HTMLElement>('[role="combobox"]')!;
 
-  // Ten screenshots pasted: each is its preview chip at once while its original still uploads.
-  const files = Array.from({ length: 10 }, (_, index) => new File(["png"], `Shot ${index}.png`, { type: "image/png" }));
+  // Twenty screenshots pasted: each is its preview chip at once while its original still uploads.
+  const files = Array.from({ length: 20 }, (_, index) => new File(["png"], `Shot ${index}.png`, { type: "image/png" }));
   const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clipboardData", {
     value: { files, types: ["Files"], getData: () => "" },
@@ -181,9 +181,9 @@ test("a bare /plan drops a send waiting for originals: it never goes on its own 
     field.dispatchEvent(event);
   });
   const chips = () => handle.current!.wakeState().attachments ?? [];
-  await until(() => chips().length === 10 && finish !== undefined, "ten screenshot chips and their upload");
+  await until(() => chips().length === 20 && finish !== undefined, "twenty screenshot chips and their upload");
 
-  // Send: ten previews pass one message, so it waits for the originals.
+  // Send: twenty previews exceed one message, so it waits for the originals.
   await act(async () => {
     handle.current!.send();
   });

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextComputerUse
@@ -25,9 +26,9 @@ import Observation
 /// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
-    /// Inspect Element (#24707) is a Debug/Labs surface: every right-click menu that places it
-    /// (the tab bar's + among them) leaves it out until Debug Settings' UI pointer inspector
-    /// (`AgentPaneTunables.pointerInspector`, off by default) is on.
+    /// Inspect Element (#24707): every right-click menu that places it (the tab bar's + among
+    /// them) leaves it out while Debug Settings' UI pointer inspector
+    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off.
     static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
         ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
             !AgentPaneTunables.pointerInspector.value

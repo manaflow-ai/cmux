@@ -42,6 +42,7 @@ fn fixture_with_status(status: SessionStatus) -> (Arc<Hub>, Arc<Session>) {
     let session = hub.resolve("session-test").unwrap();
     let seq = hub.append(&session, "mux", "turn_started", json!({"turnId":"turn-test"})).seq;
     *session.turn.lock().unwrap() = Some(TurnInfo {
+        trigger: false,
         started_at: 1,
         client: "test".into(),
         prompt_preview: String::new(),
@@ -125,6 +126,7 @@ fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only()
     assert!(hub.take_turn(&session, "turn-test", None).is_some());
     assert!(hub.issue_turn_attestation(&session.id, &enrolled, 60_000).is_err());
     *session.turn.lock().unwrap() = Some(TurnInfo {
+        trigger: false,
         started_at: 1,
         client: "test".into(),
         prompt_preview: String::new(),

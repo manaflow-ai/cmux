@@ -32,8 +32,8 @@ import Testing
         #expect(feed.url == Self.tipFeed)
         #expect(tip.feed(architecture: .x86_64).url == Self.tipFeed)
         #expect(UpdateFeedResolver().resolve(infoFeedURL: "https://files.cmux.com/nightly-next/tip/appcast.xml").channel == .nightlyNext)
-        // DEV has no NIGHTLY/stable counterpart to switch to.
-        #expect(tip.channelSwitchTarget == nil)
+        // The published DEV app switches to cmux NEXT's NIGHTLY (and that NIGHTLY to it).
+        #expect(tip.channelSwitchTarget == .nightlyNext)
     }
 
     @Test func theTipAppWithoutAKeyDoesNotRunSparkle() {

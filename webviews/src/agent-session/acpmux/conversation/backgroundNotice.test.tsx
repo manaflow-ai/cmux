@@ -1,5 +1,6 @@
-// Ctrl-B's answer earns a notice when nothing moved (conversation/backgroundNotice.ts): acpmux found
-// nothing in the foreground, refused, never answered, or the connection to it was lost. The notice
+// Ctrl-B's answer earns a notice (conversation/backgroundNotice.ts): the work moved, or it stayed in
+// the foreground after all, or acpmux found nothing in the foreground, refused, never answered, or
+// the connection to it was lost. The notice
 // leaves on the next key or click, with a newer request, or when the chat changes. The real pane is covered by
 // test/agent-pane-ctrl-b-background.test.ts.
 import { afterEach, describe, expect, test } from "bun:test";
@@ -7,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import {
+  BACKGROUND_CHECK_MS,
   BACKGROUND_NOTICE_TEXT,
   type BackgroundNotice,
   backgroundNotice,
@@ -15,8 +17,9 @@ import {
 import { AcpmuxRpcError } from "../handoff/protocol";
 
 describe("backgroundNotice", () => {
-  test("work that moved earns no notice", () => {
-    expect(backgroundNotice({ answer: { backgrounded: true } })).toBeUndefined();
+  test("work that moved says so, as does an answer that leaves `backgrounded` out", () => {
+    expect(backgroundNotice({ answer: { backgrounded: true } })).toBe("moved");
+    expect(backgroundNotice({ answer: {} })).toBe("moved");
   });
 
   test("nothing in the foreground to move", () => {
@@ -48,8 +51,8 @@ describe("backgroundNotice", () => {
 
   test("each notice has its own string", () => {
     const keys = Object.values(BACKGROUND_NOTICE_TEXT);
-    expect(keys).toHaveLength(4);
-    expect(new Set(keys).size).toBe(4);
+    expect(keys).toHaveLength(6);
+    expect(new Set(keys).size).toBe(6);
   });
 });
 
@@ -80,9 +83,9 @@ async function rerender(sessionId: string | undefined): Promise<void> {
 }
 
 /// Tracks `request` and lets it settle.
-async function track(request: Promise<unknown>): Promise<void> {
+async function track(request: Promise<unknown>, stillForeground?: () => boolean): Promise<void> {
   await act(async () => {
-    latest!.track(request);
+    latest!.track(request, stillForeground);
     await request.catch(() => undefined);
   });
 }
@@ -104,12 +107,12 @@ afterEach(async () => {
 });
 
 describe("useBackgroundNotice", () => {
-  test("shows the notice the answer earns, and none when the work moved", async () => {
+  test("shows the notice the answer earns", async () => {
     await mount("chat-1");
     await track(Promise.resolve({ backgrounded: false }));
     expect(notice()).toBe("nothing");
     await track(Promise.resolve({ backgrounded: true }));
-    expect(notice()).toBeUndefined();
+    expect(notice()).toBe("moved");
     await track(timedOut());
     expect(notice()).toBe("timedOut");
   });
@@ -180,6 +183,31 @@ describe("useBackgroundNotice", () => {
       answer({ backgrounded: false });
       await pending;
     });
+    expect(notice()).toBeUndefined();
+  });
+
+  test("a move is checked: work still in the foreground a moment later stayed, work that left moved", async () => {
+    await mount("chat-1");
+    let running = true;
+    await track(Promise.resolve({ backgrounded: true }), () => running);
+    expect(notice()).toBe("moved");
+    await act(() => new Promise((resolve) => setTimeout(resolve, BACKGROUND_CHECK_MS + 50)));
+    expect(notice()).toBe("kept");
+
+    running = false;
+    await track(Promise.resolve({ backgrounded: true }), () => running);
+    await act(() => new Promise((resolve) => setTimeout(resolve, BACKGROUND_CHECK_MS + 50)));
+    expect(notice()).toBe("moved");
+  });
+
+  test("a newer request or another chat drops the pending check", async () => {
+    await mount("chat-1");
+    await track(Promise.resolve({ backgrounded: true }), () => true);
+    await track(Promise.resolve({ backgrounded: false }));
+    await rerender("chat-2");
+    await track(Promise.resolve({ backgrounded: true }), () => true);
+    await rerender("chat-3");
+    await act(() => new Promise((resolve) => setTimeout(resolve, BACKGROUND_CHECK_MS + 50)));
     expect(notice()).toBeUndefined();
   });
 });

@@ -71,13 +71,15 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let browserFocusMode = "browserFocusMode"
     /// The focused terminal is in copy mode.
     public static let terminalCopyMode = "terminal.copyMode"
+    /// The focused terminal is using its alternate screen (vim, tmux, less, ...).
+    public static let terminalAlternateScreen = "terminalAlternateScreen"
     /// A list-like control has the keyboard: a combobox, listbox, menu or
     /// picker in a page, the sidebar list or its search field (R85).
     public static let listFocus = "listFocus"
     /// The sidebar list has the keyboard with two or more rows selected: Cmd-W closes them
     /// (Chrome's Cmd-W on several selected tabs).
     public static let sidebarMultiSelection = "sidebar.multiSelection"
-    /// Workspaces as tabs is on (`sidebar.workspacesAsTabs`, a Debug tunable): Cmd-Shift-[ / ]
+    /// Workspaces as tabs is on (`SidebarTunables.workspacesAsTabsOn`): Cmd-Shift-[ / ]
     /// step workspaces instead of a pane's tabs (`KeyBindingDefaults.workspacesAsTabs`).
     public static let workspacesAsTabs = "sidebar.workspacesAsTabs"
     /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
