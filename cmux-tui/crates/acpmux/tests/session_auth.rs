@@ -245,6 +245,25 @@ async fn session_auth_rechecks_expiry_in_the_selected_project_after_a_successful
     assert_eq!(state(&valid_project), ("ready", "authCheck"), "{valid_project}");
     let unscoped = c.auth(json!({"target": {"harness": "file"}, "refresh": true})).await;
     assert_eq!(unscoped["state"], "unknown", "omitted cwd cannot exclude project auth: {unscoped}");
+    // A healthy API-provider route does not use this expired subscription login.
+    let healthy = endpoint(Arc::new(std::sync::Mutex::new("200 OK"))).await;
+    let added = c
+        .call(
+            "_acpmux/route/add",
+            json!({"id": "project-api", "kind": "custom-anthropic",
+        "anthropicBaseUrl": healthy, "healthUrl": healthy}),
+        )
+        .await;
+    assert!(added.get("error").is_none(), "{added}");
+    let routed = c
+        .auth(json!({"target": {"harness": "file", "cwd": project,
+        "routeId": "project-api"}, "refresh": true}))
+        .await;
+    assert_eq!(
+        state(&routed),
+        ("unknown", "none"),
+        "subscription expiry leaked to route: {routed}"
+    );
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
