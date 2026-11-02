@@ -28,12 +28,42 @@ public final class SidebarContainerView: NSView {
 
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
+    /// The reach currently visible during a slide, derived from the clip rather than the logical
+    /// container width so hover columns and page occlusion follow the panel as it gives the gutter back.
+    public var visualPaneReach: CGFloat { max(0, clip.frame.width - bounds.width) }
+
+    /// The Card surface reaches beyond the container's logical width. AppKit's hit-test walk
+    /// stops at a view's bounds, so forward points in the visual reach to the extended panel.
+    /// AppKit supplies `point` in this view's superview coordinates (the same convention used by
+    /// the row hit-test overrides), so convert once before testing the local bounds. This matters
+    /// for a right-hand sidebar: treating the superview point as local shifts the reach across the
+    /// pane and lets the sidebar claim clicks that belong to the card.
+    override public func hitTest(_ point: NSPoint) -> NSView? {
+        if let hit = super.hitTest(point) { return hit }
+        guard !isHiddenOrHasHiddenAncestor, alphaValue > 0, visualPaneReach > 0 else { return nil }
+        let local = convert(point, from: superview)
+        var expanded = bounds
+        if side == .left { expanded.size.width += visualPaneReach }
+        else { expanded.origin.x -= visualPaneReach; expanded.size.width += visualPaneReach }
+        guard expanded.contains(local) else { return nil }
+        for child in subviews.reversed() {
+            if let hit = child.hitTest(local) { return hit }
+        }
+        return self
+    }
     /// Holds the sidebar at `model.width`, pinned to the clip's edge that
     /// faces the content (`side`).
     private let panel = NSView()
     /// Internal, not private: the resize drag sets it from its own file
     /// (`SidebarContainerView+Resize`).
-    lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width)
+    lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width + paneReach)
+    /// The reach used by the last applied style, so a Card/flat or rail switch retargets the clip
+    /// even when the sidebar width itself is already settled.
+    private var lastPaneReach: CGFloat = 0
+    /// The clip extends into the curved pane gutter while the sidebar is shown.
+    /// Internal so the side and motion extensions can retarget it without a second layout model.
+    lazy var clipLeading: NSLayoutConstraint = clip.leadingAnchor.constraint(equalTo: leadingAnchor)
+    lazy var clipTrailing: NSLayoutConstraint = clip.trailingAnchor.constraint(equalTo: trailingAnchor)
     let handle: SidebarResizeHandle
     /// The thin rail (`sidebar.style` = rail) and its open state (`SidebarContainerView+Rail`).
     public let railView = SidebarRailView()
@@ -105,6 +135,10 @@ public final class SidebarContainerView: NSView {
     var handleConstraints: [NSLayoutConstraint] = []
     /// The band the handle is pinned to now.
     var mountedBand: SidebarResizeBand?
+    /// The pane reach used when the handle's line offset was last mounted. Card and flat styles
+    /// share the same resize band, so the reach is tracked separately for style switches.
+    // Internal because mountHandle() writes it from SidebarContainerView+Side.swift.
+    var mountedPaneReach: CGFloat = 0
 
     /// Dragging the resize edge narrower than this hides the sidebar
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
@@ -134,13 +168,14 @@ public final class SidebarContainerView: NSView {
             sidebarView.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
             sidebarView.topAnchor.constraint(equalTo: panel.topAnchor),
             sidebarView.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
-            clip.leadingAnchor.constraint(equalTo: leadingAnchor),
-            clip.trailingAnchor.constraint(equalTo: trailingAnchor),
+            clipLeading,
+            clipTrailing,
             clip.topAnchor.constraint(equalTo: topAnchor),
             clip.bottomAnchor.constraint(equalTo: bottomAnchor),
             panel.topAnchor.constraint(equalTo: clip.topAnchor),
             panel.bottomAnchor.constraint(equalTo: clip.bottomAnchor),
         ])
+        setClipReach(paneReach, collapsed: isPanelCollapsed, animated: false)
         sidePins = Self.pins(panel: panel, clip: clip)
         NSLayoutConstraint.activate(sidePins[side] ?? [])
         mountHandle()
@@ -274,7 +309,9 @@ public final class SidebarContainerView: NSView {
                  SidebarTunables.collapseMotion.value, [Metrics.dividerHitWidth, Metrics.mainPaneGutter])
             }) {
                 self?.handle.restingLineWidth = border
-                if let self, self.resizeBand != self.mountedBand { self.mountHandle() }
+                if let self, self.resizeBand != self.mountedBand || self.paneReach != self.mountedPaneReach {
+                    self.mountHandle()
+                }
                 self?.followDefaultWidth(defaultWidth)
                 self?.syncRail()
                 self?.apply()
@@ -311,7 +348,9 @@ public final class SidebarContainerView: NSView {
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
         widthConstraint.constant = targetWidth
-        panelWidth.constant = model.width
+        panelWidth.constant = model.width + paneReach
+        lastPaneReach = paneReach
+        setClipReach(paneReach, collapsed: isPanelCollapsed, animated: false)
         panel.isHidden = isPanelCollapsed
         panel.alphaValue = 1
         syncHandleVisibility()
@@ -330,7 +369,16 @@ public final class SidebarContainerView: NSView {
         let hidden = isPanelCollapsed
         let target = model.displayWidth
         let collapseMotion = SidebarTunables.collapseMotion.value
-        panelWidth.constant = model.width
+        let reach = paneReach
+        let reachChanged = reach != lastPaneReach
+        lastPaneReach = reach
+        panelWidth.constant = model.width + reach
+        // A style switch can call apply synchronously before the observation task re-evaluates;
+        // remount here so the divider line follows the new surface edge in that same turn.
+        if reach != mountedPaneReach || resizeBand != mountedBand { mountHandle() }
+        if reachChanged || (!isWidthAnimating && targetWidth == target) {
+            setClipReach(reach, collapsed: hidden, animated: false)
+        }
         syncHandleVisibility()
         if handle.isDragging, !hidden {
             targetWidth = target
@@ -367,6 +415,7 @@ public final class SidebarContainerView: NSView {
         // A toggle mid-animation starts from the constant on screen.
         Motion.sidebar.animateTimed(hidden ? .disappear : .appear, in: self, {
             Motion.animator(widthConstraint, in: self).constant = target
+            self.setClipReach(reach, collapsed: hidden, animated: true)
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration else { return }
             // Flush the final constraint layout before publishing settlement. Content and

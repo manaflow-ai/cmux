@@ -185,11 +185,14 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     // heading, a code card) still takes the rest at once, so some frames remain over SNAP_PX, but
     // far fewer than stepped (CI, 2026-10-31: 71 stepped, 25 eased in Chromium). A step counts what
     // moved at once whole and the glide's slide at what a 60 Hz frame draws of it (the harness's
-    // follow steps): a starved WebKit runner's 20-45 ms frames drew one glide's slide as a 9-16 px
-    // step and failed this (CI, 2026-11-02: p95 12.36 and 16.53, overSnap 36 of 72).
+    // follow steps). Frames that arrived late while the page used less than one frame of CPU are
+    // reported as runner starvation, while their semantic layout movement remains in this metric;
+    // only the glide's scheduler gap is normalized. Layout, long-task and work budgets inspect the
+    // same frames.
     expect(eased.follow.p50).toBeLessThanOrEqual(SNAP_PX / 2);
     expect(eased.follow.p95).toBeLessThan(LINE_PX / 2);
     expect(eased.follow.overSnap).toBeLessThan(stepped.follow.overSnap / 2);
+    expect(eased.follow.moving).toBeGreaterThan(0);
     // A measured line lands in the live line's room, over the bottom stack. The frames under the
     // stack are the ones both runs have: a new block (a code card, a paragraph after a table) drawn
     // a frame before its row is measured. Eased, such a frame can sit lower by what the glide still

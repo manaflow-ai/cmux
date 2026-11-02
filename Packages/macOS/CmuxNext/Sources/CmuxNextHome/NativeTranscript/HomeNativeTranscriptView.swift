@@ -382,10 +382,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether ``paste(_:)`` has text, files or pictures for the message box.
     public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
 
-    /// The Chief chat's size at Agent Chat Zoom 100%: MessagesLab's metrics (text, bubbles, field) drawn 1.5 times
-    /// larger, the size 150% drew before (https://github.com/manaflow-ai/cmux/issues/28715). The zoom steps from here,
-    /// and Cmd-0 comes back to it.
-    static let defaultChatScale: CGFloat = 1.5
+    /// The Chief chat's size at Agent Chat Zoom 100%: MessagesLab's native text, bubble and field metrics.
+    /// The zoom steps from here, and Cmd-0 comes back to it.
+    static let defaultChatScale: CGFloat = 1
 
     /// The Chief chat's scale: its default size times Agent Chat Zoom.
     private static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }

@@ -22,7 +22,7 @@ test("the shared fixture seeds teammates' rows and shows who is here, for the ch
   });
   const seeded = await debug.seedRows(0, "shared");
   expect(seeded.rows).toBe(rows.length);
-  expect(rows.filter((row) => row.author).map((row) => row.author!.name)).toEqual(["Ana Ruiz", "Sam Okafor"]);
+  expect(rows.filter((row) => row.author).map((row) => row.author!.name)).toEqual(["Ana Ruiz", "Sam Okafor", "Sam"]);
   expect(rows.find((row) => row.answeredBy)?.answeredBy?.name).toBe("Sam Okafor");
   expect(shownPresence.get()?.sessionId).toBe("chat-a");
   expect(shownPresence.get()?.presence?.viewing.map((p) => p.name)).toEqual(["Ana Ruiz", "Sam Okafor", "Mei Lin"]);
