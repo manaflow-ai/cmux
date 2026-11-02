@@ -209,6 +209,8 @@ public final class HomeNativeTranscriptView: NSView {
         // A long draft grows the field with no size change: refit the panel and the notice above it.
         transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true }
         followTextSize()
+        // Zoom grows the text in the column, never the column (https://github.com/manaflow-ai/cmux/issues/28978).
+        transcript.widestColumnZoom = Self.widestColumnZoom
         followZoom()
         followBubbleStyle()
         followHeroTunable()
@@ -411,6 +413,11 @@ public final class HomeNativeTranscriptView: NSView {
         }
         needsLayout = true
     }
+
+    /// The Chief chat's most zoomed-out level (Agent Chat Zoom's lowest, `AgentPaneZoomSetting.range`), where its
+    /// bubble column is widest: every zoom keeps that column's on-screen width
+    /// (https://github.com/manaflow-ai/cmux/issues/28978).
+    static let widestColumnZoom: CGFloat = 0.5
 
     /// Settings > Chief > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
     private func followBubbleStyle() {

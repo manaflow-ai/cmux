@@ -180,16 +180,6 @@ public nonisolated enum SettingsSchema {
                 keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
             ),
             SettingDescriptor(
-                CmuxConfigSnapshot.touchBarPath, section: .general, group: window,
-                title: SettingsText.keyed("settings.app.touchBar", "Touch Bar Controls"),
-                help: SettingsText.keyed("settings.app.touchBar.help",
-                                        "Shows cmux actions on Touch Bar-equipped Macs. Turn this off to use only the system Control Strip."),
-                summary: SettingsText.keyed("settings.app.touchBar.summary", "Show cmux actions on the Touch Bar"),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.touchBarFallback),
-                keywords: ["touch bar", "touchbar", "control strip", "workspace", "agent"]
-            ),
-            SettingDescriptor(
                 CmuxConfigSnapshot.startAgentGlobalHotKeyPath, section: .general, group: window,
                 title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
                 help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help",

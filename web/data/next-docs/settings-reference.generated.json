@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 548,
+  "count": 547,
   "sections": [
     {
       "id": "general",
@@ -346,14 +346,6 @@
           "help": "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts.",
           "kind": "toggle",
           "default": false,
-          "group": "Window"
-        },
-        {
-          "key": "app.touchBar",
-          "title": "Touch Bar Controls",
-          "help": "Shows cmux actions on Touch Bar-equipped Macs. Turn this off to use only the system Control Strip.",
-          "kind": "toggle",
-          "default": true,
           "group": "Window"
         },
         {

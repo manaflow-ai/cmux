@@ -1336,7 +1336,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout",
       "targets": [
-        "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
