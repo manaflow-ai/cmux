@@ -124,7 +124,7 @@ public final class TabStripView: NSView {
     /// The tabs fill the bar: they are narrower than their widest, or scroll (``updateCrowded()``).
     /// The trailing controls then show at rest (`tabs.crowdedControls`), since their kept room is
     /// room the tabs could use.
-    public private(set) var isCrowded = false
+    public internal(set) var isCrowded = false
     /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
     public var onCrowdedChange: ((Bool) -> Void)?
     /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
