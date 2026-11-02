@@ -1260,6 +1260,18 @@
             }
           },
           {
+            "key" : "settings.group.agentRetry",
+            "rows" : [
+              "agents.autoRetry.enabled",
+              "agents.autoRetry.intervalSeconds",
+              "agents.autoRetry.attempts"
+            ],
+            "title" : {
+              "key" : "settings.group.agentRetry",
+              "text" : "Retry After Errors"
+            }
+          },
+          {
             "key" : "settings.group.folderTrust",
             "rows" : [
               "agents.trust.autoTrust",
@@ -12671,6 +12683,419 @@
       "title" : {
         "key" : "settings.agents.subsessions.maxDepth",
         "text" : "Deepest Nesting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentRetry",
+        "text" : "Retry After Errors"
+      },
+      "help" : {
+        "key" : "settings.agents.autoRetry.enabled.help",
+        "text" : "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.autoRetry.enabled",
+      "keywords" : [
+        "retry",
+        "rate limit",
+        "capacity",
+        "error",
+        "resume",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "autoRetry",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.autoRetry.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.autoRetry.enabled",
+        "text" : "Retry Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3600,
+        1800
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentRetry",
+        "text" : "Retry After Errors"
+      },
+      "help" : {
+        "key" : "settings.agents.autoRetry.interval.help",
+        "text" : "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.autoRetry.intervalSeconds",
+      "keywords" : [
+        "retry",
+        "interval",
+        "timer",
+        "wait",
+        "backoff",
+        "rate limit"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "autoRetry",
+        "intervalSeconds"
+      ],
+      "range" : {
+        "max" : 3600,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -3600,
+        7200,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.autoRetry.intervalSeconds"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.autoRetry.interval",
+        "text" : "Seconds Between Retries"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        12,
+        6.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 4,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentRetry",
+        "text" : "Retry After Errors"
+      },
+      "help" : {
+        "key" : "settings.agents.autoRetry.attempts.help",
+        "text" : "How many times the chat tries again before it stops and waits for you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.autoRetry.attempts",
+      "keywords" : [
+        "retry",
+        "attempts",
+        "loop",
+        "rate limit"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "autoRetry",
+        "attempts"
+      ],
+      "range" : {
+        "max" : 12,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -10,
+        23,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.autoRetry.attempts"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.autoRetry.attempts",
+        "text" : "Retries per Error"
       },
       "validation" : "portable"
     },

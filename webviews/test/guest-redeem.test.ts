@@ -110,7 +110,14 @@ test("redeem posts once, same origin with credentials, and maps the room's error
   expect(calls[0]![1].method).toBe("POST");
   expect(calls[0]![1].credentials).toBe("include");
   expect(JSON.parse(String(calls[0]![1].body))).toEqual(request);
-  for (const code of ["share.expired", "share.revoked", "share.used", "share.kicked", "share.host_offline"] as const)
+  for (const code of [
+    "share.expired",
+    "share.revoked",
+    "share.closed",
+    "share.used",
+    "share.kicked",
+    "share.host_offline",
+  ] as const)
     expect(await answer(409, { error: { code } })(SHARE, request)).toEqual({ ok: false, error: code });
   expect(await answer(429, { error: "rate_limited" })(SHARE, request)).toEqual({ ok: false, error: "failed" });
   const offline = redeemOverFetch(() => Promise.reject(new TypeError("offline")));

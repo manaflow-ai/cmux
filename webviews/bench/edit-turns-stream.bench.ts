@@ -9,6 +9,7 @@ import {
   trackEditableTurns,
   type EditableTurns,
 } from "../src/agent-session/acpmux/conversation/editPrompt";
+import { perfRow, TARGET_MS } from "./perfRow";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 const ROUNDS = Number(process.argv[2] ?? 9);
@@ -55,5 +56,10 @@ function measure(size: number, arm: "full" | "tracked"): number {
 
 console.log("rows | full read ms/snapshot | tracked read ms/snapshot | median of", ROUNDS, "rounds x", SNAPSHOTS);
 for (const size of SIZES) {
-  console.log(`${size} | ${measure(size, "full").toFixed(4)} | ${measure(size, "tracked").toFixed(4)}`);
+  const full = measure(size, "full");
+  const tracked = measure(size, "tracked");
+  console.log(`${size} | ${full.toFixed(4)} | ${tracked.toFixed(4)}`);
+  // The median of rounds, as both p50 and p95 (perfRow.ts); one streamed token's read is part of a frame's work.
+  perfRow({ name: `edit_turns.full.${size}`, p50: full, p95: full, target: TARGET_MS.frameWork });
+  perfRow({ name: `edit_turns.tracked.${size}`, p50: tracked, p95: tracked, target: TARGET_MS.frameWork });
 }

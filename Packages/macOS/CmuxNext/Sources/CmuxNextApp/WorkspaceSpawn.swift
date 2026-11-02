@@ -190,12 +190,13 @@ struct WorkspaceSpawner {
             ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
         BenchSpans.mark("cmdN.create.sending")
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
-        let command = spawn.command
+        let command = spawn.command, onFirstTerminal = spawn.onFirstTerminal
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             // Keyed (terminal id, mutation): a late start is waited for, never taken back (P0 2026-10-30).
-            _ = try await connection.createTerminalWaitingForStart(CreateTerminalRequest(
+            let started = try await connection.createTerminalWaitingForStart(CreateTerminalRequest(
                 workspace: .key(created), command: command, cwd: cwd,
                 terminalID: terminal, env: env, keep: keep, mutation: connection.mutation()))
+            try await onFirstTerminal?(connection, started)
             return created.rawValue
         }
     }

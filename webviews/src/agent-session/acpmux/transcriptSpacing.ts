@@ -42,7 +42,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 35.375,
     tolerance: 1,
     source: "11.375 + 8 to a 32 button + 16; claude.ai 8 to its button, chatgpt.com 5",
-    pending: "grid-system footer PR 1b (sizes and 8/24 rhythm, after #31609)",
   },
   {
     id: "footer-to-next",
@@ -50,7 +49,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 51,
     tolerance: 1,
     source: "16 + 24 + 11; claude.ai and Claude Code desktop 24 from the button row to the next block",
-    pending: "grid-system footer PR 1b (sizes and 8/24 rhythm, after #31609)",
   },
   {
     id: "step-to-prompt",
@@ -103,7 +101,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "the live line is a one-line row",
-    pending: "grid-system: the live line 22 under a run (25 on base after #31497)",
   },
   {
     id: "live-to-step",
@@ -111,7 +108,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "the waiting group's head is a one-line row",
-    pending: "grid-system: the waiting group 22 under the live line (49 on base after #31497)",
   },
 ];
 
@@ -124,7 +120,7 @@ export const FOOTER = {
   button: 32,
   /** Button to button, left edge to left edge: the buttons touch in both apps. */
   pitch: 32,
-  pending: "grid-system footer PR 1b (sizes and 8/24 rhythm, after #31609)" as string | undefined,
+  pending: undefined as string | undefined,
 } as const;
 
 /** The person's prompt bubble (design/transcript-spacing.md, "Prompt bubble"). */

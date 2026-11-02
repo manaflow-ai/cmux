@@ -1110,6 +1110,50 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works.</string>
+			<key>pfm_name</key>
+			<string>agents.autoRetry.enabled</string>
+			<key>pfm_title</key>
+			<string>Retry Automatically</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes.</string>
+			<key>pfm_name</key>
+			<string>agents.autoRetry.intervalSeconds</string>
+			<key>pfm_range_max</key>
+			<real>3600</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Seconds Between Retries</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>4</integer>
+			<key>pfm_description</key>
+			<string>How many times the chat tries again before it stops and waits for you.</string>
+			<key>pfm_name</key>
+			<string>agents.autoRetry.attempts</string>
+			<key>pfm_range_max</key>
+			<real>12</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Retries per Error</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.</string>

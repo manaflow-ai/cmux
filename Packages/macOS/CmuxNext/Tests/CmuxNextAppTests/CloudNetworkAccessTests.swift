@@ -260,6 +260,22 @@ struct CloudNetworkAccessTests {
         #expect(try await queue.serialized("vm-fail") { 3 } == 3)
     }
 
+    /// The queue's own read-apply-write: a refusal stops every level but `none` before the read, an
+    /// applied policy that is already the level is not written again, and any other is written.
+    @Test func theQueuesSetRefusesWideningAndWritesOnlyAChange() async throws {
+        struct Refused: Error {}
+        let queue = CloudNetworkAccessQueue()
+        var reads = 0, writes: [CloudNetworkPolicy] = []
+        let read: @MainActor (String) async throws -> CloudNetworkPolicyState = { _ in reads += 1; return Self.state(CloudNetworkPolicy(mode: .none)) }
+        let write: @MainActor (String, CloudNetworkPolicy) async throws -> CloudNetworkPolicyState = { _, policy in writes.append(policy); return Self.state(policy) }
+        await #expect(throws: Refused.self) { _ = try await queue.set(.full, on: "vm", refusal: Refused(), read: read, write: write) }
+        #expect(reads == 0 && writes.isEmpty, "a refused level reads and writes nothing")
+        #expect(try await queue.set(.noInternet, on: "vm", refusal: Refused(), read: read, write: write).policy.mode == .none)
+        #expect(reads == 1 && writes.isEmpty, "the applied level is not written again")
+        #expect(try await queue.set(.full, on: "vm", refusal: nil, read: read, write: write).policy.mode == .full)
+        #expect(writes.map(\.mode) == [.full])
+    }
+
     /// A slow server answers the caller `pending` before the control socket's deadline, and the
     /// change still goes through (#28855).
     @Test func aSlowServerAnswersPendingAndTheChangeGoesOn() async throws {

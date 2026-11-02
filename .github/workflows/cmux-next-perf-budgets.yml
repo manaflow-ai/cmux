@@ -23,8 +23,11 @@ name: cmux-next perf cron
 #            confirmed by a cron run, 2026-10-23), each at most 15 min (STRESS and sidebar 25, untimed).
 #            Every exit path leaves a result: a cancel or timeout cancels the fleet step and counts as one
 #            attempt.
-#   linux    (Linux, only when plan picked it) the diff-viewer budgets (scripts/benchmark-diff-viewer.sh's
-#            benches), which left ci-web.yml; it takes no Mac, so it runs while Mac parts yield.
+#   linux    (Linux, only when plan picked it) one Linux part: the diff-viewer budgets
+#            (scripts/benchmark-diff-viewer.sh's benches), which left ci-web.yml, or the web UI benches
+#            (webviews/bench/web-ui-suite.ts: chat open and switch, transcript scroll and rows, the thread
+#            rail, the activity list), slowest first against their targets in the step summary. It takes
+#            no Mac, so it runs while Mac parts yield.
 #   report   (Linux) stores the part; after the last part compares every row with the last good run
 #            and opens, updates or closes the one issue "cmux-next perf regression" (the table, the sha
 #            range, the runs); a missing measurement for 24 h is noted there. No job fails on a
@@ -521,6 +524,7 @@ jobs:
           submodules: false
 
       - name: Install Rust
+        if: ${{ needs.plan.outputs.linux_part == 'diff-viewer' }}
         run: ./scripts/install-rust-ci.sh
 
       - name: Setup Bun
@@ -532,11 +536,17 @@ jobs:
         working-directory: webviews
         run: bun install --frozen-lockfile
 
+      # The web UI benches drive headless Chromium and WebKit (the measured commit's Playwright).
+      - name: Install Playwright browsers
+        if: ${{ needs.plan.outputs.linux_part == 'web-ui' }}
+        working-directory: webviews
+        run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+
       # The measured commit's own benches; the perf cron script from the branch tip judges them.
       - name: Fetch the perf cron script of the branch tip
         run: git fetch --no-tags --depth=1 origin feat-cmux-next && git show FETCH_HEAD:scripts/cmux-next/perf-cron.py > "$RUNNER_TEMP/perf-cron.py"
 
-      - name: The diff-viewer budgets
+      - name: The part's benches
         continue-on-error: true
         env:
           PART: ${{ needs.plan.outputs.linux_part }}
@@ -547,9 +557,10 @@ jobs:
         run: |
           set -uo pipefail
           cp "$RUNNER_TEMP/perf-cron.py" scripts/cmux-next/perf-cron-tip.py
-          python3 -I scripts/cmux-next/perf-cron-tip.py run-linux-part --runner-class "$RUNNER_CLASS" \
+          python3 -I scripts/cmux-next/perf-cron-tip.py run-linux-part --part "$PART" --runner-class "$RUNNER_CLASS" \
             --out "$RUNNER_TEMP/perf-cron-linux" | tee "$RUNNER_TEMP/linux.log"
-          { echo "### perf cron part $PART at ${SHA:0:12} (Linux)"; echo; sed -n 's/^perf-cron linux part: //p' "$RUNNER_TEMP/linux.log"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### perf cron part $PART at ${SHA:0:12} (Linux)"; echo; sed -n 's/^perf-cron linux part: //p' "$RUNNER_TEMP/linux.log"
+            echo; sed -n 's/^perf-cron web-ui: //p' "$RUNNER_TEMP/linux.log"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the part's result
         if: always()

@@ -315,6 +315,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.sessions"),
             // Whether agent sessions may start sub-sessions, how many and how deep.
             group("settings.group.subsessions"),
+            // Whether a turn a rate limit or a lost connection ended is tried again, how often.
+            group("settings.group.agentRetry"),
             // Folders that start an agent without the trust question.
             group("settings.group.folderTrust"),
         ],

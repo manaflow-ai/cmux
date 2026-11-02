@@ -1064,6 +1064,9 @@ export type ConversationLayout = {
   /// Over a floating stack, the band under the last drawn row before the rest gap: a trailing turn
   /// footer's action row lies there (transcriptGrid.ts restBand).
   restBand?: number;
+  /// Room above the first row for history not loaded yet (conversation/olderReserve.ts): every top
+  /// and the total include it. Absent is 0.
+  origin?: number;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
@@ -1101,11 +1104,19 @@ function replyHeight(reply: string): number {
 
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 0;
-/// The running turn's live run line (conversation/turns.ts ACTIVITY_LINE), by value: turns.ts imports
-/// this module.
-const ACTIVITY_LINE_KIND = "activityLine";
-/// A step row: a tool run, the live run line, or a one-line row (transcriptGrid.ts MARK_STEP).
-const isStepRow = (row: AcpmuxRow) => row.kind === "activity" || row.kind === ACTIVITY_LINE_KIND || isLineRow(row);
+/// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
+/// MARK_STEP).
+const isStepRow = (row: AcpmuxRow) =>
+  row.kind === "activity" || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
+/// The running turn's line as its last row (`below`) right under a step row: one more line of the
+/// run, 22 under it and 22 tall (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32
+/// slot, so a step row after it (the waiting messages' head) is 22 under it too (#29965).
+export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
+  row.below === true &&
+  (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE) &&
+  prev !== undefined &&
+  isStepRow(prev);
+const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
 const TOOL_ROW_PT = 22;
@@ -1521,6 +1532,7 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
 /// `keepsReplyRoom`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
   const status = statusEdge(row, next, prev);
+  if (isLiveStep(row, prev)) return LIVE_STEP_EDGE;
   const edge = status ? `${footerEdge(row, next) ?? ""}${STATUS_EDGE}${status}` : footerEdge(row, next);
   return keepsReplyRoom(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
 };
@@ -2113,7 +2125,7 @@ export function layoutConversation(
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
-    marks[index] = isStepRow(row) ? MARK_STEP : rowMark(row);
+    marks[index] = isStepRow(row) || isLiveStep(row, prevDrawn) ? MARK_STEP : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
@@ -2130,16 +2142,18 @@ export function layoutConversation(
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
       height = custom
         ? customHeight
-        : measuredRowHeight(
-            row,
-            width,
-            cache,
-            edge?.startsWith("footer") === true,
-            edge?.startsWith("last-turn") === true,
-            sessionId,
-            edge?.startsWith("continuation") === true,
-            edge?.endsWith(ACTIONS_EDGE) === true,
-          );
+        : edge === LIVE_STEP_EDGE
+          ? toolRowHeight()
+          : measuredRowHeight(
+              row,
+              width,
+              cache,
+              edge?.startsWith("footer") === true,
+              edge?.startsWith("last-turn") === true,
+              sessionId,
+              edge?.startsWith("continuation") === true,
+              edge?.endsWith(ACTIONS_EDGE) === true,
+            );
       // A row that draws nothing stays at 0; a custom renderer's height is its own.
       if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
       known?.set(row, { width, height, edge });
@@ -2176,6 +2190,8 @@ export function placeRows(
   estimate: ConversationLayout,
   heightAt: (index: number) => number | undefined,
   previous?: { layout: ConversationLayout; kept: number },
+  /// Where the first row starts (ConversationLayout.origin). Kept rows keep their places only at it.
+  origin = 0,
 ): ConversationLayout {
   const tops = new Float64Array(estimate.heights.length);
   const heights = new Float64Array(estimate.heights.length);
@@ -2183,14 +2199,14 @@ export function placeRows(
   // rows keep their places only at the scale they were placed at.
   const scale = gridScale();
   const kept =
-    previous && (previous.layout.scale ?? 1) === scale
+    previous && (previous.layout.scale ?? 1) === scale && (previous.layout.origin ?? 0) === origin
       ? Math.min(previous.kept, previous.layout.heights.length, heights.length)
       : 0;
   if (kept > 0) {
     tops.set(previous!.layout.tops.subarray(0, kept));
     heights.set(previous!.layout.heights.subarray(0, kept));
   }
-  let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
+  let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : origin;
   let previousContent = kept - 1;
   while (previousContent >= 0 && heights[previousContent] === 0) previousContent -= 1;
   let beforeContent = previousContent - 1;
@@ -2221,7 +2237,19 @@ export function placeRows(
     restBand: marks ? restBand(footerAfter(marks, heights)) * scale : estimate.restBand,
     scale,
     totalHeight: top,
+    ...(origin ? { origin } : {}),
   };
+}
+
+/// `layout` with its first row starting at `origin` instead (ConversationLayout.origin): one pass
+/// over the tops, run only when the room above the rows changes, never per streamed token.
+export function withOrigin(layout: ConversationLayout, origin: number): ConversationLayout {
+  const by = origin - (layout.origin ?? 0);
+  if (by === 0) return layout;
+  const tops = new Float64Array(layout.tops.length);
+  for (let index = 0; index < tops.length; index += 1) tops[index] = layout.tops[index]! + by;
+  const { origin: _, ...rest } = layout;
+  return { ...rest, tops, totalHeight: layout.totalHeight + by, ...(origin ? { origin } : {}) };
 }
 
 function upperBound(values: Float64Array, target: number): number {
