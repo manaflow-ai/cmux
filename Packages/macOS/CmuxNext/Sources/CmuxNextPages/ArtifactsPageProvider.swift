@@ -44,25 +44,39 @@ public nonisolated struct ArtifactsReply: Sendable {
 /// the feature, so it has no Labs gate; signed out, every read answers sign in.
 @MainActor
 public final class ArtifactsPageProvider: PageProvider {
+    /// The host's account-change stream. The page uses it to invalidate private content before
+    /// the next tree read, including when sign-out happens while the page stays open.
+    public typealias AuthChanges = @MainActor (@escaping @MainActor (JSONValue) -> Void) -> PageSubscription
+
     /// The history page size the platform takes.
     public static let limitRange: ClosedRange<Int> = 1...100
     /// A file larger than this comes back without its content; the page says it is too large to preview.
     public static let previewLimit = 4 * 1024 * 1024
 
     private let fetch: @Sendable (ArtifactsRead) async throws -> ArtifactsReply
+    private let authChanges: AuthChanges?
 
     /// - Parameter fetch: Makes the authenticated GET and returns the platform's answer; throws
     ///   when the platform cannot be reached or the person is signed out.
-    public init(fetch: @escaping @Sendable (ArtifactsRead) async throws -> ArtifactsReply) {
+    public init(fetch: @escaping @Sendable (ArtifactsRead) async throws -> ArtifactsReply,
+                authChanges: AuthChanges? = nil) {
         self.fetch = fetch
+        self.authChanges = authChanges
     }
 
     /// The Artifacts tab's page: this provider on the app-selected platform API, each read made
     /// with `token`'s access token (nil when signed out). The host supplies the base so release
     /// builds use their production Cloud configuration and debug builds can use a preview.
-    public static func page(baseURL: URL?, token: @escaping @Sendable () async throws -> String?) -> PageWebView? {
-        let provider = ArtifactsPageProvider(fetch: platformFetch(base: baseURL, token: token))
+    public static func page(baseURL: URL?, authChanges: AuthChanges? = nil,
+                            token: @escaping @Sendable () async throws -> String?) -> PageWebView? {
+        let provider = ArtifactsPageProvider(fetch: platformFetch(base: baseURL, token: token), authChanges: authChanges)
         return PageWebView(descriptor: .artifacts, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider)])
+    }
+
+    public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                          onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+        guard stream == "cmux.cloud.auth.watch", let authChanges else { throw PageError.unknownOp(stream) }
+        return authChanges(onEvent)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {

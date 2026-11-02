@@ -158,6 +158,21 @@ struct ArtifactsPageProviderTests {
         }
         #expect(error?.code == "cmux.artifacts.failed")
     }
+
+    @Test func routerAdmitsTheAccountChangeStream() async throws {
+        let provider = ArtifactsPageProvider(fetch: { _ in ArtifactsReply(status: 200, body: Data(Self.tree.utf8)) }, authChanges: { onEvent in
+            onEvent(["changed": .bool(true)])
+            return PageSubscription {}
+        })
+        let descriptor = PageDescriptor(id: "cmux.artifacts-test", resource: "artifacts", namespaces: ["cmux.artifacts."])
+        let router = PageRouter(descriptor: descriptor, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider), PageRoute(prefix: "cmux.cloud.", provider: provider)])
+        var seen = false
+        router.send = { message in seen = message["data"]?["changed"]?.boolValue == true }
+        let reply = await router.handle(["t": "sub", "id": 1, "stream": "cmux.cloud.auth.watch"])
+        #expect(reply["t"]?.stringValue == "ok")
+        for _ in 0..<100 where !seen { await Task.yield() }
+        #expect(seen)
+    }
 }
 
 /// The bearer only ever goes to a platform deployment: an override elsewhere is ignored.
