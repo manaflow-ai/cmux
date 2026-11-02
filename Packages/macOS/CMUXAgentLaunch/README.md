@@ -1,20 +1,5 @@
 # CMUXAgentLaunch
 
-## Testing Codex resume permissions
-
-`CodexResumePermissionPolicy` takes captured values and individual JSONL records,
-so permission recovery tests need neither a running app nor a user's transcript:
-
-```swift
-let policy = CodexResumePermissionPolicy()
-let launch = AgentLaunchCommand(launcher: "codex", arguments: ["codex", "-s", "workspace-write"])
-let repaired = policy.repairing(launch, with: ["-a", "never", "-s", "workspace-write"])
-// repaired.arguments retains the explicit sandbox and gains only approval.
-```
-
-The hook-producing CLI owns file I/O and skips the transcript entirely when
-`requiresTranscriptEvidence(for:)` is false.
-
 `CMUXAgentLaunch` owns launch, restore, and environment policy for coding
 agents. New value-level policy APIs accept captured inputs directly, while
 executable targets keep process mutation at their own seams.
@@ -70,3 +55,18 @@ let results = CodexSessionResumeVerifier().verifyBatch(
     fileManager: fixtureFileManager
 )
 ```
+
+## Testing Codex resume permissions
+
+`CodexResumePermissionPolicy` takes captured values and individual JSONL records,
+so permission recovery tests need neither a running app nor a user's transcript:
+
+```swift
+let policy = CodexResumePermissionPolicy()
+let launch = AgentLaunchCommand(launcher: "codex", arguments: ["codex", "-s", "workspace-write"])
+let repaired = policy.repairing(launch, with: ["-a", "never", "-s", "workspace-write"])
+// repaired.arguments retains the explicit sandbox and gains only approval.
+```
+
+The hook-producing CLI owns file I/O and skips the transcript entirely when
+`requiresTranscriptEvidence(for:)` is false.

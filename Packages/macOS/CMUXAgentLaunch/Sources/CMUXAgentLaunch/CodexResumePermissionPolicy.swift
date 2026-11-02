@@ -42,10 +42,15 @@ public struct CodexResumePermissionPolicy: Sendable {
         guard !launchCommand.arguments.isEmpty, !permissionArguments.isEmpty else { return launchCommand }
         var launchCommand = launchCommand
         let explicit = permissionFields(launchCommand)
+        func insertRecovered(_ arguments: [String]) {
+            // Flags after `--` are prompt text, not Codex options.
+            let index = launchCommand.arguments.firstIndex(of: "--") ?? launchCommand.arguments.endIndex
+            launchCommand.arguments.insert(contentsOf: arguments, at: index)
+        }
         let shortcut = permissionArguments.count == 1
             && ["--yolo", "--dangerously-bypass-approvals-and-sandbox"].contains(permissionArguments[0])
         if shortcut, !explicit.approval, !explicit.sandbox {
-            launchCommand.arguments.append(contentsOf: permissionArguments)
+            insertRecovered(permissionArguments)
             return launchCommand
         }
         func inferredValue(_ option: String) -> String? {
@@ -56,15 +61,15 @@ public struct CodexResumePermissionPolicy: Sendable {
         let approval = shortcut ? "never" : inferredValue("-a")
         let sandbox = shortcut ? "danger-full-access" : inferredValue("-s")
         if !explicit.approval, let approval {
-            launchCommand.arguments.append(contentsOf: ["-a", approval])
+            insertRecovered(["-a", approval])
         }
         if !explicit.sandbox, let sandbox {
-            launchCommand.arguments.append(contentsOf: ["-s", sandbox])
+            insertRecovered(["-s", sandbox])
         }
         let effectiveSandbox = explicit.sandbox ? explicit.sandboxMode : sandbox
         if !explicit.network, effectiveSandbox == "workspace-write",
            let network = permissionArguments.first(where: { $0.hasPrefix("sandbox_workspace_write.network_access=") }) {
-            launchCommand.arguments.append(contentsOf: ["-c", network])
+            insertRecovered(["-c", network])
         }
         return launchCommand
     }
