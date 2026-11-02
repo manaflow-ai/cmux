@@ -25,6 +25,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { BUBBLE } from "../src/agent-session/acpmux/transcriptSpacing";
 
 await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -559,9 +560,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // Tinted glass (Leo 2026-10-20): the window shows through, but the tint is there.
     expect(bubble.alpha).toBeGreaterThan(0);
     expect(bubble.alpha).toBeLessThan(255);
-    expect(bubble.radius).toBeLessThanOrEqual(12);
-    expect(bubble.left).toBeGreaterThanOrEqual(10);
-    expect(bubble.left).toBeLessThanOrEqual(12);
+    expect(bubble.radius).toBeLessThanOrEqual(BUBBLE.radius);
+    // 16 at the sides, as ChatGPT and Claude (design/transcript-spacing.md "Prompt bubble").
+    expect(bubble.left).toBeGreaterThanOrEqual(BUBBLE.paddingInline - 2);
+    expect(bubble.left).toBeLessThanOrEqual(BUBBLE.paddingInline);
     expect(Math.abs(bubble.top - bubble.left)).toBeLessThanOrEqual(2);
     expect(Math.abs(bubble.bottom - bubble.left)).toBeLessThanOrEqual(2);
     expect(bubble.right).toBe(0);
