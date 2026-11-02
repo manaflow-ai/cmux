@@ -65,6 +65,7 @@ extension ScreenContentView {
             activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: time)
         case let .moved(windowPoint, time, shown):
             activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: time)
+            if activeDrag != nil { resizeGestureMoved() }
             applyDrag(at: windowPoint, shownAt: shown, phase: .changed)
             context.requestFrames()
         case let .ended(windowPoint, time):
@@ -80,6 +81,7 @@ extension ScreenContentView {
             applyDrag(at: windowPoint, phase: .ended)
             activeDrag = nil
             model.setGestureActive(false)
+            resizeGestureReleased()
         }
     }
 
@@ -91,6 +93,7 @@ extension ScreenContentView {
         rowDragPreview = nil
         context.model.cancelGesture(drag.transaction)
         context.model.setGestureActive(false)
+        resizeGestureReleased()
     }
 
     /// A new handle's drags read this screen's frame-aligned input (``LayoutRootView/dragFrameInput``)

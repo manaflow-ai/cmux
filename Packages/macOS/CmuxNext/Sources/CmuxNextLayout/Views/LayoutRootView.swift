@@ -464,7 +464,11 @@ public final class LayoutRootView: NSView {
             if view.endMotionTurn(needsFrames: screenNeedsFrames) { needsFrames = true }
         }
 
+        // A drag's pages whose panes moved to a surviving screen hear its end when that screen lands;
+        // the rest (gone with their screen) hear it now.
+        var carried: [PaneResizeGestureListener] = []
         for (id, view) in leaving {
+            carried += view.takeResizeGestureListeners()
             view.tearDown()
             view.removeFromSuperview()
             screenViews[id] = nil
@@ -483,6 +487,18 @@ public final class LayoutRootView: NSView {
             applyScreenFrames()
         }
 
+        for listener in carried {
+            guard let page = listener.view else { continue }
+            if let home = screenViews.values.first(where: { page.isDescendant(of: $0) }) {
+                home.adoptResizeGestureListeners([listener])
+            } else {
+                page.paneResizeGestureDidChange(active: false)
+            }
+        }
+        // A released resize drag: its layout is in the screens now (`ScreenContentView+ResizeGesture`).
+        for view in screenViews.values where view.resizeGesture == .releasing {
+            view.resizeGestureModelSynced(gestureActive: snapshot.gestureActive)
+        }
         updateVisibilityIfPlanChanged()
         overlayIsStale = true
         flushOverlaySync()
@@ -544,11 +560,18 @@ public final class LayoutRootView: NSView {
     var rendersMotion: Bool { screenSwitch.isInFlight || screenViews.values.contains { $0.renderSpringsInFlight > 0 } }
 
     private func stepFrame(_ dt: Double) -> Bool {
+        // A released resize drag whose layout the observation has not applied yet: apply it before this
+        // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
+        if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {
+            syncWithModel()
+            // Nothing new to apply: the screens already show the model.
+            for view in screenViews.values where view.resizeGesture == .releasing { view.resizeGestureModelSynced(gestureActive: false) }
+        }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
             // A resampled pan's event that waited for this frame shows now, unresampled.
             for view in screenViews.values where !view.isHidden { view.presentFramePan(at: nil) }
-            for view in screenViews.values where view.hasMotion { view.settleMotion() }
+            for view in screenViews.values where view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
             stopScreenSwitch()
             for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
             applyScreenFrames()
@@ -711,7 +734,11 @@ public final class LayoutRootView: NSView {
         pointerLanding = nil
         driver.detach()
         if !live {
-            for view in screenViews.values { view.settleMotion() }
+            for view in screenViews.values {
+                view.settleMotion()
+                // No frames run while parked or away: a resize drag's pages lay out now (`ScreenContentView+ResizeGesture`).
+                view.finishResizeGesture()
+            }
             // No frame shows a parked root: a switch in flight lands now, its old screen hidden.
             if stopScreenSwitch() {
                 applyScreenFrames()
