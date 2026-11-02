@@ -114,6 +114,18 @@ struct SidebarClaudeAccountRowTests {
         #expect(entries.contains { $0.key == "build" })
     }
 
+    /// Each label once, at the position of the first pane that has it.
+    @Test
+    func labelsKeepFirstSeenPanelOrderAcrossRepeats() {
+        let labels = SidebarWorkspaceSnapshotFactory.claudeAccountLabels(
+            agents: ["work", "alt", "work", "qa", "alt", "qa"].map {
+                (.claude, ["CLAUDE_CONFIG_DIR": "~/.claude-\($0)"])
+            },
+            homeDirectory: Self.home
+        )
+        #expect(labels == ["work", "alt", "qa"])
+    }
+
     @Test
     func claudeConfigDirProducesBasenameLabel() {
         let labels = SidebarWorkspaceSnapshotFactory.claudeAccountLabels(

@@ -55,11 +55,13 @@ extension SidebarWorkspaceSnapshotFactory {
         homeDirectory: String
     ) -> [String] {
         var labels: [String] = []
+        // Emitted labels, so a workspace with many panes dedupes in one pass, in panel order.
+        var emitted: Set<String> = []
         for agent in agents where agent.kind == .claude {
             guard let label = SidebarAgentProfileLabel.label(
                 configDirectory: agent.environment?["CLAUDE_CONFIG_DIR"],
                 homeDirectory: homeDirectory
-            ), label != SidebarAgentProfileLabel.routedProxyLabel, !labels.contains(label) else { continue }
+            ), label != SidebarAgentProfileLabel.routedProxyLabel, emitted.insert(label).inserted else { continue }
             labels.append(label)
         }
         return labels
