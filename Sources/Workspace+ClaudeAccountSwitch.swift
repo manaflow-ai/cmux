@@ -131,7 +131,14 @@ extension Workspace {
         }
         // Restarting the pane stops only a Claude on the pane's own terminal; one in tmux or
         // detached would keep writing this session while the resumed Claude continues it.
-        // Checked before the transcript is copied, so a refused switch changes nothing.
+        // Checked before the transcript is copied, so a refused switch changes nothing. The
+        // live-owner fallback reads the agent index, which a session found through the pane's
+        // lifecycle record has not loaded; an index never loaded would read as "no other owner",
+        // and one that cannot load refuses like the index path above.
+        if SharedLiveAgentIndex.shared.index == nil,
+           await SharedLiveAgentIndex.shared.indexRefreshingNow() == nil {
+            return .refused(.noClaudeSession)
+        }
         guard let agentsBeforeCopy = claudeAccountSwitchAgentsOwnedByPane(panelId, sessionID: plan.sessionID) else {
             return .agentNotOwnedByPane
         }
