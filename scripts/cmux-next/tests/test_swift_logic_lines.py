@@ -230,7 +230,7 @@ class LogicLinesTests(Repo):
         self.write(f"{SRC}/CmuxNextHelper/main.swift",
                    "import Foundation\n@preconcurrency import Dispatch\n\n// The entry point.\n"
                    "guard let name = CommandLine.arguments.first,\n      let other = Optional(name) else {\n"
-                   "    exit(1)\n}\n#if DEBUG\nprint(other)\n#endif\nlet service = Service()\n"  # 5 statement lines, service 1
+                   "    exit(1)\n}\n#if DEBUG\nprint(other)\n#endif\nlet service = Service()\n"  # 5, service 1
                    "struct Service {\n}\n"  # 2
                    "service.run()\nRunLoop.main.run()\n")  # 2 more statement lines
         self.write(f"{SRC}/CmuxNextHelper/Other.swift", "struct Other {\n}\n")  # 2: no main.swift

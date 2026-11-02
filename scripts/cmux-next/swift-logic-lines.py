@@ -20,15 +20,18 @@ Scope: every tracked Swift file under the Sources of CmuxNext and its local `.pa
 (arch_counts.read_paths); a file's module is the directory after `Sources/` (arch_counts.package_of).
 
 Unit: each top-level declaration (class, struct, enum, actor, protocol, extension, also of a shorthand type such as
-`extension [UInt8]`, and file-scope func, var, let, typealias) of the blanked code (comments and strings blanked, so a
-declaration in a comment or a string is none) and its line span: from its first attribute line to the line of its
-closing brace (a type), or to the end of its statement (a func: its signature and body, or only its signature when it
-has none; a file-scope let/var/typealias: past brackets, braces and multi-line strings, to the `;` or the newline that
-no operator carries on). A line counts once: a declaration that starts on a line another one already spans starts on
-the next line (`let a = 1; let b = 2`: a 1 line, b 0). Lines outside every declaration (imports, header comments, `#if`
-lines, top-level statements of a main.swift) never count. A declaration inside `#if` counts like any other. Known
-limit: an `#if` whose branches open and close braces unevenly makes the brace before it run to the end of the file
-(arch_counts.Braces); the lines are put under the wrong declaration, none is hidden.
+`extension [UInt8]`, and file-scope func, var, let, typealias; at a line start or after a `}` or `;` on its line) of the
+blanked code (comments and strings blanked, so a declaration in a comment or a string is none) and its line span: from
+its first attribute line to the line of its closing brace (a type; a func whose body `{` follows its parameter list
+with only signature text between, `throws` or `-> T` on later lines too), or to the end of its statement (a func with
+no body: its signature; a file-scope let/var/typealias: past brackets, braces and multi-line strings, to the `;` or the
+newline that no operator carries on). A line counts once: a declaration that starts on a line another one already spans
+counts from the next line (`let a = 1; let b = 2`: a 1 line, b 0) and still reports its own line. The top-level
+statements of a main.swift (its code lines outside every declaration, not an import or a `#if`-style directive) are
+one more unit, kind `main`, name `main.swift`. Other lines outside every declaration (imports, header comments, `#if`
+lines) never count. A declaration inside `#if` counts like any other. Known limit: an `#if` whose branches open and
+close braces unevenly makes the brace before it run to the end of the file (arch_counts.Braces); the lines are put
+under the wrong declaration, none is hidden.
 
 Table: plans/cmux-next/swift-logic-classes.tsv at SHA, tab-separated, first line exactly
 `module kind name ordinal class logic_share mirror_share path reason` (--table FILE reads another copy). Its key is
@@ -73,7 +76,6 @@ from __future__ import annotations
 import argparse
 import collections
 import dataclasses
-import fnmatch
 import hashlib
 import importlib.util
 import json
@@ -90,7 +92,8 @@ LOGIC = "swift_logic_lines"
 MIRROR = "mirror_lines"
 ROWS = (LOGIC, MIRROR)
 HEADER = ("module", "kind", "name", "ordinal", "class", "logic_share", "mirror_share", "path", "reason")
-KINDS = frozenset({"class", "struct", "enum", "actor", "protocol", "extension", "func", "var", "let", "typealias"})
+KINDS = frozenset({"class", "struct", "enum", "actor", "protocol", "extension", "func", "var", "let", "typealias",
+                   "main"})
 # class: the (logic_share, mirror_share) it must carry; None: any pair whose sum is at most 100.
 CLASSES = {"LOGIC": (100, 0), "MIRROR": (0, 100), "PLATFORM": (0, 0), "GENERATED": (0, 0), "MIXED": None}
 VIEW_TYPES = frozenset({
@@ -103,9 +106,10 @@ _TYPE_KINDS = frozenset({"class", "struct", "enum", "actor", "protocol", "extens
 # code line starts with one (`.map {`, `?? x`, the `{` of a computed body).
 _CONTINUES_AFTER = re.compile(r"(?:[=,(\[+\-*/%&|.:<]|->|\?\?)[ \t]*$")
 _CONTINUES_BEFORE = re.compile(r"[ \t]*(?:\.(?!\.)|&&|\|\||\?\?|\?|:|[+*/%&|{=]|-(?!>)|->|where\b)")
-# Codegen output that counts 0 when the table does not list it: a file whose path matches a glob here AND whose leading
-# comment block names that generator on a line that opens with GENERATED_HEADER. A header alone, or a generated-looking
-# name, hides nothing: a new generator (or a new output path) is a reviewed change of this list.
+# Codegen output that counts 0 when the table does not list it: a file whose path matches a glob here (`*` stays in
+# one folder) AND whose leading comment block names that generator on a line that opens with GENERATED_HEADER. A
+# header alone, or a generated-looking name, hides nothing: a new generator (or a new output path) is a reviewed change
+# of this list.
 GENERATORS = (
     ("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+*.generated.swift",
      "scripts/cmux-next/gen-settings-sources.py"),
@@ -163,7 +167,18 @@ def load_counts():
 AC = load_counts()
 # An extension of a shorthand type (`extension [UInt8] {`, `extension [String: Int] {`): TYPE_DECL needs a name.
 _SHORTHAND_EXTENSION = re.compile(
-    rf"^[ \t]*(?:{AC.ATTR}\s+)*(?:{AC.MODS}\s+)*extension[ \t]+(\[[^\]\n{{]*\]|\([^)\n{{]*\))", re.M)
+    rf"(?:^|(?<=[;}}]))[ \t]*(?:{AC.ATTR}\s+)*(?:{AC.MODS}\s+)*extension[ \t]+(\[[^\]\n{{]*\]|\([^)\n{{]*\))", re.M)
+# arch_counts' type and func patterns start at a line start; a declaration also follows a `}` or `;` on its line
+# (`}; struct B {`).
+_TYPE_DECL = re.compile(r"(?:^|(?<=[;}]))" + AC.TYPE_DECL.pattern[1:], re.M)
+_FUNC_DECL = re.compile(r"(?:^|(?<=[;}]))" + AC.FUNC_DECL.pattern[1:], re.M)
+# Between a func's parameter list and a `{`: a line that starts another declaration means the func has no body.
+_NEXT_DECL = re.compile(r"[;}]|\n[ \t]*(?:@|#|(?:public|package|internal|private|fileprivate|open|final|nonisolated|"
+                        r"func|var|let|class|struct|enum|actor|protocol|extension|typealias|import|macro|operator|"
+                        r"precedencegroup)\b)")
+# A main.swift line that is no statement: an import or a compiler directive.
+_NO_STATEMENT = re.compile(r"[ \t]*(?:(?:@\w+[ \t]+)*import\b|"
+                           r"#(?:if|elseif|else|endif|warning|error|sourceLocation)\b)")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -258,11 +273,16 @@ def _statement_end(code: str, pos: int, braces) -> int:
     return n
 
 
+def _glob(pattern: str) -> re.Pattern[str]:
+    """PATTERN with `*` as any run of characters inside one path component (never a `/`)."""
+    return re.compile("[^/]*".join(re.escape(part) for part in pattern.split("*")))
+
+
 def generated(path: str, raw: str) -> bool:
     """Whether the Swift file PATH with text RAW is a reviewed generator's output: PATH matches a GENERATORS glob and a
     line of its leading comment block (the comment and blank lines before its first code line) opens with
     GENERATED_HEADER and names that generator."""
-    marks = [mark for glob, mark in GENERATORS if fnmatch.fnmatchcase(path, glob)]
+    marks = [mark for glob, mark in GENERATORS if _glob(glob).fullmatch(path)]
     if not marks:
         return False
     for line in raw.split("\n"):
@@ -285,7 +305,7 @@ def units(raw: str, path: str = "") -> list[Unit]:
     code_lines = code.split("\n")
     n = len(code)
     found: list[tuple[int, int, str, str, bool]] = []  # (start offset, end offset, kind, name, view)
-    for m in AC.TYPE_DECL.finditer(code):
+    for m in _TYPE_DECL.finditer(code):
         if braces.enclosing(m.start()):
             continue
         brace = code.find("{", m.end())
@@ -302,13 +322,18 @@ def units(raw: str, path: str = "") -> list[Unit]:
             continue
         name = re.sub(r"\s+", "", m.group(1))
         found.append((m.start(), braces.close.get(brace, n - 1) + 1, "extension", name, False))
-    for m in AC.FUNC_DECL.finditer(code):
+    for m in _FUNC_DECL.finditer(code):
         if braces.enclosing(m.start()):
             continue
-        # Its signature statement: the body brace, on the line or the next, is part of it; a func with no body
-        # (`@_silgen_name`) ends at its signature.
-        found.append((m.start(), _statement_end(code, AC._closing(code, m.end() - 1) + 1, braces), "func", m.group(2),
-                      False))
+        # Its body: the first `{` after its parameter list when only signature text (effects, `->`, `where`, on any
+        # number of lines) comes before it; a func with no body (`@_silgen_name`) ends at its signature statement.
+        paren = AC._closing(code, m.end() - 1) + 1
+        brace = code.find("{", paren)
+        if brace >= 0 and not _NEXT_DECL.search(code, paren, brace):
+            end = braces.close.get(brace, n - 1) + 1
+        else:
+            end = _statement_end(code, paren, braces)
+        found.append((m.start(), end, "func", m.group(2), False))
     for m in AC.STATIC.finditer(code):
         if braces.enclosing(m.start()) or re.search(r"\bstatic\b", m.group(1) or ""):
             continue
@@ -320,15 +345,23 @@ def units(raw: str, path: str = "") -> list[Unit]:
             continue
         found.append((m.start(), _statement_end(code, m.end(1), braces), "typealias", m.group(1), False))
     out = []
+    covered: set[int] = set()
     counted = 0  # the last line a unit already spans: a line counts once (`let a = 1; let b = 2`: a 1, b 0)
     for start, end, kind, name, view in sorted(found):
         # The patterns start at the line start of the first attribute line (`^[ \t]*`); a match after a `;` or a
         # `{` starts on its own line.
-        first = AC._line_of(code, start + (1 if code.startswith("\n", start) else 0), starts)
+        line = AC._line_of(code, start + (1 if code.startswith("\n", start) else 0), starts)
         last = AC._line_of(code, max(start, end - 1), starts)
-        first = max(first, counted + 1)
-        out.append(Unit(kind, name, first, max(0, last - first + 1), view, made))
+        first = max(line, counted + 1)
+        out.append(Unit(kind, name, line, max(0, last - first + 1), view, made))
+        covered.update(range(line, last + 1))
         counted = max(counted, last)
+    if path.rsplit("/", 1)[-1] == "main.swift":
+        # Its top-level statements (code outside every declaration, not an import or a directive): one unit.
+        lines = [i for i, text in enumerate(code_lines, 1)
+                 if i not in covered and text.strip() and not _NO_STATEMENT.match(text)]
+        if lines:
+            out.append(Unit("main", "main.swift", lines[0], len(lines), False, made))
     return out
 
 
