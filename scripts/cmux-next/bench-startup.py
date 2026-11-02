@@ -20,7 +20,7 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
         state root, then one connection's identify and snapshot round trips
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
-      [--mode cold --mode warm] [--profile empty|realistic] [--json out.json]
+      [--mode cold --mode warm] [--profile empty|realistic|stress] [--json out.json]
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
@@ -31,7 +31,12 @@ seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
 terminal tabs and a split, then splits the selected pane and opens an agent
 chat in it, so the measured launch restores a full sidebar, a terminal and
 an agent pane. Its runs wait for the agent pane's handshake as well as the
-first terminal frame.
+first terminal frame. --profile stress seeds one priming launch with the standard
+STRESS session (scripts/cmux-next/perf-stress-session.py: 60 workspaces, the shown
+one 14 panes of 6 tabs with a terminal selected in each, 10 of them printing), so
+the measured launch restores 14 visible terminals; its runs wait for the first
+terminal frame. Per-pane launch marks (launch.visible_terminals_drawn, the LAST
+visible terminal's saved frame) are reported when the build has them.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -131,7 +136,9 @@ MARKS = [
     ("agent_pane.launch_image_shown", "an agent pane's saved page shown"),
     ("terminal.launch_frames_read", "saved terminal frames read and decoded"),
     ("terminal.launch_frame_missed", "a terminal asked before its read ended"),
-    ("terminal.launch_frame_shown", "a terminal's saved frame shown"),
+    ("terminal.launch_frame_shown", "the FIRST terminal's saved frame shown (not the launch number)"),
+    # The launch number: the LAST terminal of the first window frame to show its saved frame (max over panes).
+    ("launch.visible_terminals_drawn", "every visible terminal's saved frame shown (the last pane)"),
 ]
 REALISTIC_WORKSPACES = 24
 # Launch work that must start only after the first window frame (perf-launch-memory): checked
@@ -844,6 +851,36 @@ def seed_realistic(tag, scratch, timeout):
         out.write(f"agent focus={seed_layout()}\n" if agent else f"terminals focus={seed_layout()}\n")
 
 
+def seed_stress(tag, scratch, timeout):
+    """Fills the tag's state with the standard STRESS session (see --profile stress) and leaves the daemon running."""
+    import importlib.util  # noqa: E402
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+    spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+    stress = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stress)
+    reset_state(tag)
+    prime = Launch(tag, scratch)
+    try:
+        if not prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True):
+            raise SystemExit(f"tag {tag}: the seeding launch never drew a terminal")
+        app_client(tag).close()  # the control socket answers
+        socket_path = next(path for path in socket_candidates(tag) if os.path.exists(path))
+        summary = stress.Stress(stress.socket_rpc(socket_path)).build()
+        print("BENCH-STRESS " + json.dumps(summary), flush=True)
+    finally:
+        prime.quit()
+    with open(seeded_marker(tag), "w") as out:
+        out.write("stress\n")
+
+
+def seeded_stress(tag):
+    try:
+        with open(seeded_marker(tag)) as marker:
+            return marker.read().startswith("stress")
+    except OSError:
+        return False
+
+
 def seeded_agent(tag):
     try:
         with open(seeded_marker(tag)) as marker:
@@ -883,9 +920,13 @@ def one_run(tag, mode, timeout, profile=None):
     # A first launch shows the agent New Tab page, not a terminal: other
     # profiles end at whichever content draws first.
     final = [FINAL_MARK, AGENT_MARK]
-    any_of = profile != "realistic"
+    any_of = profile not in ("realistic", "stress")
     if profile == "empty":
         reset_state(tag)
+    elif profile == "stress":
+        if not seeded_stress(tag):
+            seed_stress(tag, scratch, timeout)
+        final = [FINAL_MARK]
     elif profile == "realistic" and seeded_focus(tag) != seed_layout():
         seed_realistic(tag, scratch, timeout)
     if profile == "realistic" and not seeded_agent(tag):
@@ -1048,9 +1089,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", default=[])
     parser.add_argument("--app", action="append", default=[], help="a staged `cmux DEV <tag>.app` (fleet artifact)")
-    parser.add_argument("--profile", choices=["empty", "realistic"],
-                        help="empty: no saved state before each run; realistic: a seeded day's work "
-                             "(default: whatever state the tag has)")
+    parser.add_argument("--profile", choices=["empty", "realistic", "stress"],
+                        help="empty: no saved state before each run; realistic: a seeded day's work; stress: the "
+                             "standard STRESS session (default: whatever state the tag has)")
     parser.add_argument("--focus", choices=["agent", "terminal"], default="agent",
                         help="realistic: the focused pane at quit, the agent chat or a terminal beside it")
     parser.add_argument("--chat-pane", choices=["first", "last"], default="last",
