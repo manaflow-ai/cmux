@@ -390,7 +390,7 @@ import {
   sessionEdits,
   type SessionEdits,
 } from "./turnChanges/sessionRows";
-import { repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
+import { headerChangesInPlace, repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
 import { resendToOwner, retryFailedTurn } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
@@ -11554,6 +11554,18 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
+  // Changes opens the folder's diff tab beside the chat. A folder outside a repository has no diff for
+  // that tab, and the app's fallback was the folder picker in the palette (Leo, 2026-10-28: "All it does
+  // is open up the command palette, and it doesn't open up the diff viewer on the right side"), so there
+  // it toggles the last turn's changes view on the chat's right, as the edited-files card does.
+  const toggleChanges = (mode: QuickActionMode) => {
+    void headerChangesInPlace(localCwd, litSplits.includes(HEADER_ACTIONS.changes), readFolderStatus).then(
+      (inPlace) => {
+        if (!inPlace) runSplitAction(HEADER_ACTIONS.changes, localCwd, mode);
+        else if (mode === "toggle" || !diffOpen) toggleLastChanges();
+      },
+    );
+  };
   const togglePreview = (url: string | undefined) => {
     ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode: "toggle" }));
     window.setTimeout(refreshTabState, 400);
@@ -13796,7 +13808,7 @@ function AcpmuxPane() {
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
                       hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
-                      onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
+                      onChanges={toggleChanges}
                       onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
