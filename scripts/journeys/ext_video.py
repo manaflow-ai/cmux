@@ -109,8 +109,32 @@ def _hid_log(j, kind, args, sent, returned, answer=None):
                            "answer": answer})
 
 
+def _crash_reports(j, since):
+    """The app's crash reports written after SINCE (epoch s): ~/Library/Logs/DiagnosticReports/*.ips of a process
+    named like the app's executable (the lease's clone), first 200 lines each, into <journey out>/video/."""
+    import glob
+    exe = os.path.basename(str(getattr(j.app, "bundle", "") or "")).replace(".app", "")
+    found = []
+    for path in glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*.ips")):
+        try:
+            if os.path.getmtime(path) < since:
+                continue
+            with open(path, errors="replace") as f:
+                text = f.read(400_000)
+        except OSError:
+            continue
+        if "cmux" not in text[:4000].lower() and (not exe or exe.lower() not in text[:4000].lower()):
+            continue
+        out = _vdir(j) / ("crash-" + os.path.basename(path).replace(" ", "_") + ".txt")
+        out.write_text(text[:200_000])
+        found.append(out.name)
+    return found
+
+
 def step_video_start(j, step):
     name = step["name"]
+    if not hasattr(j, "video_t0_epoch"):
+        j.video_t0_epoch = time.time()
     if getattr(j, "video", None):
         raise D.StepError(f"video_start {name}: {j.video['name']} is still recording")
     path = _vdir(j) / f"{name}.mov"
@@ -120,7 +144,20 @@ def step_video_start(j, step):
             params[key] = step[key]
     seq = R._journal_last_seq(j)
     trace = _motion(j, "trace_start", window=0)
-    started = _motion(j, "record_start", **params)
+    try:
+        started = _motion(j, "record_start", **params)
+    except (OSError, D.StepError) as error:
+        time.sleep(3)
+        crashes = _crash_reports(j, j.video_t0_epoch - 5)
+        raise D.StepError(f"video_start {name}: record_start failed ({error}); app crash reports: {crashes or 'none found'}")
+    time.sleep(0.3)
+    try:
+        _motion(j, "record_read")
+    except OSError as error:
+        time.sleep(3)
+        crashes = _crash_reports(j, j.video_t0_epoch - 5)
+        raise D.StepError(f"video_start {name}: the app stopped answering after record_start ({error}); "
+                          f"app crash reports: {crashes or 'none found'}")
     if not started.get("starting"):
         _motion(j, "trace_stop")
         raise D.NotRun(f"video_start {name}: the recorder did not start: {json.dumps(started)[:300]}")
