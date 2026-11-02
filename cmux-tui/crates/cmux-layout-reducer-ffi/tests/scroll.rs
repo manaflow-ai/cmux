@@ -327,4 +327,43 @@ mod scroll {
             cmux_scroll_free(scroll);
         }
     }
+
+    /// A named drag anchor the strip does not hold (a docked column) keeps the camera, as
+    /// Swift's `anchor ?? focused` does: it never falls back to the focused column.
+    #[test]
+    fn an_anchor_outside_the_strip_never_falls_back_to_the_focused_column() {
+        let scroll = cmux_scroll_new(0);
+        let mut spring = CmuxScrollSpring::default();
+        sync_four(scroll, &mut spring, "p3");
+        let before = spring.value;
+        assert_eq!(before, 640.);
+        // A 300 pt column opens left of the focused c3; the anchor names a docked column.
+        let mut request = Request::default();
+        let widths = [400., 400., 300., 400., 400.];
+        let mut x = 8.;
+        for (index, width) in widths.iter().enumerate() {
+            let frame = rect(x, 0., *width, 600.);
+            let (column, pane) = if index == 2 {
+                ("cn".to_owned(), "pn".to_owned())
+            } else {
+                let i = if index < 2 { index } else { index - 1 };
+                (format!("c{i}"), format!("p{i}"))
+            };
+            request.column(column.as_str(), frame, &[(pane.as_str(), Some(frame))]);
+            x += width + 8.;
+        }
+        let focused = request.text("p3");
+        let anchor = request.text("dock-left");
+        let strip = request.strip(1000., x, 8.);
+        let mut sync = sync_of(focused, 2, false);
+        sync.anchor = anchor;
+        sync.reveals = 0;
+        assert_eq!(unsafe { cmux_scroll_sync(scroll, &mut spring, &strip, &sync) }.ok, 1);
+        assert_eq!(spring.value, before, "the camera followed the focused column");
+        assert_eq!(unsafe { cmux_scroll_gesture_active(scroll) }, 0);
+        unsafe { cmux_scroll_gesture_began(scroll, &mut spring) };
+        assert_eq!(unsafe { cmux_scroll_gesture_active(scroll) }, 1);
+        assert_eq!(unsafe { cmux_scroll_gesture_active(std::ptr::null()) }, 0);
+        unsafe { cmux_scroll_free(scroll) };
+    }
 }

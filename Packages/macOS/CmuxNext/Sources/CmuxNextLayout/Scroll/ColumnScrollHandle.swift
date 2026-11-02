@@ -4,8 +4,10 @@ import CoreGraphics
 
 /// The Rust column scroll reducer of one ``ColumnScrollState`` (cmux-layout-reducer
 /// `scroll`, C ABI `cmux_scroll_*`): one handle, and the buffers a sync encodes
-/// its strip into, kept across calls so a sync, a gesture delta or a wheel
-/// notch allocates nothing in steady state.
+/// its strip into, kept across calls. A call on a uniquely held handle allocates
+/// nothing in steady state; a copy of the owning value (copy on write) clones the
+/// handle and its buffers, which the row and area callers in ScreenContentView do
+/// at each sync, gesture end and wheel notch.
 nonisolated final class ColumnScrollHandle {
     /// Which strip the handle reduces (the C ABI's kind).
     enum Kind: UInt8 {
@@ -42,6 +44,9 @@ nonisolated final class ColumnScrollHandle {
     }
 
     var status: CmuxScrollStatus { cmux_scroll_status(pointer) }
+
+    /// Read per frame for every row and area: no focus lookup.
+    var isGestureActive: Bool { cmux_scroll_gesture_active(pointer) != 0 }
 
     var focusedPane: PaneID? {
         let status = status

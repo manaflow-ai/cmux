@@ -92,8 +92,8 @@
       "owner": "Performance Lead"
     },
     "column-scroll-reduce": {
-      "what": "one column scroll event (sync, gesture delta, wheel notch, page) through the Rust reducer: encode the strip into the handle's reused buffers and one cmux_scroll_* call",
-      "bench": "column scroll A/B on an exclusive capture mini at 120 Hz (main-thread ms per frame, dropped frames), rust-migration/layout-scroll PR body",
+      "what": "one column scroll event (sync, gesture delta, wheel notch, page) through the Rust reducer: encode the strip into the handle's reused buffers and one cmux_scroll_* call; row and area callers copy the value out of their dictionary, so their syncs, gesture ends and wheel notches also clone the handle",
+      "bench": "column scroll A/B on an exclusive capture mini at 120 Hz (main-thread ms per frame, dropped frames), with columns, overflowing rows and a scroll area; rust-migration/layout-scroll PR body",
       "owner": "Layout"
     }
   }

@@ -33,7 +33,7 @@ public nonisolated struct ColumnScrollState {
     }
 
     /// A trackpad gesture is in progress.
-    public var isGestureActive: Bool { handle.status.gesture_active != 0 }
+    public var isGestureActive: Bool { handle.isGestureActive }
 
     /// The live trackpad gesture, nil without one.
     public var gesture: Gesture? {
