@@ -2,13 +2,14 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Testing
 @testable import CmuxNextAgentPane
 
 /// A saved transcript stays until the live page reports its drawn frame. Chromium's separate
 /// child window ignores its native parent's alpha, so fading that parent leaves OLD text visible
 /// through the already-drawn NEW page. This checks the real paint/reveal callbacks, not pixels.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct AgentPaneSavedCoverRevealTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }

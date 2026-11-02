@@ -346,7 +346,7 @@ public final class AgentPaneModel {
         newTab = nil
         // The spare's start folder was no tab's; the chat's folder comes with its session.
         handshakeCwd = nil
-        (hasPainted, paintedFromKeptTail) = (false, false)
+        (hasPainted, paintedFromKeptTail, pageReportedPaint) = (false, false, false)
         return true
     }
 
