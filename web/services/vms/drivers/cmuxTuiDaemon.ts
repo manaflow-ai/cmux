@@ -325,7 +325,7 @@ TimeoutStopSec=30
 [Install]
 WantedBy=default.target
 `;
-  const settleScript = `i=0; while [ "$i" -lt 30 ]; do status_rc=0; if status=$(timeout 5s "$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null); then :; else status_rc=$?; fi; [ "$status_rc" -ne 124 ] || exit 3; pid=$(printf '%s\n' "$status" | sed -nE 's/.*"pid"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p'); if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then break; fi; i=$((i + 1)); sleep 1; done; status_rc=0; if status=$(timeout 5s "$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null); then :; else status_rc=$?; fi; [ "$status_rc" -ne 124 ] || exit 3; pid=$(printf '%s\n' "$status" | sed -nE 's/.*"pid"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p'); [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null`;
+  const settleScript = cmuxTuiDaemonSettleScript();
   const settle = `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" sh -c ${shellQuote(settleScript)}`;
   return [
     cmuxTuiLayoutSelector(),
@@ -348,6 +348,11 @@ WantedBy=default.target
     `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user enable --now acpmux.service && XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user is-active --quiet acpmux.service`,
     `fi`,
   ].join("\n");
+}
+
+/** Wait for a detached daemon to release its lock before the user unit takes over. */
+export function cmuxTuiDaemonSettleScript(): string {
+  return `stop_lock_holder() { lock_pid=$(sed -n '1p' "$HOME/.acpmux/daemon.lock" 2>/dev/null); case "$lock_pid" in ''|*[!0-9]*) return 0;; esac; kill -0 "$lock_pid" 2>/dev/null || return 0; cmd=$(tr '\\0' ' ' < "/proc/$lock_pid/cmdline" 2>/dev/null) || return 3; case "$cmd" in *acpmux*) ;; *) return 3;; esac; kill "$lock_pid" 2>/dev/null || return 3; j=0; while kill -0 "$lock_pid" 2>/dev/null && [ "$j" -lt 15 ]; do sleep 1; j=$((j + 1)); done; if kill -0 "$lock_pid" 2>/dev/null; then kill -KILL "$lock_pid" 2>/dev/null || return 3; fi; kill -0 "$lock_pid" 2>/dev/null && return 3; return 0; }; i=0; while [ "$i" -lt 30 ]; do status=$(timeout 5s "$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null); status_rc=$?; [ "$status_rc" -eq 0 ] || exit 3; pid=$(printf '%s\\n' "$status" | sed -nE 's/.*"pid"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p'); if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then break; fi; i=$((i + 1)); sleep 1; done; status=$(timeout 5s "$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null); status_rc=$?; [ "$status_rc" -eq 0 ] || exit 3; pid=$(printf '%s\\n' "$status" | sed -nE 's/.*"pid"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p'); stop_lock_holder || exit 3; [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null`;
 }
 
 const HOOK_BIN = '"$CMUX_TUI_HOOK_BIN"';
