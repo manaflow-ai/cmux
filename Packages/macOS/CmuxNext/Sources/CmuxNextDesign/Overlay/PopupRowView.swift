@@ -34,6 +34,9 @@ open class PopupRowView: NSView {
     }
 
     public let rowLayout: Layout
+    /// The row's padded box: ``Layout/leading`` from its leading edge to ``Layout/trailing`` from
+    /// its trailing edge. A control that spans the row or yields to it (a popup's slider) stays in it.
+    public let contentGuide = NSLayoutGuide()
     public let titleLabel = ThemedLabel(labelWithString: "")
     public let subtitleLabel = ThemedLabel(labelWithString: "")
     public let leadingView: NSView?
@@ -86,9 +89,14 @@ open class PopupRowView: NSView {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
+        addLayoutGuide(contentGuide)
         let textLeading = layout.leading + layout.leadingColumn + (layout.leadingColumn > 0 ? layout.gap : 0)
         var constraints = [
             heightAnchor.constraint(greaterThanOrEqualToConstant: layout.minHeight),
+            contentGuide.leadingAnchor.constraint(equalTo: leadingAnchor, constant: layout.leading),
+            contentGuide.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -layout.trailing),
+            contentGuide.topAnchor.constraint(equalTo: topAnchor),
+            contentGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
             texts.leadingAnchor.constraint(equalTo: leadingAnchor, constant: textLeading),
             texts.centerYAnchor.constraint(equalTo: centerYAnchor),
             texts.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 4),

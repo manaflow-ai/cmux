@@ -58,7 +58,12 @@
   --cv-message-gap: 0px;
   --cv-turn-gap: 0px;
   --cv-continuation-gap: 0px;
-  --cv-tool-row-height: var(--grid-row);
+  /* One-line activity rows (tool runs, calls, notices, inbox and message lines) sit 22 apart top to
+     top, flush, as Codex lists them (design/chat-transcript.md "One-line row pitch", #29965; Leo,
+     2026-11-01: "doesn't make sense for these to be spaced differently"). #27580 drew them on the
+     28 list row with a 24 block gap between each, about 50 apart (Leo, 2026-11-02: "well now
+     there's sometimes too much spacing between tool calls"). */
+  --cv-tool-row-height: 22px;
   --cv-glyph-slot: var(--grid-transcript-icon-box);
   --cv-glyph-line: var(--grid-transcript-icon-box);
   --cv-disclosure-slot: var(--grid-transcript-icon-box);
@@ -71,6 +76,12 @@
   --cv-tool-run-bottom-gap: 0px;
   --cv-tool-run-top-gap: 0px;
   --cv-action-overhang: calc((var(--grid-transcript-action-control) - var(--grid-transcript-icon-box)) / 2);
+  /* A reply footer's buttons, as ChatGPT's (design/transcript-spacing.md "Reply footer"; Leo,
+     2026-11-02: "didn't i always say we can do it like chatgpt"): a 20 glyph in a 32 button, the
+     buttons touching, the first glyph's box on the prose's left edge. */
+  --cv-footer-button: var(--grid-transcript-footer-control);
+  --cv-footer-glyph: var(--grid-transcript-footer-icon);
+  --cv-footer-overhang: calc((var(--cv-footer-button) - var(--cv-footer-glyph)) / 2);
   /* Base's names for the lines below, on the grid (grid.md 5.5): the gap is the stack's, so a line
      adds none of its own. */
   /* Another agent's message line, an inbox line and the heads of a report batch or the waiting
@@ -79,7 +90,7 @@
   --cv-message-line: var(--cv-tool-row-height);
   --cv-message-subhead: 22px; /* a sender's head inside that group */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row */
-  --cv-disclosure-line-height: var(--grid-row);
+  --cv-disclosure-line-height: var(--cv-tool-row-height);
   /* A status row between two replies (model.ts `isStatusRow`) sits in the middle of the gap (Leo,
      2026-10-30: "see how claude code has those centered tool calls / id like more alignment too"):
      the block gap on both sides already centres it, so the status gaps add nothing (model.ts
@@ -87,10 +98,10 @@
   --cv-status-gap: 0px;
   --cv-status-gap-plain: 0px;
   --cv-status-gap-plain-over: 0px;
-  /* #30865's reply room and #30400's note gap on the grid: the stack's block gap is the room under a
-     reply and around a note, so neither adds its own. */
+  /* #30865's reply room on the grid: the stack's block gap is the room under a reply. A note in a
+     run of flush lines keeps --cv-note-gap (below) around it. */
   --cv-reply-room: 0px;
-  --cv-note-gap: 0px;
+  --cv-note-gap: var(--grid-gap-block);
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--grid-gap);
   /* One icon column for every transcript meta row (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN
@@ -623,6 +634,23 @@
   font-weight: 600;
   letter-spacing: var(--text-body--letter-spacing);
 }
+/* A pinned document keeps the originating chat visible while browsing other conversations. */
+.acpmux-artifact-source {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  color: var(--agent-muted);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+@media (max-width: 720px) {
+  .acpmux-artifact-source {
+    display: none;
+  }
+}
 .acpmux-artifact-versions {
   display: inline-flex;
   align-items: center;
@@ -742,7 +770,8 @@
   .cv-received-actions,
   .cv-received__hover,
   .cv-reply-actions,
-  .acpmux-turnSummary .cv-turn-actions {
+  .acpmux-turnSummary .cv-turn-actions,
+  .cv-turn-actions .cv-turn-time {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-user:hover .cv-user__actions,
@@ -754,7 +783,10 @@
   .acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
   .acpmux-turnSummary:hover .cv-turn-actions,
-  .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions {
+  .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
+  .acpmux-turnSummary[data-turn-revealed] .cv-turn-time,
+  .acpmux-turnSummary:hover .cv-turn-time,
+  .acpmux-assistant:hover .cv-reply-actions .cv-turn-time {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
 }
@@ -1876,7 +1908,8 @@ pre.cv-math-source {
    space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
    The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
 .cv-worked.is-below {
-  height: var(--grid-row);
+  /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
+  height: var(--cv-footer-button);
   padding-top: 0;
 }
 /* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line.
@@ -1999,7 +2032,8 @@ pre.cv-math-source {
 .cv-tools {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-block);
+  /* Flush lines, 22 apart (--cv-tool-row-height); a note keeps --cv-note-gap around it. */
+  gap: 0;
   margin: 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -2181,10 +2215,10 @@ pre.cv-math-source {
   pointer-events: none;
 }
 /* A short interim note folded into a run of calls (turns.ts mergeShortNotes): the agent's words in
-   the run's quiet color, wrapped on the rows' 20px lines, with the plain status gap (12px, the
-   transcript's inner gap) to the tool rows above and below it, as a longer reply between two runs
-   has (Leo, 2026-11-01: "the thoughts in between tool calls probably want a bit more padding").
-   model.ts `activityStepHeight` estimates it with the same numbers (NOTE_LINE, NOTE_GAP). */
+   the run's quiet color, wrapped on the rows' 20px lines, with the block gap (--cv-note-gap, 24) to
+   the flush tool rows above and below it (Leo, 2026-11-01: "the thoughts in between tool calls
+   probably want a bit more padding"). model.ts `activityStepHeight` estimates it with the same
+   numbers (NOTE_LINE, noteGap). */
 .cv-tool-note {
   margin: var(--cv-note-gap) 0;
   line-height: 20px;
@@ -2661,7 +2695,7 @@ button.cv-video-frames__frame:focus-visible {
 .cv-tool-group {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-block);
+  gap: 0;
   margin: 0;
   padding-left: var(--grid-icon-box);
   box-shadow: inset 1px 0 var(--cv-rule);
@@ -3167,7 +3201,7 @@ button.cv-video-frames__frame:focus-visible {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
-  height: var(--grid-row);
+  height: var(--cv-tool-row-height);
   box-sizing: border-box;
   padding-block: 0;
   padding-inline: 0;
@@ -3264,6 +3298,22 @@ button.cv-video-frames__frame:focus-visible {
 .cv-received__sender > .cv-agent-tag {
   flex: 0 1 auto;
   max-width: 100%;
+}
+/* The other machine the sender runs on, after its name: muted, a middle dot before it, and the first
+   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName). */
+.cv-received__host {
+  flex: 0 10 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* The dot sits 4px from the name and from the host, not the sender's 8px gap plus a space. */
+  margin-inline-start: calc(4px - var(--cv-row-icon-gap));
+  color: var(--cv-text-dim);
+}
+.cv-received__host::before {
+  content: "\00B7";
+  margin-inline-end: 4px;
 }
 /* The sender's name is the line's first word: it starts on the rows' text column, its tint
    reaching back into the icon gap (transcript-icon-column.test.ts, transcript-row-alignment.test.ts). */
@@ -3646,7 +3696,7 @@ a.cv-sha:focus-visible {
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
-/* An empty footer (turns.ts isEmptyFooter: no label, no answer to copy, only Pin, Fork and the age,
+/* An empty footer (turns.ts isEmptyFooter: no answer to copy, only Pin, Fork and the time,
    all hover-only) takes no line: the row is its turn gap alone, and pointed at, the controls show
    over that gap (at least the meta line's height), so nothing moves (Leo, 2026-10-21: a "Worked for 0s" row
    took a full line). The chat's last footer keeps that same gap, so its hidden controls never add a
@@ -3659,12 +3709,12 @@ a.cv-sha:focus-visible {
   display: none;
 }
 /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
-   right edge, the actions after the time. */
+   right edge. */
 :root[data-turn-actions-placement="right"] .cv-turn-actions {
   justify-content: flex-end;
   padding-inline: 0 2px;
 }
-/* The footer's buttons fit its compact line, with a prompt's compact radius (.cv-iconbtn--compact). */
+/* An empty footer's hover buttons fit the gap they lie in, with a prompt's compact radius. */
 .cv-turn-actions .cv-iconbtn {
   height: var(--cv-meta-row);
   border-radius: 5px;
@@ -3672,12 +3722,39 @@ a.cv-sha:focus-visible {
 .cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
   width: var(--cv-meta-row);
 }
+/* A reply's footer buttons: ChatGPT's 32 squares with its 8 radius, each around a 20 glyph. */
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn {
+  height: var(--cv-footer-button);
+  border-radius: 8px;
+}
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu) {
+  width: var(--cv-footer-button);
+}
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn > svg {
+  width: var(--cv-footer-glyph);
+  height: var(--cv-footer-glyph);
+}
+.cv-turn-actions:not(.cv-turn-actions--empty),
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row {
+  min-height: var(--cv-footer-button);
+}
+/* Its time on hover in claude.ai's caption size, 6 after the last button (the row's 8 less a half step). */
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row > .cv-turn-time {
+  height: var(--cv-footer-button);
+  margin-inline-start: calc(-1 * var(--grid-half-step));
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
 /* The row's first glyph starts where the reply's text does, as Codex's and Claude's copy glyph does
    (Leo, 2026-10-30: "WE NEED TO LINE OUR SHIT UP LIKE THEIRS"; design/grid.md 5.5, the action row's
-   first glyph on col-left): its 24px button overhangs the column by the glyph's inset, 4px. A
-   footer that says its time first ("Worked for 5s") starts that label on the column instead. */
+   first glyph on col-left): its button overhangs the column by the glyph's inset, and the row itself
+   starts on the column (inset-inline below), so the ink lands on it exactly. Nothing comes before the
+   buttons (Leo, 2026-11-02: "those buttons should always just be there left aligned"). */
 .cv-reply-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
-.cv-turn-actions .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
+  margin-inline-start: calc(-1 * var(--cv-footer-overhang));
+}
+.cv-turn-actions--empty .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
   margin-inline-start: calc((var(--cv-glyph-slot) - var(--cv-meta-row)) / 2);
 }
 /* That button's hover pill overhangs its row, which paint containment (styles.css .acpmux-row) would
@@ -3686,7 +3763,7 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-turnSummary {
   contain: layout;
 }
-/* Claude's buttons touch: 24px squares side by side, then its age 8px on (.cv-turn-actions' gap). */
+/* The buttons touch, 32px squares side by side as ChatGPT's, then the time 8px on (.cv-turn-actions' gap). */
 .cv-turn-action-group {
   display: inline-flex;
   align-items: center;
@@ -3777,14 +3854,14 @@ a.cv-sha:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
 }
-.cv-turn-summary,
 .cv-turn-note,
 .cv-turn-time {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
 /* Hidden, its space kept, but for a failed turn, the turn the reader points at (data-turn-revealed,
-   VirtualTranscript) or keyboard focus. */
+   VirtualTranscript), keyboard focus, or the turn that ends the chat (App.tsx `acpmux-row--final-footer`):
+   once the agent is done its Copy shows without a hover, as Claude's and ChatGPT's (Leo, 2026-11-02). */
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
@@ -3794,7 +3871,25 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
-.acpmux-turnSummary .cv-turn-actions--resumable {
+.acpmux-turnSummary .cv-turn-actions--resumable,
+.acpmux-row--final-footer .cv-turn-actions {
+  opacity: 1;
+}
+/* A reply's time comes after its buttons, hidden at rest, and shows while the reader points at the
+   reply, as ChatGPT's exact time does (MessageActions.tsx ReplyTime; Leo, 2026-11-02: "notice how on
+   hover it reveals the exact timestamp"). Its space is kept, so the buttons never move. */
+.cv-turn-actions .cv-turn-time {
+  opacity: 0;
+}
+.acpmux-turnSummary[data-turn-revealed] .cv-turn-time,
+.acpmux-turnSummary:hover .cv-turn-time,
+.acpmux-turnSummary:has([data-popup-open]) .cv-turn-time,
+.acpmux-turnSummary:focus-visible .cv-turn-time,
+.acpmux-turnSummary .cv-turn-actions:focus-within .cv-turn-time,
+.acpmux-assistant:hover .cv-reply-actions .cv-turn-time,
+.acpmux-assistant:has([data-popup-open]) .cv-reply-actions .cv-turn-time,
+.acpmux-assistant:focus-visible .cv-reply-actions .cv-turn-time,
+.cv-reply-actions:focus-within .cv-turn-time {
   opacity: 1;
 }
 /* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
@@ -3802,8 +3897,10 @@ a.cv-sha:focus-visible {
    the reader points at the reply or a button in it has keyboard focus. */
 .cv-reply-actions {
   position: absolute;
-  inset-inline: calc(-1 * var(--cv-action-overhang));
-  top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
+  /* Its left edge on the prose's: the first button's own margin (above) puts that glyph's ink on
+     col-left. Only the end overhangs, so the last control's box can end past the column. */
+  inset-inline: 0 calc(-1 * var(--cv-footer-overhang));
+  top: calc(100% + var(--grid-gap-footer));
   margin: 0;
   opacity: 0;
 }
@@ -3823,7 +3920,6 @@ a.cv-sha:focus-visible {
   color: var(--agent-accent, var(--cv-text));
   background: color-mix(in srgb, var(--agent-accent, currentColor) 14%, transparent);
 }
-.cv-turn-summary,
 .cv-turn-time {
   flex: none;
   white-space: nowrap;
@@ -4943,12 +5039,15 @@ a.cv-sha:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 /* A live line under a plan is the finished turn footer's slot. Keep its content at the same
-   leading edge while the row holds the footer's 24px line plus turn gap, so `turnSummary` can
-   replace it in place when the turn ends. */
+   leading edge while the row holds the footer's 32 line, so `turnSummary` can replace it in place
+   when the turn ends. */
 .acpmux-row.acpmux-activityLine.acpmux-row--below {
   min-height: 0;
-  height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
+  height: var(--cv-footer-button);
   padding-bottom: 0;
+}
+.acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
+  min-height: var(--cv-footer-button);
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
@@ -5140,7 +5239,9 @@ article.acpmux-row {
   margin-block: 0;
   contain: layout;
 }
-article.acpmux-turnSummary:not(:has(.cv-turn-actions--failed, .cv-turn-actions--resumable)) {
+/* An empty footer (turns.ts isEmptyFooter) takes no height: its hover controls lie over the gap. A
+   reply's footer is a row of its own (model.ts isOverlayFooter). */
+article.acpmux-turnSummary:has(.cv-turn-actions--empty) {
   height: 0;
 }
 /* A status row between two replies sits in the middle of the gap (model.ts `statusEdge`,
@@ -5189,19 +5290,19 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .acpmux-row--after-step > .cv-tools {
   margin-top: 0;
 }
-.acpmux-turnSummary:not(:has(.cv-turn-actions--failed, .cv-turn-actions--resumable)) .cv-turn-actions {
+/* The empty footer's hover controls lie in the gap under the row above, centred in it. A reply's
+   footer is in the flow: its row is its 32 line, 8 under the reply's last line and the block gap
+   (or a prompt's turn gap) over what follows (transcriptGrid.ts MARK_FOOTER_ROW). */
+.acpmux-turnSummary .cv-turn-actions--empty {
   position: absolute;
-  inset-inline: calc(-1 * var(--cv-action-overhang));
+  /* Starts on the prose's left edge, as .cv-reply-actions: the first button's margin alone moves its
+     glyph's ink onto col-left. */
+  inset-inline: 0 calc(-1 * var(--cv-action-overhang));
   top: calc((var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
-/* The last footer's gap to the composer is the block gap too (transcriptGrid.ts tailGap), so its
-   glyphs keep the same 4 under the message as every other footer. */
-/* A footer over a prompt sits in the middle of the turn gap under its reply: its line as far from the
-   reply's last line as from the prompt (Leo, 2026-10-31: "padding after == padding before that kinda
-   thing all around", #29860). The reply's line box ends a half-leading under its text, so the line
-   rises by about half of that. A footer over more of the same agent, or one ending the chat, stays
-   centred in the block gap (transcriptGrid.ts restBand). */
-.acpmux-row.acpmux-turnSummary:not(.acpmux-row--last-footer, .acpmux-row--continuation-footer):not(:has(.cv-turn-actions--failed, .cv-turn-actions--resumable)) .cv-turn-actions {
+/* One over a prompt sits in the middle of the turn gap under its reply (#29860). One over more of the
+   same agent, or one ending the chat, stays centred in the block gap (transcriptGrid.ts restBand). */
+.acpmux-row.acpmux-turnSummary:not(.acpmux-row--last-footer, .acpmux-row--continuation-footer) .cv-turn-actions--empty {
   top: calc((var(--grid-gap-turn) - var(--grid-transcript-action-control)) / 2 - 1.5px);
 }
 
@@ -5380,9 +5481,9 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-tool-run {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-block);
+  /* Flush lines, 22 apart (--cv-tool-row-height); a note keeps --cv-note-gap around it. */
+  gap: 0;
 }
-.cv-tool-note { margin: 0; }
 .cv-tool-label {
   display: inline-flex;
   max-width: 100%;
@@ -5401,9 +5502,13 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 /* A count summary's verb takes its own width, not the column's (ToolVerb.tsx `tight`). */
 .cv-tool__verb.is-tight::after { content: none; }
 .cv-tool__verb { flex: none; }
-/* The action row sits in .cv-user__body (display: contents) since the pending-steer footer slot. */
-.cv-user:not(:has(.cv-user__pending)) > .cv-user__actions,
-.cv-user:not(:has(.cv-user__pending)) > .cv-user__body > .cv-user__actions {
+/* The action row sits in .cv-user__body (display: contents) since the pending-steer footer slot.
+   Under a bubble it is laid in the turn gap with no layout height, a waiting steer's (Send now
+   first) as a sent prompt's, so sending a steer moves nothing (#27580 left the steer's row in flow:
+   the row lost 28px on send and the transcript shifted). A waiting prompt of images alone has no
+   bubble, so its row stays in flow (model.ts userMetaHeight). */
+.cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
+.cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
   position: absolute;
   right: calc(-1 * var(--cv-action-overhang));
   top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);

@@ -237,6 +237,8 @@ BUNDLE_INPUTS = (
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
     "schemas/sync-motion/*", "schemas/agent-pane/*",
+    # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
+    "schemas/layout-grid/layout-grid.json",
     # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
