@@ -313,6 +313,27 @@ impl Seed {
         if recorded("refs/stash^{commit}") != recorded("refs/cmux-seed/stash^{commit}") {
             return Err(changed("refs/stash changed on Cloud since its last seed"));
         }
+        // Reconfiguring a sparse checkout can discard deliberately hidden
+        // working files. Refuse full reseed when Cloud's current rules do
+        // not match the incoming seed's explicit sparse settings.
+        let sparse = self.git(&["config", "--bool", "--get", "core.sparseCheckout"])
+            .ok()
+            .is_some_and(|out| String::from_utf8_lossy(&out).trim() == "true");
+        if sparse != self.params.sparse.is_some() {
+            return Err(changed("the Cloud checkout's sparse setting differs from this seed"));
+        }
+        if let Some(expected) = &self.params.sparse {
+            let directory = self.git(&["rev-parse", "--absolute-git-dir"])
+                .map_err(|failure| changed(&failure.message()))?;
+            let directory = String::from_utf8_lossy(&directory);
+            let patterns = std::fs::read_to_string(
+                Path::new(directory.trim()).join("info/sparse-checkout"),
+            )
+            .map_err(|_| changed("the Cloud checkout has no readable sparse patterns"))?;
+            if patterns.trim_end_matches('\n') != expected.trim_end_matches('\n') {
+                return Err(changed("Cloud's sparse patterns changed since this seed"));
+            }
+        }
         // Git's assume-unchanged bit can hide edited files from status and
         // from an add -A based snapshot. Refuse such a checkout: checkout
         // --force could overwrite work Git deliberately skipped observing.
