@@ -28,8 +28,11 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             try await PinnedPageTests.until({ tab.promptSinceMs != nil && tab.commandSinceMs == nil }, within: .seconds(30),
                                             report: { "prompt \(String(describing: tab.promptSinceMs)), command \(String(describing: tab.commandSinceMs))" })
             try #require(TabCloseGuard.asks([tab], services: services), "the terminal close warning does not apply")
-            // Time for a read of the terminal made before the key, if the app makes one (its read is bounded at 1 s).
-            try await Task.sleep(for: .milliseconds(1_500))
+            // The app read what the terminal runs while it had the focus, before the key (TerminalProcessReadAhead).
+            try await PinnedPageTests.until({ services.terminalReadAhead.fresh([tab]) != nil }, within: .seconds(10),
+                                            report: { "no answer read before the key for \(tab.surface)" })
+            let answer = try #require(services.terminalReadAhead.fresh([tab]))
+            #expect(answer.keys.contains(tab.surface) && answer.programNames.isEmpty, "the idle shell read as running a program: \(answer)")
 
             let performed = services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
             #expect(performed)

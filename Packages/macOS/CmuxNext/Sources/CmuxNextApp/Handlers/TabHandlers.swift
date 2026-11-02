@@ -42,6 +42,10 @@ enum TabHandlers {
         registry.bind("browser.openInChromium", unavailable: chromiumReason, invoke: { TabLifecycle.reopen(ctx, $0, on: .cef) })
         registry.bind("browser.openInWebKit", invoke: { TabLifecycle.reopen(ctx, $0, on: .webkit) })
         registry.bind("closeTab", invoke: { TabLifecycle.close(ctx, $0) })
+        // Cmd-W's close question is decided in its key's turn from what the focused terminal runs, read before the key.
+        ctx.services.terminalReadAhead.follow(focused: { [weak services = ctx.services] in
+            services?.windows.active?.focusedPane.flatMap { pane in pane.selectedTab.map { ($0, pane.daemon) } }
+        }, ended: { [weak services = ctx.services] in services == nil })
         // Close Other Tabs keeps every selected tab when the menu is on one of several (Chrome).
         // Each close names what it closes; with nothing to close the row is disabled with the reason.
         let closes: [(ActionID, String, @MainActor (AppActionContext, ActionInvocation, PaneController, StripTabID) -> [StripTabID])] = [
