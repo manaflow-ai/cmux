@@ -162,7 +162,6 @@ final class SSHService {
         // the list for the same host, user and port is reused, never added twice (cx-k21v).
         if nonEmpty(name) == nil, nonEmpty(binary) == nil, nonEmpty(stateDir) == nil, let saved = existing(destination) {
             saved.autoConnect = true
-            saved.connectingWindow = actingWindow()
             rememberHost(saved)
             saved.offersInstall = offerInstall
             if offerInstall { offerInstallWhenOld(saved) }
@@ -226,6 +225,7 @@ final class SSHService {
 
     func reconnect(_ session: SSHMachineSession, byPerson: Bool = true) {
         guard !policyDisabled, byPerson || !session.waitsForUser else { return } // only a person takes over a session in use (G5)
+        if byPerson { session.connectingWindow = actingWindow() } // its "Connecting to…" row lists in the asking window (#31490)
         // A retry gets a fresh error from the new attempt. Do not let the
         // recovery sheet copy the previous attempt while the link is working.
         session.lastError = nil
