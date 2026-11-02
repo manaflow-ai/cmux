@@ -189,6 +189,41 @@ def xtp_browser_agent():
 xtp_browser_agent()
 
 
+# 10. First press and idle presses (lead 23:2xZ): the first press of a round moved 1.44-1.46 refreshes late in fix-2 films.
+# L H L H L H, each after 2.5 s of idle, so the main thread is asleep before every press (STATUS 7770: a woken main thread
+# starts on E cores). Late only on the first press: a first-use cost. Late on every press: the E-core start.
+def idle_presses(prefix):
+    steps = []
+    for i, key in enumerate([L, H, L, H, L, H]):
+        steps += [press(key, f"{prefix}{i}"), {"do": "wait", "seconds": 2.5, "title": "idle 2.5 s: the main thread sleeps"}]
+    return steps
+
+
+case("idle", "Ctrl-Shift-L, H, L, H, L, H on a browser page (p1), each after 2.5 s of idle: the first press against later idle presses",
+     browser_agent, [focus("p1")] + idle_presses("idle"), ["p0"], seconds=18, budget=200, after="p0")
+
+
+def xtp_idle():
+    jid = "rk-xtpa-idle"
+    steps = [G.theme(True)] + G.first_pane(jid, False) + browser_agent(False) + [focus("p1"), G.settle(1.5),
+              {"do": "trace_only_start", "name": "close", "title": "the geometry trace (display-link ticks), no recorder"},
+              {"do": "tiers_start", "name": "tiers", "seconds": 19.0, "title": "probe: the main thread's core tier per ms"},
+              {"do": "xtp_start", "name": "xtp", "seconds": 18.0, "wait_first_sample": True, "first_sample_wait": 1.0,
+               "title": "xctrace Time Profiler on the app"},
+              {"do": "rpc", "method": "debug.stall", "params": {"ms": 60}, "title": "clock mark: a 60 ms main-thread stall"},
+              {"do": "wait", "seconds": 2.5, "title": "idle 2.5 s after the mark: the main thread sleeps"}]
+    for i, key in enumerate([L, H, L, H, L, H]):
+        steps += [G.kit_key(key[0], list(key[1]), f"close{i}" if i == 0 else f"k{i}", NAMES[key]),
+                  {"do": "wait", "seconds": 2.5, "title": "idle 2.5 s: the main thread sleeps"}]
+    steps += [{"do": "trace_only_stop", "name": "close"}, {"do": "xtp_stop", "name": "xtp"}, {"do": "tiers_stop", "name": "tiers"}] + after_check("p0")
+    CASES.append({"id": jid, "priority": "P1", "title": "xctrace and core tiers, app clock: L, H, L, H, L, H on a browser page, each after 2.5 s of idle",
+                  "why": "RESIZE KEYS: the first press of a round moves 1.44-1.46 refreshes late; name the items of its key turn.",
+                  "source": "RESIZE KEYS", "budget_seconds": 240, "options": {"key_path": "real"}, "steps": steps})
+
+
+xtp_idle()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out")

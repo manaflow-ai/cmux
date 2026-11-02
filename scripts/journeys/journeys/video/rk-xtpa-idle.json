@@ -1,0 +1,313 @@
+{
+ "id": "rk-xtpa-idle",
+ "priority": "P1",
+ "title": "xctrace and core tiers, app clock: L, H, L, H, L, H on a browser page, each after 2.5 s of idle",
+ "why": "RESIZE KEYS: the first press of a round moves 1.44-1.46 refreshes late; name the items of its key turn.",
+ "source": "RESIZE KEYS",
+ "budget_seconds": 240,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "settings_file",
+   "title": "set-up: theme Builtin Dark, no close warning, new columns share the strip",
+   "set": {
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "followTerminal"
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "layout": {
+     "newColumnWidth": "fitScreen"
+    }
+   }
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rk-xtpa-idle"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "title": "set-up: a browser tab in p1"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "set-up: the page shows"
+  },
+  {
+   "do": "action",
+   "action": "splitDown",
+   "title": "set-up: splitDown"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "action",
+   "action": "palette.newAgentChat",
+   "title": "set-up: an agent chat in p2"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "set-up: the chat shows"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p1",
+   "title": "set-up: focus p1 (cmux pane focus; the strip reveals it)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "trace_only_start",
+   "name": "close",
+   "title": "the geometry trace (display-link ticks), no recorder"
+  },
+  {
+   "do": "tiers_start",
+   "name": "tiers",
+   "seconds": 19.0,
+   "title": "probe: the main thread's core tier per ms"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtp",
+   "seconds": 18.0,
+   "wait_first_sample": true,
+   "first_sample_wait": 1.0,
+   "title": "xctrace Time Profiler on the app"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.stall",
+   "params": {
+    "ms": 60
+   },
+   "title": "clock mark: a 60 ms main-thread stall"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "idle 2.5 s after the mark: the main thread sleeps"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "control",
+    "shift"
+   ],
+   "mark": "close0",
+   "title": "Ctrl-Shift-L"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "idle 2.5 s: the main thread sleeps"
+  },
+  {
+   "do": "hid_key",
+   "key": "h",
+   "modifiers": [
+    "control",
+    "shift"
+   ],
+   "mark": "k1",
+   "title": "Ctrl-Shift-H"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "idle 2.5 s: the main thread sleeps"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "control",
+    "shift"
+   ],
+   "mark": "k2",
+   "title": "Ctrl-Shift-L"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "idle 2.5 s: the main thread sleeps"
+  },
+  {
+   "do": "hid_key",
+   "key": "h",
+   "modifiers": [
+    "control",
+    "shift"
+   ],
+   "mark": "k3",
+   "title": "Ctrl-Shift-H"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "idle 2.5 s: the main thread sleeps"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "control",
+    "shift"
+   ],
+   "mark": "k4",
+   "title": "Ctrl-Shift-L"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "idle 2.5 s: the main thread sleeps"
+  },
+  {
+   "do": "hid_key",
+   "key": "h",
+   "modifiers": [
+    "control",
+    "shift"
+   ],
+   "mark": "k5",
+   "title": "Ctrl-Shift-H"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "idle 2.5 s: the main thread sleeps"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "close"
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtp"
+  },
+  {
+   "do": "tiers_stop",
+   "name": "tiers"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p0",
+   "title": "set-up: focus p0 (cmux pane focus; the strip reveals it)"
+  },
+  {
+   "do": "expect",
+   "title": "after: p0 still has the focus",
+   "timeout": 5,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "terminal"
+     }
+    }
+   ]
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "ctrlc",
+   "title": "after: a real HID Ctrl-C ends p0's load program"
+  },
+  {
+   "do": "type",
+   "text": "echo rv-done-${nonce}",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "rv-done-${nonce}"
+    },
+    {
+     "app_text_line": "rv-done-${nonce}"
+    },
+    {
+     "frame_text": "rv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}
