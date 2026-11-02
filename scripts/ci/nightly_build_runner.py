@@ -504,17 +504,20 @@ def main(env: Mapping[str, str] = os.environ,
         dedicated_label = ""
 
     route_token = env.get("ROUTE_TOKEN", "")
-    first_look = True
+    has_waited = False
+
+    def wait(seconds: float) -> None:
+        nonlocal has_waited
+        sleep(seconds)
+        has_waited = True
 
     def read() -> Sequence[Mapping[str, Any]] | None:
-        nonlocal first_look
-        use_state, first_look = first_look, False
         if not (route_token and repo):
             return None
         try:
             if read_runners is not None:
                 return read_runners(route_token, repo)
-            return pool.GitHub(route_token, repo).runners(use_state=use_state)
+            return pool.GitHub(route_token, repo).runners(use_state=not has_waited)
         except Exception as error:  # noqa: BLE001 - never fail the job; the next pool takes it
             print(f"::warning title=nightly build runner::could not list owned runners ({str(error)[:200]})")
             return None
@@ -536,7 +539,7 @@ def main(env: Mapping[str, str] = os.environ,
     if refused_why:
         dedicated, dedicated_why = "", refused_why
     else:
-        dedicated, dedicated_why = dedicated_route(dedicated_label, read, sleep=sleep, clock=clock,
+        dedicated, dedicated_why = dedicated_route(dedicated_label, read, sleep=wait, clock=clock,
                                                    wait_seconds=0 if only_dedicated else DEDICATED_WAIT_SECONDS)
     if off_event:
         dedicated_why = f"event {event or '<unset>'} is not one the builder admits (push)"
