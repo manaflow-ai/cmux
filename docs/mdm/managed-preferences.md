@@ -79,6 +79,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `phone.startSessions` | boolean | `true` |  | Let Your Phone Start New Workspaces. Off, your phone can still follow, type into and answer what's already running. |
 | `phone.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake for Your Phone. A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep. |
 | `phone.cloudReplica` | boolean | `false` |  | Show This Mac's Workspaces on Your Phone While It's Off. cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy. |
+| `phone.cloudDesktop` | boolean | `false` |  | Show Your Cloud Machine's Screen on Your Phone. Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open. |
 | `appearance.machineColors` | dictionary | `{}` |  | Machine Color. The color of each machine's sidebar rows and tab badges, by machine name: "#RRGGBB", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name. |
 | `ssh.linkAllowedHosts` | array | `[]` |  | Always Allowed SSH Link Hosts. An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask. |
 | `cloud.newWorkspacesInCloud` | boolean | `false` |  | Run New Workspaces in Cloud. Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine. |
@@ -578,6 +579,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.attention.showOnTab` | boolean | `true` |  | Mark the Tab |
 | `notifications.attention.showOnSidebar` | boolean | `true` |  | Mark the Sidebar Row |
 | `notifications.attention.moveToTop` | boolean | `false` |  | Move the Workspace to the Top. A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
+| `notifications.attention.moveToTopOnAgentFinish` | boolean | `false` |  | Move the Workspace to the Top When Its Agent Finishes. An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
 | `notifications.mutedWorkspaces` | array | `[]` |  | Muted Workspaces. Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu. |
 | `notifications.sounds.events.finished` | string |  |  | Agent Finished |
 | `notifications.sounds.events.needsInput` | string |  |  | Agent Needs Input |
