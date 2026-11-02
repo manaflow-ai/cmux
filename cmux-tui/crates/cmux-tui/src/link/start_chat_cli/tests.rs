@@ -464,7 +464,7 @@ fn cached_checkout_probe_reads_the_daemons_fs_stat() {
             assert_eq!(request["path"], json!("/work/chats/send/src"));
             let mut answer = answer;
             answer["id"] = request["id"].clone();
-            stream.write_all(format!("{answer}\\n").as_bytes()).unwrap();
+            stream.write_all(format!("{answer}\n").as_bytes()).unwrap();
         });
         let probed = super::super::sync_cli::chat_folder_exists(&socket, "/work/chats/send/src");
         if unavailable {
