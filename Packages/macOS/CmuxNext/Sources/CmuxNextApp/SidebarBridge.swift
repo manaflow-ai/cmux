@@ -400,7 +400,7 @@ final class SidebarBridge {
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
                                                 tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon,
-                                                rowSource: rows, workspaceFilter: workspaceFilter)
+                                                rowSource: rows, workspaceFilter: workspaceFilter, terminalTitle: Strings.untitledTerminal)
         }
         for session in machines.ssh {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
