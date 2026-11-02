@@ -182,7 +182,7 @@ fn every_small_strip_keeps_the_contract() {
                         if Some(p) != plain.as_ref() {
                             let family = opener.get(p) == Some(closed)
                                 || opener.get(closed) == Some(p)
-                                || (opener.get(p).is_some() && opener.get(p) == opener.get(closed));
+                                || (opener.contains_key(p) && opener.get(p) == opener.get(closed));
                             assert!(family, "{tabs:?} {opener:?} close {closed}: {p} not family");
                         }
                     }

@@ -425,6 +425,7 @@ fn pane_rule_most_recent_holds_in_every_reachable_state() {
     );
 }
 
+#[allow(clippy::type_complexity, reason = "the pane rule's own signature, as a closure")]
 fn mutant(
     name: &'static str,
 ) -> impl Fn(Option<&Id>, &[Vec<Id>], &[Vec<Id>], &[Id], CloseFocusPolicy) -> Option<Id> {
