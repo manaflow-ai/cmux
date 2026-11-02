@@ -4798,8 +4798,16 @@ export function VirtualTranscript({
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
     // keeps following until the reader scrolls a visible one.
     if (event.currentTarget.clientHeight === 0) return;
-    checkOlderNow.current();
     const node = event.currentTarget;
+    // The room above the loaded rows holds history still to load (conversation/olderReserve.ts):
+    // the reader stops at the loaded rows' top, as at the top of the chat, until a page lands into
+    // the room. A view inside it showed nothing, and the pages then landed under it unseen.
+    const room = latestLayout.current.layout.origin ?? 0;
+    if (room > 0 && layoutScrollTop(node) < room) {
+      wheelGlide.current?.stop();
+      node.scrollTop = physicalScrollTop(node, room);
+    }
+    checkOlderNow.current();
     const next = node.scrollTop;
     trimFoldRoom(node);
     // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
@@ -5275,10 +5283,11 @@ export function VirtualTranscript({
     checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   useEffect(() => () => clearTimeout(olderRecheck.current), []);
-  // A wheel up with the view already at the top moves nothing, so no scroll event says the reader
+  // A wheel up with the view already at the loaded rows' top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    if (event.deltaY >= 0 || event.currentTarget.scrollTop > 0 || olderAsking.current) return;
+    const loadedTop = layout.origin ?? 0;
+    if (event.deltaY >= 0 || layoutScrollTop(event.currentTarget) > loadedTop + 0.5 || olderAsking.current) return;
     olderLoadRequested.current = undefined;
     checkOlderNow.current();
   };
