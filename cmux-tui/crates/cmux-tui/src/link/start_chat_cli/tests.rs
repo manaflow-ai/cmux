@@ -1685,33 +1685,83 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
 }
 
 #[test]
-fn setup_state_distinguishes_ran_cached_running_failed_and_no_script() {
-    let ran = setup_state(
-        &json!({"status": "building", "steps": [
+fn setup_state_requires_the_exact_ready_environment_snapshot() {
+    let built = json!({
+        "status": "ready",
+        "snapshot": {"id": "snap_prepared", "source": {"commit": "abc"}},
+        "steps": [{"id": "install", "state": "done", "started_at": 1000, "finished_at": 3500}]
+    });
+    let cached = setup_state(&built, Some("snap_prepared")).unwrap();
+    assert_eq!(cached, json!({"state": "done", "status": "ready"}), "{cached}");
+
+    // A generic base image, even when it was warm, cannot certify the setup
+    // completed on the particular machine that will serve this chat.
+    for boot in [Some("snap_base"), Some("snap_stale"), None] {
+        let unverified = setup_state(&built, boot).unwrap();
+        assert_eq!(unverified["state"], json!("unverified"), "{unverified}");
+        assert_eq!(unverified["status"], json!("unverified"));
+        assert!(unverified["error"].as_str().unwrap().contains("verify dependencies"));
+    }
+
+    // A snapshot id alone does not authenticate a builder still running.
+    let running = setup_state(
+        &json!({"status": "building", "snapshot": {"id": "snap_prepared"}, "steps": [
             {"id": "install", "state": "done", "started_at": 1000, "finished_at": 3500}
         ]}),
-        false,
+        Some("snap_prepared"),
     )
     .unwrap();
-    assert_eq!(ran, json!({"state": "done", "started_at": 1000, "finished_at": 3500}));
+    assert_eq!(running, json!({
+        "state": "running", "status": "building", "started_at": 1000, "finished_at": 3500
+    }));
 
-    let cached = setup_state(&json!({"status": "ready", "steps": []}), true).unwrap();
-    assert_eq!(cached, json!({"state": "done", "status": "ready"}));
-
-    let running = setup_state(&json!({"status": "building", "steps": []}), false).unwrap();
-    assert_eq!(running, json!({"state": "running", "status": "building"}));
-
+    // An environment that failed after the builder installed packages is still failed.
     let failed = setup_state(
+        &json!({"status": "failed", "snapshot": {"id": "snap_prepared"},
+            "error": {"message": "verification exited 1"},
+            "steps": [{"id": "install", "state": "done"}]}),
+        Some("snap_prepared"),
+    )
+    .unwrap();
+    assert_eq!(failed, json!({"state": "failed", "status": "failed", "error": "verification exited 1"}));
+
+    let missing_script = setup_state(&json!({"status": "building", "steps": []}), None).unwrap();
+    assert_eq!(missing_script, json!({"state": "running", "status": "building"}));
+
+    let failed_install = setup_state(
         &json!({"status": "failed", "steps": [
             {"id": "install", "state": "failed", "detail": "setup exited 1"}
         ]}),
-        false,
+        None,
     )
     .unwrap();
-    assert_eq!(failed, json!({"state": "failed", "status": "failed", "error": "setup exited 1"}));
+    assert_eq!(failed_install, json!({"state": "failed", "status": "failed", "error": "setup exited 1"}));
 
-    assert_eq!(setup_state(&json!({"status": "ready", "steps": []}), false), None);
+    // Old clients and responses may have a 'ready' status without a snapshot id:
+    // status alone must never be treated as an install receipt for the machine.
+    assert_eq!(setup_state(&json!({"status": "ready", "steps": []}), Some("snap_unknown")).unwrap()["state"], json!("unverified"));
+    assert_eq!(setup_state(&json!({"steps": [{"id": "install", "state": "done"}]}), None).unwrap()["state"], json!("unverified"));
+    assert_eq!(setup_state(&json!({"status": "missing", "steps": []}), None), None);
 }
+
+#[test]
+fn an_ensure_reply_with_only_a_warm_snapshot_never_reports_setup_done() {
+    let reply = ensure_answer(Ok(json!({
+        "machine": {"id": "vm_warm"},
+        "created": true,
+        "snapshot": "snap_base",
+        "environment": {"id": "denv_0123456789abcdef01234567", "status": "ready"}
+    })));
+    assert_eq!(reply["setup"]["state"], json!("unverified"), "{reply}");
+    let building = ensure_answer(Ok(json!({
+        "machine": {"id": "vm_warm"},
+        "created": true,
+        "snapshot": "snap_base",
+        "environment": {"id": "denv_0123456789abcdef01234567", "status": "building"}
+    })));
+    assert_eq!(building["setup"]["state"], json!("running"), "{building}");
+}
+
 /// The copy's answer carries how the push went: a seed, or the copy with why
 /// and the GitHub App's install link, and the files left on this Mac.
 #[test]
