@@ -232,8 +232,14 @@ fn ephemeral_run_exports_its_own_hook_marker_only() {
         (vec!["run", "--ephemeral", "--timeout", "60"], "1"),
         (vec!["run", "--timeout", "60"], ""),
     ] {
-        let out = daemon.cmd().env(MARKER, "1").arg("--json").args(&args)
-            .arg(format!("envs: {MARKER}")).output().expect("run");
+        let out = daemon
+            .cmd()
+            .env(MARKER, "1")
+            .arg("--json")
+            .args(&args)
+            .arg(format!("envs: {MARKER}"))
+            .output()
+            .expect("run");
         assert!(out.status.success(), "{args:?}: {}", text(&out));
         let reply: Value = serde_json::from_slice(&out.stdout).expect("CLI reply");
         let env: Value = serde_json::from_str(reply["reply"].as_str().expect("reply"))
