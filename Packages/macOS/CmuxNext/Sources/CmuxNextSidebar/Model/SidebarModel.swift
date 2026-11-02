@@ -212,11 +212,6 @@ public final class SidebarModel {
     public var updatedCard: SidebarUpdatedCard?
     /// The Now Playing card (cx-ouoxo), shown only while ``updateCard`` is nil.
     public var nowPlaying: SidebarNowPlaying?
-    /// Whether each workspace expands to show its intra-workspace tabs.
-    public var showWorkspaceTabs = false
-    public var inWorkspaceTabs = SidebarInWorkspaceTabs() // vertical-tabs workspaces list no tab rows here
-    /// The workspaces whose disclosure hid their tabs: window view state.
-    public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// How rows show their state (`SidebarRowBadgeStyle`); nil follows the Debug setting.
@@ -585,8 +580,6 @@ public final class SidebarModel {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
         (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
-        (o.showWorkspaceTabs, o.inWorkspaceTabs) = (showWorkspaceTabs, inWorkspaceTabs)
-        o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }

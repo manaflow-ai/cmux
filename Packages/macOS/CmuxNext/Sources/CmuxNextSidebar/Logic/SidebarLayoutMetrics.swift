@@ -125,12 +125,6 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
     /// Localized by the model, so the layout stays nonisolated.
     public var machineStatusLabels: [MachineID: String] = [:]
-    /// Include tab rows beneath each visible workspace.
-    public var showWorkspaceTabs = false
-    /// Workspaces that list their tabs themselves (vertical tabs): no tab rows and no disclosure here.
-    public var inWorkspaceTabs = SidebarInWorkspaceTabs()
-    /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
-    public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// The machines whose rows carry their mark (SidebarMachineMark), when more than one is
     /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
     /// where a mark would tell nothing.

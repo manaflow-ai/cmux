@@ -7,7 +7,7 @@ import CmuxNextIcons
 extension VerticalTabListView {
     typealias Row = VerticalTabListLayout.Row
 
-    public override func draw(_ dirtyRect: NSRect) {
+    override func draw(_ dirtyRect: NSRect) {
         performWithTheme {
             if isHoverExpanded {
                 // Widened over the content: an opaque panel, as the strip's own background.

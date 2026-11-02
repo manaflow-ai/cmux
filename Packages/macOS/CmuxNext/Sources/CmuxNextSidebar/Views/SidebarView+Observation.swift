@@ -27,8 +27,6 @@ extension SidebarViewComponents {
         var drawsLines: Bool
         var preferences: SidebarSectionsPreferences
         var suppressedApps: Set<String>
-        /// `SidebarModel.inWorkspaceTabs`: a workspace turning vertical tabs on drops its tab rows.
-        var inWorkspaceTabs: SidebarInWorkspaceTabs
         /// Design tokens (density, overrides, chrome font size). Reading them
         /// inside the tracked closure makes a settings change re-render.
         var metrics: SidebarLayoutMetrics
@@ -72,7 +70,6 @@ extension SidebarViewComponents {
             drawsLines = Borders.drawsLines
             preferences = design.sidebarSections
             suppressedApps = model.suppressedApps
-            inWorkspaceTabs = model.inWorkspaceTabs
             metrics = .standard
             fontSize = SidebarStyle.titleFont.pointSize
             titlebarHeight = Metrics.titlebarHeight
@@ -126,7 +123,6 @@ extension SidebarViewComponents {
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
             || lastState?.groupChromeShape != state.groupChromeShape
             || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
-            || (state.preferences.showWorkspaceTabs && lastState?.inWorkspaceTabs != state.inWorkspaceTabs)
         let listChanged = rowsChanged || selectionChanged
         // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
         if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
