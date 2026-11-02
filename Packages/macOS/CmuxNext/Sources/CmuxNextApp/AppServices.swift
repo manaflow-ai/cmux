@@ -764,6 +764,7 @@ final class AppServices {
             self?.linkHints.cancel()
             self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
+            self?.keyRouter.creationInputCoordinator.personActed(in: event.window, event: event) // the person's click ends their claim
         }
         (NSApp as? CmuxApplication)?.keyDownObserver = { [weak self] _ in self?.notifications.endViewHolds() }
         (NSApp as? CmuxApplication)?.leftButtonObserver = { [weak self] event in
@@ -814,6 +815,8 @@ final class AppServices {
         }
         return nil
     }
+    func locatePane(_ id: String) -> PaneModel? { machines.daemons.uniquePane(id)?.pane }
+    func locatePane(_ id: String, onMachine machineID: String) -> PaneModel? { machines.daemon(machine: machineID)?.store.pane(idOrResource: id) }
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
         _ = daemon.store.tabListRevision // a tracked wait hears the tab appear

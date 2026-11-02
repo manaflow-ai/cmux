@@ -211,9 +211,13 @@ final class NewTabSparePool {
     private let prepareTimer = DemandTimer(owner: "NewTabSparePool.prepare")
     /// After the settle, never in an input's turn (a key window change, Cmd-T's refill).
     private func schedulePrepare() { prepareTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.prepareParked() } }
+    /// Prepares the pool put off because the parked page had no handshake or first paint yet (tests wait on it).
+    private(set) var deferredPrepares = 0
     private func prepareParked() {
-        guard let view = slot.peek, view.superview === parking, view.model.hasHandshake, view.model.hasPainted
-        else { return slot.peek?.model.whenPainted { [weak self] in self?.schedulePrepare() } ?? () }
+        guard let view = slot.peek, view.superview === parking, view.model.hasHandshake, view.model.hasPainted else {
+            deferredPrepares += 1
+            return slot.peek?.model.whenPainted { [weak self] in self?.schedulePrepare() } ?? ()
+        }
         preparedFor = targetIdentity  // the cover: once the page drew the prepared screen
         if BenchSpans.measure("pool.prepare", { view.prepareNewTab(preparedPage) }) { view.redraw.afterNextFrame { [weak self] in self?.snapshotParked() } }
     }

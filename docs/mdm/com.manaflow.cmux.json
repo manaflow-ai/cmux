@@ -69,6 +69,18 @@
       "title" : "Chat Full Width",
       "type" : "boolean"
     },
+    "agentPane.display.harnessPlacement" : {
+      "default" : "symbols",
+      "description" : "agentPane.display.harnessPlacement",
+      "enum" : [
+        "symbols",
+        "left",
+        "top",
+        "compact"
+      ],
+      "title" : "Model Picker Harness Placement",
+      "type" : "string"
+    },
     "agentPane.display.inspector.placement" : {
       "default" : "overlay",
       "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
