@@ -33,6 +33,14 @@ fn a_verdict_is_judged_again_through_the_abi() {
     let warned = take(unsafe { cmux_host_budget_with_pressure_json(fine.as_ptr(), fine.len(), 2) });
     let warned: serde_json::Value = serde_json::from_str(&warned.unwrap()).unwrap();
     assert_eq!(warned["over"], serde_json::json!(["memory pressure warn"]));
+    // The dispatch source's flags: 6 (warn and critical) is critical, 3 (normal and warn) is warn.
+    for (flags, word) in [(6, "critical"), (3, "warn")] {
+        // SAFETY: `fine` is readable for its length.
+        let v =
+            take(unsafe { cmux_host_budget_with_pressure_json(fine.as_ptr(), fine.len(), flags) });
+        let v: serde_json::Value = serde_json::from_str(&v.unwrap()).unwrap();
+        assert_eq!(v["pressure"], word, "{flags}");
+    }
     // SAFETY: a null pointer is allowed.
     assert_eq!(take(unsafe { cmux_host_budget_with_pressure_json(std::ptr::null(), 0, 2) }), None);
     let bad = b"\xff\xfe";

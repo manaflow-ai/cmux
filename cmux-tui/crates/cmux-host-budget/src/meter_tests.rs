@@ -67,6 +67,7 @@ fn swap_growth_is_the_rate_between_two_samples() {
     assert_eq!(m.sample_at(t0 + Duration::from_secs(60 + 661)).unwrap().swap_mb_per_min, Some(0.0));
 }
 
+#[cfg(feature = "tokio")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stalled_sample_never_holds_a_turn_or_status() {
     let probe = Arc::new(FakeProbe::default());
@@ -107,6 +108,7 @@ async fn a_stalled_sample_never_holds_a_turn_or_status() {
     assert_eq!(*probe.reads.lock().unwrap(), 1);
 }
 
+#[cfg(feature = "tokio")]
 #[tokio::test]
 async fn peek_repeats_a_verdict_for_a_minute_only() {
     let probe = Arc::new(FakeProbe::default());
