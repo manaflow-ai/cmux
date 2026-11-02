@@ -1,0 +1,441 @@
+{
+ "id": "bv-agent-heavy-light",
+ "priority": "P1",
+ "title": "Video: agent chat open, type and send, streamed reply, switch away and back (heavy load, light)",
+ "why": "VIDEO EXTRA item 2: first content frame after the open, no flash on switch away and back, the transcript stays pinned to the bottom while it streams.",
+ "source": "handoff/resize-videos (BROWSER VIDEO suite, lead STATUS 4282; Lawrence's DevTools case)",
+ "budget_seconds": 135,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "rpc",
+   "title": "set-up: the app in light (debug.appearance; Chromium and pages follow NSApp)",
+   "method": "debug.appearance",
+   "params": {
+    "mode": "light"
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "bv_serve"
+  },
+  {
+   "do": "bv_open",
+   "page": "heavy"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "rpc",
+   "title": "set-up: a second workspace to switch to",
+   "method": "action.run",
+   "params": {
+    "action": "newTab",
+    "args": {
+     "name": "bv-away",
+     "focus": false
+    }
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "set-up: the first workspace"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "video_start",
+   "name": "bv-agent-heavy-light-r1",
+   "mbps": 60,
+   "seconds": 30
+  },
+  {
+   "do": "bv_action",
+   "action": "palette.newAgentChat",
+   "as": "open-1"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "bv_agent",
+   "action": "focus_composer"
+  },
+  {
+   "do": "hid_key",
+   "key": "h",
+   "mark": "type-1"
+  },
+  {
+   "do": "hid_key",
+   "key": "i"
+  },
+  {
+   "do": "hid_key",
+   "key": "return",
+   "mark": "send-1",
+   "title": "send (Return)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "bv_agent",
+   "action": "stream",
+   "rows": 400,
+   "seconds": 6,
+   "chunk_chars": 24,
+   "chunk_ms": 16,
+   "as": "stream-1"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "bv_agent",
+   "action": "readiness",
+   "as": "streaming-1"
+  },
+  {
+   "do": "hid_key",
+   "key": "2",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "away-1",
+   "title": "switch away (Cmd-2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "back-1",
+   "title": "switch back (Cmd-1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5
+  },
+  {
+   "do": "bv_agent",
+   "action": "readiness",
+   "as": "after-1"
+  },
+  {
+   "do": "hid_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close-1",
+   "title": "close the chat (Cmd-W)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-agent-heavy-light-r1",
+   "tail": 0.2
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "set-up: the first workspace"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "video_start",
+   "name": "bv-agent-heavy-light-r2",
+   "mbps": 60,
+   "seconds": 30
+  },
+  {
+   "do": "bv_action",
+   "action": "palette.newAgentChat",
+   "as": "open-2"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "bv_agent",
+   "action": "focus_composer"
+  },
+  {
+   "do": "hid_key",
+   "key": "h",
+   "mark": "type-2"
+  },
+  {
+   "do": "hid_key",
+   "key": "i"
+  },
+  {
+   "do": "hid_key",
+   "key": "return",
+   "mark": "send-2",
+   "title": "send (Return)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "bv_agent",
+   "action": "stream",
+   "rows": 400,
+   "seconds": 6,
+   "chunk_chars": 24,
+   "chunk_ms": 16,
+   "as": "stream-2"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "bv_agent",
+   "action": "readiness",
+   "as": "streaming-2"
+  },
+  {
+   "do": "hid_key",
+   "key": "2",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "away-2",
+   "title": "switch away (Cmd-2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "back-2",
+   "title": "switch back (Cmd-1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5
+  },
+  {
+   "do": "bv_agent",
+   "action": "readiness",
+   "as": "after-2"
+  },
+  {
+   "do": "hid_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close-2",
+   "title": "close the chat (Cmd-W)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-agent-heavy-light-r2",
+   "tail": 0.2
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "set-up: the first workspace"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "video_start",
+   "name": "bv-agent-heavy-light-r3",
+   "mbps": 60,
+   "seconds": 30
+  },
+  {
+   "do": "bv_action",
+   "action": "palette.newAgentChat",
+   "as": "open-3"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "bv_agent",
+   "action": "focus_composer"
+  },
+  {
+   "do": "hid_key",
+   "key": "h",
+   "mark": "type-3"
+  },
+  {
+   "do": "hid_key",
+   "key": "i"
+  },
+  {
+   "do": "hid_key",
+   "key": "return",
+   "mark": "send-3",
+   "title": "send (Return)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "bv_agent",
+   "action": "stream",
+   "rows": 400,
+   "seconds": 6,
+   "chunk_chars": 24,
+   "chunk_ms": 16,
+   "as": "stream-3"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "bv_agent",
+   "action": "readiness",
+   "as": "streaming-3"
+  },
+  {
+   "do": "hid_key",
+   "key": "2",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "away-3",
+   "title": "switch away (Cmd-2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "back-3",
+   "title": "switch back (Cmd-1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5
+  },
+  {
+   "do": "bv_agent",
+   "action": "readiness",
+   "as": "after-3"
+  },
+  {
+   "do": "hid_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close-3",
+   "title": "close the chat (Cmd-W)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-agent-heavy-light-r3",
+   "tail": 0.2
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "bvend"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo bv-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "after the recordings the app still answers: the line shows in the app, the daemon and the frame",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "bv-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "bv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}

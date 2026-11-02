@@ -1,0 +1,513 @@
+{
+ "id": "bv-dt-right-heavy-light",
+ "priority": "P1",
+ "title": "Video: DevTools docked right open and close (real Cmd-Opt-I), heavy page, light, recorded every frame",
+ "why": "Lawrence's case: the first DevTools frame in the next refresh after the key, no white flash, the page does not jump or stretch while DevTools opens or closes, and close restores the exact layout. Round 0 is the first open in the app (by the dock action), rounds 1-5 the real key.",
+ "source": "handoff/resize-videos (BROWSER VIDEO suite, lead STATUS 4282; Lawrence's DevTools case)",
+ "budget_seconds": 144,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "rpc",
+   "title": "set-up: the app in light (debug.appearance; Chromium and pages follow NSApp)",
+   "method": "debug.appearance",
+   "params": {
+    "mode": "light"
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "bv_serve"
+  },
+  {
+   "do": "bv_open",
+   "page": "heavy"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "bv_scroll",
+   "page": "heavy"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "video_start",
+   "name": "bv-dt-right-heavy-light-r0",
+   "mbps": 80,
+   "seconds": 20
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "before"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDockedRight",
+   "as": "open"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.2
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "open"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "close-r0",
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "after"
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-dt-right-heavy-light-r0",
+   "tail": 0.2
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "bv_scroll",
+   "page": "heavy"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "video_start",
+   "name": "bv-dt-right-heavy-light-r1",
+   "mbps": 80,
+   "seconds": 20
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "before"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-r1",
+   "title": "open DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.6
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "open"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "close-r1",
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "after"
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-dt-right-heavy-light-r1",
+   "tail": 0.2
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "bv_scroll",
+   "page": "heavy"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "video_start",
+   "name": "bv-dt-right-heavy-light-r2",
+   "mbps": 80,
+   "seconds": 20
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "before"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-r2",
+   "title": "open DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.6
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "open"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "close-r2",
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "after"
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-dt-right-heavy-light-r2",
+   "tail": 0.2
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "bv_scroll",
+   "page": "heavy"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "video_start",
+   "name": "bv-dt-right-heavy-light-r3",
+   "mbps": 80,
+   "seconds": 20
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "before"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-r3",
+   "title": "open DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.6
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "open"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "close-r3",
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "after"
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-dt-right-heavy-light-r3",
+   "tail": 0.2
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "bv_scroll",
+   "page": "heavy"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "video_start",
+   "name": "bv-dt-right-heavy-light-r4",
+   "mbps": 80,
+   "seconds": 20
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "before"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-r4",
+   "title": "open DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.6
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "open"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "close-r4",
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "after"
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-dt-right-heavy-light-r4",
+   "tail": 0.2
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "bv_scroll",
+   "page": "heavy"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "video_start",
+   "name": "bv-dt-right-heavy-light-r5",
+   "mbps": 80,
+   "seconds": 20
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "before"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-r5",
+   "title": "open DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.6
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "open"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "close-r5",
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "after"
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-dt-right-heavy-light-r5",
+   "tail": 0.2
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "bvend"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo bv-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "after the recordings the app still answers: the line shows in the app, the daemon and the frame",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "bv-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "bv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}

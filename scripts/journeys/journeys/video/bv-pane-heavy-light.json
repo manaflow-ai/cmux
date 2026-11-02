@@ -1,0 +1,490 @@
+{
+ "id": "bv-pane-heavy-light",
+ "priority": "P1",
+ "title": "Video: browser pane open, navigate, switch away and back, resize, close (heavy page, light)",
+ "why": "VIDEO EXTRA item 3: no blank or white frame on re-show, no stretched frame while the pane resizes with a heavy page, no flash on open or close.",
+ "source": "handoff/resize-videos (BROWSER VIDEO suite, lead STATUS 4282; Lawrence's DevTools case)",
+ "budget_seconds": 135,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "rpc",
+   "title": "set-up: the app in light (debug.appearance; Chromium and pages follow NSApp)",
+   "method": "debug.appearance",
+   "params": {
+    "mode": "light"
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "bv_serve"
+  },
+  {
+   "do": "rpc",
+   "title": "set-up: a second workspace to switch to",
+   "method": "action.run",
+   "params": {
+    "action": "newTab",
+    "args": {
+     "name": "bv-away",
+     "focus": false
+    }
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "set-up: the first workspace"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "video_start",
+   "name": "bv-pane-heavy-light-r1",
+   "mbps": 60,
+   "seconds": 30
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-1",
+   "title": "open a browser pane (Opt-Cmd-D)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.6
+  },
+  {
+   "do": "bv_open",
+   "page": "heavy",
+   "title": "navigate the new pane's tab (a focused Chromium tab on the page)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "open-1"
+  },
+  {
+   "do": "hid_key",
+   "key": "2",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "away-1",
+   "title": "switch away (Cmd-2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "back-1",
+   "title": "switch back (Cmd-1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "control",
+    "cmd"
+   ],
+   "mark": "resize-a-1",
+   "title": "resize the pane (Ctrl-Cmd-Left)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "control",
+    "cmd"
+   ],
+   "mark": "resize-b-1",
+   "title": "resize the pane (Ctrl-Cmd-Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "resized-1"
+  },
+  {
+   "do": "hid_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close-tab-1",
+   "title": "close the page tab (Cmd-W)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close-1",
+   "title": "close the browser pane (Cmd-W)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-pane-heavy-light-r1",
+   "tail": 0.2
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "set-up: the first workspace"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "video_start",
+   "name": "bv-pane-heavy-light-r2",
+   "mbps": 60,
+   "seconds": 30
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-2",
+   "title": "open a browser pane (Opt-Cmd-D)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.6
+  },
+  {
+   "do": "bv_open",
+   "page": "heavy",
+   "title": "navigate the new pane's tab (a focused Chromium tab on the page)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "open-2"
+  },
+  {
+   "do": "hid_key",
+   "key": "2",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "away-2",
+   "title": "switch away (Cmd-2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "back-2",
+   "title": "switch back (Cmd-1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "control",
+    "cmd"
+   ],
+   "mark": "resize-a-2",
+   "title": "resize the pane (Ctrl-Cmd-Left)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "control",
+    "cmd"
+   ],
+   "mark": "resize-b-2",
+   "title": "resize the pane (Ctrl-Cmd-Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "resized-2"
+  },
+  {
+   "do": "hid_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close-tab-2",
+   "title": "close the page tab (Cmd-W)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close-2",
+   "title": "close the browser pane (Cmd-W)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-pane-heavy-light-r2",
+   "tail": 0.2
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "set-up: the first workspace"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "video_start",
+   "name": "bv-pane-heavy-light-r3",
+   "mbps": 60,
+   "seconds": 30
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-3",
+   "title": "open a browser pane (Opt-Cmd-D)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.6
+  },
+  {
+   "do": "bv_open",
+   "page": "heavy",
+   "title": "navigate the new pane's tab (a focused Chromium tab on the page)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "open-3"
+  },
+  {
+   "do": "hid_key",
+   "key": "2",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "away-3",
+   "title": "switch away (Cmd-2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "back-3",
+   "title": "switch back (Cmd-1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "control",
+    "cmd"
+   ],
+   "mark": "resize-a-3",
+   "title": "resize the pane (Ctrl-Cmd-Left)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "control",
+    "cmd"
+   ],
+   "mark": "resize-b-3",
+   "title": "resize the pane (Ctrl-Cmd-Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "bv_state",
+   "page": "heavy",
+   "as": "resized-3"
+  },
+  {
+   "do": "hid_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close-tab-3",
+   "title": "close the page tab (Cmd-W)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close-3",
+   "title": "close the browser pane (Cmd-W)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "video_stop",
+   "name": "bv-pane-heavy-light-r3",
+   "tail": 0.2
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "bvend"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo bv-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "after the recordings the app still answers: the line shows in the app, the daemon and the frame",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "bv-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "bv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}
