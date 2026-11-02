@@ -83,6 +83,7 @@ struct ChatWorkspaceShowsAtOnceTests {
         }
         let back = store.workspaces.filter { $0.key == key }
         let tabLeft = tabs.tab(showing: session, host: tabs.localHost)
+        let rowLeft = PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue }
         await launched.stop()
 
         try #require(standIn, "the open showed no stand-in to close")
@@ -90,6 +91,7 @@ struct ChatWorkspaceShowsAtOnceTests {
         #expect(gone, "the workspace never left after its close")
         #expect(back.isEmpty, "the closed workspace is listed again (the daemon's create outlived the close): \(back.map(\.id))")
         #expect(tabLeft == nil, "a chat tab on the session is left: \(tabLeft ?? "")")
+        #expect(!rowLeft, "the closed workspace's pending sidebar row is left (it blocks moving workspaces out of the window)")
     }
 
     /// A chat opened from a seed (Open Chat on a past chat, New Agent Chat with a prompt) starts its session as soon
@@ -209,19 +211,33 @@ struct ChatWorkspaceShowsAtOnceTests {
         let made = try? await services.machines.local.connection?.createProfile(name: "Work", id: space, color: "blue", icon: nil, browserProfileID: nil)
         try #require(made != nil, "the daemon made no space")
         await services.machines.local.store.mirrored(profile: space)
+        // The space gets a workspace of its own first, pinned to it and held by this window (a window whose space shows
+        // none falls back to Default: two of three runs of an empty-space switch did): the switch below then stays there.
+        var own = WorkspaceSpawn(name: "work")
+        own.profile = space
+        _ = try await services.windows.createWorkspace(own, into: window.id)
+        let hasOwn = await RapidWorkspaceCreateTests.wait(within: .seconds(30)) {
+            !WindowProfiles.visible(services.windows.registry.members(of: window.id), profile: space, machines: services.machines).isEmpty
+        }
+        try #require(hasOwn, "the space never listed a workspace of its own in the window")
+        try #require(window.profileID == .defaultProfile, "the window left Default")
         let key = WorkspaceKey.generate()
 
         let work = try AgentSessionWorkspace.open(session: "s-switch", name: "lane", key: key, cwd: nil, services: services)
         let rowAtOnce = PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue }
         services.windows.switchProfile(space, in: window) // before the daemon lists the workspace
-        let entered = window.profileID == space // read now: a stopped daemon's windows fall back to Default
+        let entered = window.profileID == space
         let failure = await work.value?.message
-        let gone = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue } }
+        // The row goes on a rows pass of the window after the switch: wait for that change (or the window leaving the space).
+        let gone = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
+            !PendingWorkspaceRows.shared.rows.contains { $0.id == key.rawValue } || window.profileID != space
+        } && window.profileID == space
+        let stayed = window.profileID == space
         let left = PendingWorkspaceRows.shared.rows(in: window.id)
         await launched.stop()
 
         try #require(rowAtOnce, "the open showed no pending row in the Default space")
-        try #require(entered, "the window did not enter the space")
+        try #require(entered && stayed, "the window did not stay in the space (entered \(entered), stayed \(stayed))")
         #expect(gone, "the pending row stayed in a space that never lists the workspace: \(left.map(\.id))")
         #expect(failure == nil, "refused: \(failure ?? "")")
     }
