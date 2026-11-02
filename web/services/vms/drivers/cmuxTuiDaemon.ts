@@ -325,6 +325,7 @@ TimeoutStopSec=30
 [Install]
 WantedBy=default.target
 `;
+  const settle = `i=0; while [ "$i" -lt 30 ]; do if ! "$CMUX_TUI_HOME/.local/bin/acpmux" --json daemon status 2>/dev/null | grep -q '"pid": *[0-9]'; then break; fi; i=$((i + 1)); sleep 1; done; ! "$CMUX_TUI_HOME/.local/bin/acpmux" --json daemon status 2>/dev/null | grep -q '"pid": *[0-9]'`;
   return [
     cmuxTuiLayoutSelector(),
     `if [ "$CMUX_TUI_LAYOUT" = user ] && command -v loginctl >/dev/null 2>&1; then loginctl enable-linger "$CMUX_TUI_USER"; fi`,
@@ -341,7 +342,8 @@ WantedBy=default.target
     `chown -R "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.config"`,
     `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user daemon-reload`,
     `${cmuxTuiAsDaemonUser('XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" systemctl --user stop acpmux.service >/dev/null 2>&1 || true')}`,
-    `${cmuxTuiAsDaemonUser('"$CMUX_TUI_HOME/.local/bin/acpmux" daemon shutdown --keep-agents >/dev/null 2>&1 || true')}`,
+    `${cmuxTuiAsDaemonUser('timeout 15s "$CMUX_TUI_HOME/.local/bin/acpmux" daemon shutdown --keep-agents >/dev/null 2>&1 || true')}`,
+    `${cmuxTuiAsDaemonUser(settle)}`,
     `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user enable --now acpmux.service && XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user is-active --quiet acpmux.service`,
     `fi`,
   ].join("\n");
