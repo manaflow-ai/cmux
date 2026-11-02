@@ -837,11 +837,8 @@ mod tests {
         super::super::session_pages::sort_session_summaries(&mut uncached);
         assert_eq!(hub.all_session_summaries(), uncached);
 
-        let mut uncached_list: Vec<Value> = hub
-            .sessions()
-            .iter()
-            .map(|session| hub.session_list_summary(session))
-            .collect();
+        let mut uncached_list: Vec<Value> =
+            hub.sessions().iter().map(|session| hub.session_list_summary(session)).collect();
         super::super::session_pages::sort_session_summaries(&mut uncached_list);
         let mut cached_list = Vec::new();
         hub.visit_session_summaries(false, |row| cached_list.push(row));
@@ -925,7 +922,10 @@ mod tests {
 
         parent.meta.lock().unwrap().tags.insert(
             "expires".into(),
-            crate::store::Tag { value: "soon".into(), expires_at: Some(crate::store::now_ms() + 20) },
+            crate::store::Tag {
+                value: "soon".into(),
+                expires_at: Some(crate::store::now_ms() + 20),
+            },
         );
         hub.save_meta_answered(&parent).unwrap();
         cached_rows_equal_uncached(&hub);
