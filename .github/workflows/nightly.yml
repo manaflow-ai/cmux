@@ -6386,6 +6386,8 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true'
     continue-on-error: true
+    # The environment build-nightly-app gives its own in-job Sentry upload.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     permissions:
       contents: read
       actions: read
