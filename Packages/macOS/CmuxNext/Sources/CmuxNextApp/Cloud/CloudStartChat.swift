@@ -38,7 +38,9 @@ struct CloudStartChat {
     /// The page's reply: success with the machine's name, or a refusal in the person's words.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
     func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
-        if let refusal = Self.refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
+        if let refusal = Self.refusal(services) {
+            return AgentPaneReply.failure(code: refusal, message: Self.refusalMessage(refusal))
+        }
         let toastID = "cloud-start-" + tab.id
         CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: .seconds(600))
         do {
@@ -77,6 +79,12 @@ struct CloudStartChat {
     nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? {
         if cloudDisabled { return "cloud_disabled" }
         return signedIn ? nil : "not_signed_in"
+    }
+
+    /// Keep the stable refusal code for bridge callers, but give the Cloud
+    /// start card actionable copy for a signed-out first send.
+    nonisolated static func refusalMessage(_ code: String) -> String {
+        code == "not_signed_in" ? CloudStrings.signInFirst : code
     }
 
     /// Whether `path` is an existing folder, read off the main thread.
