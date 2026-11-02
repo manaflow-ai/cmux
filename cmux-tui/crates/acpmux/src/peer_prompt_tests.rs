@@ -126,6 +126,12 @@ fn hidden_attach_uses_its_snapshot_without_overwriting_newer_live_events() {
 }
 
 #[test]
+fn a_chat_without_a_baseline_is_not_replayed_from_its_first_record() {
+    let cursors = HashMap::from([("fresh".to_owned(), 0), ("seen".to_owned(), 12)]);
+    assert_eq!(replayable(&cursors), vec![("seen".to_owned(), 12)]);
+}
+
+#[test]
 fn failed_first_attach_can_establish_a_new_baseline() {
     let (notices, _) = mpsc::channel(16);
     let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, notices);
@@ -187,7 +193,7 @@ async fn replay_during_handshake(late_attach: bool, rollback: bool) {
     let event = |seq| json!({"sessionId": "s", "seq": seq, "at": 1, "dir": "mux", "kind": "turn_end", "msg": {}});
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
-    let cursor = if late_attach || rollback { 0 } else { 10 };
+    let cursor = if rollback { 0 } else { 10 };
     let remembered = if rollback { 1000 } else { cursor };
     if !late_attach {
         peer.mark_attached("s");
@@ -208,6 +214,7 @@ async fn replay_during_handshake(late_attach: bool, rollback: bool) {
         // A forwarder registers interest before discovering that the link is
         // still handshaking. This was absent from serve's initial gate snapshot.
         peer.mark_attached("s");
+        peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": remembered}));
     } else {
         // Traffic triggered by watch/recovery cannot advance the cursor past the gap.
         server

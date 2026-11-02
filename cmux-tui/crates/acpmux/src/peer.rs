@@ -1404,8 +1404,8 @@ impl Peer {
         self.open.store(true, Ordering::SeqCst);
         // Gate existing streams before initialize/watch or outcome recovery can
         // produce events. A live record must not move the replay cursor past a gap.
-        let replay_cursors = self.cursors.lock_or_recover().clone();
-        *self.replay_highwater.lock_or_recover() = replay_cursors;
+        let replay_cursors = replayable(&self.cursors.lock_or_recover());
+        *self.replay_highwater.lock_or_recover() = replay_cursors.into_iter().collect();
         *self.last_error.lock_or_recover() = None;
         self.received.reset();
         self.with_link(|l| l.opened(crate::store::now_ms()));
@@ -1538,12 +1538,7 @@ impl Peer {
             // list was read (`watch_delta.rs`).
             me.known_tools.store(tools, Ordering::SeqCst);
             me.recover_prompts(link).await?;
-            let attached: Vec<(String, u64)> = me
-                .cursors
-                .lock_or_recover()
-                .iter()
-                .map(|(sid, cursor)| (sid.clone(), *cursor))
-                .collect();
+            let attached = replayable(&me.cursors.lock_or_recover());
             // Forwarders can register an attachment during the handshake before
             // request_on refuses their request. Gate those sessions too, without
             // replacing high-water marks already observed on this connection.
@@ -1559,6 +1554,7 @@ impl Peer {
                 loop {
                     // Pin every bounded page to this connection. Replay its records through
                     // the same hub path as live events before releasing this session's gate.
+                    let ticket = me.attached.lock_or_recover().get(&sid).copied();
                     let page = match me
                         .link_request_on(
                             method::MUX_ATTACH,
@@ -1568,15 +1564,22 @@ impl Peer {
                         .await
                     {
                         Ok(page) => page,
-                        // A chat purged on the peer must not fail replay and reconnect every
-                        // other chat forever: it is no longer marked (`attach_hidden`).
-                        Err(e) if refuses_attach(&e) => {
-                            tracing::warn!(peer = %me.name, session = %sid, "the peer's chat was not replayed: {}", e.message);
+                        // One chat must not fail replay and reconnect every other chat forever.
+                        // It loses its baseline and is attached without history after connect,
+                        // as `attach_hidden` does; one the peer refused is no longer marked,
+                        // unless a client marked it again meanwhile.
+                        Err(e) => {
+                            let refused = refuses_attach(&e);
+                            tracing::warn!(peer = %me.name, session = %sid, refused, "the peer's chat was not replayed: {}", e.message);
                             me.clear_attached(&sid);
-                            me.attached.lock_or_recover().remove(&sid);
+                            if refused {
+                                let mut marks = me.attached.lock_or_recover();
+                                if marks.get(&sid).copied() == ticket {
+                                    marks.remove(&sid);
+                                }
+                            }
                             break;
                         }
-                        Err(e) => return Err(e),
                     };
                     // A restored journal may be shorter than the copy we saw on
                     // the previous link. Reset both cursors before requesting its
@@ -1584,9 +1587,9 @@ impl Peer {
                     if page.get("lastSeq").and_then(Value::as_u64).is_some_and(|last| last < after)
                     {
                         if rewound {
-                            return Err(RpcError::internal(
-                                "peer journal kept moving backwards during replay",
-                            ));
+                            tracing::warn!(peer = %me.name, session = %sid, "the peer's journal kept moving backwards during replay");
+                            me.clear_attached(&sid);
+                            break;
                         }
                         let mut highwater = me.replay_highwater.lock_or_recover();
                         me.cursors.lock_or_recover().insert(sid.clone(), 0);
@@ -1636,7 +1639,9 @@ impl Peer {
                         break;
                     }
                     if !progressed {
-                        return Err(RpcError::internal("peer replay page made no progress"));
+                        tracing::warn!(peer = %me.name, session = %sid, "a replay page made no progress");
+                        me.clear_attached(&sid);
+                        break;
                     }
                 }
             }
@@ -1667,7 +1672,8 @@ impl Peer {
             let attached: Vec<String> = {
                 let marks = me.attached.lock_or_recover();
                 let cursors = me.cursors.lock_or_recover();
-                marks.keys().filter(|sid| !cursors.contains_key(*sid)).cloned().collect()
+                let replayed = |sid: &String| cursors.get(sid).is_some_and(|c| *c > 0);
+                marks.keys().filter(|sid| !replayed(sid)).cloned().collect()
             };
             let link = &me;
             futures::stream::iter(attached.iter())
@@ -2039,6 +2045,13 @@ fn lends_over(url: &str) -> bool {
 
 /// How many of a link's chats its handshake attaches again at once after a reconnect.
 const REATTACHES_AT_ONCE: usize = 16;
+
+/// The chats a reconnect replays from their cursor. A cursor still at 0 has no baseline yet (its
+/// first attach did not answer, or an older peer gave no `pageThrough`): replaying it would send
+/// its whole history again as live events, so it is attached without history after connect.
+fn replayable(cursors: &HashMap<String, u64>) -> Vec<(String, u64)> {
+    cursors.iter().filter(|(_, c)| **c > 0).map(|(sid, c)| (sid.clone(), *c)).collect()
+}
 
 /// The greatest event sequence an `_acpmux/attach` page holds, if it holds any.
 fn page_max_seq(page: &Value) -> Option<u64> {
