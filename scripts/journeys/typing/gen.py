@@ -73,7 +73,7 @@ def cases():
     return [
         journey("typing-terminal-idle", "Typing: 60 real keys into a terminal at its prompt (idle app), filmed",
                 terminal_setup(), "terminal", prime="x"),
-        journey("typing-address-bar-idle", "Typing: 60 real keys into the browser address bar (idle app), filmed",
+        journey("typing-address-bar-idle", "Typing: 40 real keys into the browser address bar (idle app), filmed",
                 address_bar_setup(), "address_bar", prime="x", count=40),
         journey("typing-composer-idle", "Typing: 60 real keys into a New Agent Chat composer (idle app), filmed",
                 composer_setup(), "composer", prime="x"),
