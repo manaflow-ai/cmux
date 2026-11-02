@@ -80,7 +80,7 @@ struct NewTabAtLaunchTests {
 
         #expect(services.windows.registry.value.owner(of: Self.created) == nil,
                 "a reconcile before the restore placed the launch window's claim in the registry the restore replaces")
-        #expect(services.windows.pendingClaims[Self.created] == launch.state.id,
+        #expect(services.windows.claims.pending[Self.created] == launch.state.id,
                 "the claim is not the launch window's, or a reconcile before the restore dropped it")
     }
 
@@ -95,7 +95,7 @@ struct NewTabAtLaunchTests {
 
         services.windows.launchWindowAdopted(from: launch.state.id, as: "saved-front")
 
-        #expect(services.windows.pendingClaims[Self.created] == "saved-front")
+        #expect(services.windows.claims.pending[Self.created] == "saved-front")
         #expect(services.windows.pendingFrames[launch.state.id] == nil && services.windows.pendingFrames["saved-front"] != nil)
     }
 
@@ -112,7 +112,7 @@ struct NewTabAtLaunchTests {
 
         #expect(target == launch.state.id, "a quiet create while connecting opens a second window")
         #expect(services.windows.behindWindows.isEmpty, "a quiet create at launch sends a window behind: \(services.windows.behindWindows)")
-        #expect(services.windows.quietClaims.contains(Self.created), "a quiet create at launch would be shown on arrival")
+        #expect(services.windows.claims.quiet.contains(Self.created), "a quiet create at launch would be shown on arrival")
     }
 
     /// End to end on the real daemon, as the `type` journey runs it: `newTab` sent once the app's connection
