@@ -1,10 +1,10 @@
+#if os(iOS)
 import Foundation
 import Testing
 import UIKit
 import UserNotifications
 @testable import CmuxMobileShell
 
-#if os(iOS)
 /// Returning from iOS Settings after enabling notifications is another APNs
 /// registration entrypoint; scene-based apps do not receive the app delegate's
 /// applicationDidBecomeActive callback.
