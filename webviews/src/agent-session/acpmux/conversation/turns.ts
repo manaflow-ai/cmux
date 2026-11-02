@@ -862,8 +862,14 @@ function shapeTurn(
     const failed = tail[lastSummary]!;
     tail[lastSummary] = { ...failed, continuable: true, version: failed.version + VERSION_SPAN };
   }
+  // Its clock runs from the running turn's first row, after the last turn the agent ended on its
+  // own, never from the prompt's turn's end: a chat that woke itself all night read "Thinking 11h"
+  // under a turn that had just started (Leo, 2026-10-29: "why the fuck are you still depicted as
+  // thinking for 11 hours?").
+  const ended = tail[lastSummary]?.at ?? summary.at;
+  const since = Math.max(ended, tail[lastSummary + 1]?.at ?? ended);
   if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
-    shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
+    shaped.push(...liveTurn({ ...summary, at: since }, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
   else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
 }
