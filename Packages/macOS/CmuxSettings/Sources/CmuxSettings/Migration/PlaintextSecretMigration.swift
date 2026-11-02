@@ -31,9 +31,9 @@ public import Foundation
 public enum PlaintextSecretMigration {
     /// The result of a migration attempt, surfaced for logging and tests.
     public enum Outcome: Equatable, Sendable {
-        /// `cmux.json` does not exist or could not be read (including when the
-        /// config writer lock could not be taken); nothing to do. A later launch
-        /// retries.
+        /// `cmux.json` does not exist or could not be read (including when
+        /// another writer holds the config lock or the symlink was retargeted
+        /// mid-scrub); nothing to do. A later launch retries.
         case noConfigFile
         /// The file parsed but does not contain the plaintext key; nothing to do.
         case noPlaintextKey
@@ -101,10 +101,16 @@ public enum PlaintextSecretMigration {
         guard lookup(plaintextKeyPath, in: unlockedRoot) != nil else {
             return .noPlaintextKey
         }
-        guard let writeLock = try? JSONConfigWriteLock.acquireBlocking(target: writeURL) else {
+        // Launch must not wait on another process: if a writer holds the lock,
+        // leave the key for the next launch.
+        guard let writeLock = try? JSONConfigWriteLock.acquireIfFree(target: writeURL) else {
             return .noConfigFile
         }
         defer { writeLock.release() }
+        // A link retargeted before the lock was taken is left for the next launch.
+        guard JSONConfigStore.resolvedWriteURL(for: configURL, fileManager: fileManager) == writeURL else {
+            return .noConfigFile
+        }
         guard let data = try? Data(contentsOf: writeURL) else {
             return .noConfigFile
         }
@@ -139,7 +145,14 @@ public enum PlaintextSecretMigration {
         // stay as the user wrote them.
         if let edited = try? JSONCPathEditor().remove(path: plaintextKeyPath, in: source),
            let rewritten = try? sanitizer.encodedSource(edited, preserving: data) {
-            try? JSONConfigAtomicPublisher().publish(rewritten, to: writeURL, expected: data)
+            try? JSONConfigAtomicPublisher().publish(
+                rewritten,
+                to: writeURL,
+                expected: data,
+                isTargetCurrent: {
+                    JSONConfigStore.resolvedWriteURL(for: configURL, fileManager: .default) == writeURL
+                }
+            )
         }
         return outcome
     }

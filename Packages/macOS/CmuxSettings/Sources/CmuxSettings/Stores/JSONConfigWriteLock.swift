@@ -29,13 +29,14 @@ struct JSONConfigWriteLock: Sendable {
         }
     }
 
-    /// Blocks the calling thread until the lock is granted. For synchronous
-    /// launch-time writers that run before any async store exists.
-    static func acquireBlocking(target: URL) throws -> JSONConfigWriteLock {
-        try JSONConfigWriteLock(blockingTarget: target)
+    /// Takes the lock only if no other writer holds it; throws `EWOULDBLOCK`
+    /// otherwise. For synchronous launch-time writers that run before any
+    /// async store exists and must not wait on another process.
+    static func acquireIfFree(target: URL) throws -> JSONConfigWriteLock {
+        try JSONConfigWriteLock(blockingTarget: target, waits: false)
     }
 
-    private init(blockingTarget target: URL) throws {
+    private init(blockingTarget target: URL, waits: Bool = true) throws {
         try FileManager.default.createDirectory(
             at: target.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -58,7 +59,7 @@ struct JSONConfigWriteLock: Sendable {
             throw POSIXError(.EPERM)
         }
 
-        while flock(descriptor, LOCK_EX) != 0 {
+        while flock(descriptor, waits ? LOCK_EX : LOCK_EX | LOCK_NB) != 0 {
             let code = errno
             guard code == EINTR else {
                 Darwin.close(descriptor)

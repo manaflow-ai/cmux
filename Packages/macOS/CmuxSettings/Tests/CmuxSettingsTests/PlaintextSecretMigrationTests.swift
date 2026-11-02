@@ -69,6 +69,26 @@ struct PlaintextSecretMigrationTests {
         #expect(!FileManager.default.fileExists(atPath: url.path + ".cmux-write.lock"))
     }
 
+    @Test func leavesKeyForNextLaunchWhileAnotherWriterHoldsLock() async throws {
+        // Launch must not wait on another writer, so the scrub skips and retries
+        // on a later launch.
+        let original = #"{"automation":{"socketPassword":"secret","portBase":9100}}"#
+        let url = makeConfig(original)
+        let held = try await JSONConfigWriteLock.acquire(target: url)
+        defer { held.release() }
+        var saved: [String] = []
+        let outcome = PlaintextSecretMigration.scrub(
+            plaintextKeyPath: keyPath,
+            configURL: url,
+            loadCurrentSecret: { nil },
+            saveSecret: { saved.append($0) },
+            backupTimestamp: "T"
+        )
+        #expect(outcome == .noConfigFile)
+        #expect(saved.isEmpty)
+        #expect(try String(contentsOf: url, encoding: .utf8) == original)
+    }
+
     @Test func copiesPlaintextAndScrubsWhenSecretEmpty() throws {
         let url = makeConfig(#"{"automation":{"socketPassword":"hunter2","portBase":9100}}"#)
         var saved: [String] = []
