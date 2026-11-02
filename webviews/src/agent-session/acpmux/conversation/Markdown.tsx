@@ -26,7 +26,8 @@ import { fenceStep } from "./fenceRule";
 import { closesFence, codeSpans, fenceOpening } from "../slashCommands";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
-import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
+import { linkedText, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { isBareFileName, ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
 import { SoftBroken, softBreakNodes } from "./softBreaks";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
 import { codePath, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
@@ -690,13 +691,19 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
     if (named) out.push(<StartedSessionChip key={k++} mention={named} text={named.text} onOpen={opts.started!.open} />);
     else if (m[1]) {
       const path = codePath(inner);
+      const code = (
+        <code key={k++} className="cv-code">
+          <SoftBroken text={inner} />
+        </code>
+      );
       out.push(
         path ? (
           <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
+        ) : isBareFileName(inner) ? (
+          // A file name with no folder: its chip when it is in a folder the reply names.
+          <SiblingFileChip key={k++} name={inner} fallback={code} />
         ) : (
-          <code key={k++} className="cv-code">
-            <SoftBroken text={inner} />
-          </code>
+          code
         ),
       );
     } else if (m[2]) out.push(<strong key={k++}>{renderInline(t.slice(2, -2), opts)}</strong>);
@@ -1232,6 +1239,10 @@ export function Markdown({
   // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
   // full footnote scan on source changes instead of repeating it for each animation frame.
   const noteIds = useMemo(() => footnoteOrder(children).join(" "), [children]);
+  // The folders this reply's paths are in, joined so a streaming reply keeps the same value (and
+  // its memoized blocks) until a new folder arrives; its bare file names may be files there.
+  const folderKey = useMemo(() => replyFolders(children).join("\n"), [children]);
+  const folders = useMemo(() => (folderKey ? folderKey.split("\n") : []), [folderKey]);
   // The reply's data URL budget; only a reply longer than the budget can pass it.
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
   const overBudget = useMemo(() => dataUrlsOverBudget(budgetSource), [budgetSource]);
@@ -1296,13 +1307,15 @@ export function Markdown({
   // Notes are displayed in reference order, which may differ from their source order.
   const trailingIndex = notes.at(-1)?.index ?? blocks.length - 1;
   return (
-    <div className={`cv-md selectable ${className}`}>
-      {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}
-      {notes.length > 0 && (
-        <section className="cv-footnotes" role="doc-endnotes">
-          <ol>{notes.map(({ entry, index }) => draw(entry, index))}</ol>
-        </section>
-      )}
-    </div>
+    <ReplyFoldersContext.Provider value={folders}>
+      <div className={`cv-md selectable ${className}`}>
+        {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}
+        {notes.length > 0 && (
+          <section className="cv-footnotes" role="doc-endnotes">
+            <ol>{notes.map(({ entry, index }) => draw(entry, index))}</ol>
+          </section>
+        )}
+      </div>
+    </ReplyFoldersContext.Provider>
   );
 }
