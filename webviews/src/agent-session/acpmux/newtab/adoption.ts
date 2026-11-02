@@ -1,7 +1,8 @@
 // A prewarmed spare page adopted by Cmd-T (plans/cmux-next/new-tab.md section 2.2). The spare
-// loads, renders and connects before any tab exists; the host then dispatches the real context
-// (AgentPaneView.adoptNewTab). WebKit runs that script before any key the user types after Cmd-T,
-// so the remounted screen gets every key.
+// loads, renders and connects before any tab exists; the host gives it the context a Cmd-T would
+// (NewTabSparePool) and dispatches the real one at the key (AgentPaneView.adoptNewTab). WebKit runs
+// that script before any key the user types after Cmd-T, so the screen (kept, or remounted for
+// another context) gets every key.
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../NewTabPage";
@@ -117,8 +118,19 @@ export function withHandshakeNewTab(
 /// updates in place). A spare prepared with the tab's context (NewTabSparePool) gets such an adopt.
 export function sameNewTabScreen(a: NewTabHost | undefined, b: NewTabHost): boolean {
   if (!a) return false;
-  const screen = ({ inputToken: _token, omnibar: _omnibar, ...rest }: NewTabHost) => rest;
-  return JSON.stringify(screen(a)) === JSON.stringify(screen(b));
+  const { inputToken: _a1, omnibar: _a2, ...left } = a;
+  const { inputToken: _b1, omnibar: _b2, ...right } = b;
+  return sameValue(left, right);
+}
+
+/// Deep equality of plain JSON values, key order ignored (a later update re-adds a key at the end).
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const left = Object.entries(a as Record<string, unknown>).filter(([, v]) => v !== undefined);
+  const right = new Map(Object.entries(b as Record<string, unknown>).filter(([, v]) => v !== undefined));
+  return left.length === right.size && left.every(([key, value]) => right.has(key) && sameValue(value, right.get(key)));
 }
 
 /// Calls `onAdopt` with each adopt event's context and returns the adoption count, a key that

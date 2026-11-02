@@ -199,11 +199,7 @@ final class NewTabSparePool {
     }
 
     /// The size of the pane content a Cmd-T in the target window fills: its focused pane's.
-    private var targetPaneSize: NSSize? {
-        guard let pane = targetPane else { return nil }
-        let size = Self.newTabContentSize(in: pane)
-        return size.width > 0 && size.height > 0 ? size : nil
-    }
+    private var targetPaneSize: NSSize? { targetPane.map { Self.newTabContentSize(in: $0) }.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } }
     private var targetPane: PaneController? { services.windows.controllers.first { $0.window === target }?.content?.focusedPane }
     /// The parked spare draws the context a Cmd-T in the target window gives (NewTabPage.open), so the adoption changes
     /// no screen (SHORTCUT FRAMES F2); `preparedFor` is the focused pane and tab it was made for.
@@ -213,9 +209,13 @@ final class NewTabSparePool {
     }
     private var preparedFor: [AnyHashable]?
     private var targetIdentity: [AnyHashable]? { targetPane.map { [ObjectIdentifier($0), $0.selectedTab?.id] } }
-    private func prepare(_ view: AgentPaneView) {
+    private let prepareTimer = DemandTimer(owner: "NewTabSparePool.prepare")
+    private func schedulePrepare() { prepareTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.prepareParked() } }
+    /// After the settle, never in an input's turn (a key window change, Cmd-T's refill).
+    private func prepareParked() {
+        guard let view = slot.peek, view.superview === parking else { return }
         preparedFor = targetIdentity
-        BenchSpans.measure("pool.prepare") { view.prepareNewTab(preparedPage) }
+        if BenchSpans.measure("pool.prepare", { view.prepareNewTab(preparedPage) }) { snapshotParked() }
     }
 
     /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's
@@ -231,11 +231,10 @@ final class NewTabSparePool {
     private func fitParked() {
         guard let content = parking.superview else { return }
         let size = targetPaneSize ?? content.bounds.size
-        let resized = parking.frame != PageOffscreenParking.frame(in: content.bounds, size: size)
-        if resized { BenchSpans.measure("pool.fit") { parking.fit(to: size) } }
-        let shown = slot.peek?.model.newTab
-        if let view = slot.peek, view.superview === parking { prepare(view) }
-        if resized || slot.peek?.model.newTab != shown { snapshotParked() }
+        schedulePrepare()
+        guard parking.frame != PageOffscreenParking.frame(in: content.bounds, size: size) else { return }
+        BenchSpans.measure("pool.fit") { parking.fit(to: size) }
+        snapshotParked()
     }
 
     /// A pane of `window` changed size, or its focus or selected tab moved: the parked spare follows
@@ -418,12 +417,12 @@ final class NewTabSparePool {
             view.frame = parking.bounds
             view.autoresizingMask = [.width, .height]
             BenchSpans.measure("pool.park") { parking.addSubview(view) }
-            prepare(view)
+            schedulePrepare()
             return snapshotParked()
         }
         guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
         guard slot.shouldWarm, let content = target?.contentView else { return }
-        let start = ContinuousClock.now, page = preparedPage, identity = targetIdentity
+        let start = ContinuousClock.now, page = NewTabPage.sparePage(services)
         let made = BenchSpans.measure("pool.makeSpare") { makeSpare?(page) ?? services.agentTabs.makeSpare(page) }
         if ContinuousClock.now - start > .seconds(1) { webKit.markSlow() } // it held the main thread
         guard let view = made else { return }
@@ -432,8 +431,8 @@ final class NewTabSparePool {
         view.autoresizingMask = [.width, .height]
         parking.addSubview(view)
         slot.parked(view)
-        preparedFor = identity
         snapshotParked()
+        schedulePrepare()
     }
 
     private func watchMemoryPressure() {

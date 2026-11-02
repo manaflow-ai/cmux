@@ -4,8 +4,8 @@ extension AgentPaneView {
     /// Cmd-T adopted this prewarmed page (plans/cmux-next/new-tab.md section
     /// 2.2): the model takes the tab's context, the page gets it as an
     /// `acpmux-newtab-adopt` event (WebKit runs it before any key typed after
-    /// Cmd-T) and remounts the screen, and the theme follows the scope the
-    /// view moved into. A page still loading reads the context from its
+    /// Cmd-T) and remounts the screen unless it already draws that context
+    /// (``prepareNewTab(_:)``), and the theme follows the scope the view moved into. A page still loading reads the context from its
     /// handshake instead.
     public func adoptNewTab(_ page: AgentPaneNewTab) {
         model.adoptNewTab(page)
@@ -14,9 +14,13 @@ extension AgentPaneView {
 
     /// A parked spare takes `page`, the context a Cmd-T would give it, before the key (NewTabSparePool), unless it
     /// already draws that screen; an untouched New Tab page only. Its adoption then changes no screen.
-    public func prepareNewTab(_ page: AgentPaneNewTab) {
-        guard model.newTab != nil, !model.userTouched, model.newTab?.drawsSameScreen(as: page) != true else { return }
+    /// Returns whether the page took it. The handshake's folder stays the load's (none for a spare): the page's
+    /// folder is `page.cwd`.
+    @discardableResult
+    public func prepareNewTab(_ page: AgentPaneNewTab) -> Bool {
+        guard model.newTab != nil, !model.userTouched, model.newTab?.drawsSameScreen(as: page) != true else { return false }
         adoptNewTab(page)
+        return true
     }
 
     /// A chat without a session that is a new tab page after all

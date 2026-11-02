@@ -161,3 +161,16 @@ test("an adoption with another folder still remounts the screen", () => {
   expect(view.generation).toBe(2);
   expect(view.host?.cwd).toBe("/work/app");
 });
+
+test("the same screen with its keys in another order keeps its screen mounted", () => {
+  const view = mountAdoption();
+  act(() => {
+    dom!.window.dispatchEvent(adopt({ ...prepared, headlineOff: true }));
+  });
+  const { cwd, ...rest } = prepared;
+  act(() => {
+    dom!.window.dispatchEvent(adopt({ headlineOff: true, ...rest, cwd, inputToken: "key-3" }));
+  });
+  expect(view.generation).toBe(1);
+  expect(view.host?.inputToken).toBe("key-3");
+});

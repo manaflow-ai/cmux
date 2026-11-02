@@ -14,11 +14,11 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct NewTabSpareContextTests {
-    /// What a New Tab context draws: all of it but the key's input token and the bar's places (the page takes
-    /// those in place, webviews newtab/adoption.ts `sameNewTabScreen`).
+    /// What a New Tab context draws: all of it but the key's input token, the bar's places (the page takes
+    /// those in place, webviews newtab/adoption.ts `sameNewTabScreen`) and the warm chat list (read at load only).
     static func screen(_ page: AgentPaneNewTab?) -> AgentPaneNewTab? {
         guard var page else { return nil }
-        page.inputToken = nil
+        (page.inputToken, page.warm) = (nil, nil)
         page.omnibar = AgentPaneOmnibar()
         return page
     }
@@ -37,6 +37,7 @@ struct NewTabSpareContextTests {
             try Data("<html><body>New Tab spare fixture</body></html>".utf8).write(to: html)
             let pool = services.newTabSpares
             var made: [AgentPaneView] = []
+            var loaded: [AgentPaneNewTab] = []
             defer {
                 pool.makeSpare = nil
                 pool.dropAll()
@@ -55,6 +56,7 @@ struct NewTabSpareContextTests {
             // An inert page stands in for WebKit's: the pool's own parking, fitting and context work run.
             pool.dropAll()
             pool.makeSpare = { page in
+                loaded.append(page)
                 let model = AgentPaneModel(host: services.agentTabs.host, newTab: page)
                 guard let view = AgentPaneView(model: model, source: .bundled(html)) else { return nil }
                 made.append(view)
@@ -65,6 +67,9 @@ struct NewTabSpareContextTests {
             pool.start()
             try await PasswordManagerRouteTests.until({ pool.spare != nil }, report: { "no spare was parked" })
             let spare = try #require(pool.spare?.view)
+            // It loads folderless: a spare's handshake keeps its load folder (the chat's start-folder roots), and
+            // that folder must be no tab's; the tab's context comes after the load.
+            #expect(loaded.allSatisfy { $0.cwd == nil }, "the spare loaded with folder \(loaded.compactMap(\.cwd))")
 
             // The context Cmd-T gives the page (NewTabPage.open): the focused pane's.
             let keyPage = NewTabPage.page(services, selected: pane.selectedTab, window: window, pane: pane, paletteActions: false)
