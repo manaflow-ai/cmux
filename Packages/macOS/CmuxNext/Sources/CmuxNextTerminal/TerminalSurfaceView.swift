@@ -402,6 +402,9 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Out of its window, no drag's end may reach it (its layout root can go before it): it stops following, so
+        // its next shown size reports as any other, never held for a drag that is gone.
+        if window == nil { isFollowingResizeGesture = false }
         textInputStage = (window as? TextInputStageHosting)?.textInputStage
         cursorLayer?.place(in: window)
         let before = windowNode.effective
