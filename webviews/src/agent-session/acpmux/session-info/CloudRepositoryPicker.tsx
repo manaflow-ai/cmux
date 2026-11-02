@@ -197,6 +197,7 @@ export function CloudRepositoryPicker({
                 <button
                   type="button"
                   className="acpmux-cloud-repository-option"
+                  data-action="repository-option"
                   disabled={Boolean(attaching)}
                   onClick={() => attach(repo)}
                 >
