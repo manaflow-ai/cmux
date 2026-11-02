@@ -59,8 +59,10 @@ public final class CloudNativeRouteHolder: CloudLinkLaunching {
 
 /// The app server link's Native device route, the default (`CMUX_NEXT_CLOUD_NATIVE_LINK=0` turns it off),
 /// with this Mac's `cmux link` for an install whose Native route fails to start (a team the Worker has no
-/// Native mesh for answers 400), so Native never leaves such a team with no machine. The fallback holds until
-/// sign-out (``archive(install:)``), and `onFallback` says why it was taken. Native is the default because it
+/// Native mesh for answers 400), so Native never leaves such a team with no machine. The fallback holds for
+/// `retryNativeAfter`, then the next `ensure` tries Native again: a new team has no mesh until its first machine
+/// is made, and that happens after the link first starts, so a fallback held until sign-out (``archive(install:)``)
+/// would never reach that machine. `onFallback` says why each fallback was taken. Native is the default because it
 /// is the only route that reaches a Worker machine today: `connect_info` answers no gateway, VPC endpoint or
 /// public address, so `cmux link` over the relay finds no route to any machine ("refused the dial:
 /// unreachable"), while a vm-api machine's Native network routes through the enrolled mesh tunnel.
@@ -69,7 +71,10 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
     private let native: any CloudLinkLaunching
     private let link: (any CloudLinkLaunching)?
     private let onFallback: (any Error) -> Void
-    private var usingLink = false
+    private let retryNativeAfter: Duration
+    /// When the link took over; nil while Native is in use.
+    private var linkSince: ContinuousClock.Instant?
+    private var usingLink: Bool { linkSince != nil }
     /// Why the Native route did not start, when the link took over (for `cloud.machines`' `link_route`).
     public private(set) var fallbackReason: String?
     /// The route in use: `native`, or `link` with the Native failure that made the link take over.
@@ -91,21 +96,29 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
     }
 
     public init(native: any CloudLinkLaunching, link: (any CloudLinkLaunching)?,
-                onFallback: @escaping (any Error) -> Void = { _ in }) {
-        self.native = native; self.link = link; self.onFallback = onFallback
+                retryNativeAfter: Duration = .seconds(60), onFallback: @escaping (any Error) -> Void = { _ in }) {
+        self.native = native; self.link = link; self.retryNativeAfter = retryNativeAfter; self.onFallback = onFallback
     }
 
     public func ensure(install: String) async throws -> CloudLinkLauncher.Ensured {
-        if usingLink, let link { return try await link.ensure(install: install) }
+        if let since = linkSince, let link, ContinuousClock.now - since < retryNativeAfter {
+            return try await link.ensure(install: install)
+        }
         do {
-            return try await native.ensure(install: install)
+            let ensured = try await native.ensure(install: install)
+            if usingLink {
+                await link?.stop(install: install)
+                linkSince = nil
+                fallbackReason = nil
+            }
+            return ensured
         } catch {
             // Signed out or cancelled is not a route failure: the link would refuse the same way.
             guard let link, !(error is CancellationError),
                   error as? NativeDeviceEnrollmentError != .signedOut else { throw error }
             onFallback(error)
             fallbackReason = String(describing: error)
-            usingLink = true
+            linkSince = ContinuousClock.now
             await native.archive(install: install)
             return try await link.ensure(install: install)
         }
@@ -118,6 +131,6 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
     public func archive(install: String?) async {
         await native.archive(install: install)
         await link?.archive(install: install)
-        usingLink = false
+        linkSince = nil
     }
 }
