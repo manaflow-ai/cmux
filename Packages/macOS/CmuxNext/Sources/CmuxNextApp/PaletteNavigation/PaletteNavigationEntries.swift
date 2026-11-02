@@ -36,7 +36,7 @@ nonisolated enum PaletteNavigationEntries {
                     entries.append(PaletteNavigationEntry(
                         id: pane.id, kind: .pane, title: pane.name ?? selected?.title ?? "", workspaceTitle: workspace.name,
                         groupTitle: groupTitle, cwd: selected?.cwd, keywords: tabs.map(\.title), isCurrent: pane.id == focus.paneID,
-                        lastUsed: tabs.compactMap { lastActive[$0.id] }.max()))
+                        lastUsed: tabs.compactMap { lastActive[$0.id] }.max(), machineID: workspace.machine))
                 }
                 for tab in tabs {
                     entries.append(PaletteNavigationEntry(

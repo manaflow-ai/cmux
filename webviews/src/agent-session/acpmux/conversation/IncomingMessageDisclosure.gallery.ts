@@ -7,7 +7,7 @@
 // card cut short and never one card of them all at the bottom. Delivered ones sit between the
 // replies they came between, a steer the agent has not read sits in the running turn with "Read
 // after this step" as a small tag at its line's end, and one queued behind the turn sits after it
-// under one "Read after this turn" said over the first of the queued messages. The line opens the whole message under it, the line holding still.
+// in the one group of waiting messages, with no "Read after this turn". The line opens the whole message under it, the line holding still.
 // The line's look: A, the sender then the message's first line muted, ships; B (Claude Code's
 // "Received a message from" wording, no preview), C (A plus how many more lines) and D (the sender
 // alone) are drawn here only, over the shipped line.

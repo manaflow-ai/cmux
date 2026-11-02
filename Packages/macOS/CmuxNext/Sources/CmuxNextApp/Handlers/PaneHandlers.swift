@@ -57,7 +57,7 @@ enum PaneHandlers {
             // Zellij's new pane: the largest shown scrolling pane, never a docked
             // column; a run that names a pane splits that one (PanePlacementRouting).
             let pane = PanePlacementRouting.autoLayoutTarget(ctx, invocation, from: focused)
-            let aimed = pane === focused ? invocation : PanePlacementRouting.aimed(invocation, at: pane.pane, from: focused)
+            let aimed = pane === focused ? invocation : PanePlacementRouting.aimed(invocation, at: pane.pane, on: pane.daemon.machineID, from: focused)
             // The longer side first; the other axis when only it has room; split refuses when neither has.
             let (preferred, fitting) = PanePlacementRouting.autoLayoutDirection(ctx, pane)
             split(ctx, aimed, direction: fitting ?? preferred)

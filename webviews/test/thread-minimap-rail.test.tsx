@@ -387,6 +387,56 @@ test("wheel browsing belongs to the rail and is not snapped back by transcript s
   }
 });
 
+test("the wheel over the rail's pane-edge padding scrolls the rail, not the transcript", async () => {
+  // Leo, 2026-10-28: "I said me scroll on it, cover area, it scroll, plus the padding". The strip
+  // between the pane edge and the rail reveals it on hover, so the wheel over it is the rail's too.
+  const view = await mount(70);
+  try {
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+    expect(list.hasAttribute("data-rail-scrolls")).toBe(true);
+    expect(strip.hasAttribute("data-rail-scrolls")).toBe(true);
+    const before = view.scroller.scrollTop;
+    const heard: string[] = [];
+    view.scroller.addEventListener("wheel", () => heard.push("transcript"));
+    const down = new dom.window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true });
+    await act(async () => {
+      strip.dispatchEvent(down);
+    });
+    expect(list.scrollTop).toBe(120);
+    expect(down.defaultPrevented).toBe(true);
+    expect(heard).toEqual([]);
+    expect(view.scroller.scrollTop).toBe(before);
+    // A line-mode wheel moves it by lines, and back up.
+    await act(async () => {
+      strip.dispatchEvent(
+        new dom.window.WheelEvent("wheel", { deltaY: -3, deltaMode: 1, bubbles: true, cancelable: true }),
+      );
+    });
+    expect(list.scrollTop).toBe(72);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the wheel over the padding of a rail that fits its prompts reaches the transcript", async () => {
+  const view = await mount(4);
+  try {
+    const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+    expect(strip.hasAttribute("data-rail-scrolls")).toBe(false);
+    const heard: number[] = [];
+    view.scroller.addEventListener("wheel", (event) => heard.push((event as WheelEvent).deltaY));
+    const wheel = new dom.window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true });
+    await act(async () => {
+      strip.dispatchEvent(wheel);
+    });
+    expect(heard).toEqual([120]);
+    expect(wheel.defaultPrevented).toBe(false);
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("a wheel over a rail that scrolls itself is not the reader's: the transcript keeps following", async () => {
   const { followTrace } = await import("../src/agent-session/acpmux/followTrace");
   const view = await mount(70);

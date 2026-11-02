@@ -58,6 +58,13 @@ export default cloudPageEntry({
       machines,
       snapshots,
     },
+    "creating-snapshots-failed": {
+      note: "The create sheet when the snapshot list fails: Base image stays, with Retry.",
+      action: "create",
+      snapshotsFail: true,
+      machines,
+      snapshots,
+    },
     "ports-pending": {
       note: "Cloud Ports actions while the host is still resolving.",
       action: "ports-pending",

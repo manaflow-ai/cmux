@@ -20,7 +20,7 @@ const ROW_ICON = rowIconSize(12);
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { useAgentProgress } from "../subagents/agentProgressStore";
-import { isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
@@ -33,6 +33,7 @@ import "./SubagentsSection.css";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { AgentMark } from "../../shared/AgentMark";
 import { TonedIcon } from "../subagents/TonedIcon";
+import { SESSION_INFO_WAVE_STYLE } from "./native/wave";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -191,7 +192,7 @@ export function SubagentsSection({
       working: Boolean(retrying(agent)),
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
-      icon: "agent.session",
+      icon: SUBAGENT_FALLBACK,
       mark: agent.harness ?? harness,
       depth,
       at: agent.endedAt ?? agent.startedAt,
@@ -254,7 +255,7 @@ export function SubagentsSection({
     </li>
   );
   return (
-    <div className="acpmux-session-info-subagents">
+    <div className="acpmux-session-info-subagents" style={SESSION_INFO_WAVE_STYLE}>
       {runningLines.length > 0 && (
         <ul className="acpmux-summary-list acpmux-session-info-subagents__running">
           {shown.map((item, index) => line(item, index, true))}

@@ -51,6 +51,7 @@ mod shutdown_scan_tests;
 mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
+pub(crate) mod fork_before;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
@@ -1200,6 +1201,7 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
+            fork_lock: Mutex::new(()),
             close_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
@@ -1372,7 +1374,7 @@ impl Hub {
                     (entry_generation == generation
                         && (entry_expiry == 0 || now < entry_expiry)
                         && !bytes.is_empty())
-                        .then_some(bytes)
+                    .then_some(bytes)
                 })
             && let Ok(row) = serde_json::from_str(bytes)
         {
@@ -1385,6 +1387,11 @@ impl Hub {
         };
         if session.status() == SessionStatus::Closed {
             let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
+            // A summary may have been built while purge was unregistering the session. Recheck
+            // the tombstone while holding the cache lock so a late reader cannot recreate it.
+            if session.purged.load(Ordering::SeqCst) {
+                return row;
+            }
             let entry = cache.entry(id).or_insert_with(|| ClosedSummaryCacheEntry {
                 list_generation: 0,
                 list_next_expiry: 0,

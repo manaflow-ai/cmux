@@ -9,6 +9,16 @@
   the setting and is no longer DEV-only. Regression: `SidebarPrototypeTogglesSettingTests`,
   `SidebarPrototypeStoreCardsTests`, `SidebarCompactListMenuTests`.
 
+- 2026-11-01: the workspace hover preview's tab rows say where they run and carry real facts. Leo, verbatim: "local
+  or nonlocal is probably useful to see in the hover previews" and "these are not informative enough nor look very
+  good. there's no symbols, not much metadata, nothing. we can do stuff". Each agent chat and terminal row names its
+  machine on its second line ("This Mac", "Cloud", or the machine's name, from the sidebar's machine section; a remote
+  terminal names its own session); agent rows add their model, terminals their running command, pages their path
+  (host and path, or the path alone when the title is the host) and the site's icon when the record names none. No
+  part repeats the title or another part, and a row with no fact shows its title alone (no "Tab" under "New Tab").
+  Gallery "Tab rows" compares machine on every line (chosen), only another machine named, the machine in the trailing
+  column, and the old line. Regression: `WorkspaceTabHoverCardRichRowsTests`.
+
 - 2026-11-01: the workspace hover preview counts each agent's running subagents and background commands, names
   them in its details, and its History lists no inbox notices. Leo, verbatim: "e.g. this hover preview being able to
   see the # of associated subagents and whatnot would be a lot more useful / like the details aren't even very useful
@@ -1025,3 +1035,7 @@ An empty group now keeps only its header at rest. The header's existing + appear
   visible and clickable left of the end action, with overflow on the next free shared slot.
   Regression: SidebarSearchColumnTests and ProfileBarPlusPlacementTests. Builds on #27954 (bb5fb9695d26)
   and its inset-contract repair (9a79771762c4); it does not change row insets or sidebar widths.
+
+## Each space owns its pins and groups (2026-10-29)
+
+- Leo 2026-10-29: "could u guys also now work on the per space pins and groups? rn anything u make in teh default space goes across to new ones". No visual change: rows, headers, insets and the Pinned block look the same. What changes is which space draws a group or a Pinned link, tab or app: a new group stores the acting window's space as its `profile`, a Pinned item stores it as `extra.room`, and a window on space S draws only the ones that belong to S (anything made before reads as the default space's). Commits 68c7d49b5bc and 9fcf4ab6c1c carry no trailer; reviewed and logged here as no visual change. A link, tab or app moved into Pinned from another band (the band's Move, a document drag) stores the acting window's space too, in the same change (`item.update {room}`): 4e44c4baef8 and af2b1a3f8eb, no trailer, logged here as no visual change. A machine section's group lists with its parent in every space (`SidebarDocSections.sections`). Test: `SidebarSpaceOwnsPinsAndGroupsTests`. Pending `item.update` fields and a pending New Group's space (28d1f36386e, no trailer) are logged here as no visual change. An item or group naming a space that is gone (deleted, not mirrored back yet) reads as the default space's (`SidebarDocItem.owningRoom`), so none is left in no window; Delete Space with `moveTo` and Move Group to Space move the stored space with it.
