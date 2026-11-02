@@ -58,7 +58,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 43,
     tolerance: 1,
     source: "11 + grid turn gap 32; Codex desktop ~16, Claude Code desktop ~24 after its action row",
-    pending: "transcript spacing: room around runs and prompts",
   },
   {
     id: "prompt-to-step",
@@ -90,7 +89,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "Claude Code desktop verbose rows 22; Codex desktop 26; chat-transcript.md one-line row pitch (#29965)",
-    pending: "#31497",
   },
   {
     id: "run-to-step",
@@ -98,7 +96,6 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "consecutive one-line rows sit flush, whether in one run or two rows",
-    pending: "#31497",
   },
   {
     id: "step-to-live",
@@ -106,7 +103,7 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "the live line is a one-line row",
-    pending: "#31497",
+    pending: "grid-system: the live line 22 under a run (25 on base after #31497)",
   },
   {
     id: "live-to-step",
@@ -114,7 +111,7 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     value: 22,
     tolerance: 0.5,
     source: "the waiting group's head is a one-line row",
-    pending: "#31497",
+    pending: "grid-system: the waiting group 22 under the live line (49 on base after #31497)",
   },
 ];
 
