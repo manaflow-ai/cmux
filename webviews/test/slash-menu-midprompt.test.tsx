@@ -351,3 +351,36 @@ test("Return sends a word that only starts a later part of a name; the arrows or
   await press(tabbed.field, "Tab");
   expect(tabbed.prompt.plainText()).toBe("fix it /review-pr ");
 });
+
+test("a list that closes forgets the row the arrows chose: the same word, back, and Return sends", async () => {
+  const snapshot = chat();
+  const { field, prompt, sent } = await composer(snapshot, "fix it /pr");
+  await act(async () => prompt.setCaret("fix it /pr".length));
+  await press(field, "ArrowDown");
+  // The matching command goes and comes back (a live list update), the word `/pr` kept as it is.
+  const { Composer } = await import("../src/agent-session/acpmux/Composer");
+  const draw = (commands: AcpmuxSnapshot["commands"]) =>
+    act(async () =>
+      root!.render(
+        <Composer
+          handle={() => {}}
+          snapshot={{ ...snapshot, commands }}
+          sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+          chips={Chips}
+          onSend={(text) => {
+            sent.push(text);
+            return true;
+          }}
+          onStop={() => {}}
+          localName="studio"
+        />,
+      ),
+    );
+  await draw(snapshot.commands!.filter((command) => command.name !== "review-pr"));
+  expect(menu()).toBeNull();
+  await draw(snapshot.commands);
+  expect(names()).toEqual(["/review-pr"]);
+  expect(prompt.plainText()).toBe("fix it /pr");
+  await press(field, "Enter");
+  expect(sent).toEqual(["fix it /pr"]);
+});

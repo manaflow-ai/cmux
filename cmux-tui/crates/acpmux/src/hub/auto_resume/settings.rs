@@ -37,7 +37,12 @@ fn settings_delays(doc: &Value) -> Vec<u64> {
         .map_or(0, |n| n.floor().clamp(0.0, (MAX_DELAY_MS / 1000) as f64) as u64 * 1000);
     (0..attempts)
         .map(|n| match interval_ms {
-            0 => DEFAULT_DELAYS_MS[n.min(DEFAULT_DELAYS_MS.len() - 1)],
+            // Past the defaults the last wait repeats; the array is never empty.
+            0 => DEFAULT_DELAYS_MS
+                .get(n)
+                .or(DEFAULT_DELAYS_MS.last())
+                .copied()
+                .unwrap_or(MIN_DELAY_MS),
             ms => ms.max(MIN_DELAY_MS),
         })
         .collect()

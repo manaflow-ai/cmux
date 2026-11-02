@@ -12,6 +12,8 @@ public enum AgentParityRoute: Hashable, Identifiable, Sendable {
     case subagent(String)
     case checkpoints
     case handoff
+    /// `/continue <harness>`: the review of a continuation to that agent, straight away.
+    case handoffTo(AgentHandoffTarget)
 
     public var id: String {
         switch self {
@@ -19,6 +21,7 @@ public enum AgentParityRoute: Hashable, Identifiable, Sendable {
         case .subagent(let id): "subagent-\(id)"
         case .checkpoints: "checkpoints"
         case .handoff: "handoff"
+        case .handoffTo(let target): "handoff-\(target.id)"
         }
     }
 }
@@ -57,6 +60,7 @@ struct AgentParityDestination: View {
         case .subagent(let id): SubagentTranscriptScreen(store: store, surface: surface, subagentID: id)
         case .checkpoints: CheckpointsScreen(store: store, surface: surface)
         case .handoff: HandoffScreen(store: store, surface: surface)
+        case .handoffTo(let target): HandoffReviewScreen(store: store, surface: surface, target: target)
         }
     }
 }

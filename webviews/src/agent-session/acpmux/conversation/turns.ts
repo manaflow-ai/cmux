@@ -75,8 +75,8 @@ export function formatDuration(ms: number): string {
 export const toolCalls = (t: Translate, count = 0) => t("turn.toolCalls", { n: count });
 
 /// The disclosure's label: "Worked for 1m 16s", "You stopped after 40s",
-/// or "34 previous messages" for a row that carries a count instead of timing (turns without a
-/// summary no longer fold, so none does today). It shows no tool-call count.
+/// or "34 previous messages" for a Codex fold that mixes the agent's messages with its work
+/// (`foldMixesMessages`). It shows no tool-call count.
 export function workedLabel(t: Translate, row: AcpmuxRow): string {
   if (row.previous !== undefined)
     return row.previous === 1 ? t("turn.previous.one") : t("turn.previous.other", { n: row.previous });
@@ -178,6 +178,9 @@ export type TurnView = {
 /// shapes only its last turns.
 const NO_MESSAGE_BREAKS: readonly number[] = [];
 const NO_PENDING: readonly AcpmuxRow[] = [];
+
+const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
+  a.size === b.size && [...a].every((id) => b.has(id));
 
 const firstDateUnchanged = (view: TurnView, now: number) =>
   view.firstVisible === undefined ||
@@ -318,6 +321,20 @@ export function turnViewFrom(
     const turn = { promptAt: rows[start]!.at, answerAt };
     times.push(turn);
   }
+  // Reused turns were drawn with the previous view's folds. A row after them can change which
+  // background turns fold (cmux#30535), so a different set draws every turn again.
+  if (reuse > 0 && !sameIds(foldedBackground, previous!.foldedBackground))
+    return turnViewFrom(rows, expanded, {
+      now,
+      working,
+      clockOffset,
+      liveRuns,
+      sessionStatus,
+      lineBelow,
+      agentFamily,
+      waitingSteers,
+      messageBreaks,
+    });
   for (let at = first; at < starts.length; at += 1) {
     const start = starts[at]!;
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
@@ -586,6 +603,24 @@ function answerAt(rows: readonly AcpmuxRow[]): number {
 /// A reply with something to read: an empty segment of the agent's text is never a takeaway.
 const isReply = (row: AcpmuxRow) => isAnswer(row) && !isVisiblyEmptyText(row.text);
 
+/// A fold holds a mix when the agent's own messages sit between its work, as Codex's "N previous
+/// messages" header counts; work alone is one contiguous stretch, its "Worked for".
+const foldMixesMessages = (work: readonly AcpmuxRow[]) =>
+  work.some(isReply) && work.some((row) => row.kind !== "assistant" && !(row.kind === "user" && !row.incoming));
+/// The fold's messages, as Codex counts them: each of the agent's messages, each call or thought
+/// in its work, and each report received.
+const foldedMessages = (work: readonly AcpmuxRow[]) =>
+  work.reduce(
+    (n, row) =>
+      n +
+      (row.kind === "activity"
+        ? Math.max(1, row.items?.length ?? 0)
+        : isReply(row) || row.kind !== "assistant"
+          ? 1
+          : 0),
+    0,
+  );
+
 /// The finished turn's one disclosure, its final answer, and work recorded after that answer.
 export type FoldSegment = { anchor: AcpmuxRow; rows: AcpmuxRow[]; takeaway?: AcpmuxRow; after?: AcpmuxRow[] };
 
@@ -722,6 +757,11 @@ function shapeTurn(
         toolCount: summary.toolCount,
         tokens: summary.tokens,
         durationMs: summary.durationMs ?? Math.max(0, summary.at - user.at),
+        // Codex's header (Leo, 2026-11-02: "i assume the x previous messages are when there's a mix
+        // and the worked for is if it's one contiguous thing ... let's follow those"): work with the
+        // agent's own messages between it reads "N previous messages", one stretch of work alone
+        // "Worked for".
+        ...(foldMixesMessages(work) && { previous: foldedMessages(work) }),
       };
       if (!claudeGroups) shaped.push(worked);
       // Open, each run of its work folds into its summary line between the commentary, as in a

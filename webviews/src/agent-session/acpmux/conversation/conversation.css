@@ -3777,10 +3777,11 @@ a.cv-sha:focus-visible {
   height: var(--cv-footer-button);
   border-radius: 8px;
 }
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu) {
+/* Continue is a labelled button (its own width, .cv-turn-continue below) and keeps its small arrow. */
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu, .cv-turn-continue) {
   width: var(--cv-footer-button);
 }
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn > svg {
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn:not(.cv-turn-continue) > svg {
   width: var(--cv-footer-glyph);
   height: var(--cv-footer-glyph);
 }
