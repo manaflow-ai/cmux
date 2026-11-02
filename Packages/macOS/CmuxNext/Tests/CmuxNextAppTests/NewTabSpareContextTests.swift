@@ -48,9 +48,15 @@ struct NewTabSpareContextTests {
                                                                        into: controller.state.id)
             services.windows.show(workspaceID: workspace, in: controller.state)
             @MainActor func focused() -> PaneController? { controller.content?.focusedPane }
-            try await PasswordManagerRouteTests.until({
-                controller.state.workspaceID == workspace && focused()?.selectedTab?.cwd != nil
-            }, report: { "shows \(controller.state.workspaceID ?? "nil"), tab cwd \(focused()?.selectedTab?.cwd ?? "nil")" })
+            // The page's folder (NewTabPageMachine: the selected terminal's, else the workspace's first tab's) is set
+            // once the daemon's tab names it: the selected tab's own cwd can come later (fleet run 0b87f88f0040).
+            @MainActor func keyCwd() -> String? {
+                focused().flatMap { NewTabPage.page(services, selected: $0.selectedTab, window: window, pane: $0, paletteActions: false).cwd }
+            }
+            try await PasswordManagerRouteTests.until({ controller.state.workspaceID == workspace && keyCwd() != nil }, report: {
+                "shows \(controller.state.workspaceID ?? "nil"), selected \(focused()?.selectedTab.map { String(describing: $0.kind) } ?? "nil"), "
+                    + "tab cwd \(focused()?.selectedTab?.cwd ?? "nil"), page cwd \(keyCwd() ?? "nil")"
+            })
             let pane = try #require(focused())
 
             // An inert page stands in for WebKit's: the pool's own parking, fitting and context work run.
