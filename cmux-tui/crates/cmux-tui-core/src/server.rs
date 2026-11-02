@@ -152,6 +152,7 @@ mod client_hello;
 mod command_args;
 #[cfg(unix)]
 mod fs_wire;
+mod input_qos;
 mod line_connection;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,

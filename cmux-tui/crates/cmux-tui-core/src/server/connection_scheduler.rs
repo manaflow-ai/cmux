@@ -387,6 +387,7 @@ fn run_connection_surface_dispatcher(
     let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
     while writer.is_open() {
         let Some(pending) = scheduler.next_request() else { return };
+        super::input_qos::note_thread_qos("mux-control-dispatch");
         if pending.request.cmd.is_clear_history()
             && let Some(surface) = pending.request.cmd.ordering_surface()
         {
