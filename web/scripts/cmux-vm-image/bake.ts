@@ -191,13 +191,24 @@ export function cmuxTuiSourceFromLock(lock: InputsLock): CmuxTuiSource {
 
 /** Keep the baked image's user-local service alias on the current store generation. */
 export function cmuxTuiImageAcpmuxLinkCommand(): string {
-  return cmuxTuiAcpmuxLinkCommand(`${CURRENT_BIN}/acpmux`, true);
+  return `${cmuxTuiLayoutSelector()} && ${cmuxTuiAcpmuxLinkCommand(`${CURRENT_BIN}/acpmux`, true)}`;
 }
 
 /** Reassert the immutable store before user profile additions (which may put ~/.local/bin first). */
 export function storeUserProfilePathCommand(): string {
   const marker = "# cmux store: current profile after user PATH";
-  const script = `${marker}\nold_path=\"$PATH\"\nPATH=\"\"\nold_ifs=\"$IFS\"\nIFS=:\nfor entry in $old_path; do [ \"$entry\" = ${CURRENT_BIN} ] && continue; PATH=\"$PATH${"${PATH:+:$PATH}"}$entry\"; done\nIFS=\"$old_ifs\"\nPATH=\"${CURRENT_BIN}${"${PATH:+:$PATH}"}\"\nexport PATH\nunset old_path old_ifs entry`;
+  const script = [
+    marker,
+    'old_path="$PATH"',
+    'PATH=""',
+    'old_ifs="$IFS"',
+    "IFS=:",
+    'for entry in $old_path; do case "$entry" in ""|' + GITHUB_SHIM_DIR + "|" + CURRENT_BIN + ') ;; *) PATH="${PATH:+$PATH:}$entry" ;; esac; done',
+    'IFS="$old_ifs"',
+    'PATH="' + GITHUB_SHIM_DIR + ":" + CURRENT_BIN + '${PATH:+:$PATH}"',
+    "export PATH",
+    "unset old_path old_ifs entry",
+  ].join("\n");
   return [
     `profile=${sq(`${DEVBOX_WORK_HOME}/.profile`)}`,
     `test -e \"$profile\" || install -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} -m 0644 /dev/null \"$profile\"`,
