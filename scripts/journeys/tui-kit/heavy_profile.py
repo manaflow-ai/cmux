@@ -23,7 +23,8 @@ slug>.sock, else /tmp/cmux-debug-<slug>.sock); `system.identify` gives the app's
 and bundled CLI (Contents/Resources/bin/cmux); `debug.daemon` gives the daemon pid and its --socket.
 --cli, --socket (the daemon's) and --home override each one (a capture slot has its own HOME).
 
-DIR/heavy.json (written after every step, so a failed build can still be torn down): the plan, each
+DIR/heavy.json (written after every step, so a failed or stopped build can still be torn down; SIGTERM
+stops build between steps, exit 3): the plan, each
 workspace, pane and tab id it made with the program it runs, every refusal, the page server's pid, and
 a final check read from `snapshot.get` (workspaces, tabs and shown panes counted). Exit 0 when the
 check matches the plan, 1 when it does not, 2 when the app could not be reached.
@@ -131,6 +132,18 @@ def make_plan(a):
 
 class Refused(Exception):
     pass
+
+
+class Stopped(Exception):
+    """A SIGTERM or SIGINT during build: it stops between steps, with every id made so far recorded."""
+
+
+STOP = []
+
+
+def check_stop():
+    if STOP:
+        raise Stopped()
 
 
 def tag_slug(tag):
@@ -274,6 +287,7 @@ def page_url(base, plan, seed):
 def make_hidden(app, plan, rec, base):
     made = rec.data.setdefault("made", {}).setdefault("hidden", [])
     for ws in plan["hidden"]:
+        check_stop()
         first = ws["tabs"][0]
         try:
             value = app.cmux("workspace", "create", "--name", ws["name"], *run_args(first["argv"]))
@@ -285,6 +299,7 @@ def make_hidden(app, plan, rec, base):
                            "program": first["program"]}]}
         made.append(entry)
         for tab in ws["tabs"][1:]:
+            check_stop()
             try:
                 if tab["kind"] == "browser":
                     v = app.cmux("tab", "create", "browser", "--workspace", entry["workspace_id"], "--pane",
@@ -399,6 +414,7 @@ def make_shown(app, plan, rec, base):
     columns = len(shown["columns"]) + (1 if shown["extra_column"] else 0)
     tops = [value.get("pane_id")]
     for col in shown["columns"][1:]:
+        check_stop()
         cell = col[0]
         v = new_column(app, tops[-1], columns - cell["column"] + 1, cell["argv"])
         tops.append(v.get("pane_id"))
@@ -407,6 +423,7 @@ def make_shown(app, plan, rec, base):
     for c, col in enumerate(shown["columns"]):
         last = tops[c]
         for r, cell in enumerate(col[1:], start=1):
+            check_stop()
             ratio = "%.4f" % (1.0 - 1.0 / (len(col) - r + 1))  # the rows of a column end about even
             try:
                 v = app.cmux("pane", last, "split", "--down", "--ratio", ratio, *run_args(cell["argv"]))
@@ -419,6 +436,7 @@ def make_shown(app, plan, rec, base):
     last = None
     extras = shown["extra_column"]
     for i, spec in enumerate(extras):
+        check_stop()
         # A placeholder terminal makes the pane; the browser tab or agent chat then takes it, and the
         # placeholder tab is closed so each pane shows exactly one tab.
         try:
@@ -489,13 +507,21 @@ def cmd_build(a):
     rec.data["app"] = {"socket": app.app_sock, "daemon_socket": app.daemon_sock, "cli": app.cli,
                        "app_path": app.app_path, "identity": app.identity}
     rec.save()
+    for sig in (signal.SIGTERM, signal.SIGINT):  # stop between steps: a call in flight finishes and is recorded
+        signal.signal(sig, lambda signum, _frame: STOP.append(signum))
     base = start_page_server(plan, rec) if plan["pages"] else None
     started = time.monotonic()
-    make_hidden(app, plan, rec, base)
     try:
-        make_shown(app, plan, rec, base)
-    except Refused as error:
-        rec.refused("shown workspace", error)
+        make_hidden(app, plan, rec, base)
+        try:
+            make_shown(app, plan, rec, base)
+        except Refused as error:
+            rec.refused("shown workspace", error)
+    except Stopped:
+        rec.data["stopped"] = {"signal": STOP[0], "build_seconds": round(time.monotonic() - started, 2)}
+        rec.save()
+        print(json.dumps({"manifest": path, "stopped": True}))
+        return 3
     rec.data["build_seconds"] = round(time.monotonic() - started, 2)
     ok = check(app, plan, rec)
     print(json.dumps({"manifest": path, "ok": ok, "check": rec.data["check"],
