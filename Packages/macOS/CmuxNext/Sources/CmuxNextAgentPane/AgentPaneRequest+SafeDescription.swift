@@ -80,6 +80,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .setQuickActions: "setQuickActions"
         case .tabState: "tabState"
         case .tabRowTools: "tabRowTools"
+        case .sessionInfo: "sessionInfo"
+        case .copyText: "copyText"
         case .tabRowToolsSet: "tabRowToolsSet"
         case .btwInline: "btwInline"
         case .sideChat: "sideChat"

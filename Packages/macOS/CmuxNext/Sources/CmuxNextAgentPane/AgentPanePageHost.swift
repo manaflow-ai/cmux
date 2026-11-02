@@ -48,6 +48,9 @@ enum AgentPanePageHost {
         events.append(.toolCards(view.model.toolCards))
         events.append(.computerUsePreview(view.model.computerUsePreview))
         events.append(view.model.tabRow.event)
+        let nativeSessionInfo = view.drawsSessionInfo
+        view.model.sessionInfo.announced = nativeSessionInfo
+        events.append(.sessionInfoHost(nativeSessionInfo))
         events.append(AgentPaneNotice.event(view.paneNotices))
         if !view.customization.isEmpty { events += AgentPageEvent.customization(view.customization) }
         return events
