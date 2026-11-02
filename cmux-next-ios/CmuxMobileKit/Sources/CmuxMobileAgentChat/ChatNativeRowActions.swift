@@ -21,6 +21,9 @@ enum ChatNativeRowActions {
                 ]
                 if isLast {
                     items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editAndResend(turnID: turnID) })
+                } else if context.canEditEarlier(turnID: turnID) {
+                    // An earlier prompt: edited in its own sheet, sent in a copy of the chat forked before it.
+                    items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editEarlier(turnID: turnID) })
                 }
                 items.append(UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(text) })
                 return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])

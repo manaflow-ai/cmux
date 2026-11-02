@@ -426,6 +426,25 @@ class Wiring(unittest.TestCase):
         plan = (WORKFLOWS / "cmux-tui-build-package.yml").read_text(encoding="utf-8")
         self.assertIn('target["runner"] = darwin_mac_runner', plan)
 
+    def test_the_cmux_tui_mini_pick_spends_routing_reads_only_when_the_macos_targets_may_build(self):
+        # The pick reads the runners on the routing App (4 requests); a run whose tree is published, that
+        # is stale, or that defers to a live owner builds nothing, so it must not spend them.
+        steps = jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
+        ids = [step.get("id") for step in steps]
+        self.assertLess(ids.index("inspect"), ids.index("route-token"))
+        self.assertLess(ids.index("route-token"), ids.index("darwin-mac"))
+        for name in ("route-token", "darwin-mac"):
+            with self.subTest(step=name):
+                self.assertIn("steps.inspect.outputs.place_macos == 'true'", steps[ids.index(name)]["if"])
+        inspect = steps[ids.index("inspect")]["run"]
+        decide = inspect[inspect.index("place_macos=false"):]
+        self.assertIn('[[ "$run_macos" == true ]]', decide)
+        self.assertIn('[[ "$owns_key" == true ]]', decide)
+        self.assertIn("refs/heads/feat-cmux-next", decide)
+        self.assertIn('echo "place_macos=$place_macos" >> "$GITHUB_OUTPUT"', decide)
+        self.assertLess(inspect.index('echo "run_macos=$run_macos"'), inspect.index("place_macos=false"))
+        self.assertLess(inspect.index('echo "owns_key=$owns_key"'), inspect.index("place_macos=false"))
+
     def test_the_nightly_light_jobs_read_build_nightly_app_s_placement_then_blacksmith(self):
         nightly = jobs("nightly.yml")
         step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light")
