@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// REOPEN-F4 (STATUS 4618): a reopened window shows its panes one new surface per frame
@@ -26,7 +27,7 @@ struct FocusedPaneShowsFirstTests {
         }
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s", focusedPane: "p6")
         let provider = Panes()
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1800, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }
