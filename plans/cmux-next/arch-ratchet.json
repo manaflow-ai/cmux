@@ -805,6 +805,16 @@
     {
       "date": "2026-11-02",
       "row": "app_lines",
+      "allow": 1,
+      "why": "AppServices+WindowHomeHost.swift windowHomeRoom (+1 line, MW-1b, PR #31844): the one-line host forward that tells WindowHomes (CmuxNextHomeEngine) its window's space, so a window's own Home is pinned there before its create. The pin and its retry live in CmuxNextHomeEngine/WindowHomes.swift; the forward reads App-only WindowManager.states, so it stays with the other WindowHomeHost forwards. showHome stays unchanged (its source is a tunable the defaults guard watches).",
+      "author": "mw1-fix (agent)",
+      "owner": "mw1-fix (agent)",
+      "receipt": "Review (independent review subagent): SHIP at 44af799ec686c6f92be23745d25498e581791626",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-02",
+      "row": "app_lines",
       "allow": 9,
       "why": "#31862 (04cbf79d4c1c, terminal dictation) added 129 CmuxNextApp lines; #31953 moves its TerminalDictation (121) to CmuxNextTerminal. What stays is #31862's call site in AgentHandlers.swift (10 lines: the CmuxNextTerminal import, the stored TerminalDictation, the terminal branch of palette.toggleDictation and its stopIfActive fallback), less 1 line that unrelated commits since fc013e84c65e removed. Those lines read only App types (AppActionContext.visibleContent, PaneController, TerminalEntry, TabModel through pane.pane, AppServices.daemon(for:)), so they leave the App only when the whole dictation toggle bind does.",
       "author": "arch-red-31862 agent (Claude Opus 5.5, lead session)",
