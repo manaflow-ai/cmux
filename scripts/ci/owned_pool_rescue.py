@@ -251,9 +251,13 @@ a pull request has no head to move, like a dispatch. cmux-next.yml exists only
 on the feat-cmux-next branch; its pull request and dispatch runs upload the
 owned-pool-watch marker themselves, so the sweeper adopts them like a picker's
 run. Its push runs upload none (they queue each Mac job in a group per branch),
-and a cmux-next push run this rescue watches anyway (a dispatch with its run
-id) is never cancelled because a newer push run exists; a refused job's failed
-jobs are still re-run when no newer push run covers the branch.
+so the sweeper finds attempt 1 of one by path while it is queued
+(GitHub.queued_side_runs(), push_tip_failover()). At the branch tip (no newer
+push run) only the stall-aware failover moves it, with the placement re-run a
+pull request run gets; a refused job's failed jobs are still re-run. A
+superseded one is never re-run, and is cancelled only while no job of it is
+running or held by a runner (superseded_push_cancel()): its queued job holds
+the branch's job group the newer run's job waits behind.
 
 Nightly builds (NIGHTLY_WORKFLOW_PATH) are watched like a side lane: there is
 no picker, and attempt 1 of a push or schedule run on main (or a push on
@@ -2031,8 +2035,9 @@ class GitHub:
         return found
 
     def queued_side_runs(self, count: int, oldest: dt.datetime, pages: int = 1) -> list[tuple[int, int]]:
-        """(run id, attempt) of the queued runs of SIDE_WORKFLOW_PATHS created since `oldest`, cmux-next.yml's
-        aside (its placement's marker adopts it): newest first, `count` a page, at most `pages` pages.
+        """(run id, attempt) of the queued runs of SIDE_WORKFLOW_PATHS created since `oldest`, cmux-next.yml's pull
+        request and dispatch runs aside (its placement's marker adopts them): newest first, `count` a page, at most
+        `pages` pages. A cmux-next.yml push run uploads no marker, so it is listed here (push_tip_failover()).
 
         A side-lane job waiting on a label that starts nothing never fails its run, so failed_runs() never
         lists it; GitHub lists a run `queued` while its jobs wait and none runs, which is when the open-head
@@ -2048,7 +2053,8 @@ class GitHub:
             for run in runs:
                 entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
                 path = str(run.get("path") or "")
-                if entry[0] and entry not in found and path in SIDE_WORKFLOW_PATHS and path != CMUX_NEXT_WORKFLOW_PATH \
+                if entry[0] and entry not in found and path in SIDE_WORKFLOW_PATHS \
+                        and (path != CMUX_NEXT_WORKFLOW_PATH or run.get("event") == "push") \
                         and not never_fails_over(path, run.get("event"), run.get("name"), run.get("display_title")) \
                         and not created_before(run, oldest):
                     found.append(entry)
@@ -2740,7 +2746,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             # the refusal path, whose re-run of failed jobs brings back the refused job too.
             offer = look.waiting or look.action == "rescue" or (
                 look.action == "refused" and bool(decided_failures(jobs, target.attempt_started_at)))
-            if offer and target.pr_number and not finished and (failover_at is None or seen_at >= failover_at) \
+            if offer and (target.pr_number or push_tip_failover(target)) and not finished \
+                    and (failover_at is None or seen_at >= failover_at) \
                     and any(mac_route(job) and waiting_for_runner(job)
                             and queued_seconds(job, seen_at, first_seen.get(job.get("id"))) >= UNSTARTED_STALL_SECONDS
                             for job in jobs):
@@ -3660,6 +3667,23 @@ def never_fails_over(path: str, event: str | None, *names: str | None) -> bool:
     return is_delivery_event(event) and (path in NEVER_FAILOVER_PATHS or is_delivery_run(path, *names))
 
 
+def push_tip_failover(target: "Target") -> bool:
+    """Whether the stall-aware failover treats this run's branch tip as its open head: attempt 1 of a cmux-next.yml
+    push run (feat-cmux-next's tip suites), no nightly, DEV or promote run (never_fails_over()).
+
+    Such a run uploads no owned-pool-watch marker and has no pull request, and the queue janitor protects every
+    push to feat-cmux-next, so before this nothing moved one: run 41220917513's fast tier (2bace735, job
+    124595260374) waited on glaeda-side-std-xcode-26.6 from 16:42Z to 18:04Z on 2026-10-31 with runner_id 0, and
+    held the branch's fast-tier group, so every later push's fast tier waited behind it. A push run is at its tip
+    while no newer push run covers the branch (pull_moved()); a superseded one is never re-run, and is cancelled
+    only while no job of it is running or held by a runner (rescue(), superseded_push_cancel()).
+    """
+    return (target.path == CMUX_NEXT_WORKFLOW_PATH and target.event == "push" and bool(target.push_branch)
+            and not target.pr_number and not target.nightly and not target.main and not target.e2e
+            and target.attempt == 1
+            and not never_fails_over(target.path, target.event, target.name, target.display_title))
+
+
 def job_started(job: Mapping[str, Any]) -> bool:
     """Whether a cancel could lose this job (dep-fleet's ruling): every job must be queued or waiting with no runner
     assigned, except a PLACEMENT_JOBS job finished with conclusion success. A job GitHub skipped never ran and was
@@ -3771,7 +3795,8 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
     """The placement re-run for a cmux-next pull request run's first attempt (placement_rerun()), or None: another
     workflow, a later attempt (the placement runs again on the bot's attempt 2 only) or a file that cannot show it,
     when the failover keeps the full re-run and its rule that nothing has finished."""
-    if target.path != CMUX_NEXT_WORKFLOW_PATH or target.attempt != 1 or not target.pr_number:
+    if target.path != CMUX_NEXT_WORKFLOW_PATH or target.attempt != 1 or not (
+            target.pr_number or push_tip_failover(target)):
         return None
     reader = getattr(api, "workflow_file", None)
     if reader is None:
@@ -3880,7 +3905,8 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
     NO_FAILOVER when OPEN_HEAD_RULE keeps it. The re-run is the cmux-next placement and the jobs that need it when
     failover_plan() finds one (a cmux-next pull request run's first attempt), else every job. All of these must hold:
 
-    - the run is a pull request's and no nightly, DEV or promote build (nightly, the feed workflows, a dispatch);
+    - the run is a pull request's, or attempt 1 of a cmux-next push run at its branch tip (push_tip_failover()),
+      and no nightly, DEV or promote build (nightly, the feed workflows, a dispatch);
     - nothing the cancel and re-run do can lose a job (failover_loses()): no job runs or has a runner, and every
       finished job is a placement job that succeeded, a skipped one, or (with a placement re-run) one the re-run
       keeps. A cmux-next pull request run always has finished Linux jobs by the time a Mac job has waited
@@ -3903,7 +3929,8 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
     2026-10-30) had 28 of 29 jobs finished, its swift test and daemon tests red below the placement, and its Release
     compile queued on glaeda-std-xcode-26.6 for over four hours while that label ran nothing.
     """
-    if not target.pr_number or target.nightly or target.main or target.push_branch \
+    push = push_tip_failover(target)
+    if not (target.pr_number or push) or target.nightly or target.main or (target.push_branch and not push) \
             or (target.e2e and target.path != IOS_KIT_WORKFLOW_PATH) \
             or target.path in FEED_TIMEOUT_PATHS \
             or never_fails_over(target.path, target.event, target.name, target.display_title):
@@ -3939,6 +3966,12 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
                 or label_quiet(snapshot, label, wait_start(job, seen.get(job_key(job))))]
         if not dead:
             return NO_FAILOVER
+        if push and not planned:
+            # A push run has no pull request to be open at: its open head is the branch tip (push_tip_failover()).
+            moved = pull_moved(api, target, sleep, log)
+            if moved:
+                log(f"no failover for run {target.run_id}: {moved}")
+                return NO_FAILOVER
         # The workflow file only now, once a label runs nothing (one read per look at most).
         if not planned:
             plan, planned = failover_plan(api, target, jobs, sleep, log), True
@@ -4157,6 +4190,57 @@ def started_delivery_work(api: GitHub, target: Target, sleep: Callable[[float], 
     return _started_delivery_jobs(jobs, allow_decide=_allows_next_bootstrap_decide(target))
 
 
+# The log line that names a superseded cmux-next push run cancelled to free its branch groups (superseded_push_cancel()).
+SUPERSEDED_PUSH_CANCEL = "superseded push cancel"
+
+
+def superseded_push_cancel(api: GitHub, target: Target, moved: str, sleep: Callable[[float], None],
+                           log: Callable[[str], None]) -> str:
+    """Cancel a superseded cmux-next push run (push_tip_failover(); `moved` names the newer push run), not re-run,
+    when nothing is lost: no job of it is running or held by a runner (job_running()), at least one waits for a
+    runner, and no DEV compile or delivery work of it started. Its queued Mac job holds the branch's job group
+    (cmux-next.yml's `cmux-next-push-<ref>-fast-tier`, `-cmux-scheme-compile`, ...), so the newer run's job waits
+    pending behind it however long the owned label leaves it: run 41220917513's fast tier held that group for 82
+    minutes. The guard reads the run and its jobs again right before the cancel and drops it if one started."""
+    jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+    keep = f"not rescued: {moved}; a cmux-next push run is never cancelled for a newer push"
+    if len(jobs) >= MAX_JOB_PAGES * 100:
+        return f"{keep} (its job listing may be cut short)"
+    busy = sorted(str(job.get("name") or job.get("id")) for job in jobs if job_running(job))
+    if busy:
+        return f"{keep} while a job of it runs ({', '.join(busy)})"
+    if not any(waiting_for_runner(job) for job in jobs):
+        return f"{keep}; no job of it waits for a runner"
+    slot = started_dev_compile(jobs)
+    if slot:
+        return f"{keep}; a DEV feed compile started on {slot}"
+    started = started_delivery_work(api, target, sleep, log)
+    if started:
+        return f"{keep}; started delivery work ({started}) is never cancelled"
+
+    def guard() -> None:
+        run = read(lambda: api.run(target.run_id), sleep, log) or {}
+        attempt = int(run.get("run_attempt") or 0)
+        if attempt != target.attempt:
+            raise OpenHeadStarted(f"the run is at attempt {attempt}, not {target.attempt}")
+        if run.get("status") == "completed":
+            raise OpenHeadStarted("the run has finished")
+        now_jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        taken = sorted(str(job.get("name") or job.get("id")) for job in now_jobs if job_running(job))
+        if taken:
+            raise OpenHeadStarted(f"{', '.join(taken)} started before the cancel")
+    try:
+        nightly_cancel(api, target, sleep, log, guard)
+    except NightlyBusy as busy_now:
+        return f"{keep}; {NIGHTLY_BUSY} ({busy_now})"
+    except OpenHeadStarted as started_now:
+        return f"{keep} ({started_now})"
+    waiting = sorted(f"{job.get('name')} on {mac_route(job) or 'linux'}" for job in jobs if waiting_for_runner(job))
+    log(f"{SUPERSEDED_PUSH_CANCEL}: run {target.run_id} ({moved}); nothing of it was running, and "
+        f"{', '.join(waiting)} held the branch's job groups")
+    return f"cancelled run {target.run_id}, not re-run: {moved}; nothing of it was running"
+
+
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
            log: Callable[[str], None], failed_only: bool = False,
            deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False,
@@ -4194,6 +4278,10 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # tip run's running jobs at one push a minute (2026-10-07: no tip swift
         # test completed from 00:20Z to 01:05Z). Not re-run either: a re-run
         # would join the branch group and replace the newer run's waiting job.
+        # The one exception (superseded_push_cancel()): a run none of whose jobs is running or held by a runner
+        # loses nothing to a cancel, while its queued job holds the branch group the newer run waits behind.
+        if push_tip_failover(target) and not refusal:
+            return superseded_push_cancel(api, target, moved, sleep, log)
         return f"not rescued: {moved}; a cmux-next push run is never cancelled for a newer push"
     if moved and (target.main or target.nightly or target.push_branch):
         # Main's stuck run holds its concurrency group, so nothing newer can
@@ -4223,12 +4311,17 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     plan: PlacementRerun | None = None
     only_job: int | None = None
     receipt: Callable[[], None] | None = None
-    if run.get("status") != "completed" and target.pr_number:
-        # pull_moved() just read the pull request open at this head. Run 40398277457 (PR #25446)
+    if run.get("status") != "completed" and (target.pr_number or push_tip_failover(target) and not refusal):
+        # pull_moved() just read the pull request open at this head (or found no newer push run on the branch).
+        # A cmux-next push run at its tip is moved only by the failover too: a bot's re-run of its failed jobs keeps
+        # attempt 1's placement and rejoins the owned label's queue (bot_rerun_leaves_owned()). Run 40398277457 (PR #25446)
         # attempt 1 was cancelled here and re-run in-process; nothing automatic cancels such a run now,
         # except the stall-aware failover where nothing is lost (open_head_failover()).
         found = open_head_failover(api, target, now=now, sleep=sleep, log=log, first_seen=first_seen)
         failover, plan = found.why, found.plan
+        if not failover and not target.pr_number:
+            return (f"not rescued: run {target.run_id} is {target.push_branch}'s tip push run; only the stall-aware "
+                    "failover moves it (a re-run of its failed jobs would rejoin the owned queue)")
         if not failover:
             return f"not rescued: PR #{target.pr_number} is open at the run's head; {OPEN_HEAD_RULE}"
     if failover and found.settled:
