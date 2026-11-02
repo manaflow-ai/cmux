@@ -69,4 +69,65 @@ struct AgentPaneDelayedSendGestureTests {
         clock.now += AgentPaneUserGestures.lifetime * 4
         #expect(!gestures.consume())
     }
+
+    /// Each rapid Enter reserves a prompt-specific ticket before the relay drains. Sending the
+    /// first prompt must not clear the ticket for the second one.
+    @Test func rapidPromptsKeepEachSendsGesture() throws {
+        let clock = Slow.Clock()
+        let gestures = AgentPaneUserGestures(now: { clock.now })
+        func intent(_ promptId: String) throws -> AgentPaneGestureIntent {
+            try #require(AgentPaneGestureIntent(gestureParams: [
+                "intent": ["method": "session/prompt", "params": ["promptId": promptId]],
+            ]))
+        }
+
+        gestures.record()
+        let first = try #require(gestures.reserve(connection: 1, intent: intent("p-first")))
+        gestures.record()
+        let second = try #require(gestures.reserve(connection: 1, intent: intent("p-second")))
+
+        func pick(_ promptId: String) -> AgentPaneGesturePick {
+            AgentPaneGesturePick(method: "session/prompt", params: [
+                "_meta": ["acpmux": ["promptId": promptId]],
+            ])
+        }
+
+        #expect(gestures.redeem(first, connection: 1, pick: pick("p-first")))
+        gestures.clearTicketsKeepingPrompts()
+        #expect(gestures.redeem(second, connection: 1, pick: pick("p-second")))
+    }
+
+    @Test func anEffortTicketRedeemsWhenTheOpenedHarnessUsesItsReasoningEffortAlias() throws {
+        let gestures = AgentPaneUserGestures()
+        gestures.record()
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": [
+                "method": "session/set_config_option",
+                "params": ["configId": "effort", "value": "high"],
+            ],
+        ]))
+        let ticket = try #require(gestures.reserve(connection: 1, intent: intent))
+        let pick = AgentPaneGesturePick(method: "session/set_config_option", params: [
+            "configId": "reasoning_effort",
+            "value": "high",
+        ])
+        #expect(gestures.redeem(ticket, connection: 1, pick: pick))
+    }
+
+    @Test func aFastTicketRedeemsWhenTheOpenedHarnessUsesItsFastModeValueAlias() throws {
+        let gestures = AgentPaneUserGestures()
+        gestures.record()
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": [
+                "method": "session/set_config_option",
+                "params": ["configId": "fast-mode", "value": "on"],
+            ],
+        ]))
+        let ticket = try #require(gestures.reserve(connection: 1, intent: intent))
+        let pick = AgentPaneGesturePick(method: "session/set_config_option", params: [
+            "configId": "fast_mode",
+            "value": "true",
+        ])
+        #expect(gestures.redeem(ticket, connection: 1, pick: pick))
+    }
 }

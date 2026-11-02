@@ -37,6 +37,17 @@ public nonisolated struct AgentPaneLastPicks: Codable, Sendable, Equatable {
         self.folders = folders
     }
 
+    /// The model a pick of an agent's own default names.
+    public static let defaultModel = "default"
+
+    /// The model last picked on `harness`: in `folder` first, then anywhere.
+    public func lastModel(harness: String, folder: String?) -> String? {
+        if let folder, let pick = folders.last(where: { $0.folder == folder }), pick.harness == harness {
+            return pick.model
+        }
+        return global?.harness == harness ? global?.model : nil
+    }
+
     /// Records `pick` for every folder and for `folder`.
     public mutating func record(_ pick: Pick, folder: String?) {
         global = pick

@@ -100,16 +100,19 @@ pub(crate) const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_
 /// The environment the harness runs its shell commands with.
 pub(crate) type Env = BTreeMap<String, String>;
 
-/// Whether `env` points none of these programs at another program or file. A library search
-/// path (`LD_LIBRARY_PATH`, which cargo sets for its tests) passes: it only finds libraries
-/// already on disk, and putting one there takes an edit, which asks. Any other loader variable
-/// asks: one loads a library first, another writes a trace (`LD_DEBUG_OUTPUT`,
-/// `DYLD_PRINT_TO_FILE`).
+/// Whether `env` points none of these programs at another program or file. The library search
+/// path cargo sets for its tests passes on each OS: `LD_LIBRARY_PATH` on Linux and
+/// `DYLD_FALLBACK_LIBRARY_PATH` on macOS. Each only finds libraries already on disk, and putting
+/// one there takes an edit, which asks; the macOS one is searched only for a library its install
+/// name does not find (and macOS drops every `DYLD_*` variable when it starts a protected system
+/// program such as `/usr/bin/git`). Any other loader variable asks: one loads a library first
+/// (`DYLD_INSERT_LIBRARIES`, `DYLD_LIBRARY_PATH`, searched before the install name), another
+/// writes a trace (`LD_DEBUG_OUTPUT`, `DYLD_PRINT_TO_FILE`).
 fn env_runs_nothing(env: &Env) -> bool {
     env.keys().all(|k| {
         !(RUNS_ENV.contains(&k.as_str())
             || (k.starts_with("LD_") && k != "LD_LIBRARY_PATH")
-            || k.starts_with("DYLD_")
+            || (k.starts_with("DYLD_") && k != "DYLD_FALLBACK_LIBRARY_PATH")
             // An exported bash function (`BASH_FUNC_pwd%%`) runs in place of the command it names.
             || k.starts_with("BASH_FUNC_")
             || (k.starts_with("GIT_") && !HARMLESS_GIT_ENV.contains(&k.as_str())))
@@ -1140,6 +1143,31 @@ mod tests {
         for d in [clean, hostile, plain] {
             std::fs::remove_dir_all(d).unwrap();
         }
+    }
+
+    /// The library search path cargo sets for its tests, on each OS (`LD_LIBRARY_PATH` on Linux,
+    /// `DYLD_FALLBACK_LIBRARY_PATH` on macOS), only finds libraries already on disk: a git read
+    /// under either still runs without asking. On macOS every git read under approve-reads asked
+    /// (full-suite macOS job ac2ca38ed60bef1405523e24,
+    /// `permission_groups::approve_reads_runs_read_only_shell_commands_without_asking`). Every
+    /// other loader variable still asks.
+    #[cfg(unix)]
+    #[test]
+    fn a_library_search_path_lets_a_git_read_run_on_each_os() {
+        let dir = repo(&[]);
+        let reads =
+            |command: &str, env: &Env| request_is_read_only(&execute(json!(command)), &dir, env);
+        for key in ["LD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
+            let mut env = system_env();
+            env.insert(key.to_owned(), "/tmp/x".to_owned());
+            assert!(reads("git status", &env), "{key}");
+        }
+        for key in ["DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_FRAMEWORK_PATH"] {
+            let mut env = system_env();
+            env.insert(key.to_owned(), "/tmp/x".to_owned());
+            assert!(!reads("git status", &env), "{key}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Codex review of #24155 at 7e312f83: the command runs with the harness's PATH and env, so

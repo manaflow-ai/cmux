@@ -94,9 +94,13 @@ public struct ServerReach: Hashable, Sendable {
             && hostID.dropFirst(Self.localChiefPrefix.host.count) == installID.dropFirst(Self.localChiefPrefix.install.count)
     }
 
+    /// The prefix of every ``machineID``: how the app tells a paired server's id from a Cloud one
+    /// (`MachineRegistry.isCloudMachineID`).
+    public static let machineIDPrefix = "server-"
+
     /// The app's machine id for this server: stable per paired host, never
     /// `local`, an `ssh-…` or a Cloud `vm…` id.
-    public var machineID: String { "server-" + hostID }
+    public var machineID: String { Self.machineIDPrefix + hostID }
 
     /// The route to a placed chief's brain on a remote server over SSH:
     /// the destination is the server's host name as a DNS label (what macOS

@@ -54,11 +54,15 @@ extension CloudMachine {
     /// the Cloud app server answers it.
     init?(next value: JSONValue) {
         guard let id = value["id"]?.stringValue, !id.isEmpty else { return nil }
+        // The in-between states stay their own (cloud-machine-ops.ts CloudMachineStatus): a
+        // pausing machine is not paused yet, and a deleting one is not gone.
         let status: Status = switch value["status"]?.stringValue {
-        case "provisioning", "starting": .provisioning
+        case "provisioning": .provisioning
+        case "starting": .starting
         case "running": .running
-        case "pausing", "paused": .paused
-        case "deleting": .destroyed
+        case "pausing": .pausing
+        case "paused": .paused
+        case "deleting": .deleting
         case "failed": .failed
         default: .unknown
         }
@@ -69,9 +73,30 @@ extension CloudMachine {
         let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
         let idlePause = Self.idlePauseDiagnostics(value["idlePause"])
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
-                  pauseReason: value["pauseReason"]?.stringValue.flatMap(PauseReason.init(rawValue:)), idlePauseMinutes: minutes,
-                  idlePause: idlePause)
+                  pauseReason: Self.nextPauseReason(value["pause_reason"] ?? value["pauseReason"]), idlePauseMinutes: minutes,
+                  idlePause: idlePause, lastChangeFailure: Self.changeFailure(value["error"]))
+        serverRevision = value["revision"]?.stringValue
         createdBy = value["creator"]?.stringValue
+    }
+
+    /// The backend's `pause_reason` (`pauseReason` from an older app server): why cmux paused the
+    /// machine by itself. `idle` and the cost backstop `no_report` are both cmux's own idle pause,
+    /// which an attach resumes; a VM stopped from inside (`provider_stopped`, `provider_paused`)
+    /// and a person's pause (null) carry no reason the app shows.
+    static func nextPauseReason(_ value: JSONValue?) -> PauseReason? {
+        switch value?.stringValue {
+        case "idle", "no_report": .idle
+        case "user": .user
+        default: nil
+        }
+    }
+
+    /// The backend's `error` (`{code, message, at}`): why the last pause, resume or resize failed
+    /// after the server answered it. Nil for null or a shape this client does not read.
+    static func changeFailure(_ value: JSONValue?) -> ChangeFailure? {
+        guard let value, case let .object(fields) = value, let code = fields["code"]?.stringValue, !code.isEmpty else { return nil }
+        let at = fields["at"]?.doubleValue.map { Date(timeIntervalSince1970: $0 / 1000) }
+        return ChangeFailure(code: code, message: fields["message"]?.stringValue ?? "", at: at)
     }
 
     private static func idlePauseDiagnostics(_ value: JSONValue?) -> IdlePauseDiagnostics? {

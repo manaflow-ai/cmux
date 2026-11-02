@@ -962,6 +962,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 
 #[path = "supervisor_inventory_demand_tests.rs"]
 mod inventory_demand;
+#[path = "supervisor_local_reload_tests.rs"]
+mod local_reload;
 #[path = "supervisor_provider_tests.rs"]
 mod provider_channel;
 #[path = "supervisor_server_tests.rs"]

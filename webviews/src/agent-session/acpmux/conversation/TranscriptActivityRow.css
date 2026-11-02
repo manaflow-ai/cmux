@@ -1,0 +1,58 @@
+/* Activity rows share the transcript tool grid: icon, sentence, trailing status, chevron. */
+.cv-agent-activity-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  color: var(--cv-activity-text);
+  cursor: default;
+  user-select: none;
+}
+.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > .cv-agent-activity__control {
+  color: var(--cv-text);
+}
+.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) .cv-agent-activity__chevron {
+  color: var(--cv-text);
+}
+.cv-agent-activity__control {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cv-agent-activity__sentence {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  order: 1;
+  gap: var(--cv-tool-gap);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-agent-activity__sentence > :not(.cv-agent-tag) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-agent-activity__trail {
+  order: 3;
+  flex: none;
+  margin-inline-start: auto;
+}
+.cv-agent-activity__chevron {
+  order: 4;
+  flex: none;
+  cursor: default;
+}
+.cv-agent-activity-row > .cv-subagent-retry,
+.cv-agent-activity-row > .cv-subagent-done__actions {
+  order: 2;
+  flex: none;
+}
+
+.cv-agent-activity-row.cv-disclosure__line:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
+  color: var(--cv-text);
+}
+.cv-agent-activity-row.cv-disclosure__line:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) .cv-received__preview {
+  color: var(--cv-text);
+}

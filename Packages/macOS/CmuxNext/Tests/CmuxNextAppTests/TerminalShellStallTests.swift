@@ -64,6 +64,74 @@ import Testing
         #expect(label(store) == "Process exited")
     }
 
+    /// Seconds until the banner's held label starts to fade in; nil when it shows at once.
+    private func revealWait(_ banner: TerminalStatusBanner) -> CFTimeInterval? {
+        guard let layer = banner.layer, layer.animation(forKey: TerminalStatusBanner.revealHoldKey) != nil,
+              let fade = layer.animation(forKey: TerminalStatusBanner.revealFadeKey) else { return nil }
+        return fade.beginTime - layer.convertTime(CACurrentMediaTime(), from: nil)
+    }
+
+    /// After every update handoff the new daemon marks each tab `adopting`
+    /// until it takes the shell's host back, and every visible terminal said
+    /// "Reconnecting to the shell…" at once. A transient reconnect now waits
+    /// out a grace that covers a normal adopt (a slow host: 1 s of connect
+    /// retries, 2 s of handshake, after up to 2 s for the owner to say ready),
+    /// and never shows if it clears within it. Lasting states show at once.
+    @Test func aHandoffAdoptionStaysQuietUnlessItLasts() throws {
+        let grace = TerminalStatusBanner.reconnectingRevealDelay
+        #expect(grace >= 5)
+        #expect(TerminalStatusBanner.revealDelay(for: .connected, stall: .reconnecting) == grace)
+        #expect(TerminalStatusBanner.revealDelay(for: .disconnected(.connectionLost, reconnecting: true), stall: nil) == grace)
+        #expect(TerminalStatusBanner.revealDelay(for: .restoring, stall: nil) == TerminalStatusBanner.restoringRevealDelay)
+        #expect(TerminalStatusBanner.revealDelay(for: .restoring, stall: .reconnecting) == grace)
+        // Lasting: the quiet retries ran out, the daemon gave up, another build owns the shell, it ended.
+        #expect(TerminalStatusBanner.revealDelay(for: .disconnected(.connectionLost, reconnecting: false), stall: nil) == nil)
+        #expect(TerminalStatusBanner.revealDelay(for: .connected, stall: .linkLost) == nil)
+        #expect(TerminalStatusBanner.revealDelay(for: .connected, stall: .otherBuild) == nil)
+        #expect(TerminalStatusBanner.revealDelay(for: .exited, stall: .reconnecting) == nil)
+        #expect(TerminalStatusBanner.revealDelay(for: .disconnected(.turnedOffByOrganization, reconnecting: true), stall: nil) == nil)
+
+        let store = store()
+        let banner = TerminalStatusBanner()
+        func show() {
+            let tab = store.tab(surface: SurfaceID(rawValue: 1))
+            banner.show(tab?.dead == true ? .exited : .connected, stall: TerminalLinkWatch.shellStall(tab))
+        }
+        push(store, state: "adopting")
+        show()
+        let wait = try #require(revealWait(banner), "the adopting label is held, not shown at once")
+        #expect(wait > grace - 1 && wait <= grace)
+        // Adopted within the grace: the label never showed and nothing stays held.
+        push(store, state: "running")
+        show()
+        #expect(banner.isHidden)
+        #expect(banner.layer?.animationKeys()?.isEmpty ?? true)
+
+        // A lasting failure shows at once.
+        push(store, state: "failed")
+        show()
+        #expect(!banner.isHidden)
+        #expect(revealWait(banner) == nil)
+
+        // "Restoring…" turning into a reconnecting stall keeps the longer wait.
+        banner.show(.connected)
+        banner.show(.restoring)
+        let restoring = try #require(revealWait(banner))
+        #expect(restoring <= TerminalStatusBanner.restoringRevealDelay)
+        banner.show(.connected, stall: .reconnecting)
+        let stalled = try #require(revealWait(banner))
+        #expect(stalled > grace - 1)
+
+        // A dropped view's "Reconnecting…" waits too; its lasting "Disconnected" does not.
+        banner.show(.connected)
+        banner.show(.disconnected(.connectionLost, reconnecting: true))
+        let dropped = try #require(revealWait(banner))
+        #expect(dropped > grace - 1)
+        banner.show(.disconnected(.connectionLost, reconnecting: false))
+        #expect(revealWait(banner) == nil)
+        #expect(banner.accessibilityLabel() == "Disconnected: connection lost · Click or type to reconnect")
+    }
+
     /// What the terminal offers above its label for the tab the store holds now.
     private func button(_ store: DaemonStore) -> String? {
         let view = TerminalHostView()

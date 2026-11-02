@@ -4,6 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextHome
 @testable import MessagesLabHome
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// in imessage. no profile pic by default." A Chief with no picture of its own shows an
 /// iMessage-style monogram (its initials, white, on a grey gradient disc), never a pet character
 /// or 🫡; and the header's band is the chat's own background, not a separate glass band.
-@MainActor @Suite(.serialized) struct ChiefHeaderMonogramTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ChiefHeaderMonogramTests {
     /// Home's chat for a Chief named `name`, as the host sets it, laid out in a window of `appearance`.
     private static func header(named name: String, appearance: NSAppearance.Name) -> (HomeNativeTranscriptView, NSWindow) {
         TunableStore.shared.activate(file: nil)

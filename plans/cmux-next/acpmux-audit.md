@@ -28,7 +28,7 @@ missed, and prints `ACPMUX-PERF` lines plus `.build/acpmux-perf/perf_ops.json`.
   workspaces) streaming 40 tokens at 40/s each at once.
 - **idle**: after STRESS, every agent alive, both clients attached: daemon context switches and
   CPU per 5 s window (median of 3), and the same for its agent hosts and agents.
-- Run: `cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA
+- Run: `cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --os macos
   --arg test --arg acpmux_ops_and_streaming --artifact .build/acpmux-perf/perf_ops.json`
   (AWS M4 Pro minis, macOS 27; the step's worker is named in the numbers below).
 

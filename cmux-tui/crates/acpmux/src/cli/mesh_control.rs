@@ -11,13 +11,13 @@ use serde_json::{Value, json};
 pub struct StartArgs {
     /// Name for the new session on the destination daemon.
     pub name: String,
-    /// Host in the mesh address book (no configured peer link is needed).
-    #[arg(long)]
+    /// Machine in the mesh address book (it need not be one you added). `--host` still works.
+    #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
     pub host: String,
     /// HARNESS[/MODEL], for example codex/gpt-6-astra.
     #[arg(long, short)]
     pub model: Option<String>,
-    /// Absolute folder on the destination host.
+    /// Absolute folder on the destination machine.
     #[arg(long)]
     pub cwd: Option<String>,
     #[arg(long)]
@@ -169,7 +169,7 @@ mod tests {
             "session",
             "start",
             "review",
-            "--host",
+            "--machine",
             "worker",
             "-m",
             "codex/gpt-6-astra",

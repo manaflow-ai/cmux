@@ -175,7 +175,7 @@ import {
   type VmPauseReason,
 } from "./idlePause";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
-import { vmKindForCaller } from "./vmKind";
+import { vmKindForCaller, vmKindForCallerNeedsMembers } from "./vmKind";
 
 export {
   homeVolumeNameForUser,
@@ -5762,11 +5762,14 @@ export function openVmCmuxRemote(input: {
   /** Runs best-effort guest work after the response (the route passes `runAfterResponse`). */
   readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   readonly modelPlane?: VmModelPlaneRevoker;
+  /** Reads the owner team's members for the caller's `vmKind` (see callerVmKind). */
+  readonly teamDirectory?: VmTeamDirectory;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    const vmKind = yield* Effect.fork(callerVmKind(vm, input.userId, input.teamDirectory));
     const supportedTransports = providers.attachTransports?.(vm.provider);
     if (supportedTransports && !supportedTransports.includes("cmux-remote")) {
       return yield* Effect.fail(new VmAttachTransportUnsupportedError({
@@ -5841,7 +5844,7 @@ export function openVmCmuxRemote(input: {
       yield* scheduleGuestAgentUpdates(providers, vm, "latest", input.deferAfterResponse);
     }
     // The caller's own sandbox opt-out reads this; see vmKindForCaller.
-    return { ...endpoint, vmKind: vmKindForCaller(vm, input.userId) };
+    return { ...endpoint, vmKind: yield* Fiber.join(vmKind) };
   });
 }
 
@@ -5937,7 +5940,26 @@ type OpenAttachEndpointInput = {
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
   readonly modelPlane?: VmModelPlaneRevoker;
+  /** Reads the owner team's members for the caller's `vmKind` (see callerVmKind). */
+  readonly teamDirectory?: VmTeamDirectory;
 };
+
+/**
+ * The caller's `vmKind` for `vm` (vmKindForCaller). Stack is asked for the
+ * owner team's members only when the answer depends on them (a machine the
+ * caller created on a Stack team), with a bounded membership read. With no
+ * directory, or a failed or timed-out read, the list is unknown
+ * and the answer is `team`. The routes start it as soon as the machine is
+ * known, so the read overlaps the endpoint open.
+ */
+function callerVmKind(vm: CloudVmRow, userId: string, directory: VmTeamDirectory | undefined) {
+  if (!directory || !vmKindForCallerNeedsMembers(vm, userId)) {
+    return Effect.succeed(vmKindForCaller(vm, userId));
+  }
+  return listTeamMemberIdsWithTimeout(directory, vm.ownerTeamId).pipe(
+    Effect.map((members) => vmKindForCaller(vm, userId, members)),
+  );
+}
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
@@ -6097,6 +6119,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    const vmKind = yield* Effect.fork(callerVmKind(vm, input.userId, input.teamDirectory));
     // A provider that only runs the cmux-tui daemon cannot serve the legacy
     // websocket/SSH attach at all; say so before waking or mutating anything.
     const requestedTransport = input.transport ?? "websocket";
@@ -6188,7 +6211,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         },
       })
       : undefined;
-    return { endpoint, session, vmKind: vmKindForCaller(vm, input.userId) };
+    return { endpoint, session, vmKind: yield* Fiber.join(vmKind) };
   });
 }
 

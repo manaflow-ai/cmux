@@ -66,6 +66,22 @@ public final class AgentPaneTailCache {
         entries = Array(kept.suffix(Self.chats))
     }
 
+    /// Keeps `tail` for chat `sessionId` only when it ends on a newer record than the tail kept now
+    /// (or none is kept): a sidebar hover's hand-over (`ifNewer`, acpmux/tailCache.ts
+    /// `shareReadAhead`). Compared and replaced in one step here, the one store, so another tab's
+    /// newer hand-over between a page's read and its write is never undone; a tie keeps the kept
+    /// tail, which is the fuller one (a page's own read, where a read ahead is a smaller page).
+    public func rememberIfNewer(_ tail: JSONValue, for sessionId: String) {
+        if let kept = self.tail(for: sessionId), Self.newestSeq(kept) >= Self.newestSeq(tail) { return }
+        guard Self.holds(tail) else { return }
+        remember(tail, for: sessionId)
+    }
+
+    /// The newest record's `seq` in `tail`; 0 when it has none.
+    static func newestSeq(_ tail: JSONValue) -> Double {
+        (tail["events"]?.arrayValue ?? []).compactMap { $0["seq"]?.doubleValue }.max() ?? 0
+    }
+
     /// Forgets every tail: the session's chats are no longer this person's.
     public func clear() {
         entries.removeAll()

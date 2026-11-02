@@ -117,6 +117,11 @@ import CmuxNextCompat
     public nonisolated static let ticketLifetime: TimeInterval = 60
     /// How long a prompt held for the folder trust answer keeps its send's gesture.
     public nonisolated static let heldPromptLifetime: TimeInterval = 600
+    /// The most prompt tickets older than the live gesture that one connection keeps. Fresh
+    /// tickets are retained so a burst of real sends cannot lose its proof before the relay sees it.
+    nonisolated static let promptTicketsKept = 8
+    /// Bound tickets even when a page reserves and never sends them.
+    nonisolated static let promptTicketsMax = 64
 
     /// How long an upload that holds a send ticket may go without progress
     /// (``uploadProgressed(_:)``) before its hold ends and the ticket with it.
@@ -126,6 +131,8 @@ import CmuxNextCompat
         var connection: Int
         var intent: AgentPaneGestureIntent
         var at: TimeInterval
+        /// Issue order (two rapid reservations can share a clock reading).
+        var order = 0
         /// The uploads of this send in progress (``holdForUpload(_:upload:connection:sessionId:promptId:)``),
         /// each with its own last progress.
         var uploads: [String: TimeInterval] = [:]
@@ -141,6 +148,7 @@ import CmuxNextCompat
     }
 
     private var tickets: [String: Ticket] = [:]
+    private var issued = 0
 
     /// The uploads whose send ticket ended while they held it (a newer send's ticket, a prompt that
     /// went out, the connection's end, a stall): the uploader cancels them. Finish and cancel
@@ -172,8 +180,22 @@ import CmuxNextCompat
         guard paid || (intent.method == "session/prompt" ? consumeForSend() : consume()) else { return nil }
         let at = now()
         dropTickets { !$1.isFresh(at) || ($1.connection == connection && $1.intent.slot == intent.slot) }
+        if intent.method == "session/prompt" {
+            let prompts = tickets.filter { $0.value.connection == connection && $0.value.intent.method == intent.method }
+            var excess = prompts.count - (Self.promptTicketsKept - 1)
+            for old in prompts.filter({ at - $0.value.at > $0.value.intent.lifetime }).sorted(by: { $0.value.order < $1.value.order }) {
+                guard excess > 0 else { break }
+                dropTickets { key, _ in key == old.key }
+                excess -= 1
+            }
+            let left = tickets.filter { $0.value.connection == connection && $0.value.intent.method == intent.method }
+            for old in left.sorted(by: { $0.value.order < $1.value.order }).dropLast(Self.promptTicketsMax - 1) {
+                dropTickets { key, _ in key == old.key }
+            }
+        }
         let ticket = UUID().uuidString
-        tickets[ticket] = Ticket(connection: connection, intent: intent, at: at)
+        issued += 1
+        tickets[ticket] = Ticket(connection: connection, intent: intent, at: at, order: issued)
         lastTicket = ticket
         return ticket
     }
@@ -202,6 +224,12 @@ import CmuxNextCompat
     /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.
     public func clearTickets() { dropTickets { _, _ in true } }
 
+    /// Drops picks after a prompt goes out, but keeps every other prompt's own send ticket. A
+    /// rapid second Enter must not be invalidated by the first prompt reaching the relay first.
+    public func clearTicketsKeepingPrompts() {
+        dropTickets { _, ticket in ticket.intent.method != "session/prompt" }
+    }
+
     /// Drops the tickets of `connection` (it closed).
     public func clearTickets(connection: Int) { dropTickets { $1.connection == connection } }
 
@@ -215,7 +243,8 @@ import CmuxNextCompat
         let at = now()
         dropTickets { !$1.isFresh(at) }
         guard var held = tickets[ticket], held.connection == connection, held.intent.method == "session/prompt",
-              held.intent.sessionId == sessionId, held.intent.params == ["promptId": .string(promptId)],
+              held.intent.sessionId == sessionId,
+              held.intent.params == ["promptId": .string(AgentPaneHandoffPrompt(id: promptId).ownID)],
               !holdsTicket(upload: upload) else { return false }
         if held.uploads.isEmpty { held.stoppedAt = at }
         held.uploads[upload] = at

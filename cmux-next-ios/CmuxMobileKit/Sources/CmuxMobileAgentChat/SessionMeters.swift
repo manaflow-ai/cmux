@@ -70,11 +70,4 @@ extension AgentChatStore {
         runningPlanEntries.flatMap(PlanProgress.init(entries:))
     }
 
-    var runningPlanEntries: [ACPPlanEntry]? {
-        guard isRunning, let turn = turns.last else { return nil }
-        for item in turn.items.reversed() {
-            if case .plan(_, let entries) = item { return entries }
-        }
-        return nil
-    }
 }

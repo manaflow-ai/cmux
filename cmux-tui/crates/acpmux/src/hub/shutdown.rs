@@ -58,6 +58,11 @@ impl Hub {
         self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).started
     }
 
+    /// Fences new turns and automatic continuations before transports begin draining.
+    pub(crate) fn begin_shutdown(&self) {
+        self.shutdown_plan.lock().unwrap().started = true;
+    }
+
     /// Stop every agent at once and save. Each agent's process group gets
     /// SIGTERM, then SIGKILL after `SHUTDOWN_GRACE`; every wait here has a
     /// deadline, so this returns within about `SHUTDOWN_GRACE` + 1 s.
@@ -67,9 +72,16 @@ impl Hub {
     /// as cancelled. Returns how many hosted agents it left running for the
     /// next daemon (the local router stays for them).
     pub async fn shutdown_all(&self) -> usize {
+        self.shutdown_all_with_auto_resume(false).await
+    }
+
+    /// Shutdown for a supervisor handoff: keep durable provider retries so the next daemon
+    /// restores them at their recorded reset deadline.
+    pub(crate) async fn shutdown_all_with_auto_resume(&self, preserve_auto_resume: bool) -> usize {
         // Pooled sessions are hidden, never user sessions: they end with the
         // daemon, alongside the sessions below.
-        let ((), kept) = tokio::join!(self.stop_pool(), self.shutdown_sessions());
+        let ((), kept) =
+            tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume));
         self.seal();
         kept
     }
@@ -84,7 +96,7 @@ impl Hub {
         }
     }
 
-    async fn shutdown_sessions(&self) -> usize {
+    async fn shutdown_sessions(&self, preserve_auto_resume: bool) -> usize {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
         // The longest a detach under way takes to end its agent (`Session::detaching`).
         const DETACH: std::time::Duration = crate::agent::KILL_GRACE.saturating_add(LOCK);
@@ -103,6 +115,32 @@ impl Hub {
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
         let sessions = self.sessions();
+        // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
+        // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
+        // is still the next daemon's to continue (`restart_resume.rs`).
+        // Each stop reads the chat's log back to its last turn boundary, synchronously: one
+        // pass over every chat of a large store took minutes, and since nothing yielded, the
+        // daemon's own shutdown deadline could not end it (a NIGHTLY daemon sat with its lock
+        // held and its socket already removed, 2026-11-02). So chats with a retry mark go
+        // first, each stop yields, and the pass ends at its own budget, which each scan also
+        // checks line by line; a chat left over, or whose scan was cut short, keeps only a
+        // retry its journal held that the startup had not restored yet.
+        if !preserve_auto_resume {
+            let budget = tokio::time::Instant::now() + RETRY_STOP_BUDGET;
+            let (marked, unmarked): (Vec<_>, Vec<_>) =
+                sessions.iter().partition(|s| self.has_auto_resume_mark(s));
+            let total = marked.len() + unmarked.len();
+            for (done, s) in marked.into_iter().chain(unmarked).enumerate() {
+                if tokio::time::Instant::now() >= budget {
+                    tracing::warn!(
+                        "shutdown stopped the retries of {done} of {total} chats within {RETRY_STOP_BUDGET:?}; leaving the rest"
+                    );
+                    break;
+                }
+                self.stop_retry_at_shutdown(s, budget.into_std());
+                tokio::task::yield_now().await;
+            }
+        }
         // Startup may have been cancelled before adoption reached these hosts. Keep their
         // state and router on an ordinary restart, even when no child link exists yet.
         let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
@@ -242,16 +280,21 @@ impl Hub {
 
     /// The cancelled end Quit Everything gives a turn in progress (`settle_cancelled`).
     fn write_cancelled(&self, s: &Arc<Session>, turn: &TurnInfo) {
-        let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq});
-        // `lastTurn` too, as every other turn end: the chat lists date a chat by its last turn's end.
+        let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq, "trigger": turn.trigger});
+        self.end_trigger_background(s, &turn.turn_id);
+        // Trigger results stay in the journal without moving the human-facing last turn.
         self.record_last_turn(s, &result);
         self.append(s, "mux", "turn_result", result);
     }
 
     /// Save every session's meta and sync the event log to disk.
     pub fn flush(&self) {
+        // Each chat's last change is on disk before this returns, also while another save of it
+        // runs: the seal that follows refuses every later write.
         for s in self.sessions() {
-            self.save_meta(&s);
+            if let Err(e) = self.write_meta(&s) {
+                tracing::error!(session = %s.id, "save meta at shutdown failed: {e}");
+            }
         }
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
@@ -269,6 +312,10 @@ pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
 pub(crate) fn shutting_down_error() -> RpcError {
     RpcError::internal(SHUTTING_DOWN)
 }
+
+/// How long an explicit shutdown spends stopping provider retries before it ends agents
+/// (`shutdown_sessions`): a part of the daemon's own shutdown budget.
+const RETRY_STOP_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.
 pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);

@@ -22,6 +22,9 @@ async fn fixture() -> Fixture {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", fake]}},
         "defaultHarness": "fake",
+        // Agents' messages steer into the person's turn on the queue path before the inbox, which
+        // these tests cover; with the inbox on, none goes into the person's turn (`inbox.rs`).
+        "agentInbox": false,
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -432,6 +435,7 @@ async fn a_digest_steered_past_the_cap_waits_for_the_next_turn() {
     let turn = f.gated_turn("g").await;
     f.age_turn(cap);
     let run = Arc::new(super::queue::PromptRun {
+        size: Default::default(),
         blocks: vec![json!({"type": "text", "text": "[inbox digest] 1 message"})],
         display_parts: None,
         control: Control::default(),

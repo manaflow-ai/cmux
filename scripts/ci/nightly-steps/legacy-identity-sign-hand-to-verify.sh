@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # nightly.yml sign-nightly-identity-legacy: "Hand the stapled cmux NIGHTLY DMG to the verify job". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The stapled DMG goes to the secret-free verify job; publish takes it
+# only with the sha256 that job tested.
 set -euo pipefail
 dmg="legacy-out/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg"
 [ -f "$dmg" ] || { echo "no stapled DMG at $dmg" >&2; exit 1; }

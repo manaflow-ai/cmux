@@ -141,7 +141,7 @@ public struct SidebarMapping {
         let indicator = statuses.workspace
         // The focused tab; the row is named for its chat while it is an idle shell (`labelTab`).
         let focused = frontTab(workspace, selectedTab: selectedTab), front = labelTab(focused, tabs, newTabPages: newTabPages)
-        // The workspace's folder (Group by Folder's bucket): a tab row repeats it nowhere.
+        // The workspace's folder (Group by Folder's bucket).
         let rowFolder = focused?.cwd ?? tabs.lazy.compactMap(\.cwd).first
         let folder = folderTab(tabs, label: front)
         // The row's face (name, icon, kind) is one tab's: the label tab, or the work a page beside
@@ -179,7 +179,7 @@ public struct SidebarMapping {
             // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
                 ?? page?.favicon.map(WorkspaceIcon.favicon),
-            kind: kind(face),
+            color: color(workspace.color), kind: kind(face),
             kindBrand: face?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) or by an agent that needs the person
             // there (tab-attention-v1) shows as the workspace's manual dot.
@@ -194,10 +194,20 @@ public struct SidebarMapping {
             tabs: zip(tabs, statuses.tabs).map { tab, state in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = Self.shortenedPath(tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
+                // The hover card's tab rows show each tab's own folder and status; a New Tab page shows neither.
                 var listed = SidebarTab(id: TabID(tab.id), title: title,
-                                        kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                        brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
-                if !isNewTabPage { Self.describe(&listed, tab, in: workspace, state: state, rowFolder: rowFolder, shorten: shorten) }
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
+                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
+                                  folder: isNewTabPage ? nil : tab.cwd.flatMap { $0.isEmpty ? nil : shorten($0) },
+                                  state: isNewTabPage ? .idle : state,
+                                  host: isNewTabPage || tab.kind != .browser ? nil : Self.pageHost(tab.url),
+                                  branch: tab.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
+                                  lastActivity: lastActivity([tab]))
+                // Its chat's running subagents and commands, which the tab row counts.
+                (listed.subagentsRunning, listed.commandsRunning) = Self.running(tab)
+                // What the tab row's line says beyond its folder (Leo 2026-11-01: "not much metadata"):
+                // a page's path, a chat's model, a terminal's running program, a remote terminal's machine.
+                if !isNewTabPage { Self.listedFacts(&listed, of: tab, process: process(tab)) }
                 return listed
             },
             muted: muted,
@@ -223,6 +233,35 @@ public struct SidebarMapping {
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs, harnessIcons: harnessIcons), front: front,
                             notification: row.notificationText)
         return row
+    }
+
+    /// Automatic agent names prefer the chat title, then its task gist. Explicit workspace
+    /// and chat names retain their original text; the rendered row label is not naming provenance.
+    public static func agentRowTitle(workspaceTitle: String, workspaceName: String? = nil,
+                                    workspaceNameSource: WorkspaceNameSource = .user, workspaceNameRevision: UInt64 = 0,
+                                    explicitWorkspaceTitle: String? = nil, sessionName: String?, chatTitle: String?,
+                                    explicitChatTitle: String? = nil, taskSummary: String?) -> String {
+        if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return workspaceTitle }
+        let originalName = workspaceName ?? workspaceTitle
+        // A rename remains authoritative even when the user chose a default-looking name or
+        // the session name. Revision zero also supports launcher-named workspaces.
+        if workspaceNameSource == .user, workspaceNameRevision > 0 { return workspaceTitle }
+        let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(originalName)
+            || originalName == sessionName || originalName == shortSessionName(sessionName)
+        guard machineNamed else { return workspaceTitle }
+        if let explicitChatTitle, !explicitChatTitle.isEmpty { return explicitChatTitle }
+        for candidate in [chatTitle, taskSummary] {
+            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
+                  value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
+                  value.caseInsensitiveCompare(shortSessionName(sessionName) ?? "") != .orderedSame else { continue }
+            return value
+        }
+        return workspaceTitle
+    }
+
+    /// Peers qualify session names for routing; the sidebar already shows the host separately.
+    public static func shortSessionName(_ name: String?) -> String? {
+        name?.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init)
     }
 
     /// Nobody named `workspace` and nothing names it: no title, the daemon's default name, and
@@ -436,6 +475,54 @@ public struct SidebarMapping {
         return title
     }
 
+    /// The hover card tab row's facts beyond its folder and state, from the tab's own records.
+    static func listedFacts(_ listed: inout SidebarTab, of tab: TabModel, process: String?, turns: AgentTurnStateStore = .shared) {
+        if tab.kind == .browser { listed.path = pagePath(tab.url) }
+        listed.model = tab.agentSession.flatMap(turns.detail(for:))?.model.flatMap { $0.isEmpty ? nil : $0 }
+        if commandStart(tab) != nil { listed.command = process }
+        if let remote = tab.remote, !remote.sessionName.isEmpty { listed.machine = remote.sessionName }
+    }
+
+    /// A page's path for the hover card's tab rows ("/manaflow-ai/cmux/pull/12"), without its query or
+    /// fragment; nil for a root or blank page.
+    static func pagePath(_ url: String?) -> String? {
+        guard let url, let components = URLComponents(string: url), components.host?.isEmpty == false else { return nil }
+        var path = components.path
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path.isEmpty || path == "/" ? nil : path
+    }
+
+    /// The site's own icon address ("https://github.com/favicon.ico") for a page whose record names no
+    /// favicon (a restored tab never loaded); nil for a page that is not http(s), and for a loopback page,
+    /// whose icon may belong to another machine's forwarded port (never guessed onto this Mac's).
+    public static func siteFavicon(_ url: String?) -> String? {
+        guard let url, let components = URLComponents(string: url), let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", let host = components.host?.lowercased(), !host.isEmpty,
+              !isLoopback(host) else { return nil }
+        var site = URLComponents()
+        site.scheme = scheme
+        site.host = host
+        site.port = components.port
+        site.path = "/favicon.ico"
+        return site.string
+    }
+
+    /// A page's favicon address: the one its record names, else the site's own (`siteFavicon`), so a restored
+    /// page that never loaded shows its site and not a bare globe (Leo 2026-11-01: "there's no symbols").
+    public static func favicon(_ recorded: String?, page url: String?) -> String? {
+        recorded.flatMap { $0.isEmpty ? nil : $0 } ?? siteFavicon(url)
+    }
+
+    private static func isLoopback(_ host: String) -> Bool {
+        host == "localhost" || host.hasSuffix(".localhost") || host.hasPrefix("127.") || host == "[::1]" || host == "::1" || host == "0.0.0.0"
+    }
+
+    /// A page's host for the hover card's tab rows ("github.com"); nil for a blank or local page.
+    static func pageHost(_ url: String?) -> String? {
+        guard let url, let host = URL(string: url)?.host(), !host.isEmpty else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
     /// The newest agent update or notification of the tabs; nil without one.
     func lastActivity(_ tabs: [TabModel]) -> Date? {
         let newest = tabs.map { max($0.agent?.updatedAtMs ?? 0, $0.notification?.createdAtMs ?? 0) }.max() ?? 0
@@ -459,8 +546,7 @@ public struct SidebarMapping {
     /// shells title it so) reads as its prompt writes it: this Mac's home and another computer's home both as `~`.
     /// A title naming another path (a program's), a name the person gave the tab and an agent's tab stay as they are.
     /// Another computer's folder never matched this Mac's home, so a Cloud shell's tab read `/home/cmux` (Leo
-    /// 2026-10-29: "why is there all this weird stuff at the bottom of the sidebar"); as `~`, the tab line then names
-    /// it "Terminal" (`SidebarTabLine.cleanName`), the workspace row already saying the machine and the folder.
+    /// 2026-10-29: "why is there all this weird stuff at the bottom of the sidebar").
     static func shortenedPath(_ title: String, of tab: TabModel, shorten: (String) -> String) -> String {
         // A terminal running an agent (`tab.agent`, its hooks' report) is the agent's tab, not a shell's.
         guard tab.agentSession == nil, tab.agent == nil, tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,

@@ -47,6 +47,7 @@ pub mod config;
 pub mod daemon_spec;
 #[cfg(unix)]
 pub mod github_cli;
+pub mod identity;
 mod json;
 #[cfg(target_os = "linux")]
 pub mod linux;
@@ -59,3 +60,5 @@ pub mod roles;
 pub mod run_roles;
 pub mod status;
 pub mod team_ssh;
+#[cfg(unix)]
+pub mod turn_scope;

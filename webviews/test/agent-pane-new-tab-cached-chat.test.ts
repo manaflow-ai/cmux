@@ -342,18 +342,17 @@ test("the actions that open a chat in a tab hand the chat over first", async () 
 });
 
 /// A subagent's pane is a tab on the chat's own session too (subagentPanes.ts), so the action that
-/// asks the app for one hands the chat over first, the same way. Without it the pane opens blank
-/// and waits on its own attach.
+/// asks the shared navigation helper for one supplies the hand-over callback. The helper's
+/// behavioral tests check that it runs before the pane request, and only when a pane opens.
 test("opening a subagent in its own pane hands the chat over first", async () => {
   const app = await readFile(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
-  const sites = [...app.matchAll(/openSubagentPane\(callNative/g)];
+  const sites = [...app.matchAll(/showSubagentIn\(callNative/g)];
   expect(sites.length).toBe(1);
   for (const site of sites) {
-    const before = app.slice(Math.max(0, site.index - 400), site.index);
+    const options = app.slice(site.index, site.index + 500);
     expect(
-      before.includes("handOverCurrentTail()"),
-      "showSubagent does not hand the chat over before asking for the subagent pane, so the pane " +
-        "opens cold (tailCache.ts). Call directClient.current?.handOverCurrentTail() before it.",
+      /beforeOpen:\s*\(\)\s*=>\s*directClient\.current\?\.handOverCurrentTail\(\)/.test(options),
+      "showSubagent does not supply the shared helper's tail-handoff callback, so the pane opens cold (tailCache.ts).",
     ).toBe(true);
   }
 });

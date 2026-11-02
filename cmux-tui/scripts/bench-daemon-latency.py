@@ -26,7 +26,28 @@ session.snapshot, identify). It reports the app requests' latency, the
 requests over the app's 2 s timeout, and both daemon locks by site
 (`server-stats` `locks`, or `registry_lock.top_sites` on a daemon without
 it). Arguments: --agents (80), --agent-sleep (0.25 s between an agent's
-hooks), --load-seconds (60).
+hooks), --load-seconds (60), --agent-cli (1; 0 runs the hooks only, the
+shipped agent hooks' real load: no shipped hook calls the CLI per turn).
+Scenario "agents-hooks" is "agents" with --agent-cli 0, for the fleet
+script, which passes only --scenarios (perf-10x-daemon.sh
+--arg=scenarios=agents-hooks).
+
+Scenario "resize-mirror" (not in the default list) is a terminal resized
+in bursts while a byte mirror is attached, the cost cmux-ad H10 names: a
+terminal with 10,000 lines of history, one connection attached to it as a
+byte mirror (`attach-surface`, read as fast as it comes), and a control
+connection that resizes it with `resize-surface` in bursts of 24 steps,
+back to back ("burst") and one step every 8 ms ("drag", a 120 Hz divider
+drag), 5 bursts each. It reports each step's request round trip
+("step": for a hosted terminal `resize-surface` replies once the size
+reached the terminal host, so a step mostly waits for the geometry lock
+while the previous step is applied, in a hosted terminal while its reader
+installs the host's replay), the
+`resized` events the mirror got per burst, and the time from sending a
+burst's last step to the mirror's `resized` of the final grid ("settle").
+A settle miss, a stream end (`detached`, `overflow`) or a refused resize
+fails the run. `--resize-rounds` (default 4, so 20 bursts per case)
+repeats the 5 bursts.
 
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
@@ -343,15 +364,15 @@ class Bench:
             f">/dev/null 2>&1; sleep {self.args.agent_sleep}"
             for event in events
         )
-        script = f"while :; do {loop}; {bin_q} workspace list >/dev/null 2>&1; done"
+        cli = f"; {bin_q} workspace list >/dev/null 2>&1" if self.args.agent_cli else ""
+        script = f"while :; do {loop}{cli}; done"
         return ["/bin/sh", "-c", script]
 
     def server_stats(self, c):
         r = c.call("server-stats", include=["locks", "write_path"])
         return r.get("data") or {} if r.get("ok") else {}
 
-    def agents(self):
-        name = "agents"
+    def agents(self, name="agents"):
         log("scenario", name, self.args.agents, "agents")
         c = Conn(self.sock_path, timeout=300)
         for i in range(20):
@@ -490,6 +511,127 @@ class Bench:
                   f"n={site.get('acquisitions')} hold_total_us={site.get('hold_total_us')} "
                   f"hold_max_us={site.get('hold_max_us')}", flush=True)
 
+    def resize_mirror(self, name="resize-mirror"):
+        """Resize bursts of a terminal with deep history and one byte mirror."""
+        steps, bursts = 24, 5
+        log("scenario", name)
+        c = Conn(self.sock_path, timeout=120)
+        first = must(c.call("new-workspace", name="resize-mirror", cols=120, rows=40),
+                     "new-workspace").get("surface")
+        tree = must(c.call("list-workspaces"), "list-workspaces")
+        ws_id = next((w["id"] for w in tree.get("workspaces") or []
+                      if first in set(self.surfaces(w))), None)
+        if ws_id is None:
+            raise RuntimeError(f"no workspace holds the new surface {first!r}")
+        history = ('my $n=0; for (1..10000) { printf "\\e[3%dmline %05d\\e[m the quick brown fox '
+                   'jumps over the lazy dog\\r\\n", $n % 8, $n; $n++ } print "history-ready\\n"; '
+                   'sleep 100000')
+        created = must(c.call("create-terminal", workspace=ws_id,
+                              argv=["perl", "-e", history], cols=120, rows=40), "create-terminal")
+        surface = created.get("surface")
+        if surface is None:
+            raise RuntimeError(f"create-terminal returned no surface: {created!r}")
+        must(c.call("wait-for", surface=surface, pattern="history-ready", timeout_ms=60000), "wait-for")
+
+        mirror = Conn(self.sock_path, timeout=120)
+        mirror.sock.sendall((json.dumps({"id": 1, "cmd": "attach-surface", "surface": surface}) + "\n")
+                            .encode())
+        lock = threading.Lock()
+        resized = []  # (perf_counter, cols, rows)
+        attached = threading.Event()
+        stop = threading.Event()
+        errors = []
+
+        def read_mirror():
+            try:
+                while not stop.is_set():
+                    msg = mirror.read_line()
+                    if msg.get("id") == 1 and "ok" in msg:
+                        if not msg["ok"]:
+                            raise RuntimeError(f"attach-surface failed: {msg.get('error')!r}")
+                        attached.set()
+                    elif msg.get("event") == "resized":
+                        with lock:
+                            resized.append((time.perf_counter(), msg.get("cols"), msg.get("rows")))
+                    elif msg.get("event") in ("detached", "overflow"):
+                        # Either ends the mirror's stream: every later number would be wrong.
+                        raise RuntimeError(f"the byte mirror's stream ended: {msg!r}")
+            except Exception as e:  # noqa: BLE001
+                if not stop.is_set():
+                    errors.append(repr(e))
+                attached.set()
+
+        reader = threading.Thread(target=read_mirror, daemon=True)
+        reader.start()
+        if not attached.wait(30) or errors:
+            raise RuntimeError(f"byte mirror did not attach: {errors!r}")
+
+        res = {}
+        for case, interval in (("burst", 0.0), ("drag", 0.008)):
+            step_ms, per_burst, settle_ms = [], [], []
+            for round_index in range(self.args.resize_rounds * bursts):
+                # Alternate widths so every step changes the grid.
+                base = 100 + (round_index % 2) * steps
+                with lock:
+                    before = len(resized)
+                last_sent = None
+                for step in range(steps):
+                    if step and interval:
+                        time.sleep(max(0.0, interval - (time.perf_counter() - last_sent)))
+                    last_sent = time.perf_counter()
+                    reply = must(c.call("resize-surface", surface=surface, cols=base + step, rows=40),
+                                 "resize-surface")
+                    step_ms.append((time.perf_counter() - last_sent) * 1000)
+                    if reply.get("accepted") is False:
+                        raise RuntimeError(f"resize-surface was not applied: {reply!r}")
+                final = (base + steps - 1, 40)
+                deadline = time.perf_counter() + 10
+                settled = None
+                while time.perf_counter() < deadline:
+                    with lock:
+                        hit = next((t for t, cols, rows in resized[before:] if (cols, rows) == final), None)
+                    if hit is not None:
+                        settled = hit
+                        break
+                    time.sleep(0.001)
+                # Let any replay still in flight for this burst arrive before counting.
+                time.sleep(0.2)
+                with lock:
+                    per_burst.append(len(resized) - before)
+                if settled is None:
+                    errors.append(f"{case} burst {round_index}: the mirror never got {final}")
+                else:
+                    settle_ms.append((settled - last_sent) * 1000)
+                time.sleep(0.1)  # the pause between two drags
+            res[f"{case}-step"] = stats(step_ms)
+            res[f"{case}-settle"] = stats(settle_ms)
+            res[f"{case}-resized-per-burst"] = {
+                "n": len(per_burst),
+                "mean": round(statistics.fmean(per_burst), 2) if per_burst else None,
+                "min": min(per_burst, default=None),
+                "max": max(per_burst, default=None),
+            }
+        stop.set()
+        mirror.close()
+        c.call("close-surface", surface=surface)
+        c.close()
+        if errors:
+            res["errors"] = errors[:5]
+        self.result["scenarios"][name] = res
+        failed = res.get("errors")
+        for metric, s in res.items():
+            if metric.endswith("resized-per-burst"):
+                print(f"PERF-DAEMON {name} {metric} n={s['n']} mean={s['mean']} min={s['min']} "
+                      f"max={s['max']}", flush=True)
+            elif metric == "errors":
+                print(f"PERF-DAEMON {name} errors {s}", flush=True)
+            else:
+                print(f"PERF-DAEMON {name} {metric} n={s['n']} p50={s.get('p50_ms')} p95={s.get('p95_ms')} "
+                      f"p99={s.get('p99_ms')} max={s.get('max_ms')}", flush=True)
+        if failed:
+            # The numbers above are printed for diagnosis; the run fails.
+            raise RuntimeError(f"{name}: {failed}")
+
     def scenario(self, name, workspaces, terminals, busy):
         log("scenario", name, workspaces, terminals)
         self.grow(workspaces, terminals, busy)
@@ -519,6 +661,10 @@ def main():
     ap.add_argument("--agents", type=int, default=80)
     ap.add_argument("--agent-sleep", type=lambda v: str(float(v)), default="0.25")
     ap.add_argument("--load-seconds", type=float, default=60.0)
+    ap.add_argument("--agent-cli", type=int, choices=(0, 1), default=1,
+                    help="1: each fake agent also runs `cmux workspace list` once per turn; 0: hooks only")
+    ap.add_argument("--resize-rounds", type=int, default=4,
+                    help="resize-mirror: how many times to run its 5 bursts per case")
     args = ap.parse_args()
     b = Bench(args)
     status = 0
@@ -531,6 +677,12 @@ def main():
             b.scenario("scale", 50, 200, 0.05)
         if "agents" in wanted:
             b.agents()
+        if "resize-mirror" in wanted:
+            b.resize_mirror()
+        if "agents-hooks" in wanted:
+            # The hooks only: no shipped agent hook calls the CLI per turn.
+            args.agent_cli = 0
+            b.agents("agents-hooks")
     except Exception as e:  # noqa: BLE001
         log("FAILED", repr(e), b.tail()[-1500:])
         b.result["error"] = repr(e)

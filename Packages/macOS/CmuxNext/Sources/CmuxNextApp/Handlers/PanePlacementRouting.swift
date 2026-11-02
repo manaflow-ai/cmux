@@ -26,7 +26,7 @@ enum PanePlacementRouting {
                                  from focused: PaneController) -> PaneController {
         guard !ctx.namesPane(invocation), let content = focused.workspace,
               let screen = content.layoutModel.screen(containing: focused.layoutPaneID),
-              let pick = PanePlacement().autoSplit(layout: screen.layout, frames: content.layoutView.navigationFrames,
+              let pick = PanePlacement().autoSplit(layout: screen.layout, frames: content.layoutView.navigationFrames(ofScreenContaining: focused.layoutPaneID),
                                                    recent: content.recentPanes),
               let target = content.panes[pick.pane] else { return focused }
         return target
@@ -55,7 +55,7 @@ enum PanePlacementRouting {
               let screen = content.layoutModel.screen(containing: focused.layoutPaneID) else { return .tab(pane) }
         let placement = ctx.services.settings?.snapshot.newPanePlacement ?? CmuxConfigSnapshot.newPanePlacementFallback
         let plan = PanePlacement().plan(layout: screen.layout, focused: focused.layoutPaneID, recent: content.recentPanes,
-                                        frames: content.layoutView.navigationFrames, placement: placement, tiles: tiles)
+                                        frames: content.layoutView.navigationFrames(ofScreenContaining: focused.layoutPaneID), placement: placement, tiles: tiles)
         guard case .split(let target, _) = plan, let controller = content.panes[target],
               let direction = autoLayoutDirection(ctx, controller).fitting else { return .tab(pane) }
         return .split(controller.pane, direction)

@@ -73,6 +73,24 @@ test("Replace swaps the active match and moves to the next one", () => {
   expect(find.getState().active).toBe(1);
 });
 
+test("Replace All replaces matches beyond the pill's own limit", () => {
+  const editor = fakeEditor(["x x x x"]);
+  const find = new EditorFind();
+  const pillOnly = {
+    ...editor.target,
+    findMatches: (q: string, c: boolean, all?: boolean) => {
+      const found = editor.target.findMatches(q, c);
+      return all ? found : found.slice(0, 2);
+    },
+  };
+  find.attach(pillOnly);
+  find.showReplace("x");
+  find.setReplacement("y");
+  expect(find.getState().matches).toHaveLength(2);
+  find.replaceAll();
+  expect(editor.lines[0]).toBe("y y y y");
+});
+
 test("Replace moves past a replacement that contains the query", () => {
   const editor = fakeEditor(["foo foo"]);
   const find = new EditorFind();

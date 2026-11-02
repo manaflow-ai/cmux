@@ -9,6 +9,9 @@ mod agent_revive;
 #[path = "auto_resume_capacity.rs"]
 mod capacity;
 
+#[path = "auto_resume_limits.rs"]
+mod limits;
+
 #[path = "auto_resume_retry.rs"]
 mod retry;
 

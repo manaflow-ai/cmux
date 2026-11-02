@@ -209,6 +209,10 @@
       "scope": "calendar:read",
       "class": "read"
     },
+    "chief.continue": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.create": {
       "scope": "chief:write",
       "class": "mutation"
@@ -262,6 +266,10 @@
       "class": "mutation"
     },
     "chief.profile.update": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.retry": {
       "scope": "chief:write",
       "class": "mutation"
     },
@@ -418,6 +426,14 @@
       "class": "read"
     },
     "cloud.vm.event.emit": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.vm.network_policy": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.vm.receiver.lifecycle": {
       "scope": "cloud:execute",
       "class": "mutation"
     },

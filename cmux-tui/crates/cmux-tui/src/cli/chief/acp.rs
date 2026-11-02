@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 
+use cmux_conversation::agent_sender::AgentSender;
 use serde_json::{Value, json};
 
 use super::messages::messages;
@@ -106,6 +107,9 @@ struct Job {
     session: String,
     text: String,
     generation: u64,
+    /// Another agent that sent the prompt (`_meta.acpmux.sender`), None for
+    /// the person.
+    sender: Option<AgentSender>,
 }
 
 /// What the main thread shares with the Chief thread to cancel a prompt.
@@ -188,7 +192,8 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
                 }
                 generation += 1;
                 cancel.running.store(generation, Ordering::SeqCst);
-                Job { id, session: session().unwrap_or_default(), text, generation }
+                let sender = prompt_sender(&params);
+                Job { id, session: session().unwrap_or_default(), text, generation, sender }
             }
             other => {
                 out.error(&id, METHOD_NOT_FOUND, &format!("cmux chief acp has no method {other}"));
@@ -214,6 +219,15 @@ fn initialize() -> Value {
         "agentInfo": {"name": "cmux-chief", "title": messages().chief,
                       "version": env!("CARGO_PKG_VERSION")},
     })
+}
+
+/// The agent acpmux says sent a prompt (`_meta.acpmux.sender`, from
+/// another session's `acpmux send` or task): its message goes to the Chief
+/// as that agent's, never as the owner's. None for the person's prompt.
+fn prompt_sender(params: &Value) -> Option<AgentSender> {
+    let sender = params.pointer("/_meta/acpmux/sender")?;
+    let field = |key: &str| sender.get(key).and_then(Value::as_str);
+    AgentSender::new(field("name")?, field("class"), field("threadId"))
 }
 
 /// The message a prompt's content blocks make: text blocks, an embedded
@@ -252,7 +266,7 @@ fn chief_thread(
 ) {
     let m = messages();
     let mut chief: Option<Session> = None;
-    for Job { id, session: session_id, text, generation } in inbox {
+    for Job { id, session: session_id, text, generation, sender } in inbox {
         if chief.is_none() {
             if cmux_tui_core::agent_launch::disabled() {
                 out.error(&id, CHIEF_ERROR, m.agents_disabled);
@@ -271,6 +285,7 @@ fn chief_thread(
             }
         }
         let Some(session) = chief.as_mut() else { continue };
+        session.sender = sender;
         let (seq, message_id) = match session.send(&text) {
             Ok(sent) => sent,
             Err(error) => {
@@ -369,6 +384,15 @@ impl ReplySink for Updates {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_acpmux_agents_prompt_names_its_sender_and_a_persons_none() {
+        let params = json!({"sessionId": "s", "prompt": [],
+            "_meta": {"acpmux": {"sender": {"name": "lane-a", "class": "question", "threadId": "t1"}}}});
+        let sender = prompt_sender(&params).expect("sender");
+        assert_eq!(sender, AgentSender::new("lane-a", Some("question"), Some("t1")).unwrap());
+        assert_eq!(prompt_sender(&json!({"sessionId": "s", "prompt": []})), None);
+    }
 
     #[test]
     fn a_prompt_is_its_text_resources_and_links() {

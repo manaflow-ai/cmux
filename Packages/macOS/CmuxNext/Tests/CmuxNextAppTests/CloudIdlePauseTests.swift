@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 @testable import CmuxNextApp
 import CmuxNextCloud
@@ -123,7 +124,7 @@ struct CloudIdlePauseTests {
 
     @Test func theSidebarHeaderSaysPausedIdleAndNeedsNoAttention() {
         let f = Self.pausedMachine(reason: .idle)
-        let header = CloudCreationRows.machine(f.session, compatibility: nil)
+        let header = CloudCreationRows.machine(f.session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .pausedIdle)
         #expect(header.status != .failed)
         #expect(!header.status.needsAttention)
@@ -131,7 +132,7 @@ struct CloudIdlePauseTests {
         #expect(Strings.attentionStatus(.pausedIdle) == "Paused (idle)")
 
         f.session.machine.pauseReason = .user
-        #expect(CloudCreationRows.machine(f.session, compatibility: nil).status == .paused)
+        #expect(CloudCreationRows.machine(f.session, compatibility: nil, updates: DaemonUpdateBoard()).status == .paused)
         #expect(SectionHeaderRowView.statusWords(.paused) == "Paused")
     }
 

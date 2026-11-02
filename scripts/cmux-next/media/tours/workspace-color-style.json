@@ -1,0 +1,158 @@
+{
+  "title": "Workspace Color Style: Fill Row, colored loose and grouped rows filled (#25653)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Workspace PR ready",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "PR ready"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Needs review",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Needs review"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Blocked",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Blocked"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Plain",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Plain"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Group Blocked",
+      "cmux": [
+        "workspace",
+        "name:Blocked",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Group Blocked into a new group",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.moveToNewGroup"
+      ],
+      "shot": false,
+      "wait": 1,
+      "optional": "group creation by CLI depends on the target the run resolves"
+    },
+    {
+      "title": "Focus PR ready",
+      "cmux": [
+        "workspace",
+        "name:PR ready",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "PR ready is green",
+      "cmux": [
+        "workspace",
+        "set-color",
+        "--color",
+        "green"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Focus Needs review",
+      "cmux": [
+        "workspace",
+        "name:Needs review",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Needs review is yellow",
+      "cmux": [
+        "workspace",
+        "set-color",
+        "--color",
+        "yellow"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Focus Blocked",
+      "cmux": [
+        "workspace",
+        "name:Blocked",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Blocked (in a group) is red",
+      "cmux": [
+        "workspace",
+        "set-color",
+        "--color",
+        "red"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Select Needs review",
+      "cmux": [
+        "workspace",
+        "name:Needs review",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Fill Row: each colored row filled, the selected one stronger",
+      "cmux": [
+        "settings",
+        "set",
+        "workspaceColors.indicatorStyle",
+        "fill"
+      ],
+      "wait": 2
+    }
+  ]
+}

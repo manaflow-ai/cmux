@@ -55,9 +55,11 @@ public final class ChiefPetSettingsRows: NSObject {
         var upload: ChiefAvatarUploads.Upload?
         /// How the grid offers an upload before there is one (``ChiefPetTunables/uploadAffordance``).
         var affordance = ChiefPetUploadAffordance.tile
+        /// Whether the character was picked (``ChiefMascotPicks/picked(_:in:)``), not only the default.
+        var picked = false
 
-        /// What the Chief wears: its worn upload, else its character.
-        var face: String { isWorn ? upload?.still.path ?? mascot : mascot }
+        /// What the Chief wears in Home: its worn upload, else its picked character, else nothing (its monogram).
+        var face: String { isWorn ? upload?.still.path ?? mascot : picked ? mascot : "" }
         /// Whether the upload is worn: worn over the character picked now.
         var isWorn: Bool { upload?.wornOver == mascot }
     }
@@ -145,7 +147,7 @@ public final class ChiefPetSettingsRows: NSObject {
                      mascotManaged: picks.isDefault(chief)
                          && settings.managedKeys[HomeChiefPetSetting.mascotPath.joined(separator: ".")] != nil,
                      upload: uploads?.uploads[ChiefAvatarUploads.key(chief: chief ?? picks.defaultChief)],
-                     affordance: ChiefPetTunables.uploadAffordance.value)
+                     affordance: ChiefPetTunables.uploadAffordance.value, picked: picks.picked(chief, in: settings.fileRoot) != nil)
     }
 
     func show(_ shown: Shown) {
@@ -254,6 +256,16 @@ public final class ChiefPetSettingsRows: NSObject {
         wornUpload(of: chief, picks: picks, uploads: uploads, in: snapshot)?.still ?? avatarURL(of: picks.mascot(of: chief, in: snapshot))
     }
 
+    /// The picture Chief `chief` (nil: the default) wears in Home, the sidebar and agent chats where its
+    /// profile sets none: its worn upload's first frame, else the character it was given by a pick, else
+    /// nil and the surface draws its monogram (CH; Lawrence 2026-10-30: "no profile pic by default").
+    /// Leo 2026-11-01: "im not seeing chiefs with the selected avatar appearance".
+    public static func chosenPicture(of chief: String?, picks: ChiefMascotPicks, uploads: ChiefAvatarUploads?,
+                                     in snapshot: CmuxConfigSnapshot?, file: JSONValue?) -> URL? {
+        if let upload = wornUpload(of: chief, picks: picks, uploads: uploads, in: snapshot)?.still { return upload }
+        return picks.picked(chief, in: file).flatMap { avatarURL(of: $0) }
+    }
+
     /// Chief `chief`'s (nil: the default) upload while it is worn: over the character picked now, so
     /// a pick anywhere (the popover, Settings > Chiefs, the config file) puts the character back.
     public static func wornUpload(of chief: String?, picks: ChiefMascotPicks, uploads: ChiefAvatarUploads?,
@@ -261,7 +273,7 @@ public final class ChiefPetSettingsRows: NSObject {
         uploads?.worn(of: ChiefAvatarUploads.key(chief: chief ?? picks.defaultChief), over: picks.mascot(of: chief, in: snapshot))
     }
 
-    /// The avatar picture of the character `mascot` names (an unknown or nil id: the first, orb):
+    /// The avatar picture of the character `mascot` names (an unknown or nil id: the default, orb):
     /// the whole character on a transparent square, for a Chief with no avatar of its own.
     public static func avatarURL(of mascot: String?) -> URL? {
         (ChiefPetMascot(rawValue: mascot ?? "") ?? .initial).avatarURL

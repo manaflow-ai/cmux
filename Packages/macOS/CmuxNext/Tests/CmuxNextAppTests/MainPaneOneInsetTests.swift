@@ -14,7 +14,7 @@ extension MainPaneGutterSuites {
     /// of the main pane, the sidebar's too (Lawrence 2026-10-14: a margin all round, as in Helium).
     /// With the gutter at 0 (the Debug Settings flush opt-in, 2026-10-14) the pane meets the window
     /// edges and the sidebar.
-    @MainActor @Suite(.serialized) struct MainPaneOneInsetTests {
+    @MainActor struct MainPaneOneInsetTests {
         /// Runs `body` on the in-memory default chrome style, whose main pane is curved. The style is
         /// process-wide: a settings load in a suite that runs alongside leaves it at the file
         /// default `flat-sidebar-line` (no card, ChromeStyleSetting.fallback), so pin it here.

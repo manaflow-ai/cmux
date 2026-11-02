@@ -6,7 +6,7 @@ import CmuxNextFocus
 /// the keyboard (plans/cmux-next/focus.md section 5, "Browser context").
 ///
 /// The key router resolves a chord in this order: the binding table
-/// (catalog defaults, the tab-switch defaults of `KeyBindingDefaults`,
+/// (catalog defaults, the aliases and scoped defaults of `KeyBindingDefaults`,
 /// `cmux.json`), then, only when no entry applies, the user's Ghostty
 /// keybinds for window, tab and split actions. In a
 /// browser context that fallback is refused for every chord listed here,

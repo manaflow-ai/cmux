@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import { uploadToMachine } from "../src/agent-session/acpmux/cloudUploads";
 
 function host(chunkSize = 4) {
@@ -42,6 +42,20 @@ test("uploads bounded chunks with offsets and finishes the original file", async
     0, 4, 8,
   ]);
   expect(native.calls.some(([method]) => method === "chat.upload")).toBe(false);
+});
+
+test("reports each file's progress after every chunk, for its tile", async () => {
+  const native = host();
+  const reports: [number, number][] = [];
+  const files = [new File(["0123456789"], "a.mov"), new File(["01234567"], "b.mov")];
+  await uploadToMachine(files, native.call, undefined, (index, done) => reports.push([index, done]));
+  expect(reports).toEqual([
+    [0, 0.4],
+    [0, 0.8],
+    [0, 1],
+    [1, 0.5],
+    [1, 1],
+  ]);
 });
 
 test("does not impose a 64 MiB file or request limit and never reads the whole file", async () => {
@@ -123,4 +137,87 @@ test("a storage quota refusal stays a refusal, with no legacy bypass", async () 
   });
   expect(result).toEqual({ error: "Storage quota exceeded" });
   expect(calls).toEqual(["chat.upload.begin"]);
+});
+
+test("removing a chip during finish cancels the native transfer before finish answers", async () => {
+  let subscriber: (() => void) | undefined;
+  let removed = false;
+  let subscriptions = 0;
+  const cancelled = Object.assign(() => removed, {
+    subscribe: (_index: number, listener: () => void) => {
+      subscriber = listener;
+      subscriptions++;
+      return () => {
+        subscriptions--;
+      };
+    },
+  });
+  let finishStarted!: () => void;
+  const finishing = new Promise<void>((resolve) => {
+    finishStarted = resolve;
+  });
+  let releaseFinish!: (value: unknown) => void;
+  const finish = new Promise<unknown>((resolve) => {
+    releaseFinish = resolve;
+  });
+  const calls: string[] = [];
+  const uploading = uploadToMachine(
+    [new File([], "empty.bin")],
+    async (method) => {
+      calls.push(method);
+      if (method === "chat.upload.begin") return { token: "active", size: 0, chunkSize: 4 };
+      if (method === "chat.upload.finish") {
+        finishStarted();
+        return finish;
+      }
+      return {};
+    },
+    cancelled,
+  );
+  try {
+    await finishing;
+    expect(subscriber).toBeDefined();
+    removed = true;
+    subscriber?.();
+    expect(await uploading).toEqual({ paths: [""] });
+    expect(calls).toEqual(["chat.upload.begin", "chat.upload.finish", "chat.upload.cancel"]);
+    expect(subscriptions).toBe(0);
+  } finally {
+    releaseFinish({ path: "/session/empty.bin" });
+    await uploading;
+  }
+});
+
+test("native progress-owned finish can outlive an hour without a page elapsed cap", async () => {
+  let entered!: () => void;
+  const finishing = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let release!: (value: unknown) => void;
+  const finish = new Promise<unknown>((resolve) => {
+    release = resolve;
+  });
+  const calls: string[] = [];
+  jest.useFakeTimers();
+  const uploading = uploadToMachine([new File([], "long.bin")], async (method) => {
+    calls.push(method);
+    if (method === "chat.upload.begin") return { token: "long", size: 0, chunkSize: 4 };
+    if (method === "chat.upload.finish") {
+      entered();
+      return finish;
+    }
+    return {};
+  });
+  try {
+    await finishing;
+    // Native owns bounded idle/per-chunk failure. Elapsed time while it is active is not a cap.
+    jest.advanceTimersByTime(2 * 60 * 60 * 1_000);
+    release({ path: "/session/long.bin" });
+    expect(await uploading).toEqual({ paths: ["/session/long.bin"] });
+    expect(calls).toEqual(["chat.upload.begin", "chat.upload.finish"]);
+  } finally {
+    release({ path: "/session/long.bin" });
+    await uploading;
+    jest.useRealTimers();
+  }
 });

@@ -4,8 +4,10 @@ import Foundation
 /// Reads the app supervisor's events (`event` plus top-level fields) and replies (`apps-v1`,
 /// plans/cmux-next/app-platform.md 13.2).
 public nonisolated struct AppsWireDecoding {
+    public init() {}
+
     /// The transport event of daemon event `name`, nil for an event the client does not use.
-    public static func event(name: String, payload: CmuxNextDaemon.JSONValue) -> AppsTransportEvent? {
+    public func event(name: String, payload: CmuxNextDaemon.JSONValue) -> AppsTransportEvent? {
         let json = AppJSON(payload)
         let date = json["ts_ms"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
         switch name {
@@ -29,14 +31,14 @@ public nonisolated struct AppsWireDecoding {
     }
 
     /// The `apps-list` reply.
-    public static func list(_ value: CmuxNextDaemon.JSONValue) -> AppsListReply {
+    public func list(_ value: CmuxNextDaemon.JSONValue) -> AppsListReply {
         let json = AppJSON(value)
         return AppsListReply(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) },
                              apps: (json["apps"]?.arrayValue ?? []).compactMap(AppRecord.init(json:)))
     }
 
     /// The `apps-logs` reply's lines, numbered from 1.
-    public static func logs(_ value: CmuxNextDaemon.JSONValue) -> [AppLogLine] {
+    public func logs(_ value: CmuxNextDaemon.JSONValue) -> [AppLogLine] {
         (AppJSON(value)["lines"]?.arrayValue ?? []).enumerated().map { index, line in
             AppLogLine(id: index + 1, date: line["ts_ms"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) },
                        level: line["level"]?.stringValue ?? "info", message: line["message"]?.stringValue ?? "")

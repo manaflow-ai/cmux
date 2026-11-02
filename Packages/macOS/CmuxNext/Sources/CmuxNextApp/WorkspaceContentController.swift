@@ -251,6 +251,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         apply(LayoutMapping.shared.map(workspace), force: true, file, line) // after a command response that may trail its own delta
     }
 
+    /// Applies the store's layout when it changed since the last apply (a pane's strip observation calls it first).
+    func applyLayoutIfChanged() { apply(LayoutMapping.shared.map(workspace)) }
+
     private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
@@ -266,6 +269,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
                 // rings in this frame.
+                syncStaleStrips()
                 sendTopology()
                 layoutView.syncWithModel()
             }
@@ -290,6 +294,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
         updateEmptyState()
         repairIfEmpty()
+        syncStaleStrips() // a moved tab is in its new pane only before the topology: focus follows it in this turn
         // The one topology of this apply (mounts and pane snapshots inside it sent none).
         isApplying = wasApplying
         sendTopology()
@@ -397,6 +402,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         if panes.count == 1, services.apps.isStoreWaiting {
             let apps = services.apps
             Task { apps.windowDidShowContent() }
+        }
+        // So does a link from another app that waited for a workspace made to hold it (#27897):
+        // the workspace shows before its first pane mounts.
+        if panes.count == 1, !services.externalOpen.pending.isEmpty {
+            let open = services.externalOpen
+            Task { open.flush() }
         }
         return controller.view
     }

@@ -22,13 +22,13 @@ struct ScreenDividers {
         // During a drag only the dragged handle shows (its line is the drag's).
         if let drag = screen.activeDrag { return screen.dividerViews[drag.kind] }
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor,
-              let point = screen.context.hoverPointer(window).map({ screen.convert($0, from: nil) }),
+              let pointer = screen.context.hoverPointer(window), case let point = screen.convert(pointer, from: nil),
               screen.bounds.intersection(screen.visibleRect).contains(point) else { return nil }
         let hit = screen.subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
             // Where it shows its cursor: not the part under a dock or past its area's window.
             !$0.isHidden && $0.alphaValue > 0.01 && screen.convert($0.cursorRectInBounds, from: $0).contains(point)
         }
-        guard let hit, screen.context.hoverReachesWindow(window) else { return nil }
+        guard let hit, screen.context.hoverReaches(window, pointer: pointer) else { return nil }
         return hit
     }
 

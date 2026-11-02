@@ -35,6 +35,14 @@ WORKFLOW = yaml.safe_load(nightly_text())
 JOBS = WORKFLOW["jobs"]
 SIGNER_JOBS = ("signer-build", "signer-app", "signer-app-notary", "signer-dmg-image", "signer-dmg")
 SECRET_JOBS = {"signer-app", "signer-app-notary", "signer-dmg"}
+# The signer route: GitHub-hosted Ubuntu, Blacksmith Linux 4 vCPU on a re-run (the hosted-runner guard's exception).
+SIGNER_ROUTE = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                "github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}")
+SIGNER_BUILD_ROUTE = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                      "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && "
+                      "contains(needs.decide.outputs.early_linux_jobs, ' signer-build ') && "
+                      "needs.decide.outputs.early_linux_runner || "
+                      "github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}")
 VERIFY = ROOT / "scripts/ci/release-signer/verify_appcast_item.py"
 FINAL_DMG = "cmux-nightly-next-signer-final-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"
 TIP_APPCAST = ROOT / "scripts/ci/tip_appcast_linux.py"
@@ -130,12 +138,39 @@ class Wiring(unittest.TestCase):
             with self.subTest(job=name):
                 if name in SECRET_JOBS:
                     self.assertEqual(job["environment"], "${{ needs.decide.outputs.environment }}")
-                    self.assertIn("ubuntu", job["runs-on"])
+                    self.assertIn("'ubuntu-24.04'", job["runs-on"])
                     self.assertNotIn("macos", job["runs-on"])
                     self.assertNotIn("secrets.", yaml.safe_dump(job.get("env") or {}))
                 else:
                     self.assertNotIn("environment", job)
                     self.assertNotIn("secrets.", text)
+
+    def test_signer_compiler_takes_early_fleet_placement_then_the_signer_route(self):
+        # signer-build holds no secret: decide's early fleet placement comes first on its own attempt, then
+        # the signer route (hosted Ubuntu, Blacksmith Linux 4 vCPU on a re-run).
+        runs_on = JOBS["signer-build"]["runs-on"]
+        self.assertEqual(runs_on, SIGNER_BUILD_ROUTE)
+        self.assertLess(runs_on.index("needs.decide.outputs.early_linux_runner"),
+                        runs_on.index("github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404'"))
+
+    def test_production_signers_take_hosted_ubuntu_then_blacksmith_4vcpu_never_16_or_32(self):
+        """The rulebook's measured signing exception (Leo, 2026-11-01): "a small job that is not CPU-bound,
+        such as signing and its runner pick, takes GitHub-hosted Ubuntu first", the smallest Blacksmith size
+        on a re-run, "never 16 or 32 vCPU". These are the exact lines the hosted-runner guard allowlists
+        (tests/test_ci_self_hosted_guard.sh, signer_route and signer_build_route)."""
+        guard = (ROOT / "tests/test_ci_self_hosted_guard.sh").read_text()
+        self.assertIn("    runs-on: " + SIGNER_ROUTE + "\n", guard)
+        self.assertIn("    runs-on: " + SIGNER_BUILD_ROUTE + "\n", guard)
+        for name in ("signer-build", "signer-app", "signer-app-notary", "signer-dmg"):
+            runs_on = JOBS[name]["runs-on"]
+            with self.subTest(job=name):
+                self.assertEqual(runs_on, SIGNER_BUILD_ROUTE if name == "signer-build" else SIGNER_ROUTE)
+                self.assertTrue(runs_on.endswith(
+                    "github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"))
+                self.assertNotIn("blacksmith-16vcpu", runs_on)
+                self.assertNotIn("blacksmith-32vcpu", runs_on)
+                self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+                self.assertNotIn("RUNNER_POOLS", runs_on)
 
     def test_the_helper_is_notarized_first_and_every_signer_call_is_checked(self):
         steps = {step.get("name"): step for step in JOBS["signer-app"]["steps"]}
@@ -228,18 +263,26 @@ class Wiring(unittest.TestCase):
             self.assertIn(mode, image[finish]["run"])
         self.assertNotIn("continue-on-error", image[finish])
         self.assertNotIn("if", image[finish])
-        image_uploads = [s["with"]["name"] for s in image if "upload-artifact" in str(s.get("uses", ""))]
-        self.assertEqual(image_uploads, ["cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"])
+        image_uploads = [s for s in image if "upload-artifact" in str(s.get("uses", ""))]
+        dmg_artifact = "cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"
+        self.assertEqual([s["with"]["name"] for s in image_uploads], [dmg_artifact, dmg_artifact])
+        # One retry of a timed-out upload, only when the first one failed, with the same inputs.
+        first, retry = image_uploads
+        self.assertEqual(first.get("continue-on-error"), True)
+        self.assertEqual(retry.get("if"), f"steps.{first['id']}.outcome == 'failure'")
+        self.assertEqual(first["with"], retry["with"])
+        self.assertNotIn("continue-on-error", retry)
         app_upload = next(s for s in JOBS["signer-app"]["steps"] if "upload-artifact" in str(s.get("uses", "")))
         self.assertEqual(app_upload["with"]["compression-level"], 6)
         # verify-signed-nightly's checks, by the commands it runs.
         script = (ROOT / "scripts/ci/nightly-steps/signer-verify-signed.sh").read_text()
-        for command in ("./scripts/cmux-next/check-version-surfaces.sh", "./scripts/verify-diff-sidecar-artifact.sh",
+        for command in ("./scripts/cmux-next/check-version-surfaces.sh", "./scripts/cmux-next/check-bundled-cli-commands.sh",
+                        "./scripts/verify-diff-sidecar-artifact.sh",
                         "--require-signed", "REQUIRE_HELPER_TICKET=true bash scripts/ci/nightly-steps/verify-signed-app-checks.sh",
                         "./tests/test_bundled_ghostty_theme_picker_helper.sh", "scripts/verify_remote_daemon_release.py"):
             self.assertIn(command, script)
         verify_text = yaml.safe_dump(JOBS["verify-signed-nightly"], width=1000)
-        for command in ("check-version-surfaces.sh", "verify-diff-sidecar-artifact.sh", "verify-signed-app-checks.sh",
+        for command in ("check-version-surfaces.sh", "check-bundled-cli-commands.sh", "verify-diff-sidecar-artifact.sh", "verify-signed-app-checks.sh",
                         "test_bundled_ghostty_theme_picker_helper.sh", "verify_remote_daemon_release.py"):
             self.assertIn(command, verify_text)
         self.assertFalse([s for s in JOBS["signer-dmg"]["steps"] if "signed-app-handoff" in yaml.safe_dump(s)])
@@ -389,7 +432,8 @@ class SignerVerifySigned(unittest.TestCase):
     background and hands back their status; the build tree's scripts are stubs here."""
 
     SCRIPT = ROOT / "scripts/ci/nightly-steps/signer-verify-signed.sh"
-    STUBS = ("scripts/cmux-next/check-version-surfaces.sh", "scripts/verify-diff-sidecar-artifact.sh",
+    STUBS = ("scripts/cmux-next/check-version-surfaces.sh", "scripts/cmux-next/check-bundled-cli-commands.sh",
+             "scripts/verify-diff-sidecar-artifact.sh",
              "scripts/ci/nightly-steps/verify-signed-app-checks.sh", "tests/test_bundled_ghostty_theme_picker_helper.sh")
 
     def setUp(self):
@@ -414,7 +458,8 @@ class SignerVerifySigned(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "ditto").write_text('#!/bin/sh\nexec cp -a "$1" "$2"\n')
         (bin_dir / "lipo").write_text('#!/bin/sh\necho arm64\n')
-        for tool in ("ditto", "lipo"):
+        (bin_dir / "uname").write_text('#!/bin/sh\necho arm64\n')
+        for tool in ("ditto", "lipo", "uname"):
             (bin_dir / tool).chmod(0o755)
         (self.tmp / "runner").mkdir()
         self.env = dict(os.environ, PATH=f"{bin_dir}:{os.environ.get('PATH', '')}", RUNNER_TEMP=str(self.tmp / "runner"),
@@ -434,13 +479,14 @@ class SignerVerifySigned(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         calls = self.calls()
         self.assertEqual([c.split("|")[0] for c in calls],
-                         ["check-version-surfaces.sh", "verify-diff-sidecar-artifact.sh", "verify-signed-app-checks.sh",
-                          "test_bundled_ghostty_theme_picker_helper.sh", "daemon"])
+                         ["check-version-surfaces.sh", "check-bundled-cli-commands.sh", "verify-diff-sidecar-artifact.sh",
+                          "verify-signed-app-checks.sh", "test_bundled_ghostty_theme_picker_helper.sh", "daemon"])
         copy = str(self.tmp / "runner" / "signer-verify-signed" / "snapshot" / "cmux NEXT.app")
-        self.assertIn(f"|{copy}|", calls[2])
-        self.assertTrue(calls[2].startswith("verify-signed-app-checks.sh|true|"))
-        self.assertIn(f"{copy}/Contents/Resources/bin/cmux-diff-sidecar --archs arm64 --require-signed", calls[1])
-        self.assertEqual(calls[4], f"daemon|--manifest remote-daemon-assets/cmuxd-remote-manifest-77.json "
+        self.assertTrue(calls[1].endswith(f"|{copy}"), calls[1])
+        self.assertIn(f"|{copy}|", calls[3])
+        self.assertTrue(calls[3].startswith("verify-signed-app-checks.sh|true|"))
+        self.assertIn(f"{copy}/Contents/Resources/bin/cmux-diff-sidecar --archs arm64 --require-signed", calls[2])
+        self.assertEqual(calls[5], f"daemon|--manifest remote-daemon-assets/cmuxd-remote-manifest-77.json "
                                    f"--assets-dir remote-daemon-assets --app {copy}")
         # Nothing a check wrote reached the app the DMG is built from, and the copy is gone.
         self.assertEqual(sorted(p.name for p in self.app.iterdir()), ["Contents"])
@@ -457,7 +503,7 @@ class SignerVerifySigned(unittest.TestCase):
         done = self.run_step("finish")
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("Verify signed diff sidecar protocol contract: FAILED", done.stdout)
-        self.assertEqual(len(self.calls()), 5)
+        self.assertEqual(len(self.calls()), 6)
 
     def test_finish_without_start_fails(self):
         self.assertNotEqual(self.run_step("finish").returncode, 0)

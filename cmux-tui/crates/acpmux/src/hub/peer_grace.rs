@@ -107,6 +107,13 @@ impl Hub {
                     self.save_after_drop(&peer, generation, !ongoing);
                 }
                 notice => {
+                    // Rows came (a list, a changed row) or the link is up: the peer's chats are
+                    // read ahead soon (`peer_snapshot/warm.rs`).
+                    let warms = match &notice {
+                        PeerNotice::Connected | PeerNotice::Sessions(_) => true,
+                        PeerNotice::SessionChanged { kind, .. } => kind != "purged",
+                        _ => false,
+                    };
                     // A link that brought rows (or a planned restart, which never
                     // enters the grace path) ends the outage: its next drop starts
                     // a new one, even after this one's rows went unreachable.
@@ -115,6 +122,9 @@ impl Hub {
                         current.outage_ended.store(false, Ordering::SeqCst);
                     }
                     self.apply_peer_notice(&peer, generation, notice);
+                    if warms {
+                        self.warm_peer_copies(&peer);
+                    }
                 }
             }
             if settles {

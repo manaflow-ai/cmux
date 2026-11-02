@@ -92,11 +92,11 @@ struct ChiefSidebarItemTests {
                      Self.lane("optchat-sub-6b68ac4a-a2", .idle),
                      Self.lane("optchat-sub-6b68ac4a-a3", .failed)]
         let folded = Self.rows(lanes)
-        #expect(folded.map(\.info.title) == [ChiefToolStrings.subagent, "Inspector"], "the a3 id never shows")
+        #expect(folded.map(\.info.title) == ["", "Inspector"], "the a3 id never shows")
         #expect(folded.allSatisfy { $0.info.indent == 1 && $0.anchoredOnly })
         #expect(folded[0].info.activity == .error)
         let open = Self.rows(lanes, showsIdle: true)
-        #expect(open.map(\.info.title) == [ChiefToolStrings.subagent, ChiefToolStrings.subagent, "Inspector"])
+        #expect(open.map(\.info.title) == ["", "", "Inspector"])
         #expect(SidebarTransientItem.chiefSubagentSession(open[0].item.id) == "id-optchat-sub-6b68ac4a-a2")
         #expect(SidebarTransientItem.chiefSubagentSession(LayoutItemID("itm_chief")) == nil)
     }

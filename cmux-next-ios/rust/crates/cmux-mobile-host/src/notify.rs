@@ -225,7 +225,7 @@ impl Classifier {
         Self { places: Some(places), ..Self::default() }
     }
 
-    /// Sessions from the `_acpmux/watch` result: labels only, no events.
+    /// Sessions from the `_acpmux/watch` result or a later page of its list: labels only, no events.
     pub fn load(&mut self, watch_result: &Value) {
         for session in watch_result.get("sessions").and_then(Value::as_array).into_iter().flatten() {
             if let Some((id, label)) = session_label(session) {

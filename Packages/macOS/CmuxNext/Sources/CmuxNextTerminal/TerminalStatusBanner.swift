@@ -61,25 +61,62 @@ final class TerminalStatusBanner: NSView {
         }
         label.stringValue = text
         setAccessibilityLabel(text)
-        let restoring = status == .restoring && stall == nil
-        if restoring, isHidden { beginReveal() } else if !restoring { endReveal() }
+        if let delay = Self.revealDelay(for: status, stall: stall) { reveal(after: delay) } else { endReveal() }
         isHidden = false
     }
 
     /// "Restoring…" fades in only after `restoringRevealDelay`, so an attach
     /// that answers at once (the usual case) never flashes the label.
     static let restoringRevealDelay: CFTimeInterval = 0.5
-    private static let revealHoldKey = "terminalStatus.restoringHold"
-    private static let revealFadeKey = "terminalStatus.restoringReveal"
+    /// "Reconnecting…" and "Reconnecting to the shell…" fade in only after
+    /// `reconnectingRevealDelay`: a version handoff marks every tab adopting
+    /// while the new daemon takes its host back (a slow host costs up to 1 s
+    /// of connect retries and 2 s of handshake, after up to 2 s waiting for
+    /// the owner to say ready), and a dropped view re-attaches at once. Those
+    /// clear within it and never show; one that lasts still shows, and the
+    /// lasting "Disconnected" and stopped states show at once.
+    static let reconnectingRevealDelay: CFTimeInterval = 5
+    static let revealHoldKey = "terminalStatus.restoringHold"
+    static let revealFadeKey = "terminalStatus.restoringReveal"
+    /// When the hidden banner was first asked to show, and its wait.
+    private var revealing: (start: CFTimeInterval, delay: CFTimeInterval)?
 
-    private func beginReveal() {
+    /// How long the label for `status` (with the daemon's `stall`) waits
+    /// before it fades in; nil shows it at once. Only transient states wait.
+    static func revealDelay(for status: TerminalConnectionStatus, stall: TerminalShellStall?) -> CFTimeInterval? {
+        if let stall = shownStall(status, stall) {
+            return stall == .reconnecting ? reconnectingRevealDelay : nil
+        }
+        switch status {
+        case .restoring: return restoringRevealDelay
+        case .disconnected(.turnedOffByOrganization, _): return nil
+        case .disconnected(_, reconnecting: true): return reconnectingRevealDelay
+        case .connected, .disconnected, .exited: return nil
+        }
+    }
+
+    /// A banner already on screen stays; a hidden one waits `delay` first. A
+    /// change while it still waits keeps the longer wait from the same start,
+    /// so "Restoring…" turning into a reconnecting stall does not show early.
+    private func reveal(after delay: CFTimeInterval) {
+        let now = CACurrentMediaTime()
+        let start: CFTimeInterval
+        if isHidden {
+            start = now
+        } else if let pending = revealing, now < pending.start + pending.delay, delay > pending.delay {
+            start = pending.start
+        } else {
+            return
+        }
+        revealing = (start, delay)
         guard let layer else { return }
         layer.add(Motion.hold("opacity", at: 0), forKey: Self.revealHoldKey)
-        layer.add(Motion.overlays.scheduledFade(.fadeIn, "opacity", from: 0, to: 1, after: Self.restoringRevealDelay, on: layer),
+        layer.add(Motion.overlays.scheduledFade(.fadeIn, "opacity", from: 0, to: 1, after: start + delay - now, on: layer),
                   forKey: Self.revealFadeKey)
     }
 
     private func endReveal() {
+        revealing = nil
         layer?.removeAnimation(forKey: Self.revealHoldKey)
         layer?.removeAnimation(forKey: Self.revealFadeKey)
     }
@@ -98,7 +135,7 @@ final class TerminalStatusBanner: NSView {
         stall: TerminalShellStall? = nil,
         strings: ModuleResourceBundle = .terminal
     ) -> String? {
-        if let stall, status != .exited, status != .disconnected(.turnedOffByOrganization, reconnecting: false) {
+        if let stall = shownStall(status, stall) {
             return stallText(stall, strings: strings)
         }
         if case .exited = status, hostLoss != nil, let cause,
@@ -146,6 +183,13 @@ final class TerminalStatusBanner: NSView {
             let hint = strings.text("terminal.link.hint", defaultValue: "Click or type to reconnect")
             return "\(reason) · \(hint)"
         }
+    }
+
+    /// The stall the banner names: any, unless the terminal exited or an
+    /// administrator turned the link off.
+    private static func shownStall(_ status: TerminalConnectionStatus, _ stall: TerminalShellStall?) -> TerminalShellStall? {
+        guard status != .exited, status != .disconnected(.turnedOffByOrganization, reconnecting: false) else { return nil }
+        return stall
     }
 
     /// The label of a shell the daemon cannot reach.

@@ -65,6 +65,21 @@ public struct Glass {
         return surface
     }
 
+    /// The glass surface of one overlay role (``SurfaceRole``: popover, menu, card, toast, sheet,
+    /// tooltip): `makeOverlayPanel` in the role's tone, never a solid card. Under Reduce Transparency
+    /// it is the role's one opaque fallback. `cornerRadius` defaults to the panel radius, as
+    /// `makeOverlayPanel`'s does.
+    public static func makeSurface(
+        _ role: SurfaceRole,
+        content: NSView? = nil,
+        cornerRadius: CGFloat = Metrics.panelCornerRadius,
+        interactive: Bool = true,
+        activeLook: ActiveLookScope? = nil
+    ) -> OverlaySurfaceView {
+        makeOverlayPanel(content: content, cornerRadius: cornerRadius, interactive: interactive, tone: role.tone,
+                         activeLook: activeLook)
+    }
+
     /// A raw glass panel that hosts `content` edge to edge (Liquid Glass,
     /// or the same shape in `NSVisualEffectView` before macOS 26). It has
     /// no Reduce Transparency fallback: floating overlays use

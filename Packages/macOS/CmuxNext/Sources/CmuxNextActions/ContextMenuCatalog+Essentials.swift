@@ -34,22 +34,23 @@ nonisolated enum ContextMenuEssentials {
         // Send Message… (u5402: "send messages in the iMessage UI via right clicking") opens the
         // Chief's chat about this workspace.
         // Rename and the color row open the menu as its name field and swatches (MenuIdentityHeader,
-        // Leo 2026-10-20: "like Chrome"). Duplicate joins the top level from More's New.
+        // Leo 2026-10-20: "like Chrome"). Duplicate remains in More so the workspace menu stays
+        // within its twelve-row cap after the top-level Copy folder.
         .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
-                                  .action("workspace.newBelow"), .action("workspace.duplicate"), .action("home.messageAbout"), .folder(.move, [])],
+                                  .action("workspace.newBelow"), .action("home.messageAbout"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
                             close: ["closeWorkspace"], beforeMore: copyFolder),
-        // Chrome's tab menu, in its order (`TabMenuModel::Build`, Leo 2026-10-19: "make sure that
-        // chrome right click tab situation works"): New Tab to the Right and the group rows; Reload,
-        // Duplicate, Pin, Mute; More; then Close Tab, Close Other Tabs and Close Tabs to the Right.
-        // A page-only row (Reload, Mute) leaves a terminal's menu. The 12-row cap
-        // (everyMenuKeepsAShortTopLevel, Lawrence 2026-10-01) leaves Chrome's Move Tab to New
-        // Window in More > Move, with cmux's Rename, Back to Pinned Page and Restart (the dead
-        // tab's overlay also has Restart).
+        // New Tab to the Right and the group rows stay at the top (Lawrence 2026-10-14, "my groups
+        // UI is lost"; scripts/cmux-next/check-group-menus.py), then the frequent tab actions (Leo
+        // 2026-10-23: keep the obviously useful rows), then Copy ▸ and More. Moves, Rename and
+        // Restart remain in More; specialist commands stay in the palette. Target-aware filtering
+        // still hides page-only rows for terminal tabs.
         .tab: Rows(top: [.action("newTab.toRight"), .action("tabGroup.create"), .action("tabGroup.addTab"), .action("tabGroup.removeTab"),
                          .separator,
-                         .action("reloadTab"), .action("duplicateTab"), .action("palette.toggleTabPin"), .action("toggleTabAudioMute")],
-                   close: ["closeTab", "closeOtherTabsInPane", "closeTabsToRight"], beforeMore: copyFolder),
+                         .action("reloadTab"), .action("duplicateTab"),
+                         .action("palette.toggleTabPin"), .action("toggleTabAudioMute"),
+                         .action("closeTab"), .action("closeOtherTabsInPane"), .action("closeTabsToRight")],
+                   close: [], beforeMore: copyFolder),
         // Split Left and Split Up sit in Split beside Split Right and Split Down (menu audit S1).
         .pane: Rows(top: [.action("splitRight"), .action("splitDown"), .folder(.split, []), .action("toggleSplitZoom"), .action("renamePane")],
                     close: ["closePane"], beforeMore: copyFolder),
@@ -85,8 +86,13 @@ nonisolated enum ContextMenuEssentials {
         let rest = collapsingSeparators(inliningShortFolders(ContextMenuCatalog.removing(shown, from: entries)))
         let more: [ContextMenuEntry] = rest.isEmpty ? [] : [.folder(.more, rest)]
         let groupSection: [ContextMenuEntry] = group.isEmpty ? [] : [.separator] + group + [.separator]
+        // When Close is already among the frequent rows, separate More without adding an
+        // empty trailing section. Menus with a closing section retain their existing order.
+        let lower = beforeMore + more
+        let moreSection: [ContextMenuEntry] = lower.isEmpty || !close.isEmpty || (top + groupSection).last == .separator ? lower : [.separator] + lower
+        let closeSection: [ContextMenuEntry] = close.isEmpty ? [] : [.separator] + close.map(ContextMenuEntry.action)
         let tailSection: [ContextMenuEntry] = tail.isEmpty ? [] : [.separator] + tail.map(ContextMenuEntry.action)
-        return top + groupSection + beforeMore + more + [.separator] + close.map(ContextMenuEntry.action) + tailSection
+        return top + groupSection + moreSection + closeSection + tailSection
     }
 
     /// The most rows a folder inside More may have and still show as a section of More, between

@@ -104,7 +104,10 @@ async function mount(
     effort?: string;
     folderProfile?: boolean;
     currentFolder?: boolean;
+    /** A custom harness whose only icon is acpmux's generic glyph (no brand mark behind it). */
+    glyphHarness?: boolean;
     update?: UpdateOffer;
+    addAccount?: (account: Record<string, unknown>) => Promise<void>;
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -122,6 +125,16 @@ async function mount(
       family: harness.families[0],
       models: harness.models.map((model) => ({ id: model.id, name: model.name })),
     })),
+    ...(options.glyphHarness
+      ? [
+          {
+            id: "glyph-harness",
+            name: "Glyph harness",
+            iconSpec: { kind: "glyph", name: "terminal", source: "default" },
+            models: [{ id: "glyph-model", name: "Glyph model" }],
+          },
+        ]
+      : []),
     ...(options.folderProfile
       ? [
           {
@@ -137,6 +150,7 @@ async function mount(
   const asked: string[] = [];
   const added: string[] = [];
   const accounts = {
+    ...(options.addAccount ? { add: options.addAccount } : {}),
     list: async (sessionId: string) => {
       asked.push(sessionId);
       return readChatAccounts(listed);
@@ -316,12 +330,13 @@ test("the compact chip names the model and its effort, and a click opens the sho
   ).toEqual(["Low", "Medium", "High"]);
   expect(segments.find((segment) => segment.getAttribute("aria-checked") === "true")?.textContent).toContain("Medium");
   expect(rows.some((row) => row?.startsWith("Account"))).toBe(true);
-  // Claude Code's order: the models (with inline effort), More models, then Account last.
+  // Claude Code's order: the models, More models (named Legacy models in the default symbols
+  // layout), then Account last.
   expect(
     rows
-      .filter((row) => /^(More models|Account)/.test(row ?? ""))
-      .map((row) => row?.match(/^(More models|Account)/)?.[0]),
-  ).toEqual(["More models", "Account"]);
+      .filter((row) => /^(Legacy models|Account)/.test(row ?? ""))
+      .map((row) => row?.match(/^(Legacy models|Account)/)?.[0]),
+  ).toEqual(["Legacy models", "Account"]);
 });
 
 test("the optional reasoning slider replaces Effort's levels only when enabled", async () => {
@@ -341,7 +356,12 @@ test("a number key picks that model in place", async () => {
   await open();
   const models = modelRows(menu()!);
   // The running model's row shows its check in place of its number.
-  expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓")).toEqual(["✓", "2", "3", "4"]);
+  expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent?.replace("⌘", "") ?? "✓")).toEqual([
+    "✓",
+    "2",
+    "3",
+    "4",
+  ]);
   const third = models[2]!;
   const name = third.querySelector(".acpmux-menu-label")!.textContent!;
   await act(async () => {
@@ -485,12 +505,11 @@ test("the composer keeps its Account switcher, with Cmux routers under a Provide
   expect(sent).toEqual([{ method: "route", value: "work" }]);
 });
 
-test("with no routes, Account offers the CLI login and says how to add one", async () => {
+test("with no routes, Account offers only the CLI login until a family is known", async () => {
   await mount({ routes: [] });
   await open();
   const account = await openSub("Account");
-  // `cmux route` is gone (Leo, 2026-10-21): an account is a route file, so the note names its folder.
-  expect(itemsOf(account)).toEqual(["CLI login", "Add accounts as route files in ~/.config/cmux/routes"]);
+  expect(itemsOf(account)).toEqual(["CLI login"]);
   expect(account.textContent).not.toContain("cmux route");
 });
 
@@ -516,6 +535,71 @@ test("the rail lists Starred, then each harness; a harness's tab lists its model
   expect(names.every((name) => !/opus|sonnet|haiku/i.test(name))).toBe(true);
   // Effort and Account are the chat's: another harness's tab shows neither.
   expect(itemsOf(menu()!).some((row) => row?.startsWith("Account") || row?.startsWith("Effort"))).toBe(false);
+});
+
+test("a row's star stars and unstars its model, and ⌘D is left to Split Right", async () => {
+  await mount({ routes: [] });
+  await open();
+  const row = modelRows(menu()!)[0]!;
+  const name = row.querySelector(".acpmux-menu-label")?.textContent ?? "";
+  await act(async () => row.focus());
+  await settle();
+  const star = () => row.closest(".acpmux-quick-model-effort")!.querySelector<HTMLButtonElement>(".acpmux-quick-star")!;
+  // The star says which model it stars, and names no key.
+  expect(star().getAttribute("aria-label")).toContain(name);
+  expect(star().hasAttribute("aria-keyshortcuts")).toBe(false);
+  expect(star().title).not.toContain("⌘D");
+  expect(star().getAttribute("aria-pressed")).toBe("false");
+  // ⌘D is cmux's Split Right: the open menu neither stars with it nor keeps it from the app.
+  const commandD = new dom.window.KeyboardEvent("keydown", {
+    key: "d",
+    metaKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+  await act(async () => {
+    row.dispatchEvent(commandD);
+  });
+  await settle();
+  expect(commandD.defaultPrevented, "the menu took ⌘D").toBe(false);
+  expect(star().getAttribute("aria-pressed")).toBe("false");
+  await act(async () => star().click());
+  await settle();
+  expect(star().getAttribute("aria-pressed")).toBe("true");
+  expect(menu(), "the star closed the menu").not.toBeNull();
+  await act(async () => star().click());
+  await settle();
+  expect(star().getAttribute("aria-pressed")).toBe("false");
+});
+
+test("every harness tab on the symbols row is a mark with no visible text, its name only its label", async () => {
+  // Leo 2026-10-31: "NOBODY FUCKING ASKED FOR THE HARNESSES TO HAVE FUCKING LABELED FUCKING TEXT ON
+  // THEM THAT'S THE POINT". A glyph-only harness (no brand mark behind it) draws its initial.
+  const { rememberHarnessIcons } = await import("../src/agent-session/shared/harnessIcons");
+  rememberHarnessIcons([{ id: "glyph-harness", iconSpec: { kind: "glyph", name: "terminal", source: "default" } }]);
+  await mount({ routes: [] }, { glyphHarness: true });
+  await open();
+  const tabs = railTabs().filter((tab) => !tab.classList.contains("acpmux-quick-rail-add"));
+  expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toContain("Glyph harness");
+  for (const tab of tabs) {
+    const name = tab.getAttribute("aria-label");
+    // The name is the tab's label and tooltip, hidden on the tab itself.
+    expect(tab.title, `${name}`).toContain(name!);
+    const label = tab.querySelector(".acpmux-quick-harness-name")!;
+    expect(label.classList.contains("sr-only"), `${name}: its name shows on the tab`).toBe(true);
+    // Its mark: a symbol, the star, or the name's initial.
+    expect(tab.querySelector(".agent-mark, svg, .acpmux-quick-rail-initial"), `${name}: no mark`).not.toBeNull();
+    // No visible text: everything outside the hidden name is a mark.
+    const visible = [...tab.childNodes]
+      .filter((node) => node !== label)
+      .map((node) => node.textContent ?? "")
+      .join("");
+    expect(visible.replace(/\s/g, "").length, `${name}: visible text "${visible}"`).toBeLessThanOrEqual(1);
+  }
+  const glyph = tabs.find((tab) => tab.getAttribute("aria-label") === "Glyph harness")!;
+  expect(glyph.querySelector(".acpmux-quick-rail-initial")?.textContent).toBe("G");
+  const add = menu()!.querySelector(".acpmux-quick-rail-add");
+  if (add) expect(add.querySelector(".sr-only")).not.toBeNull();
 });
 
 test("without a starred model the rail starts at the harnesses", async () => {
@@ -551,7 +635,8 @@ test("Add harness… is the last item in the harness strip, outside More models"
   const { added } = await mount({ routes: [] });
   await open();
   const top = modelNames(menu()!);
-  const more = await openSub("More models");
+  // The default symbols layout names More models "Legacy models".
+  const more = await openSub("Legacy models");
   const rows = itemsOf(more);
   expect(rows).not.toContain("Add harness…");
   expect(rows.length).toBeGreaterThan(0);
@@ -947,3 +1032,80 @@ test.each([
   expect(updated).toBe(1);
   expect(menu()).toBeNull();
 });
+
+test.each(["claude", "codex"])(
+  "Add account submits a local native request and refreshes the picker without switching routes (%s)",
+  async (family) => {
+    const { postNative, setNativeHost } = await import("../src/agent-session/acpmux/native");
+    const calls: { method: string; params: Record<string, unknown> }[] = [];
+    const listed = {
+      family,
+      routes: [{ id: "personal", name: "Personal", kind: "direct-subscription", serves: true }],
+      active: { routeId: "personal", scope: "chat" },
+    };
+    setNativeHost(async (method, params) => {
+      if (method !== "account.add") return undefined;
+      calls.push({ method, params });
+      listed.routes.push({ id: String(params.id), name: String(params.name), kind: String(params.kind), serves: true });
+      return { id: params.id };
+    });
+    try {
+      const state = await mount(listed, {
+        addAccount: async (params) => {
+          await postNative("account.add", params);
+        },
+      });
+      await open();
+      const account = await openSub("Account");
+      const add = Array.from(account.querySelectorAll<HTMLElement>("[role=menuitem]")).find((item) =>
+        item.textContent?.includes("Add account"),
+      );
+      expect(add).toBeDefined();
+      await act(async () => add!.click());
+      await settle();
+      const dialog = dom.window.document.querySelector<HTMLElement>('[role="dialog"]')!;
+      expect(dialog).not.toBeNull();
+      const fill = async (name: string, value: string) => {
+        const input = dialog.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, value);
+          input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+        });
+      };
+      await fill("id", "work");
+      await fill("name", "Work login");
+      await fill("accountHome", "/Users/demo/.claude-work");
+      await act(async () =>
+        dialog
+          .querySelector("form")!
+          .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
+      );
+      await settle();
+      expect(calls).toEqual([
+        {
+          method: "account.add",
+          params: {
+            id: "work",
+            name: "Work login",
+            kind: "direct-subscription",
+            family,
+            accountHome: "/Users/demo/.claude-work",
+          },
+        },
+      ]);
+      expect(state.sent.filter((item) => item.method === "route")).toEqual([]);
+      expect(dom.window.document.querySelector('[role="dialog"]')).toBeNull();
+      const reopened = await openSub("Account");
+      const choices = [...reopened.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+      const work = choices.find((item) => item.textContent?.includes("Work login"));
+      expect(work).toBeDefined();
+      expect(work!.hasAttribute("disabled")).toBe(false);
+      expect(work!.getAttribute("aria-disabled")).not.toBe("true");
+      expect(work!.getAttribute("aria-checked")).toBe("false");
+      expect(choices.find((item) => item.textContent?.includes("Personal"))?.getAttribute("aria-checked")).toBe("true");
+      expect(state.asked.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      setNativeHost(undefined);
+    }
+  },
+);

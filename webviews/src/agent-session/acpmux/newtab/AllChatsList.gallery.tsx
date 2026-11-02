@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures use sample chat rows and a deterministic page cursor.
 import { componentEntry } from "../../../gallery/format";
+import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import type { ComponentProps } from "react";
 import { AllChatsList, type AllChatsPage, type LoadChatsPage } from "./AllChatsList";
@@ -42,6 +43,55 @@ const pageLoad =
     return failed ? undefined : second;
   };
 
+// Long titles and folders cut at the row's edge, and carry their whole value as a tooltip, the
+// live chats at the top included; ages from a week on read as a date (#28079).
+const DAY_MINUTES = 24 * 60;
+const LONG_CWD = "/Users/sample/projects/atlas-web-payments-reconciliation-service";
+const longRows: AllChatsPage = {
+  chats: [
+    {
+      key: "claude:long-recent",
+      harness: "claude",
+      title: "Reconcile the payment ledger against the processor export before the quarterly close",
+      cwd: LONG_CWD,
+      updatedAt: minutesAgo(3 * 60),
+    },
+    {
+      key: "codex:long-week",
+      harness: "codex",
+      title: "Tidy the retry policy",
+      cwd: LONG_CWD,
+      updatedAt: minutesAgo(6 * DAY_MINUTES),
+    },
+    {
+      key: "claude:long-older",
+      harness: "claude",
+      title: "Make the reconciliation worker retry with backoff so a dropped connection never double-charges",
+      cwd: LONG_CWD,
+      updatedAt: minutesAgo(9 * DAY_MINUTES),
+    },
+    {
+      key: "claude:long-months",
+      harness: "claude",
+      title: "Audit the invoice exports",
+      cwd: "/Users/sample/projects/atlas-web",
+      updatedAt: minutesAgo(95 * DAY_MINUTES),
+    },
+  ],
+  ready: true,
+  design: "project",
+};
+const longActive = [
+  {
+    id: "gallery-live-long",
+    title: "Migrate every merchant's saved payment methods to the new vault without a re-prompt",
+    harness: "claude",
+    state: "running" as const,
+    label: "Working",
+  },
+  { id: "gallery-live-short", title: "Release notes", harness: "codex", state: "input" as const, label: "Needs input" },
+];
+
 export default componentEntry<ComponentProps<typeof AllChatsList>>({
   id: "agent-pane.all-chats-list",
   title: "All chats page recovery",
@@ -61,6 +111,10 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
     "page-recovered": {
       note: "Retrying the same older page appends its chats and removes the recovery row.",
       props: { ...baseProps, load: pageLoad(false) },
+    },
+    "long-values": {
+      note: "Long titles and folders cut at the row's edge and carry their whole value as a tooltip, the live chats at the top included; ages from a week on read as a date.",
+      props: { ...baseProps, load: async () => longRows, active: longActive, now: GALLERY_NOW },
     },
     "page-empty": {
       note: "A first page with no cursor stays a quiet list with no dead loader row.",

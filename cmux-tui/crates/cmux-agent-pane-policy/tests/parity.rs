@@ -115,7 +115,7 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 55, "check.json: the full order's 55 cases");
+    assert_eq!(all.as_array().unwrap().len(), 63, "check.json: the full order's 63 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -532,5 +532,24 @@ fn question_permissions() {
         ("never", false),
     ] {
         assert_eq!(options.question_keys(id).is_some(), question, "{id}");
+    }
+}
+
+/// The keys a question's `answers` may use (tests/cases/question_keys.json):
+/// the normalized question's item ids and prompts, else Claude Code's own
+/// AskUserQuestion's `toolCall.rawInput.questions[].question`
+/// (AgentPaneUserGestures.swift `questionKeys`, #28129); None for a request
+/// that is no question.
+#[test]
+fn question_answer_keys() {
+    for c in cases("question_keys.json").as_array().unwrap() {
+        let options = PermissionOptions::new();
+        let pending = serde_json::json!({"method": "_acpmux/permission_pending",
+            "params": {"permissionId": "p", "request": c["request"]}});
+        options.observe(pending.as_object().unwrap(), None);
+        let want: Option<BTreeSet<String>> = c["keys"]
+            .as_array()
+            .map(|a| a.iter().map(|k| k.as_str().unwrap().to_owned()).collect());
+        assert_eq!(options.question_keys("p"), want, "{}", name(c));
     }
 }

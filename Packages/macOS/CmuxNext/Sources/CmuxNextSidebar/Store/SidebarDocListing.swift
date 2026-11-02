@@ -22,7 +22,7 @@ extension SidebarDocProjection {
         let elsewhere = projection.bandGroupsListedElsewhere(drag: drag)
         var pulled: [String: SidebarGroup] = [:]
         var arranged = sections.map { section in
-            var section = section
+            var section = section.unwrappedHostGroup()
             section.nodes.removeAll { node in
                 guard case .group(let group) = node, bandIDs.contains(group.id.rawValue) else { return false }
                 // A group whose members sit on more than one machine comes once per machine: one group again.
@@ -38,6 +38,8 @@ extension SidebarDocProjection {
                 section.nodes = Self.machineNodes(section, projection, drag: drag)
                 // A machine section the person made a remote group keeps its header in one list.
                 section.isHostGroup = drag.section(section.id).flatMap { projection.hostGroups.contains($0) } ?? false
+                // It draws as one group (user 2026-10-31, Chief msg 19277).
+                if section.isHostGroup { section = section.wrappedAsHostGroup() }
             }
             return section
         }
@@ -60,7 +62,7 @@ extension SidebarDocProjection {
                 if let shown = pulled[group.id] { return .group(shown) }
                 // Not listed here: another window lists an open workspace of it, or none does (its header alone, also while
                 // its last one closes or a new one waits for its window's row).
-                return elsewhere.contains(group.id) ? nil : .group(Self.emptyGroup(group))
+                return elsewhere.contains(group.id) ? nil : .group(Self.emptyGroup(group, folds: drag.document?.groupFolds))
             }
             guard !passedMachines || !nodes.isEmpty else { continue }
             let section = SidebarSection(kind: .custom(SidebarCustomSection(id: id, title: layoutSection.title, showsTitle: false)), nodes: nodes)
@@ -211,9 +213,10 @@ extension SidebarDocProjection {
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.
-    @MainActor private static func emptyGroup(_ group: Group) -> SidebarGroup {
+    /// `folds`: the document's confirmed folds (`SidebarDocStore.groupFolds`).
+    @MainActor private static func emptyGroup(_ group: Group, folds: [String: Bool]?) -> SidebarGroup {
         // The confirmed fold (a fold's echo rebuilds no projection, `SidebarDocStore.groupFolds`).
-        var made = SidebarGroup(id: GroupID(group.id), name: group.name, isCollapsed: SidebarDocStore.current?.groupFolds[group.id] ?? group.collapsed,
+        var made = SidebarGroup(id: GroupID(group.id), name: group.name, isCollapsed: folds?[group.id] ?? group.collapsed,
                                 icon: group.icon.flatMap { WorkspaceIcon.parse($0) }, workspaces: [])
         made.tint = group.color.flatMap { GroupTint(wire: $0) } ?? .palette(.unset(id: group.id))
         // A group in Pinned reads as pinned, as one with members does (`SidebarDocMachines.model`): else its

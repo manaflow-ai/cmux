@@ -126,6 +126,39 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       const box = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
       return { x: box.left + 8, y: box.top + box.height / 2 };
     }, index);
+  test("a one-screen chat shows its first prompt tick and clicking it highlights without scrolling", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
+    try {
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+      await page.waitForFunction(() => "__showRows" in window);
+      const show = (shown: typeof rows) =>
+        page.evaluate((value) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(value), shown);
+      await show([]);
+      await page.waitForSelector(".acpmux-scroll");
+      expect(await page.locator(".acpmux-minimap__tick").count()).toBe(0);
+      await show(rows.slice(0, 3));
+      await page.waitForSelector(".acpmux-minimap__tick", { timeout: 5_000 });
+      expect(await page.locator(".acpmux-minimap__tick").count()).toBe(1);
+      const scroll = () =>
+        page.evaluate(() => {
+          const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          return { top: node.scrollTop, room: node.scrollHeight - node.clientHeight };
+        });
+      expect(await scroll()).toEqual({ top: 0, room: 0 });
+      await page.locator(".acpmux-minimap__tick").click();
+      await page.waitForFunction(() =>
+        document
+          .querySelector('[data-row-id="t0-user"] .cv-user__bubble')
+          ?.getAnimations()
+          .some((animation) => animation.id === "acpmux-landing"),
+      );
+      expect(await scroll()).toEqual({ top: 0, room: 0 });
+    } finally {
+      await page.close();
+    }
+  });
   test("hover grows the tick to 26 px within 120 ms, with no delay, on the spring curve", async () => {
     const page = await open(false);
     const style = await page.evaluate(() => {

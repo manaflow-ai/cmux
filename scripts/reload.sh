@@ -1372,11 +1372,13 @@ fi
 if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
   echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
 else
-  # An nx-remote build of a tree no artifacts run published (a newer push
-  # replaces a pending run on a busy branch, and uncommitted edits are never
-  # published) builds the client set here instead of waiting up to 45 min; the
-  # bundle then takes it as CMUX_TUI_CLIENT_LOCAL. Fleet builds already pass it.
-  if [[ -n "${NX_JOB_ID:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" && -x "$PWD/scripts/cmux-next/build-cmux-tui-client.sh" ]] &&
+  # An nx-remote build or a cmux-ci fleet step (CMUX_CI_PHASE_FILE: a
+  # scripts/measure/ bench) of a tree no artifacts run published (a newer push
+  # replaces a pending run on a busy branch, a bench commit on a side branch and
+  # uncommitted edits are never published) builds the client set here instead of
+  # waiting up to 45 min; the bundle then takes it as CMUX_TUI_CLIENT_LOCAL.
+  # Fleet cmux builds already pass it.
+  if [[ -n "${NX_JOB_ID:-}${CMUX_CI_PHASE_FILE:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" && -x "$PWD/scripts/cmux-next/build-cmux-tui-client.sh" ]] &&
     ! "$PWD/scripts/cmux-next/pin-cmux-tui.sh" probe 2>/dev/null | grep -q ': ready ('; then
     CMUX_TUI_CLIENT_LOCAL="$("$PWD/scripts/cmux-next/build-cmux-tui-client.sh" --print-path)" || exit 1
     export CMUX_TUI_CLIENT_LOCAL

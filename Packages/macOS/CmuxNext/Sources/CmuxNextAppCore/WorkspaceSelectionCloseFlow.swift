@@ -167,7 +167,8 @@ public struct WorkspaceSelectionCloseFlow {
         for (member, failure) in results {
             // Settled: a refused row can be closed again at once.
             running.remove(member.0.id)
-            ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, in: member.0.id == firstRefused ? toastWindow : nil)
+            ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure),
+                                         in: member.0.id == firstRefused ? toastWindow : nil)
         }
         return results.filter { $0.1 == nil }.map { $0.0.0.name }
     }
@@ -178,7 +179,7 @@ public struct WorkspaceSelectionCloseFlow {
         guard let key = workspace.key else { return nil }
         return await daemon.failureOnceConnected("close-workspace", waits: waits, while: { machines().contains { $0 === daemon } }) { connection in
             try await ClosingWorkspaces.shared.refusal()
-            try await WorkspaceClose.close(key, terminals: terminals, on: connection)
+            try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
         }
     }
 }

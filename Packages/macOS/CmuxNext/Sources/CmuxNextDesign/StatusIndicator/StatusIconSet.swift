@@ -110,10 +110,11 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .working where state.progress == nil:
             if self == .bars { return StatusIndicatorPlan(glyph: .bars, animation: .wave, tint: .accent) }
             if self == .signs { return StatusIndicatorPlan(glyph: .dots, animation: .wave, tint: .accent) }
-            // A small rotating arc in the muted loading color, not a pulsing mark (Lawrence
-            // 2026-10-14: "left sidebar needs to be a spinner instead of flash", cx-qtgj2).
-            // Still under Reduce Motion, occlusion or loops off (`StatusIndicatorPlan.make`).
-            return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .loading)
+            // A spinner in the muted loading color, not a pulsing mark (Lawrence 2026-10-14: "left
+            // sidebar needs to be a spinner instead of flash", cx-qtgj2): the working spinner
+            // (`StatusIndicatorPlan.working`). Still under Reduce Motion, occlusion or loops off
+            // (`StatusIndicatorPlan.make`).
+            return StatusIndicatorPlan.working(tint: .loading)
         case .waiting(let kind):
             if self == .bars, kind == nil { return StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .attention) }
             return StatusIndicatorPlan(glyph: .mark(blockedMark(kind)), animation: nil, tint: .attention)
@@ -230,11 +231,11 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     }
 
     /// The Codex-like set (`sets.codex` in schemas/status-glyphs/static-status.json, which the web
-    /// copy follows): Lawrence's shared spinner re-tinted for work, line glyphs for the rest.
+    /// copy follows): the working spinner re-tinted grey for work, line glyphs for the rest.
     private func codexPlan(for state: StatusIndicatorState) -> StatusIndicatorPlan? {
         switch state {
         case .working where state.progress == nil:
-            return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .spinner)
+            return StatusIndicatorPlan.working(tint: .spinner)
         case .waiting(let kind) where kind == .permission || kind == .auth:
             return StatusIndicatorPlan(glyph: .mark(blockedMark(kind)), animation: nil, tint: .loading)
         case .waiting:

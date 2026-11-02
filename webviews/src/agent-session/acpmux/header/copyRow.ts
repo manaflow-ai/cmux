@@ -5,6 +5,7 @@ import { type Translate, translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { SHORTCUT_ACTIONS } from "../shortcuts";
 import type { ChatMenuChild, ChatMenuItem } from "./ChatHeaderTools";
+import { sliceWhole } from "../../../ui/wholeChars";
 
 export function copyRow(
   chat: { link: string | undefined; rows: readonly AcpmuxRow[]; sessionId?: string },
@@ -98,7 +99,7 @@ export function conversationMarkdown(rows: readonly AcpmuxRow[]): string {
       .filter((title): title is string => !!title)
       .map((title) => {
         const compact = title.replace(/\s+/gu, " ");
-        const short = compact.length > 160 ? `${compact.slice(0, 157)}…` : compact;
+        const short = compact.length > 160 ? `${sliceWhole(compact, 157)}…` : compact;
         return `- Tool: ${short}`;
       });
     if (tools.length) blocks.push(...tools);

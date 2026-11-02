@@ -4,6 +4,7 @@
 // answers are kept for the page's life. The host never fetches anything for this.
 import { useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 export type PathPlace = "root" | "outside" | "denied" | "missing";
 export type PathInfo = { place: PathPlace; folder: boolean };
@@ -117,21 +118,25 @@ const useStore = <T>(read: () => T): T => useSyncExternalStore(subscribe, read, 
 /// The host's answer for `path` (undefined while it is asked, or when the host had none), whether
 /// the host has answered, and the policy.
 export function usePathInfo(path: string): { info: PathInfo | undefined; answered: boolean; policy: ReplyPolicy } {
-  ask(path);
+  // Read only (a guest), the owner's host is never asked; the path stays unanswered.
+  const readOnly = useTranscriptReadOnly();
+  if (!readOnly) ask(path);
   const info = useStore(() => paths.get(path) ?? undefined);
-  const answered = useStore(() => !asking.has(path));
+  const answered = useStore(() => !readOnly && !asking.has(path));
   return { info, answered, policy: useStore(() => policy) };
 }
 
 /// What cmux already has for `url` (nothing while it is asked, or when it has nothing).
 export function useSiteInfo(url: string | undefined): SiteInfo | undefined {
-  if (url) ask(undefined, url);
+  const readOnly = useTranscriptReadOnly();
+  if (url && !readOnly) ask(undefined, url);
   return useStore(() => (url ? (sites.get(url) ?? undefined) : undefined));
 }
 
 /// `agentPane.images.remote` and `agentPane.links.outsideRoots` as the host last said.
 export function useReplyPolicy(): ReplyPolicy {
-  ask();
+  const readOnly = useTranscriptReadOnly();
+  if (!readOnly) ask();
   return useStore(() => policy);
 }
 

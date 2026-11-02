@@ -22,6 +22,7 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     "attention",
     "agent",
     "room",
+    "space",
     "closed",
     "git",
 ];
@@ -84,9 +85,37 @@ impl std::fmt::Display for ProgramName {
 
 pub(super) const MACHINE_CATALOG_HELP: &str = "\
 USAGE
-  cmux machine list [--catalog]
+  cmux machine ls [--catalog]
   cmux machine <selector> show [--catalog]
+  cmux machine add | revoke | rotate | doctor
 
-With the cmux app running, `machine list` also lists its Cloud machines
+With the cmux app running, `machine ls` also lists its Cloud machines
 (`kind: cloud`, `target: machine:<id>`); without it a note says they are missing.
+";
+
+/// `cmux machine`'s Cloud machine verbs (cli/vm.rs), in every `machine` help.
+pub(super) const MACHINE_VM_HELP: &str = "\
+Cloud machines through the cmux VM API (vm.cmux.dev):
+  run       Run a command on a fresh machine, deleted when it ends (--sync, --pull, --keep)
+  new       Create a machine
+  show      Show a machine (`cmux machine show ID`)
+  pause     Pause a machine, keeping its memory
+  resume    Resume a paused machine
+  start     Start a stopped machine
+  stop      Stop a machine; its disk stays
+  rm        Delete a machine for good
+  exec      Run a command on a machine
+  fork      Fork a machine
+  snapshot  Snapshots (new, show, ls, rm)
+  access    Short-lived access to one machine (new, ls, revoke, exec)
+  key       A machine-only agent key for any process (new, status, revoke)
+  creation  Recover a create whose answer was lost (list, get, cancel, reconcile)
+
+`cmux machine access new|exec --target machine:VM_ID` mints access through the
+cmux API instead, for `cmux cloud`'s machines. Use `cmux cloud resize-machine`
+to resize one.
+
+Old spellings still work: `cmux vm …` for every verb (`cmux vm ls` lists the
+VM API's machines), and create, get, delete, `token create` and
+`client-session create` for new, show, rm, `key new` and `access new`.
 ";

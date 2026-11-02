@@ -197,20 +197,20 @@ struct TerminalComposer: View {
         } label: {
             ZStack {
                 if model.isUploading {
-                    ProgressView().controlSize(.small).tint(.white)
+                    ProgressView().controlSize(.small).tint(Color.cmuxMobileOnAccent)
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(canSend || failed ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.primary.opacity(0.35)))
+                        .foregroundStyle(failed ? AnyShapeStyle(Color.white) : canSend ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.35)))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
             .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
-            // ↑ (send) is the primary action: glass tinted with the accent;
-            // empty, plain glass (classic's accent and quiet fills, as glass).
+            // ↑ (send) is the primary action: glass tinted with the
+            // monochrome accent, never blue (design/ios.md); empty, plain glass.
             // Empty (disabled): plain glass that does not react to a touch.
             .glassEffect(failed ? .regular.tint(.red).interactive()
-                         : canSend || model.isUploading ? .regular.tint(Color(uiColor: .systemBlue)).interactive()
+                         : canSend || model.isUploading ? .regular.tint(Color.cmuxMobileAccent).interactive()
                          : .regular, in: .circle)
             .animation(.smooth(duration: 0.2), value: canSend)
         }

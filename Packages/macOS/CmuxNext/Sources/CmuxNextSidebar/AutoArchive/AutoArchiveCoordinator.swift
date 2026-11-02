@@ -60,12 +60,12 @@ public final class AutoArchiveCoordinator {
     static let cardNames = 5
 
     /// - Parameters:
-    ///   - document: the active sidebar document (by default `SidebarDocStore.current` while active).
+    ///   - document: the app's sidebar document while it is active (its own store, from the composition root).
     ///   - ledgerStore: where the last-seen ledger lasts across launches.
     ///   - clock: drives the pass and save deadlines (tests pass a manual clock).
     ///   - now: the wall clock the idle times are measured on.
     public init(host: any AutoArchiveHost,
-                document: @escaping () -> (any AutoArchiveDocument)? = { SidebarDocStore.current.flatMap { $0.isActive ? $0 : nil } },
+                document: @escaping () -> (any AutoArchiveDocument)?,
                 ledgerStore: AutoArchiveLedgerStore, clock: any Clock<Duration> = ContinuousClock(),
                 now: @escaping @MainActor () -> Date = { Date() }) {
         self.host = host
@@ -230,9 +230,9 @@ public final class AutoArchiveCoordinator {
         markDirty()
     }
 
-    /// The Tidy Up card, as small as it can be (Lawrence 18515): "Archive 2 idle workspaces?", the
-    /// names, Archive and Always Archive; the x is Not Now (a day's snooze). Always Archive turns on
-    /// `workspaces.autoArchive.style` `quiet` and archives these now.
+    /// The Tidy Up card, as small as it can be (Lawrence 18515, gallery pick T3): "2 idle workspaces",
+    /// the names, Archive and an inline "Always" switch; the x is Not Now (a day's snooze). Flipping Always turns
+    /// on `workspaces.autoArchive.style` `quiet` and archives these now.
     private func suggest(_ due: [AutoArchivePlanner.Candidate], days: Int) {
         guard card == nil else { return }
         var lines = due.prefix(Self.cardNames).map(\.title)
@@ -241,7 +241,7 @@ public final class AutoArchiveCoordinator {
             id: "auto-archive.suggest", symbol: "archivebox",
             title: AutoArchiveStrings.cardQuestion(due.count), lines: lines,
             actions: [SidebarNoticeCard.Action(id: Self.archiveAction, title: AutoArchiveStrings.cardArchive, prominent: true),
-                      SidebarNoticeCard.Action(id: Self.alwaysAction, title: AutoArchiveStrings.cardAlways)],
+                      SidebarNoticeCard.Action(id: Self.alwaysAction, title: AutoArchiveStrings.cardAlways, isSwitch: true)],
             dismissLabel: AutoArchiveStrings.cardNotNow)
         let items = due.map(\.item)
         // task-owner: the one open suggestion; cancelled by a settings change or stop()

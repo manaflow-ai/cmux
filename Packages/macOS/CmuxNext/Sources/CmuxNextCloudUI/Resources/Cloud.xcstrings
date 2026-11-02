@@ -277,6 +277,98 @@
       "zh-Hans": {"stringUnit": {"state": "translated","value": "恢复"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "繼續"}}
     }},
+    "automations.problem.cloud": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "تعذّر الوصول إلى cmux Cloud؛ لا تظهر أتمتة السحابة."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Nije moguće doći do cmux Clouda; Cloud automatizacije se ne prikazuju."}},
+      "da": {"stringUnit": {"state": "translated","value": "Kunne ikke nå cmux Cloud; Cloud-automatiseringer vises ikke."}},
+      "de": {"stringUnit": {"state": "translated","value": "cmux Cloud ist nicht erreichbar; Cloud-Automatisierungen werden nicht angezeigt."}},
+      "en": {"stringUnit": {"state": "translated","value": "Could not reach cmux Cloud; Cloud automations are not shown."}},
+      "es": {"stringUnit": {"state": "translated","value": "No se pudo conectar con cmux Cloud; no se muestran las automatizaciones en la nube."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Impossible de joindre cmux Cloud ; les automatisations Cloud ne sont pas affichées."}},
+      "it": {"stringUnit": {"state": "translated","value": "Impossibile raggiungere cmux Cloud; le automazioni Cloud non vengono mostrate."}},
+      "ja": {"stringUnit": {"state": "translated","value": "cmux Cloud に接続できないため、Cloud の自動化は表示されません。"}},
+      "km": {"stringUnit": {"state": "translated","value": "មិនអាចភ្ជាប់ cmux Cloud បានទេ ស្វ័យប្រវត្តិកម្ម Cloud មិនត្រូវបានបង្ហាញ។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "cmux Cloud에 연결할 수 없어 Cloud 자동화가 표시되지 않습니다."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Får ikke kontakt med cmux Cloud; Cloud-automatiseringer vises ikke."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Nie można połączyć się z cmux Cloud; automatyzacje w chmurze nie są widoczne."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Não foi possível acessar o cmux Cloud; as automações na nuvem não aparecem."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Не удалось связаться с cmux Cloud; облачные автоматизации не показаны."}},
+      "th": {"stringUnit": {"state": "translated","value": "ติดต่อ cmux Cloud ไม่ได้ จึงไม่แสดงระบบอัตโนมัติบนคลาวด์"}},
+      "tr": {"stringUnit": {"state": "translated","value": "cmux Cloud'a ulaşılamadı; Cloud otomasyonları gösterilmiyor."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Не вдалося зв'язатися з cmux Cloud; хмарні автоматизації не показано."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Không kết nối được cmux Cloud; không hiển thị tự động hóa trên đám mây."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "无法连接 cmux Cloud，云端自动化未显示。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "無法連線 cmux Cloud，雲端自動化未顯示。"}}
+    }},
+    "automations.problem.cloudOff": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "أوقف المسؤول cmux Cloud، لذلك لا تظهر أتمتة السحابة."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Administrator je isključio cmux Cloud, pa se Cloud automatizacije ne prikazuju."}},
+      "da": {"stringUnit": {"state": "translated","value": "Din administrator har slået cmux Cloud fra, så Cloud-automatiseringer vises ikke."}},
+      "de": {"stringUnit": {"state": "translated","value": "Dein Administrator hat cmux Cloud deaktiviert, daher werden Cloud-Automatisierungen nicht angezeigt."}},
+      "en": {"stringUnit": {"state": "translated","value": "Your administrator turned off cmux Cloud, so Cloud automations are not shown."}},
+      "es": {"stringUnit": {"state": "translated","value": "Tu administrador desactivó cmux Cloud, así que no se muestran las automatizaciones en la nube."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Votre administrateur a désactivé cmux Cloud ; les automatisations Cloud ne sont pas affichées."}},
+      "it": {"stringUnit": {"state": "translated","value": "L'amministratore ha disattivato cmux Cloud, quindi le automazioni Cloud non vengono mostrate."}},
+      "ja": {"stringUnit": {"state": "translated","value": "管理者が cmux Cloud をオフにしているため、Cloud の自動化は表示されません。"}},
+      "km": {"stringUnit": {"state": "translated","value": "អ្នកគ្រប់គ្រងបានបិទ cmux Cloud ដូច្នេះស្វ័យប្រវត្តិកម្ម Cloud មិនត្រូវបានបង្ហាញទេ។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "관리자가 cmux Cloud를 꺼서 Cloud 자동화가 표시되지 않습니다."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Administratoren har slått av cmux Cloud, så Cloud-automatiseringer vises ikke."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Administrator wyłączył cmux Cloud, więc automatyzacje w chmurze nie są widoczne."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Seu administrador desativou o cmux Cloud, então as automações na nuvem não aparecem."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Администратор отключил cmux Cloud, поэтому облачные автоматизации не показаны."}},
+      "th": {"stringUnit": {"state": "translated","value": "ผู้ดูแลระบบปิด cmux Cloud ไว้ จึงไม่แสดงระบบอัตโนมัติบนคลาวด์"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Yöneticiniz cmux Cloud'u kapattı; Cloud otomasyonları gösterilmiyor."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Адміністратор вимкнув cmux Cloud, тому хмарні автоматизації не показано."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Quản trị viên đã tắt cmux Cloud nên không hiển thị tự động hóa trên đám mây."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "管理员已关闭 cmux Cloud，因此不显示云端自动化。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "管理員已關閉 cmux Cloud，因此不顯示雲端自動化。"}}
+    }},
+    "automations.problem.signedOut": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "سجّل الدخول إلى cmux لرؤية أتمتة السحابة."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Prijavite se u cmux da vidite svoje Cloud automatizacije."}},
+      "da": {"stringUnit": {"state": "translated","value": "Log ind på cmux for at se dine Cloud-automatiseringer."}},
+      "de": {"stringUnit": {"state": "translated","value": "Melde dich bei cmux an, um deine Cloud-Automatisierungen zu sehen."}},
+      "en": {"stringUnit": {"state": "translated","value": "Sign in to cmux to see your Cloud automations."}},
+      "es": {"stringUnit": {"state": "translated","value": "Inicia sesión en cmux para ver tus automatizaciones en la nube."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Connectez-vous à cmux pour voir vos automatisations Cloud."}},
+      "it": {"stringUnit": {"state": "translated","value": "Accedi a cmux per vedere le tue automazioni Cloud."}},
+      "ja": {"stringUnit": {"state": "translated","value": "Cloud の自動化を表示するには cmux にサインインしてください。"}},
+      "km": {"stringUnit": {"state": "translated","value": "ចូលគណនី cmux ដើម្បីមើលស្វ័យប្រវត្តិកម្ម Cloud របស់អ្នក។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "Cloud 자동화를 보려면 cmux에 로그인하세요."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Logg på cmux for å se Cloud-automatiseringene dine."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Zaloguj się do cmux, aby zobaczyć automatyzacje w chmurze."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Entre no cmux para ver suas automações na nuvem."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Войдите в cmux, чтобы увидеть облачные автоматизации."}},
+      "th": {"stringUnit": {"state": "translated","value": "ลงชื่อเข้าใช้ cmux เพื่อดูระบบอัตโนมัติบนคลาวด์ของคุณ"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Cloud otomasyonlarınızı görmek için cmux'a giriş yapın."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Увійдіть у cmux, щоб побачити хмарні автоматизації."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Đăng nhập cmux để xem các tự động hóa trên đám mây."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "登录 cmux 以查看你的云端自动化。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "登入 cmux 以查看你的雲端自動化。"}}
+    }},
+    "automations.problem.thisMac": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "تعذّرت قراءة أتمتة هذا الـ Mac (فشل cmux automation list)."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Nije moguće pročitati automatizacije ovog Maca (cmux automation list nije uspio)."}},
+      "da": {"stringUnit": {"state": "translated","value": "Kunne ikke læse denne Macs automatiseringer (cmux automation list mislykkedes)."}},
+      "de": {"stringUnit": {"state": "translated","value": "Die Automatisierungen dieses Macs konnten nicht gelesen werden (cmux automation list ist fehlgeschlagen)."}},
+      "en": {"stringUnit": {"state": "translated","value": "Could not read this Mac's automations (cmux automation list failed)."}},
+      "es": {"stringUnit": {"state": "translated","value": "No se pudieron leer las automatizaciones de este Mac (falló cmux automation list)."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Impossible de lire les automatisations de ce Mac (échec de cmux automation list)."}},
+      "it": {"stringUnit": {"state": "translated","value": "Impossibile leggere le automazioni di questo Mac (cmux automation list non riuscito)."}},
+      "ja": {"stringUnit": {"state": "translated","value": "この Mac の自動化を読み込めませんでした (cmux automation list が失敗しました)。"}},
+      "km": {"stringUnit": {"state": "translated","value": "មិនអាចអានស្វ័យប្រវត្តិកម្មរបស់ Mac នេះបានទេ (cmux automation list បរាជ័យ)។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "이 Mac의 자동화를 읽을 수 없습니다(cmux automation list 실패)."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Kunne ikke lese automatiseringene på denne Macen (cmux automation list mislyktes)."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Nie można odczytać automatyzacji tego Maca (cmux automation list nie powiodło się)."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Não foi possível ler as automações deste Mac (cmux automation list falhou)."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Не удалось прочитать автоматизации этого Mac (ошибка cmux automation list)."}},
+      "th": {"stringUnit": {"state": "translated","value": "อ่านระบบอัตโนมัติของ Mac เครื่องนี้ไม่ได้ (cmux automation list ล้มเหลว)"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Bu Mac'in otomasyonları okunamadı (cmux automation list başarısız oldu)."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Не вдалося прочитати автоматизації цього Mac (помилка cmux automation list)."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Không đọc được tự động hóa của máy Mac này (cmux automation list thất bại)."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "无法读取此 Mac 的自动化（cmux automation list 失败）。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "無法讀取此 Mac 的自動化（cmux automation list 失敗）。"}}
+    }},
     "automations.runNow": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "تشغيل الآن"}},
       "bs": {"stringUnit": {"state": "translated","value": "Pokreni sada"}},
@@ -782,6 +874,29 @@
       "vi": {"stringUnit": {"state": "translated","value": "Kết nối đám mây này không hỗ trợ thiết lập thông tin xác thực của nhà cung cấp."}},
       "zh-Hans": {"stringUnit": {"state": "translated","value": "此云端连接不支持设置提供商凭据。"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "此雲端連線不支援設定供應商憑證。"}}
+    }},
+    "cloud.workspaceSetup.credentialsSignInOnMachine": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "سجّل الدخول إلى Claude أو Codex على الآلة الافتراضية نفسها: توفّر محادثتها تسجيل دخول بنقرة واحدة."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Prijavite se u Claude ili Codex na samoj virtuelnoj mašini: njen chat nudi prijavu jednim klikom."}},
+      "da": {"stringUnit": {"state": "translated","value": "Log ind på Claude eller Codex på selve VM'en: dens chat tilbyder login med ét klik."}},
+      "de": {"stringUnit": {"state": "translated","value": "Melde dich auf der VM selbst bei Claude oder Codex an: Ihr Chat bietet eine Anmeldung mit einem Klick."}},
+      "en": {"stringUnit": {"state": "translated","value": "Sign in to Claude or Codex on the VM itself: its chat offers a one-click sign-in."}},
+      "es": {"stringUnit": {"state": "translated","value": "Inicia sesión en Claude o Codex en la propia VM: su chat ofrece un inicio de sesión con un clic."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Connectez-vous à Claude ou Codex sur la VM elle-même : son chat propose une connexion en un clic."}},
+      "it": {"stringUnit": {"state": "translated","value": "Accedi a Claude o Codex direttamente sulla VM: la sua chat offre l’accesso con un clic."}},
+      "ja": {"stringUnit": {"state": "translated","value": "VM 上で Claude または Codex にサインインしてください。チャットからワンクリックでサインインできます。"}},
+      "km": {"stringUnit": {"state": "translated","value": "ចូលគណនី Claude ឬ Codex នៅលើ VM ផ្ទាល់៖ ការជជែករបស់វាផ្តល់ការចូលគណនីដោយចុចតែម្តង។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "VM에서 직접 Claude 또는 Codex에 로그인하세요. 해당 채팅에서 원클릭 로그인을 제공합니다."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Logg på Claude eller Codex på selve VM-en: chatten tilbyr pålogging med ett klikk."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Zaloguj się do Claude lub Codex na samej maszynie wirtualnej: jej czat oferuje logowanie jednym kliknięciem."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Entre no Claude ou no Codex na própria VM: o chat dela oferece login com um clique."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Войдите в Claude или Codex на самой виртуальной машине: в её чате есть вход в один клик."}},
+      "th": {"stringUnit": {"state": "translated","value": "ลงชื่อเข้าใช้ Claude หรือ Codex บน VM โดยตรง: แชทของ VM มีการลงชื่อเข้าใช้ด้วยคลิกเดียว"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Claude veya Codex'e doğrudan VM üzerinde giriş yapın: sohbeti tek tıkla giriş sunar."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Увійдіть у Claude або Codex на самій віртуальній машині: її чат пропонує вхід одним клацанням."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Đăng nhập Claude hoặc Codex ngay trên VM: cuộc trò chuyện của VM có đăng nhập bằng một lần nhấp."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "请在虚拟机上直接登录 Claude 或 Codex：其聊天提供一键登录。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "請在虛擬機上直接登入 Claude 或 Codex：其聊天提供一鍵登入。"}}
     }},
     "cloud.workspaceSetup.credentialsTeamUnavailable": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "تبقى بيانات اعتماد المزوّد الشخصية خارج الآلات الافتراضية المشتركة للفريق لأنها تشترك في مجلد رئيسي واحد."}},
@@ -1311,7 +1426,662 @@
       "vi": {"stringUnit": {"state": "translated","value": "Chuyển và hoàn tất"}},
       "zh-Hans": {"stringUnit": {"state": "translated","value": "传输并完成"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "傳輸並完成"}}
-    }}
+    }},
+    "cloud.workspaceSetup.size": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB memory"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU، ذاكرة %2$@ غيغابايت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB hukommelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB Arbeitsspeicher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ Go de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB di memoria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU、メモリ %2$@ GB"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, អង្គចងចាំ %2$@ GB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU %1$@개, 메모리 %2$@GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB minne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ ГБ памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, หน่วยความจำ %2$@ GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB bellek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ ГБ пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, bộ nhớ %2$@ GB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 个 vCPU，%2$@ GB 内存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 個 vCPU，%2$@ GB 記憶體"
+          }
+        }
+      }
+    },
+    "cloud.workspaceSetup.sizeAutomatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic (sized for the chat's repository)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي (حسب مستودع المحادثة)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski (prema repozitoriju chata)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk (tilpasset chattens repository)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch (passend zum Repository des Chats)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático (según el repositorio del chat)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique (selon le dépôt de la conversation)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatica (in base al repository della chat)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動（チャットのリポジトリに合わせる）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ (តាមឃ្លាំងរបស់ការជជែក)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동(채팅의 저장소에 맞춤)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk (tilpasset chattens repository)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie (według repozytorium czatu)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático (conforme o repositório do chat)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически (по репозиторию чата)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ (ตามรีโพสิทอรีของแชท)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik (sohbetin deposuna göre)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично (за репозиторієм чату)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động (theo kho mã của cuộc trò chuyện)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动（按聊天的仓库确定）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動（依聊天的儲存庫決定）"
+          }
+        }
+      }
+    },
+    "cloud.workspaceSetup.sizeLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina mašine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinstørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinengröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de la máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille de la machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione della macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのサイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinstørrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер машины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makine boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір машини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kích thước máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器规格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器規格"
+          }
+        }
+      }
+    },
+    "cloud.workspaceSetup.sizeMemory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB memory"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذاكرة %@ غيغابايت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB hukommelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB Arbeitsspeicher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Go de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB di memoria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ %@ GB"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អង្គចងចាំ %@ GB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 %@GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB minne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ГБ памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน่วยความจำ %@ GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB bellek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ГБ пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ nhớ %@ GB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB 内存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB 記憶體"
+          }
+        }
+      }
+    },
+    "cloud.workspaceSetup.sizeRate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/h"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/ساعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/sat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/t"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/Std."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/hora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/heure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/ម៉ោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/t"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/godz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/hora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/ч"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/ชม."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/sa"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/год"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/giờ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/小时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/小時"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar look contract (plans/cmux-next/sidebar-owner.md, "Target look"): the measured geometry of
@@ -11,7 +12,7 @@ import Testing
 /// The rail's left edge on its header bar is held by ``SidebarGroupRailAlignmentTests``; header and row
 /// heights by the group header height suites. This suite holds what those do not: where text starts,
 /// where rows end, and what the hover close is.
-@MainActor @Suite(.serialized) struct SidebarLookContractTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarLookContractTests {
     nonisolated struct Case: CustomTestStringConvertible, Sendable {
         var density: SidebarDensity
         var minimal: SidebarMinimalMode

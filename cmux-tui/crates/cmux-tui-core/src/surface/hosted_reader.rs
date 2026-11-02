@@ -272,6 +272,8 @@ impl HostedReader {
                 .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
             pty.stream_progress.notify();
             if let Some(mux) = mux.upgrade() {
+                // The last output's scroll position goes before the exit.
+                let _ = pty.frame_requests.flush_scroll(&mux, surface.id);
                 mux.surface_exited(surface.id);
             }
             return None;

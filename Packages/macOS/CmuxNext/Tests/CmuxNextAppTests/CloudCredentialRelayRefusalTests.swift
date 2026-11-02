@@ -35,7 +35,8 @@ struct CloudCredentialRelayRefusalTests {
             token: { "install-token-for-test" },
             invalidate: {},
             session: { CloudCredentialRelay.Session(signedIn: true, team: "team_test") },
-            allowedOps: { if let allowed { allowed } else { await CloudCredentialRelay.bundledServedOps() } })
+            allowedOps: { if let allowed { allowed } else { await CloudCredentialRelay.bundledServedOps() } },
+            installID: { "install-test" })
     }
 
     /// The daemon's provider line for a `credential.relay` of `op`.
@@ -110,5 +111,73 @@ struct CloudCredentialRelayRefusalTests {
         #expect(calls.count == 1)
         #expect(calls.first?.path == "v1/read")
         #expect(calls.first?.op == "cloud.machine.connect_info")
+    }
+
+    /// The link-only carrier can request both halves of LINK-RESOLVE/LINK-TOKEN-OP,
+    /// while the app-provider route above continues to refuse the token op.
+    @Test func privateLinkRouteUsesReadAndFreshMutation() async throws {
+        let sent = Sent()
+        let relay = Self.relay(sent)
+        #expect((await relay.linkConnectInfo(host: "host_0123456789abcdefghij")).ok)
+        #expect((await relay.linkToken(host: "host_0123456789abcdefghij", services: ["daemon"])).ok)
+        let calls = await sent.calls
+        #expect(calls.map(\.path) == ["v1/read", "v1/ops"])
+        #expect(calls.map(\.op) == ["cloud.machine.connect_info", "cloud.machine.link_token"])
+    }
+
+    @Test func privateLinkRouteDropsAnAnswerAfterInstallRotation() async throws {
+        actor Generation {
+            var install = "install-a"
+            func current() -> String { install }
+            func rotate() { install = "install-b" }
+        }
+        let generation = Generation()
+        let relay = CloudCredentialRelay(
+            post: { _, _, _ in
+                await generation.rotate()
+                return (200, Data(#"{"op":"cloud.machine.connect_info","value":{}}"#.utf8))
+            },
+            token: { "token-a" }, invalidate: {},
+            session: { CloudCredentialRelay.Session(signedIn: true, team: "team_test") },
+            allowedOps: { [] }, installID: { await generation.current() })
+        let result = await relay.linkConnectInfo(host: "host_0123456789abcdefghij")
+        #expect(!result.ok)
+        #expect(result.body["code"]?.stringValue == "not_signed_in")
+    }
+
+    @Test func privateLinkRouteRejectsAnOldSocketGeneration() async {
+        let relay = Self.relay(Sent())
+        let result = await relay.linkConnectInfo(host: "host_0123456789abcdefghij", expectedInstall: "install-old")
+        #expect(!result.ok)
+        #expect(result.body["code"]?.stringValue == "not_signed_in")
+    }
+
+    @Test func privateLinkRouteDoesNotPostWhenInstallChangesDuringTokenMint() async {
+        actor Generation {
+            var install = "install-a"
+            var posts = 0
+            func current() -> String { install }
+            func rotate() { install = "install-b" }
+            func posted() { posts += 1 }
+            func postCount() -> Int { posts }
+        }
+        let generation = Generation()
+        let relay = CloudCredentialRelay(
+            post: { _, _, _ in await generation.posted(); return (200, Data(#"{"value":{}}"#.utf8)) },
+            token: { await generation.rotate(); return "token-a" }, invalidate: {},
+            session: { CloudCredentialRelay.Session(signedIn: true, team: "team_test") },
+            allowedOps: { [] }, installID: { await generation.current() })
+        let result = await relay.linkConnectInfo(host: "host_0123456789abcdefghij")
+        #expect(!result.ok)
+        #expect(await generation.postCount() == 0)
+    }
+
+    @Test func credentialSocketRejectsUnknownFieldsAndFitsDarwinRuntimePath() throws {
+        let unknown = Data(#"{"op":"connect_info","host":"host_0123456789abcdefghij","extra":true}"#.utf8)
+        #expect(!CloudLinkLauncher.credentialRequestAcceptedForTesting(unknown))
+        let runtime = URL(fileURLWithPath: "/var/folders/ab/0123456789abcdefghijklmnopqrst/T/")
+        let path = CloudLinkLauncher.credentialSocketPath(runtimeBase: runtime)
+        #expect(path.utf8.count < 104)
+        #expect(path != CloudLinkLauncher.credentialSocketPath(runtimeBase: runtime))
     }
 }

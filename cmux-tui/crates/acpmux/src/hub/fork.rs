@@ -239,6 +239,7 @@ impl Hub {
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
+            launch_digest: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
@@ -246,6 +247,7 @@ impl Hub {
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
+            retired_agent_session_ids: Vec::new(),
             // The id was produced by this fork's actual harness, not by the parent's creation
             // family (which can be stale after a profile switch).
             agent_session_family: new_sid
@@ -303,6 +305,7 @@ impl Hub {
             unread: false,
             claude_unstored: false,
             hibernated_ms: 0,
+            idle_launch: None,
             moved_to: None,
             claude_profile: None,
             last_turn: None,
@@ -359,7 +362,7 @@ impl Hub {
             Made::Fresh => new.rehydrate.store(true, Ordering::SeqCst),
             Made::Copy(_) | Made::Agent(..) => {}
         }
-        if let Err(e) = self.store.save(&new.meta()) {
+        if let Err(e) = self.write_meta(&new) {
             // Never published: no session owns the conversation this fork copied or its agent
             // made, so remove it rather than leave a discoverable orphan (an inline /btw's fork
             // asks about a chat that must not outlive the question).
@@ -378,6 +381,7 @@ impl Hub {
             sessions.insert(id.clone(), new.clone());
             super::admission::claim(&id);
         }
+        self.update_live_session_index(&new);
         // Indexed again once published (`transfer.rs` `import_into`).
         self.child_tags.note(&new);
         let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);

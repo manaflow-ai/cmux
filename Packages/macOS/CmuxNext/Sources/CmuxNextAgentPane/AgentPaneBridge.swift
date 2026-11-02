@@ -102,6 +102,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyPreviewFeatures()
             AgentPaneSessionStatus.push(to: view)
             AgentPaneSuggestedTasks.shared.push(to: view)
+            view.model.remoteControl?.push(to: view)
             view.applyEditedFiles()
             if view.pageEvents == nil { view.model.sidebarPreviewVariant.replay(to: view) }
             view.replayCustomization()
@@ -111,6 +112,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
             view.model.readAloud?.push(to: view)
+            view.pushPaneNotices()
         }
         return view.model
     }

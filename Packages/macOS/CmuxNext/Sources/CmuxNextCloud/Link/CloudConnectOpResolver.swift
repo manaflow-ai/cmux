@@ -69,7 +69,8 @@ public struct CloudConnectOpResolver: CloudLinkResolver {
         guard answer.state == "up" else { throw CloudLinkError.notUp(state: answer.state) }
         guard let socket = answer.socket, !socket.isEmpty else { throw CloudLinkError.invalidAnswer("no socket") }
         try check(socket)
-        return CloudLinkSocket(key: key, path: socket, generation: answer.generation, callerOwnsVM: answer.vmKind == "owner")
+        return CloudLinkSocket(key: key, path: socket, generation: answer.generation, callerOwnsVM: answer.vmKind == "owner",
+                               callerIsTeammate: answer.vmKind == "team")
     }
 
     /// `cloud.machine.disconnect` ends the carrier. A failure leaves nothing

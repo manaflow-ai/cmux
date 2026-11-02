@@ -130,11 +130,112 @@ async function openPicker() {
     button!.click();
   });
 }
-const label = (row: Element) => row.querySelector(".acpmux-menu-label")?.textContent;
+/// Every machine: Machines… on the control's right-click menu (the main list is This Mac and Cloud).
+async function openMachines() {
+  await act(async () =>
+    computerButton()!.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const item = [...doc().querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+    (candidate) => candidate.textContent === t("composer.machinesList"),
+  );
+  expect(item, "no Machines… item").toBeTruthy();
+  await act(async () => item!.click());
+}
+const label = (row: Element) => row.querySelector(".acpmux-menu-label")?.textContent ?? row.textContent;
 const pickerRows = () =>
   [...doc().querySelectorAll<HTMLElement>(".acpmux-env-popover .acpmux-menu-item")].filter((row) =>
     row.querySelector(".acpmux-env-row:not(.acpmux-env-new)"),
   );
+
+test("signed out keeps Cloud and adds a sign-in row after it", async () => {
+  const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
+  setCloudMachinesForTestAccount(false);
+  const calls: string[] = [];
+  await mount(true, { cloudMachines: [], onConnect: (kind: string) => calls.push(kind) });
+  await openPicker();
+  const rows = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].filter((item) =>
+    item.querySelector(".acpmux-location-name"),
+  );
+  // The list is This Mac and Cloud; New Cloud Machine… and SSH… are on the control's right-click menu.
+  const names = rows.map(label);
+  expect(names).toContain(t("composer.cloud"));
+  expect(names.indexOf("Sign in for Cloud")).toBe(names.indexOf(t("composer.cloud")) + 1);
+  await act(async () => rows.find((row) => label(row) === "Sign in for Cloud")!.click());
+  // Sign-in only: New Cloud Machine (`cloud`) would sign in and then create a machine.
+  expect(calls).toEqual(["cloudSignIn"]);
+  const { CONNECT_ACTIONS } = await import("../src/agent-session/acpmux/environments");
+  expect(CONNECT_ACTIONS.cloudSignIn).toBe("palette.auth.signIn");
+});
+
+test("an absent Cloud account state still offers sign-in, while an explicit signed-in state does not", async () => {
+  const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
+  const rows = async () => {
+    await openPicker();
+    return [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].filter((item) =>
+      item.querySelector(".acpmux-location-name"),
+    );
+  };
+  setCloudMachinesForTestAccount(undefined);
+  await mount(true, { cloudMachines: [], onConnect: () => undefined });
+  expect((await rows()).map(label)).toContain("Sign in for Cloud");
+
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+  setCloudMachinesForTestAccount(true);
+  await mount(true, { cloudMachines: [], onConnect: () => undefined });
+  expect((await rows()).map(label)).not.toContain("Sign in for Cloud");
+});
+
+test("the plain Computer picker offers Cloud sign-in before the account reply", async () => {
+  const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
+  setCloudMachinesForTestAccount(undefined);
+  const calls: string[] = [];
+  await mount(false, { peers: [], cloudMachines: [], onConnect: (kind: string) => calls.push(kind) });
+  await openPicker();
+  const items = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")];
+  const labels = items.map(label);
+  expect(labels).toContain("Sign in for Cloud");
+  await act(async () => items.find((row) => label(row) === "Sign in for Cloud")!.click());
+  expect(calls).toEqual(["cloudSignIn"]);
+  expect(labels).toContain(t("composer.addComputer"));
+  expect(labels).toContain(t("composer.newCloudMachine"));
+
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+  setCloudMachinesForTestAccount(true);
+  await mount(false, { peers: [], cloudMachines: [], onConnect: () => undefined });
+  await openPicker();
+  expect([...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].map(label)).not.toContain(
+    "Sign in for Cloud",
+  );
+});
+
+for (const result of ["failed", "signed out"] as const) {
+  test(`a ${result} revalidation removes the previous account's machines and offers sign-in`, async () => {
+    const { refreshCloudMachines } = await import("../src/agent-session/acpmux/cloudMachines");
+    const posted: { method: string; params: unknown }[] = [];
+    answerAsTheApp(posted);
+    await mount(false, { cloudMachines: undefined, peers: [] });
+    await openPicker();
+    const labels = () => [...doc().querySelectorAll(".acpmux-location-menu .acpmux-menu-item")].map(label);
+    expect(labels()).toContain("build box");
+    expect(labels()).not.toContain("Sign in for Cloud");
+
+    // Use the same native bridge as opening the picker, with no injected account state.
+    answerAsTheApp(posted, () => {
+      if (result === "failed") return { ok: false, error: { code: "unavailable" } };
+      return { ok: true, value: { signedIn: false, loaded: false, machines: [] } };
+    });
+    await act(async () => refreshCloudMachines());
+    expect(labels()).not.toContain("build box");
+    expect(labels()).toContain("Sign in for Cloud");
+    expect(labels()).toContain(t("composer.newCloudMachine"));
+  });
+}
 
 test("a reply lists the account's machines only once the app holds the signed-in account's list", async () => {
   const { cloudMachinesFromReply } = await import("../src/agent-session/acpmux/cloudMachines");
@@ -194,18 +295,18 @@ test("a pick asks the app to resume or open the machine, then reads the list aga
   ]);
 });
 
-test("previews on: the account's machines join Cloud and VMs with their stage, a pick but no ⌥⌘ digit", async () => {
+test("previews on: the account's machines join the other machines with their stage, a pick but no ⌥⌘ digit", async () => {
   const picks = await mount(true);
-  await openPicker();
+  await openMachines();
   const rows = pickerRows();
-  expect(rows.map(label)).toEqual(["this-mac", "gpu-box", "build box", "eval box", "fresh box"]);
+  expect(rows.map(label)).toEqual([t("composer.thisMac"), "gpu-box", "build box", "eval box", "fresh box"]);
   const cloud = rows.slice(2);
   expect(cloud.map((row) => row.querySelector(".acpmux-env-state")?.textContent)).toEqual([
     t("composer.envPausedResume"),
     t("composer.envOpenMachine"),
     t("composer.envStarting"),
   ]);
-  expect(cloud[0]!.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.envFleet"));
+  expect(cloud.every((row) => row.querySelector('.acpmux-env-row[data-kind="cloud"]'))).toBe(true);
   expect(cloud.some((row) => row.querySelector('[data-ready="false"], [aria-disabled="true"], .acpmux-env-key'))).toBe(
     false,
   );
@@ -242,7 +343,7 @@ test("a Cloud machine picked while paused takes the chat once acpmux lists it re
   } as unknown as Parameters<typeof ComposerContext>[0];
   root = createRoot(host);
   await act(async () => root!.render(<ComposerContext {...before} />));
-  await openPicker();
+  await openMachines();
   await act(async () =>
     pickerRows()
       .find((row) => label(row) === "build box")!
@@ -275,13 +376,13 @@ test("a Cloud machine picked while paused takes the chat once acpmux lists it re
 
 test("another pick ends the wait for a Cloud machine", async () => {
   const picks = await mount(true);
-  await openPicker();
+  await openMachines();
   await act(async () =>
     pickerRows()
       .find((row) => label(row) === "build box")!
       .click(),
   );
-  await openPicker();
+  await openMachines();
   await act(async () =>
     pickerRows()
       .find((row) => label(row) === "gpu-box")!
@@ -298,7 +399,7 @@ test("another pick ends the wait for a Cloud machine", async () => {
 async function waitOnBuildBox() {
   const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
   const picks = await mount(true);
-  await openPicker();
+  await openMachines();
   await act(async () =>
     pickerRows()
       .find((row) => label(row) === "build box")!
@@ -370,14 +471,14 @@ test("a refused resume shows the machine as Couldn't start, not Starting… for 
     await runCloudMachine(account[0]!, call);
   });
   await mount(true, { cloudMachines: undefined });
-  await openPicker();
+  await openMachines();
   const row = pickerRows().find((item) => label(item) === "build box");
   expect(row?.querySelector(".acpmux-env-state")?.textContent).toBe(t("switch.failedShort"));
 });
 
 test("a machine that failed to start says so, not Not connected", async () => {
   await mount(true, { cloudMachines: [{ id: "vm-bad", name: "broken box", stage: "failed" }] });
-  await openPicker();
+  await openMachines();
   const row = pickerRows().find((item) => label(item) === "broken box");
   expect(row?.querySelector(".acpmux-env-state")?.textContent).toBe(t("switch.failedShort"));
 });
@@ -395,13 +496,13 @@ test("a resume shows as starting at once, before the app's list comes back", asy
     cloudMachines: undefined,
     onCloudMachine: (machine: CloudMachine) => void runCloudMachine(machine, call),
   });
-  await openPicker();
+  await openMachines();
   await act(async () =>
     pickerRows()
       .find((row) => label(row) === "build box")!
       .click(),
   );
-  await openPicker();
+  await openMachines();
   const row = pickerRows().find((item) => label(item) === "build box");
   expect(row?.querySelector(".acpmux-env-state")?.textContent).toBe(t("composer.envStarting"));
   await act(async () => {
@@ -439,15 +540,29 @@ test("a started chat lists no account machine", async () => {
   expect(pickerRows().map(label)).not.toContain("build box");
 });
 
-function answerAsTheApp(posted: { method: string; params: unknown }[]) {
+test("an older chat's plain picker reads the Cloud account as it opens, so a signed-in person gets no sign-in row", async () => {
+  const posted: { method: string; params: unknown }[] = [];
+  answerAsTheApp(posted);
+  // No `onProject`: not a new chat, so its machine list never reads the account's machines; the
+  // connect rows still need the account state.
+  await mount(false, { peers: [], onProject: undefined, cloudMachines: undefined });
+  await openPicker();
+  await act(async () => undefined);
+  expect(posted.map((message) => message.method)).toContain("cloudMachine.list");
+  const labels = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].map(label);
+  expect(labels).not.toContain("Sign in for Cloud");
+});
+
+function answerAsTheApp(
+  posted: { method: string; params: unknown }[],
+  listReply: () => unknown = () => ({ ok: true, value: { signedIn: true, loaded: true, machines: [account[0]] } }),
+) {
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
         postMessage: (message: { method: string; params: unknown }) => {
           posted.push(message);
-          return message.method === "cloudMachine.list"
-            ? { ok: true, value: { signedIn: true, loaded: true, machines: [account[0]] } }
-            : { ok: true, value: null };
+          return message.method === "cloudMachine.list" ? listReply() : { ok: true, value: null };
         },
       },
     },
@@ -459,7 +574,7 @@ test("by default the list is the app's, read as the machine list opens", async (
   answerAsTheApp(posted);
   // No list or pick handler of the test's own: the app's (cloudMachines.ts) answers.
   await mount(true, { cloudMachines: undefined, onCloudMachine: undefined });
-  await openPicker();
+  await openMachines();
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(posted.map((message) => message.method)).toContain("cloudMachine.list");
   const paused = pickerRows().find((row) => label(row) === "build box");
@@ -505,7 +620,7 @@ test("previews on: a paused machine an earlier chat ran on resumes; it starts no
   const picks = await mount(true, {
     sessions: [{ sessionId: "old", cwd: "/home/you/src", host: "build box", hostKind: "cloud", updatedAt: 0 }],
   });
-  await openPicker();
+  await openMachines();
   const rows = pickerRows().filter((row) => label(row) === "build box");
   expect(rows).toHaveLength(1);
   expect(rows[0]!.querySelector(".acpmux-env-state")?.textContent).toBe(t("composer.envPausedResume"));

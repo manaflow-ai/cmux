@@ -117,6 +117,12 @@ extension AgentPaneView {
                               bundle: .module), title)
     }
 
+    /// A greyed palette row's subtitle for a page command the focused chat does not offer now: the
+    /// row already shows its title, so the subtitle does not repeat it.
+    static var pageCommandUnavailableHere: String {
+        String(localized: "agentPane.pageCommand.unavailableHere", defaultValue: "Not available in this chat.", bundle: .module)
+    }
+
     /// Shown when automation would run a page command (its title) without an explicit focus request.
     static func pageCommandNeedsFocus(_ title: String) -> String {
         String(format: String(localized: "agentPane.pageCommand.needsFocus", defaultValue: "%@ requires focus.", bundle: .module), title)

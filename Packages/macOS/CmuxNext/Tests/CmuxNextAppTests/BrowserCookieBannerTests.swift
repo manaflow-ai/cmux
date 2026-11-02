@@ -6,6 +6,7 @@ import CmuxNextBrowserImport
 import CmuxNextDesign
 @testable import CmuxNextImportCards
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ import Testing
 /// Again writes `browser.import.cookieBanner: false` to cmux.json, so the dismissal lasts across
 /// launches and Settings shows it; turning the setting on (Settings, `cmux settings`, or Show Import
 /// Cookies Banner in the palette, CLI and MCP) brings it back. The card never imports by itself.
-@MainActor @Suite(.serialized) struct BrowserCookieBannerTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserCookieBannerTests {
     static let cookieBannerPath = ["browser", "import", "cookieBanner"]
     static let personalPage = BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false)
 
@@ -88,6 +89,7 @@ import Testing
 
         func tearDown() {
             chrome.hideCookieImportOffer()
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             tab.close()
@@ -132,7 +134,8 @@ import Testing
         let h = try await make()
         defer { h.tearDown() }
         h.services.onboarding.browserImportOffer.answer(.never)
-        try await h.until { try h.storedBannerValue() == false }
+        // `setSetting` writes cmux.json and then reloads the snapshot (`reloadAfterWrite`): wait for both.
+        try await h.until { try h.storedBannerValue() == false && !h.settings.snapshot.browserImportCookieBanner }
         #expect(try h.storedBannerValue() == false, "the dismissal is kept in cmux.json, across launches")
         #expect(h.settings.snapshot.browserImportCookieBanner == false)
         #expect(!h.services.onboarding.browserImportOffer.isOffered, "a dismissed banner is not offered")

@@ -328,6 +328,50 @@ class PullRequestTiers(unittest.TestCase):
                 self.assertEqual(result["scheme"], "false")
                 self.assertEqual(result["swift_targets"], "")
 
+    def test_a_path_no_mac_build_reads_runs_no_mac_compile(self):
+        """#29013 (the Cloud VM image lock and its web test) waited 80 minutes on the fleet Release
+        compile (cmux-next/compile) for a compile its diff could not change."""
+        for changed in (["images/cmux-vm/inputs.lock.json", "web/scripts/cmux-vm-image/lock.ts",
+                         "web/tests/vm-image-cmux-vm-lock.test.ts"],
+                        ["images/cmux-vm/guest/vm-agent.ts"], ["services/conversation-sim/audio.ts"],
+                        ["vault/cmd/cmux-vault/main.go"], [".claude/settings.json"], [".coderabbit.yaml"]):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                for tier in ("native", "scheme", "macos", "swift", "generated", "daemon"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_the_selector_lint_table_runs_no_mac_compile(self):
+        """#29032 changed only scripts/cmux-next/objc-selector-table.json, which the crash-class lint
+        reads on Linux, and waited on the fleet Release compile."""
+        for path in ("scripts/cmux-next/objc-selector-table.json", "scripts/cmux-next/check-objc-selectors.py",
+                     "scripts/cmux-next/check-objc-selectors.sh"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                for tier in ("native", "scheme", "macos", "swift", "generated", "daemon"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_a_path_no_mac_build_reads_beside_swift_keeps_the_swift_tiers(self):
+        swift = f"{PACKAGE}/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
+        mixed, alone = tiers(["images/cmux-vm/inputs.lock.json", swift]), tiers([swift])
+        for tier in ("native", "scheme", "macos", "swift", "swift_targets", "generated", "daemon", "mac_release"):
+            self.assertEqual(mixed[tier], alone[tier], tier)
+
+    def test_no_app_input_is_named_by_a_build_input(self):
+        """NO_APP_INPUT holds only paths no Mac compile reads: no Xcode project, Package.swift or
+        scripts/ build script names one. A path that becomes a build input must leave the list."""
+        import cmux_next_route as route_module
+        inputs = [ROOT / "cmux.xcodeproj/project.pbxproj"]
+        inputs += [p for p in ROOT.glob("Packages/**/Package.swift") if ".build" not in p.parts]
+        inputs += sorted(ROOT.glob("scripts/*.sh")) + sorted(ROOT.glob("scripts/cmux-next/**/*.sh"))
+        inputs += [p for p in ROOT.glob("Packages/macOS/CmuxNext/**/*.sh") if ".build" not in p.parts]
+        self.assertGreater(len(inputs), 50)
+        for pattern in route_module.NO_APP_INPUT:
+            prefix = pattern.removesuffix("*")
+            named = re.compile(r"(^|[^A-Za-z0-9_.-])" + re.escape(prefix) + ("" if prefix.endswith("/") else r"\b"))
+            for path in inputs:
+                with self.subTest(pattern=pattern, input=str(path.relative_to(ROOT))):
+                    self.assertIsNone(named.search(path.read_text(encoding="utf-8", errors="replace")))
+
     def test_cmux_tui_a_dev_build_still_bundles_it(self):
         result = tiers(["cmux-tui/crates/acpmux/src/peer.rs"], labels=frozenset({"dev-build"}))
         self.assertEqual(result["scheme"], "true")
@@ -703,10 +747,13 @@ class BundleInputs(unittest.TestCase):
         import cmux_next_route as route_module
         cls.route = route_module
 
-    # Page JavaScript a suite runs, and the ways a suite gives the page its own document.
+    # Page JavaScript a suite runs, and the ways a suite gives the page its own document. An agent pane
+    # pointed at a dev server URL (AgentPaneSource.devURLVariable, honored in Debug test builds) loads that
+    # URL, not the built bundle: AgentPageHibernationTests points it at a loopback port nobody serves and
+    # waits for that load to end (#30312).
     TALKS_TO_PAGE = re.compile(r"\b(?:evaluateJavaScript|callAsyncJavaScript|waitUntilLoaded|WKUserScript)\b")
     OWN_DOCUMENT = re.compile(r'loadHTMLString|registerBundledRoot|allowFixtureRoot|AgentPageTestRoot'
-                              r'|source:\s*\.bundled\(|index\.html|\.html"')
+                              r'|source:\s*\.bundled\(|index\.html|\.html"|AgentPaneSource\.devURLVariable')
     OPT_IN = re.compile(r"\.enabled\(if:\s*ProcessInfo\.processInfo\.environment\[")
 
     def test_the_bundle_targets_are_the_ones_the_bundle_build_writes_into(self):
@@ -922,6 +969,15 @@ class WorkflowRoute(unittest.TestCase):
         base = self.base_without("    name: cmux-next checks (god files, concurrency, crash safety, l10n)",
                                  "    name: cmux-next checks (old)")
         self.assertEqual(self.route_with_base(base)["macos"], "false")
+
+    def test_a_portable_placement_runner_reads_as_linux_and_no_other_output_does(self):
+        """checks takes a free mini through portable placement; it runs no Mac tier there, so an edit to it
+        runs none. Any other job output may still name a Mac."""
+        import cmux_next_route as route_module
+        portable = ("vars.CI_X && needs.portable-placement.outputs.mini_runner || "
+                    "needs.portable-placement.outputs.linux_runner || 'blacksmith-16vcpu-ubuntu-2404'")
+        self.assertTrue(route_module.linux_values(portable))
+        self.assertFalse(route_module.linux_values(portable.replace("portable-placement", "macos-placement")))
 
     def test_a_swift_change_beside_it_routes_as_without_it(self):
         swift = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"

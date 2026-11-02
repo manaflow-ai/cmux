@@ -26,12 +26,14 @@ extension ActionID {
     public static let openBrowser: ActionID = "openBrowser"
 }
 
-/// A chat header toggle the native palette runs through the page's `command` bridge, by its name
-/// there. The page lists the ones that apply to its chat now (`pane.commandAvailability`): Quick
-/// Chat's panel has no tabs beside it, a remote chat's folder is not on this Mac, Preview needs the
-/// chat's page or the preview it opened.
+/// A chat control the native palette runs through the page's `command` bridge, by its name there.
+/// The page lists the ones that apply to its chat now (`pane.commandAvailability`): Quick Chat's
+/// panel has no tabs beside it, a remote chat's folder is not on this Mac, Preview needs the chat's
+/// page or the preview it opened, Run in Background needs work in the foreground, and Session
+/// Info's sections need rows.
 public enum AgentPageCommand: String, CaseIterable, Sendable {
     case toggleFiles, togglePreview, toggleSideTabs
+    case runInBackground, toggleQueueing, showSubagents, showBackgroundTasks
 }
 
 extension ActionRegistry {
@@ -58,8 +60,11 @@ extension ActionRegistry {
                 return AgentPaneView.pageCommandUnavailable(title)
             }
             ActionTargetReasons.set(id, in: self, reason)
-            // The palette runs on the focused chat: its row is disabled with the same reason.
-            ActionTargetTitles.setPaletteReason(id, in: self) { reason(ActionInvocation()) }
+            // The palette runs on the focused chat: its row is disabled while that chat does not offer
+            // it, with a subtitle that does not repeat the row's title.
+            ActionTargetTitles.setPaletteReason(id, in: self) {
+                reason(ActionInvocation()) == nil ? nil : AgentPaneView.pageCommandUnavailableHere
+            }
             return bound
         }.allSatisfy(\.self)
     }
@@ -73,7 +78,7 @@ extension ActionRegistry {
         toggle: @escaping @MainActor (ActionInvocation) -> Void
     ) -> Bool {
         bindEffect(.toggleSessionInfo, effect: { invocation in
-            guard isOn?() ?? AgentPaneTunables.inspector.value else { return .refused(AgentPaneView.sessionInfoOff) }
+            guard isOn?() ?? AgentPaneTunables.sessionInfo.value else { return .refused(AgentPaneView.sessionInfoOff) }
             guard ActionRunScope.viewChangeAllowed() else {
                 return .refused(AgentPaneView.sessionInfoNeedsFocus)
             }

@@ -25,8 +25,9 @@ enum PaneHandlers {
     /// several adjacent panes, and of a strip column; focus.md section 4a).
     static func neighbor(of pane: LayoutPaneID, direction: LayoutDirection, in content: WorkspaceContentController) -> LayoutPaneID? {
         guard let screen = content.layoutModel.screen(containing: pane) else { return nil }
-        // One logical line: docked columns before and after the strip.
-        let frames = content.layoutView.navigationFrames
+        // One logical line: docked columns before and after the strip. The frames of `pane`'s own screen,
+        // active or not: what opens beside a chat on a screen the person left reads that screen (#28044).
+        let frames = content.layoutView.navigationFrames(ofScreenContaining: pane)
         return FocusNavigation.neighbor(of: pane, direction: direction, frames: frames,
                                         recency: content.recentPanes,
                                         columns: screen.layout.columns.map(\.root.panes))
@@ -127,7 +128,7 @@ enum PaneHandlers {
         // focus moves only after the reply; on the optimistic path the provisional view stays (it
         // attaches when the daemon confirms) and takes keys by terminal id at once (cx-wb5.78).
         let window = content == nil ? nil : controller?.view.window
-        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID)
+        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID, machine: daemon.machineID)
         // The provisional pane is in the store now, and the window lays it out and mounts it in this
         // turn, so it draws in the key's frame (instant-new-surfaces), not after a main-actor hop.
         // The split and the even sizing of its chain are one gesture: hold the chain's target

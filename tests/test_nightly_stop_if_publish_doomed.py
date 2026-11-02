@@ -94,7 +94,7 @@ class PeersAreDerived(unittest.TestCase):
                                         for n in needs(job) if n in between) or "== 'failure'" in condition,
                                     f"{job} may run after a peer failed")
             self.assertTrue(any(peer in needs(j) or ancestors(j) & {peer} for j in
-                                ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback")))
+                                ("prepare-nightly-variant-primary", "prepare-nightly-variant")))
 
 
 class StepsAreWired(unittest.TestCase):

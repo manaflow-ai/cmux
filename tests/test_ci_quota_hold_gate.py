@@ -60,7 +60,7 @@ HOLD_GATED: dict[str, tuple[str, ...]] = {
 # Optional pull request workflows that skip drafts and run on ready_for_review.
 # Only workflows whose skipped run no merger reads as a pass: next-autoland
 # treats a skipped check as passing and ignores a pending one, so a check that
-# can block a merge (the capture check, the defaults guard) keeps running on
+# can block a merge (the capture check) keeps running on
 # drafts. The fast gates are safe: mergers read their commit status, and one
 # missing on the head dispatches the gates rather than passing.
 DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
@@ -70,7 +70,6 @@ DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
 }
 # Checks a merger reads as a pass when skipped; they must never skip drafts.
 NEVER_DRAFT_SKIPPED = (
-    "cmux-next-defaults-guard.yml",
     "pr-capture-check.yml",
 )
 DRAFT = "!github.event.pull_request.draft"

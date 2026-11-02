@@ -1,17 +1,15 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
-/// User msg 17912 ("empty workspace needs plus button", a shot of an open, empty "Sleep alarm" group): the
-/// empty group's row read only "No workspaces · drag one here", and its header hid the + an empty group needs
-/// most. The row shows a + at rest, and the header offers its + on hover as a full group's does; both run
-/// New Workspace in Group, the one action path the group editor, menu, palette and CLI share.
-@MainActor @Suite(.serialized) struct SidebarEmptyGroupAddButtonTests {
-    private static let group = GroupID("grp-empty")
+/// Empty groups show only their header; its hover + keeps New Workspace in Group reachable.
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarEmptyGroupAddButtonTests {
+    static let group = GroupID("grp-empty")
 
     /// A sidebar in a window with one open, empty group; `ran` collects the group actions it runs.
-    private static func sidebar() -> (SidebarView, NSWindow, Ran) {
+    static func sidebar() -> (SidebarView, NSWindow, Ran) {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let empty = SidebarGroup(id: group, name: "Sleep alarm", color: .purple, workspaces: [])
         let loose = SidebarWorkspace(id: WorkspaceID("loose"), title: "loose")
@@ -38,21 +36,40 @@ import Testing
         !view.isHidden && view.alphaValue > 0 && view.frame.width > 0 && row.bounds.contains(view.frame)
     }
 
-    @Test func theEmptyRowShowsAPlusAtRestThatMakesAWorkspaceInTheGroup() throws {
-        let (sidebar, window, ran) = Self.sidebar()
+    @Test func theEmptyGroupShowsOnlyItsHeaderAtRest() throws {
+        let (sidebar, window, _) = Self.sidebar()
         defer { window.close() }
-        let row = try #require(sidebar.list.rowViews[.emptyGroup(Self.group)], "the open empty group shows its row")
-        sidebar.list.wire(row, key: .emptyGroup(Self.group))
-        row.isHovered = false
-        row.layoutSubtreeIfNeeded()
-        let plus = try #require(Self.views(in: row).first { $0.accessibilityIdentifier() == "cmux.sidebar.group.grp-empty.emptyAdd" } as? NSButton,
-                                "the empty group's row has no + button")
-        #expect(Self.drawn(plus, in: row), "the + does not show at rest (user 17912)")
-        #expect(plus.accessibilityLabel() == Strings.newWorkspace)
-        let center = row.convert(NSPoint(x: plus.frame.midX, y: plus.frame.midY), to: row.superview)
-        #expect(row.hitTest(center) === plus, "the + takes no click")
-        plus.performClick(nil)
-        #expect(ran.items == ["grp-empty workspaceGroup.newWorkspace"], "the + runs New Workspace in Group")
+        let header = try #require(sidebar.list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
+        header.isHovered = false
+        header.layoutSubtreeIfNeeded()
+        #expect(sidebar.list.rowViews[.emptyGroup(Self.group)] == nil)
+        #expect(header.addButton.isHidden)
+        #expect(!header.isDropTarget)
+    }
+
+    @Test func theEmptyHeaderHighlightsOnlyDuringADropIntoIt() throws {
+        let (sidebar, window, _) = Self.sidebar()
+        defer { window.close() }
+        let list = sidebar.list
+        let header = try #require(list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
+        let source = try #require(list.displayed.row(for: .workspace(WorkspaceID("loose"))))
+        let press = SidebarPress(key: source.key, point: NSPoint(x: 80, y: source.y + source.height / 2))
+        list.beginDrag(press)
+        let drag = try #require(list.drag)
+        defer {
+            list.cancelDrag()
+            if let landing = list.landing { list.finishLand(landing, then: nil) }
+        }
+        let row = try #require(list.displayed.row(for: .group(Self.group)))
+        let y = row.y + row.height / 2
+        drag.target = DropResolver.resolve(y: y, payload: .workspaces([WorkspaceID("loose")]),
+                                           base: list.displayed, sections: list.model.sections)
+        list.syncRowStates()
+        #expect(header.isDropTarget)
+        drag.target = nil
+        list.syncRowStates()
+        #expect(!header.isDropTarget)
+        #expect(list.rowViews[.emptyGroup(Self.group)] == nil)
     }
 
     @Test func theEmptyGroupsHeaderOffersItsPlusOnHover() throws {

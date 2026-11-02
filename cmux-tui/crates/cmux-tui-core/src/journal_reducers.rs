@@ -397,6 +397,29 @@ impl HookFence {
         sequence: u64,
         observed_at_ms: Option<u64>,
     ) -> JournalHookTransition {
+        if current.is_some_and(|fence| sequence <= fence.sequence) {
+            return JournalHookTransition::Ignore;
+        }
+        Self::session_transition(
+            current,
+            terminal_id,
+            explicit_session_id,
+            is_session_start,
+            sequence,
+            observed_at_ms,
+        )
+    }
+
+    /// Session ownership without lifecycle ordering. A child's completion may project
+    /// after a later parent Stop; its caller supplies the session-boundary sequence fence.
+    pub(crate) fn session_transition(
+        current: Option<&Self>,
+        terminal_id: &str,
+        explicit_session_id: Option<&str>,
+        is_session_start: bool,
+        sequence: u64,
+        observed_at_ms: Option<u64>,
+    ) -> JournalHookTransition {
         if explicit_session_id.is_none()
             && current.is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
         {
@@ -412,9 +435,6 @@ impl HookFence {
             })
             .unwrap_or_else(|| legacy_hook_session_id(terminal_id, sequence));
         let Some(fence) = current else { return JournalHookTransition::Apply(session_id) };
-        if sequence <= fence.sequence {
-            return JournalHookTransition::Ignore;
-        }
         // Compare the event's observation with the fence's incarnation
         // boundary. Unknown on either side proves nothing.
         let after_end =

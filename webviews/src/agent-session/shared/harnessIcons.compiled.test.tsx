@@ -127,5 +127,23 @@ test("an SF Symbol icon draws the host's image, and its monogram until then", as
   const symbol = dom.window.document.querySelector<HTMLElement>(".agent-mark-symbol");
   expect(symbol?.dataset.symbol).toBe("hammer.fill");
   expect(symbol?.getAttribute("style")).toContain(png);
+
+  // A page may replace its host without remounting the icon component (Settings, tab reuse).
+  // Resetting the image cache must make a mounted mark ask the new host for its image.
+  const updatedPng = "data:image/png;base64,TkVXTkVX";
+  let updatedReply: (src: string | null) => void = () => {};
+  const newRequests: string[] = [];
+  await mod.act(async () => {
+    mod.setHarnessSymbolHost((name: string) => {
+      newRequests.push(name);
+      return new Promise<string | null>((resolve) => (updatedReply = resolve));
+    });
+  });
+  expect(newRequests).toEqual(["hammer.fill"]);
+  expect(dom.window.document.querySelector(".agent-mark-monogram")?.textContent).toBe("H");
+  await mod.act(async () => updatedReply(updatedPng));
+  expect(dom.window.document.querySelector(".agent-mark-symbol")?.getAttribute("style")).toContain(updatedPng);
+
   await mod.act(async () => root.unmount());
+  mod.setHarnessSymbolHost(undefined);
 });

@@ -21,7 +21,7 @@ public nonisolated enum MachineLinkState: String, Hashable, Sendable {
         switch status {
         case .offline, .unreachable, .failed, .disconnected: true
         case .connected, .updateAvailable, .connecting, .reconnecting, .installing, .installRequired,
-             .authFailed, .updateRequired, .paused, .pausedIdle: false
+             .authFailed, .updateRequired, .paused, .pausedIdle, .pausing, .resuming, .deleting: false
         }
     }
 }
@@ -34,7 +34,7 @@ extension SidebarMachine.Status {
     public var linkState: MachineLinkState {
         switch self {
         case .connected, .updateAvailable: .connected
-        case .connecting, .reconnecting, .installing: .connecting
+        case .connecting, .reconnecting, .installing, .pausing, .resuming, .deleting: .connecting
         case .offline, .unreachable, .authFailed, .failed, .updateRequired: .offline
         case .paused, .pausedIdle: .paused
         case .installRequired, .disconnected: .attention

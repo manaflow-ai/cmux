@@ -70,7 +70,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         // A tab of this workspace already shows it: that tab, never a second one.
         if let shown = workspace.tabs.first(where: { tree.agentTabs[$0.id]?.session == chat.id }) { return shown }
         guard let pane = tree.panes[workspace.id] else {
-            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes yet")
+            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes")
         }
         do {
             let reply = try await client.request("new-conversation-tab", params: [
@@ -127,12 +127,25 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         return now
     }
 
+    /// Stop: `session/cancel` as a request, so acpmux's refusal (a chat the Mac started,
+    /// `remote.session_cancel_ownership`) comes back instead of being dropped.
+    public func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws {
+        let acpmux = try readyAcpmux(macID)
+        do {
+            _ = try await acpmux.request("session/cancel", .object(["sessionId": .string(chat.id)]), timeout: .seconds(20))
+        } catch let error as AcpmuxConnection.RPCError where error.reason == "remote.session_cancel_ownership" {
+            throw AgentChatOwnedByMac(error.message)
+        } catch let error as AcpmuxConnection.RPCError {
+            throw WorkspaceCreationError(error.message, isForPerson: true)
+        }
+    }
+
     public func openChatFolderInTerminal(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
             throw WorkspaceCreationError("Not connected")
         }
         guard let session = tree.agentTabs[tab.id]?.session else {
-            throw WorkspaceCreationError("This chat hasn't started yet.", isForPerson: true)
+            throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
         }
         guard let place = tree.tabPlaces[tab.id] ?? tree.panes[workspace.id].map({ DaemonTree.TabPlace(pane: $0, index: 0) }) else {
             throw WorkspaceCreationError("The Mac doesn't list this tab")
@@ -183,7 +196,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
     private func readyAcpmux(_ macID: String) throws -> AcpmuxHub {
         guard canManage(on: macID) else { throw WorkspaceCreationError("Not connected") }
         guard let acpmux, acpmux.isReady else {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected yet. Try again in a moment.", isForPerson: true)
+            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
         }
         return acpmux
     }

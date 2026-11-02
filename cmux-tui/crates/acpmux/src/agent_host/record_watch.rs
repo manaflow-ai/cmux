@@ -38,6 +38,13 @@ pub(crate) struct DirWatch {
 #[cfg(target_os = "macos")]
 const STOP: usize = 1;
 
+/// Whether `path` itself (not a symlink's target) is a Unix socket.
+#[cfg(target_os = "macos")]
+fn is_socket(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_socket())
+}
+
 #[cfg(target_os = "macos")]
 fn kevent_change(
     kq: std::os::fd::RawFd,
@@ -57,6 +64,8 @@ impl DirWatch {
     /// Watch only each path's own identity, not directory entries or file contents.
     /// The kernel excludes sibling activity before waking the watcher thread. Symlinks are
     /// watched themselves; callers also supply resolved targets when both identities matter.
+    /// macOS: a socket has no vnode kqueue can watch, so the entry changes of the folder that
+    /// holds it wake the callback instead (sibling activity there included).
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub(crate) fn start_identities(
         paths: &[PathBuf],
@@ -108,12 +117,32 @@ impl DirWatch {
         } else {
             identity_events | libc::NOTE_WRITE | libc::NOTE_EXTEND | libc::NOTE_ATTRIB
         };
-        let mut files = Vec::new();
+        // What to open, with its open flags and the events it reports. A socket cannot be
+        // opened (open(2) fails with EOPNOTSUPP, "Operation not supported on socket"), so kqueue
+        // has no vnode of its own to watch: the daemon's socket went unwatched on every Mac, and
+        // its warning came before the daemon's readiness line (cx-n1nrjk). The entry changes of
+        // the folder that holds it (NOTE_WRITE: the socket removed, renamed or replaced there)
+        // stand in for it; that folder is opened through any symlink, so its entries are the
+        // socket's. Linux's inotify watches the socket itself.
+        let mut targets: Vec<(&std::path::Path, i32, u32)> = Vec::new();
         for dir in dirs {
+            if identities_only
+                && is_socket(dir)
+                && let Some(folder) = dir.parent().filter(|parent| !parent.as_os_str().is_empty())
+            {
+                if !targets.iter().any(|(path, flags, _)| *path == folder && *flags == 0) {
+                    targets.push((folder, 0, identity_events | libc::NOTE_WRITE));
+                }
+                continue;
+            }
+            targets.push((dir, if identities_only { libc::O_SYMLINK } else { 0 }, fflags));
+        }
+        let mut files = Vec::new();
+        for (dir, open_flags, fflags) in targets {
             // O_EVTONLY: the open descriptor never keeps the volume from unmounting.
             let opened = std::fs::OpenOptions::new()
                 .read(true)
-                .custom_flags(libc::O_EVTONLY | if identities_only { libc::O_SYMLINK } else { 0 })
+                .custom_flags(libc::O_EVTONLY | open_flags)
                 .open(dir)
                 .and_then(|file| {
                     let ident = file.as_raw_fd() as usize;

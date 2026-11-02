@@ -124,6 +124,7 @@ pub(super) struct ConversationMark {
     agent_session_id: Option<String>,
     agent_session_family: Option<String>,
     previous_agent_session_ids: Vec<String>,
+    retired_agent_session_ids: Vec<String>,
     claude_unstored: bool,
     claude_profile: Option<String>,
     rehydrate: bool,
@@ -136,6 +137,7 @@ impl ConversationMark {
             agent_session_id: m.agent_session_id.clone(),
             agent_session_family: m.agent_session_family.clone(),
             previous_agent_session_ids: m.previous_agent_session_ids.clone(),
+            retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             claude_unstored: m.claude_unstored,
             claude_profile: m.claude_profile.clone(),
             rehydrate: session.rehydrate.load(std::sync::atomic::Ordering::SeqCst),
@@ -149,6 +151,7 @@ impl ConversationMark {
             m.agent_session_id = self.agent_session_id;
             m.agent_session_family = self.agent_session_family;
             m.previous_agent_session_ids = self.previous_agent_session_ids;
+            m.retired_agent_session_ids = self.retired_agent_session_ids;
             m.claude_unstored = self.claude_unstored;
             m.claude_profile = self.claude_profile;
         }

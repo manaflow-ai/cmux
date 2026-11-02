@@ -119,6 +119,9 @@ pub struct EventsParams {
     /// Default 5000.
     pub limit: Option<u64>,
     pub max_bytes: Option<u64>,
+    /// Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
+    /// in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+    pub prompt_index: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -173,4 +176,9 @@ pub struct WatchParams {
     pub enabled: Option<bool>,
     pub limit: Option<u64>,
     pub cursor: Option<String>,
+    /// A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's
+    /// list, with the digest of its row as last listed (`""` when it changed since). The reply
+    /// is then a delta: `delta: true`, the rows new or changed, and `removed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known: Option<std::collections::BTreeMap<String, String>>,
 }

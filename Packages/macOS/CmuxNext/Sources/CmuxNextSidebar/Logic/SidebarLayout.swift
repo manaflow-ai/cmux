@@ -83,6 +83,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     public static func == (lhs: SidebarLayout, rhs: SidebarLayout) -> Bool {
         lhs.rows == rhs.rows && lhs.totalHeight == rhs.totalHeight && lhs.gapY == rhs.gapY && lhs.gapHeight == rhs.gapHeight
             && lhs.gapShift == rhs.gapShift && lhs.rowSpacing == rhs.rowSpacing
+            && lhs.pinnedChatsY == rhs.pinnedChatsY && lhs.earlierChatsY == rhs.earlierChatsY
     }
 
     public func hash(into hasher: inout Hasher) {
@@ -92,6 +93,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         hasher.combine(gapHeight)
         hasher.combine(gapShift)
         hasher.combine(rowSpacing)
+        hasher.combine(pinnedChatsY)
+        hasher.combine(earlierChatsY)
     }
 
     /// Replaces a workspace row's content in place, keeping its frame
@@ -137,6 +140,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         // A new workspace's drop gap is a row: as short as minimal mode's rows.
         let gapHeight = max(0, o.gapHeight - (base.rowHeight - m.rowHeight))
         if o.hidesWorkspaces { return .empty }
+        // A row per key: a workspace id two machines list draws once (`listingEachWorkspaceOnce`).
+        let once = Self.listingEachWorkspaceOnce(sections)
+        // The Archive section takes the archived rows out of the lists; they draw under its row at the end.
+        let archive = Self.drawsArchiveSection(o) ? Self.splittingArchive(once, keeping: o.activeWorkspaceID) : nil
+        let sections = archive?.live ?? once
         var rows: [SidebarRow] = []
         var y = m.topPadding
         var gapY: CGFloat?
@@ -320,21 +328,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
                         group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
-                        isCollapsed: false, childCount: 0, groupColor: nil,
-                        tabDisclosure: o.disclosure(ws), content: content
+                        isCollapsed: false, childCount: 0, groupColor: nil, content: content
                     ))
                     y += h + m.rowSpacing
-                    if o.listsTabs(ws) {
-                        for tab in ws.tabs {
-                            rows.append(SidebarRow(
-                                key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
-                                group: nil, workspace: ws.id, siblingIndex: 0, parentIndex: nil,
-                                isLastInGroup: false, isCollapsed: false, childCount: 0,
-                                groupColor: nil, tabKind: tab.kind
-                            ))
-                            y += m.tabRowHeight + m.rowSpacing
-                        }
-                    }
                 case let .item(item):
                     let content = WorkspaceRowContent() // one line, as a compact workspace row
                     let h = m.height(for: content)
@@ -355,6 +351,19 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                     }
                     let groupCollapsed = group.isCollapsed && !filtering
+                    // One member named as its group (`acpmux new --group X` names both X): the member's row alone, in
+                    // the header's place, where it draws as a live row (`SidebarLayout+SoleMember`).
+                    if let sole = Self.soleMember(group, members, hasSubgroups: subgroupParents.contains(group.id), options: o),
+                       let depth = Self.liveDepth(of: sole, members, in: group, collapsed: groupCollapsed,
+                                                  fold: SidebarDoneFoldID(section: section.id, group: group.id), options: o) {
+                        y = Self.appendSoleMember(sole, of: group, treeDepth: depth, section: section.id,
+                                                  parent: index, machine: machineLabel, options: o, metrics: m, to: &rows, y: y)
+                        // A drop gap in the group opens under the row, as it opened under the header: the row keeps the header's
+                        // slot under the pointer, and the header never returns mid-drag.
+                        openGapIfNeeded(section: section.id, group: group.id, index: 0)
+                        openGapIfNeeded(section: section.id, group: group.id, index: 1)
+                        return
+                    }
                     var header = SidebarRow(
                         key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
                         group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
@@ -378,17 +387,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             let h = m.height(for: content)
                             rows.append(SidebarRow(key: .workspace(ws.id), y: y, height: h, section: section.id, group: group.id,
                                                    siblingIndex: childIndex, parentIndex: index, isLastInGroup: n == kept.count - 1,
-                                                   isCollapsed: false, childCount: 0, groupColor: group.color,
-                                                   tabDisclosure: o.disclosure(ws), content: content))
+                                                   isCollapsed: false, childCount: 0, groupColor: group.color, content: content))
                             y += h + m.rowSpacing
                         }
                         return
-                    }
-                    // An open group with nothing in it keeps one quiet member-sized row (user 9757): it reads as open
-                    // and empty, and a drop over it goes into the group. A drag's gap here takes its place.
-                    if members.isEmpty, o.gap?.group != group.id,
-                       Self.listsEmptyRow(group, filtering: filtering, hasSubgroups: subgroupParents.contains(group.id)) {
-                        y = Self.appendEmptyRow(group, section: section.id, parent: index, metrics: m, to: &rows, y: y)
                     }
                     let fold = SidebarDoneFoldID(section: section.id, group: group.id)
                     let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
@@ -424,21 +426,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
                             isLastInGroup: position == drawn.count - 1,
-                            isCollapsed: false, childCount: 0, groupColor: group.color,
-                            tabDisclosure: o.disclosure(ws), content: content
+                            isCollapsed: false, childCount: 0, groupColor: group.color, content: content
                         ))
                         y += h + m.rowSpacing
-                        if o.listsTabs(ws) {
-                            for tab in ws.tabs {
-                                rows.append(SidebarRow(
-                                    key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
-                                    group: group.id, workspace: ws.id, siblingIndex: childIndex, parentIndex: index,
-                                    isLastInGroup: false, isCollapsed: false, childCount: 0,
-                                    groupColor: group.color, tabKind: tab.kind
-                                ))
-                                y += m.tabRowHeight + m.rowSpacing
-                            }
-                        }
                     }
                     // The next row follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
                     openGapIfNeeded(section: section.id, group: group.id, index: members.count)
@@ -482,6 +472,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
+        if let archive { Self.appendArchive(archive, firstRow: rows.isEmpty, options: o, base: base, metrics: m, to: &rows, y: &y) }
         chats.placeEarlier(&y)
         y += m.bottomPadding
         var layout = SidebarLayout(

@@ -87,17 +87,17 @@ enum FilePageHandlers {
                 }
             })
         })
-        // The word wrap toggle is the `editor.wordWrap` setting (PAGE-PREFS); the page follows its look.
-        registry.bind("toggleFileEditorWordWrap", run: { invocation in
-            _ = try page(.editor, context, invocation)
-            let look = services.viewers.editorPages.look
-            let current = look.current()["settings"]?["wordWrap"]?.stringValue ?? "off"
-            let writer = SettingWriter(invocation.origin)
-            registry.track(Task { @MainActor in
-                try? await look.setPreference(key: "editor.wordWrap", value: .string(current == "off" ? "on" : "off"), by: writer)
-                return nil
+        // The word wrap and minimap toggles flip the `editor.*` settings the page toolbar writes (PAGE-PREFS).
+        for toggle in EditorPreferenceToggle.all {
+            registry.bindEffect(ActionID(rawValue: toggle.action), requires: nil, effect: { invocation in
+                _ = try page(.editor, context, invocation)
+                let look = services.viewers.editorPages.look, writer = SettingWriter(invocation.origin)
+                let value = toggle.next(in: look.current()["settings"])
+                return .applied(result: {
+                    do { try await look.setPreference(key: toggle.key, value: value, by: writer); return .success([:]) } catch { return .failure(ActionWorkFailure(error.localizedDescription)) }
+                })
             })
-        })
+        }
     }
 
     /// The focused (or targeted) tab's page of `kind`.
@@ -119,19 +119,19 @@ enum FilePageHandlers {
         services.pages.storeKey(of: id) ?? id
     }
 
-    /// The file a file page tab shows (Reveal in Finder, Open With), nil for any other tab.
+    /// The local file a file page tab shows (Reveal in Finder, Open With), nil for remote files or other tabs.
     static func file(ofTab id: String, _ services: AppServices) -> URL? {
         let key = providerKey(id, services)
         return FilePageKind.allCases.lazy.compactMap { kind in
-            LocalPageTab.page(of: key) == kind.page ? service(kind, services).file(key) : nil
+            LocalPageTab.page(of: key) == kind.page ? service(kind, services).localFile(key) : nil
         }.first
     }
 
-    /// Sends a shared find action to an editor page tab; false for any other page.
+    /// Sends a shared find action to a code editor or markdown page tab; false for any other page.
     static func sendFind(_ action: String, _ id: String, _ services: AppServices, text: String? = nil) -> Bool {
         let key = providerKey(id, services)
-        guard LocalPageTab.page(of: key) == .editor, let command = EditorPageCommand.forAction[action],
-              let page = services.viewers.editorPages.pageView(key) else { return false }
+        guard let command = EditorPageCommand.forAction[action], let kind = FilePageKind.allCases.first(where: { LocalPageTab.page(of: key) == $0.page }),
+              let page = service(kind, services).pageView(key) else { return false }
         return page.send(command: command, arguments: text.map { ["text": .string($0)] } ?? [:])
     }
 }

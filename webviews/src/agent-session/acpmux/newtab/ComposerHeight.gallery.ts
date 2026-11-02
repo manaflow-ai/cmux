@@ -21,7 +21,7 @@ const DRAFT = [
 ].join("\n");
 
 const ALT_ID = "newtab-composer-height-candidate";
-const FIELD = ".nt-field";
+const FIELD = ".nt-field.acpmux-md-field";
 const PAD_BLOCK = "var(--nt-input-pad-block)";
 const rules: Record<string, string> = {
   "old-eight-lines": `${FIELD} { max-height: min(calc(8 * 1lh + 2 * ${PAD_BLOCK}), 40vh); }`,
@@ -38,7 +38,7 @@ const play = (candidate: string) => async (ctx: PlayContext) => {
     ctx.document.head.append(style);
   }
   await ctx.waitFor(() => {
-    const field = ctx.document.querySelector<HTMLTextAreaElement>(FIELD);
+    const field = ctx.document.querySelector<HTMLElement>(FIELD);
     return field !== null && field.scrollHeight > field.clientHeight + 1;
   });
 };

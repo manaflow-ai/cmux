@@ -13,13 +13,10 @@ pub(super) fn list_workspaces(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let listed = list_resources(
-        mux,
-        &request.selectors,
-        ResourceTarget::Session,
-        "workspaces",
-        "workspace.list",
-    )?;
+    // The workspaces alone, not the whole session snapshot filtered: the
+    // session scope keeps every workspace (`SnapshotPathIndex::contains`).
+    mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
+    let listed = Value::Array(crate::resource_api::public_workspaces(mux)?);
     let personal = match optional_string(&request.fields, "order")?.as_deref() {
         Some("session") => return Ok(listed),
         None => false,

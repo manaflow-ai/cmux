@@ -293,27 +293,40 @@ mod unix {
             }
         }
         let host = Arc::new(host);
+        // The app's provider link is connected (its driver is in the slot and open).
+        let provider_open = {
+            let slot = engines.provider_slot();
+            move || {
+                slot.lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref()
+                    .is_some_and(|provider| provider.closed_reason().is_none())
+            }
+        };
         let idle = options.idle_exit_ms.filter(|_| options.supervised).map(|ms| {
-            let (probe_host, slot) = (Arc::downgrade(&host), engines.provider_slot());
+            let (probe_host, provider_open) = (Arc::downgrade(&host), provider_open.clone());
             let busy = move || {
                 let sessions = probe_host
                     .upgrade()
                     .is_some_and(|host| host.session_count() > 0 || host.connection_count() > 0);
-                let provider = slot
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .as_ref()
-                    .is_some_and(|provider| provider.closed_reason().is_none());
-                sessions || provider
+                sessions || provider_open()
             };
             IdleExit::new(Duration::from_millis(ms), Arc::new(SystemClock), Box::new(busy))
         });
         let idle_weak = idle.as_ref().map(Arc::downgrade);
         let signal = Arc::downgrade(&engines);
+        // Whether a provider was connected at the last change: its leaving is an edge.
+        let had_provider = std::sync::atomic::AtomicBool::new(false);
         // A provider connected or left: the idle stop and waiting sessions see it.
         let on_change: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
             if let Some(idle) = idle_weak.as_ref().and_then(std::sync::Weak::upgrade) {
-                idle.changed();
+                let open = provider_open();
+                if had_provider.swap(open, std::sync::atomic::Ordering::SeqCst) && !open {
+                    // The app that served this host went (a quit): exit now unless in use.
+                    idle.provider_left();
+                } else {
+                    idle.changed();
+                }
             }
             if let Some(engines) = signal.upgrade() {
                 engines.provider_changed();

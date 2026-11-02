@@ -424,6 +424,65 @@ export function agentPinDrift(pins: readonly AgentPin[], latest: Readonly<Record
   });
 }
 
+/** agent-desktop (vercel-labs): the pinned release archive for x86_64 Linux, from the Dockerfile (never a second copy). */
+export function devboxAgentDesktopUrl(dockerfile = readDevboxDockerfile()): string {
+  const url = /^ARG CMUX_IMAGE_AGENT_DESKTOP_URL=(\S+)$/m.exec(dockerfile)?.[1];
+  if (!url) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_AGENT_DESKTOP_URL");
+  return url;
+}
+
+/** The archive is checked against this before it is unpacked. */
+export function devboxAgentDesktopSha256(dockerfile = readDevboxDockerfile()): string {
+  const sha = /^ARG CMUX_IMAGE_AGENT_DESKTOP_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
+  if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_AGENT_DESKTOP_SHA256");
+  return sha;
+}
+
+/** The pinned release, from the archive URL: what `agent-desktop --version` must print. */
+export function devboxAgentDesktopVersion(dockerfile = readDevboxDockerfile()): string {
+  const match = /\/releases\/download\/v(\d+\.\d+\.\d+)\/agent-desktop-v(\d+\.\d+\.\d+)-x86_64-unknown-linux-gnu\.tar\.gz$/.exec(devboxAgentDesktopUrl(dockerfile));
+  if (!match || match[1] !== match[2]) throw new Error("devbox Dockerfile's CMUX_IMAGE_AGENT_DESKTOP_URL is not a v<x.y.z> agent-desktop-v<x.y.z>-x86_64-unknown-linux-gnu.tar.gz release asset");
+  return match[1];
+}
+
+/**
+ * The one agent-desktop install both recipes run: the Dockerfile's RUN is this
+ * with the ARG references, the Freestyle bake this with the pinned values (a
+ * test keeps them identical). The archive holds the CLI and its clipboard
+ * helper, which the CLI finds beside its resolved executable, so both stay in
+ * /opt/agent-desktop and only the CLI is linked onto PATH.
+ */
+export function devboxAgentDesktopInstallCommand(url: string, sha256: string, version: string): string {
+  return [
+    `curl -fsSL -o /tmp/agent-desktop.tar.gz ${url}`,
+    `echo "${sha256}  /tmp/agent-desktop.tar.gz" | sha256sum -c -`,
+    "rm -rf /opt/agent-desktop",
+    "mkdir -p /opt/agent-desktop",
+    "tar -xzf /tmp/agent-desktop.tar.gz -C /opt/agent-desktop --no-same-owner",
+    "rm -f /tmp/agent-desktop.tar.gz",
+    "chmod -R a+rX /opt/agent-desktop",
+    "test -x /opt/agent-desktop/agent-desktop-linux-clipboard-owner",
+    "ln -sfn /opt/agent-desktop/agent-desktop /usr/local/bin/agent-desktop",
+    `test "$(agent-desktop --version)" = "agent-desktop ${version}"`,
+  ].join(" && ");
+}
+
+/**
+ * agent-desktop sees the machine's desktop: in a login shell of the desktop's
+ * own user (which /etc/cmux/desktop-env.sh points at the VNC display, its
+ * session bus and its accessibility bus) the accessibility permission reads
+ * granted, Thunar launches with a window, and a snapshot of it is a complete
+ * accessibility tree with refs. Thunar is closed again either way. No single
+ * quotes: callers wrap it in `bash -lc '...'`.
+ */
+export const DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE = [
+  "agent-desktop status | grep -q accessibility.:{.state.:.granted",
+  "agent-desktop launch thunar --activate | grep -q accessible.:true",
+  "agent-desktop snapshot --app thunar -i > /tmp/agent-desktop-snapshot.json",
+  "grep -q complete.:true /tmp/agent-desktop-snapshot.json",
+  "grep -q ref_id /tmp/agent-desktop-snapshot.json",
+].join(" && ") + "; rc=$?; agent-desktop close-app thunar >/dev/null 2>&1; rm -f /tmp/agent-desktop-snapshot.json; exit $rc";
+
 /** The cua computer-use driver pin, from the Dockerfile (never a second copy). */
 export function devboxCuaDriverVersion(dockerfile = readDevboxDockerfile()): string {
   const version = /CUA_DRIVER_RS_VERSION=(\S+)/.exec(dockerfile)?.[1];

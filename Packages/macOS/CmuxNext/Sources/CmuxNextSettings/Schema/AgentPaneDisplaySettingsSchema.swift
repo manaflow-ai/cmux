@@ -3,8 +3,8 @@ import CoreGraphics
 /// The agent chat's look (Settings > Appearance > Agent Chat; plans/cmux-next/chat-display-settings-DESIGN.md):
 /// the same kind of rows the Markdown viewer has, under `agentPane.display`. The chat page reads the
 /// same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts `CHAT_DISPLAY`), and its
-/// ··· menu's Text & Width popover writes them. `inspector.placement` is where the chat's Inspector
-/// opens (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx), and `environment.placement`
+/// ··· menu's Text & Width popover writes them. `inspector.placement` is where the chat's Session Info
+/// opens (webviews/src/agent-session/acpmux/session-info/SessionInfo.tsx), and `environment.placement`
 /// controls the machine · folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).
 ///
 /// The font, code font and code size have no value of their own by default: the chat then follows
@@ -120,6 +120,25 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 ]),
                 .string("compact"), ["minimap", "thread minimap", "map", "overview", "scroll", "vscode", "rail", "tick", "ticks",
                                  "wave", "prompt rail", "scroll rail", "prompts"]),
+            // How much of each turn a chat shows (webviews conversation/transcriptView.ts), Claude Code
+            // desktop's Transcript view: a chat's ··· menu changes its own, and its "Make … the default"
+            // writes this row.
+            row(["transcriptView"], SettingsText.keyed("settings.agentPane.display.transcriptView", "Transcript View"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptView.help",
+                                         "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view."),
+                .choice([
+                    SettingChoice("normal", SettingsText.keyed("settings.choice.transcriptViewNormal", "Normal")),
+                    SettingChoice("thinking", SettingsText.keyed("settings.choice.transcriptViewThinking", "Thinking")),
+                    SettingChoice("verbose", SettingsText.keyed("settings.choice.transcriptViewVerbose", "Verbose")),
+                ]),
+                .string("normal"), ["transcript", "view", "verbose", "thinking", "thoughts", "reasoning", "tool output",
+                                    "expand", "collapse", "fold", "details"]),
+            row(["presentation"], SettingsText.keyed("settings.agentPane.display.presentation", "Chat Presentation"),
+                .choice([
+                    SettingChoice("transcript", SettingsText.keyed("settings.choice.agentChatPresentationTranscript", "Transcript")),
+                    SettingChoice("messages", SettingsText.keyed("settings.choice.agentChatPresentationMessages", "Messages")),
+                ]),
+                .string("transcript"), ["presentation", "messages", "bubbles", "chat", "tools"]),
             row(["rail", "side"], SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
                 help: SettingsText.keyed("settings.agentPane.display.rail.side.help",
                                          "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."),

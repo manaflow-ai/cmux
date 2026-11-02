@@ -30,6 +30,8 @@ const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("ba
 
 export default defineConfig({
   test: {
+    // test-node/ runs under Node (vitest.node.config.ts): tests there spawn local programs, which workerd cannot.
+    include: ["test/**/*.test.ts"],
     // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
     setupFiles: ["./test/setup/warm-worker.ts"],
     // The full parallel run of every file (309 s on a 32 vCPU Freestyle VM, 2026-10-16) makes each case about 9x
@@ -121,6 +123,8 @@ export default defineConfig({
           TEAM_VM_BIND_ENABLED: "1",
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
+          // ACP chat trajectories kept outside the VM (cloud-trajectory.ts); off unless "1".
+          CLOUD_TRAJECTORIES_ENABLED: "1",
           CLOUD_API_ORIGIN: "https://api.test",
           CLOUD_LINK_SIGNING_KEYS: JSON.stringify({ active: "test-link-2", keys: linkKeys, published_at: { "test-link-1": 0, "test-link-2": 0 } }),
           CLOUD_ADMIN_KEY: "test-cloud-admin-key-0123456789abcdef",

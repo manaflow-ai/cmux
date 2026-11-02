@@ -129,6 +129,7 @@ export const ToolOutput = memo(function ToolOutput({
             type="button"
             className="cv-tool-output__raw"
             aria-pressed={rawShown}
+            data-fold-toggle=""
             aria-controls={bodyId}
             onClick={() => setRawShown((value) => !value)}
           >

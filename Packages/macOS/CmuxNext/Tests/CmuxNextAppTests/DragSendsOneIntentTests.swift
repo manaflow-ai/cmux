@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// A divider or column drag is local until it ends (perf-10x drag): the
 /// layout follows every pointer move, and the App gets one intent, the
 /// released value, so the daemon gets one command per drag.
 @MainActor
+@Suite(.closesItsWindows)
 struct DragSendsOneIntentTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -19,6 +21,7 @@ struct DragSendsOneIntentTests {
         let root = LayoutRootView(model: model, contentProvider: provider)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         var intents: [LayoutIntent] = []

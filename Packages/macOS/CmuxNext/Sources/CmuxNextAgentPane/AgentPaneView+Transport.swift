@@ -107,8 +107,14 @@ extension AgentPaneView {
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
         model.transport.onRemoteApprovalsOff = { [weak self] approvals in self?.showRemoteApprovalsOff(approvals) }
         model.transport.onPeerApprovalsOff = { [weak self] reason in self?.showPeerApprovalsOff(reason) }
-        model.transport.onQuestionStateChanged = { [weak self] in self?.refreshQuestionKeyBinding() }
-        model.onQuestionKeySessionChange = { [weak self] in self?.refreshQuestionKeyBinding() }
+        model.transport.onQuestionStateChanged = { [weak self] in
+            self?.refreshQuestionKeyBinding()
+            self?.refreshOtherInstallNotice()
+        }
+        model.onQuestionKeySessionChange = { [weak self] in
+            self?.refreshQuestionKeyBinding()
+            self?.refreshOtherInstallNotice()
+        }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
             if let pageEvents = self.pageEvents {
@@ -174,7 +180,7 @@ extension AgentPaneView {
         // Repeats belong to the original press, whose DOM proof may still be redeeming.
         // A new page event revokes it, even when posted input cannot grant a fresh witness.
         model.transport.gestures.recordQuestionReturn(false)
-        guard AgentPanePersonInput.isPerson(event) else { return }
+        guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
         model.transport.gestures.record(click: event.type != .keyDown)
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }
@@ -195,7 +201,7 @@ extension AgentPaneView {
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
         model.transport.gestures.recordQuestionReturn(false)
-        guard AgentPanePersonInput.isPerson(event) else { return }
+        guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
         model.transport.gestures.record(click: event.type != .keyDown)
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }

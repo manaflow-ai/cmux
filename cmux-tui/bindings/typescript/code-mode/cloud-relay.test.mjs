@@ -95,6 +95,34 @@ test("domain and publication operations use fixed VM routes", async () => {
   assert.deepEqual(JSON.parse(calls[2].init.body), { accessMode: "personal" });
 });
 
+test("API provisioning and key operations use fixed publication routes", async () => {
+  const calls = [];
+  const broker = createCloudBroker({
+    catalog: relayCatalog,
+    apiUrl: "https://cloud.test",
+    bearerToken: "fixture-secret",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    },
+  });
+  await broker.request("vm.api.provision", { vmId: "vm_fixture", port: 8080, name: "agent" }, "provision-key");
+  await broker.request("vm.publication.api-key.list", { id: "pub_fixture" });
+  await broker.request("vm.publication.api-key.create", { id: "pub_fixture", name: "ci" }, "mint-key");
+  await broker.request("vm.publication.api-key.revoke", { id: "pub_fixture", key_id: "key_fixture" }, "revoke-key");
+  assert.deepEqual(calls.map((call) => [call.init.method, call.url]), [
+    ["POST", "https://cloud.test/api/vm/apis"],
+    ["GET", "https://cloud.test/api/vm/publications/pub_fixture/api-keys"],
+    ["POST", "https://cloud.test/api/vm/publications/pub_fixture/api-keys"],
+    ["DELETE", "https://cloud.test/api/vm/publications/pub_fixture/api-keys/key_fixture"],
+  ]);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { vmId: "vm_fixture", port: 8080, name: "agent" });
+  assert.deepEqual(JSON.parse(calls[2].init.body), { name: "ci" });
+  assert.equal(calls[3].init.body, undefined);
+  await assert.rejects(broker.request("vm.publication.api-key.revoke", { id: "pub_fixture" }), /key_id/);
+  await assert.rejects(broker.request("vm.publication.api-key.revoke", { id: "pub_fixture", key_id: "key/../x" }), /key_id/);
+});
+
 test("host relay serves typed requests over a Unix socket", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cmux-cloud-relay-"));
   const socketPath = join(dir, "relay.sock");
@@ -166,8 +194,8 @@ test("snapshot create generates an idempotency key when code mode omits one", as
 });
 
 test("every relay operation calls the method and path that its catalog binding declares", async () => {
-  const params = { vm_id: "vm_x", snapshot_id: "snap_x", id: "pub_x", name: "example.com", path: "/tmp" };
-  const values = { vm_id: "vm_x", snapshot_id: "snap_x", id: "pub_x", name: "example.com" };
+  const params = { vm_id: "vm_x", snapshot_id: "snap_x", id: "pub_x", key_id: "key_x", name: "example.com", path: "/tmp" };
+  const values = { vm_id: "vm_x", snapshot_id: "snap_x", id: "pub_x", key_id: "key_x", name: "example.com" };
   for (const [operation, entry] of Object.entries(relayCatalog.operations)) {
     const binding = entry.transport?.http;
     assert.ok(binding, `${operation} has an http binding`);

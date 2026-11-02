@@ -304,9 +304,3 @@ final class FeedService {
         return reply
     }
 }
-
-enum FeedServiceError: Error {
-    case signedOut
-    case badReply
-    case owner(code: String, message: String)
-}

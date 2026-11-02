@@ -45,6 +45,30 @@ cmux_agent_own_login_allowed() {
   [ "$cmux_aa_kind" = owner ]
 }
 
+# 0 when the machine's creator's own Claude login was transferred here: the
+# app's credential transfer (cmux CloudCredentialInstaller, run only for the
+# machine's creator) records `own` as the choice and writes the login to
+# ~/.claude/settings.json's env as CLAUDE_CODE_OAUTH_TOKEN. A team machine
+# then runs Claude on that login instead of the shared team mode (Leo,
+# 2026-11-01: "team or no team the thing should just work ... it's your
+# machine"). A `/login` or `cr use own` alone never does this, and without a
+# transferred login a team machine stays in shared-machine mode.
+cmux_agent_creator_login() {
+  [ "$1" = claude ] || return 1
+  [ "$(cmux_agent_auth_choice claude)" = own ] || return 1
+  cmux_aa_settings="${HOME:-/root}/.claude/settings.json"
+  [ -f "$cmux_aa_settings" ] && [ ! -L "$cmux_aa_settings" ] || return 1
+  python3 -I -c '
+import json, sys
+try:
+    env = json.load(open(sys.argv[1])).get("env")
+except Exception:
+    sys.exit(1)
+token = env.get("CLAUDE_CODE_OAUTH_TOKEN") if isinstance(env, dict) else None
+sys.exit(0 if isinstance(token, str) and token.strip() else 1)
+' "$cmux_aa_settings" 2>/dev/null
+}
+
 # 0 when <agent> has its own sign-in on this machine.
 #   claude    a /login session in its credentials file, or a long-lived
 #             token from `claude setup-token`
@@ -154,14 +178,25 @@ print(code("claude"), code("codex"), code("opencode"))
 #   env             CMUX_<AGENT>_AUTH pins this launch
 #   chosen          `cr use` recorded the mode
 #   login           no choice; the agent has its own sign-in here
+#                   (on a team machine: the creator's transferred Claude
+#                   login, cmux_agent_creator_login)
 #   team-account    no choice or sign-in; the team has an account for it
 #   no-team-account no choice or sign-in; the team has none
 #   team-unreachable no choice or sign-in; CodeRouter cannot be reached from
 #                   this machine, so team mode could not work
+#   no-team-plane   no choice or sign-in; the machine has no CodeRouter origin
+#                   at all (no model plane in its boot env, persisted copy or
+#                   image), so team mode has nothing to send to and the agent
+#                   shows its own sign-in instead of "Not logged in"
 #   team-unknown    no choice or sign-in; the account check got no answer,
 #                   so the long-standing default (team) applies
 cmux_agent_auth_resolve() {
   if ! cmux_agent_own_login_allowed; then
+    if cmux_agent_creator_login "$1"; then
+      cmux_agent_auth_mode=own
+      cmux_agent_auth_reason=login
+      return 0
+    fi
     cmux_agent_auth_mode=team
     cmux_agent_auth_reason=shared-machine
     return 0
@@ -180,6 +215,10 @@ cmux_agent_auth_resolve() {
     cmux_agent_auth_reason=login
     return 0
   fi
+  case "${CMUX_CODEROUTER_URL-}" in
+    https://*) ;;
+    *) cmux_agent_auth_mode=own; cmux_agent_auth_reason=no-team-plane; return 0 ;;
+  esac
   if cmux_agent_team_access "$1"; then cmux_aa_rc=0; else cmux_aa_rc=$?; fi
   case "$cmux_aa_rc" in
     0) cmux_agent_auth_mode=team; cmux_agent_auth_reason=team-account ;;
@@ -196,11 +235,17 @@ cmux_agent_drop_model_plane_env() {
   cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
   cmux_aa_origin="${cmux_aa_origin%/}"
   cmux_aa_openai="${OPENAI_BASE_URL-}"
-  if [ -n "${ANTHROPIC_BASE_URL-}" ] && { [ "$ANTHROPIC_BASE_URL" = "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] || [ "${ANTHROPIC_BASE_URL%/}" = "$cmux_aa_origin" ]; }; then
+  # With no origin (no-team-plane), a base URL paired with the placeholder key
+  # is the model plane's: a machine that persisted only the OpenAI pair has a
+  # CodeRouter URL and no CMUX_CODEROUTER_URL, and an own login must never be
+  # sent there. With an origin, only a URL that is the origin's is dropped.
+  if [ -n "${ANTHROPIC_BASE_URL-}" ] && { [ "$ANTHROPIC_BASE_URL" = "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] || [ "${ANTHROPIC_BASE_URL%/}" = "$cmux_aa_origin" ] || { [ -z "$cmux_aa_origin" ] && [ "${ANTHROPIC_API_KEY-}" = "$cmux_aa_placeholder" ]; }; }; then
     unset ANTHROPIC_BASE_URL
   fi
   if [ "${ANTHROPIC_API_KEY-}" = "$cmux_aa_placeholder" ]; then unset ANTHROPIC_API_KEY; fi
-  if [ -n "$cmux_aa_origin" ] && [ "${cmux_aa_openai%/}" = "$cmux_aa_origin/v1" ]; then unset OPENAI_BASE_URL; fi
+  if [ -n "$cmux_aa_openai" ] && if [ -n "$cmux_aa_origin" ]; then [ "${cmux_aa_openai%/}" = "$cmux_aa_origin/v1" ]; else [ "${OPENAI_API_KEY-}" = "$cmux_aa_placeholder" ]; fi; then
+    unset OPENAI_BASE_URL
+  fi
   if [ "${OPENAI_API_KEY-}" = "$cmux_aa_placeholder" ]; then unset OPENAI_API_KEY; fi
   # The usage headers name the cmux workspace and terminal; they mean nothing
   # to any other endpoint.

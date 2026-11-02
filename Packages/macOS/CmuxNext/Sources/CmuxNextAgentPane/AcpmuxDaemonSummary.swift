@@ -19,10 +19,6 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
     public var build: String?
     public var state: State
 
-    /// Homes (standardized paths) whose daemon a handoff is stopping, until the lookup that
-    /// starts the bundled one settles.
-    private static let restartingHomes = Mutex<Set<String>>([])
-
     public init(build: String?, state: State) {
         self.build = build
         self.state = state
@@ -78,48 +74,31 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
         }
     }
 
-    /// Notes that a handoff is stopping the daemon of `home`, or that it settled: its shutdown
-    /// failed, the old daemon did not exit, or the lookup that starts the bundled one ended.
-    static func mark(home: URL, restarting: Bool) {
-        let path = home.standardizedFileURL.path
-        restartingHomes.withLock { homes in
-            if restarting {
-                _ = homes.insert(path)
-            } else {
-                _ = homes.remove(path)
-            }
-        }
-    }
-
-    static func isRestarting(home: URL) -> Bool {
-        let path = home.standardizedFileURL.path
-        return restartingHomes.withLock { $0.contains(path) }
-    }
-
     /// How long the bundled acpmux may take to say its build: the card waits for this line.
     static let versionBound: Duration = .seconds(2)
 
     /// The daemon of `environment` now: one `--version` call (bounded, ``versionBound``) and one
     /// `_acpmux/status` call (2 s), so the card waits at most about 4 s. A nil `environment` (no
-    /// acpmux) is not running.
-    @concurrent public static func current(_ environment: AcpmuxEnvironment?) async -> Self {
-        await current(environment, versionClock: ContinuousClock())
+    /// acpmux) is not running. `daemons` is the app's (``AcpmuxLocalDaemons``): its handoff marks.
+    @concurrent public static func current(_ environment: AcpmuxEnvironment?, daemons: AcpmuxLocalDaemons) async -> Self {
+        await current(environment, daemons: daemons, versionClock: ContinuousClock())
     }
 
-    /// ``current(_:)`` with the `--version` bound on `versionClock` (tests pass a manual one).
-    @concurrent static func current(_ environment: AcpmuxEnvironment?, versionClock: any Clock<Duration>) async -> Self {
+    /// ``current(_:daemons:)`` with the `--version` bound on `versionClock` (tests pass a manual one).
+    @concurrent static func current(_ environment: AcpmuxEnvironment?, daemons: AcpmuxLocalDaemons,
+                                    versionClock: any Clock<Duration>) async -> Self {
         guard let environment else { return Self(build: nil, state: .notRunning) }
         let bundled = await DaemonUpdatePolicy.bundledBuild(of: environment.executable, within: versionBound, clock: versionClock)
         let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath)
         guard let status, status.serves(home: environment.home) else {
-            return Self(answered: false, running: nil, bundled: bundled, restarting: isRestarting(home: environment.home))
+            return Self(answered: false, running: nil, bundled: bundled, restarting: daemons.isRestarting(home: environment.home))
         }
         // What a lookup would do first, then the mark: a handoff uses its key and sets the mark in
         // one step, so a used key read here comes with its mark unless that handoff settled since
         // (a failure clears it: the daemon it kept is not the app's build). Both after the awaits.
         let stray = AcpmuxStrayDaemon.takesOver(status, environment: environment)
         let handoff = AcpmuxVersionHandoff.handsOff(status, environment: environment, bundled: bundled)
-        let restarting = isRestarting(home: environment.home)
+        let restarting = daemons.isRestarting(home: environment.home)
         return Self(answered: true, running: status.build, bundled: bundled, restarting: restarting,
                     replaced: handoff.replaced || stray.stray, handsOff: stray.takesOver || handoff.handsOff)
     }

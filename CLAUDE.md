@@ -218,6 +218,10 @@ https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
 Read these before working in their scope; nested files may not load automatically:
 
 - `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
+- Cloud backend code (control plane, VM API routes, provider drivers, billing,
+  entitlements, the NEXT Worker): new code goes to the private
+  manaflow-ai/cmux-platform repository, not here. Read
+  [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
 - `cmux-next-ios/`: [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) and the parity rule above.
@@ -334,7 +338,7 @@ enforces this.
   When your review subagent passes (and the risk tier's evidence is in the description), add the
   `ready-to-land` label. A label older than the head's last push doesn't count: after any later
   push, remove and add it again. `next-autoland` on Huge Blue then merges that exact head
-  (leo-workspace `tools/next_autoland.py`). It also requires `ci-status` to have run, a red
+  (leo-workspace `tools/next_autoland.py`). `ci.yml`'s `ci-status` does not run here; a red
   `risk evidence` or `merge freeze` keeps the PR out, and it reads the merge freezes again right
   before merging. Don't wait for, rerun or fix base reds in your PR; a red it causes keeps it out
   until you fix it. Don't merge with `gh-merge-green` here (`--revert` still works).

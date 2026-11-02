@@ -2,7 +2,9 @@ use super::*;
 
 #[test]
 fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
-    let operations = v2_tools::catalog()["operations"].as_object().expect("operations");
+    let catalog: Value =
+        serde_json::from_str(v2_tools::CATALOG_JSON).expect("the checked-in catalog");
+    let operations = catalog["operations"].as_object().expect("operations");
     let tools = v2_tools::tools().iter().map(|tool| tool.wire).collect::<BTreeSet<_>>();
     let excluded = v2_tools::exclusions()
         .into_iter()

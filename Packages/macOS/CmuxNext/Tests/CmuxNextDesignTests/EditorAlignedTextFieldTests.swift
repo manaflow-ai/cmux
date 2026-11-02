@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// An ``EditorAlignedTextField`` in single-line mode draws its placeholder, and its text at rest,
@@ -7,7 +8,7 @@ import Testing
 /// string drawing put Inter's placeholder up to 4 pt above typed text (the palette's "Search for
 /// commands…", Lawrence 2026-10-29).
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 struct EditorAlignedTextFieldTests {
     private final class FlippedView: NSView {
         override var isFlipped: Bool { true }

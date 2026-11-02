@@ -23,8 +23,12 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
     public var automaticUpdates: Bool
     public var notes: UpdateReadyNotes
 
+    /// Why the last install of this build left the old one running, when it did
+    /// (``UpdateInstallCheck``): the card says so instead of offering Restart to Update again.
+    public var failure: UpdateInstallFailure?
+
     public init(version: String?, isInstalling: Bool, automaticUpdates: Bool, notes: UpdateReadyNotes,
-                changelog: UpdateChangelog? = nil) {
+                changelog: UpdateChangelog? = nil, failure: UpdateInstallFailure? = nil) {
         // While the click installs, the card says so in its title too, not only on its disabled button.
         title = isInstalling ? UpdaterStrings.installingUpdate : UpdaterStrings.readyToInstall
         detail = (changelog ?? version.map { UpdateChangelog(version: $0, date: nil, lines: []) })?.cardDetail
@@ -34,6 +38,15 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
         automaticUpdatesTitle = UpdaterStrings.automaticUpdates
         self.automaticUpdates = automaticUpdates
         self.notes = notes
+        // The install of this build failed: the title says it did not install, the detail line
+        // says why, and the popover (and the button's help) has the full reason and what to do.
+        self.failure = isInstalling ? nil : failure
+        if let failure = self.failure {
+            title = UpdaterStrings.installFailedTitle
+            detail = failure.summary
+            buttonTitle = UpdaterStrings.tryAgain
+            self.notes.headline = failure.message
+        }
     }
 }
 

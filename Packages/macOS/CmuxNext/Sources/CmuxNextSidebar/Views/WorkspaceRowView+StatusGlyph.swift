@@ -48,28 +48,30 @@ extension WorkspaceRowView {
 
 
 extension WorkspaceRowView {
-    /// These image decisions also determine the title column while the parent row is offscreen.
     static func agentMarkImage(_ workspace: SidebarWorkspace, variant: SidebarAgentMarkVariant, placeholder: Bool) -> NSImage? {
         guard variant != .off, !placeholder else { return nil }
         let side = variant == .replacesStatus ? SidebarStyle.statusGlyphSize : SidebarStyle.indicatorSize
-        return workspace.agentIcon.flatMap { agentIconImage($0, side: side) }
+        return registeredAgentMark(workspace, side: side)
+            // A harness workspace with no registered mark draws its kind's symbol, in its stable colour.
+            ?? (workspace.kind == .harness ? NSImage.icon(symbol: workspace.kind.symbol, size: side) : nil)
+    }
+
+    /// The workspace's own icon or its brand's mark, when one is registered.
+    static func registeredAgentMark(_ workspace: SidebarWorkspace, side: CGFloat) -> NSImage? {
+        workspace.agentIcon.flatMap { agentIconImage($0, side: side) }
             ?? workspace.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
+    }
+
+    /// The tint of a harness workspace's fallback mark (its stable per-item colour, resolved in the
+    /// row's theme scope when drawn); nil for a registered mark, which keeps its own tint.
+    static func agentMarkFallbackColor(_ workspace: SidebarWorkspace, variant: SidebarAgentMarkVariant) -> GroupColor? {
+        let side = variant == .replacesStatus ? SidebarStyle.statusGlyphSize : SidebarStyle.indicatorSize
+        guard workspace.kind == .harness, registeredAgentMark(workspace, side: side) == nil else { return nil }
+        return SidebarItemInfo.stableAgentColor(for: workspace.id.rawValue)
     }
 
     static func machineMarkImage(_ mark: SidebarMachineMark, side: CGFloat) -> NSImage {
         if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: side) }
         return mark.symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(mark.kindIcon, size: side)
-    }
-
-    static func titleColumn(workspace: SidebarWorkspace, row: SidebarRow) -> CGFloat {
-        let content = row.content ?? WorkspaceRowContent()
-        let placeholder = workspace.rowState == .placeholder && workspace.title.isEmpty
-        var x = SidebarStyle.workspaceTitleX(icon: content.icon, treeDepth: content.treeDepth)
-        let variant = SidebarTunables.agentMark.value
-        if variant == .besideTitle, agentMarkImage(workspace, variant: variant, placeholder: placeholder) != nil {
-            x = SidebarStyle.titleXAfterLeadingMark(x)
-        }
-        if !placeholder, content.machine != nil { x = SidebarStyle.titleXAfterLeadingMark(x) }
-        return x
     }
 }

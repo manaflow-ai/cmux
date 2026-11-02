@@ -6,8 +6,8 @@ import CmuxNextSidebar
 import Testing
 import CmuxNextLayout
 
-/// What tabs are called outside their strip, and what errors say (op-next-theme toasts). The
-/// sidebar's tab rows and the closed-tab toasts name a tab as its strip does
+/// What tabs are called outside their strip, and what errors say (op-next-theme toasts). A
+/// sidebar row's tabs and the closed-tab toasts name a tab as its strip does
 /// (`TabTitleResolver`): an agent chat by its chat, a page tab by its page, a New Tab page or a
 /// blank browser tab "New Tab", never the `about:blank` address their records carry. No refusal
 /// shows a raw object id.
@@ -70,8 +70,8 @@ struct ToastCopyTests {
         #expect(f.chatName != Strings.untitledBrowser)
     }
 
-    /// The sidebar's tab rows use the strip's names too.
-    @Test func theSidebarTabRowsNameEachTabLikeItsStrip() throws {
+    /// A sidebar row's tabs carry the strip's names too.
+    @Test func aSidebarRowNamesEachTabLikeItsStrip() throws {
         let f = try Self.fixture()
         let pane = try #require(f.store.pane(containing: 1))
         let workspace = try #require(f.store.workspace(containing: pane.handle))

@@ -338,6 +338,12 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                                   menus: [p(.sidebarBackground, .view, 134, folder: .options, label: ObjectMenuLabels.densityExpanded)])
             ),
             ActionDescriptor(
+                id: "sidebar.compactList.toggle", title: t("action.sidebar.compactList.toggle", "Compact Workspace List"),
+                keywords: ["sidebar", "workspace", "compact", "one line", "tabs"], category: .sidebar, symbol: "rectangle.grid.1x2",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 121, folder: .options)])
+            ),
+            ActionDescriptor(
                 id: "sidebar.edit", title: t("action.sidebar.edit", "Edit Sidebar"), keywords: ["sidebar", "edit", "arrange", "reorder", "move", "remove",
                     "add", "items", "wiggle", "home screen"], category: .sidebar, symbol: "square.and.pencil", surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 119, folder: .options), p(.sidebarItem, .view, 120)])
@@ -367,6 +373,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ("new_agent_chat", t("argument.sidebar.builtin.newAgentChat", "New Agent Chat")),
             ("search_chats", t("argument.sidebar.builtin.searchChats", "Search Chats")),
             ("chief", t("argument.sidebar.builtin.chief", "Chief")),
+            ("automations", t("argument.sidebar.builtin.automations", "Automations")),
             ("customize", t("argument.sidebar.builtin.customize", "Customize Appearance")),
         ]
         // Free text with the built-ins offered: `workspace:<id>` and

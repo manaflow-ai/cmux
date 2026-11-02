@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The Chief as a tile (#23933 review), in the list's top block or the older top band: dragged past the sidebar's
 /// side, the release decides. Back over the sidebar the Chief stays; out there it comes off.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct ChiefTileDragOutTests {
     static let chief = LayoutItemID("itm_chief"), home = LayoutItemID("itm_home")
     static let topKey = SidebarRowKey.block(SidebarLayoutDocument.topSectionID.rawValue)
@@ -106,7 +107,7 @@ struct ChiefTileDragOutTests {
     func aTileReleaseDecides(document: Bool, beside: Bool) throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness(document: document)
-        defer { h.window.orderOut(nil) }
+        defer { h.window.closeAfterTest() }
         let (tile, inside) = try h.dragChiefOut()
         let release = beside ? NSPoint(x: h.sidebar.convert(h.sidebar.bounds, to: nil).maxX + 80, y: inside.y) : inside
         tile.mouseUp(with: try h.event(.leftMouseUp, at: release))
@@ -123,7 +124,7 @@ struct ChiefTileDragOutTests {
     func aReleaseSentToAnotherWindowStillDecides(document: Bool, beside: Bool) async throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness(document: document)
-        defer { h.window.orderOut(nil) }
+        defer { h.window.closeAfterTest() }
         let (_, inside) = try h.dragChiefOut()
         let other = NSWindow(contentRect: NSRect(x: 900, y: 200, width: 200, height: 200), styleMask: [.borderless],
                              backing: .buffered, defer: false)
@@ -147,7 +148,7 @@ struct ChiefTileDragOutTests {
     @Test func aBandDragEndsWhenTheSidebarLeavesItsWindow() throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness(document: false)
-        defer { h.window.orderOut(nil) }
+        defer { h.window.closeAfterTest() }
         _ = try h.dragChiefOut()
         let region = try #require(h.region)
         let drag = try #require(region.reorder, "the band holds no drag")

@@ -61,7 +61,9 @@ public enum ActionTargetTitles {
         let action = registry.action(for: id)
         if let title = action?.targetTitle?(invocation) { item.title = title }
         if let on = action?.targetState?(invocation) { item.state = on ? .on : .off }
-        if let reason = ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
+        // A row a person can run past its reason (Sign In, then the action) says what the click does.
+        if let reason = registry.personRecovery(for: id, invocation)?.note
+            ?? ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
             if #available(macOS 14.4, *) { item.subtitle = reason }
             item.toolTip = reason
         }

@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20: "A plain click on a group header must only expand or collapse it." A
 /// click on the name, the chip or the bar toggles the group and opens no editor or menu; the
 /// more button and a right-click still open them.
-@MainActor @Suite(.serialized) struct GroupHeaderClickTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct GroupHeaderClickTests {
     /// A sidebar in a window with one group, and every intent the list sends.
     final class Harness {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless],
@@ -46,6 +47,8 @@ import Testing
         }
     }
 
+    /// The fold of a click on the name waits out the double-click interval (a double-click
+    /// renames in place, `SidebarRenameInPlaceTests`), then runs.
     @Test func aClickOnTheNameOnlyTogglesTheGroup() throws {
         let harness = try Harness()
         defer { harness.sidebar.list.groupEditor.hide(); harness.window.close() }
@@ -53,6 +56,9 @@ import Testing
         header.layoutSubtreeIfNeeded()
         let name = header.titleFrame
         try harness.click(at: NSPoint(x: name.midX, y: name.midY))
+        #expect(harness.toggles == 0, "the name's click folded before the double-click interval ended")
+        #expect(harness.sidebar.list.groupNameClick.isWaiting)
+        harness.sidebar.list.groupNameClick.flush()
         #expect(!harness.sidebar.list.groupEditor.isVisible, "a plain click on the group's name opened the group editor")
         #expect(harness.toggles == 1, "a plain click on the group's name did not toggle it: \(harness.intents)")
     }

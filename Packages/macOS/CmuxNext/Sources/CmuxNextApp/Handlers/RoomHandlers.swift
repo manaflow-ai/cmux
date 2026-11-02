@@ -41,6 +41,12 @@ enum RoomHandlers {
                 windows.openWindow(id: windowID, workspaces: adoptable)
             }
         }
+        // Move Space to This Window, the inverse: the acting window takes the space's workspaces from
+        // every other normal window and shows the space; a window left with none closes.
+        bind("space.bringHere") { invocation in
+            let room = try context.room(invocation)
+            try context.services.windows.bringSpace(room.id, into: context.window(invocation).state)
+        }
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
             let windows = context.services.windows
@@ -185,6 +191,8 @@ enum RoomHandlers {
         let browser = incognito ? nil : active.flatMap { store.profile($0.profileID)?.browserProfileID }
         let id = ProfileID.generate()
         let services = context.services
+        // Marked before the daemon mirrors it, so no normal window's space bar lists it for a frame.
+        if incognito { services.windows.incognitoSpaceMarks.mark(id) }
         services.registry.track(Task {
             guard let connection = services.machines.local.connection else { return ActionWorkFailure(action.rawValue, DaemonError.notConnected) }
             do {

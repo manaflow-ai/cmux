@@ -71,6 +71,11 @@ export function setBlockWrap(kind: BlockKind, wrap: boolean) {
   for (const listener of listeners) listener();
 }
 
+/// Whether blocks of `kind` wrap now (outside React: the chat menu's Wrap lines row).
+export function blockWrapOf(kind: BlockKind): boolean {
+  return current()[kind] ?? DEFAULTS[kind];
+}
+
 /// Whether blocks of `kind` wrap, and the toggle the block's wrap button calls.
 export function useBlockWrap(kind: BlockKind): [wrap: boolean, toggle: () => void] {
   const wrap = useSyncExternalStore(subscribe, () => current()[kind] ?? DEFAULTS[kind]);

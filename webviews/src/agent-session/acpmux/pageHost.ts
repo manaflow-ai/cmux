@@ -23,6 +23,9 @@ import { setSessionStatus } from "./sessionStatus";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
 import { setMachineLink } from "./machineLink";
+import { setRemoteControl } from "./remoteControl";
+import { setPaneNotices } from "./paneNoticeStore";
+import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-info/native/host";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -86,6 +89,10 @@ export function applyHostEvent(event: HostEvent): void {
   const bridge = window.cmuxAcpmuxBridge;
   const value = event.value as never;
   switch (event.kind) {
+    case "sessionInfoHost":
+      return setNativeSessionInfoHost(event.value);
+    case "sessionInfoAction":
+      return runNativeSessionInfoAction(event.value);
     case "uploads.state":
       return receivePromptUploadState(event.value);
     case "theme": {
@@ -109,6 +116,12 @@ export function applyHostEvent(event: HostEvent): void {
       return setSessionStatus(event.value);
     case "machineLink":
       return setMachineLink(event.value);
+    case "paneNotices":
+      // Direct, like remoteControl: a push before the composer mounts is kept.
+      return setPaneNotices(event.value);
+    case "remoteControl":
+      // Direct, like machineLink: a push before Session Info mounts is kept.
+      return setRemoteControl(event.value);
     case "editedFiles":
       // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
       // module loads still sets the value the card then reads.
@@ -151,6 +164,9 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.dictation?.(value);
     case "designSelection":
       return bridge?.designSelection?.(value);
+    case "cloudStartProgress":
+      // How a Cloud start goes (cloudStartProgress.ts): the page checks every field.
+      return bridge?.cloudStartProgress?.(event.value);
     case "revealTurn":
       return bridge?.revealTurn?.(String(event.value));
     case "command":

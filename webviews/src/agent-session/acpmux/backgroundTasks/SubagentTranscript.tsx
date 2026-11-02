@@ -301,10 +301,10 @@ function NestedAgent({ id, name, running, opens }: { id: string; name: string; r
     <div className="acpmux-bg__task" data-state={running ? "running" : "done"}>
       <button type="button" className="acpmux-bg__task-open" disabled={!open} onClick={() => open?.(id)}>
         {running ? (
-          <Spinner size={10} loading />
+          <Spinner size={12} loading />
         ) : (
           <span className="acpmux-bg__disclosure" aria-hidden="true">
-            <Icon name="disclosure.collapsed" size={10} row />
+            <Icon name="disclosure.collapsed" size={12} row />
           </span>
         )}
         <span className="acpmux-bg__label">{name}</span>
@@ -327,7 +327,7 @@ function Thought({ text }: { text: string }) {
         onClick={() => setOpen(!open)}
       >
         <span>{t("backgroundTasks.thought")}</span>
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} row />
+        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
       </button>
       {open && <p className="acpmux-bg__thought-text">{text}</p>}
     </div>
@@ -349,9 +349,9 @@ function ToolLine({ item }: { item: AcpmuxActivity }) {
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        {call.status === "in_progress" || call.status === "pending" ? <Spinner size={10} loading /> : null}
+        {call.status === "in_progress" || call.status === "pending" ? <Spinner size={12} loading /> : null}
         <span className="acpmux-bg__label">{title}</span>
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} row />
+        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
       </button>
       {open && (ran || output) && (
         <pre className="acpmux-bg__output">

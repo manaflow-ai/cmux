@@ -6,6 +6,7 @@ mod agent_wrapper;
 mod agents_doctor;
 mod app_control;
 mod attach;
+mod auth_token;
 mod automation;
 mod billing;
 mod browser;
@@ -40,6 +41,7 @@ pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::{AppControlMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
+pub(crate) use auth_token::AuthTokenMessages;
 pub(crate) use automation::AutomationMessages;
 pub(crate) use billing::BillingMessages;
 pub(crate) use browser::BrowserMessages;
@@ -159,6 +161,7 @@ pub(crate) struct Catalog {
     pub coderouter: CodeRouterMessages,
     pub automation: AutomationMessages,
     pub billing: BillingMessages,
+    pub auth_token: AuthTokenMessages,
     pub sandbox_run: SandboxRunMessages,
     pub update_notice: UpdateNoticeMessages,
 }
@@ -180,6 +183,7 @@ static ENGLISH: Catalog = Catalog {
     coderouter: coderouter::ENGLISH,
     automation: automation::ENGLISH,
     billing: billing::ENGLISH,
+    auth_token: auth_token::ENGLISH,
     sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
@@ -215,6 +219,7 @@ static JAPANESE: Catalog = Catalog {
     coderouter: coderouter::JAPANESE,
     automation: automation::JAPANESE,
     billing: billing::JAPANESE,
+    auth_token: auth_token::JAPANESE,
     sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,

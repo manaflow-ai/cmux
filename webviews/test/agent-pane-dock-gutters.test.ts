@@ -7,7 +7,7 @@
 // wheelPassThrough.ts)
 //
 // One chat with every part the stack can show at once: a question waiting for an answer (the asks
-// stack), three inline pull request pills, an error card (the chat menu's Edit CLAUDE.md, which
+// stack), an error card (the chat menu's Edit CLAUDE.md, which
 // the browser host refuses), the tray of running work (two subagents), the queued prompts and the
 // composer's card; then the dictation notice in the error card's place (the mic, which the browser
 // host refuses too). The page is the pane's dev entry with its browser host, talking JSON-RPC to a
@@ -240,7 +240,6 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
   async function open(height = 1000) {
     const page = await pane!.open({ width: 900, height });
     await page.locator(".acpmux-asks-stack").waitFor({ timeout: 20_000 });
-    await page.locator(".acpmux-pr-dock").waitFor({ timeout: 20_000 });
     await page.locator(".acpmux-running-tray").waitFor({ timeout: 20_000 });
     await page.locator(".acpmux-composer-queue").waitFor({ timeout: 20_000 });
     // Up from the latest message, so the transcript can scroll either way.
@@ -250,29 +249,6 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
 
   for (const [name] of engines) {
     describe(name, () => {
-      test("inline PR links are in the transcript and wheel over them scrolls the transcript", async () => {
-        current = browsers.get(name);
-        const page = await open();
-        try {
-          expect(await page.locator(".acpmux-dock > .acpmux-pr-dock").count()).toBe(0);
-          const links = page.locator(".acpmux-scroll .acpmux-pr-dock").first();
-          const link = links.locator(".acpmux-pr-dock__bar").first();
-          await link.scrollIntoViewIfNeeded();
-          const box = (await link.boundingBox())!;
-          const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-          expect(
-            await link.evaluate(
-              (node, point) => document.elementFromPoint(point.x, point.y)?.closest("a") === node,
-              point,
-            ),
-          ).toBe(true);
-          const moved = await wheelAt(page, point.x, point.y, -300);
-          expect(moved).toBeLessThan(-100);
-        } finally {
-          await page.close();
-        }
-      });
-
       test("the gutter beside every part of the stack scrolls the transcript, and the part keeps the pointer", async () => {
         current = browsers.get(name);
         const page = await open();
@@ -321,14 +297,12 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         await page.close();
       });
 
-      // In a short pane the question card gives up height; its rows keep the pointer. PR links
-      // are inline transcript content, covered separately below, and reserve no bottom-stack box.
+      // In a short pane the question card gives up height; its rows keep the pointer.
       test("a question in a short pane keeps the pointer and does not scroll the transcript", async () => {
         current = browsers.get(name);
         const page = await open(440);
         const lists = [".acpmux-asks-stack"];
         await page.locator(".acpmux-dock > .acpmux-asks-stack").waitFor();
-        expect(await page.locator(".acpmux-dock > .acpmux-pr-dock").count()).toBe(0);
         for (const list of lists) {
           const band = (await page.locator(`.acpmux-dock > ${list}`).boundingBox())!;
           const y = band.y + band.height / 2;

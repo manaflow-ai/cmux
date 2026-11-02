@@ -480,7 +480,7 @@ class WebLintPrePushTests(unittest.TestCase):
         bin_dir = self.repo / "webviews/node_modules/.bin"
         bin_dir.mkdir(parents=True)
         for name in ("vp", "bun"):
-            (bin_dir / name).write_text(f'#!/bin/sh\necho "{name} $* nice=$(nice) GOMAXPROCS=$GOMAXPROCS" >> "$VP_LOG"\n')
+            (bin_dir / name).write_text(f'#!/bin/sh\necho "{name} $* nice=$(ps -o nice= -p $$ | tr -d " ") GOMAXPROCS=$GOMAXPROCS" >> "$VP_LOG"\n')
             (bin_dir / name).chmod(0o755)
         self.write("webviews/src/app.ts", "export const app = 7;\n")
         self.commit("source change")
@@ -725,7 +725,7 @@ class WebLintPrePushTests(unittest.TestCase):
         self.commit("a heavy check")
         vp = self.repo / "webviews/node_modules/.bin/vp"
         vp.parent.mkdir(parents=True)
-        vp.write_text('#!/bin/sh\necho "vp nice=$(nice) GOMAXPROCS=$GOMAXPROCS" >> "$VP_LOG"\n'
+        vp.write_text('#!/bin/sh\necho "vp nice=$(ps -o nice= -p $$ | tr -d " ") GOMAXPROCS=$GOMAXPROCS" >> "$VP_LOG"\n'
                       'echo "src/app.ts:1:1: error same-finding"; exit 1\n')
         vp.chmod(0o755)
         self.write("webviews/src/app.ts", "export const app = 8;\n")
@@ -1062,7 +1062,7 @@ class TuiBindingsTests(unittest.TestCase):
         tools = Path(self.env["PATH"].split(os.pathsep)[0])
         npm = tools / "npm"
         npm.write_text(FAKE_NPM.replace('echo "npm $* @ $(basename "$PWD")" >> "$TOOL_LOG"',
-                                        'echo "npm $* @ $(basename "$PWD") nice=$(nice) GOMAXPROCS=$GOMAXPROCS" '
+                                        'echo "npm $* @ $(basename "$PWD") nice=$(ps -o nice= -p $$ | tr -d " ") GOMAXPROCS=$GOMAXPROCS" '
                                         '>> "$TOOL_LOG"'))
 
         result, calls = self.lint_all(GITHUB_ACTIONS="", CI="")  # outside CI, even on a CI runner

@@ -26,16 +26,22 @@ public final class FrameClient {
     /// client was made with ``init(owner:budgeted:on:onFrame:)``.
     public let workClass: MainWorkClass
     private let onFrame: @MainActor (FrameTick) -> Bool
+    /// Ends the client's work at its final state in one go (``FrameScheduler`` calls it for an
+    /// animation in a window out of sight). Nil: the client is dropped with no more ticks.
+    let settleNow: (@MainActor () -> Void)?
     private let resolve: @MainActor () -> FrameScheduler
     private weak var scheduler: FrameScheduler?
     public private(set) var isActive = false
 
     /// `onFrame` returns true to keep ticking. The client ticks on the
     /// scheduler `resolve` returns when it activates.
+    /// `settle` ends the work at its final state in one go when its window goes out of sight (nil:
+    /// the client just stops; its owner activates it again when needed).
     public init(owner: String, isAnimation: Bool = true, scheduler resolve: @escaping @MainActor () -> FrameScheduler,
-                onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+                settle: (@MainActor () -> Void)? = nil, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = isAnimation
+        self.settleNow = settle
         self.workClass = .frame
         self.resolve = resolve
         self.onFrame = onFrame
@@ -51,6 +57,7 @@ public final class FrameClient {
                 onFrame: @escaping @MainActor (FrameTick, MainFrameBudget) -> Bool) {
         self.owner = owner
         self.isAnimation = false
+        self.settleNow = nil
         self.workClass = workClass.workClass
         let frames = work.frames, budget = work.budget
         self.resolve = { frames }

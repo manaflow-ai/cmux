@@ -33,6 +33,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     "agent-session/acpmux/composerStates.css",
     "agent-session/acpmux/styles.css",
     "agent-session/acpmux/harnesses/harnesses.css",
+    "agent-session/acpmux/conversation/spinner.css",
     "agent-session/acpmux/conversation/conversation.css",
     "agent-session/acpmux/summary/summary.css",
   ]
@@ -52,7 +53,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   // A running transcript row's working mark (Spinner, WORKING-LOOK) with its words.
   const working =
     `<div class="cv-tool"><span class="cv-tool__icon"><span class="cv-spinner" data-working>` +
-    `<span class="cv-spinner__arc"></span><span class="cv-spinner__dot"></span></span></span>` +
+    `<span class="cv-spinner__track"></span><span class="cv-spinner__sweep"></span><span class="cv-spinner__dot"></span></span></span>` +
     `<span class="cv-tool__text">Compacting</span></div>`;
   const paneLoops =
     `<button class="acpmux-mic" data-state="starting">mic</button>` +

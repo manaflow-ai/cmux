@@ -106,6 +106,9 @@ extension ChatController {
             menu.addItem(MenuAction(title: CmuxStrings.tryAgain, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retrySend(ref.messageId) })
             menu.addItem(MenuAction(title: CmuxStrings.deleteFailed, symbol: "trash") { [weak self] in self?.intents?.deleteFailedSend(ref.messageId) })
             menu.addItem(.separator())
+        } else if intents?.canRetryChiefTurn(ref.messageId) == true {
+            menu.addItem(MenuAction(title: CmuxStrings.retryReply, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retryChiefTurn(ref.messageId) })
+            menu.addItem(.separator())
         } else if intents?.canCancelSend(ref.messageId) == true {
             menu.addItem(MenuAction(title: CmuxStrings.cancelUpload, symbol: "xmark.circle") { [weak self] in self?.intents?.cancelSend(ref.messageId) })
             menu.addItem(.separator())

@@ -113,10 +113,7 @@ impl Mux {
         let requested_name = name.clone();
         let ws_id = self.next_id();
         let mut notifications = self.tree_decorations();
-        // The raw tree reads an app workspace's kind from presentation; the
-        // creation's delta must show it (`app-screens-v1`).
-        let reloads_presentation =
-            matches!(mark, crate::state::home_store::EmptyWorkspaceMark::App(_));
+        let reloads_presentation = mark.shows_in_tree();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut fingerprint = serde_json::json!({
             "op": "create-workspace",

@@ -7,7 +7,7 @@ import ImageIO
 import Observation
 import UniformTypeIdentifiers
 
-/// Debug/Labs picker for cmux NEXT's own window. A local monitor observes the
+/// Pointer picker for cmux NEXT's own window. A local monitor observes the
 /// real event before AppKit dispatches it; the overlay is click-through, so
 /// hover never changes the product's hit-testing path.
 @MainActor
@@ -316,7 +316,6 @@ final class UIInspectorController {
         "SidebarContainerView": "CmuxNextSidebar/Views/SidebarContainerView.swift:22",
         "SidebarRowView": "CmuxNextSidebar/Views/SidebarRowView.swift:8",
         "SidebarItemListRowView": "CmuxNextSidebar/Views/SidebarItemListRowView.swift:9",
-        "SidebarTabRowView": "CmuxNextSidebar/Views/SidebarTabRowView.swift:11",
         "TabStripView": "CmuxNextTabs/TabStripView.swift:15",
         "PaneToolbarView": "CmuxNextTabs/PaneToolbarView.swift:32",
     ]

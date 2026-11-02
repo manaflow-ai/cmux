@@ -10,7 +10,6 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use serde_json::{Value, json};
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
@@ -122,10 +121,7 @@ impl Daemon {
             .stderr(Stdio::inherit())
             .spawn()
             .expect("start daemon");
-        let mut ready = String::new();
-        BufReader::new(child.stdout.take().unwrap()).read_line(&mut ready).unwrap();
-        assert!(ready.contains("\"ready\":true"), "daemon not ready: {ready}");
-        self.ready = ready;
+        self.ready = daemon_env::ready_line(child.stdout.take().unwrap());
         self.child = Some(child);
     }
 
