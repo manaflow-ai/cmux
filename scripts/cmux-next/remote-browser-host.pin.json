@@ -1,12 +1,12 @@
 {
   "asset": "cmux-remote-browser-host-macos-arm64",
   "arch": "arm64",
-  "sha256": "aceda12cc149115624062321795aa21eccce0bf378c4ac2ed6e3a3f3cc142bbd",
+  "sha256": "351d33e2bd6595e1ea9274272367a75e30d9527baad6d321ec533c639da24993",
   "r2_bucket": "cmux-cef",
-  "r2_key": "remote-browser-host/aceda12cc149115624062321795aa21eccce0bf378c4ac2ed6e3a3f3cc142bbd/cmux-remote-browser-host-macos-arm64",
-  "source_commit": "eb83855160c68c2e6415525efeb8b547a85e87a2",
-  "crate_tree": "392c04286ea68b9841e1bb1ebc27e61bac7438a6",
+  "r2_key": "remote-browser-host/351d33e2bd6595e1ea9274272367a75e30d9527baad6d321ec533c639da24993/cmux-remote-browser-host-macos-arm64",
+  "source_commit": "0b9a7312654d517ecbb13610dd27c781d05d3da9",
+  "crate_tree": "c1cea126b50cef4a7a4050f684e95848da087773",
   "cef_version": "cef-154.0.34-cmux.38",
   "cef_sha256": "a4a408f2137b43345c982f27b753c36236d4c57f7e95b704566da0f5144c3fa0",
-  "build_step": "7695ebcf674a84aa83de7c56"
+  "build_step": "fe2f7a85c2aba50d14383015"
 }
