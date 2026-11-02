@@ -527,11 +527,11 @@ class Client : public CefClient,
   }
 
   void OnBeforeDevToolsPopup(CefRefPtr<CefBrowser> browser, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
-                             CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool* use_default_window) override {
+                             CefBrowserSettings& settings, CefRefPtr<CefDictionaryValue>&, bool* use_default_window) override {
     // Every DevTools of this page (ShowDevTools, Chromium's DevTools
     // commands, the context menu's Inspect) gets its own client, so it is
     // never adopted as a tab and never reports this page's URL or title.
-    PrepareDevToolsPopup(browser->GetIdentifier(), window_info, client, use_default_window);
+    PrepareDevToolsPopup(browser->GetIdentifier(), window_info, client, settings, use_default_window);
   }
 
   bool DoClose(CefRefPtr<CefBrowser> browser) override {

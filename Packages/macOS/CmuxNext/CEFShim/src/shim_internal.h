@@ -326,7 +326,7 @@ CefRefPtr<CefApp> MakeApp(std::vector<std::string> switches);
 // OnBeforeDevToolsPopup of a page client: asks the host where DevTools of
 // `inspected` goes and gives it a DevTools-only client (shim_devtools.mm).
 void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
-                          bool* use_default_window);
+                          CefBrowserSettings& settings, bool* use_default_window);
 // The page closed: drop its DevTools placement.
 void ForgetDevTools(int inspected);
 
