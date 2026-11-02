@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
 import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./QuickModelMenu";
+import type { SessionAuth } from "./sessionAuth";
 import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
@@ -92,8 +93,13 @@ const family = (id: string, name: string): QuickFamily => ({
   })),
 });
 
-type HarnessOptions = { onAddHarness?: () => void; noMore?: boolean; searchField?: QuickSearchField };
-function Harness({ newTab, onAddHarness, noMore, searchField }: { newTab: boolean } & HarnessOptions) {
+type HarnessOptions = {
+  onAddHarness?: () => void;
+  noMore?: boolean;
+  searchField?: QuickSearchField;
+  auth?: { verdict: SessionAuth; onLogin(): void };
+};
+function Harness({ newTab, onAddHarness, noMore, searchField, auth }: { newTab: boolean } & HarnessOptions) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const [fast, setFast] = useState(false);
@@ -105,6 +111,7 @@ function Harness({ newTab, onAddHarness, noMore, searchField }: { newTab: boolea
         trigger={trigger}
         chip={{ "data-menu": "model", label: "Model", title: "Model" }}
         menu={{
+          auth,
           ...(searchField ? { searchField, search: { find: () => [], pick() {} } } : {}),
           models: [],
           current: "claude-a",
@@ -141,6 +148,43 @@ async function openMenu(newTab: boolean, options: HarnessOptions = {}) {
 const list = () => document.querySelector<HTMLElement>(".acpmux-quick-list")!;
 const labels = (scope: ParentNode) => [...scope.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent);
 const disclosure = () => document.querySelector<HTMLElement>(".acpmux-quick-disclosure");
+
+for (const newTab of [false, true]) {
+  for (const state of ["expired", "signedOut"] as const) {
+    test(`${newTab ? "New Tab" : "chat"} keeps ${state} recovery available while searching before send`, async () => {
+      let logins = 0;
+      await openMenu(newTab, {
+        searchField: "always",
+        auth: {
+          verdict: {
+            state,
+            source: "turn",
+            evidenceAt: 1,
+            harness: "claude",
+            host: null,
+            login: { kind: "terminal", command: "claude auth login" },
+          },
+          onLogin: () => logins++,
+        },
+      });
+      const recovery = () =>
+        [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+          (row) => row.textContent?.trim() === "Sign in again",
+        );
+      expect(recovery()).toBeDefined();
+      const input = document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!.call(input, "opus");
+        input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+      });
+      await settle();
+      expect(input.value).toBe("opus");
+      expect(recovery()).toBeDefined();
+      await act(async () => recovery()!.click());
+      expect(logins).toBe(1);
+    });
+  }
+}
 
 test("a chat's menu keeps its key hints and More models submenu", async () => {
   await openMenu(false);
