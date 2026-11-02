@@ -1059,6 +1059,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_route_refusal_detail.py
 
+      - name: Validate picker GitHub API spend is counted per token without naming it
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_github_spend.py
+
       - name: Validate workflow write permissions are job-scoped
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py

@@ -67,7 +67,7 @@ export function machineOf(
 ): { icon: string; name?: string; kind: "local" | "ssh" | "cloud" } {
   const peer = summary?.peer;
   if (summary?.hostKind === "cloud" || (peer && peerKinds?.[peer] === "cloud"))
-    return { icon: "cloud", name: summary?.host || peer, kind: "cloud" };
+    return { icon: "cloud", name: summary?.host || peer || machineName, kind: "cloud" };
   if (peer) return { icon: "machine.remote", name: summary?.host || peer, kind: "ssh" };
   return { icon: "machine.mac", name: machineName || summary?.host || undefined, kind: "local" };
 }

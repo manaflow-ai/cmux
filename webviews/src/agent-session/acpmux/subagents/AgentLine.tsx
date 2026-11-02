@@ -191,7 +191,7 @@ export function AgentLine({
             {time}
           </span>
           {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
-              last at the line's end: the column the header's and View all's chevrons end in. */}
+              last at the line's end: the column the header's chevron ends in. */}
           <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
           {chevron && onOpen ? (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">

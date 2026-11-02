@@ -34,7 +34,8 @@ Outputs (GITHUB_OUTPUT), job keys delimited by spaces with one at each end so a 
 contains(' <key> ') matches whole keys only:
 - `linux_runner`: FLEET_LINUX, or empty;
 - `linux_jobs`: the jobs that take it;
-- `mini_runner`: the side label the idle minis carry, or empty;
+- `mini_runner`: the side label the idle minis carry (NIGHTLY_ONLY_LABEL, the all-nightly reservation, first
+  while it has idle runners), or empty;
 - `mini_jobs`: the jobs that take it.
 For early nightly controls, unread capacity keeps portable jobs on the configured
 owned-mini pool. Other callers write empty values and keep their Blacksmith route.
@@ -124,12 +125,28 @@ def queued_on(snapshot: Mapping[str, Any] | None, label: str) -> int:
     return int(entry.get("queued") or 0)
 
 
-def eligible(env: Mapping[str, str]) -> str:
-    """Why this run places nothing on a mini before reading anything, or ""."""
+def attempt_refusal(env: Mapping[str, str]) -> str:
+    """Why this attempt keeps its Blacksmith route, or "": only a first attempt (or a rescue's second) moves."""
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
     actor = (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip()
     if attempt != "1" and not (attempt == "2" and actor in pool.RESCUE_ACTORS):
         return f"attempt {attempt} keeps its Blacksmith route"
+    return ""
+
+
+def nightly_only_free(label: str, runners: Sequence[Mapping[str, Any]],
+                      snapshot: Mapping[str, Any] | None) -> int:
+    """Idle online runners carrying the all-nightly reservation `label`, less the jobs queued on it."""
+    idle = sum(runner.get("status") == "online" and runner.get("busy") is False
+               and label in pool.runner_labels(runner) for runner in runners)
+    return max(0, idle - queued_on(snapshot, label))
+
+
+def eligible(env: Mapping[str, str]) -> str:
+    """Why this run places nothing on a mini before reading anything, or ""."""
+    refusal = attempt_refusal(env)
+    if refusal:
+        return refusal
     label = (env.get("SIDE_LABEL") or "").strip()
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return f"`{label or 'no label'}` is not an owned side label"
@@ -170,6 +187,15 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
 
     if not rest:
         return done("")
+    # The all-nightly reservation's light runners (glaeda-nightly-only-m4pro, not the warm builder) exist for
+    # these jobs, but it is no side label, so side_route never offered it: every nightly-next run waited the
+    # whole three minutes on busy side minis and then took Blacksmith (runs 41354494707, 41355147140 and
+    # 41356701375: 186 s each, at the end of build-nightly-app, on the feed's critical path).
+    reserved = (env.get("NIGHTLY_ONLY_LABEL") or "").strip()
+    if reserved and env.get("NIGHTLY") == "1" and runners is not None and not attempt_refusal(env):
+        placed = rest[:nightly_only_free(reserved, runners, snapshot)]
+        if placed:
+            return done(f"{', '.join(placed)} take idle all-nightly runner(s) on `{reserved}`", reserved, placed)
     refusal = eligible(env)
     if refusal:
         return done(refusal)

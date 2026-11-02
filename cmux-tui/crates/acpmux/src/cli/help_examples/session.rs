@@ -100,6 +100,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session detach",
+        &[
+            (
+                "Stop a session you started from this one from showing its turns here",
+                "acpmux session detach mac-studio-ultras",
+            ),
+            ("The same, and print the result as JSON", "acpmux session detach helper-2 --json"),
+        ],
+    ),
+    (
         "session inbox",
         &[
             (

@@ -31,7 +31,7 @@
 :where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius)}
 /* The point-anchored context menu (ui/ContextMenu.tsx; New Tab All chats rows, cx-j4sd): the pane does not load ui.css, so it draws the menu in its own menu look. */
 .ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);color:var(--agent-text);font-family:var(--font-ui);font-size:var(--text-control);line-height:18px;outline:none;letter-spacing:var(--text-control--letter-spacing)}
-.ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap}
+.ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);width:100%;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap}
 .ui-context-menu .ui-menu-item[data-highlighted]{background:var(--acpmux-menu-highlight);outline:none}
 .ui-context-menu .ui-menu-item:disabled{color:var(--agent-muted)}
 /* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */
@@ -138,10 +138,10 @@
 .acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}
 .acpmux-composer-plus .acpmux-menu-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-composer-plus .acpmux-menu-item>svg{flex:none}
-.acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius)}
+.acpmux-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius)}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:1}
-.acpmux-menu .ui-menu-check{width:16px;height:16px;color:var(--acpmux-composer-dim);font-family:var(--font-ui);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-menu .ui-menu-check{color:var(--acpmux-composer-dim);font-family:var(--font-ui);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-menu-active{background:var(--acpmux-menu-hover)}
 .acpmux-menu-item.acpmux-unrestricted{color:var(--acpmux-warning)}
 .acpmux-menu-text{flex:1;min-width:0;display:flex;flex-direction:column}

@@ -692,8 +692,12 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
 }
 
 /// `pin`: the send `key` of `account` runs on `machine` (one the App just made
-/// for it), which is the Mac workspace `workspace`'s own from now on when the
-/// workspace has none yet and no other workspace has it ([`pick::claim`]).
+/// for it, or one the person picked for it), which is the Mac workspace
+/// `workspace`'s own from now on when the workspace has none yet and no other
+/// workspace has it ([`pick::claim`]). A repick, a send already pinned to the
+/// workspace's own machine pinned elsewhere, moves the workspace with it
+/// (Leo, 2026-10-31: "picked zesty-indigo-lemur in the machine picker, but the
+/// chat stayed on sr2-tunnel-probe"), unless another workspace has the pick.
 pub(super) fn pin(
     ledger: &Path,
     key: &str,
@@ -702,9 +706,19 @@ pub(super) fn pin(
     workspace: Option<&str>,
 ) -> Value {
     match Ledger::update(ledger, |pins| {
-        pins.record(machine, &Send::new(key, account));
+        let send = Send::new(key, account);
+        let before = pins.machine(&send);
+        pins.record(machine, &send);
         if let Some(workspace) = workspace {
-            pick::claim(pins, workspace, account, machine);
+            let repick = before.as_deref().is_some_and(|before| {
+                before != machine
+                    && pins.workspace_machine(workspace, account).as_deref() == Some(before)
+            });
+            if repick && !pins.held_by_another(machine, workspace, account) {
+                pins.bind(workspace, account, machine);
+            } else {
+                pick::claim(pins, workspace, account, machine);
+            }
         }
     }) {
         Ok(()) => json!({"ok": true}),

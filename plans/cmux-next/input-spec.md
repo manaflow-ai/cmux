@@ -211,7 +211,8 @@ InputModelFuzzTests/longRandomRun` (`CMUX_NEXT_FUZZ_SEED` picks the first seed).
 
 ## 7. Bugs the fuzzer found
 
-Each has a test in `InputBugRegressionTests`.
+B1-B9, B11 and B13b had tests in `InputBugRegressionTests`; the others name their suites in the table.
+Commit 36f2381bf1a6 (2026-10-09) deleted that suite and most of the other tests the tables name. "Tests now", after the tables, says which tests still cover each bug.
 
 | Id | Found as | Bug | Fix |
 | --- | --- | --- | --- |
@@ -231,15 +232,47 @@ Each has a test in `InputBugRegressionTests`.
 | B14 | Keyboard Shortcuts or Debug Settings in Chromium (the default engine since cmux pages follow `browser.defaultEngine`), type in the search field: nothing | A cmux page in Chromium shows in a child window, but the `.page` effect ran `blurChildWindowPage`, which takes the keys back from any page window, then made a view in that child window first responder of the parent. The keys stayed in the parent and reached no field. | A page whose `PageWebView` runs in Chromium takes the keys like a Chromium browser tab (`focusPage` with its CEF tab); a click into its window chooses it, and a reactivation leaves it the keys. The monitor counts it as a child-window page for W1, W5 and the chromium check, by its tab key (`ChromiumPageFocusInvariantTests`). |
 | B15 | #24913: fuzz seed 21 on macOS 14.8.7 and 15.7.7, a 10 s main-thread stall inside `-[NSWindow makeKeyWindow]` (`_windowChangedKeyState` over the cmux window's tree) | Focusing a Chromium page made two key changes: `blurChildWindowPage` gave the keys to the cmux window (`reclaimKeyFromPageWindow`), then the grant gave them to the page window. Each change walks the whole view tree of the cmux window, with every parked workspace in it (hidden). A right-click on a tab also selected it while the menu was built, which focused the page inside the right-click. | One key change per focus request (`ChildPageFocus`): the old page blurs without a key change and the grant moves the keys to the new page window; the cmux window takes the keys back only when another window has them. Building the tab menu selects nothing (`ChildPageFocusKeyChangeTests`, `TabSelectionActionsTests.theTabMenuOfAnotherTabSelectsNothing`). Page focus with the cmux window key needs fork API 30 (`cmux_browser_set_embedder_active`). |
 
-B10, found in dogfood (nxdog9), not by the fuzzer; tests in `PaletteInputStepTests`:
+B10, found in dogfood (nxdog9), not by the fuzzer; tests in `PaletteInputStepTests` (deleted in 36f2381bf1a6):
 
 | Id | Found as | Bug | Fix |
 | --- | --- | --- | --- |
 | B10 | Cmd-Shift-P, Rename Tab Group, a name, Return: the system beep, no rename | The palette closed and then ran the action, which resolved its target from the focus after the close; a handler that could not act (the selected tab is not in a group) called `refuse`, and the App's refusal observer beeps for every run without a capturing caller, so the reason went only to the log. Separately, a palette key with nothing to do (Return with no row, Backspace at the root, Tab with no Actions menu) was not consumed: the field editor ended editing or beeped, and later keys reached `noResponder(for:)`, the system beep. | Actions that ask for input target the objects captured when the palette opened (`PaletteSources.context`: tab, tab group, pane, screen, workspace, window). The palette runs closing and keep-open commands through `ActionRegistry.reportingRefusal`: a refusal does not beep, the palette opens again on the same page and shows the reason as the row's subtitle (`PaletteModel.notice`), and destructive actions still ask for confirmation (a capturing run refuses them). The palette consumes every key it maps. `debug.key` with `"target": "palette"` drives the panel and reports `palette_unhandled_key_downs` (key-downs that reached `noResponder(for:)`). |
 
 B2, B4, B5, B7, B9 and B11 are wiring in `FocusEffectApplier`, `WindowManager` and `PaletteController`.
-Their regression tests run the fuzzer's minimal sequence through the model, which mirrors the
+Their regression tests ran the fuzzer's minimal sequence through the model, which mirrored the
 fixed wiring; the live monitor (W5, W7, W1) is what catches a regression there in dogfood.
+
+### Tests now
+
+Commit 36f2381bf1a6 (2026-10-09) deleted these tests that the tables name: `InputBugRegressionTests`
+(B1-B9, B11, B13b, and F4), `FocusReducerTests` (B12), `CEFFocusRequestTests` (B13),
+`ChildWindowKeyRuleTests` (B13b), `PaletteInputStepTests` (B10) and the fuzzer (`InputModelFuzzTests`,
+`Tests/CmuxNextAppTests/InputModel/`). These tests exist now (added after it): `ChromiumPageFocusInvariantTests` (B14),
+`ChildPageFocusKeyChangeTests` (B15) and `TabSelectionActionsTests.theTabMenuOfAnotherTabSelectsNothing` (B15).
+
+The focus rules moved to Rust (`cmux-focus-core`). `focus_rules.rs` (in `cmux-tui/crates/cmux-layout-reducer-ffi/tests/`)
+replays a corpus recorded from the Swift reducer: seeded random event sequences, each step checked for the
+same state and effects (`the_rust_focus_rules_reproduce_every_recorded_swift_step`). Some steps hit a bug's
+exact condition, so a reducer that brought the bug back would fail the replay; the table gives the counts.
+
+| Bug | Covered now by |
+| --- | --- |
+| B1 | The corpus replay: 91 `selectTab` steps name a pane of the shown workspace that does not hold the tab, each recorded with no `select` effect; 90 name another workspace, 84 of which change `remembered`. |
+| B2 | Only `WindowManager.owner(of:)` for a child window, which `active` uses (`MultiWindowInputRoutingTests.aKeyTypedInOneWindowNeverReachesAnother`, through `CrossWindowInputGuard`). No test checks `active` with a sheet, page window or panel as the key window, or the republish. |
+| B3 | No test. |
+| B4 | No test. |
+| B5 | No test. |
+| B6 | Part only: the corpus replay has 46 cancelled drags; in 4, an intent came during the drag and the cancel keeps the pane and target (the "not after an intent" rule). No step is known to check the text-field, sidebar or chrome-target parts. |
+| B7 | Parts only: the decision for a page window that becomes key without a click (`focus_rules.rs` `a_child_window_that_becomes_key_is_decided_as_the_swift_rule_did`) and the synchronous palette report (`PaletteOverlayWindowTests.theOverlayGoesOnTheWindowThePaletteOpensOver`: the overlay is on the window right after `show` and gone right after `hide`). No test checks that the click that closes the palette is kept. |
+| B8 | The corpus replay: 16 `toggleBrowserFocusMode(tab:)` steps name a tab no pane holds, each recorded with no change. |
+| B9 | No test. |
+| B10 | No test. |
+| B11 | The decision only: `focus_rules.rs` `a_child_window_that_becomes_key_is_decided_as_the_swift_rule_did` checks the child-window rule for all 192 cases (3 parent kinds, 64 combinations of the other facts). A Chromium page window that becomes key without a click is `unchosenPage`, placed or not. `ChildPageFocusKeyChangeTests` checks the key change of `ChildPageFocus.reclaim`, which the give-back calls. No test checks that the applier gives the keys back. |
+| B12 | The corpus replay: 4 `expect` steps name a tab that is already in their `awayFrom` pane, and each is recorded with the expectation still pending and no effects. No step replays Split Browser's move. `HomeDockOpensTests.aHomePlacementKeepsCreationInputPendingAfterTheCreateReply` checks an `awayFrom` expectation for a Home placement, not for Split Browser. |
+| B13 | No test. |
+| B13b | The rule only: the same `focus_rules.rs` test covers a parentless Chromium page window (`parent: none`): only the active cmux window takes it back. No test covers the give-back after `didBecomeActive`. |
+| B14 | `ChromiumPageFocusInvariantTests` (the monitor counts a Chromium cmux page as a child-window page for W1, W5 and the chromium check). No test covers the `focusPage` path. |
+| B15 | `ChildPageFocusKeyChangeTests` (one key change per focus request), `TabSelectionActionsTests.theTabMenuOfAnotherTabSelectsNothing`. |
 
 ## 8. Limits and follow-ups
 

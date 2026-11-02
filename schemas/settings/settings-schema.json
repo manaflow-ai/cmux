@@ -1138,6 +1138,7 @@
             "key" : "settings.group.agentChat",
             "rows" : [
               "agentPane.display.transcriptView",
+              "agentPane.display.presentation",
               "agentPane.needsYou.enabled",
               "agentPane.showMachineLoadWarnings",
               "agentPane.newChatsIn",
@@ -1256,6 +1257,18 @@
             "title" : {
               "key" : "settings.group.subsessions",
               "text" : "Sub-sessions"
+            }
+          },
+          {
+            "key" : "settings.group.agentRetry",
+            "rows" : [
+              "agents.autoRetry.enabled",
+              "agents.autoRetry.intervalSeconds",
+              "agents.autoRetry.attempts"
+            ],
+            "title" : {
+              "key" : "settings.group.agentRetry",
+              "text" : "Retry After Errors"
             }
           },
           {
@@ -1443,7 +1456,8 @@
               "notifications.attention.flashOnTyping",
               "notifications.attention.showOnTab",
               "notifications.attention.showOnSidebar",
-              "notifications.attention.moveToTop"
+              "notifications.attention.moveToTop",
+              "notifications.attention.moveToTopOnAgentFinish"
             ],
             "title" : {
               "key" : "settings.group.attention",
@@ -12670,6 +12684,419 @@
       "title" : {
         "key" : "settings.agents.subsessions.maxDepth",
         "text" : "Deepest Nesting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentRetry",
+        "text" : "Retry After Errors"
+      },
+      "help" : {
+        "key" : "settings.agents.autoRetry.enabled.help",
+        "text" : "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.autoRetry.enabled",
+      "keywords" : [
+        "retry",
+        "rate limit",
+        "capacity",
+        "error",
+        "resume",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "autoRetry",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.autoRetry.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.autoRetry.enabled",
+        "text" : "Retry Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3600,
+        1800
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentRetry",
+        "text" : "Retry After Errors"
+      },
+      "help" : {
+        "key" : "settings.agents.autoRetry.interval.help",
+        "text" : "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.autoRetry.intervalSeconds",
+      "keywords" : [
+        "retry",
+        "interval",
+        "timer",
+        "wait",
+        "backoff",
+        "rate limit"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "autoRetry",
+        "intervalSeconds"
+      ],
+      "range" : {
+        "max" : 3600,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -3600,
+        7200,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.autoRetry.intervalSeconds"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.autoRetry.interval",
+        "text" : "Seconds Between Retries"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        12,
+        6.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 4,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentRetry",
+        "text" : "Retry After Errors"
+      },
+      "help" : {
+        "key" : "settings.agents.autoRetry.attempts.help",
+        "text" : "How many times the chat tries again before it stops and waits for you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.autoRetry.attempts",
+      "keywords" : [
+        "retry",
+        "attempts",
+        "loop",
+        "rate limit"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "autoRetry",
+        "attempts"
+      ],
+      "range" : {
+        "max" : 12,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -10,
+        23,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.autoRetry.attempts"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.autoRetry.attempts",
+        "text" : "Retries per Error"
       },
       "validation" : "portable"
     },
@@ -41590,6 +42017,158 @@
       "title" : {
         "key" : "settings.agentPane.display.transcriptView",
         "text" : "Transcript View"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "transcript",
+        "messages"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatPresentationTranscript",
+            "text" : "Transcript"
+          },
+          "value" : "transcript"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatPresentationMessages",
+            "text" : "Messages"
+          },
+          "value" : "messages"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "transcript",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.presentation",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "presentation",
+        "messages",
+        "bubbles",
+        "chat",
+        "tools"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "presentation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.presentation"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.presentation",
+        "text" : "Chat Presentation"
       },
       "validation" : "portable"
     },
@@ -79977,6 +80556,9 @@
         "moon",
         "moon-blue",
         "mochi",
+        "captain",
+        "sprout",
+        "bolt",
         "fox-arctic",
         "machine-violet",
         "machine-gold",
@@ -80036,6 +80618,27 @@
             "text" : "Mochi"
           },
           "value" : "mochi"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.captain",
+            "text" : "Captain"
+          },
+          "value" : "captain"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.sprout",
+            "text" : "Sprout"
+          },
+          "value" : "sprout"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.bolt",
+            "text" : "Bolt"
+          },
+          "value" : "bolt"
         },
         {
           "title" : {
@@ -85500,6 +86103,141 @@
       "title" : {
         "key" : "settings.attention.moveToTop",
         "text" : "Move the Workspace to the Top"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : {
+        "key" : "settings.attention.moveToTopOnAgentFinish.help",
+        "text" : "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.moveToTopOnAgentFinish",
+      "keywords" : [
+        "reorder",
+        "sort",
+        "bump",
+        "agent",
+        "done",
+        "finished"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "moveToTopOnAgentFinish"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.attention.moveToTopOnAgentFinish"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.attention.moveToTopOnAgentFinish",
+        "text" : "Move the Workspace to the Top When Its Agent Finishes"
       },
       "validation" : "portable"
     },

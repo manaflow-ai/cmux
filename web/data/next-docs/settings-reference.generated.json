@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 546,
+  "count": 548,
   "sections": [
     {
       "id": "general",
@@ -1650,6 +1650,18 @@
             "compact",
             "full",
             "off"
+          ]
+        },
+        {
+          "key": "agentPane.display.presentation",
+          "title": "Chat Presentation",
+          "help": "",
+          "kind": "choice",
+          "default": "transcript",
+          "group": "Agent Chat",
+          "values": [
+            "transcript",
+            "messages"
           ]
         },
         {
@@ -5291,6 +5303,9 @@
             "moon",
             "moon-blue",
             "mochi",
+            "captain",
+            "sprout",
+            "bolt",
             "fox-arctic",
             "machine-violet",
             "machine-gold",
@@ -5474,6 +5489,14 @@
           "key": "notifications.attention.moveToTop",
           "title": "Move the Workspace to the Top",
           "help": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.moveToTopOnAgentFinish",
+          "title": "Move the Workspace to the Top When Its Agent Finishes",
+          "help": "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
           "kind": "toggle",
           "default": false,
           "group": "Attention Ring"

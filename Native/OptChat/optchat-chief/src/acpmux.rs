@@ -1035,9 +1035,10 @@ fn is_local(client: &RpcClient, id: &str) -> Result<bool, InfoError> {
 
 /// The id of the session named `name`, from `_acpmux/info` (unpaced, as
 /// [`session_info`]), as the session list names them: a bare name is this
-/// daemon's own session, a peer's is `peer/name`. The paced list only when
-/// acpmux names several (several share the name, or none has it and it is a
-/// prefix of several) or refuses info.
+/// daemon's own session, a peer's is `peer/name`. An ambiguous lookup is
+/// refused: choosing the first list row can send Chief's message to the wrong
+/// child. Fall back to the paced list only when info cannot answer, and require
+/// exactly one matching name there too.
 pub fn find_named(client: &RpcClient, name: &str) -> Result<Option<String>, String> {
     let error = match info(client, name) {
         // acpmux resolves an exact id, then a name only one session has, then a
@@ -1056,13 +1057,23 @@ pub fn find_named(client: &RpcClient, name: &str) -> Result<Option<String>, Stri
             return Ok(qualified.then_some(s.session_id));
         }
         Ok(Resolved::None) => return Ok(None),
-        Ok(Resolved::Several) => InfoError::Refused(format!("info: {name:?} names several")),
+        Ok(Resolved::Several) => {
+            return Err(format!(
+                "find: {name:?} names several sessions; use a unique name or peer/name"
+            ));
+        }
         Err(e) => e,
     };
-    Ok(listed(client, error)?
+    let mut candidates = listed(client, error)?
         .into_iter()
-        .find(|s| s.name == name)
-        .map(|s| s.session_id))
+        .filter(|s| s.name == name);
+    let first = candidates.next();
+    if candidates.next().is_some() {
+        return Err(format!(
+            "find: {name:?} names several sessions; use a unique name or peer/name"
+        ));
+    }
+    Ok(first.map(|s| s.session_id))
 }
 
 /// `_acpmux/events` after `after`, every page (`hasMore`: a page ends at the daemon's byte limit).

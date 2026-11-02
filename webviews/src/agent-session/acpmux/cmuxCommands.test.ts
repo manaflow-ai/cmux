@@ -120,3 +120,20 @@ test("/login signs in with acpmux's command, else the harness's own login on a p
   expect(slashLogin(ready, undefined)).toBeUndefined();
   expect(slashLogin(ready, "  ")).toBeUndefined();
 });
+
+test("a Claude skill named like a cmux command stays in the list, and mid-prompt it is the only one", async () => {
+  const { slashMatches } = await import("./slashCommands");
+  const commands = mergedCommands([
+    { name: "plan", description: "Plan the work", source: "skill" },
+    { name: "context", description: "", source: "agent" },
+  ]);
+  expect(commands.filter((command) => command.name === "plan").map((command) => command.source)).toEqual([
+    "cmux",
+    "skill",
+  ]);
+  // The harness's own command with a cmux name still gives way to cmux's.
+  expect(commands.filter((command) => command.name === "context").map((command) => command.source)).toEqual(["cmux"]);
+  expect(
+    slashMatches(commands, { query: "pla", length: 4, leading: false }).map((match) => match.command.source),
+  ).toEqual(["skill"]);
+});

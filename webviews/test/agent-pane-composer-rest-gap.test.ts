@@ -238,8 +238,14 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
     /// Where the newest row's line ends: its box less the turn gap every last row keeps (16px,
     /// `--cv-turn-gap`). A turn's footer keeps that gap under its 24px action row; the running turn's
     /// live line keeps it over its line, so the two swap at a turn's end without moving anything.
-    const TURN_GAP = 16;
+    /// On the grid (grid.md 5.5) a row keeps no gap of its own, and a turn's footer takes no height:
+    /// its action row lies in the band under the reply, so the newest line is that row's bottom edge.
+    const TURN_GAP = 0;
     const contentBottom = (row: Element) => row.getBoundingClientRect().bottom - TURN_GAP;
+    const footerLine = (row: Element) => {
+      const actions = row.querySelector(".cv-turn-actions");
+      return actions ? actions.getBoundingClientRect().bottom : undefined;
+    };
     /// The top of the bottom stack's first drawn part: the tray, a question, the queue or the card.
     const stackTop = (dock: Element) => {
       const parts = [...dock.children].flatMap((part) =>
@@ -259,7 +265,14 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       const last = rows.reduce((a, b) =>
         Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
       );
-      const bottom = contentBottom(last);
+      const newest = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].reduce<HTMLElement | undefined>(
+        (a, b) => (!a || Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a),
+        undefined,
+      );
+      const bottom =
+        newest && newest !== last && newest.getBoundingClientRect().height === 0
+          ? (footerLine(newest) ?? contentBottom(last))
+          : contentBottom(last);
       const top = stackTop(dock);
       return bottom === undefined || top === undefined ? undefined : top - bottom;
     };

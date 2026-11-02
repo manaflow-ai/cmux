@@ -272,6 +272,10 @@ pub struct SessionMeta {
     /// before the restart, and the wake's log says how long it slept.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub hibernated_ms: u64,
+    /// What the idle census knew of its hosted harness's MCP servers, for the next daemon that
+    /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_launch: Option<crate::hub::StoredLaunch>,
     /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
     /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
     /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),

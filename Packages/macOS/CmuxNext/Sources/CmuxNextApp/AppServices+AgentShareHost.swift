@@ -14,7 +14,7 @@ extension AppServices: AgentShareHost {
     func shareConnection(holding tab: TabModel) -> DaemonConnection? { locateTab(tab.id).map(\.1).map(daemon(for:))?.connection }
     func shareIsOnThisMac(_ tab: TabModel) -> Bool { machines.local.store.tab(idOrResource: tab.id) === tab }
     var shareLocalConnection: DaemonConnection? { machines.local.connection }
-    func shareOwnerToken() async -> String? { try? await cloud.installIdentity.installToken() }
+    func shareOwnerToken() async -> String? { await cloud.shareOwnerToken() }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }
     func shareNotice(_ message: String) { BrowserFileImport.toast(self, id: "agent-share", message) }
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask) }

@@ -46,6 +46,8 @@ mod host_notice_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
+mod shutdown_scan_tests;
+#[cfg(test)]
 mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
@@ -59,9 +61,9 @@ mod health_view;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
-pub use idle_census::Sidecar;
 #[cfg(unix)]
 pub(crate) use idle_census::host_census;
+pub use idle_census::{Sidecar, StoredLaunch};
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -80,6 +82,7 @@ pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
+mod adopt_retry;
 mod hosts;
 mod lifecycle;
 mod log_deferral;
@@ -486,6 +489,12 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
+    /// disk for history, search, export and restore, but list/peer hot paths never walk them.
+    pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
+    /// Serialized summaries for closed sessions. Metadata commits replace the row before the
+    /// next full list, so full callers do not rebuild closed-session projections.
+    pub(super) closed_summary_cache: StdMutex<HashMap<String, ClosedSummaryCacheEntry>>,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -735,6 +744,17 @@ pub struct Hub {
     pub(crate) workflow_index: workflow_index::WorkflowIndex,
 }
 
+/// Serialized forms of one closed session. Each form has its own generation and tag-expiry
+/// deadline: building a list row must never make a previously cached full row look fresh.
+pub(super) struct ClosedSummaryCacheEntry {
+    pub(super) list_generation: u64,
+    pub(super) list_next_expiry: u64,
+    pub(super) list: String,
+    pub(super) full_generation: u64,
+    pub(super) full_next_expiry: u64,
+    pub(super) full: String,
+}
+
 impl Hub {
     pub fn new(config: Config, store: Box<dyn Store>) -> Arc<Self> {
         Self::new_with_mailbox(config, store, Mailbox::memory())
@@ -794,6 +814,8 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            live_session_ids: StdMutex::new(std::collections::HashSet::new()),
+            closed_summary_cache: StdMutex::new(HashMap::new()),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
@@ -1075,7 +1097,9 @@ impl Hub {
         // Its log is read after the ready line (`log_load.rs`).
         *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
         session.log_loaded.store(false, Ordering::SeqCst);
-        sessions.insert(session.id.clone(), session);
+        sessions.insert(session.id.clone(), session.clone());
+        drop(sessions);
+        self.update_live_session_index(&session);
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
@@ -1302,7 +1326,108 @@ impl Hub {
         let id = meta.id.clone();
         let session = self.make_session(meta);
         self.sessions.lock().unwrap().insert(id, session.clone());
+        self.update_live_session_index(&session);
         session
+    }
+
+    /// Keep the hot-path index in step with a session's status. The complete session map is
+    /// intentionally retained so an explicit history/restore lookup can still load a closed chat.
+    pub(super) fn update_live_session_index(&self, session: &Session) {
+        let mut live = self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner());
+        if session.status() == SessionStatus::Closed {
+            live.remove(&session.id);
+        } else {
+            live.insert(session.id.clone());
+        }
+    }
+
+    pub(super) fn remove_live_session_index(&self, id: &str) {
+        self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
+
+    pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
+        let id = session.id.clone();
+        let now = now_ms();
+        let next_expiry = session
+            .meta()
+            .tags
+            .values()
+            .filter_map(|tag| tag.expires_at)
+            .filter(|expires_at| *expires_at > now)
+            .min()
+            .unwrap_or(0);
+        let generation = self.events.summary_generation.load(Ordering::SeqCst);
+        if session.status() == SessionStatus::Closed
+            && let Some(bytes) = self
+                .closed_summary_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&id)
+                .and_then(|entry| {
+                    let (entry_generation, entry_expiry, bytes) = if with_tools {
+                        (entry.full_generation, entry.full_next_expiry, &entry.full)
+                    } else {
+                        (entry.list_generation, entry.list_next_expiry, &entry.list)
+                    };
+                    (entry_generation == generation
+                        && (entry_expiry == 0 || now < entry_expiry)
+                        && !bytes.is_empty())
+                    .then_some(bytes)
+                })
+            && let Ok(row) = serde_json::from_str(bytes)
+        {
+            return row;
+        }
+        let row = if with_tools {
+            self.session_summary(session)
+        } else {
+            self.session_list_summary(session)
+        };
+        if session.status() == SessionStatus::Closed {
+            let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
+            // A summary may have been built while purge was unregistering the session. Recheck
+            // the tombstone while holding the cache lock so a late reader cannot recreate it.
+            if session.purged.load(Ordering::SeqCst) {
+                return row;
+            }
+            let entry = cache.entry(id).or_insert_with(|| ClosedSummaryCacheEntry {
+                list_generation: 0,
+                list_next_expiry: 0,
+                list: String::new(),
+                full_generation: 0,
+                full_next_expiry: 0,
+                full: String::new(),
+            });
+            let bytes = serde_json::to_string(&row).unwrap_or_default();
+            if with_tools {
+                entry.full_generation = generation;
+                entry.full_next_expiry = next_expiry;
+                entry.full = bytes;
+            } else {
+                entry.list_generation = generation;
+                entry.list_next_expiry = next_expiry;
+                entry.list = bytes;
+            }
+        }
+        row
+    }
+
+    pub(super) fn remove_cached_closed_summary(&self, id: &str) {
+        self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
+
+    /// The sessions the daemon may need to summarize on a hot path. Closed records are looked up
+    /// from `sessions` only by an explicit id/name request.
+    pub(super) fn indexed_live_sessions(&self) -> Vec<Arc<Session>> {
+        let ids: Vec<String> = self
+            .live_session_ids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned()
+            .collect();
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        newest_first(ids.into_iter().filter_map(|id| sessions.get(&id).cloned()).collect())
     }
 
     // ------------------------------------------------------------ lookup
@@ -2060,6 +2185,7 @@ impl Hub {
             }
             (was, m.subsession.clone())
         };
+        self.update_live_session_index(session);
         if was != status {
             if let Some(link) = &link {
                 self.subsession_status(&session.id, link, was, status);

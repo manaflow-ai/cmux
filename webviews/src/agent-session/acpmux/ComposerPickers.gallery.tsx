@@ -530,9 +530,16 @@ export default componentEntry<Props>({
       play: openEffort,
     },
     "fast-mode": {
-      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control; every non-off tier stays checked.",
+      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control; every non-off tier stays checked. The model button then shows a bolt beside the model name (#31287).",
       props: {},
       play: fastMode,
+      checks: {
+        layoutShiftMax: {
+          value: 0.002,
+          reason:
+            "Turning Fast on draws the bolt after the model name on purpose (#31287), so Plan, the mode and the model detail to its right move 16 px: 0.0007 in Chromium.",
+        },
+      },
     },
     "permission-menu": { props: {}, play: openMode },
     "permission-managed": {

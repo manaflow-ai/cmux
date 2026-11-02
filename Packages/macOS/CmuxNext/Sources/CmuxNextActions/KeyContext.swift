@@ -71,6 +71,8 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let browserFocusMode = "browserFocusMode"
     /// The focused terminal is in copy mode.
     public static let terminalCopyMode = "terminal.copyMode"
+    /// The focused terminal is using its alternate screen (vim, tmux, less, ...).
+    public static let terminalAlternateScreen = "terminalAlternateScreen"
     /// A list-like control has the keyboard: a combobox, listbox, menu or
     /// picker in a page, the sidebar list or its search field (R85).
     public static let listFocus = "listFocus"

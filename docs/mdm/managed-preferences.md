@@ -88,6 +88,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.subsessions.maxChildren` | real | `1000` | 1 to 1000 | Open Sub-sessions per Session. The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot. |
 | `agents.subsessions.maxRunning` | real | `1000` | 1 to 1000 | Running Sub-sessions per Session. The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it. |
 | `agents.subsessions.maxDepth` | real | `10` | 1 to 100 | Deepest Nesting. How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own. |
+| `agents.autoRetry.enabled` | boolean | `true` |  | Retry Automatically. When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works. |
+| `agents.autoRetry.intervalSeconds` | real | `0` | 0 to 3600 | Seconds Between Retries. How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes. |
+| `agents.autoRetry.attempts` | real | `4` | 1 to 12 | Retries per Error. How many times the chat tries again before it stops and waits for you. |
 | `agents.trust.autoTrust` | boolean | `false` |  | Trust My Own Folders Without Asking. Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first. |
 | `agents.trust.projectRoots` | array | `[]` |  | Trusted Project Roots. Everything inside these folders is trusted. Use full paths or ~/ paths. |
 | `agents.trust.ownOrgs` | array | `[]` |  | Trusted GitHub Owners. A repository is trusted when all of its GitHub remotes belong to these users or organizations. |
@@ -267,6 +270,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.environment.placement` | string | `"left"` | `left`, `right`, `off` | Session Info Chip. Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it. |
 | `agentPane.display.minimap` | string | `"compact"` | `compact`, `full`, `off` | Chat Minimap. What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing. |
 | `agentPane.display.transcriptView` | string | `"normal"` | `normal`, `thinking`, `verbose` | Transcript View. How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view. |
+| `agentPane.display.presentation` | string | `"transcript"` | `transcript`, `messages` | Chat Presentation |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
@@ -536,7 +540,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.attachments.keepLocation` | boolean | `false` |  | Keep Location in Photos and Videos. When off, location data is removed from photos and videos before they are attached. |
 | `home.channelsEnabled` | boolean | `false` |  | Channels. Show Channels below Home in the sidebar. You can also turn it on or off from the command palette. |
 | `home.chiefPetEnabled` | boolean | `false` |  | Show Chief Pet. A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app. |
-| `home.chiefPetMascot` | string | `"orb"` | `fox`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `mochi`, `fox-arctic`, `machine-violet`, `machine-gold`, `moon-rose`, `orb`, `orb-spark`, `orb-hood` | Character |
+| `home.chiefPetMascot` | string | `"orb"` | `fox`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `mochi`, `captain`, `sprout`, `bolt`, `fox-arctic`, `machine-violet`, `machine-gold`, `moon-rose`, `orb`, `orb-spark`, `orb-hood` | Character |
 | `home.chiefEngine` | string | `"auto"` | `auto`, `local`, `hosted` | Engine. Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud. |
 | `chief.reactionsCanWake` | boolean | `true` |  | Reactions Can Wake the Chief. A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted. |
 | `chief.reactionClassifier.harness` | string | `""` |  | Reaction Classifier Harness. The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route. |
@@ -574,6 +578,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.attention.showOnTab` | boolean | `true` |  | Mark the Tab |
 | `notifications.attention.showOnSidebar` | boolean | `true` |  | Mark the Sidebar Row |
 | `notifications.attention.moveToTop` | boolean | `false` |  | Move the Workspace to the Top. A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
+| `notifications.attention.moveToTopOnAgentFinish` | boolean | `false` |  | Move the Workspace to the Top When Its Agent Finishes. An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
 | `notifications.mutedWorkspaces` | array | `[]` |  | Muted Workspaces. Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu. |
 | `notifications.sounds.events.finished` | string |  |  | Agent Finished |
 | `notifications.sounds.events.needsInput` | string |  |  | Agent Needs Input |

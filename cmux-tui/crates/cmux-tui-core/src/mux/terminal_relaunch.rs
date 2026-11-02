@@ -7,6 +7,8 @@ use crate::workspace_registry::relaunch_store::RelaunchRecord;
 impl Mux {
     /// Record how terminal `terminal_id` was launched with `opts`. A failure
     /// only costs the reopened tab its directory, so it is logged, not raised.
+    /// Never called for an incognito terminal (`spawn_surface_with`); the
+    /// later directory and agent updates only change an existing row.
     pub(super) fn record_terminal_relaunch(&self, terminal_id: &str, opts: &SurfaceOptions) {
         let record = RelaunchRecord::from_launch(
             opts.cwd.as_deref(),

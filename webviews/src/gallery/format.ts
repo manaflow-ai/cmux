@@ -173,6 +173,9 @@ export type AgentPaneVariant = VariantBase & {
   theme?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** A recorded chat (fixtures/recording.ts): its rows, as the pane's client makes them, replace the
+   *  snapshot's, and the snapshot's harness and family become the recording's. */
+  recording?: import("./fixtures/recording").Recording;
   /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
   mockHarnesses?: unknown[];
   /** Mock-daemon health rows by harness id. Absent keeps its signed-in default. */

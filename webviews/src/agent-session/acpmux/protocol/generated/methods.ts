@@ -95,6 +95,7 @@ export interface AcpmuxRequests {
   "_acpmux/side": { params: unknown; result: unknown };
   "_acpmux/btw": { params: unknown; result: unknown };
   "_acpmux/tag": { params: unknown; result: unknown };
+  "_acpmux/detach_parent": { params: unknown; result: unknown };
   "_acpmux/info": { params: unknown; result: unknown };
   "_acpmux/session_files": { params: unknown; result: unknown };
   "_acpmux/events": { params: EventsParams; result: EventsResult };
@@ -396,6 +397,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/side", kind: "request", acp: false, typed: false },
   { name: "_acpmux/btw", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tag", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/detach_parent", kind: "request", acp: false, typed: false },
   { name: "_acpmux/info", kind: "request", acp: false, typed: false },
   { name: "_acpmux/session_files", kind: "request", acp: false, typed: false },
   { name: "_acpmux/events", kind: "request", acp: false, typed: true },

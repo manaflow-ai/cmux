@@ -60,9 +60,11 @@ public final class AgentPaneView: NSView {
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
-    var otherInstallNotice: ChromeLabel?
+    var otherInstallNotice: AgentPaneNotice?
+    /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
+    var runsOnOtherInstall = false
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
-    var remoteApprovalsNotice: NSStackView?
+    var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
     /// approvals); nil for no notice or another one.
@@ -137,6 +139,9 @@ public final class AgentPaneView: NSView {
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
+    /// The page lies outside the window until it draws the chat a tab adopted it for
+    /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
+    var holdsPageAway = false
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -398,7 +403,9 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        if let page { page.frame = topBar.contentFrame(in: bounds) } else { webView.frame = topBar.contentFrame(in: bounds) }
+        let frame = topBar.contentFrame(in: bounds)
+        let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
+        if let page { page.frame = shown } else { webView.frame = shown }
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         redraw.laidOut(self)
     }
@@ -557,7 +564,6 @@ public final class AgentPaneView: NSView {
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
-        otherInstallNotice?.textColor = tokens.textSecondary.nsColor
         themeLoadingState(tokens)
         page?.themeSurface = surface
         if let pageEvents {

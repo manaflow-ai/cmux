@@ -587,7 +587,13 @@ extension LiveCoordinator {
     /// the `file` service, relative paths resolved against the tab's directory.
     public func terminalArtifactSource(tabID: String, macID: String? = nil) -> any ArtifactSource {
         let owner = session(tabID: tabID, macID: macID)
-        return LinkFileArtifactSource(macName: owner?.name ?? "your Mac", baseDirectory: owner?.tree?.directories[tabID]) { [weak owner] in
+        let directory = owner?.tree?.directories[tabID]
+        let scope = owner.flatMap {
+            ArtifactThumbnailOwner.remote(accountID: userID, macID: $0.macID,
+                                          resource: "terminal:\(tabID):\(directory ?? "")")
+        }
+        return LinkFileArtifactSource(macName: owner?.name ?? "your Mac", baseDirectory: directory,
+                                      thumbnailCacheScope: scope) { [weak owner] in
             await owner?.servedLink
         }
     }
@@ -683,7 +689,9 @@ extension LiveCoordinator {
         session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = owner.name
         // A file a Chief message links to previews from this Mac (absolute paths only).
-        session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil) { [weak owner] in
+        let fileScope = ArtifactThumbnailOwner.remote(accountID: userID, macID: owner.macID, resource: "chief")
+        session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil,
+                                                    thumbnailCacheScope: fileScope) { [weak owner] in
             await owner?.servedLink
         }
         // Chief's settings show this Mac's last known model until it answers.

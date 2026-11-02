@@ -466,7 +466,7 @@ button.cv-subagent > :last-child {
   --acpmux-tray-status-width: 74px;
   --acpmux-tray-gap: var(--acpmux-composer-action-gap, 4px);
   --acpmux-tray-inset: var(--acpmux-composer-inset, calc(8px * var(--cmux-interface-scale, 1)));
-  /* The one trailing column every chevron ends in: the header's, each line's and View all's. */
+  /* The one trailing column every chevron ends in: the header's and each line's. */
   --acpmux-tray-chevron-width: var(--acpmux-composer-control, 28px);
   box-sizing: border-box;
   padding: 0;
@@ -481,18 +481,19 @@ button.cv-subagent > :last-child {
   letter-spacing: var(--text-control--letter-spacing);
 }
 /* A column that never scrolls itself (Leo 2026-10-25: the header "disappears for some reason at
-   the top"): the header and View all are pinned, and only the list between them scrolls. In a
+   the top"): the header is pinned, and only the list under it scrolls. In a
    short pane the list gives up its height first, down to nothing; the header never does. */
 .acpmux-running-tray {
   display: flex;
   flex-direction: column;
 }
-.acpmux-running-tray__head,
-.acpmux-running-tray__finished {
+.acpmux-running-tray__head {
   flex: none;
 }
 /* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
-   the stack never scrolls the transcript. */
+   the stack never scrolls the transcript. Every line is in it, what ended too: no View all under it
+   (Leo, 2026-11-01: "why is there even a view all 5 button it's useless just let it be
+   scroll-downable"). */
 .acpmux-running-tray__list {
   --acpmux-tray-lines: 5;
   scroll-padding-block: 2px;
@@ -515,10 +516,6 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray[data-look="sectioned"] li[data-finished] .acpmux-summary-agent__name {
   color: var(--agent-muted);
-}
-/* View all under the list's last line, across the tray's width, with its own divider. */
-.acpmux-running-tray__list + .acpmux-running-tray__finished {
-  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
 .acpmux-running-tray__status > svg {
   flex: none;
@@ -586,17 +583,31 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__stop-track {
   margin-inline-start: auto;
 }
-/* Nothing runs: what ended sits over the composer as quiet lines, with no card around them (Leo,
+/* Nothing runs. A lone ended line sits over the composer quietly, with no card around it (Leo,
    2026-10-31, on one finished line in a bordered card: "why is this still so ass in latest
-   nightly"). */
-.acpmux-running-tray[data-settled] {
+   nightly"). A headed tray keeps a surface of its own, see-through but never the chat's own glass
+   (Leo, 2026-11-01: "you fucking glassed way too hard now there's no difference at all", "you can't
+   just have it be the exact same glass as the background"); traySurface.experiment.ts holds the
+   arms, `tint` shipped. */
+.acpmux-running-tray[data-settled]:not([data-card]) {
   background: none;
   box-shadow: none;
 }
+.acpmux-running-tray[data-settled][data-card][data-surface="tint"] {
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+}
+.acpmux-running-tray[data-settled][data-card][data-surface="rim"] {
+  background: color-mix(in srgb, var(--agent-text) 2%, transparent);
+}
+/* The header's mark is off by default (trayHead.experiment.ts `bare`, Leo, 2026-11-01: "why did you
+   guys not remove the 3/4"): its slot stays, unseen, so the counts keep the text column. */
+.acpmux-running-tray__head .acpmux-lineage__icon[data-blank] {
+  visibility: hidden;
+}
 /* The header (Leo's collapsed strip, 2026-10-31: the time floated in a column of its own far from
    the words it belongs to): the counts take only their width, the elapsed time follows them as quiet
-   meta one gap later, and the chevron ends the row in the trailing column the lines' chevrons and
-   View all's end in. A long title truncates; the time never does. */
+   meta one gap later, and the chevron ends the row in the trailing column the lines' chevrons
+   end in. A long title truncates; the time never does. */
 .acpmux-running-tray__head > .acpmux-running-tray__title {
   flex: 0 1 auto;
 }
@@ -657,22 +668,13 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head + .acpmux-running-tray__fold {
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
-/* The list and View all, in the box the shared fold sizes (conversation/fold.ts `useFold`): it gives
+/* The list, in the box the shared fold sizes (conversation/fold.ts `useFold`): it gives
    up its height in a short pane as the list did, and the list in it still scrolls alone. */
 .acpmux-running-tray__fold {
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
-}
-/* The overflow control for ended cards, dim beside what runs. */
-.acpmux-running-tray__finished {
-  padding-inline: var(--acpmux-tray-inset);
-  color: var(--agent-muted);
-}
-.acpmux-running-tray__finished > svg {
-  margin-inline: calc((var(--acpmux-tray-chevron-width) - 14px) / 2);
-  flex: none;
 }
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
    stop button (SubagentGroup.tsx, session-info/TasksSection.tsx). */

@@ -304,6 +304,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import github_spend  # noqa: E402 - per-token request counts, reported when the step exits
 from collections.abc import Callable, Collection, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
@@ -2238,9 +2241,11 @@ class GitHub:
             try:
                 with _absolute_deadline(self.deadline):
                     with urllib.request.urlopen(request, timeout=self._timeout(15)) as response:
+                        github_spend.record(self.headers["Authorization"], getattr(response, "headers", None), getattr(response, "status", 200))
                         body = response.read()
                 return json.loads(body)
             except urllib.error.HTTPError as error:
+                github_spend.record(self.headers["Authorization"], error.headers, error.code)
                 wait = (retry_wait(error, self.retry_cap)
                         if attempt == 1 and self.retry_cap > 0 and self.retries.left > 0 else None)
                 if wait is not None:
@@ -2276,6 +2281,7 @@ class GitHub:
                 with opener.open(download, timeout=self._timeout(15)):
                     raise RuntimeError("artifact download did not redirect")
         except urllib.error.HTTPError as error:
+            github_spend.record(self.headers["Authorization"], error.headers, error.code)
             location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
             if not location:
                 raise RuntimeError(f"artifact download failed ({error.code})") from error

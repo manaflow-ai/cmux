@@ -849,6 +849,10 @@ path = "tests/test_ci_route_refusal_detail.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_github_spend.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_permissions_are_job_scoped.py"
 lane = "linux-guard"
 

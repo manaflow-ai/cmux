@@ -113,23 +113,84 @@ fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
     bytes.fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
 }
 
-/// The file `meta` is of: its device, inode and birth time.
-fn file_id(meta: &std::fs::Metadata) -> (u64, u64, u64) {
-    let born = meta
-        .created()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX));
+/// What a copy is of: the segment file (its device, inode and birth time) and its length now.
+pub(super) struct Stamp {
+    id: (u64, u64, u64),
+    len: u64,
+}
+
+impl Stamp {
+    /// The open segment `file`'s, however its path changes meanwhile.
+    pub(super) fn of(file: &std::fs::File) -> std::io::Result<Self> {
+        let meta = file.metadata()?;
+        Ok(Self { id: file_id(file, &meta), len: meta.len() })
+    }
+}
+
+/// The file's device, inode and birth time (ns since the epoch; 0 where the system does not say).
+fn file_id(file: &std::fs::File, meta: &std::fs::Metadata) -> (u64, u64, u64) {
+    let born = birth_ns(file).unwrap_or_else(|| {
+        meta.created()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+    });
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
+        let _ = file;
         (meta.dev(), meta.ino(), born)
     }
     #[cfg(not(unix))]
     {
-        let _ = meta;
+        let _ = (file, meta);
         (0, 0, born)
     }
+}
+
+/// The birth time Linux keeps for `file`, read with `statx`. Rust's `Metadata::created` asks
+/// `statx` only on glibc: on musl, the static build every Linux daemon runs, it always fails, so
+/// no copy was ever written or read there, and every log load read and parsed whole logs: four
+/// passes over each live chat's log on a restart, about 12 GB on a host with 3.1 GB of them. None: the kernel or
+/// file system keeps no birth time (the copy then stays off, as before).
+#[cfg(target_os = "linux")]
+pub(super) fn birth_ns(file: &std::fs::File) -> Option<u64> {
+    use std::os::fd::AsRawFd;
+    /// The kernel's `struct statx` (`linux/stat.h`): `stx_mask` first, `stx_btime` at byte 80
+    /// (after `stx_atime`), padded to its full 256 bytes.
+    #[repr(C)]
+    struct Statx {
+        mask: u32,
+        head: [u32; 19],
+        btime_sec: i64,
+        btime_nsec: u32,
+        rest: [u32; 41],
+    }
+    const _: () = assert!(std::mem::size_of::<Statx>() == 256);
+    const _: () = assert!(std::mem::offset_of!(Statx, btime_sec) == 80);
+    const STATX_BTIME: u32 = 0x800;
+    let mut buf = Statx { mask: 0, head: [0; 19], btime_sec: 0, btime_nsec: 0, rest: [0; 41] };
+    // SAFETY: statx writes at most `sizeof(struct statx)` (256) bytes into `buf`, which is that
+    // size; the path is an empty C string and `AT_EMPTY_PATH` makes it read the open fd itself.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_statx,
+            file.as_raw_fd(),
+            c"".as_ptr(),
+            libc::AT_EMPTY_PATH,
+            STATX_BTIME,
+            &mut buf as *mut Statx,
+        )
+    };
+    if result != 0 || buf.mask & STATX_BTIME == 0 || buf.btime_sec < 0 {
+        return None;
+    }
+    Some(buf.btime_sec as u64 * 1_000_000_000 + u64::from(buf.btime_nsec))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn birth_ns(_file: &std::fs::File) -> Option<u64> {
+    None
 }
 
 /// Whether a line belongs in a copy: its kind is indexed, or its head does not say (it is parsed
@@ -219,7 +280,7 @@ impl LocalStore {
     ) -> Result<bool> {
         let mut file = crate::config::private_state_file(path)?;
         // What a copy is of: the file this reads, however its path changes meanwhile.
-        let stamp = if scan.copied { Some(file.metadata()?) } else { None };
+        let stamp = if scan.copied { Some(Stamp::of(&file)?) } else { None };
         let (mut copy, from, mut parsed) = match stamp
             .as_ref()
             .and_then(|s| self.read_kind_index(id, index, s))
@@ -293,48 +354,53 @@ impl LocalStore {
     }
 
     /// The copied lines of segment `index`, the bytes of it they cover, and whether every line of
-    /// those bytes read, when the copy is of the file `segment` (the open file's metadata) and
+    /// those bytes read, when the copy is of the file `segment` (the open segment's stamp) and
     /// [`INDEXED_KINDS`], no longer than it, and whole. A system that names no birth time keeps no
     /// copy: an inode a later file reuses would pass for the same.
     pub(super) fn read_kind_index(
         &self,
         id: &str,
         index: u32,
-        segment: &std::fs::Metadata,
+        segment: &Stamp,
     ) -> Option<(Vec<u8>, u64, bool)> {
         let mut bytes = Vec::new();
         let copy = self.kind_index_path(id, index);
         crate::config::private_state_file(&copy).ok()?.read_to_end(&mut bytes).ok()?;
         let end = bytes.iter().position(|b| *b == b'\n')?;
         let header: Header = serde_json::from_slice(&bytes[..end]).ok()?;
-        let id = file_id(segment);
+        let id = segment.id;
         let lines = bytes.split_off(end.saturating_add(1));
         let file = (header.dev, header.ino, header.born_ns);
         let whole = lines.len() as u64 == header.lines_len
             && seal(file, header.len, header.kinds, header.parsed, &lines) == header.lines_hash
             && lines.last().is_none_or(|b| *b == b'\n');
         let same = header.schema == SCHEMA && header.kinds == kinds() && id.2 != 0 && file == id;
-        (same && whole && segment.len() >= header.len).then_some((lines, header.len, header.parsed))
+        (same && whole && segment.len >= header.len).then_some((lines, header.len, header.parsed))
     }
 
     /// Saves `lines`, the indexed lines of the first `len` bytes of segment `index`, read from a
-    /// file with metadata `segment`; `parsed`: every line of those bytes read as a record.
+    /// file with stamp `segment`; `parsed`: every line of those bytes read as a record.
     pub(super) fn write_kind_index(
         &self,
         id: &str,
         index: u32,
-        segment: &std::fs::Metadata,
+        segment: &Stamp,
         len: u64,
         parsed: bool,
         lines: &[u8],
     ) -> Result<()> {
-        let (dev, ino, born_ns) = file_id(segment);
+        let (dev, ino, born_ns) = segment.id;
         if born_ns == 0 {
             return Ok(());
         }
-        // Never makes the chat's folder: a scan that outlived a delete leaves none behind.
+        // Never makes the chat's folder: a scan that outlived a delete leaves none behind. Owner-only
+        // whatever the umask: under 002 it would be group-writable, and `private_state_dir`
+        // refuses that.
         let dir = self.dir(id).join(DIR);
-        if let Err(e) = std::fs::create_dir(&dir)
+        let mut made = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
+        if let Err(e) = made.create(&dir)
             && e.kind() != std::io::ErrorKind::AlreadyExists
         {
             return Err(e.into());

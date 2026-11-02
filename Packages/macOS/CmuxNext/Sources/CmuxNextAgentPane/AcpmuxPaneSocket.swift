@@ -205,9 +205,12 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                         sessions.observe(object)
                         sessions.observeFolder(object, replyTo: method)
                         if wire != nil { sessions.observeTabSession(object, replyTo: method) }
+                        // Any pending change, a tool permission's too: the other-install line reads them all.
                         let questionVersion = decisions.pendingQuestionVersion()
+                        let pendingVersion = decisions.pendingVersion()
                         decisions.observe(object, replyTo: method)
                         questionsChanged = questionsChanged || decisions.pendingQuestionVersion() != questionVersion
+                            || decisions.pendingVersion() != pendingVersion
                         replacements.observe(object, replyTo: method, connection: connection)
                         if Self.pageWaits(on: object) { awaited += 1 }
                         if Self.answersPage(object) { answers += 1 }

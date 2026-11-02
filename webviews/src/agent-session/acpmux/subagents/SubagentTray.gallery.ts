@@ -166,7 +166,7 @@ function codexLineage(): Subagent[] {
 
 /** Leo's panel (2026-10-25, synthetic names): two chats running whose doing lines are raw shell
  *  lines, and `done` subagents that ended, one a minute apart; `done` 3 makes the two-agent panel,
- *  116 the 118-agent one ("View all 116"). */
+ *  116 the 118-agent one, every line in the list that scrolls. */
 const INFRA_DOING = "cd /Users/you/Projects/checkouts/workspace/broker-host-gh && sed -i '' 's/old/new/' broker.ts";
 
 function panel(done: number, running = 2, lead: AcpmuxRow[] = []) {
@@ -216,8 +216,8 @@ function headInView(ctx: PlayContext): void {
   if (!hit || !head.contains(hit)) throw new Error("the header must be the thing drawn at its place");
 }
 
-/** Opens every ended line (once; a play that already opened them leaves them open), scrolls the
- *  list to its end, then checks the head and View all stay. A panel without View all only scrolls. */
+/** Opens the tray, scrolls the list to its end, then checks the head stays. Every ended line is in
+ *  the list: there is no View all (Leo, 2026-11-01: "just let it be scroll-downable"). */
 const scrollPanel = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
   const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
@@ -227,18 +227,11 @@ const scrollPanel = async (ctx: PlayContext) => {
     await ctx.click({ selector: ".acpmux-running-tray__head" });
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
   }
-  const more = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__finished");
-  if (more() && more()!.getAttribute("aria-expanded") !== "true") {
-    await ctx.click({ selector: ".acpmux-running-tray__finished" });
-    await ctx.waitFor(() => more()?.getAttribute("aria-expanded") === "true");
-  }
+  if (ctx.document.querySelector(".acpmux-running-tray__finished")) throw new Error("the tray has no View all");
   await ctx.scroll({ selector: ".acpmux-running-tray__list" }, "bottom");
   headInView(ctx);
   const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
   if (tray.scrollTop !== 0) throw new Error("the tray never scrolls as a whole; only its list does");
-  const foot = more()?.getBoundingClientRect();
-  if (foot && foot.bottom > tray.getBoundingClientRect().bottom + 0.5)
-    throw new Error("View all stays at the tray's foot");
 };
 
 const panelScript = [
@@ -357,7 +350,7 @@ export default agentPaneEntry({
       ),
     },
     "grid-31": {
-      note: "Grid fixture: 31 rows (29 ended and two running), expanded with the header and footer visible.",
+      note: "Grid fixture: 31 rows (29 ended and two running), expanded with the header visible.",
       snapshot: panel(29),
       play: async (ctx) => {
         await scrollPanel(ctx);
@@ -388,7 +381,7 @@ export default agentPaneEntry({
       snapshot: panel(3, 1),
     },
     "short-dock": {
-      note: "A 300px pane with a constrained dock: the two-line header and View all stay reachable when the list gives up its height.",
+      note: "A 300px pane with a constrained dock: the header stays reachable when the list gives up its height; every line is in the list, no View all.",
       height: 400,
       snapshot: chat(
         [
@@ -405,7 +398,7 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openTray(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__finished"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray li[data-finished]"));
         const shell = ctx.document.querySelector<HTMLElement>(".acpmux-shell")!;
         shell.style.width = "300px";
         shell.style.maxWidth = "100%";
@@ -413,13 +406,13 @@ export default agentPaneEntry({
         const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock")!;
         const composer = dock.querySelector<HTMLElement>(".acpmux-composer")!;
         const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
-        // Leave less than the pinned header + footer need. The tray's minimum must win as
+        // Leave less than the header and the list need. The tray's minimum must win as
         // the dock and composer share their height; the list is the part that may collapse.
         dock.style.maxHeight = `${composer.getBoundingClientRect().height + header.getBoundingClientRect().height}px`;
       },
     },
     "panel-118": {
-      note: 'The same panel with 118 agents, every ended one opened and the list scrolled to its end (Leo: the collapse at the top "disappears for some reason ... sometimes"): the header stays pinned on top and View all at the foot; only the list scrolls.',
+      note: 'The same panel with 118 agents, every ended one opened and the list scrolled to its end (Leo: the collapse at the top "disappears for some reason ... sometimes"): the header stays pinned on top; only the list scrolls, every line in it (no View all).',
       play: scrollPanel,
       snapshot: panel(116),
     },

@@ -16,8 +16,8 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 
 | | linux | shims | mac | all |
 | --- | ---: | ---: | ---: | ---: |
-| targets | 40 | 25 | 264 | 329 |
-| of them test suites | 15 | 6 | 84 | 105 |
+| targets | 42 | 25 | 261 | 328 |
+| of them test suites | 16 | 6 | 83 | 105 |
 
 ## Packages and projects
 
@@ -28,7 +28,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | `Packages/Shared/CMUXMobileCore` | 2 | 0 | 0 | CI swift-packages-linux (2 of 2 targets) |
 | `Packages/Shared/CmuxAPIClient` | 1 | 0 | 0 | - |
 | `Packages/Shared/CmuxAgentBrands` | 0 | 0 | 1 | - |
-| `Packages/Shared/CmuxAgentCursor` | 0 | 0 | 2 | - |
+| `Packages/Shared/CmuxAgentCursor` | 2 | 0 | 0 | CI swift-linux-packages (2 of 2 targets) |
 | `Packages/Shared/CmuxAgentQuestion` | 2 | 0 | 0 | CI swift-packages-linux (2 of 2 targets) |
 | `Packages/Shared/CmuxAppAttest` | 0 | 0 | 1 | - |
 | `Packages/Shared/CmuxAuthRuntime` | 0 | 0 | 2 | - |
@@ -64,7 +64,6 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | `Packages/macOS/CmuxNext` | 3 | 5 | 155 | - |
 | `Packages/macOS/CmuxPhonePush` | 0 | 0 | 2 | - |
 | `Packages/macOS/CmuxUpdater` | 0 | 0 | 2 | - |
-| `Prototypes/SettingsShellLab` | 0 | 0 | 1 | - |
 | `Prototypes/UiLayerHost` | 0 | 1 | 2 | - |
 | `cmux-next-ios/CmuxMobileKit` | 1 | 8 | 27 | - |
 | `cmux-tui/apps/macos/TerminalBytesDemo` | 1 | 0 | 2 | - |
@@ -113,8 +112,8 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 
 | Target | Kind | Class | Proof | Why | Guarded |
 | --- | --- | --- | --- | --- | --- |
-| CmuxAgentCursor | target | mac | scan | imports QuartzCore | - |
-| CmuxAgentCursorTests | testTarget | mac | scan | imports QuartzCore | - |
+| CmuxAgentCursor | target | linux | CI swift-linux-packages | its Apple code sits behind #if, so a Linux build compiles only the rest | QuartzCore |
+| CmuxAgentCursorTests | testTarget | linux | CI swift-linux-packages | its Apple code sits behind #if, so a Linux build compiles only the rest | QuartzCore |
 
 ## `Packages/Shared/CmuxAgentQuestion`
 
@@ -465,7 +464,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextSessionTransfer | target | mac | scan | via CmuxNextDesign | - |
 | CmuxNextSettings | target | mac | scan | imports AppKit; shim CoreGraphics, CryptoKit, UniformTypeIdentifiers, os | - |
 | CmuxNextSettingsWindow | target | mac | scan | imports AppKit, SwiftUI | - |
-| CmuxNextSidebar | target | mac | scan | imports Accelerate, AppKit, CoreText, QuartzCore; shim CoreGraphics, os; unknown module CCmuxLayoutReducerFFI | - |
+| CmuxNextSidebar | target | mac | scan | imports Accelerate, AppKit, CoreText, ImageIO, QuartzCore; shim CoreGraphics, os; unknown module CCmuxLayoutReducerFFI | - |
 | CmuxNextSidebarActions | target | mac | scan | via CmuxNextActions | - |
 | CmuxNextSignposts | target | mac | scan | shim os; unknown module MetricKit; via CmuxNextCompat | - |
 | CmuxNextStash | target | mac | scan | via CmuxNextCompat | - |
@@ -543,12 +542,6 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | --- | --- | --- | --- | --- | --- |
 | CmuxUpdater | target | mac | scan | imports AppKit, Security, Sparkle; shim Darwin | - |
 | CmuxUpdaterTests | testTarget | mac | scan | imports Sparkle | - |
-
-## `Prototypes/SettingsShellLab`
-
-| Target | Kind | Class | Proof | Why | Guarded |
-| --- | --- | --- | --- | --- | --- |
-| SettingsShellLab | executableTarget | mac | scan | imports AppKit, SwiftUI | - |
 
 ## `Prototypes/UiLayerHost`
 

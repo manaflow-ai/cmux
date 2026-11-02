@@ -55,7 +55,12 @@ contains(' <key> ') matches whole keys only:
   runner is no longer than Blacksmith 6 vCPU's queue per slot. A label whose queue is
   deeper than the pool (#26809, 2026-10-29: eleven swift tests queued behind nine busy
   gui runners for 45+ minutes) is written empty, so the GUI jobs take the workflow's
-  Blacksmith macOS leg instead of joining it. With no snapshot to weigh, the live label
+  Blacksmith macOS leg instead of joining it. A label the janitor's snapshot lists as
+  unserved (a job queued on it, none running or started within ten minutes) has no room
+  either, unless one of its runners is idle, and this holds before the stalled-overflow and
+  health-contract keeps below: cmux#24295's daemon tests waited 90 minutes on a session label
+  whose five online runners were busy, while the gui label moved. An empty session_runner
+  sends those jobs to gui_runner. With no snapshot to weigh, the live label
   stays (today's route; the rescue still watches it). While that leg is itself stalled or
   dead (overflow_stalled(), read from a snapshot up to 45 minutes old too), a role label with
   an online runner stays, full or deep: a busy owned queue moves, a stalled Blacksmith one does not;
@@ -293,12 +298,20 @@ def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = 
     the label only while Blacksmith 6 vCPU's queue per slot is at least as deep (`waiting`, with
     next_macos_cascade.CAPACITY), so the job joins the shorter of the two queues. With no snapshot the
     queue is unknown and the label stays, as before this check.
+
+    A label the janitor found unserved (`seen.unserved`: a job queued on it and none running or started
+    within starved_labels.STARVED_AFTER) has no room whatever its counts say, unless a runner carrying it is
+    idle now: its queue is not moving. On 2026-10-29 cmux#24295's daemon tests waited 90 minutes on
+    glaeda-session-std-xcode-26.6, twice, with five session runners online and busy and the queue shorter
+    than them, while the gui label beside it started jobs within a minute.
     """
     online, idle = _role_online(candidate, runners)
     if not online:
         return False
     if idle:
         return True
+    if candidate in (getattr(seen, "unserved", None) or ()):
+        return False
     queues = getattr(seen, "owned_queued", None)
     if queues is None:
         return True
@@ -334,6 +347,13 @@ def healthy_role_label(live: str, runners: Sequence[Mapping[str, Any]] | None, s
     """`live` (a gui_route_label() or session_route_label() result) while role_room() holds, else ""."""
     if not live or runners is None:
         return live
+    # An unserved label (Seen.unserved: a job queued on it, none running or started within
+    # starved_labels.STARVED_AFTER) is not a busy queue that moves, so neither keep below holds it: with no idle
+    # runner it has no room (role_room()). cmux#24295's daemon tests waited 90 minutes on such a session label,
+    # twice, on 2026-10-29 while Blacksmith had no free slot; an empty session_runner sends them to gui_runner.
+    idle = _role_online(live, runners)[1]
+    if live in (getattr(seen, "unserved", None) or ()) and not idle:
+        return ""
     # A busy owned queue still moves; a stalled or dead Blacksmith 6 vCPU queue does not. While the overflow
     # is not moving, a role label with an online runner stays, full or deep (run 41163886431, #28823,
     # 2026-10-31: the gui label read full, 37 queued on 10 busy runners, so swift-test took

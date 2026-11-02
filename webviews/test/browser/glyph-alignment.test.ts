@@ -49,7 +49,9 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
         [
           ".acpmux-workflow-agent",
           ".acpmux-workflow-agent__icon svg[data-icon], .acpmux-workflow-agent__icon .cv-spinner",
-          ".acpmux-workflow-agent__text",
+          // The Session Info grid (#27570) tops the icon on the row's first line, the agent's name;
+          // the model and current action stack under it, so the whole text block is taller.
+          ".acpmux-workflow-agent__name",
         ],
       ] as const,
     },
