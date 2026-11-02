@@ -849,7 +849,10 @@ class L5(Profile):
                  "--home", self.app.home] + (["--app", self.app.app_path] if self.app.app_path else [])
         self.heavy_out = os.path.join(self.dir, "heavy")
         argv = [sys.executable, os.path.join(HERE, "heavy_profile.py"), "build", "--seed", str(self.a.seed),
-                "--duration", str(self.a.duration + 60), "--out", self.heavy_out, "--no-focus"] + reach
+                "--duration", str(self.a.duration + 60), "--out", self.heavy_out, "--no-focus",
+                # Every gradient on the compiled engine, built before the first pane starts, so L5 and L6 do not
+                # depend on run order and heavy.json names the engine that ran (review FIX C at 38e6ef63f4a).
+                "--build-bins"] + reach
         workspaces, tabs, visible = self.a.heavy_shape.split(",")
         argv += ["--workspaces", workspaces, "--tabs", tabs, "--visible", visible]
         self.manifest["heavy"] = {"argv": argv, "manifest": os.path.join(self.heavy_out, "heavy.json"), "reach": reach}

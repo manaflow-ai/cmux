@@ -381,7 +381,10 @@ def kit_tar(specs):
         # TYPING UNDER LOAD (ext_load.py): the load tools and the typist/echo programs, from this commit.
         for folder in ("tui-kit", "typing"):
             if (HERE / folder).is_dir():
-                tar.add(HERE / folder, arcname=folder, filter=lambda t: None if "__pycache__" in t.name else t)
+                # Never a local build output (rust/target is gitignored, so harness_state cannot see it): the slot
+                # builds the compiled load tools from this commit's sources (review FIX A at 38e6ef63f4a).
+                tar.add(HERE / folder, arcname=folder, filter=lambda t: None if "__pycache__" in t.name
+                        or t.name.startswith("tui-kit/rust/target") else t)
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
         info = tarfile.TarInfo("journeys.json")
         info.size, info.mode = len(data), 0o644
@@ -496,8 +499,9 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         before, kit, harness = harness_state(), kit_tar(specs), harness_state()
         if before != harness:
             harness = dict(harness, dirty=harness["dirty"] + ["(the harness changed while the kit was packed)"])
-        # A slot root the mini reuses (a whole-host lease) may still hold an earlier run's out/: never fetch it.
-        remote(host, f"rm -rf {q(work + '/out')} && mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}",
+        # A slot root the mini reuses (a whole-host lease) may still hold an earlier run's out/ (never fetch it) and
+        # an earlier kit/ with built load tools (never run them: review FIX B at 38e6ef63f4a): both start empty.
+        remote(host, f"rm -rf {q(work + '/out')} {q(work + '/kit')} && mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}",
                input=kit, timeout=left(120))
         if vdisplay:
             if not whole_host:
