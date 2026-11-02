@@ -636,7 +636,8 @@ def step_record_start_sample(j, step):
                 break
         time.sleep(0.15)  # the first samples are taken before the call
         movie = vdir / f".sample-{n}.mov"
-        _motion(j, "record_start", path=str(movie), window=0, seconds=10)
+        # The same call's per-frame main-thread time (debug.frames), so the profile and the busy number pair up.
+        frames = _main_cost(j, lambda: _motion(j, "record_start", path=str(movie), window=0, seconds=10), settle=1.0)
         try:
             proc.communicate(timeout=30)
         except subprocess.TimeoutExpired:
@@ -647,7 +648,7 @@ def step_record_start_sample(j, step):
             time.sleep(0.1)
         text = path.read_text(errors="replace") if path.exists() else ""
         main = text.split("Thread_", 2)[1][:6000] if "Thread_" in text else ""
-        out.append({"file": path.name, "said": said[-2:], "main_head": main[:3000]})
+        out.append({"file": path.name, "said": said[-2:], "frames": frames, "main_head": main[:3000]})
     return out
 
 
