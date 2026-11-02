@@ -659,19 +659,19 @@ async fn a_held_session_message_reuses_its_delivery_id_when_the_pair_resumes() {
 }
 
 #[tokio::test]
-async fn lane_report_a_lane_whose_tag_is_changed_still_reports_to_the_session_that_started_it() {
+async fn lane_report_a_lane_whose_tag_names_another_session_reports_to_neither() {
     let hub = hub();
     let mut person = Client::new(&hub);
     let coord = person.new_session("coord", json!({})).await;
     let other = person.new_session("other", json!({})).await;
     let lane = Client::as_session(&hub, &coord).await.new_session("lane-t", json!({})).await;
-    // Any local client can set or remove a tag: the tag shows the link, it does not make it.
-    person.ok("_acpmux/tag", json!({"sessionId": lane, "remove": ["lane.reportsTo"]})).await;
     Client::as_session(&hub, &coord).await.prompt(&lane, "first").await;
     person.exactly(&coord, 1).await;
+    // Any local client can set a tag: one that names another session ends the link
+    // (`lane_reports/detach.rs`) and never makes one to that session.
     person.ok("_acpmux/tag", json!({"sessionId": lane, "set": {"lane.reportsTo": other}})).await;
     Client::as_session(&hub, &coord).await.prompt(&lane, "second").await;
-    person.exactly(&coord, 2).await;
+    person.exactly(&coord, 1).await;
     assert!(person.reports(&other).await.is_empty());
 }
 
