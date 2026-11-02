@@ -186,7 +186,7 @@ pub(crate) fn list(groups: &Value, placements: &[Value]) -> Vec<Value> {
                 "room_id": group["room_id"],
                 "pinned": group["pinned"],
                 "members": members_of(placements, id).iter()
-                    .map(|placement| placement["workspace"]["workspace_id"].clone()).collect::<Vec<_>>(),
+                    .map(|placement| placement.pointer("/workspace/workspace_id").cloned().unwrap_or(Value::Null)).collect::<Vec<_>>(),
                 "duplicate": names.get(&key(group)).is_some_and(|count| *count > 1),
             })
         })
@@ -227,7 +227,7 @@ pub(crate) fn tidy_plan(groups: &Value, placements: &[Value]) -> Vec<Merge> {
             let members = members_of(placements, from);
             let movable: Vec<String> = members
                 .iter()
-                .filter_map(|placement| placement["workspace"]["workspace_id"].as_str())
+                .filter_map(|placement| placement.pointer("/workspace/workspace_id").and_then(Value::as_str))
                 .map(str::to_owned)
                 .collect();
             plan.push(Merge {
@@ -247,8 +247,8 @@ pub(crate) fn tidy_plan(groups: &Value, placements: &[Value]) -> Vec<Merge> {
 pub(crate) fn workspace_of(placements: &[Value], key: &str) -> Option<String> {
     placements
         .iter()
-        .filter(|placement| placement["workspace"]["workspace_ref"] == key)
-        .find_map(|placement| placement["workspace"]["workspace_id"].as_str())
+        .filter(|placement| placement.pointer("/workspace/workspace_ref").and_then(Value::as_str) == Some(key))
+        .find_map(|placement| placement.pointer("/workspace/workspace_id").and_then(Value::as_str))
         .map(str::to_owned)
 }
 
