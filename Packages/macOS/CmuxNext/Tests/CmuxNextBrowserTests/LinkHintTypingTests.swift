@@ -20,7 +20,7 @@ struct LinkHintTypingTests {
     /// letter before cmux hears it was unhandled).
     @Test func keysTypedWhileThePageAnswersGoToTheTextFieldOnceInOrder() {
         var held = LinkHintHeldKeys<Character>(startedAt: 10)
-        for key in "ieldkeysok" { held.hold(key, typedAt: 11) }
+        for key in "ieldkeysok" { held.hold(key) }
         #expect(String(held.release(after: .passThrough)) == "ieldkeysok", "keys typed during the page's answer were lost or reordered")
         #expect(held.release(after: .passThrough).isEmpty, "a held key went to the page twice")
     }
@@ -33,7 +33,7 @@ struct LinkHintTypingTests {
         var held = LinkHintHeldKeys<Character>(startedAt: 10)
         let targets = (0..<30).map { LinkHintTarget(x: Double($0), y: 1, left: Double($0), top: 0) }
         let label = Array(LinkHintSession.labels(count: targets.count))[7]
-        for key in label { held.hold(key, typedAt: 11); _ = session.type(String(key)) }
+        for key in label { held.hold(key); _ = session.type(String(key)) }
         let outcome = session.show(targets, editing: false)
         #expect(outcome == .pick(targets[7]), "the letters typed before the labels showed did not pick: \(outcome)")
         #expect(held.release(after: outcome).isEmpty, "a hint letter reached the page")
@@ -47,7 +47,7 @@ struct LinkHintTypingTests {
         let typed = (0..<10).map { _ in Key() }
         var held = LinkHintHeldKeys<Key>(startedAt: 10)
         var replays = LinkHintReplays<Key>()
-        typed.forEach { held.hold($0, typedAt: 11) }
+        typed.forEach { held.hold($0) }
         let sent = held.release(after: .passThrough)
         replays.mark(sent)
         var passed = 0, passedAgain = 0
@@ -59,18 +59,54 @@ struct LinkHintTypingTests {
         #expect(!stranger, "a key never sent back was let through")
     }
 
-    /// v6 of #32537 doubled the first letters (REOPEN VIDEO 7710: "fieldfieldkeysok", "ffieldkeysok"): a key the page
-    /// already had (typed before the session started: the `f`, and the letters typed before the page reported the `f`)
-    /// came through the key route again while the session collected, was held, and was sent back. A key typed before
-    /// the session started is never sent back; the keys the PAGE receives equal the keys typed, once each, in order.
+    /// The page's side of a key that link hints let through (``LinkHintController`` returns it to AppKit's dispatch):
+    /// a key still on its way reaches the page now; a key Chromium sent back after the page had it (its unhandled-key
+    /// redispatch, the same event) stays in that redispatch, as with no session, so the page does not get it again.
+    private struct Page {
+        var received: [Character] = []
+        var held: LinkHintHeldKeys<Character>
+        /// One key-down through the link-hint intercept while a session collects; `echo` marks Chromium's send-back.
+        mutating func keyDown(_ key: Character, typedAt: TimeInterval, echo: Bool = false) {
+            switch held.route(typedAt: typedAt) {
+            case .page: if !echo { received.append(key) }
+            case .session: held.hold(key)
+            }
+        }
+    }
+
+    /// v6 of #32537 doubled the first letters (REOPEN VIDEO 7710: "fieldfieldkeysok", "ffieldkeysok"): Chromium sends a
+    /// letter the page left unhandled back through `NSApp.sendEvent` (the same event; a plain letter is not in the
+    /// router's `decided`), so the `f` and the letters the page had before the session started came through the
+    /// intercept again, were held, and were sent back as new keys. A key typed before the session started is never
+    /// the session's: the keys the PAGE receives equal the keys typed, once each, in order.
     @Test func aKeyThePageAlreadyHadIsNeverSentBack() {
-        let typed = Array("fieldkeysok")
-        var page: [Character] = Array("fiel") // delivered before the session started at t = 10
-        var held = LinkHintHeldKeys<Character>(startedAt: 10)
-        for (index, key) in "fiel".enumerated() { held.hold(key, typedAt: 9 + Double(index) / 100) } // the same keys, again
-        for key in "dkeysok" { held.hold(key, typedAt: 11) }
-        page += held.release(after: .passThrough)
-        #expect(page == typed, "the page got \(String(page)), not \(String(typed))")
+        var page = Page(received: Array("fiel"), held: LinkHintHeldKeys(startedAt: 10)) // delivered before the start at t = 10
+        for (index, key) in "fiel".enumerated() { page.keyDown(key, typedAt: 9 + Double(index) / 100, echo: true) }
+        for key in "dkeysok" { page.keyDown(key, typedAt: 11) }
+        page.received += page.held.release(after: .passThrough)
+        #expect(String(page.received) == "fieldkeysok", "the page got \(String(page.received)), not fieldkeysok")
+    }
+
+    /// Lead on STATUS 7738 (v7 of #32537 dropped it): a key typed before the session started but dispatched after it
+    /// (still in the event queue when Chromium's report of the `f` started the session) is no hint key and must not be
+    /// lost: it goes on to the page on its normal path, once, before the keys typed after it. Judged by the event's own
+    /// time, not the dispatch.
+    @Test func aKeyTypedBeforeTheStartButDispatchedAfterItReachesThePageOnce() {
+        var page = Page(received: Array("fie"), held: LinkHintHeldKeys(startedAt: 10))
+        for (index, key) in "fie".enumerated() { page.keyDown(key, typedAt: 9 + Double(index) / 100, echo: true) }
+        page.keyDown("l", typedAt: 9.03) // typed before the start, dispatched after it
+        page.keyDown("d", typedAt: 9.04)
+        for key in "keysok" { page.keyDown(key, typedAt: 11) }
+        let keptBack = page.held.keys.count
+        page.received += page.held.release(after: .passThrough)
+        #expect(String(page.received) == "fieldkeysok", "the page got \(String(page.received)), not fieldkeysok")
+        #expect(keptBack == 6, "the session took a key typed before it started (\(keptBack) held, not 6)")
+    }
+
+    /// A key without a time (a synthetic event, timestamp 0) is the session's, so link hints still work for it.
+    @Test func aKeyWithoutATimeIsTheSessions() {
+        #expect(LinkHintHeldKeys<Character>(startedAt: 10).route(typedAt: 0) == .session)
+        #expect(LinkHintHeldKeys<Character>(startedAt: 10).route(typedAt: 10) == .session)
     }
 
     @Test func aSessionWhosePageIsNotEditingStillLabelsAndPicks() {
