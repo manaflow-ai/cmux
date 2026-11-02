@@ -2,7 +2,7 @@
 #define CMUX_HOST_BUDGET_FFI_H
 
 /* cmux-host-budget's C ABI (cmux-tui/crates/cmux-host-budget/src/ffi.rs),
- * linked into the app through cmux-app-ffi:
+ * for the app, through cmux-app-ffi:
  * the host CPU/RAM budget (cmuxterm-hq#2995) that acpmux's daemon also uses.
  * Verdicts are UTF-8 JSON in acpmux's `host_pressure` shape: pointer and
  * length in, a NUL-terminated string out that the caller frees with

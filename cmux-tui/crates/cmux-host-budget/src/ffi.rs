@@ -1,5 +1,5 @@
 //! The C ABI of the host budget (`include/cmux_host_budget_ffi.h`, Swift module
-//! `CCmuxHostBudgetFFI`), linked into the macOS app through cmux-app-ffi: the host CPU/RAM budget's verdict from
+//! `CCmuxHostBudgetFFI`), for the macOS app, which links it through cmux-app-ffi: the host CPU/RAM budget's verdict from
 //! this process's own meter, a verdict judged again with the memory pressure
 //! the dispatch source reports, and the tracker that turns verdicts into the
 //! level the app shows. The formula lives once, in this crate, which acpmux's
