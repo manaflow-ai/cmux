@@ -26,6 +26,22 @@ import Testing
         #expect(second == nil, "one answer, then the stream ends")
     }
 
+    /// Rust migration A7: a row shows what acpmux's window names it (`label`, with the page's word for an
+    /// untitled chat) and its folder as acpmux writes it (`place`, `~` for the home folder): the text
+    /// acpmux's ranker matched. The page works out neither (the cases are acpmux's `chats/window.rs` tests).
+    @Test func aRowShowsTheLabelAndPlaceAcpmuxSends() throws {
+        let windows = AcpmuxChatWindows()
+        let json: [[String: Any]] = [
+            ["key": "codex:1", "sessionId": "1", "harness": "codex", "cwd": "/Users/me/cmux", "label": "New chat",
+             "place": "~/cmux", "updatedMs": 2_000],
+            ["key": "codex:2", "sessionId": "2", "harness": "codex", "title": "Fix the build", "label": "Fix the build",
+             "updatedMs": 1_000]
+        ]
+        let items = AgentChatsPalettePage.items(json.compactMap(AcpmuxChat.init(json:)), windows: windows, open: { _ in })
+        #expect(items.map(\.title) == ["New chat", "Fix the build"])
+        #expect(items.map(\.subtitle) == ["~/cmux", nil])
+    }
+
     /// Review 2 of #28090: after a reconnect every window is asked again, and until acpmux's full
     /// answer comes the rows are the old connection's. An unchanged query is not answered then.
     @Test func aWindowIsNotAnsweredAgainUntilTheNewConnectionAnswers() throws {
