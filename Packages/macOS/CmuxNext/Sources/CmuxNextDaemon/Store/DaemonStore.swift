@@ -294,6 +294,11 @@ public final class DaemonStore: StateResourceQueries {
         return index.pane(holding: tab)
     }
 
+    /// The workspace that shows tab `id`: the workspace of the pane holding its surface.
+    public func workspace(holdingTab id: String) -> WorkspaceModel? {
+        tab(id: id).flatMap { pane(containing: $0.surface) }.flatMap { workspace(containing: $0.handle) }
+    }
+
     // MARK: Snapshot
 
     /// Replaces the confirmed tree, reusing records by durable identity,

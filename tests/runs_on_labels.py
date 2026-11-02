@@ -309,6 +309,31 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     return out
 
 
+# A pool read wrapped for forks: `(<fork pull request> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`. A fork's
+# pull_request run gets no repository variables, so it keeps the label; every other run reads the pool.
+FORK_WRAPPED_POOL_READ = re.compile(
+    r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+    r" != github\.repository && 'blacksmith-[a-z0-9-]+' \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)")
+
+
+def unwrap_fork_pool_reads(value: str) -> str:
+    """`value` with each fork-wrapped pool read replaced by the read: what every run but a fork's takes."""
+    return FORK_WRAPPED_POOL_READ.sub(r"\1", value)
+
+
+# A job that holds signing or release material (scripts/ci/runner_routing_table.py's `sensitive`). It keeps its
+# route under runner trust policy: a RUNNER_POOLS read would let whoever writes that variable choose the machine
+# that holds the keys.
+SIGNING_JOB = re.compile(
+    r"secrets\.(?:APPLE|SIGN|CMUX_RELEASE|NOTARY)|codesign|notarytool|signing-keychain|gh release upload"
+    r"|softprops/action-gh-release", re.IGNORECASE)
+
+
+def holds_signing_material(job) -> bool:
+    import yaml
+    return SIGNING_JOB.search(yaml.safe_dump(job)) is not None
+
+
 def declared_pools(root: Path = ROOT) -> dict[str, list[str]]:
     """pool -> its members, from .github/runners.json `pools` (main's copy is the one runner_pools.py reads)."""
     runners = json.loads((root / ".github/runners.json").read_text(encoding="utf-8"))

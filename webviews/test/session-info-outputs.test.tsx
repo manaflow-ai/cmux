@@ -234,3 +234,39 @@ test("five Outputs show, then a whole-row Show more opens the rest and Show less
   expect(shown()).toBe(OUTPUTS_SHOWN);
   expect(fold()).toBeNull();
 });
+
+// An Outputs link to a local page opens where a Sources link or a pull request opens: in the pane
+// beside the chat (onOpenUrl, cmux #28544). The host's preview opens only loopback pages
+// (URL.isAgentPanePreview), so any other link, and a modified click (⌘, ⌃, ⇧), keeps the link's own
+// behaviour instead of being swallowed.
+test("an Outputs link to a local page opens beside the chat; an external link or a modified click is the link's own", async () => {
+  const container = installDom();
+  const beside: string[] = [];
+  const links = [
+    { url: "http://localhost:3000/", label: "localhost:3000" },
+    { url: "https://cmux.com/docs/session-info", label: "cmux.com/docs/session-info" },
+  ];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<OutputsSection files={[]} links={links} artifacts={0} onOpenBeside={(url) => beside.push(url)} />);
+  });
+  const anchors = container.querySelectorAll<HTMLAnchorElement>('ul[data-section="outputs"] a.acpmux-session-info-row');
+  const click = (link: HTMLAnchorElement, init: MouseEventInit = {}) => {
+    const event = new dom!.window.MouseEvent("click", { bubbles: true, cancelable: true, ...init });
+    link.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  let prevented = false;
+  await act(async () => {
+    prevented = click(anchors[0]!);
+  });
+  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: true });
+  await act(async () => {
+    prevented = click(anchors[0]!, { metaKey: true });
+  });
+  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: false });
+  await act(async () => {
+    prevented = click(anchors[1]!);
+  });
+  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: false });
+});

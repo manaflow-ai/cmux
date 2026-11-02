@@ -10,7 +10,8 @@ extension AgentPaneView {
     public func adoptNewTab(_ page: AgentPaneNewTab) {
         model.adoptNewTab(page)
         model.newTabPrepared = false
-        show(page)
+        // With what a new chat of the window left, unless the host already gave it one (cmux#32276).
+        show(page, sending: model.newTabForPage)
     }
 
     /// A parked spare takes `page`, the context a Cmd-T would give it, before the key (NewTabSparePool), unless it
@@ -32,7 +33,8 @@ extension AgentPaneView {
     /// (``AgentPaneModel/becomeNewTab(_:)``): the page shows it at once.
     public func becomeNewTab(_ page: AgentPaneNewTab) {
         model.becomeNewTab(page)
-        show(page)
+        // With what a new chat of the window left, as a handshake gives it (cmux#32276).
+        show(page, sending: model.newTabForPage)
     }
 
     /// The open tabs and workspaces changed while this page shows (Leo 2026-10-11: rows for New
@@ -81,8 +83,8 @@ extension AgentPaneView {
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-weather', {detail: \(json)}))")
     }
 
-    private func show(_ page: AgentPaneNewTab) {
-        guard model.newTab == page, let data = try? JSONEncoder().encode(page),
+    private func show(_ page: AgentPaneNewTab, sending sent: AgentPaneNewTab? = nil) {
+        guard model.newTab == page, let data = try? JSONEncoder().encode(sent ?? page),
               let json = String(data: data, encoding: .utf8) else { return }
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-adopt', {detail: \(json)}))")
         applyTheme()
