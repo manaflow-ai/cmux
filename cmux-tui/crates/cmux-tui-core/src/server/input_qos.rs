@@ -2,12 +2,13 @@
 //! fleet probe measured a default-QoS key thread's wake at p99 up to 7.7 ms and max up to 24.8 ms with 2 x cores busy
 //! threads, and at user-interactive about half the max and no wait in the middle of a send (STATUS 6593). A key
 //! crosses three threads of its connection: the `mux-conn` reader, the `mux-control-dispatch` request thread and the
-//! `mux-line-out` writer. Once a connection carries the person's keys to a terminal it views (`send` or `send-key`
-//! of an attached client, the input lane of `cmd_terminal_io::input_surface`), those three threads run at
-//! QOS_CLASS_USER_INTERACTIVE, as Chrome runs the thread that carries input at the highest priority. Each thread
-//! raises itself (a QoS is set by the thread itself), on its next line, request or reply. Automation's connections
-//! (CLI, MCP, agents writing to terminals they do not view) keep the default QoS, so they never compete with the
-//! person's input. Off macOS this sets nothing.
+//! `mux-line-out` writer. Once a connection carries the person's keys to a terminal it can type into (`send` or
+//! `send-key` of an attached client that is not only a read-only viewer, the input lane of
+//! `cmd_terminal_io::input_surface`), those three threads run at QOS_CLASS_USER_INTERACTIVE, as Chrome runs the
+//! thread that carries input at the highest priority. Each thread raises itself (a QoS is set by the thread itself),
+//! on its next line, request or reply. Automation's connections (CLI, MCP, agents writing to terminals they do not
+//! view, read-only viewers) keep the default QoS, so they never compete with the person's input. Off macOS this sets
+//! nothing.
 
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
