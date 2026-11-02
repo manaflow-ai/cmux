@@ -466,19 +466,20 @@ class Wiring(unittest.TestCase):
                 self.assertIn("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)", route)
                 selected = f"needs.decide.outputs.early_{name.replace('cmux-', '').replace('-', '_')}_runner"
                 self.assertIn(selected, route)
-                self.assertLess(route.index(selected), route.index("'blacksmith-16vcpu-ubuntu-2404'"))
+                self.assertLess(route.index(selected), route.index("fromJSON(vars.RUNNER_POOLS).linux_32"))
                 self.assertIn("needs.decide.outputs.track == 'nightly-next'", route)
                 self.assertNotIn("secrets.APPLE", yaml.safe_dump(job))
                 self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.safe_dump(job))
 
-    PLACED = {"cmux-next.yml": ["checks"], "cmux-next-guards.yml": ["ci-guard-group", "tooling-tests"]}
+    PLACED = {"cmux-next.yml": {"checks": "linux_16"},
+              "cmux-next-guards.yml": {"ci-guard-group": "linux_8", "tooling-tests": "linux_4"}}
 
     def test_each_placed_job_reads_fleet_linux_then_its_mini_then_blacksmith(self):
-        for workflow, names in self.PLACED.items():
+        for workflow, expected_pools in self.PLACED.items():
             workflow_jobs = jobs(workflow)
             place = workflow_jobs["portable-placement"]
             listed = place["steps"][-1]["env"]["JOBS"].split()
-            for name in names:
+            for name, pool in expected_pools.items():
                 with self.subTest(job=f"{workflow}#{name}"):
                     job = workflow_jobs[name]
                     self.assertIn(name, listed)
@@ -487,7 +488,7 @@ class Wiring(unittest.TestCase):
                     runs_on = job["runs-on"]
                     linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
                     mini = runs_on.index(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')")
-                    blacksmith = runs_on.rindex("'blacksmith-")
+                    blacksmith = runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{pool}")
                     self.assertLess(linux, mini)
                     self.assertLess(mini, blacksmith)
                     self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
@@ -521,7 +522,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(picker["env"]["REQUIRE_LIVE_CAPACITY"], "1")
         daemon = workflow["cmux-next-daemon-tests"]["runs-on"]
         live = daemon.index("needs.tree-preflight.outputs.linux_runner")
-        fallback = daemon.index("'blacksmith-8vcpu-ubuntu-2404'")
+        fallback = daemon.index("fromJSON(vars.RUNNER_POOLS).linux_8")
         self.assertLess(live, fallback)
         self.assertEqual(workflow["tree-preflight"]["outputs"]["linux_runner"],
                          "${{ steps.linux-placement.outputs.linux_runner }}")
@@ -552,13 +553,16 @@ class Wiring(unittest.TestCase):
         nightly = jobs("nightly.yml")
         step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light")
         self.assertEqual(step["env"]["NIGHTLY"], "1")
+        expected_pools = {"prepare-nightly-variant-primary": "linux_32",
+                          "prepare-nightly-variant": "linux_16",
+                          "await-nightly-tree-marker": "linux_32"}
         for name in step["env"]["JOBS"].split():
             with self.subTest(job=name):
                 job = nightly[name]
                 self.assertIn("build-nightly-app", job["needs"])
                 runs_on = job["runs-on"]
                 mini = runs_on.index(f"contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {name} ')")
-                self.assertLess(mini, runs_on.rindex("'blacksmith-"))
+                self.assertLess(mini, runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{expected_pools[name]}"))
                 self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
                               runs_on)
 

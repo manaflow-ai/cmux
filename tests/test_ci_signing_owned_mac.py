@@ -200,7 +200,9 @@ def owned_only(runs_on: str) -> bool:
     # the three trusted Blacksmith Linux labels before exposing its output. It
     # is an ephemeral route even though it is not one of the scalar signing
     # variables below.
-    if "fromJSON(vars.RUNNER_POOLS).linux" in text and "blacksmith-" in text:
+    # A declared pool member is ephemeral just like its former literal label;
+    # it is not an owned-Mac route that needs a signing twin.
+    if "fromJSON(vars.RUNNER_POOLS)." in text:
         return False
     if any(keychain_guard.EPHEMERAL_LABEL.match(label) or label.startswith("macos-")
            for label in LABEL_LITERAL.findall(text)):
