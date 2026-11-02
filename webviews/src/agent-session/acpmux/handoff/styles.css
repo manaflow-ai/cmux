@@ -17,7 +17,8 @@
   padding: 10px;
   resize: vertical;
   font: inherit;
-  line-height: 1.5;
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
   color: var(--agent-text);
   background: var(--acpmux-composer-tray);
 }
