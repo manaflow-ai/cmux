@@ -487,6 +487,10 @@ CMUX_SHIM_EXPORT void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn key);
 // (NSView*, width x height), or, with parent_view NULL, its own window at
 // (x, y, width, height) in screen coordinates (0 size = Chromium's default).
 CMUX_SHIM_EXPORT void cmux_shim_devtools_set_placement(int browser_id, void* parent_view, int x, int y, int width, int height);
+// The background (ARGB) the next DevTools of browser_id starts with, before
+// its frontend draws: the theme color of the pane it docks in. 0 = the
+// process default (cmux_shim_set_background_color).
+CMUX_SHIM_EXPORT void cmux_shim_devtools_set_background(int browser_id, unsigned int argb);
 // cmux_shim_devtools_command_t; returns 0 when browser_id is gone.
 CMUX_SHIM_EXPORT int cmux_shim_devtools_command(int browser_id, int command, int x, int y);
 // The DevTools browser id of browser_id, or 0 when DevTools is closed.
