@@ -88,6 +88,11 @@ extension WindowManager {
         return claims.pending[workspaceID].map(value.isIncognito) ?? false
     }
 
+    /// `isIncognito(workspace:)` from this workspace's own facts (no workspace list or whole registry read, F6).
+    func isIncognito(workspace w: WorkspaceModel) -> Bool {
+        w.ephemeral || (registry.incognitoByWorkspace[w.id] ?? claims.pending[w.id].map(registry.value.isIncognito) ?? false)
+    }
+
     /// True when window `windowID` is incognito.
     func isIncognito(window windowID: String) -> Bool {
         registry.value.isIncognito(windowID)
