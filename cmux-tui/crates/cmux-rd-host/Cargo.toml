@@ -35,10 +35,6 @@ openh264 = { version = "0.9", default-features = false, features = ["source"], o
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.14", features = ["shm", "damage", "xtest"] }
 
-# Display capture and input on a macOS host (both MIT OR Apache-2.0).
-[target.'cfg(target_os = "macos")'.dependencies]
-screencapturekit = "11"
-core-graphics = { version = "0.25", features = ["highsierra"] }
 
 [build-dependencies]
 cc = "1"
