@@ -195,7 +195,17 @@ function sameAsk(left: FolderTrustAsk | undefined, right: FolderTrustAsk | undef
 /// (one gesture); Don't trust leaves it in the composer with the reason.
 export function useFolderTrustAsk(
   source: TrustSource,
-  chat: { sessionId?: string; cwd?: string; family?: string; prompts: number; authority?: unknown; visit?: unknown },
+  chat: {
+    sessionId?: string;
+    cwd?: string;
+    family?: string;
+    prompts: number;
+    authority?: unknown;
+    visit?: unknown;
+    /// Bumped to read the folder again with no other change (a New Tab page Cmd-T adopted with its screen kept:
+    /// the reads it made while parked had no tab's roots, SHORTCUT FRAMES F2).
+    reread?: number;
+  },
   canAnswer = true,
   /// The chat's folder is on this computer: only then is its answer kept by path for the next chat.
   local = true,
@@ -204,7 +214,7 @@ export function useFolderTrustAsk(
 ) {
   // A connection/host identity, stable while streaming. Equal paths on another machine are not
   // the same trust scope, even when a migration preserves the chat id.
-  const { sessionId, family, prompts, authority = source, visit = sessionId } = chat;
+  const { sessionId, family, prompts, authority = source, visit = sessionId, reread = 0 } = chat;
   // A live getter also fences the interval between the client's route change and React's render.
   const authorityValue = typeof authority === "function" ? authority() : authority;
   const visitValue = typeof visit === "function" ? visit() : visit;
@@ -423,7 +433,7 @@ export function useFolderTrustAsk(
     return () => {
       live = false;
     };
-  }, [source, cwd, reads, canAnswer, remembers, sameAuthority]);
+  }, [source, cwd, reads, reread, canAnswer, remembers, sameAuthority]);
 
   useEffect(() => {
     if (

@@ -10,7 +10,7 @@ extension AgentPaneModel {
         // The store's start folder is where the chat runs, so it is a root (cx-9aps), while it
         // is still current (``AgentPaneStartFolders/current(of:)``).
         if let folder = startFolders.current(of: self), !roots.contains(folder) { roots.append(folder) }
-        if let cwd = newTab?.cwd { roots.append(cwd) }
+        if let cwd = tabsNewTabFolder { roots.append(cwd) }
         return roots
     }
 
@@ -38,7 +38,7 @@ extension AgentPaneModel {
             return AgentPanePrimaryRoot(answered: true, candidates: [chosenFolder ?? startFolders.current(of: self)].compactMap { $0 })
         }
         // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-6bf9.
-        let candidates = [handshakeCwd, chosenFolder] + (workspaceRoots?() ?? []).map(Optional.some) + [newTab?.cwd]
+        let candidates = [handshakeCwd, chosenFolder] + (workspaceRoots?() ?? []).map(Optional.some) + [tabsNewTabFolder]
         return AgentPanePrimaryRoot(answered: false, candidates: candidates.compactMap { $0 }, home: transport.homeFolder,
                                     agentHome: workspaceAgentHome?()?.home)
     }
@@ -174,4 +174,10 @@ nonisolated struct AgentPanePrimaryRoot: Equatable, Sendable {
         let agentHome = agentHome ?? AgentHome.standard
         return candidates.first { !AgentHome.isHomeOrAbove($0, home: home) && agentHome?.contains($0) != true }
     }
+}
+
+extension AgentPaneModel {
+    /// The New Tab page's folder when a tab gave it; a context the spare pool prepared (``newTabPrepared``) names no
+    /// tab's folder yet: no root, no start folder (SHORTCUT FRAMES F2 review).
+    var tabsNewTabFolder: String? { newTabPrepared ? nil : newTab?.cwd }
 }
