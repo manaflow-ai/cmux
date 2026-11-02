@@ -48,17 +48,6 @@ pub(super) fn remove(directory: &Path, terminal_id: &TerminalPublicId) {
     let _ = fs::remove_file(path(directory, terminal_id));
 }
 
-/// Remove every terminal's tail (the mode is no longer `snapshot`).
-pub(super) fn remove_all(directory: &Path) {
-    let Ok(entries) = fs::read_dir(directory) else { return };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().is_some_and(|extension| extension == SUFFIX) {
-            let _ = fs::remove_file(path);
-        }
-    }
-}
-
 /// Append `bytes` (stream offsets `start..`) to the tail that continues the
 /// snapshot at `base` of `generation`; the file is created with its header
 /// when absent. `sync`: fsync the file after the write.

@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::super::{LogState, OutputStore, TerminalLog};
-use super::{Plan, Seen, flush_tail};
+use super::{Plan, Seen, flush_tail, snapshot_written};
 use crate::resource::TerminalPublicId;
 
 fn directory(name: &str) -> std::path::PathBuf {
@@ -136,6 +136,47 @@ fn a_failing_disk_does_not_retry_the_snapshot_on_the_next_pass() {
         true,
         false,
     );
+    let state = log.state.lock().unwrap();
+    let (tail_end, force, pending) = (state.tail_end, state.force_snapshot, state.pending.len());
+    drop(state);
     let _ = std::fs::remove_dir_all(&root);
     assert!(!wants, "the pass right after a failed write asks for a snapshot again");
+    // The failed append may have left a cut frame: nothing more goes behind
+    // it, the next snapshot starts the tail again, the bytes wait for it.
+    assert_eq!(tail_end, None);
+    assert!(force);
+    assert_eq!(pending, 6);
+}
+
+/// Bytes held as redraws stay bounded (8 MiB) while no snapshot can replace
+/// them; past the cap the tail stops and a snapshot is asked for.
+#[test]
+fn held_redraw_bytes_stay_bounded() {
+    let directory = directory("bounded");
+    let store = OutputStore::new(None);
+    let log = log(b"screen");
+    flush_tail(&store, &directory, &log, Seen { digest: 5, settled: true, end: 6 }, false);
+    let redraws = vec![b'.'; super::super::TAIL_MAX_UNWRITTEN_BYTES + 1024];
+    push(&log, &redraws);
+    flush_tail(&store, &directory, &log, Seen { digest: 5, settled: true, end: 0 }, false);
+    let state = log.state.lock().unwrap();
+    let (pending, tail_end, force) = (state.pending.len(), state.tail_end, state.force_snapshot);
+    drop(state);
+    let _ = std::fs::remove_dir_all(&directory);
+    assert_eq!(pending, super::super::TAIL_MAX_UNWRITTEN_BYTES);
+    assert_eq!(tail_end, None, "the tail continued past dropped bytes");
+    assert!(force);
+}
+
+/// A snapshot in any mode removes the terminal's tail: a tail left from
+/// snapshot mode never replays over a newer snapshot after a mode change.
+#[test]
+fn a_snapshot_in_full_mode_removes_a_tail_left_from_snapshot_mode() {
+    let directory = directory("full-mode");
+    let log = log(b"");
+    super::super::tail::append(&directory, &log.terminal_id, "g", 0, 0, b"old", false).unwrap();
+    snapshot_written(&directory, &log, false, 9, (80, 24), &std::sync::Arc::from("g"), 3);
+    let left = super::super::tail::path(&directory, &log.terminal_id).exists();
+    let _ = std::fs::remove_dir_all(&directory);
+    assert!(!left, "the tail of snapshot mode outlived a full-mode snapshot");
 }

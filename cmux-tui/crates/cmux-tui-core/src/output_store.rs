@@ -85,6 +85,10 @@ const TAIL_IDLE_BYTES: usize = 1024 * 1024;
 /// Snapshot mode: unwritten tail bytes one terminal keeps while its writes
 /// fail; past it the oldest go and the next snapshot starts the tail again.
 const TAIL_MAX_UNWRITTEN_BYTES: usize = 8 * 1024 * 1024;
+/// The first and the longest wait before a snapshot is tried again after a
+/// failed write.
+const STORE_RETRY_MIN: Duration = Duration::from_secs(1);
+const STORE_RETRY_MAX: Duration = Duration::from_secs(30);
 /// Snapshot mode keeps the screen plus about this many recent lines.
 pub(crate) const SNAPSHOT_HISTORY_LINES: usize = 2_000;
 /// Snapshot mode: total disk across terminals; the oldest terminals go first.
@@ -266,6 +270,11 @@ struct LogState {
     /// A snapshot or tail write failed and was reported; cleared by the next
     /// success (one report per failing stretch, not one per pass).
     store_error: bool,
+    /// Snapshot mode, while writes fail: no snapshot is tried before this
+    /// time, and the delay doubles per failure up to [`STORE_RETRY_MAX`]
+    /// (a full disk must not cost a whole replay per terminal every pass).
+    retry_at: Option<Instant>,
+    retry_delay: Duration,
 }
 
 impl LogState {
@@ -296,7 +305,31 @@ impl LogState {
             tail_unsynced: false,
             force_snapshot: false,
             store_error: false,
+            retry_at: None,
+            retry_delay: Duration::ZERO,
         }
+    }
+
+    /// A snapshot or tail write failed: the next snapshot waits out the
+    /// backoff. Returns the wait.
+    fn store_failed(&mut self) -> Duration {
+        self.retry_delay = (self.retry_delay * 2).clamp(STORE_RETRY_MIN, STORE_RETRY_MAX);
+        self.retry_at = Some(Instant::now() + self.retry_delay);
+        self.retry_delay
+    }
+
+    /// A write went through: the disk takes writes again.
+    fn store_succeeded(&mut self) {
+        self.store_error = false;
+        self.retry_at = None;
+        self.retry_delay = Duration::ZERO;
+    }
+
+    /// The time left before a snapshot may be tried again, if any.
+    fn retry_wait(&self) -> Option<Duration> {
+        self.retry_at
+            .and_then(|at| at.checked_duration_since(Instant::now()))
+            .filter(|left| !left.is_zero())
     }
 
     /// Drop the oldest unwritten bytes past `max`. The stored stream then has
@@ -644,6 +677,12 @@ impl OutputStore {
             self.snapshot_interval
         };
         self.writer.mark_dirty(interval);
+    }
+
+    /// Put a log back for a pass `delay` from now (a write backoff).
+    fn mark_log_dirty_after(&self, log: &TerminalLog, delay: Duration) {
+        log.state.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
+        self.writer.mark_dirty(delay);
     }
 
     /// Put a log back for the next pass (full mode spaces snapshots out).

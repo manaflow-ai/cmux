@@ -4,10 +4,10 @@
 //!
 //! A terminal's snapshot is written only when its content changed: the
 //! writer compares a digest of the visible text, the size, the active
-//! screen and the history epoch (which moves when rows enter or leave the
-//! scrollback) with the digest of the last write. A program that only
-//! redraws its cursor or repaints the same frame changes none of them, so it
-//! writes nothing. The writer thread sleeps until a terminal prints, then
+//! screen, the history epoch (which moves when rows enter or leave the
+//! scrollback) and the cursor position with the digest of the last write. A
+//! program that redraws its cursor in place or repaints the same frame
+//! changes none of them, so it writes nothing. The writer thread sleeps until a terminal prints, then
 //! waits out the mode's interval, so an idle session wakes nothing.
 //!
 //! In snapshot mode the output after a snapshot goes to the terminal's tail
@@ -243,6 +243,22 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             continue;
         };
         let plan = Plan::of(&log, store.snapshot_interval);
+        // Snapshot mode while writes fail: a terminal whose tail does not
+        // continue needs a snapshot, and none is tried before the backoff
+        // ends. Its bytes wait in memory, bounded.
+        if tail
+            && !quitting
+            && !plan.tail_continues
+            && let Some(wait) = plan.retry_wait
+        {
+            log.state
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .cap_pending(super::TAIL_MAX_UNWRITTEN_BYTES);
+            store.mark_log_dirty_after(&log, wait);
+            digests.push((log, None));
+            continue;
+        }
         let mut attempt = 0;
         let captured = loop {
             attempt += 1;
@@ -298,8 +314,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                 ) {
                     Ok(()) => {
                         wrote = true;
-                        log.state.lock().unwrap_or_else(PoisonError::into_inner).store_error =
-                            false;
+                        log.state.lock().unwrap_or_else(PoisonError::into_inner).store_succeeded();
                         snapshot_written(
                             directory,
                             &log,
@@ -313,6 +328,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     Err(error) => {
                         report_store_error(&log, "output snapshot", &error);
                         if tail {
+                            log.state.lock().unwrap_or_else(PoisonError::into_inner).store_failed();
                             flush_tail(store, directory, &log, seen, quitting);
                         }
                     }
@@ -379,6 +395,10 @@ struct Plan {
     force: bool,
     tail_bytes: u64,
     pending: usize,
+    /// The tail file continues the stored snapshot up to the unwritten bytes.
+    tail_continues: bool,
+    /// Snapshot mode: the time left in a write backoff.
+    retry_wait: Option<Duration>,
 }
 
 impl Plan {
@@ -393,6 +413,9 @@ impl Plan {
             force: state.force_snapshot,
             tail_bytes: state.tail_bytes,
             pending: state.pending.len(),
+            tail_continues: state.snapshot_generation.as_deref() == Some(&*state.generation)
+                && state.tail_end == Some(state.pending_start),
+            retry_wait: state.retry_wait(),
         }
     }
 
@@ -413,7 +436,11 @@ impl Plan {
         // Snapshot mode: the tail continues only a snapshot of this
         // generation and size that this daemon wrote; it is compacted at the
         // interval, when it grows past its cap, when unchanged redraws pile
-        // up in memory, and at quit.
+        // up in memory, and at quit. Never during a write backoff (but at
+        // quit: the last chance).
+        if self.retry_wait.is_some() && !quitting {
+            return false;
+        }
         self.force
             || self.snapshot_generation.as_deref() != Some(&*self.generation)
             || self.snapshot_size != Some(size)
@@ -459,10 +486,11 @@ fn snapshot_written(
     state.snapshot_generation = Some(generation.clone());
     state.snapshot_size = Some(size);
     state.force_snapshot = false;
+    // The snapshot covers a tail file (one left from snapshot mode too).
+    super::tail::remove(directory, &log.terminal_id);
     if !tail {
         return;
     }
-    super::tail::remove(directory, &log.terminal_id);
     let covered = usize::try_from(stream_end.saturating_sub(state.pending_start))
         .unwrap_or(usize::MAX)
         .min(state.pending.len());
@@ -491,6 +519,11 @@ fn flush_tail(
         let sync_due =
             state.tail_synced_at.is_none_or(|at| at.elapsed() >= super::TAIL_SYNC_INTERVAL);
         if state.pending.is_empty() || (state.tail_digest == Some(seen.digest) && !quitting) {
+            // Everything is stored and the capture saw exactly it: its
+            // digest names the stored content, so the next redraw waits.
+            if state.pending.is_empty() && seen.settled && seen.end == state.pending_start {
+                state.tail_digest = Some(seen.digest);
+            }
             // Held bytes stay bounded while snapshots cannot be written.
             state.cap_pending(super::TAIL_MAX_UNWRITTEN_BYTES);
             if state.tail_unsynced {
@@ -514,8 +547,12 @@ fn flush_tail(
             // fail: the snapshot holds the screen, not these bytes.
             state.force_snapshot = true;
             state.cap_pending(super::TAIL_MAX_UNWRITTEN_BYTES);
+            let wait = state.retry_wait();
             drop(state);
-            store.mark_log_dirty(log);
+            match wait {
+                Some(wait) => store.mark_log_dirty_after(log, wait),
+                None => store.mark_log_dirty(log),
+            }
             return;
         };
         (state.generation.clone(), base, state.pending_start, state.pending.clone(), sync_due)
@@ -529,6 +566,9 @@ fn flush_tail(
         && state.pending.len() >= bytes.len();
     match result {
         Ok(()) if ours => {
+            // The append went through; a snapshot backoff stays until a
+            // snapshot is written (a nearly full disk can take small appends
+            // and refuse a whole replay).
             state.store_error = false;
             state.pending.drain(..bytes.len());
             state.pending_start = start + bytes.len() as u64;
@@ -565,9 +605,10 @@ fn flush_tail(
             state.tail_digest = None;
             state.force_snapshot = true;
             state.cap_pending(super::TAIL_MAX_UNWRITTEN_BYTES);
+            let wait = state.store_failed();
             drop(state);
             report_store_error(log, "output tail", &error);
-            store.mark_log_dirty(log);
+            store.mark_log_dirty_after(log, wait);
         }
     }
 }
@@ -758,9 +799,6 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     }
     if policy.mode != PersistenceMode::Full {
         super::segments::remove_all(directory);
-    }
-    if policy.mode != PersistenceMode::Snapshot {
-        super::tail::remove_all(directory);
     }
 }
 
