@@ -395,6 +395,33 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(sent == ["fold:context:0"])
     }
 
+    /// No section header ever draws a fill behind it, hovered or not, and a lit row that leaves the
+    /// panel (a refresh re-adds every line) comes back unlit instead of keeping its fill at rest (Leo,
+    /// 2026-11-02: "we still HAVE AN ASININE FUCKIGN BACKGROUND").
+    @Test func headersNeverDrawAFillAndARowsHoverEndsWithTheRow() throws {
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
+        let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        let host = try #require(window.contentView)
+        for line in [
+            SessionInfoLine(id: "changes", kind: .header, title: "Changes", unfolded: true, reorderable: true, action: "fold:changes:0"),
+            SessionInfoLine(id: "sources", kind: .header, title: "Sources", unfolded: false, action: "fold:sources:1"),
+        ] {
+            let header = SessionInfoLineView(line: line, ink: ink)
+            host.addSubview(header)
+            header.mouseEntered(with: enter)
+            #expect(header.layer?.backgroundColor == nil, "\(line.title)'s header drew a fill")
+        }
+        let row = SessionInfoLineView(line: SessionInfoLine(id: "row:changes:a", kind: .row, title: "a.swift", action: "changes.open:a"), ink: ink)
+        host.addSubview(row)
+        row.mouseEntered(with: enter)
+        #expect(row.layer?.backgroundColor != nil)
+        row.removeFromSuperview()
+        host.addSubview(row)
+        #expect(row.layer?.backgroundColor == nil, "a re-added row kept its hover fill with the pointer gone")
+    }
+
     @Test func liveLabelsKeepUnchangedHeaderViews() throws {
         let store = AgentPaneSessionInfoStore()
         let panel = AgentPaneSessionInfoPanel(store: store)
