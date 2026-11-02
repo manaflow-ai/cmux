@@ -67,6 +67,7 @@ members = [
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-bookmarks-core",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -95,6 +96,7 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-host-budget",
     "crates/cmux-updater-core",
 ]
 default-members = [
@@ -137,6 +139,7 @@ default-members = [
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-bookmarks-core",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -164,6 +167,7 @@ default-members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-host-budget",
     "crates/cmux-updater-core",
 ]
 exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
@@ -204,11 +208,13 @@ cmux-git = { path = "crates/cmux-git" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
+cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
+cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
