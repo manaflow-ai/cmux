@@ -351,6 +351,12 @@ final class BrowserPageRequests: BrowserTabDelegate {
                       opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
         if let controller = services.paneController(for: pane) {
+            if let url, reuseExistingTab(url, in: pane, background: background) {
+                // Chromium/WebKit may have created a child before this intent arrived. The
+                // matching tab is the one the pane already owns, so discard the duplicate page.
+                child?.close()
+                return
+            }
             controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
                                      opener: opener)
             return
@@ -372,6 +378,28 @@ final class BrowserPageRequests: BrowserTabDelegate {
                 return "new-frontend-browser-tab: \(error)"
             }
         })
+    }
+
+    /// Selects the first browser tab in `pane` that already shows `url`'s page. URL identity uses
+    /// the same normalization as the sidebar (fragment-insensitive, host/scheme case-insensitive,
+    /// and a trailing slash ignored), while a changed fragment still navigates the live page so
+    /// same-document links scroll to their destination. Returns false when the pane has no match.
+    @discardableResult
+    private func reuseExistingTab(_ url: URL, in pane: PaneModel, background: Bool) -> Bool {
+        guard let services, let match = pane.tabs.first(where: { tab in
+            guard tab.kind == .browser else { return false }
+            let shown = services.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:))
+            return shown.map { SidebarBridge.samePage($0, url) } == true
+        }) else { return false }
+
+        let shown = services.cache.existingBrowser(match.id)?.tab.state.url ?? match.url.flatMap(URL.init(string:))
+        if shown?.fragment != url.fragment, let page = services.cache.existingBrowser(match.id)?.tab {
+            page.load(url)
+        }
+        guard !background, let controller = services.paneController(for: pane) else { return true }
+        controller.select(StripTabID(match.id), source: .intent)
+        controller.focusContent()
+        return true
     }
 
     /// The engine for a page-requested tab: the child's own engine when the
