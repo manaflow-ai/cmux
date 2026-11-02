@@ -46,6 +46,27 @@ import Testing
         #expect(r.account(named: "a")?.configDirectory == "/Users/u/.two")
     }
 
+    /// A repeated name moves its account in place unless another account owns the new directory;
+    /// a directory a moved account gave up can be declared again; a taken directory is dropped.
+    @Test func repeatedNamesAndDirectoriesFollowReadingOrder() {
+        let r = registry([
+            .init(name: "a", configDir: "~/.one"),
+            .init(name: "b", configDir: "~/.two"),
+            .init(name: "a", configDir: "~/.two/"),
+            .init(name: "c", configDir: "~/.three"),
+            .init(name: "a", configDir: "~/.four"),
+            .init(name: "d", configDir: "/Users/u/.one"),
+            .init(name: "e", configDir: "~/.four"),
+            .init(name: "b", configDir: "~/.two"),
+            .init(name: "c", configDir: "~/.claude"),
+            .init(name: "f", configDir: "~/.three"),
+        ])
+        #expect(r.accounts.map(\.name) == ["a", "b", "c", "d", "f"])
+        #expect(r.accounts.map(\.configDirectory) == [
+            "/Users/u/.four", "/Users/u/.two", nil, "/Users/u/.one", "/Users/u/.three",
+        ])
+    }
+
     @Test func reservedDefaultNameWithCustomDirIsDropped() {
         let r = registry([.init(name: "default", configDir: "~/.claude-work")])
         #expect(r.accounts.map(\.name) == ["default"])
@@ -58,6 +79,24 @@ import Testing
         let json = #"{"agents":{"claudeAccounts":[{"name":"work","configDir":"~/.claude-work"}]}}"#
         #expect(ClaudeAccountRegistry.declarations(sanitizedConfigJSON: Data(json.utf8)) == [.init(name: "work", configDir: "~/.claude-work")])
         #expect(ClaudeAccountRegistry.declarations(sanitizedConfigJSON: Data("{".utf8)).isEmpty)
+    }
+
+    /// One malformed entry (a missing field, a wrong type, not an object) is skipped on its own;
+    /// it does not hide the valid entries around it.
+    @Test func skipsMalformedEntriesAndKeepsTheRest() {
+        let json = #"""
+        {"agents":{"claudeAccounts":[
+          {"name":"broken"},
+          {"name":"work","configDir":"~/.claude-work"},
+          "junk",
+          {"name":7,"configDir":"~/.seven"},
+          {"name":"home","configDir":"~/.claude-home"}
+        ]}}
+        """#
+        #expect(ClaudeAccountRegistry.declarations(sanitizedConfigJSON: Data(json.utf8)) == [
+            .init(name: "work", configDir: "~/.claude-work"),
+            .init(name: "home", configDir: "~/.claude-home"),
+        ])
     }
 
     @Test func exhaustionKeyUsesHomeForDefault() {

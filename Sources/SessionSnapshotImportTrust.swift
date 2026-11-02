@@ -202,8 +202,14 @@ enum SessionSnapshotImportTrust {
             heldBack = true
         }
         // A switched pane's Claude account keys become the restored shell's environment; a file
-        // must not supply any environment.
-        terminal.claudeAccountEnvironment = nil
+        // must not supply any environment. Without them its Claude would resume on the default
+        // account, which can hold an older copy of the same session, so it is kept for manual
+        // restore only. A pane without an agent has no resume to hold back.
+        if terminal.claudeAccountEnvironment != nil {
+            terminal.claudeAccountEnvironment = nil
+            heldBack = heldBack || (terminal.agent != nil && terminal.wasAgentRunning != false)
+            terminal.wasAgentRunning = false
+        }
         if heldBack {
             report.heldBackResumeCount += 1
         }

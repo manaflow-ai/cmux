@@ -103,6 +103,72 @@ struct WorkspaceRespawnAccountEnvironmentTests {
         #expect(second.surface.startupEnvironmentValue(key) == "")
     }
 
+    /// A pane switched to the default account while nothing supplied the key keeps only a removal.
+    /// When its workspace later supplies the key (the pane moved, or the workspace env changed), a
+    /// plain respawn must mask it again, as a relaunch restore would, instead of starting the
+    /// shell on that workspace's account.
+    @Test
+    func plainRespawnReappliesASwitchToTheDefaultAccountAgainstTheCurrentWorkspace() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let switched = try #require(workspace.respawnTerminalSurface(
+            panelId: panelId,
+            command: nil,
+            removingEnvironmentKeys: [key]
+        ))
+        let account = ClaudeAccountPaneEnvironment(overrides: [:], removedKeys: [key])
+        switched.claudeAccountEnvironment = account
+        workspace.workspaceEnvironment = [key: "/x"]
+
+        let respawned = try #require(workspace.respawnTerminalSurface(panelId: panelId, command: nil))
+
+        #expect(respawned.surface.startupEnvironmentValue(key) == "")
+        #expect(respawned.claudeAccountEnvironment == account)
+    }
+
+    /// An account value equal to the workspace's own reads as inherited workspace env (#5995) and
+    /// was dropped on the next plain respawn, so after the workspace changed the shell took the
+    /// new workspace's account. The pane's account record keeps it.
+    @Test
+    func plainRespawnKeepsASwitchedAccountThatMatchedTheOldWorkspaceValue() throws {
+        let workspace = Workspace(workspaceEnvironment: [key: "/b"])
+        let panelId = try #require(workspace.focusedPanelId)
+        let switched = try #require(workspace.respawnTerminalSurface(
+            panelId: panelId,
+            command: nil,
+            environmentOverrides: [key: "/b"]
+        ))
+        switched.claudeAccountEnvironment = ClaudeAccountPaneEnvironment(overrides: [key: "/b"], removedKeys: [])
+        workspace.workspaceEnvironment = [key: "/x"]
+
+        let respawned = try #require(workspace.respawnTerminalSurface(panelId: panelId, command: nil))
+
+        #expect(respawned.surface.startupEnvironmentValue(key) == "/b")
+    }
+
+    /// The switch itself passes the new account; the pane's old record must not override it.
+    @Test
+    func aRespawnThatSetsTheAccountKeysWinsOverThePanesRecord() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelId))
+        panel.claudeAccountEnvironment = ClaudeAccountPaneEnvironment(overrides: [key: "/old"], removedKeys: [])
+
+        let switchedBack = try #require(workspace.respawnTerminalSurface(
+            panelId: panelId,
+            command: nil,
+            removingEnvironmentKeys: [key]
+        ))
+        let switchedOn = try #require(workspace.respawnTerminalSurface(
+            panelId: panelId,
+            command: nil,
+            environmentOverrides: [key: "/new"]
+        ))
+
+        #expect(switchedBack.surface.startupEnvironmentValue(key) == nil)
+        #expect(switchedOn.surface.startupEnvironmentValue(key) == "/new")
+    }
+
     @Test
     func removingEnvironmentKeysDropsInheritedOverride() throws {
         let workspace = Workspace()

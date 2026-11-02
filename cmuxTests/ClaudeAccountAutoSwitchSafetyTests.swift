@@ -99,6 +99,24 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
     }
 
     @Test
+    func anUnsentDraftInTheTextBoxHoldsTheSwitchBack() {
+        // cmux's text box keeps its draft on the pane's terminal panel, which the restart replaces
+        // without it, even while Claude's own input box is empty.
+        typealias HoldBack = ClaudeAccountAutoSwitchAction.HoldBack
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt, textBoxHasDraft: true) == .draftPending)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .unknown, textBoxHasDraft: true) == .draftPending)
+        guard case .holdBack(_, .draftPending) = fixture.decide(
+            fixture.request(),
+            pane: fixture.pane(),
+            sourceScreen: .emptyPrompt,
+            sourceTextBoxHasDraft: true
+        ) else {
+            Issue.record("a text box draft must hold the switch back")
+            return
+        }
+    }
+
+    @Test
     @MainActor
     func aDraftWrappedPastOneRowHoldsTheSwitchBack() throws {
         // Any sentence wider than a narrow split pane wraps, leaving the cursor on a
@@ -124,11 +142,25 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
     func thePaneIsInUseWhenItHoldsADraftOrGotInput() {
         typealias HoldBack = ClaudeAccountAutoSwitchAction.HoldBack
         // The same check runs again, synchronously, right before the pane restarts.
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt) == nil)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .unknown) == nil)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .draft) == .draftPending)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .emptyPrompt) == .userInput)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .draft) == .draftPending)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt, textBoxHasDraft: false) == nil)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .draft, textBoxHasDraft: false) == .draftPending)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .emptyPrompt, textBoxHasDraft: false) == .userInput)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .draft, textBoxHasDraft: false) == .draftPending)
+    }
+
+    @Test(arguments: [
+        AgentAutoResumeCoordinator.ScreenState.unknown, .dialog, .codexGoalResume, .codexResumePicker,
+    ])
+    func aScreenThatIsNotClaudesEmptyPromptHoldsTheSwitchBack(screen: AgentAutoResumeCoordinator.ScreenState) {
+        // Only Claude's empty input box shows the pane is idle. A screen cmux can't read or
+        // place may hold anything, so the unattended restart fails closed.
+        #expect(ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(receivedInputSinceReport: false, screen: screen, textBoxHasDraft: false) == .promptUnconfirmed)
+        // Input after the limit is the more specific reason.
+        #expect(ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(receivedInputSinceReport: true, screen: screen, textBoxHasDraft: false) == .userInput)
+        guard case .holdBack(_, .promptUnconfirmed) = fixture.decide(fixture.request(), pane: fixture.pane(), sourceScreen: screen) else {
+            Issue.record("a screen read as \(screen) must hold the switch back")
+            return
+        }
     }
 
     @Test
@@ -212,13 +244,25 @@ struct ClaudeAccountAutoSwitchLedgerTests {
     }
 
     @Test
-    func inputCountsOnlyAfterTheGivenTime() {
+    func inputCountsFromTheGivenTimeOn() {
         var ledger = ClaudeAccountAutoSwitchLedger()
-        #expect(!ledger.receivedInput(panelId: panelId, after: 100))
+        #expect(!ledger.receivedInput(panelId: panelId, since: 100))
         ledger.noteInput(panelId: panelId, atMs: 150)
-        #expect(ledger.receivedInput(panelId: panelId, after: 100))
-        #expect(!ledger.receivedInput(panelId: panelId, after: 150))
-        #expect(!ledger.receivedInput(panelId: UUID(), after: 0))
+        #expect(ledger.receivedInput(panelId: panelId, since: 100))
+        // Input stamped in the report's own millisecond may have come after it: it counts.
+        #expect(ledger.receivedInput(panelId: panelId, since: 150))
+        #expect(!ledger.receivedInput(panelId: panelId, since: 151))
+        #expect(!ledger.receivedInput(panelId: UUID(), since: 0))
+    }
+
+    @Test
+    func aBackwardClockStepNeverHidesLaterInput() {
+        // Input at 1100, then the wall clock steps back and the next input reads 900. The input
+        // at 1100 still came after a report at 1000.
+        var ledger = ClaudeAccountAutoSwitchLedger()
+        ledger.noteInput(panelId: panelId, atMs: 1_100)
+        ledger.noteInput(panelId: panelId, atMs: 900)
+        #expect(ledger.receivedInput(panelId: panelId, since: 1_000))
     }
 
     @Test
@@ -260,11 +304,10 @@ struct ClaudeAccountAutoSwitchForegroundCheckTests {
         paneTTY: Int64?? = .none,
         facts: ClaudeAccountAutoSwitchForegroundCheck.ProcessFacts?
     ) -> Bool {
-        ClaudeAccountAutoSwitchForegroundCheck.claudeOwnsTerminal(
+        ClaudeAccountAutoSwitchForegroundCheck(facts: { _ in facts }).claudeOwnsTerminal(
             registered: registered ?? [claude],
             startedAfter: switchStartedAt,
-            paneTTYDevice: paneTTY ?? self.paneTTY,
-            facts: { _ in facts }
+            paneTTYDevice: paneTTY ?? self.paneTTY
         )
     }
 
@@ -296,7 +339,7 @@ struct ClaudeAccountAutoSwitchForegroundCheckTests {
     }
 }
 
-/// The automatic switch types its resume command only into an untouched shell line.
+/// A switch, manual or automatic, types its resume command only into an untouched shell line.
 @MainActor
 struct ClaudeAccountSwitchShellLineTests {
     @Test(arguments: [AgentAutoResumeCoordinator.ScreenState.emptyPrompt, .unknown])

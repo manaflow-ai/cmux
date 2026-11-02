@@ -11,6 +11,22 @@ struct ClaudeAccountSwitchManualResume: Equatable, Sendable {
         /// for it to exit. Resuming now would run the session in two places, so the user runs the
         /// command once it has quit.
         case previousClaudeStillRunning(processIDs: [Int32])
+        /// The transcript sync after the replaced Claude exited failed, so the target account's
+        /// copy may miss the lines that Claude wrote last. Resuming would silently continue that
+        /// older copy, so the user decides.
+        case transcriptResyncFailed
+
+        /// Why a switch must leave the resume to the user once the replaced Claude has had its
+        /// chance to exit, or `nil` when it may type it. A Claude still running comes first: it
+        /// has to quit before any resume, whatever the transcript copy says.
+        ///
+        /// - Parameters:
+        ///   - stillRunningProcessIDs: The replaced Claude's processes still running after the wait.
+        ///   - transcriptResynced: Whether the final transcript sync reached the target account.
+        static func withholdingResume(stillRunningProcessIDs: [Int32], transcriptResynced: Bool) -> Self? {
+            if !stillRunningProcessIDs.isEmpty { return .previousClaudeStillRunning(processIDs: stillRunningProcessIDs) }
+            return transcriptResynced ? nil : .transcriptResyncFailed
+        }
     }
 
     /// The resume command cmux built, verbatim:

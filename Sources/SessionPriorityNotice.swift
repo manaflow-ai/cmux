@@ -16,7 +16,9 @@ struct SessionPriorityNotice: Equatable {
         let changed = targetDescription(target)
         let body: String
         switch manual.reason {
-        case .notTyped:
+        // A restart keeps the pane's account and copies no transcript, so a failed re-sync never
+        // reaches it; were it to, the pane is still there and the plain wording holds.
+        case .notTyped, .transcriptResyncFailed:
             body = String(
                 format: String(
                     localized: "notification.sessionPriority.notTyped",

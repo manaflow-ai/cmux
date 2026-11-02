@@ -67,6 +67,15 @@ struct ClaudeAccountAutoSwitchFollowUpTests {
         #expect(ClaudeAccountAutoSwitchFollowUp(result: .paneInUse, sendContinue: true) == .paneInUse)
     }
 
+    /// Debug logs get a fixed name: never the accounts or the session the follow-up carries.
+    @Test
+    func theLogNameNamesNoAccountOrSession() throws {
+        let followUp = ClaudeAccountAutoSwitchFollowUp(result: .switched(try makePlan(), .copied), sendContinue: true)
+
+        #expect(followUp.logName == "announce.continue")
+        #expect(ClaudeAccountAutoSwitchFollowUp.announceWithoutResume(from: "default", to: "work").logName == "announceWithoutResume")
+    }
+
     private func makePlan() throws -> ClaudeAccountSwitchPlan {
         try ClaudeAccountSwitchPlanner.plan(
             sessionID: sessionId,
@@ -262,7 +271,11 @@ struct ClaudeAccountAutoSwitchAnnouncementTests {
             ), "default")),
             (.draftPending, String(format: String(
                 localized: "notification.claudeAccountAutoSwitch.notSwitched.draftPending",
-                defaultValue: "%@ hit its usage limit while a message was typed in Claude's input box. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
+                defaultValue: "%@ hit its usage limit while a message was typed but not sent. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
+            ), "default")),
+            (.promptUnconfirmed, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.promptUnconfirmed",
+                defaultValue: "%@ hit its usage limit, but cmux couldn't see Claude waiting at an empty prompt, so it didn't switch accounts. Switch accounts manually to continue."
             ), "default")),
             (.notRecorded, String(format: String(
                 localized: "notification.claudeAccountAutoSwitch.notSwitched.notRecorded",

@@ -22,16 +22,18 @@ final class ClaudeAccountAutoSwitchCoordinator {
     static let statusKey = "claude_account_switch"
 
     private let homeDirectory: String
+    private let policy: ClaudeAccountAutoSwitchPolicy
+    private let usageLimitReset = ClaudeUsageLimitReset()
+    private let foregroundCheck: ClaudeAccountAutoSwitchForegroundCheck
     private let exhaustionStore: ClaudeAccountExhaustionStore
     private var ledger = ClaudeAccountAutoSwitchLedger()
-    /// Panes whose report is being handled. A report arriving meanwhile is dropped: the pane is
-    /// already moving, and its new account reports its own limit later.
-    private var inFlightPanelIds = Set<UUID>()
+    /// The reports being handled, one stored task per pane, which the pane's close cancels. A
+    /// report arriving meanwhile is dropped: the pane is already moving, and its new account
+    /// reports its own limit later. The pane's Claude events seen while its switch runs are
+    /// replayed into its gate, so a `SessionStart` that lands before the switch returns counts.
+    private let runs = ClaudeAccountAutoSwitchRuns()
     /// The last report handled per pane, so one report switches at most once.
     private var handledEventIds: [UUID: String] = [:]
-    /// The pane's Claude events seen while its switch runs, replayed into its gate, so a
-    /// `SessionStart` that lands before the switch returns still counts.
-    private var eventsDuringSwitch: [UUID: [(kind: AgentJournalEventKind, sessionId: String?, occurredAtMs: Int64)]] = [:]
     /// Panes waiting for the resumed Claude's idle prompt to be typed `continue` into.
     private var pendingContinues: [UUID: PendingContinue] = [:]
     /// When each pane got its auto-switch status row; its Claude session ending after that
@@ -52,8 +54,16 @@ final class ClaudeAccountAutoSwitchCoordinator {
     ///     exhaustion file.
     ///   - exhaustionStore: Where exhausted accounts are recorded; defaults to the file the CLI
     ///     reads (`~/.cmuxterm/claude-account-exhaustion.json`).
-    init(homeDirectory: String = NSHomeDirectory(), exhaustionStore: ClaudeAccountExhaustionStore? = nil) {
+    ///   - foregroundCheck: Whether the resumed Claude owns its terminal before `continue` is
+    ///     typed; defaults to reading live processes.
+    init(
+        homeDirectory: String = NSHomeDirectory(),
+        exhaustionStore: ClaudeAccountExhaustionStore? = nil,
+        foregroundCheck: ClaudeAccountAutoSwitchForegroundCheck = ClaudeAccountAutoSwitchForegroundCheck()
+    ) {
         self.homeDirectory = homeDirectory
+        self.foregroundCheck = foregroundCheck
+        self.policy = ClaudeAccountAutoSwitchPolicy(homeDirectory: homeDirectory)
         self.exhaustionStore = exhaustionStore ?? ClaudeAccountExhaustionStore(
             fileURL: ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: homeDirectory)
         )
@@ -65,7 +75,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
 
     /// Observes one live journal event. Cheap for everything but a usage-limit report.
     func observe(_ draft: AgentJournalEventDraft) {
-        if !pendingContinues.isEmpty || !announcedAtMs.isEmpty || !inFlightPanelIds.isEmpty || ledger.tracksSwitches {
+        if !pendingContinues.isEmpty || !announcedAtMs.isEmpty || !runs.isEmpty || ledger.tracksSwitches {
             followSession(draft)
         }
         guard let request = ClaudeAccountAutoSwitchRequest(draft: draft, isEnabled: isEnabled) else { return }
@@ -78,16 +88,18 @@ final class ClaudeAccountAutoSwitchCoordinator {
             log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) skip=paneNotFound")
             return
         }
-        guard inFlightPanelIds.insert(panelId).inserted else {
+        guard runs.start(panelId: panelId, { [weak self] in await self?.handle(request, workspace: workspace) }) != nil else {
             log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) skip=inFlight")
             return
         }
         handledEventIds[panelId] = request.eventId
-        Task { [weak self] in
-            await self?.handle(request, workspace: workspace)
-            self?.inFlightPanelIds.remove(panelId)
-            self?.eventsDuringSwitch[panelId] = nil
-        }
+    }
+
+    /// The pane closed for good. A switch still deciding about it stops there; one already
+    /// restarting it ends its waits at once, which the switch treats as a timeout: it types
+    /// nothing and reports the resume command.
+    func paneClosed(panelId: UUID) {
+        runs.cancel(panelId: panelId)
     }
 
     /// Input reached the pane, from the user or a client. Called synchronously from the pane's
@@ -98,17 +110,15 @@ final class ClaudeAccountAutoSwitchCoordinator {
         pendingContinues[panelId]?.gate.userDidInput()
     }
 
-    /// Whether input reached the pane after `afterMs`, for other unattended restarts' gates.
-    func receivedInput(panelId: UUID, afterMs: Int64) -> Bool { ledger.receivedInput(panelId: panelId, after: afterMs) }
+    /// Whether input reached the pane at or after `ms`, for other unattended restarts' gates.
+    func receivedInput(panelId: UUID, since ms: Int64) -> Bool { ledger.receivedInput(panelId: panelId, since: ms) }
 
     /// Feeds the pane's own Claude events to its switch and waiting continue, resets its attempt
     /// count when it finishes a turn, and clears its status row once its session ends.
     private func followSession(_ draft: AgentJournalEventDraft) {
         guard draft.source == "claude", !draft.isSubagent, draft.unattributedReason == nil,
               let panelId = draft.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
-        if inFlightPanelIds.contains(panelId) {
-            eventsDuringSwitch[panelId, default: []].append((draft.kind, draft.sessionId, draft.occurredAtMs))
-        }
+        runs.record(.init(kind: draft.kind, sessionId: draft.sessionId, occurredAtMs: draft.occurredAtMs), panelId: panelId)
         pendingContinues[panelId]?.gate.observe(kind: draft.kind, sessionId: draft.sessionId, occurredAtMs: draft.occurredAtMs)
         if draft.kind == .turnCompleted {
             ledger.noteTurnCompleted(panelId: panelId)
@@ -127,17 +137,22 @@ final class ClaudeAccountAutoSwitchCoordinator {
         let pane = workspace.claudeAccountAutoSwitchPane(panelId: panelId)
         let candidates = await Self.candidateFacts(pane: pane, homeDirectory: home)
         let now = Date()
+        let storedExhaustion = await exhaustionStore.exhaustedUntil(now: now)
+        // A pane closed meanwhile is left alone: nothing is decided, recorded or posted.
+        guard !Task.isCancelled else { return }
         var action = request.action(
+            policy: policy,
+            usageLimitReset: usageLimitReset,
             pane: pane,
             isEnabled: isEnabled,
-            storedExhaustion: exhaustionStore.exhaustedUntil(now: now),
+            storedExhaustion: storedExhaustion,
             ledger: ledger,
             sourceScreen: Self.screenState(of: workspace, panelId: panelId),
+            sourceTextBoxHasDraft: Self.textBoxHasDraft(of: workspace, panelId: panelId),
             isUsable: { candidates.usable.contains($0.exhaustionKey(homeDirectory: home)) },
             isTrusted: { candidates.trusted.contains($0.exhaustionKey(homeDirectory: home)) },
             now: now,
-            timeZone: .current,
-            homeDirectory: home
+            timeZone: .current
         )
         // A report that counts supersedes a continue still waiting from an earlier switch; a late
         // one from the replaced Claude leaves it alone.
@@ -146,9 +161,11 @@ final class ClaudeAccountAutoSwitchCoordinator {
         // file write fails; a switch whose source could not be written is held back.
         if let exhaustion = action.exhaustion {
             ledger.recordExhaustion(accountKey: exhaustion.accountKey, until: exhaustion.until)
-            action = action.recording(succeeded: writeExhaustion(exhaustion))
+            action = action.recording(succeeded: await writeExhaustion(exhaustion))
         }
-        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) action=\(action)")
+        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) action=\(action.logName)")
+        // The limit stays recorded; a pane closed while it was written gets no notice or switch.
+        guard !Task.isCancelled else { return }
         switch action {
         case .ignore, .markExhaustedOnly:
             return
@@ -187,8 +204,9 @@ final class ClaudeAccountAutoSwitchCoordinator {
                 return self.paneInUse(request, workspace: workspace) == nil
             }
         )
-        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) to=\(target.name) result=\(result)")
-        switch ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: sendContinue) {
+        let followUp = ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: sendContinue)
+        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) followUp=\(followUp.logName)")
+        switch followUp {
         case .announce(let from, let to, let sessionId, let typeContinue):
             ledger.noteAutomaticSwitch(panelId: panelId, atMs: Self.nowMs())
             let announcement = ClaudeAccountAutoSwitchAnnouncement(
@@ -244,49 +262,33 @@ final class ClaudeAccountAutoSwitchCoordinator {
         workspace: Workspace
     ) -> ClaudeAccountAutoSwitchAction.HoldBack? {
         ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(
-            receivedInputSinceReport: ledger.receivedInput(panelId: request.panelId, after: request.occurredAtMs),
-            screen: Self.screenState(of: workspace, panelId: request.panelId)
+            receivedInputSinceReport: ledger.receivedInput(panelId: request.panelId, since: request.occurredAtMs),
+            screen: Self.screenState(of: workspace, panelId: request.panelId),
+            textBoxHasDraft: Self.textBoxHasDraft(of: workspace, panelId: request.panelId)
         )
     }
 
-    /// The pane's screen as the shared prompt classifier reads it; `.unknown` when it is gone.
+    /// Whether the pane's text box holds an unsent draft. The switch's restart replaces the
+    /// pane's terminal panel, and the draft with it.
+    private static func textBoxHasDraft(of workspace: Workspace, panelId: UUID) -> Bool {
+        workspace.terminalPanel(for: panelId)?.sessionTextBoxDraftSnapshot() != nil
+    }
+
+    /// The pane's screen as the shared prompt classifier reads it; `.unknown`, which holds the
+    /// switch back, when the pane is gone or its screen can't be read.
     private static func screenState(of workspace: Workspace, panelId: UUID) -> AgentAutoResumeCoordinator.ScreenState {
         guard let terminal = workspace.terminalPanel(for: panelId) else { return .unknown }
         return AgentAutoResumeCoordinator.shared.screenState(for: terminal.surface)
     }
 
-    /// The accounts other than the current one that have a Claude config, and those of them that
-    /// already trust the session's folder. Read off the main actor: `.claude.json` holds every
-    /// project's history and can be large.
-    private nonisolated static func candidateFacts(
-        pane: ClaudeAccountAutoSwitchRequest.Pane,
-        homeDirectory: String
-    ) async -> (usable: Set<String>, trusted: Set<String>) {
-        guard case .local(let current, let registry, let workingDirectory) = pane else { return ([], []) }
-        let currentKey = current.exhaustionKey(homeDirectory: homeDirectory)
-        let candidates = registry.accounts.filter { $0.exhaustionKey(homeDirectory: homeDirectory) != currentKey }
-        return await Task.detached(priority: .utility) {
-            var usable = Set<String>()
-            var trusted = Set<String>()
-            for account in candidates where ClaudeConfigTrustReader.hasConfig(account: account, homeDirectory: homeDirectory) {
-                let key = account.exhaustionKey(homeDirectory: homeDirectory)
-                usable.insert(key)
-                if let workingDirectory,
-                   ClaudeConfigTrustReader.isTrusted(workingDirectory: workingDirectory, account: account, homeDirectory: homeDirectory) {
-                    trusted.insert(key)
-                }
-            }
-            return (usable, trusted)
-        }.value
-    }
-
     /// Writes the exhaustion to the file the CLI reads. Returns whether it was written.
-    private func writeExhaustion(_ exhaustion: ClaudeAccountAutoSwitchAction.Exhaustion) -> Bool {
+    private func writeExhaustion(_ exhaustion: ClaudeAccountAutoSwitchAction.Exhaustion) async -> Bool {
         do {
-            try exhaustionStore.markExhausted(accountKey: exhaustion.accountKey, until: exhaustion.until)
+            try await exhaustionStore.markExhausted(accountKey: exhaustion.accountKey, until: exhaustion.until)
             return true
         } catch {
-            log("claudeAccount.autoSwitch markExhausted.failed account=\(exhaustion.account.name) error=\(error)")
+            // The error's type only: its description can carry the file's path.
+            log("claudeAccount.autoSwitch markExhausted.failed errorType=\(type(of: error))")
             return false
         }
     }
@@ -343,7 +345,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
         switchStartedAt: Date
     ) {
         var gate = gate
-        for event in eventsDuringSwitch[panelId] ?? [] {
+        for event in runs.events(panelId: panelId) {
             gate.observe(kind: event.kind, sessionId: event.sessionId, occurredAtMs: event.occurredAtMs)
         }
         pendingContinues[panelId] = PendingContinue(
@@ -399,11 +401,10 @@ final class ClaudeAccountAutoSwitchCoordinator {
                 return ClaudeAccountAutoSwitchContinueGate.Screen(frame: frame)
             },
             claudeInForeground: {
-                ClaudeAccountAutoSwitchForegroundCheck.claudeOwnsTerminal(
+                self.foregroundCheck.claudeOwnsTerminal(
                     registered: workspace.claudeAgentProcesses(panelId: panelId),
                     startedAfter: switchStartedAt,
-                    paneTTYDevice: terminal.surface.controllingTTYDeviceIdentifier,
-                    facts: ClaudeAccountAutoSwitchForegroundCheck.liveFacts(pid:)
+                    paneTTYDevice: terminal.surface.controllingTTYDeviceIdentifier
                 )
             }
         )

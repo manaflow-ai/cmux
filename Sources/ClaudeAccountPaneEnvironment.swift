@@ -60,6 +60,21 @@ struct ClaudeAccountPaneEnvironment: Codable, Equatable, Sendable {
         return environment
     }
 
+    /// What a new surface for this pane gets under `workspaceEnvironment` and the app's own
+    /// environment: the switch's own rule (``ClaudeAccountSwitchSurfaceEnvironment``), so each
+    /// account value is set as switched and a cleared key is masked only where one of those
+    /// environments would supply it. A relaunch restore and a plain respawn both start from it.
+    func surfaceEnvironment(
+        workspaceEnvironment: [String: String],
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> ClaudeAccountSwitchSurfaceEnvironment {
+        ClaudeAccountSwitchSurfaceEnvironment(
+            accountEnvironment: accountEnvironment,
+            workspaceEnvironment: workspaceEnvironment,
+            processEnvironment: processEnvironment
+        )
+    }
+
     /// `input` with the cleared keys unset when it runs cmux's local restore verb
     /// (` cmux restore …`), so a shell rc file that exports `CLAUDE_CONFIG_DIR` again cannot move
     /// the restored Claude to another account. The command stays bare words with an absolute

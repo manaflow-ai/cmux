@@ -71,6 +71,97 @@ struct ClaudeAccountSwitchReplacedAgentsTests {
             .ownership(paneTTYDevice: paneTTY) == .ownedByPane)
     }
 
+    // MARK: A Claude the pane's record does not name
+
+    private let sessionOwner = AgentPIDProcessIdentity(pid: 4201, startSeconds: 120, startMicroseconds: 7)
+
+    /// No recorded process: only `owner` runs, on `ownerTTY`.
+    private func unrecordedPane(owner ownerTTY: Int64?) -> ClaudeAccountSwitchReplacedAgents {
+        let owner = sessionOwner
+        return ClaudeAccountSwitchReplacedAgents(
+            processes: [],
+            currentIdentity: { pid in pid == owner.pid ? owner : nil },
+            controllingTTYDevice: { pid in pid == owner.pid ? ownerTTY : nil }
+        )
+    }
+
+    /// Hooks that never reported a pid leave the pane's record empty. The session's live owner
+    /// from the agent index is checked instead, so "can't tell" never becomes "nothing to stop".
+    @Test
+    func aLiveSessionOwnerOnAnotherTerminalIsNotOwnedByThePane() {
+        let agents = unrecordedPane(owner: tmuxTTY).fallingBack(toLiveSessionOwner: sessionOwner)
+
+        #expect(agents.ownership(paneTTYDevice: paneTTY) == .notOwnedByPane)
+        #expect(unrecordedPane(owner: nil).fallingBack(toLiveSessionOwner: sessionOwner)
+            .ownership(paneTTYDevice: paneTTY) == .notOwnedByPane)
+    }
+
+    @Test
+    func aLiveSessionOwnerOnThePaneTerminalIsWaitedForLikeARecordedOne() {
+        let agents = unrecordedPane(owner: paneTTY).fallingBack(toLiveSessionOwner: sessionOwner)
+
+        #expect(agents.ownership(paneTTYDevice: paneTTY) == .ownedByPane)
+        #expect(agents.processes == [sessionOwner])
+        #expect(agents.stillRunning == [sessionOwner])
+    }
+
+    @Test
+    func aPaneWhoseSessionRunsNowhereStillSwitches() {
+        // A restored pane whose session has not started again: nothing to stop, nothing to refuse.
+        let agents = unrecordedPane(owner: tmuxTTY).fallingBack(toLiveSessionOwner: nil)
+
+        #expect(agents.ownership(paneTTYDevice: paneTTY) == .noLiveAgent)
+        #expect(agents.processes.isEmpty)
+    }
+
+    @Test
+    func aRunningRecordedClaudeIsCheckedWithoutTheSessionOwner() {
+        var ownerLookups = 0
+        let recorded = agents([claude.pid: paneTTY])
+        let checked = recorded.fallingBack(toLiveSessionOwner: {
+            ownerLookups += 1
+            return sessionOwner
+        }())
+
+        #expect(checked.processes == [claude])
+        #expect(checked.ownership(paneTTYDevice: paneTTY) == .ownedByPane)
+        #expect(ownerLookups == 0)
+    }
+
+    // MARK: A Claude that started during the switch
+
+    /// The transcript copy is awaited, and a Claude can start in the pane meanwhile. Restarting
+    /// the pane would kill it and resume the old session in its place, so it is reported.
+    @Test
+    func aClaudeThatStartedSinceTheFirstCheckIsReported() {
+        let restarted = AgentPIDProcessIdentity(pid: 4103, startSeconds: 150, startMicroseconds: 0)
+        let reusedPID = AgentPIDProcessIdentity(pid: claude.pid, startSeconds: 200, startMicroseconds: 0)
+        let before = agents([claude.pid: paneTTY])
+        func now(_ running: [AgentPIDProcessIdentity]) -> ClaudeAccountSwitchReplacedAgents {
+            ClaudeAccountSwitchReplacedAgents(
+                processes: running,
+                currentIdentity: { pid in running.first { $0.pid == pid } },
+                controllingTTYDevice: { _ in paneTTY }
+            )
+        }
+
+        #expect(now([restarted]).startedProcesses(since: before) == [restarted])
+        // A pid the old Claude had, but a new process generation, is a new Claude too.
+        #expect(now([reusedPID]).startedProcesses(since: before) == [reusedPID])
+        #expect(now([claude, restarted]).startedProcesses(since: before) == [restarted])
+    }
+
+    @Test
+    func theSameOrNoClaudeIsNotANewOne() {
+        let before = agents([claude.pid: paneTTY, helper.pid: paneTTY])
+
+        #expect(agents([claude.pid: paneTTY]).startedProcesses(since: before).isEmpty)
+        #expect(agents([:]).startedProcesses(since: before).isEmpty)
+        // A recorded process that has exited since is gone, not new.
+        #expect(agents([claude.pid: paneTTY, helper.pid: paneTTY], running: [claude])
+            .startedProcesses(since: before).isEmpty)
+    }
+
     @Test
     func stillRunningListsOnlyTheRecordedGenerations() {
         let reusedHelper = AgentPIDProcessIdentity(pid: helper.pid, startSeconds: 300, startMicroseconds: 0)

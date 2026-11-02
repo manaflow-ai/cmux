@@ -29,6 +29,19 @@ struct ClaudeAccountAutoSwitchRequestTests {
         #expect(request.pendingWork)
     }
 
+    /// Debug logs get a fixed name: never the account, its config directory or the reset time.
+    @Test
+    func theActionLogNameNamesNoAccountPathOrTime() {
+        let action = fixture.decide(fixture.request(), pane: fixture.pane())
+        guard case .switchAccount = action else {
+            Issue.record("expected a switch, got \(action)")
+            return
+        }
+
+        #expect(action.logName == "switchAccount.continue")
+        #expect(fixture.decide(fixture.request(), pane: fixture.pane(), sourceTextBoxHasDraft: true).logName == "holdBack.draftPending")
+    }
+
     @Test
     func nothingHappensWhileTheSettingIsOff() {
         #expect(ClaudeAccountAutoSwitchRequest(draft: fixture.draft(), isEnabled: false) == nil)
@@ -106,7 +119,7 @@ struct ClaudeAccountAutoSwitchRequestTests {
         let registry = fixture.registry()
         let current = try #require(registry.account(named: ClaudeAccountRegistry.defaultAccountName))
         let work = try #require(registry.account(named: "work"))
-        let reset = try #require(ClaudeUsageLimitReset.resetDate(
+        let reset = try #require(ClaudeUsageLimitReset().resetDate(
             inMessage: fixture.seoulMessage,
             now: fixture.now,
             timeZone: fixture.seoul
@@ -162,7 +175,7 @@ struct ClaudeAccountAutoSwitchRequestTests {
 
         let exhaustion = try #require(fixture.decide(request, pane: fixture.pane()).exhaustion)
 
-        #expect(exhaustion.until == fixture.now.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval))
+        #expect(exhaustion.until == fixture.now.addingTimeInterval(ClaudeUsageLimitReset().fallbackInterval))
         #expect(exhaustion.quotedReset == nil)
     }
 
@@ -174,8 +187,25 @@ struct ClaudeAccountAutoSwitchRequestTests {
 
         let exhaustion = try #require(fixture.decide(request, pane: fixture.pane()).exhaustion)
 
-        #expect(exhaustion.until == fixture.now.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval))
+        #expect(exhaustion.until == fixture.now.addingTimeInterval(ClaudeUsageLimitReset().fallbackInterval))
         #expect(exhaustion.quotedReset == nil)
+    }
+
+    @Test
+    func aTimeOnlyResetThatPassedBeforeTheReportWasHandledUsesTheFallback() throws {
+        // "resets 9am" reported at 8:59:59 and handled at 9:00:01 meant this morning. Read
+        // against the handling time it would roll to 9am tomorrow and hold the account a day.
+        let reportedAt = Date(timeIntervalSince1970: 1_792_886_399)  // 2026-10-25 08:59:59 Seoul
+        let handledAt = reportedAt.addingTimeInterval(2)
+        let request = fixture.request(
+            detail: "usage_limit: You've hit your session limit · resets 9am (Asia/Seoul)",
+            occurredAtMs: Int64(reportedAt.timeIntervalSince1970 * 1000)
+        )
+
+        let exhaustion = try #require(fixture.decide(request, pane: fixture.pane(), now: handledAt).exhaustion)
+
+        #expect(exhaustion.quotedReset == nil)
+        #expect(exhaustion.until == handledAt.addingTimeInterval(ClaudeUsageLimitReset().fallbackInterval))
     }
 
     @Test

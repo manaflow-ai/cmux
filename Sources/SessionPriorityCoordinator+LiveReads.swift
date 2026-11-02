@@ -87,18 +87,17 @@ extension SessionPriorityCoordinator {
             || state.showsUndismissedManualMarker(panelId: panelId, markerCount: markers)
         let receivedInputRecently = SessionPriorityApplyGate.isInsideQuietWindow(
             nowMs: Self.nowMs(),
-            receivedInputAfter: { ClaudeAccountAutoSwitchCoordinator.shared.receivedInput(panelId: panelId, afterMs: $0) },
+            receivedInputSince: { ClaudeAccountAutoSwitchCoordinator.shared.receivedInput(panelId: panelId, since: $0) },
             lastTurnEndMs: state.lastTurnEndedAtMs[panelId]
         )
         return SessionPriorityApplyGate.evaluate(SessionPriorityApplyGate.Facts(
             responseRunning: workspace.isClaudeResponseRunning(panelId: panelId),
             receivedInputRecently: receivedInputRecently,
             screen: screen,
-            claudeInForeground: ClaudeAccountAutoSwitchForegroundCheck.claudeOwnsTerminal(
+            claudeInForeground: ClaudeAccountAutoSwitchForegroundCheck().claudeOwnsTerminal(
                 registered: workspace.claudeAgentProcesses(panelId: panelId),
                 startedAfter: .distantPast,
-                paneTTYDevice: terminal.surface.controllingTTYDeviceIdentifier,
-                facts: ClaudeAccountAutoSwitchForegroundCheck.liveFacts(pid:)
+                paneTTYDevice: terminal.surface.controllingTTYDeviceIdentifier
             ),
             accountSwitchInFlight: Workspace.isClaudeAccountSwitchInFlight(panelId: panelId),
             screenShowsManualChange: screenShowsManualChange,

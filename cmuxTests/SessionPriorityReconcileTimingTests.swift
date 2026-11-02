@@ -127,7 +127,7 @@ struct SessionPriorityReconcileTimingTests {
         func inside(_ nowMs: Int64) -> Bool {
             SessionPriorityApplyGate.isInsideQuietWindow(
                 nowMs: nowMs,
-                receivedInputAfter: { _ in false },
+                receivedInputSince: { _ in false },
                 lastTurnEndMs: state.lastTurnEndedAtMs[pane]
             )
         }

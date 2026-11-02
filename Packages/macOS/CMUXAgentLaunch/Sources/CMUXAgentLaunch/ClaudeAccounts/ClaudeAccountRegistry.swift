@@ -22,15 +22,24 @@ public struct ClaudeAccountRegistry: Equatable, Sendable {
         self.homeDirectory = home
         let defaultDir = home + "/.claude"
 
+        // One pass in reading order. Entry directories stay distinct, so `entryByDirectory` maps
+        // each directory in use to the one entry that owns it.
         var entries: [(name: String, dir: String)] = []
+        var entryByName: [String: Int] = [:]
+        var entryByDirectory: [String: Int] = [:]
         for declaration in declarations {
             guard Self.isValidName(declaration.name),
                   let dir = Self.normalize(declaration.configDir, homeDirectory: home) else { continue }
             if declaration.name == Self.defaultAccountName, dir != defaultDir { continue }
-            if let index = entries.firstIndex(where: { $0.name == declaration.name }) {
-                let clash = entries.indices.contains { $0 != index && entries[$0].dir == dir }
-                if !clash { entries[index].dir = dir }
-            } else if !entries.contains(where: { $0.dir == dir }) {
+            let owner = entryByDirectory[dir]
+            if let index = entryByName[declaration.name] {
+                guard owner == nil || owner == index else { continue }
+                entryByDirectory[entries[index].dir] = nil
+                entries[index].dir = dir
+                entryByDirectory[dir] = index
+            } else if owner == nil {
+                entryByName[declaration.name] = entries.count
+                entryByDirectory[dir] = entries.count
                 entries.append((declaration.name, dir))
             }
         }
@@ -42,7 +51,7 @@ public struct ClaudeAccountRegistry: Equatable, Sendable {
                 isRegistered: true
             )
         }
-        if !accounts.contains(where: { $0.isDefault }) {
+        if entryByDirectory[defaultDir] == nil {
             accounts.insert(
                 ClaudeAccount(name: Self.defaultAccountName, configDirectory: nil, isRegistered: true),
                 at: 0
@@ -51,14 +60,15 @@ public struct ClaudeAccountRegistry: Equatable, Sendable {
         self.accounts = accounts
     }
 
-    /// Decodes `agents.claudeAccounts` from comment-stripped `cmux.json` bytes. Malformed input
-    /// yields no declarations.
+    /// Decodes `agents.claudeAccounts` from comment-stripped `cmux.json` bytes. A file that does
+    /// not parse yields no declarations; an entry with a missing or wrong-type field, or one that
+    /// is not an object, is skipped and the other entries are kept.
     public static func declarations(sanitizedConfigJSON: Data) -> [ClaudeAccountDeclaration] {
         guard !sanitizedConfigJSON.isEmpty,
               let file = try? JSONDecoder().decode(ConfigFile.self, from: sanitizedConfigJSON) else {
             return []
         }
-        return file.agents?.claudeAccounts ?? []
+        return file.agents?.claudeAccounts?.compactMap(\.declaration) ?? []
     }
 
     /// Loads declarations from the user-level then project config files; later files override
@@ -164,7 +174,16 @@ public struct ClaudeAccountRegistry: Equatable, Sendable {
         let agents: AgentsSection?
 
         struct AgentsSection: Decodable {
-            let claudeAccounts: [ClaudeAccountDeclaration]?
+            let claudeAccounts: [LossyDeclaration]?
+        }
+
+        /// One array element. Decoding never throws, so the array keeps going past a bad entry.
+        struct LossyDeclaration: Decodable {
+            let declaration: ClaudeAccountDeclaration?
+
+            init(from decoder: any Decoder) {
+                declaration = try? ClaudeAccountDeclaration(from: decoder)
+            }
         }
     }
 }

@@ -21,8 +21,12 @@ import Testing
         )
     }
 
+    /// A secure-storage override left on the pane is cleared for a custom target too, not only
+    /// when switching back to the default account.
     @Test func defaultToWork() throws {
-        let p = try plan(launchEnvironment: ["FOO": "1"], targetName: "work").get()
+        let p = try plan(
+            launchEnvironment: ["FOO": "1", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/x"], targetName: "work"
+        ).get()
         #expect(p.sourceConfigDirectory == "/Users/u/.claude")
         #expect(p.targetConfigDirectory == "/Users/u/.claude-work")
         #expect(p.surfaceEnvironmentOverrides == ["CLAUDE_CONFIG_DIR": "/Users/u/.claude-work", "CLAUDE_SECURESTORAGE_CONFIG_DIR": ""])

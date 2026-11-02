@@ -12189,8 +12189,8 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             for workspaceId in SidebarAgentProfileLabel.workspaceIdsToRefresh(
                 afterIndexChange: notification.userInfo,
-                allWorkspaceIds: renderContext.workspaceIds,
-                settings: renderContext.tabItemSettings
+                renderContext: renderContext,
+                shownSnapshots: workspaceSnapshotCache
             ) {
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             }

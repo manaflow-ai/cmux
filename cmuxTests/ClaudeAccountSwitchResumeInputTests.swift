@@ -63,6 +63,46 @@ struct ClaudeAccountSwitchResumeInputTests {
         #expect(input.contains("CLAUDE_CONFIG_DIR=\(home)/.claude-work"))
     }
 
+    /// With no launch capture, nothing replays the target's `CLAUDE_CONFIG_DIR`, and an rc file or
+    /// direnv in the respawned shell can export another one. The command sets it itself.
+    @Test
+    func commandWithoutALaunchCaptureSetsTheTargetConfigDirectory() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionID,
+            workingDirectory: project,
+            launchCommand: nil
+        )
+        let plan = try makePlan(snapshot, to: "work")
+
+        let command = try #require(ClaudeAccountSwitchResumeInput(snapshot: snapshot, plan: plan).posixCommand())
+
+        #expect(command.hasPrefix(
+            changeDirectoryPrefix + "env -u CLAUDE_SECURESTORAGE_CONFIG_DIR 'CLAUDE_CONFIG_DIR=\(home)/.claude-work' "
+        ))
+        #expect(command.contains(sessionID))
+    }
+
+    /// The default account has no directory to set: the command only unsets both keys.
+    @Test
+    func commandWithoutALaunchCaptureForTheDefaultAccountOnlyUnsetsTheKeys() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionID,
+            workingDirectory: project,
+            launchCommand: nil
+        )
+        let plan = try makePlan(
+            claudeSnapshot(configDirectory: "\(home)/.claude-work"),
+            to: ClaudeAccountRegistry.defaultAccountName
+        )
+
+        let command = try #require(ClaudeAccountSwitchResumeInput(snapshot: snapshot, plan: plan).posixCommand())
+
+        #expect(command.hasPrefix(changeDirectoryPrefix + "env -u CLAUDE_CONFIG_DIR -u CLAUDE_SECURESTORAGE_CONFIG_DIR "))
+        #expect(!command.contains("CLAUDE_CONFIG_DIR="))
+    }
+
     @Test
     func nushellInputRunsTheUnsettingCommandThroughSh() throws {
         let snapshot = claudeSnapshot(configDirectory: "\(home)/.claude-work")
