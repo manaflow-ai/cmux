@@ -38,7 +38,10 @@ const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux
     passes timeout_seconds (default 300, at most 900) answers timed_out true with the output \
     so far. An agent that already waits on a dialog is refused unless force is true, since \
     the text would answer the dialog. target is a term_ id (or unique prefix), a tab_ id or \
-    an exact terminal title; agents_terminal_list names them.";
+    an exact terminal title; agents_terminal_list names them. Optional idempotency_key \
+    identifies the complete paste-and-Enter send: a lost reply reports its \
+    phase, the resolved terminal id and the same key. When passing a key, target \
+    must be the full term_ id so a renamed title or moved tab cannot retarget a replay.";
 
 pub(super) fn descriptors() -> [Value; 2] {
     [
@@ -83,6 +86,8 @@ fn send_schema() -> Value {
             "settle_seconds": {"type": "number", "minimum": 0.2, "maximum": 60, "default": 3},
             "force": {"type": "boolean", "default": false,
                       "description": "Type even when the agent waits on a dialog."},
+            "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128,
+                      "description": "Stable send identity for retries. With this key, target must be the full term_ ID; reuse the original terminal ID and key after an uncertain result."},
             "session": session_schema(),
         },
         "required": ["target", "text"],
@@ -131,6 +136,11 @@ pub(super) fn send_request(
     let text = string(arguments, "text")?.ok_or_else(|| format!("{SEND}: text is required"))?;
     let mut request = send::SendRequest::new(target, text);
     request.timeout = Duration::from_secs_f64(DEFAULT_SEND_SECONDS);
+    if let Some(key) = string(arguments, "idempotency_key")? {
+        cmux_tui_core::resource::validate_idempotency_key(&key)
+            .map_err(|error| format!("{SEND}: {}", error.message))?;
+        request.idempotency_key = Some(key);
+    }
     if let Some(wait) = string(arguments, "wait")? {
         request.wait = send::Wait::parse(&wait)
             .ok_or_else(|| format!("{SEND}: wait is idle, prompt or none, not {wait:?}"))?;
@@ -209,6 +219,10 @@ mod tests {
         assert_eq!(send["inputSchema"]["required"], json!(["target", "text"]));
         assert_eq!(list["annotations"]["readOnlyHint"], true);
         assert_eq!(send["annotations"]["readOnlyHint"], false);
+        assert_eq!(
+            send["inputSchema"]["properties"]["idempotency_key"]["maxLength"], 128,
+            "a composed send needs a stable retry identity: {send}"
+        );
     }
 
     #[test]
@@ -216,6 +230,7 @@ mod tests {
         let (request, session) = send_request(&arguments(json!({
             "target": "term_a", "text": "hi\nthere", "wait": "prompt",
             "timeout_seconds": 20, "settle_seconds": 0.5, "force": true, "session": "work",
+            "idempotency_key": "repeatable-send",
         })))
         .expect("valid");
         assert_eq!(request.target, "term_a");
@@ -224,6 +239,7 @@ mod tests {
         assert_eq!(request.timeout.as_secs(), 20);
         assert_eq!(request.settle.as_millis(), 500);
         assert!(request.force);
+        assert_eq!(request.idempotency_key.as_deref(), Some("repeatable-send"));
         assert_eq!(session.as_deref(), Some("work"));
         let (defaults, _) =
             send_request(&arguments(json!({"target": "t", "text": "x"}))).expect("valid");
@@ -238,6 +254,8 @@ mod tests {
             json!({"target": "t", "text": "x", "wait": "later"}),
             json!({"target": "t", "text": "x", "timeout_seconds": 5000}),
             json!({"target": "t", "text": "x", "force": "yes"}),
+            json!({"target": "t", "text": "x", "idempotency_key": ""}),
+            json!({"target": "t", "text": "x", "idempotency_key": "x".repeat(129)}),
         ] {
             assert!(send_request(&arguments(bad.clone())).is_err(), "{bad}");
         }

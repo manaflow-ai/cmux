@@ -23,6 +23,7 @@ import {
 } from "../../../gallery/fixtures/acpmux";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
+import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
 import { trayPanelLook } from "./trayPanel.experiment";
 
@@ -165,10 +166,10 @@ function codexLineage(): Subagent[] {
 
 /** Leo's panel (2026-10-25, synthetic names): two chats running whose doing lines are raw shell
  *  lines, and `done` subagents that ended, one a minute apart; `done` 3 makes the two-agent panel,
- *  116 the 118-agent one ("View all 116"). */
+ *  116 the 118-agent one, every line in the list that scrolls. */
 const INFRA_DOING = "cd /Users/you/Projects/checkouts/workspace/broker-host-gh && sed -i '' 's/old/new/' broker.ts";
 
-function panel(done: number, running = 2) {
+function panel(done: number, running = 2, lead: AcpmuxRow[] = []) {
   const ended = Array.from({ length: done }, (_, index) =>
     agent(`Lane ${String(index + 1).padStart(3, "0")}`, 130 - index, "completed", {
       kind: "general-purpose",
@@ -178,6 +179,7 @@ function panel(done: number, running = 2) {
   );
   const base = chat(
     [
+      ...lead,
       user("Fan out: one lane per area, and keep me posted", 140),
       group(ended, 130),
       assistant("The lanes are running; the two chats below are still going.", 2),
@@ -214,8 +216,8 @@ function headInView(ctx: PlayContext): void {
   if (!hit || !head.contains(hit)) throw new Error("the header must be the thing drawn at its place");
 }
 
-/** Opens every ended line (once; a play that already opened them leaves them open), scrolls the
- *  list to its end, then checks the head and View all stay. A panel without View all only scrolls. */
+/** Opens the tray, scrolls the list to its end, then checks the head stays. Every ended line is in
+ *  the list: there is no View all (Leo, 2026-11-01: "just let it be scroll-downable"). */
 const scrollPanel = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
   const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
@@ -225,18 +227,11 @@ const scrollPanel = async (ctx: PlayContext) => {
     await ctx.click({ selector: ".acpmux-running-tray__head" });
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
   }
-  const more = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__finished");
-  if (more() && more()!.getAttribute("aria-expanded") !== "true") {
-    await ctx.click({ selector: ".acpmux-running-tray__finished" });
-    await ctx.waitFor(() => more()?.getAttribute("aria-expanded") === "true");
-  }
+  if (ctx.document.querySelector(".acpmux-running-tray__finished")) throw new Error("the tray has no View all");
   await ctx.scroll({ selector: ".acpmux-running-tray__list" }, "bottom");
   headInView(ctx);
   const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
   if (tray.scrollTop !== 0) throw new Error("the tray never scrolls as a whole; only its list does");
-  const foot = more()?.getBoundingClientRect();
-  if (foot && foot.bottom > tray.getBoundingClientRect().bottom + 0.5)
-    throw new Error("View all stays at the tray's foot");
 };
 
 const panelScript = [
@@ -250,8 +245,19 @@ const panelScript = [
   { name: "open all and scroll to the end", run: scrollPanel },
 ];
 
-/** Waits for the tray's live `count` lines, and checks no group card is left in the transcript. */
+/** A headed tray starts folded to its header (cmux#28875): open it, as the person clicks it. */
+const openTray = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+  const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+  if (!head || head.getAttribute("aria-expanded") === "true") return;
+  await ctx.click({ selector: ".acpmux-running-tray__head" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+};
+
+/** Opens the tray, waits for its live `count` lines, and checks no group card is left in the
+ *  transcript. */
 const trayLines = (count: number) => async (ctx: PlayContext) => {
+  await openTray(ctx);
   await ctx.waitFor(
     () =>
       ctx.document.querySelectorAll(".acpmux-running-tray li:not([data-finished]) .acpmux-agent-line").length === count,
@@ -267,6 +273,43 @@ const trayLines = (count: number) => async (ctx: PlayContext) => {
 const openFold = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"));
   await ctx.click({ selector: ".cv-worked" });
+};
+
+/** The conversation before the fan-out, so the transcript runs past the pane and the tray opens over
+ *  the latest rows (Leo, 2026-11-01: "there's a layout shift when i expand it"). */
+const EARLIER: AcpmuxRow[] = [
+  user("The webview checks went red on the base again", 190),
+  assistant(
+    "Two files fail: the transcript's fold anchor and the composer's queue. Both broke after the last merge into the base; I'll bisect them.",
+    185,
+  ),
+  user("Bisect both, and look at the tray while you're there", 170),
+  assistant(
+    "The fold anchor goes back to a measurement change; the queue failure is a timing race in its test. I'll fan out a lane for each.",
+    160,
+  ),
+];
+
+/** The latest row's top, in the viewport. */
+function latestTop(ctx: PlayContext): number {
+  const rows = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-row")];
+  return rows.at(-1)?.getBoundingClientRect().top ?? Number.NaN;
+}
+
+/** Folds the tray (it opens with a short list), then opens it again, and says how far the latest row moved. */
+const expandTray = (placement: "composer" | "after-latest") => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+  const head = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+  if (head().getAttribute("aria-expanded") === "true") {
+    await ctx.click({ selector: ".acpmux-running-tray__head" });
+    await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__fold"));
+  }
+  const before = latestTop(ctx);
+  await ctx.click({ selector: ".acpmux-running-tray__head" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+  const moved = latestTop(ctx) - before;
+  if (placement === "composer" && Math.abs(moved) > 0.5)
+    throw new Error(`opening the tray on the composer moved the transcript ${moved.toFixed(1)}px`);
 };
 
 export default agentPaneEntry({
@@ -285,8 +328,29 @@ export default agentPaneEntry({
   // The panel's looks (trayPanel.experiment.ts), on the two- and 118-agent panels.
   experiment: { definition: trayPanelLook, script: panelScript },
   variants: {
+    geometry: {
+      note: "Geometry fixture: running, completed and cancelled rows share the trailing tracks above a running empty composer.",
+      play: async (ctx) => {
+        await openTray(ctx);
+      },
+      snapshot: chat(
+        [
+          user("Keep the three task states visible", 4),
+          group(
+            [
+              agent("Running check", 2.1, "running", { action: "Run the check" }),
+              agent("Done check", 3.8, "completed", { ran: 1.2 }),
+              agent("Cancelled check", 3.8, "cancelled", { ran: 1.4 }),
+            ],
+            2.1,
+          ),
+          assistant("The checks are visible above the composer.", 1),
+        ],
+        { isWorking: true },
+      ),
+    },
     "grid-31": {
-      note: "Grid fixture: 31 rows (29 ended and two running), expanded with the header and footer visible.",
+      note: "Grid fixture: 31 rows (29 ended and two running), expanded with the header visible.",
       snapshot: panel(29),
       play: async (ctx) => {
         await scrollPanel(ctx);
@@ -297,6 +361,7 @@ export default agentPaneEntry({
       note: "Leo's panel with two chats running and three ended (2026-10-25: \"this section, the whatever background tasks ... it's kind of wack\"): the header pinned on top, running first, then the latest that ended; no line carries a subtitle, so none shows a raw shell line.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        await openTray(ctx);
         headInView(ctx);
         // No line carries a subtitle, so none shows a raw shell line (subagents/AgentLine.tsx).
         const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
@@ -309,13 +374,14 @@ export default agentPaneEntry({
     "panel-one-running": {
       note: "One of the two chats ended: the header and its collapse stay while ended lines show (it used to unmount once fewer than two ran).",
       play: async (ctx) => {
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
         headInView(ctx);
       },
       snapshot: panel(3, 1),
     },
     "short-dock": {
-      note: "A 300px pane with a constrained dock: the two-line header and View all stay reachable when the list gives up its height.",
+      note: "A 300px pane with a constrained dock: the header stays reachable when the list gives up its height; every line is in the list, no View all.",
       height: 400,
       snapshot: chat(
         [
@@ -331,7 +397,8 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__finished"));
+        await openTray(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray li[data-finished]"));
         const shell = ctx.document.querySelector<HTMLElement>(".acpmux-shell")!;
         shell.style.width = "300px";
         shell.style.maxWidth = "100%";
@@ -339,18 +406,21 @@ export default agentPaneEntry({
         const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock")!;
         const composer = dock.querySelector<HTMLElement>(".acpmux-composer")!;
         const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
-        // Leave less than the pinned header + footer need. The tray's minimum must win as
+        // Leave less than the header and the list need. The tray's minimum must win as
         // the dock and composer share their height; the list is the part that may collapse.
         dock.style.maxHeight = `${composer.getBoundingClientRect().height + header.getBoundingClientRect().height}px`;
       },
     },
     "panel-118": {
-      note: 'The same panel with 118 agents, every ended one opened and the list scrolled to its end (Leo: the collapse at the top "disappears for some reason ... sometimes"): the header stays pinned on top and View all at the foot; only the list scrolls.',
+      note: 'The same panel with 118 agents, every ended one opened and the list scrolled to its end (Leo: the collapse at the top "disappears for some reason ... sometimes"): the header stays pinned on top; only the list scrolls, every line in it (no View all).',
       play: scrollPanel,
       snapshot: panel(116),
     },
     "workflow-progress": {
-      note: "A workflow reports completed/started agents, failures and queued agents in the default tray (its token usage is the Inspector's).",
+      note: "A workflow reports completed/started agents, failures and queued agents in the default tray (its token usage is Session Info's).",
+      // Workflows are on by default, which shows this as the workflow card instead; a host that
+      // turns them off (`workflowLabs` false) still gets the tray line this state covers.
+      workflowLabs: false,
       play: trayLines(1),
       snapshot: chat(
         [
@@ -386,12 +456,37 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "row-menu": {
+      note: "A running subagent has a fixed Stop square in its row track and the same action in its context menu. A right-click opens the menu on the click, and the line stays lit under it.",
+      play: async (ctx) => {
+        await trayLines(2)(ctx);
+        await ctx.waitFor(() =>
+          Boolean(ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__stop-slot > button")),
+        );
+        await ctx.contextMenu({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll('[role="menu"] [role="menuitem"]')].some((item) =>
+            item.textContent?.startsWith("Stop "),
+          ),
+        );
+      },
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          group(
+            [
+              agent("Explain daemon update mechanism", 1.8, "running", { kind: "Explore", action: "Bash" }),
+              agent("Review the fold", 1.6, "running", { kind: "general-purpose", action: "Read fold.ts" }),
+            ],
+            1.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
     "duration-columns": {
       note: "Duration-column stress fixture: running work spans 9s, 2h 20m and 12h 59m 59s so every time stays on one line in the shared trailing track.",
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
-        if (ctx.document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") !== "true")
-          await ctx.click({ selector: ".acpmux-running-tray__head" });
         await trayLines(6)(ctx);
       },
       snapshot: chat(
@@ -424,6 +519,19 @@ export default agentPaneEntry({
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
+    "expand-on-composer": {
+      note: "Chosen (Leo, 2026-11-01: \"there's a layout shift when i expand it\"): the tray stays on the composer, its columns on the composer's. What it opens lies over the transcript's foot, as a menu over the composer does, and no row moves; the room under the last row takes it once the rows move anyway (a reply streaming on, a send, Jump to latest, or the reader's wheel past the end).",
+      height: 420,
+      snapshot: panel(3, 2, EARLIER),
+      play: expandTray("composer"),
+    },
+    "expand-after-latest": {
+      note: "Alternative, not chosen: the tray attached under the latest message. At the end, opening it pushes the whole transcript up by what opened (as a tool call opened at the bottom does); away from the end it opens below the view. Nothing on the composer, but the tray's columns no longer line up with the composer's Stop and microphone.",
+      height: 420,
+      theme: { subagentTrayPlacement: "after-latest-message" },
+      snapshot: panel(3, 2, EARLIER),
+      play: expandTray("after-latest"),
+    },
     "after-latest-message": {
       note: "Labs/fixture placement: the running command tray sits directly after the latest message while the default remains above the composer. A click opens the command's row; its live tail needs a connected process source, which the gallery has none of.",
       theme: { subagentTrayPlacement: "after-latest-message" },
@@ -444,7 +552,7 @@ export default agentPaneEntry({
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
     "several-running": {
-      note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The ended task remains a compact status card.",
+      note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each once its header is opened (it starts folded to the header). The ended task remains a compact status card.",
       play: trayLines(3),
       snapshot: chat(
         [
@@ -497,6 +605,7 @@ export default agentPaneEntry({
     "between-turns": {
       note: "After the turn: a background subagent and two chats the agent started still run. The tray says so above the composer; the transcript ends with the turn's footer.",
       play: async (ctx) => {
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
         if (ctx.document.querySelector(".cv-bgwork")) throw new Error("no Running in background row in the transcript");
       },
@@ -575,6 +684,7 @@ export default agentPaneEntry({
     "codex-lineage": {
       note: 'A Codex chat\'s subagents as its records say (Leo 2026-10-22: "why is it like... staggered? were they created by another subagent?"): the chat itself started both, so they sit side by side. A child that reports its parent thread never makes the chat a subagent of its own, nested under that child.',
       play: async (ctx) => {
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
         const names = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__name")];
         if (names.some((name) => /^[0-9a-f]{8}-/.test(name.textContent ?? "")))
@@ -594,7 +704,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         if (ctx.find({ selector: ".acpmux-running-tray__head" }).getAttribute("aria-expanded") !== "false")
-          throw new Error("more than three running lines start folded");
+          throw new Error("a headed tray starts folded");
       },
       snapshot: chat(
         [

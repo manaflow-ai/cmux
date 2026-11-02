@@ -2,6 +2,8 @@
 // (src/conversation/icons.tsx). All draw in currentColor in a 16px box
 // unless noted, matching the stroke weight of src/shell/icons.tsx.
 import type { CSSProperties, ReactNode } from "react";
+// Spinner's own default (the dot hidden, the ring turning), wherever it draws (spinner.css).
+import "./spinner.css";
 
 export type CvIconProps = {
   size?: number;
@@ -261,10 +263,21 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
+/** The working track's strength: the native ring track's (`StatusIndicatorTunables.trackOpacity`). */
+const WORKING_TRACK_OPACITY = 0.22;
+/** The working sweep: 80° of the r 5.25 ring from 12 o'clock clockwise (the native
+ * `StatusIndicatorPlan.sweepLength`, 0.22 of the circle). */
+const WORKING_SWEEP_PATH = "M8 2.75a5.25 5.25 0 0 1 5.17 4.34";
+
 /** The running mark of a transcript row. Agent work (the default) draws the working look the
- * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning ring,
- * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
- * work) always draws the turning ring. `cv-spinner` turns the ring on the shared clock. */
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning
+ * sweep, or a still dot while the row's words shimmer. Agent work's spinner is a faint full ring
+ * (`cv-spinner__track`) with a short bright sweep (`cv-spinner__sweep`, about 80°, round caps)
+ * turning, as in Claude and ChatGPT and as the native rows draw it (CmuxNextDesign
+ * `StatusIndicatorPlan.workingGlyph`). Neither the 3/4 arc (Leo 2026-10-31: "who even decided to
+ * put that 3/4 circle") nor the macOS activity indicator's spokes (#29903; Leo 2026-11-01: "why the
+ * f*** did you make the spinner into this????"). `loading` (a check or a page loading, not agent
+ * work) keeps the turning arc. `cv-spinner` turns either on the shared clock. */
 export const Spinner = ({
   size = 16,
   className,
@@ -282,14 +295,35 @@ export const Spinner = ({
     aria-hidden="true"
     data-working={loading ? undefined : ""}
   >
-    <path
-      className="cv-spinner__arc"
-      d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-    />
-    {!loading && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
+    {loading ? (
+      <path
+        className="cv-spinner__arc"
+        d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+    ) : (
+      <>
+        <circle
+          className="cv-spinner__track"
+          cx="8"
+          cy="8"
+          r="5.25"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          opacity={WORKING_TRACK_OPACITY}
+        />
+        <path
+          className="cv-spinner__sweep"
+          d={WORKING_SWEEP_PATH}
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+        />
+        <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />
+      </>
+    )}
   </svg>
 );
 
@@ -390,8 +424,9 @@ export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** ⌘ glyph of computer-use / app tool rows ("Inspect the Atlas Fixtures window"). */
-export const CommandKey = (p: CvIconProps) => (
+/** Four small rings joined by one diagonal: a collapsed run that did more than one kind of work
+ *  ("Edited 2 files, read 2 files, ran 2 commands"). */
+export const MultiTool = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <circle cx="4.5" cy="4.5" r="2.05" />
     <circle cx="11.5" cy="4.5" r="2.05" />

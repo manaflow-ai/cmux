@@ -209,6 +209,9 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
             "scripts/swift_source_mask.py",
+            # The What's New validator the highlights layer runs (origin/feat-cmux-next's copy for the hook).
+            "scripts/whats-new/digest.py",
+            "scripts/whats-new/validate.py",
             *checks,
         ):
             source, target = SOURCE / relative, self.repo / relative
@@ -496,6 +499,156 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output)
         self.assertIn("a merge", output)
 
+    def test_a_branch_that_merged_an_extra_upstream_is_judged_on_what_it_adds_over_it(self):
+        # A long-lived shared branch on the remote (perf/x) carries a try! pushed past the hook; a task branch
+        # merges it in. Unset, cmux.prepushExtraUpstream changes nothing: perf/x's commit is the push's own. Set
+        # to origin/perf/x, it is a shared base like origin/feat-cmux-next, and only the task's own work counts.
+        self.git("checkout", "--quiet", "-b", "perf/x")
+        self.kit("PerfDebt", self.with_try("PerfDebt"))
+        self.commit("the shared perf branch's debt")
+        self.assertEqual(self.push_ref("perf/x", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "-b", "task", "origin/feat-cmux-next")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean task work")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "origin/perf/x")
+
+        unset = self.push_ref("task")
+
+        output = unset.stdout + unset.stderr
+        self.assertNotEqual(unset.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "unset: the merged shared branch's commits count as the push's")
+        self.assertNotEqual(self.git("ls-remote", "--exit-code", "origin", "refs/heads/task", check=False).returncode, 0)
+
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "origin/perf/x")
+
+        extra = self.push_ref("task")
+
+        output = extra.stdout + extra.stderr
+        self.assertEqual(extra.returncode, 0, output)
+        self.assertNotIn("PerfDebt.swift", output)
+        self.assertNotIn("installed hook copy", output, "the tracked push_range.py reads the setting: no patch")
+        self.assertEqual(self.remote_head_of("refs/heads/task"), self.git("rev-parse", "task").stdout.strip())
+
+    def pre_push_extra(self, name, status):
+        """An executable outside the checkout that records its arguments and stdin, then exits with STATUS."""
+        record = self.root / f"{name}.record"
+        script = self.root / name
+        script.write_text(f'#!/bin/sh\nprintf "%s|%s|%s\\n" "$1" "$2" "$PWD" > {record}\ncat >> {record}\nexit {status}\n')
+        script.chmod(0o755)
+        return script, record
+
+    def test_clone_local_pre_push_extras_run_with_the_pushed_refs_and_a_failure_refuses_the_push(self):
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        before = self.remote_head()
+        passes, passed = self.pre_push_extra("passes", 0)
+        refuses, refused_record = self.pre_push_extra("refuses", 3)
+        self.git("config", "--add", "cmux.prePushExtra", str(passes))
+        self.git("config", "--add", "cmux.prePushExtra", str(refuses))
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(f"cmux.prePushExtra {refuses} refused the push (exit 3)", output)
+        for record in (passed, refused_record):  # each extra, in order, got the remote, its URL, the top and refs
+            lines = record.read_text().splitlines()
+            self.assertEqual(lines[0], f"origin|{self.origin}|{self.repo.resolve()}")
+            self.assertEqual(lines[1], f"refs/heads/feat-cmux-next {head} refs/heads/feat-cmux-next {before}")
+
+        self.git("config", "--unset-all", "cmux.prePushExtra")
+        self.git("config", "--add", "cmux.prePushExtra", str(passes))
+
+        allowed = self.push()
+
+        output = allowed.stdout + allowed.stderr
+        self.assertEqual(allowed.returncode, 0, output)
+        self.assertEqual(self.remote_head(), head)
+        self.assertNotIn("installed hook copy", output, "the tracked hook runs the extras: no patched copy")
+
+    def test_a_pre_push_extra_that_is_relative_or_not_executable_refuses_the_push(self):
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        before = self.remote_head()
+        script, record = self.pre_push_extra("check", 0)
+        script.chmod(0o644)
+        (self.repo / "check").write_text(script.read_text())  # a checkout path never runs
+        (self.repo / "check").chmod(0o755)
+        for value, why in (("check", "is not an absolute path"), (str(script), "is not an executable file")):
+            self.git("config", "--unset-all", "cmux.prePushExtra", check=False)
+            self.git("config", "--add", "cmux.prePushExtra", value)
+
+            pushed = self.push()
+
+            output = pushed.stdout + pushed.stderr
+            self.assertNotEqual(pushed.returncode, 0, output)
+            self.assertIn(why, output)
+            self.assertEqual(self.remote_head(), before)
+            self.assertFalse(record.exists(), "the extra never ran")
+
+    def remote_branch(self, name, text=None):
+        """Branch NAME on the remote (pushed past the hook), with a commit that adds TEXT (a clean file by default)."""
+        self.git("checkout", "--quiet", "-b", name, "origin/feat-cmux-next")
+        kind = name.title().replace("-", "")
+        self.kit(kind, text or NEW_CLEAN.replace("Fresh", kind))
+        self.commit(f"{name} work")
+        self.assertEqual(self.push_ref(name, "--no-verify").returncode, 0)
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        return self.remote_head_of(f"refs/heads/{name}")
+
+    def remote_has(self, ref):
+        return subprocess.run(["git", "-C", str(self.origin), "show-ref", "--verify", "--quiet", ref],
+                              env=self.env).returncode == 0
+
+    def test_a_delete_only_push_passes_from_a_clone_without_a_work_tree(self):
+        # 2026-11-01: the tip watcher's `git -C /work/cmux push origin :refs/heads/x` (a core.bare clone root,
+        # no work tree) died in the hook with "this operation must be run in a work tree" 738 times. A delete
+        # sends no commits; nothing in the hook has anything to check.
+        for name in ("stale-a", "stale-b"):
+            self.remote_branch(name)
+        self.git("config", "core.bare", "true")
+
+        one = self.push_ref(":refs/heads/stale-a")
+
+        output = one.stdout + one.stderr
+        self.assertEqual(one.returncode, 0, output)
+        self.assertNotIn("work tree", output)
+        self.assertFalse(self.remote_has("refs/heads/stale-a"), "the branch is gone")
+
+        # Two deletes in one push (`git push --delete origin a b`): every line is a delete, so it passes too.
+        self.git("config", "core.bare", "false")
+        self.remote_branch("stale-c")
+        self.git("config", "core.bare", "true")
+        two = subprocess.run(["git", "-C", str(self.repo), "push", "--delete", "origin", "stale-b", "stale-c"],
+                             env=self.env, text=True, capture_output=True)
+
+        output = two.stdout + two.stderr
+        self.assertEqual(two.returncode, 0, output)
+        for name in ("stale-b", "stale-c"):
+            self.assertFalse(self.remote_has(f"refs/heads/{name}"), name)
+
+    def test_a_push_with_any_real_ref_still_runs_every_check(self):
+        # The delete-only pass must not reach a push that also sends commits: a delete next to a real ref, or a
+        # real ref alone, still runs the gate and is refused for the try! it adds.
+        doomed = self.remote_branch("doomed")
+        before = self.remote_head()
+        self.kit("Fresh", NEW_WITH_TRY)
+        self.commit("adds a try!")
+
+        for refs in ((":refs/heads/doomed", "feat-cmux-next"), ("feat-cmux-next",)):
+            pushed = subprocess.run(["git", "-C", str(self.repo), "push", "--atomic", "origin", *refs],
+                                    env=self.env, text=True, capture_output=True)
+
+            output = pushed.stdout + pushed.stderr
+            self.assertNotEqual(pushed.returncode, 0, f"{refs}: {output}")
+            self.assertIn("Fresh.swift", output, refs)
+            self.assertIn("try!", output, refs)
+            self.assertEqual(self.remote_head(), before, refs)
+            self.assertEqual(self.remote_head_of("refs/heads/doomed"), doomed, f"{refs}: the hook refused the delete too")
+
     def long_lived_branch(self, name, debt):
         """A long-lived integration branch NAME on the remote, three commits ahead of feat-cmux-next (its own merge
         train), the first carrying a try! in DEBT.swift (pushed past the hook); this clone fetches it."""
@@ -608,6 +761,36 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0, output)
         self.assertIn("ForkDebt.swift", output, "another remote's commits are the push's own")
         self.assertIn(" 2 own commit(s)", output)
+
+    def test_an_extra_upstream_bounds_nothing_on_a_push_onto_an_integration_branch(self):
+        # cmux.prepushExtraUpstream is a cut-from ref like the configured upstream: landing perf onto
+        # feat-cmux-next is judged over feat-cmux-next whatever the setting names (review of the #28493 merge).
+        self.long_lived_branch("perf/x", "PerfDebt")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "origin/perf/x")
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "origin/perf/x")
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "what perf lands on feat-cmux-next is judged")
+
+    def test_an_extra_upstream_that_is_not_a_ref_of_the_pushed_remote_bounds_nothing(self):
+        # A local branch nobody pushed (or another remote's ref, a URL push, a raw sha) never hides its commits.
+        self.git("checkout", "--quiet", "-b", "local-x")
+        self.kit("LocalDebt", self.with_try("LocalDebt"))
+        self.commit("never pushed")
+        self.git("checkout", "--quiet", "-b", "task", "origin/feat-cmux-next")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean task work")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "local-x")
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "local-x")
+
+        refused = self.push_ref("task")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("LocalDebt.swift", output, "a local branch's commits are the push's own")
 
     def test_landing_perf_onto_feat_cmux_next_is_judged_over_feat_cmux_next(self):
         # A push onto the integration branch itself (the perf train landing on feat-cmux-next) is judged over
@@ -1507,6 +1690,132 @@ let package = Package(
         result = self.push()
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # What's New highlights (release-notes/next/WRITING.md). 2026-11-01: #30774, #31156 and #31140 each landed a
+    # highlight with no docs link (or three sentences); only the release-notary job's test (after the merge) saw it,
+    # and it was red on every pull request until a fix landed (#31032, #31252).
+    HIGHLIGHT_NO_LINK = ("title: Continue a stopped reply\ncategory: improved\n\n"
+                         "Continue picks up a reply you stopped, and Retry asks again.\n")
+    HIGHLIGHT_WITH_DOCS = ("title: Continue a stopped reply\ncategory: improved\ndocs: https://cmux.com/docs/chief\n\n"
+                           "Continue picks up a reply you stopped, and Retry asks again.\n")
+    HIGHLIGHTS = "release-notes/next/highlights"
+
+    def test_a_pushed_highlight_without_a_docs_link_is_refused_by_the_hook_only(self):
+        before = self.remote_head()
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight with no docs link")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the highlight must not reach origin")
+        self.assertIn("What's New highlights", output)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: entries[0] (continue-retry): "
+                      "needs a tryIt action/deeplink or a docs link", output)
+        self.assertIn("add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, 240 characters", output)
+        # The rule stays out of CI and the merge-time gates (CLAUDE.md: no new CI gates): they run --base/--head
+        # (pull requests, fast gates, car guards) or --commits (pushes).
+        for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
+            with self.subTest(args=args):
+                ci = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=self.env, text=True,
+                                    capture_output=True)
+                self.assertEqual(ci.returncode, 0, ci.stdout + ci.stderr)
+                self.assertNotIn("What's New highlights", ci.stdout + ci.stderr)
+
+    def test_a_pushed_highlight_with_a_docs_link_passes(self):
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_WITH_DOCS)
+        self.commit("adds a highlight with a docs link")
+
+        direct = subprocess.run(["python3", "-I", GATE, "--timings"], cwd=self.repo, env=self.env, text=True,
+                                capture_output=True)
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+        # The plain run judged the highlight (its timing line) and found nothing.
+        self.assertIn("What's New highlights", direct.stderr, direct.stdout + direct.stderr)
+        self.assertNotIn("needs a tryIt", direct.stdout + direct.stderr)
+
+    def test_an_unchanged_bad_highlight_elsewhere_does_not_block_a_push(self):
+        # Someone else's bad highlight reached the base past the hook; this push adds its own highlight next to it.
+        self.write(f"{self.HIGHLIGHTS}/old-bad.md", "title: Old\n\nOne. Two. Three sentences is too many.\n")
+        self.commit("someone else's bad highlight")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight with no docs link")
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md", output)
+        self.assertNotIn("old-bad.md", output, "only the highlights the push changes are judged")
+
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_WITH_DOCS)
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "--amend", "-m", "adds a highlight with a docs link")
+
+        passed = self.push()
+
+        self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    def test_the_hook_runs_origin_s_highlight_validator_not_the_pushed_one(self):
+        # A push that also weakens the validator cannot pass its own highlight: the hook reads
+        # origin/feat-cmux-next's validator, as it runs the installed checks and never the branch's.
+        before = self.remote_head()
+        self.write("scripts/whats-new/digest.py", (self.repo / "scripts/whats-new/digest.py").read_text()
+                   + "\n\ndef entry_problems(entry):\n    return []\n")
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight and a validator that accepts it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("needs a tryIt action/deeplink or a docs link", output)
+
+    def test_a_pushed_highlight_that_is_not_utf8_is_refused_as_the_release_notary_test_fails_it(self):
+        # The release-notary test opens each highlight as strict UTF-8: a Latin-1 byte is a test error there, so the
+        # hook refuses it too, naming the file (review of #31260).
+        before = self.remote_head()
+        path = self.repo / self.HIGHLIGHTS / "continue-retry.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.HIGHLIGHT_WITH_DOCS.replace("Retry asks again", "Retry asks the caf\u00e9 again")
+                         .encode("latin-1"))
+        self.commit("adds a Latin-1 highlight")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: is not UTF-8 text", output)
+
+    def test_a_validator_warning_on_stderr_does_not_turn_a_refusal_into_a_pass(self):
+        # The validator's result is read from its own file, never from its output: a warning it prints (a future
+        # SyntaxWarning) must not make the check fail open (review of #31260).
+        digest = self.repo / "scripts/whats-new/digest.py"
+        digest.write_text(digest.read_text() + "\nimport sys\nprint('digest: a warning', file=sys.stderr)\n"
+                          "print('digest: a note')\n")
+        self.commit("the validator prints a warning when it loads")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight with no docs link")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: entries[0] (continue-retry): "
+                      "needs a tryIt action/deeplink or a docs link", output)
+        self.assertNotIn("were not validated", output)
 
 
 

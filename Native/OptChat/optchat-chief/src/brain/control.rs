@@ -12,6 +12,8 @@
 //! - `cancel id`: over for good (its transcript stays for `zoom`).
 //! - `restart id [message]`: stop the turn, continue in the same session.
 //! - `priority id`: a queued one starts next. `cap n`: the live cap.
+//! - `show id` / `hide id`: open or close its sidebar workspace (#26386:
+//!   subagents run hidden unless `subagents.showWorkspaces` is on).
 //!
 //! Pushed to the Chief, never polled: reports (spawns.rs), prompts
 //! (`permission_note`), stuck runs (`sub_tick`) and delivered inboxes.
@@ -28,8 +30,10 @@ use std::time::Duration;
 use cmux_chief::acp::SessionSummary;
 use serde_json::{Value, json};
 
-use super::{Brain, Source};
-use crate::state::{SubRecord, SubStatus};
+use std::sync::mpsc::Sender;
+
+use super::{Brain, Input, Source};
+use crate::state::{SubRecord, SubStatus, WorkspaceSlot};
 use crate::tools::ControlCall;
 
 /// A running subagent whose session did not change for this long has its
@@ -160,6 +164,21 @@ pub(super) fn prompt_parts(request: &Value) -> (String, Vec<(String, String)>) {
     (title, options)
 }
 
+/// Gives `sub`'s next workspace a fresh key: the session daemon replays a
+/// mutation id it has seen, so a closed workspace's key never opens again. A
+/// record from before slots were kept gets one (its topic group, the home
+/// folder for its terminal).
+pub(super) fn retire_slot_key(sub: &mut SubRecord) {
+    let slot = sub.workspace_slot.get_or_insert_with(|| WorkspaceSlot {
+        key: String::new(),
+        group: crate::workspaces::spawn_group(&sub.task).to_owned(),
+        cwd: std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("/")),
+    });
+    slot.key = crate::workspaces::new_key();
+}
+
 /// A subagent's permission prompt as the Chief's note: the prompt, its
 /// options, and how to deny or steer it. Only the person's app can allow
 /// (acpmux), so the note never asks the Chief to allow; `shown`: the app
@@ -190,7 +209,7 @@ pub(super) fn permission_note(id: &str, request: &Value, shown: bool) -> String 
         )
     } else {
         format!(
-            "Nobody can allow it: the app shows no working Allow button for {id}. The host denies it after {} s.",
+            "Nobody can allow it: the app shows no working Allow button for {id}. The host denies it after {} s; a hidden local subagent's Allow button shows once control(action: \"show\", id: \"{id}\") opens its workspace.",
             crate::approval::PERMISSION_WAIT.as_secs()
         )
     };
@@ -207,6 +226,9 @@ impl Brain {
         }
         if call.action == "cloud" {
             return self.control_cloud(call.peer.as_deref());
+        }
+        if call.action == "sessions" {
+            return self.control_sessions(call.n.unwrap_or(0));
         }
         if call.action == "status" && call.id.is_none() {
             return Ok(self.status_all());
@@ -234,6 +256,130 @@ impl Brain {
             "priority" => self.control_priority(&sub),
             other => Err(format!("control: no action {other}")),
         }
+    }
+
+    /// Serves `control show|hide id`: opens or closes the subagent's sidebar
+    /// workspace on a thread (the session daemon's I/O never runs on the
+    /// brain's loop), which answers `reply` once it is done. The record
+    /// changes first, so a second `show` while one opens is a noop.
+    pub(super) fn control_workspace(
+        &mut self,
+        call: &ControlCall,
+        reply: Sender<Result<String, String>>,
+    ) {
+        let id = call.id.clone().unwrap_or_default();
+        let Some((_, sub)) = self.state.sub(&id) else {
+            let _ = reply.send(Err(format!("no subagent {id}")));
+            return;
+        };
+        let sub = sub.clone();
+        self.trace
+            .emit("control", json!({"action": call.action, "id": id}));
+        let Some(workspaces) = self.workspaces.clone() else {
+            let _ = reply.send(outcome(
+                "refused",
+                "this Chief host has no cmux session to make workspaces in",
+            ));
+            return;
+        };
+        let log = self.log.clone();
+        if call.action == "hide" {
+            let Some(key) = sub.workspace.clone() else {
+                // A spawn may still be opening its workspace under the slot's
+                // key: a fresh key fences that open, which then closes.
+                if sub.workspace_slot.is_some() {
+                    if let Some(s) = self.state.sub_mut(&id) {
+                        retire_slot_key(s);
+                    }
+                    self.save();
+                }
+                let _ = reply.send(outcome(
+                    "noop",
+                    format!("{id} has no workspace; it runs hidden"),
+                ));
+                return;
+            };
+            if let Some(s) = self.state.sub_mut(&id) {
+                s.workspace = None;
+                s.ws_id = None;
+                retire_slot_key(s);
+            }
+            self.save();
+            self.rewatch_permission(&id);
+            std::thread::spawn(move || {
+                let mut text = format!(
+                    "closed {id}'s workspace; it goes on hidden, its link still opens its chat, and control(action: \"show\", id: \"{id}\") opens a new one"
+                );
+                // A workspace the user closed already fails here; the record
+                // stays hidden either way, so a later `show` opens a new one.
+                if let Err(e) = workspaces.close(&key) {
+                    log(&format!("subagent {id}: closing its workspace: {e}"));
+                    text.push_str(&format!(
+                        " (closing said: {e}; the user may have closed it already)"
+                    ));
+                }
+                let _ = reply.send(outcome("done", text));
+            });
+            return;
+        }
+        if sub.workspace.is_some() {
+            let _ = reply.send(outcome("noop", format!("{id} already has its workspace (closed by the user? hide, then show, opens a new one)")));
+            return;
+        }
+        let Some(session) = sub.session_id.clone() else {
+            let _ = reply.send(outcome(
+                "refused",
+                format!("{id} has not started yet; show it once it runs"),
+            ));
+            return;
+        };
+        let mut record = sub.clone();
+        if record.workspace_slot.is_none() {
+            retire_slot_key(&mut record);
+        }
+        let slot = record.workspace_slot.take().unwrap_or_default();
+        let name = if sub.title.is_empty() {
+            crate::workspaces::title(&sub.task)
+        } else {
+            sub.title.clone()
+        };
+        if let Some(s) = self.state.sub_mut(&id) {
+            s.workspace = Some(slot.key.clone());
+            s.workspace_slot = Some(slot.clone());
+        }
+        self.save();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let answer = match workspaces.open(&slot.key, &session, &name, &slot.group, &slot.cwd) {
+                Ok(key) => {
+                    // No group unless the task named the user's "Chief agents" (#27712).
+                    let group = if slot.group.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" in group \"{}\"", slot.group)
+                    };
+                    let mut note = format!(
+                        "{id} has its workspace \"{name}\"{group} in {}",
+                        workspaces.place()
+                    );
+                    let ws = workspaces.locate(&key).map(|r| r.id);
+                    if let Some(ws) = &ws {
+                        note.push_str(&format!(" (id {ws})"));
+                    }
+                    let _ = tx.send(Input::SubagentWorkspaceShown { id, key, name, ws });
+                    outcome("done", note)
+                }
+                Err(e) => {
+                    log(&format!("subagent {id}: opening its workspace: {e}"));
+                    let _ = tx.send(Input::SubagentWorkspaceFailed {
+                        id: id.clone(),
+                        key: slot.key,
+                    });
+                    outcome("refused", format!("opening {id}'s workspace: {e}"))
+                }
+            };
+            let _ = reply.send(answer);
+        });
     }
 
     fn status_all(&self) -> String {
@@ -358,6 +504,9 @@ impl Brain {
         }
         if sub.priority != 0 {
             line.push_str(&format!("; priority {}", sub.priority));
+        }
+        if sub.workspace.is_none() {
+            line.push_str("; hidden (no workspace)");
         }
         if sub.auto_continues > 0 {
             line.push_str(&format!("; auto-continued {}x", sub.auto_continues));

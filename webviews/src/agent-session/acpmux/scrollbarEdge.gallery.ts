@@ -15,7 +15,7 @@ export default agentPaneEntry({
   title: "Transcript scrollbar at the pane edge",
   area: "Agent pane",
   height: 700,
-  covers: ["agent-session/acpmux/inspector/inspector.css"],
+  covers: ["agent-session/acpmux/session-info/sessionInfo.css"],
   variants: {
     open: {
       note: "Session Info may move the text column left; the scrollbar stays at the pane's right edge.",
@@ -28,7 +28,7 @@ export default agentPaneEntry({
       native,
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Session Info" });
-        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-chat-inspector"));
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-session-info"));
       },
     },
   },

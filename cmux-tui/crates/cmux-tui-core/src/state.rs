@@ -64,6 +64,8 @@ pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]
 mod home_tests;
+#[cfg(test)]
+mod incognito_terminal_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]
@@ -113,6 +115,9 @@ pub(crate) mod sidebar_doc_ops;
 pub(crate) mod sidebar_doc_order;
 pub(crate) mod sidebar_doc_store;
 pub(crate) mod sidebar_doc_sync;
+pub(crate) mod sidebar_doc_workspace_move;
+#[cfg(test)]
+mod sidebar_doc_workspace_move_tests;
 #[cfg(test)]
 mod tab_attention_tests;
 #[cfg(test)]

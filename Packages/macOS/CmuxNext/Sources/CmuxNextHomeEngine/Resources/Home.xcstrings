@@ -12770,6 +12770,402 @@
         }
       }
     },
+    "handlers.misc.home.deleteConversationTitle": {
+      "comment": "Home: the question Delete Conversation… asks.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد بالتأكيد حذف هذه المحادثة؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeste li sigurni da želite izbrisati ovaj razgovor?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Er du sikker på, at du vil slette denne samtale?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Möchtest du diese Unterhaltung wirklich löschen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to delete this conversation?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Seguro que quieres eliminar esta conversación?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Voulez-vous vraiment supprimer cette conversation ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vuoi davvero eliminare questa conversazione?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この会話を削除してもよろしいですか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តើអ្នកប្រាកដថាចង់លុបការសន្ទនានេះទេ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 대화를 삭제하시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Er du sikker på at du vil slette denne samtalen?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czy na pewno chcesz usunąć tę rozmowę?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tem certeza de que deseja apagar esta conversa?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить этот разговор?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คุณแน่ใจหรือไม่ว่าต้องการลบการสนทนานี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu konuşmayı silmek istediğinizden emin misiniz?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ви впевнені, що хочете видалити цю розмову?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bạn có chắc muốn xóa cuộc trò chuyện này không?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "确定要删除此对话吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "確定要刪除此對話嗎？"
+          }
+        }
+      }
+    },
+    "handlers.misc.home.deleteConversationMessage": {
+      "comment": "Home: the explanation under Delete Conversation…'s question.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ستُزال من قائمة الصفحة الرئيسية. تعيدها رسالة جديدة، ويعرضها «إظهار المحادثات المخفية» مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uklanja se s liste početne stranice. Nova poruka je vraća, a Prikaži skrivene razgovore je ponovo prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den fjernes fra din startliste. En ny besked bringer den tilbage, og Vis skjulte samtaler viser den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sie verschwindet aus deiner Startliste. Eine neue Nachricht bringt sie zurück, und „Ausgeblendete Unterhaltungen anzeigen“ listet sie wieder auf."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It leaves your Home list. A new message brings it back, and Show Hidden Conversations lists it again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sale de tu lista de Inicio. Un mensaje nuevo la recupera, y Mostrar conversaciones ocultas vuelve a mostrarla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elle quitte votre liste d’accueil. Un nouveau message la fait revenir, et Afficher les conversations masquées la réaffiche."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esce dal tuo elenco Home. Un nuovo messaggio la riporta, e Mostra conversazioni nascoste la elenca di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホームのリストから外れます。新しいメッセージが届くか、「非表示の会話を表示」で再び表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វានឹងចេញពីបញ្ជីទំព័រដើមរបស់អ្នក។ សារថ្មីនឹងនាំវាត្រឡប់មកវិញ ហើយ បង្ហាញការសន្ទនាដែលបានលាក់ នឹងបង្ហាញវាម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈 목록에서 사라집니다. 새 메시지가 오면 다시 나타나며, 숨긴 대화 보기로 다시 표시할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den fjernes fra startlisten din. En ny melding henter den tilbake, og Vis skjulte samtaler viser den igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Znika z listy strony głównej. Nowa wiadomość ją przywraca, a Pokaż ukryte rozmowy wyświetla ją ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ela sai da sua lista de Início. Uma nova mensagem a traz de volta, e Mostrar conversas ocultas a lista novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Он исчезнет из списка главной. Новое сообщение вернёт его, а «Показать скрытые разговоры» снова покажет его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การสนทนาจะออกจากรายการหน้าหลักของคุณ ข้อความใหม่จะนำกลับมา และ แสดงการสนทนาที่ซ่อนไว้ จะแสดงอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana sayfa listenizden kalkar. Yeni bir mesaj onu geri getirir ve Gizli konuşmaları göster onu yeniden listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вона зникне зі списку головної. Нове повідомлення поверне її, а «Показати приховані розмови» знову покаже її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện sẽ rời khỏi danh sách Trang chủ. Tin nhắn mới sẽ đưa nó trở lại, và Hiện các cuộc trò chuyện đã ẩn sẽ liệt kê lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它会从主页列表中移除。收到新消息会让它回来，“显示隐藏的对话”也会再次列出它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它會從主頁列表中移除。收到新訊息會讓它回來，「顯示隱藏的對話」也會再次列出它。"
+          }
+        }
+      }
+    },
+    "handlers.misc.home.deleteConversationConfirm": {
+      "comment": "Home: Delete Conversation…'s confirm button.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حذف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izbriši"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elimina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "삭제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apagar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "删除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "刪除"
+          }
+        }
+      }
+    },
     "home.chief.welcome.goTo": {
       "comment": "Chief's welcome message: Markdown call-out of the Go to Workspace shortcut. %@ is the shortcut, such as ⌘P. Keep the ** and ` marks.",
       "extractionState": "manual",

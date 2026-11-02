@@ -150,11 +150,17 @@ export function DrillList<T>(props: DrillListProps<T>) {
       aria-setsize={style ? rows.length : undefined}
       {...itemAttributes?.(item)}
       onMouseDown={(event) => {
+        // Keeps focus in the search field for every press (a prevented mousedown still opens the
+        // context menu); only an unmodified primary press moves the highlight.
         event.preventDefault();
+        if (event.button !== 0 || event.ctrlKey) return;
         onHighlight(index);
       }}
       onMouseMove={() => index !== current && onHighlight(index)}
-      onDoubleClick={() => props.onActivate(item)}
+      onDoubleClick={(event) => {
+        if (event.button !== 0 || event.ctrlKey) return;
+        props.onActivate(item);
+      }}
     >
       {renderItem(item)}
     </div>
@@ -171,6 +177,7 @@ export function DrillList<T>(props: DrillListProps<T>) {
       count={rows.length}
       estimateSize={() => ROW_HEIGHT}
       activeIndex={current}
+      activeScrollKey={`${props.listLabel}\0${query}\0${rows.length}\0${current >= 0 ? getKey(rows[current]) : ""}`}
       renderRow={(index, style) => row(rows[index], index, style)}
     />
   ) : (

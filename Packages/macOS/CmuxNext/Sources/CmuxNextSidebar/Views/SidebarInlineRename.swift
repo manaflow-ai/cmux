@@ -56,7 +56,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
     /// baseline in the title's font and ink, and no row moves or resizes.
     func begin(_ key: SidebarRowKey, inPlace: Bool = false) {
         guard let list, list.model.presentation == .shown, list.drag == nil else { return }
-        if case let .group(id) = key, !inPlace { return list.groupEditing.open(id) }
+        if case let .group(id) = key, !inPlace || SidebarGroup.hostMachine(id) != nil { return list.groupEditing.open(id) }
         if session != nil { end(commit: true) }
         let original: String
         switch key {
@@ -109,11 +109,17 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
     private func align(_ field: NSTextField, pen: NSPoint, maxX: CGFloat) {
         guard let list, let start = Self.textOrigin(of: field) else { return }
         let at = list.convert(start, from: field)
-        // Not snapped to pixels: the title itself may sit on a half point, and the text must land where it was.
         var frame = field.frame
         frame.origin.x += pen.x - at.x
         frame.origin.y += pen.y - at.y
         frame.size.width = max(0, maxX - frame.minX)
+        // The field's top on a whole device pixel. AppKit puts the field editor on whole pixels and re-places it when
+        // the field sits between them, so a field left on a fractional y (a title centered on its capitals, #27598)
+        // drew its text a whole pixel off the title's. Snapped, the text lands within half a pixel of the title's.
+        let scale = list.window?.backingScaleFactor ?? 2
+        var top = list.convert(frame.origin, to: nil)
+        top.y = (top.y * scale).rounded() / scale
+        frame.origin.y = list.convert(top, from: nil).y
         field.frame = frame
     }
 

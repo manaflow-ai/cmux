@@ -20,9 +20,13 @@
 //! borrowed stores' object files go into its `objects/` too, and the
 //! alternates file, whose paths name folders of this Mac, never goes.
 //!
-//! Outside git, every regular file of the folder goes. Symlinks, special
-//! files and names the machine cannot hold (control characters, over 255
-//! bytes) are skipped and counted.
+//! Outside git, every regular file of the folder goes, except for a chat's
+//! copy the dependency and build folders its project rebuilds on the
+//! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`]).
+//! Symlinks, special files and names the machine cannot hold (control
+//! characters, over 255 bytes, not UTF-8) are skipped too. Every skip is
+//! named with why ([`Skips`]), except the git path's untracked `.env*` and
+//! non-UTF-8 paths, which are counted.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::ffi::OsStrExt as _;
@@ -31,6 +35,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context as _, bail};
+
+use super::skips::{self, Skips, Why};
 
 /// Where one file to push comes from.
 #[derive(Clone, Debug)]
@@ -49,11 +55,25 @@ pub(super) struct LocalFile {
     pub permissions: u32,
 }
 
-/// The files to push and how many were skipped.
+/// The files to push and what was skipped.
 pub(super) struct LocalSet {
     pub files: BTreeMap<String, LocalFile>,
+    /// Skips counted without a name.
     pub skipped: u64,
+    /// Skips named with why.
+    pub skips: Skips,
     pub git: bool,
+}
+
+/// What [`collect`] leaves out beyond what every push does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Rules {
+    /// Outside git, dependency and build folders and secrets stay here (a
+    /// chat's copy: `cmux link sync push`, `cmux link start-chat copy`).
+    Copy,
+    /// Every regular file goes (a `cmux link access` share, which filters
+    /// by its own rule).
+    Share,
 }
 
 /// What goes from the top of a git folder.
@@ -131,10 +151,11 @@ const PER_WORKTREE: &[&str] = &[
 const MAX_NAME_BYTES: usize = 255;
 const MAX_PATH_BYTES: usize = 4000;
 
-pub(super) fn collect(folder: &Path) -> anyhow::Result<LocalSet> {
-    let mut set = LocalSet { files: BTreeMap::new(), skipped: 0, git: false };
+pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
+    let skips = Skips::new(folder);
+    let mut set = LocalSet { files: BTreeMap::new(), skipped: 0, skips, git: false };
     let Some(git) = GitDirs::of(folder)? else {
-        walk(folder, folder, &mut |relative, path| add(&mut set, relative.to_string(), path))?;
+        walk_plain(&mut set, rules, folder, folder)?;
         return Ok(set);
     };
     set.git = true;
@@ -380,7 +401,7 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
     add(set, target, path)
 }
 
-/// Adds the regular file at `path` as `relative`; anything else is counted
+/// Adds the regular file at `path` as `relative`; anything else is named
 /// as skipped (a symlink, a socket, a name the machine cannot hold). A file
 /// deleted from the working tree is left out.
 fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> {
@@ -392,7 +413,7 @@ fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> 
                 LocalFile { source: Source::File(path.to_path_buf()), permissions },
             );
         }
-        Ok(_) => set.skipped += 1,
+        Ok(meta) => set.skips.note_entry(&relative, path, &meta),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
     }
@@ -417,6 +438,38 @@ pub(super) fn permissions_of(mode: u32) -> u32 {
         (false, true) => 0o600,
         (false, false) => 0o644,
     }
+}
+
+/// Adds every file below `dir` of a folder outside git (`top`), by the
+/// module doc's rules. Folders are entered without following symlinks.
+fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyhow::Result<()> {
+    let entries =
+        std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let Ok(relative) = path.strip_prefix(top) else { continue };
+        let Some(relative) = relative.to_str() else {
+            set.skips.note(&relative.to_string_lossy(), Why::NameNotUtf8);
+            continue;
+        };
+        if relative == ".DS_Store" {
+            continue;
+        }
+        let name = relative.rsplit('/').next().unwrap_or(relative);
+        if entry.file_type()?.is_dir() {
+            if rules == Rules::Copy && skips::heavy(dir, name) {
+                set.skips.note(&format!("{relative}/"), Why::Heavy);
+            } else {
+                walk_plain(set, rules, top, &path)?;
+            }
+        } else if let Some(why) = skips::secret(name).filter(|_| rules == Rules::Copy) {
+            set.skips.note(relative, why);
+        } else {
+            add(set, relative.to_string(), &path)?;
+        }
+    }
+    Ok(())
 }
 
 /// Calls `visit(relative, path)` for every non-folder entry below `dir`

@@ -32,7 +32,7 @@ extension AppServices {
     /// returns nil when all of them hold at once, else the first one that no longer holds.
     @MainActor private func placementsInFlight(until deadline: ContinuousClock.Instant) async -> String? {
         let clock = ContinuousClock()
-        let document = SidebarDocStore.current
+        let document = sidebarDoc.store
         func wait(_ done: () -> Bool) async {
             while !done(), clock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
         }

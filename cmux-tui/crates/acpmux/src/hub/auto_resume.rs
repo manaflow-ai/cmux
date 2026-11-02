@@ -65,6 +65,7 @@ use cmux_json::JsonSet as _;
 pub(super) mod reset_hint;
 #[path = "restart_resume.rs"]
 mod restart_resume;
+pub(in crate::hub) use restart_resume::Cut;
 mod restore;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
@@ -317,7 +318,7 @@ impl Drop for PendingGuard<'_> {
 /// not hold, and its last turn is that one.
 pub(super) fn still_cut(session: &Session, cut_turn: &str) -> bool {
     session.turn().is_none()
-        && session.queue().iter().all(|q| q.held)
+        && session.queue().iter().all(|q| q.aside())
         && session.meta().last_turn.as_ref().and_then(|t| t.get("turnId")).and_then(Value::as_str)
             == Some(cut_turn)
 }
@@ -400,6 +401,7 @@ impl TurnInfo {
         control: Control,
     ) -> Self {
         TurnInfo {
+            trigger: false,
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
@@ -409,14 +411,28 @@ impl TurnInfo {
             turn_seq: 0,
             control,
             doing: Default::default(),
+            notice: false,
+            persons: false,
         }
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
+    }
+
+    /// The turn, marked as one the person's own prompt started, or not ([`TurnInfo::persons`]).
+    pub(super) fn by_person(mut self, persons: bool) -> Self {
+        self.persons = persons;
+        self
     }
 
     /// The turn with `line` as the line its prompt leaves on the summary (`prompt_line.rs`): a
     /// prompt's turn names it from the prompt's provenance (`turns.rs`), which `prompted` lacks.
     pub(super) fn shown_as(mut self, line: &str) -> Self {
         self.show(line);
+        self
+    }
+
+    /// The turn with `notice` as whether its prompt is acpmux's notice (`TurnInfo::notice`).
+    pub(super) fn noticed(mut self, notice: bool) -> Self {
+        self.notice = notice;
         self
     }
 
@@ -664,23 +680,37 @@ impl Hub {
         is_pending(session.auto_resume.lock().as_ref())
     }
 
+    /// Whether the chat holds any continuation mark: a shutdown stops those chats' retries first.
+    pub(super) fn has_auto_resume_mark(&self, session: &Session) -> bool {
+        session.auto_resume.lock().is_some()
+    }
+
     /// An explicit (non-restart) shutdown: a retry that waits, or one only the journal holds yet,
     /// is stopped; a chat whose turn runs or is ending is left alone, so the next daemon still
     /// continues the turn the shutdown cut (`restart_resume.rs`).
-    pub(super) fn stop_retry_at_shutdown(&self, session: &Session) {
+    /// The journal is read only until `by` (`shutdown_sessions`' budget): a log scan past it is cut
+    /// short, and a retry only that journal held then stays for the next daemon.
+    pub(super) fn stop_retry_at_shutdown(&self, session: &Session, by: std::time::Instant) {
         let cut = session.turn().is_some()
             || matches!(
                 session.auto_resume.lock().as_ref(),
                 Some(Mark::Ending(_) | Mark::Stopping(_))
             );
         if !cut {
-            self.stop_auto_resume(session);
+            self.stop_auto_resume_by(session, Some(by));
         }
     }
 
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
+        self.stop_auto_resume_by(session, None);
+    }
+
+    /// [`Hub::stop_auto_resume`], reading the journal only until `by`: the scan checks it on
+    /// every line, so one large log cannot hold a shutdown past its deadline.
+    fn stop_auto_resume_by(&self, session: &Session, by: Option<std::time::Instant>) {
+        let expired = || by.is_some_and(|by| std::time::Instant::now() >= by);
         let mut pending = session.auto_resume.lock();
         #[cfg(test)]
         if let Some(locked) =
@@ -713,8 +743,12 @@ impl Hub {
             &session.id,
             0,
             u64::MAX,
-            &|_, kind| !boundaries.contains(&kind),
+            // Past `by`, the next line goes to `visit`, which ends the scan.
+            &|_, kind| !boundaries.contains(&kind) && !expired(),
             &mut |e: EventRecord| {
+                if expired() {
+                    return false;
+                }
                 // A crash can leave the failed result durable before its schedule. Stop
                 // must suppress that unscheduled recovery too, even before startup loads it.
                 let retryable_result = e.kind == "turn_result"

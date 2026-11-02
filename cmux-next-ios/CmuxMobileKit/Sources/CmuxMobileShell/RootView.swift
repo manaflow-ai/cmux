@@ -208,8 +208,12 @@ public struct RootView: View {
         // The account's own preferences (setup done, its Mac per team, last
         // tab) come back before the first frame of its session, so the same
         // account signing in again skips setup (verify/persistence.md).
-        .onChange(of: auth.isSignedIn ? auth.user?.id : nil, initial: true) { _, id in
-            guard let id, !auth.isMock else { return }
+        .onChange(of: auth.isResolved ? (auth.isSignedIn ? auth.user?.id : "") : nil, initial: true) { _, id in
+            guard auth.isResolved, !auth.isMock else { return }
+            // A restored session publishes the active push account too. A
+            // signed-out launch removes the old marker while retaining keys.
+            PushActiveAccountMirror.shared.update(userID: id?.isEmpty == true ? nil : id)
+            guard let id, !id.isEmpty else { return }
             AccountPreferences.standard.activate(userID: id)
             accountUserID = id
         }
@@ -299,12 +303,18 @@ public struct RootView: View {
     /// same account signs in again (verify/persistence.md). Removing it from
     /// the Macs is its own action (Settings → Devices).
     private func signedOut() {
+        // Unexpected session loss (without the manual sign-out hook) also
+        // makes queued notifications inert on this device.
+        if !auth.isMock { PushActiveAccountMirror.shared.update(userID: nil) }
         // A live Chief call (even minimized) ends with the account; a call asked for while signed out is dropped.
         ChiefLiveCall.shared.signedOut()
         ChiefCallLauncher.shared.cancelPending()
+        // A pending approval/reply or notification route belongs to the old
+        // account, including if sign-out came from an expired server session.
+        PushReplies.shared.signedOut()
         let ending = live
         live = nil
-        shellModel.discard()
+        shellModel.discard { $0.cloudChats = nil }
         setupPlan = nil
         asksNotifications = nil
         if auth.isMock {
@@ -318,15 +328,15 @@ public struct RootView: View {
         store.resetForSignOut()
         // The chats loaded in this launch go too: the next background would save them again.
         AgentSessionDirectory.shared.removeAll()
+        // A shared thumbnail cache can still hold this account's file
+        // excerpts or images. Clear it, including in-flight reads, before a
+        // different account can open an artifact grid in the same process.
+        ArtifactThumbnailCacheLifecycle.clearForSignOut()
         // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
         PushRetryStore.app?.removeAll()
         // The App Group is resolved and emptied off the main thread, after any snapshot save in flight.
         let snapshotsCleared = PushSnapshots.clearForSignOut()
-        Task.detached(priority: .utility) {
-            await snapshotsCleared.value
-            let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
-            PushOutbox(group: group)?.removeAll()
-        }
+        PushReplies.shared.clearOutboxForSignOut(after: snapshotsCleared)
         welcomeCut = false
         log.info("signed out: account state reset, device identity kept")
     }
@@ -360,6 +370,11 @@ public struct RootView: View {
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).
         auth.willSignOut = AccountSignOut().willSignOut {
+            // Disarm queued replies before the sign-out network work suspends.
+            PushReplies.shared.signedOut()
+            // Withhold content before network sign-out can leave this device.
+            // The marker lives independently of the pairing keys we retain.
+            await PushActiveAccountMirror.shared.clearBeforeSignOut()
             await PushRegistration.shared.unregister()
             // Screen Sharing: end the session on screen and sign this phone out of the device hub
             // while the account can still reach it (docs/device-hub/PROTOCOL.md, sign-out).
@@ -444,7 +459,10 @@ final class KeptModel<Model: AnyObject> {
         return made
     }
 
-    func discard() { kept = nil }
+    func discard(cleanup: (Model) -> Void = { _ in }) {
+        if let kept { cleanup(kept) }
+        kept = nil
+    }
 }
 
 /// The signed-in shell: the UIKit drawer container with the team sidebar under
@@ -500,6 +518,9 @@ struct ShellView: View {
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
+        .sheet(item: $shell.cloudChats) { item in
+            CloudChatsScreen(shell: shell, attention: item.attention)
+        }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
         }
@@ -536,6 +557,18 @@ struct ShellView: View {
             if shell.open(route) { NotificationRouter.shared.opened() }
         }
         .modifier(NotificationRouteObserver(shell: shell))
+        // A named Home conversation link may arrive before the Mac's Home
+        // rows or Cloud Chief are loaded; continue the pending route as those
+        // owners publish their identities, instead of opening another Chief.
+        .onChange(of: MacHomeFeed.shared.rows) { _, _ in
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+        }
+        .onChange(of: ChiefSources.shared.cloud.conversationID) { _, _ in
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+        }
+        .onChange(of: ChiefSources.shared.mac.conversationID) { _, _ in
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+        }
         // Design/terminal P10: remember where the user is; finish a launch
         // restore once the workspace is listed (or its Mac says it is gone).
         // Back to the workspace and tab that were open (P10), once, on the
@@ -549,24 +582,7 @@ struct ShellView: View {
         .onChange(of: shell.lastOpenLocation) { _, location in
             shell.locationChanged(location)
         }
-        .onChange(of: shell.store.activeWorkspaces) { _, _ in
-            shell.continueRestore()
-        }
-        .onChange(of: shell.store.macData) { _, _ in
-            shell.continueRestore()
-            // Its Mac answered or went away: open the route, or the Feed.
-            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
-        }
-        .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
-            shell.terminalTabs.liveDataChanged()
-        }
-        .onChange(of: shell.store.workspaces) { _, _ in
-            // A terminal page shown before the tree arrived (a launch
-            // restore) attaches now (design/terminal R1-0).
-            shell.terminalTabs.liveDataChanged()
-            // A tapped notification waits for its Mac's tree (a cold launch), then opens.
-            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
-        }
+        .modifier(WorkspaceDataObserver(shell: shell))
         .onChange(of: pushKinds, initial: true) { _, preferences in
             PushRegistration.shared.setPreferences(preferences)
         }
@@ -588,6 +604,7 @@ struct ShellView: View {
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
@@ -607,6 +624,36 @@ private struct NotificationRouteObserver: ViewModifier {
             }
             .onChange(of: shell.tab) { _, tab in
                 if tab != .feed { NotificationRouter.shared.userNavigated() }
+            }
+    }
+}
+
+/// Follows the workspaces and the Macs' data (restore, terminal pages, a
+/// waiting notification route). Its own modifier: the reads re-run only this
+/// modifier's body, not ShellView's, which rebuilt the drawer, the tabs and
+/// every bar's toolbar on each Mac tree update.
+private struct WorkspaceDataObserver: ViewModifier {
+    let shell: ShellModel
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: shell.store.activeWorkspaces) { _, _ in
+                shell.continueRestore()
+            }
+            .onChange(of: shell.store.macData) { _, _ in
+                shell.continueRestore()
+                // Its Mac answered or went away: open the route, or the Feed.
+                if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+            }
+            .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
+                shell.terminalTabs.liveDataChanged()
+            }
+            .onChange(of: shell.store.workspaces) { _, _ in
+                // A terminal page shown before the tree arrived (a launch
+                // restore) attaches now (design/terminal R1-0).
+                shell.terminalTabs.liveDataChanged()
+                // A tapped notification waits for its Mac's tree (a cold launch), then opens.
+                if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
             }
     }
 }

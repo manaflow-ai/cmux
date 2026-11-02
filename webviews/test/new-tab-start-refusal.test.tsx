@@ -4,6 +4,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -19,6 +21,7 @@ beforeAll(() => {
     document: dom.window.document,
     location: dom.window.location,
     navigator: dom.window.navigator,
+    ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
     Node: dom.window.Node,
     Element: dom.window.Element,
     Event: dom.window.Event,
@@ -80,11 +83,54 @@ const tick = () =>
   act(async () => {
     await new Promise((done) => setTimeout(done, 0));
   });
+
+async function promptField() {
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await tick();
+  return field;
+}
+
+async function writePrompt(text: string) {
+  const field = await promptField();
+  const handle = field.acpmuxMarkdownField!;
+  await act(async () => handle.writeText(text, text.length, text.length));
+  return { field, editor: field.querySelector<HTMLElement>("[contenteditable]")! };
+}
+
+const promptValue = () => host.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.plainText() ?? "";
 /// Waits for `check` to hold, a turn at a time; fails with `what` if it never does.
 async function until(check: () => boolean, what: string, within = 10_000) {
   const deadline = Date.now() + within;
   while (!check() && Date.now() < deadline) await tick();
   expect(check(), what).toBe(true);
+}
+
+const machineButton = () =>
+  host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
+/// Picks the SSH machine devbox. The machine chip's main list is This Mac and Cloud; every machine is
+/// in Machines… on its right-click menu (#28999).
+async function pickDevbox() {
+  await until(() => machineButton() !== null, "the machine chip");
+  await act(async () =>
+    machineButton()!.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const machinesItem = () =>
+    [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+      (candidate) => candidate.textContent === t("composer.machinesList"),
+    );
+  await until(() => !!machinesItem(), "Machines… on the machine chip's right-click menu");
+  await act(async () => machinesItem()!.click());
+  await until(
+    () => [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
+    "devbox pick",
+  );
+  const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
+    (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
+  )!;
+  await act(async () => remote.click());
 }
 
 for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
@@ -182,30 +228,10 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       const start = actions["chat.new"];
       actions["chat.new"] = (params: Record<string, unknown>) => start({ ...params, harness: "claude" });
     }
-    const machine = () => host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
-    const pickRemote = async () => {
-      await act(async () => machine()!.click());
-      await until(
-        () =>
-          [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
-        "devbox pick",
-      );
-      const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
-        (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
-      )!;
-      await act(async () => remote.click());
-    };
-    if (remoteStart) await pickRemote();
-    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(
-        field,
-        "inspect the failed build",
-      );
-      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-    });
+    if (remoteStart) await pickDevbox();
+    const { field, editor } = await writePrompt("inspect the failed build");
     await act(async () =>
-      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+      editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
     );
     await until(() => starts.length === 1, "session/new refused");
     if (reconnectStart) {
@@ -243,7 +269,9 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
         await until(() => !!host.textContent?.includes("agent unavailable"), "the chat says why it did not start");
         const kept = () =>
           host.textContent?.includes("inspect the failed build") ||
-          [...host.querySelectorAll("textarea")].some((node) => node.value.includes("inspect the failed build"));
+          [...host.querySelectorAll<HTMLElement>("[contenteditable='true']")].some((node) =>
+            node.textContent?.includes("inspect the failed build"),
+          );
         await until(() => !!kept(), "the refused prompt is kept");
         expect(prompts).toHaveLength(0);
         return;
@@ -257,8 +285,8 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       return;
     }
     expect(host.querySelector(".nt-field")).toBe(field);
-    expect(field.value).toBe("inspect the failed build");
-    expect(machine()?.textContent).toContain("devbox");
+    expect(promptValue()).toBe("inspect the failed build");
+    expect(machineButton()?.textContent).toContain("devbox");
     if (trust) {
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust control on the retained New Tab");
       expect(host.querySelector(".nt-field")).toBe(field);
@@ -267,12 +295,16 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
           (button) => button.textContent === t("trust.notNow"),
         )!;
         await act(async () => notNow.click());
-        await until(() => !!host.querySelector('[role="alert"]'), "declined start settles with the draft retained");
+        const undoButton = () =>
+          [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")].find(
+            (button) => button.textContent === t("trust.undo"),
+          );
+        await until(() => undoButton() !== undefined, "declined start settles with the draft retained");
+        // Not now cancelled the start; it did not fail, so no failure notice shows (#28543 review).
+        expect(host.querySelector('.acpmux-switch-notice[role="alert"]')).toBeNull();
         expect(host.querySelector(".nt-field")).toBe(field);
         expect(prompts).toHaveLength(0);
-        const undo = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")].find(
-          (button) => button.textContent === t("trust.undo"),
-        )!;
+        const undo = undoButton()!;
         await act(async () => undo.click());
         await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Undo offers Trust again");
       }
@@ -280,7 +312,7 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       if (decline) {
         expect(prompts).toHaveLength(0);
         await act(async () =>
-          field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+          editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
         );
       }
       await until(() => prompts.length === 1, "Trust resumes the retained request exactly once");
@@ -293,11 +325,11 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       return;
     }
     await act(async () =>
-      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+      editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
     );
     await until(() => starts.length === 2, "retry on the same machine");
     expect(starts[1]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
-    expect(field.value).toBe("inspect the failed build");
+    expect(promptValue()).toBe("inspect the failed build");
   }, 15_000);
 
 // Return twice while a chat start has not answered: the page's one-ask guard (NewTabScreen
@@ -352,27 +384,11 @@ test("Return twice while a start has not answered asks once", async () => {
   root = createRoot(host);
   await act(async () => root!.render(<AcpmuxApp />));
   await until(() => !!(dom.window as any).cmuxAcpmuxActions?.["chat.new"], "mock handshake");
-  const machine = () => host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
-  await act(async () => machine()!.click());
-  await until(
-    () => [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
-    "devbox pick",
-  );
-  const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
-    (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
-  )!;
-  await act(async () => remote.click());
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(
-      field,
-      "fix the flaky upload test",
-    );
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  });
+  await pickDevbox();
+  const { editor } = await writePrompt("fix the flaky upload test");
   for (let press = 0; press < 2; press++) {
     await act(async () =>
-      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+      editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
     );
     await until(() => starts.length >= 1, "the start is asked");
   }

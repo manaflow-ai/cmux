@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--native-receiver]
  *
  * - L0: refuses a base whose fingerprint (kernel release, sha256 of the sorted
  *   dpkg list) differs from the lock, unless --update-lock rewrites it (a base
@@ -54,7 +54,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { renderVmGuestModelPlaneEnvFile, VM_GUEST_MODEL_PLANE_ENV_PATH, vmEdgeAliasDomain, vmGuestModelPlaneEnv } from "../../services/coderouter/vmGuestEnv";
-import { cmuxTuiInstallCommand, cmuxTuiLayoutSelector, cmuxTuiPinCheckCommand, type CmuxTuiSource } from "../../services/vms/drivers/cmuxTuiDaemon";
+import { cmuxTuiInstallCommand, cmuxTuiLayoutSelector, cmuxTuiPinCheckCommand, cmuxTuiServiceInstallCommand, type CmuxTuiSource } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
 import {
   cmuxTuiWebsocketSmokeCommand,
@@ -134,6 +134,8 @@ export type BakeOptions = {
   promotion: boolean;
   /** Bake the agent tools (agent-tools.ts); off by default. */
   agentTools?: boolean;
+  /** Dedicated development VM API image; direct images keep their existing startup. */
+  nativeReceiver?: boolean;
   /** Team VM image (TEAM_VM_SNAPSHOT): adds the team files root /srv/team (teamVmDirsCommand). */
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
@@ -226,8 +228,8 @@ function coderouterProfileScript(): string {
 }
 
 /** The boot unit (`cmux host run`); `extraEnv` (agent tools) reaches every terminal it creates. */
-export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}): string {
-  return hostUnit(daemonEnvLines(extraEnv), STORE_PATH);
+export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}, nativeReceiver = false): string {
+  return hostUnit(daemonEnvLines(extraEnv), STORE_PATH, nativeReceiver);
 }
 
 /** Park the daemon for the snapshot. No template terminal in this image: every per-machine file goes. */
@@ -439,6 +441,7 @@ async function wireCmuxTui(ctx: Ctx): Promise<void> {
   ].join(" && "));
   // The driver's own install command: the pinned files already match, so it downloads nothing and installs the agent hooks.
   await L.step(vm, "cmux-tui-hooks", `export PATH=${STORE_PATH} && ${cmuxTuiInstallCommand(source)} && chown -R root:root ${STORE_DIR} && chown -h ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui-hook`);
+  await L.step(vm, "acpmux-service", cmuxTuiServiceInstallCommand());
   await L.step(vm, "cmux-tui-pin", `${cmuxTuiPinCheckCommand(source)} && mkdir -p /etc/cmux && printf '%s %s\\n' ${source.sha256} ${source.commit} > /etc/cmux/cmux-tui-pin && printf '%s\\n' ${devboxGhosttyVersion()} > /etc/cmux/ghostty-version`);
 }
 
@@ -612,7 +615,12 @@ async function installDevTree(ctx: Ctx): Promise<void> {
 
 async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
-  await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}), 0o644);
+  if (ctx.options.nativeReceiver) {
+    // A new image with the old pin must fail before it becomes a candidate.
+    await L.step(vm, "native-receiver-supported", `${HOST_CLI} --help | grep -F -- '--native-receiver'`);
+    ctx.result.nativeReceiver = true;
+  }
+  await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}, ctx.options.nativeReceiver), 0o644);
   await L.step(vm, "daemon-unit", `systemd-analyze verify /etc/systemd/system/${DAEMON_UNIT} && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
   await L.step(vm, "daemon-ready", devboxWaitForDaemonCommand(120));
   await L.step(vm, "daemon-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
@@ -729,8 +737,9 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--native-receiver]");
   if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
+  if (hasFlag("--native-receiver", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv))) throw new Error("--native-receiver is for dedicated development VM API images only");
   if (hasFlag("--prod-copy", argv) && hasFlag("--dev-tree", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --prod-copy");
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
@@ -743,6 +752,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     keepBuilder: hasFlag("--keep-builder", argv),
     promotion: hasFlag("--promotion", argv),
     agentTools: hasFlag("--agent-tools", argv),
+    nativeReceiver: hasFlag("--native-receiver", argv),
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
     prodCopy: hasFlag("--prod-copy", argv),

@@ -24,10 +24,9 @@ struct ChiefPendingRemoveTests {
     /// A confirmed Chief at the end of the top rows, its label hidden.
     static let hiddenLabelChief = #", {"id": "itm_chief", "section": "sec_top", "order": "c", "shows_label": false, "body": {"type": "builtin", "id": "chief"}}"#
 
-    /// The App's services and actions over a loaded document whose daemon never answers, made the current one
-    /// (`end` puts the previous one back).
+    /// The App's services and actions over a loaded document whose daemon never answers, made that app's document.
     static func pending(document: Data = Self.document(), refusingRemoves: Bool = false,
-                        remote: (any SidebarDocRemote)? = nil) async throws -> (AppServices, SidebarDocStore, end: () -> Void) {
+                        remote: (any SidebarDocRemote)? = nil) async throws -> (AppServices, SidebarDocStore) {
         _ = NSApplication.shared // the services read NSApp
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -38,9 +37,8 @@ struct ChiefPendingRemoveTests {
         await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.isActive }
         try #require(store.isActive, "the store did not load the document")
         store.show(live: [])
-        let previous = SidebarDocStore.current
-        SidebarDocStore.current = store
-        return (services, store, { SidebarDocStore.current = previous })
+        services.sidebarDoc.store = store
+        return (services, store)
     }
 
     static let addChief = [["op": "item.add", "item": ["id": "itm_chief", "body": ["type": "builtin", "id": "chief"]] as [String: Any],
@@ -54,8 +52,7 @@ struct ChiefPendingRemoveTests {
     /// `target`: the item's id (a drag out, Remove from Sidebar) or the built-in's name (the App Store card).
     @Test(arguments: ["itm_chief", "chief"])
     func aChiefAddedAndNotYetConfirmedComesOffThroughTheAction(target: String) async throws {
-        let (services, store, end) = try await Self.pending()
-        defer { end() }
+        let (services, store) = try await Self.pending()
         try store.sendChecked(ops: Self.addChief, title: "Add", undoable: false)
         try #require(store.placesItem(with: .builtIn(.chief)), "the added Chief does not count as placed")
         #expect(Self.drawn(store).map(\.ref).contains(.builtIn(.chief)), "the sidebar does not draw the Chief added before the daemon answered")
@@ -68,8 +65,7 @@ struct ChiefPendingRemoveTests {
 
     /// Two adds before the daemon answers the first (two quick drags in, or Get in two windows): one Chief.
     @Test func aSecondAddBeforeTheDaemonAnswersAddsNoSecondChief() async throws {
-        let (services, store, end) = try await Self.pending()
-        defer { end() }
+        let (services, store) = try await Self.pending()
         let add = ActionInvocation(arguments: ["item": .string("chief")], origin: .user)
         _ = services.registry.perform("sidebar.item.add", invocation: add)
         try #require(store.placesItem(with: .builtIn(.chief)), "the first add placed no Chief")
@@ -81,8 +77,7 @@ struct ChiefPendingRemoveTests {
     /// An edit of the pending Chief (its label on a line) waits for its echo: the item menu does not offer it, and the
     /// edit is refused (nothing is sent), never sent and lost or drawn from a stale record. The echo brings it back.
     @Test func anEditOfThePendingChiefIsNotOfferedUntilItsEcho() async throws {
-        let (services, store, end) = try await Self.pending()
-        defer { end() }
+        let (services, store) = try await Self.pending()
         let bridge = try Self.bridge(services)
         try store.sendChecked(ops: Self.addChief, title: "Add", undoable: false)
         let chief = try #require(Self.drawn(store).first { $0.ref == .builtIn(.chief) }, "the pending Chief is not drawn")
@@ -104,8 +99,7 @@ struct ChiefPendingRemoveTests {
     /// A confirmed Chief with its label hidden, removed and added again (label shown) before either echo: the drawn
     /// Chief is the new add's, and its edit waits for that add's echo, not for the old Chief's record.
     @Test func aChiefRemovedAndAddedAgainIsTheNewAddsUntilItsEcho() async throws {
-        let (services, store, end) = try await Self.pending(document: Self.document(chief: Self.hiddenLabelChief))
-        defer { end() }
+        let (services, store) = try await Self.pending(document: Self.document(chief: Self.hiddenLabelChief))
         let bridge = try Self.bridge(services)
         try store.sendChecked(ops: [["op": "item.remove", "id": "itm_chief"]], title: "Remove", undoable: false)
         try store.sendChecked(ops: [["op": "item.add", "item": ["id": "itm_chief", "body": ["type": "builtin", "id": "chief"], "shows_label": true] as [String: Any],
@@ -120,8 +114,7 @@ struct ChiefPendingRemoveTests {
     /// Chief draws there, as the change has it, before the echo, not in a machine list that does not exist.
     @Test(arguments: [false, true])
     func aChiefWhoseChangeMakesItsSectionDrawsInIt(undo: Bool) async throws {
-        let (_, store, end) = try await Self.pending(document: Data(#"{"revision": "1", "sections": [], "items": []}"#.utf8))
-        defer { end() }
+        let (_, store) = try await Self.pending(document: Data(#"{"revision": "1", "sections": [], "items": []}"#.utf8))
         let empty = SidebarLayoutDocument(sections: [])
         let add = try #require(empty.addToTopOp(.builtIn(.chief), newItem: SidebarLayoutDocument.chiefItemID))
         let ops = undo ? [["op": "section.put", "section": ["id": "sec_new", "kind": ["type": "custom"], "region": "top", "scroll": "fixed", "order": "a"]],
@@ -138,10 +131,9 @@ struct ChiefPendingRemoveTests {
     /// The Chief alone in This Mac's Work group, dragged out: the remove took the emptied group too, so its undo puts
     /// back both. Before the echo the Chief draws in the group the undo put back, not nowhere.
     @Test func anUndoThatPutsBackTheChiefsGroupDrawsTheChiefInIt() async throws {
-        let (_, store, end) = try await Self.pending(document: Data(#"""
+        let (_, store) = try await Self.pending(document: Data(#"""
         {"revision": "1", "sections": [{"id": "sec_m_s1", "kind": {"type": "machine", "session_id": "s1"}}], "items": []}
         """#.utf8))
-        defer { end() }
         try store.sendChecked(ops: [["op": "item.put", "item": ["id": "g_work", "section": "sec_m_s1", "order": "a",
                                                                  "body": ["type": "group", "name": "Work", "collapsed": false]] as [String: Any]],
                                     ["op": "item.put", "item": ["id": "itm_chief", "section": "sec_m_s1", "parent": "g_work", "order": "a",
@@ -158,8 +150,7 @@ struct ChiefPendingRemoveTests {
     /// Chief is the document's again, its label edit offered.
     @Test func aReloadThatHoldsTheAnsweredAddSettlesIt() async throws {
         let remote = AnsweringRemote(document: Self.document())
-        let (services, store, end) = try await Self.pending(remote: remote)
-        defer { end() }
+        let (services, store) = try await Self.pending(remote: remote)
         let bridge = try Self.bridge(services)
         try store.sendChecked(ops: Self.addChief, title: "Add", undoable: false)
         await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { remote.answered > 0 }
@@ -177,8 +168,7 @@ struct ChiefPendingRemoveTests {
     /// it, so the reload settles it by revision: a document at the answer's revision or later holds the change.
     @Test func aReloadAtTheAnsweredRevisionSettlesAnUndoThatPutTheChiefBack() async throws {
         let remote = AnsweringRemote(document: Self.document())
-        let (services, store, end) = try await Self.pending(remote: remote)
-        defer { end() }
+        let (services, store) = try await Self.pending(remote: remote)
         let bridge = try Self.bridge(services)
         try store.sendChecked(ops: [["op": "item.put", "item": ["id": "itm_chief", "section": "sec_top", "order": "c", "shows_label": false,
                                                                  "body": ["type": "builtin", "id": "chief"]] as [String: Any]]],
@@ -197,8 +187,7 @@ struct ChiefPendingRemoveTests {
     /// both: the mirror replays them, so the Chief stays the new add's, pending until its echo.
     @Test func aReloadOlderThanAnsweredChangesKeepsThemPending() async throws {
         let remote = AnsweringRemote(document: Self.document(chief: Self.hiddenLabelChief))
-        let (services, store, end) = try await Self.pending(remote: remote)
-        defer { end() }
+        let (services, store) = try await Self.pending(remote: remote)
         let bridge = try Self.bridge(services)
         try store.sendChecked(ops: [["op": "item.remove", "id": "itm_chief"]], title: "Remove", undoable: false)
         try store.sendChecked(ops: [["op": "item.add", "item": ["id": "itm_chief", "body": ["type": "builtin", "id": "chief"], "shows_label": true] as [String: Any],
@@ -232,8 +221,7 @@ struct ChiefPendingRemoveTests {
 
     /// Only the Chief draws before its echo: another built-in (Settings) draws at its echo, as before.
     @Test func anotherBuiltInDrawsAtItsEcho() async throws {
-        let (_, store, end) = try await Self.pending()
-        defer { end() }
+        let (_, store) = try await Self.pending()
         try store.sendChecked(ops: [["op": "item.add", "item": ["id": "itm_settings", "body": ["type": "builtin", "id": "settings"]] as [String: Any],
                                      "to": ["section": "sec_top"]]], title: "Add", undoable: false)
         #expect(!Self.drawn(store).map(\.ref).contains(.builtIn(.settings)), "a pending Settings item draws before its echo")
@@ -242,8 +230,7 @@ struct ChiefPendingRemoveTests {
     /// The pending Chief's remove is refused: the mirror puts the Chief back, and the sidebar draws it again, placed;
     /// a second add then adds nothing (the first add's echo will place the one Chief).
     @Test func aRefusedRemoveOfThePendingChiefKeepsIt() async throws {
-        let (services, store, end) = try await Self.pending(refusingRemoves: true)
-        defer { end() }
+        let (services, store) = try await Self.pending(refusingRemoves: true)
         _ = services.registry.perform("sidebar.item.add", invocation: ActionInvocation(arguments: ["item": .string("chief")], origin: .user))
         try #require(store.placesItem(with: .builtIn(.chief)), "the add placed no Chief")
         _ = services.registry.perform("sidebar.item.removeEverywhere",
@@ -262,8 +249,7 @@ struct ChiefPendingRemoveTests {
     /// mirror puts the confirmed Chief back and drops the add it replays over it. The add settles with it: the Chief
     /// draws as confirmed, its label edit offered again.
     @Test func aRefusedRemoveSettlesTheAddItDropped() async throws {
-        let (_, store, end) = try await Self.pending(document: Self.document(chief: Self.hiddenLabelChief), refusingRemoves: true)
-        defer { end() }
+        let (_, store) = try await Self.pending(document: Self.document(chief: Self.hiddenLabelChief), refusingRemoves: true)
         try store.sendChecked(ops: [["op": "item.remove", "id": "itm_chief"]], title: "Remove", undoable: false)
         try store.sendChecked(ops: [["op": "item.add", "item": ["id": "itm_chief", "body": ["type": "builtin", "id": "chief"], "shows_label": true] as [String: Any],
                                      "to": ["section": "sec_top"]]], title: "Add", undoable: false)
@@ -278,8 +264,7 @@ struct ChiefPendingRemoveTests {
     /// holds the confirmed Chief, the remove it answers is put back, and the add the mirror drops then settles too.
     @Test func aReloadThatSettlesAnUnansweredRemoveSettlesTheAddItDropped() async throws {
         let remote = HeldReload(document: Self.document(chief: Self.hiddenLabelChief))
-        let (_, store, end) = try await Self.pending(remote: remote)
-        defer { end() }
+        let (_, store) = try await Self.pending(remote: remote)
         try store.sendChecked(ops: [["op": "item.remove", "id": "itm_chief"]], title: "Remove", undoable: false)
         await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { remote.held != nil }
         try #require(remote.held != nil, "the unanswered remove asked for no reload")

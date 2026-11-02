@@ -39,7 +39,8 @@ label is dead: then it is the pick itself. Until 2026-10-31 dead() dropped the e
 labels dead, so with no fresh snapshot a re-run still took blacksmith-12vcpu-macos-26 (05:44Z: 88 queued, none
 running, the oldest 1403 min), as classic_nightly_build_runner.py did:
 
-    SNAPSHOT_TOKEN=<actions: read> CANDIDATE=<vars.MACOS_RUNNER_26> RUNNER_POOLS=<vars.RUNNER_POOLS> nightly_sign_runner.py
+    SNAPSHOT_TOKEN=<actions: read> [SNAPSHOT_FALLBACK_TOKEN=<github.token>] CANDIDATE=<vars.MACOS_RUNNER_26> \\
+        RUNNER_POOLS=<vars.RUNNER_POOLS> nightly_sign_runner.py
     -> `runner=<label>`, `alternate=<label>` and `placement=verified|unverified` in $GITHUB_OUTPUT,
        and why in the step summary
 """
@@ -72,12 +73,70 @@ DEAD_KEY = "_dead"
 POOL = "macos_26"
 MARK_TTL = dt.timedelta(minutes=30)
 LABELS = (cascade.SMALL, cascade.LARGE)
+LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
+# Nightly overflow moves a queued signer to another declared size after about
+# three minutes with no start; this is shorter than the macOS sign picker's
+# ten-minute Blacksmith stall rule.
+LINUX_STALL_MINUTES = 3
 
 
 def candidates(variable: str) -> list[str]:
     """The variable's label when it is a Blacksmith macOS 26 label, then 6 vCPU, then 12 vCPU."""
     first = [variable] if BLACKSMITH_MACOS.fullmatch(variable or "") else []
     return list(dict.fromkeys([*first, cascade.SMALL, cascade.LARGE]))
+
+
+def linux_candidates(variable: str) -> list[str]:
+    """The configured Blacksmith Linux size, then the other declared sizes."""
+    first = [variable] if variable in LINUX_LABELS else []
+    return list(dict.fromkeys([*first, *LINUX_LABELS]))
+
+
+def linux_stalled(snapshot: Mapping[str, Any] | None, labels: list[str], now: dt.datetime) -> set[str] | None:
+    """Return Linux labels whose queue has stalled, or None without a fresh snapshot."""
+    fresh = cascade._fresh(snapshot, now)  # noqa: SLF001 - use the shared snapshot age rule
+    if fresh is None:
+        return None
+    age, pools = fresh
+    # macos-pool-load is currently produced from the macOS queue janitor and
+    # therefore may contain no Linux labels at all.  Treat an incomplete Linux
+    # view as unverified instead of claiming an absent label is moving; the
+    # caller then rotates to its alternate on a stalled retry.
+    if not all(label in pools for label in labels):
+        return None
+    # `oldest_queued_minutes` is measured when the snapshot was generated.  A
+    # queued job therefore keeps aging while the picker is reading the
+    # snapshot; ignoring that age can keep selecting a label that has already
+    # exceeded the three-minute overflow threshold.
+    age = max(0.0, age)
+    out: set[str] = set()
+    for label in labels:
+        entry = (pools or {}).get(label) or {}
+        try:
+            queued = float(entry.get("queued") or 0)
+            oldest = float(entry.get("oldest_queued_minutes") or 0)
+        except (TypeError, ValueError):
+            continue
+        if queued and oldest + age >= LINUX_STALL_MINUTES:
+            out.add(label)
+    return out
+
+
+def linux_place(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime,
+                attempt: int) -> tuple[str, str, str, bool]:
+    """Pick a moving Blacksmith Linux size for release-pool signer jobs."""
+    labels = linux_candidates(variable)
+    stalled = linux_stalled(snapshot, labels, now)
+    if stalled is None:
+        index = (attempt - 1) % len(labels)
+        label = labels[index]
+        other = labels[(index + 1) % len(labels)]
+        return label, other, f"placement unverified: no fresh Linux pool snapshot, so `{label}`", False
+    moving = [label for label in labels if label not in stalled] or labels
+    label = moving[min(attempt - 1, len(moving) - 1)]
+    others = [candidate for candidate in moving if candidate != label]
+    other = others[0] if others else label
+    return label, other, f"Blacksmith Linux picker chose `{label}`" + (f"; stalled {', '.join(sorted(stalled))}" if stalled else ""), True
 
 
 def runner_pools(raw: str | None) -> Mapping[str, Any]:
@@ -160,7 +219,7 @@ def pick(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime,
     stuck = stalled(snapshot, labels, now, pools)
     if stuck is None:
         # A snapshot too old for the stall rule still shows a dead label (dead()): never pick it unverified.
-        # dev_landing_place.py's overflow (OVERFLOW_LABEL, 12 vCPU) and nightly_build_runner.py read this pick.
+        # nightly_build_runner.py reads this pick.
         gone = dead(snapshot, now, pools)
         label = next((label for label in labels if label not in gone), labels[0])
         return label, (f"no fresh pool snapshot, so `{label}` "
@@ -249,19 +308,35 @@ def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | 
     variable = (env.get("CANDIDATE") or "").strip()
     snapshot, problem = None, "no token to read the pool snapshot"
     token, repo = env.get("SNAPSHOT_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
+    # The read token is the routing App's, whose installation budget other jobs share: on
+    # run 41335987427 (2026-11-01) every read answered 403 with X-RateLimit-Remaining=0, the
+    # pick went blind onto blacksmith-6vcpu-macos-26 and the final DMG verify sat queued there.
+    # GITHUB_TOKEN has its own budget, so a failed read is tried with it next.
+    fallback = env.get("SNAPSHOT_FALLBACK_TOKEN", "").strip()
+    tokens = [token] + ([fallback] if fallback and fallback != token else [])
     if token and repo:
         def live() -> Any:
-            if read is not None:
-                return read(token, repo)
-            import pr_runner_pool  # noqa: PLC0415 - only for the live read
+            current = tokens[0]
+            try:
+                if read is not None:
+                    return read(current, repo)
+                import pr_runner_pool  # noqa: PLC0415 - only for the live read
 
-            return pr_runner_pool.GitHub(token, repo).snapshot(now=now)
+                return pr_runner_pool.GitHub(current, repo).snapshot(now=now)
+            except Exception:
+                if len(tokens) > 1:
+                    tokens.pop(0)
+                    print("nightly sign runner: the read token failed; the next read uses SNAPSHOT_FALLBACK_TOKEN")
+                raise
         snapshot, problem = read_snapshot(live, "nightly sign runner", sleep=sleep, clock=clock)
     try:
         attempt = max(1, int((env.get("GITHUB_RUN_ATTEMPT") or "1").strip() or "1"))
     except ValueError:
         attempt = 1
-    label, other, why, verified = place(variable, snapshot, now, attempt, problem, runner_pools(env.get("RUNNER_POOLS")))
+    if env.get("PLATFORM", "macos").strip().lower() == "linux":
+        label, other, why, verified = linux_place(variable, snapshot, now, attempt)
+    else:
+        label, other, why, verified = place(variable, snapshot, now, attempt, problem, runner_pools(env.get("RUNNER_POOLS")))
     if not verified:
         print(f"::warning title=nightly sign runner::{why}")
     print(f"nightly sign runner: {why}; a re-run takes `{other}`")

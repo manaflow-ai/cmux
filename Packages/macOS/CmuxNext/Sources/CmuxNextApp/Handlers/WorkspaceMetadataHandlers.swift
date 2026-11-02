@@ -31,9 +31,9 @@ enum WorkspaceMetadataHandlers {
         registry.bind("palette.toggleWorkspacePin", requires: DaemonCapability.workspacePin.rawValue, daemon: {
             PinCommands(context: context).pinsAreTiles ? nil : context.services.activeDaemon
         }(), run: { invocation in
-            // Every selected row takes the right-clicked row's new state, as Finder's tags do.
+            // Every selected row takes the right-clicked row's new state (Finder's tags), else `pinned` (CLI, MCP) sets it.
             let commands = PinCommands(context: context)
-            let pinned = try !commands.isWorkspacePinned(context.workspace(invocation).model)
+            let pinned = try invocation["pinned"]?.boolValue ?? !commands.isWorkspacePinned(context.workspace(invocation).model)
             try commands.setWorkspacesPinned(WindowMembershipHandlers.rowTargets(invocation, context).map(\.id), pinned: pinned, origin: invocation.origin)
         })
         // The workspace menu reads Pin Workspace or Unpin Workspace for the right-clicked row.
@@ -42,7 +42,7 @@ enum WorkspaceMetadataHandlers {
             return PinCommands(context: context).isWorkspacePinned(workspace) ? PinStrings.unpinWorkspace : PinStrings.pinWorkspace
         }
         // Add to Top / Remove from Top on the workspace row (P1): the same layout path as `sidebar.item.add`.
-        registry.bind("workspace.toggleTop", unavailable: { SidebarDocWiring.layoutUnavailableReason(context.services.sidebarLayout) }, run: { invocation in
+        registry.bind("workspace.toggleTop", unavailable: { context.services.sidebarDoc.layoutUnavailableReason(context.services.sidebarLayout) }, run: { invocation in
             try PinCommands(context: context).toggleWorkspaceOnTop(try context.workspace(invocation).model.id, origin: invocation.origin)
         })
         ActionTargetTitles.set("workspace.toggleTop", in: registry) { invocation in

@@ -179,7 +179,10 @@ public final class HoverCardCoordinator {
         let inGap = card.map { panel?.escapeGeometry?.zone(at: now) == .gap || besideTarget(now, card: $0) } ?? false
         let bridging = hit == nil && !mouseButtonDown()
             && (onCard || (escaped == nil && (inGap ? aiming : bridges(at: now))))
-        send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
+        // A card that hides on leave holds for a pointer aiming into it only beside its row (a
+        // sidebar row's card): a tab's card below its strip still swaps at once, as in Chrome.
+        let holdsAim = machine.shownTarget?.leave.hidesAtOnce != true || panel?.escapeGeometry != nil
+        send(.hit(hit?.target, moved: true, aiming: aiming && holdsAim, bridging: bridging))
     }
 
     /// `point` is between the shown target's own frame and its card, beside the card (a sidebar
@@ -201,6 +204,10 @@ public final class HoverCardCoordinator {
 
     /// Whether the pointer rests on the shown card now.
     private func pointerIsOnCard() -> Bool { shownCardFrame?.contains(currentPointer()) == true }
+
+    /// The pointer rests on the shown card now (a source holds its targets still while it does: the card
+    /// follows its target, so a target moving would carry the card out from under the pointer).
+    public var pointerIsOnShownCard: Bool { pointerIsOnCard() }
 
     /// Content in `window` moved or changed (layout, strip or list scroll,
     /// column scroll, an animation frame, tabs added, removed or

@@ -3,8 +3,8 @@
 // refuses, Base UI owns the menu semantics, keyboard navigation, dismissal and
 // focus restoration; this adapter only supplies the pointer location and
 // page-specific actions.
-import { useEffect, useMemo, useRef, useState } from "react";
-import { nativeMenu, pickedId, type NativeMenuRow } from "../../ui/nativeMenu";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "../../ui/nativeMenu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { usePopupHost, usePortalContainer } from "../../ui/UiProvider";
 import { useEscapingPopup } from "../../ui/popupHost";
@@ -30,6 +30,14 @@ export interface PageMenuProps {
 export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
   const container = usePortalContainer();
   const opener = useRef<HTMLElement | null>(returnFocus ?? null);
+  // A native menu can answer after its page/row has closed. Retired menus own no actions.
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const anchor = useMemo(
     () => ({
       getBoundingClientRect: () => ({
@@ -63,12 +71,21 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
     ]);
     native({ items: rows, point: { x, y } }).then(
       (reply) => {
-        const chosen = items.find((item) => item.id === pickedId(reply));
+        if (!mounted.current) return;
+        // Older hosts can answer an unknown operation with a successful empty acknowledgement.
+        // That means the menu never opened; let Base UI draw an actionable one instead.
+        if (!hasNativeMenuPick(reply)) {
+          setDrawn(true);
+          return;
+        }
+        const chosen = items.find((item) => item.id === pickedId(reply) && !item.disabled);
         onClose();
         if (chosen) chosen.run();
         else if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
       },
-      () => setDrawn(true),
+      () => {
+        if (mounted.current) setDrawn(true);
+      },
     );
   }, [items, x, y, onClose]);
   if (!drawn) return null;
@@ -91,7 +108,11 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
           align="start"
           sideOffset={0}
         >
-          <BaseMenu.Popup ref={host ? setPopup : undefined} className="page-menu" finalFocus={() => opener.current}>
+          <BaseMenu.Popup
+            ref={host ? setPopup : undefined}
+            className="page-menu ui-popup ui-glass"
+            finalFocus={() => opener.current}
+          >
             {items.map((item) => (
               <PageMenuRow key={item.id} item={item} onClose={onClose} />
             ))}

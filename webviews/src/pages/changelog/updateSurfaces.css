@@ -8,13 +8,24 @@
    (SidebarCardSlotMotion), so no list row sits behind it. In the sidebar the host draws the glass
    natively (CardSurfaceView under the page, surface.css) and this paints nothing; the glass here is
    the gallery's and any page that shows the card itself. */
+/* The card follows the sidebar's density (Lawrence 2026-11-01: "the card must reflect my compactness
+   level"): the host sends the rows' tokens for it as --cmux-sidebar-card-* (WebTheme,
+   SidebarRowTokens.card in Swift): the rows' inset and text sizes, a title line's room as a row
+   gives its text, a button one row tall less the rows' gap, nested corners. The fallbacks are the
+   Compact values, for a page shown outside the app (the gallery). */
 .wn-card {
+  --wn-pad-x: var(--cmux-sidebar-card-padding-x, calc(var(--ds-space-1) * 1.5));
+  --wn-pad-y: var(--cmux-sidebar-card-padding-y, var(--ds-space-1));
+  --wn-gap: var(--cmux-sidebar-card-gap, 2px);
+  --wn-title: var(--cmux-sidebar-card-title, 12px);
+  --wn-note: var(--cmux-sidebar-card-note, 10.5px);
+  --wn-close: var(--cmux-sidebar-card-close, var(--ds-space-4));
   position: relative;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: var(--wn-pad-y) var(--wn-pad-x);
+  border-radius: var(--cmux-sidebar-card-radius, 10px);
   color: var(--page-text);
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
+  font-size: var(--wn-title);
+  line-height: 1.3;
   letter-spacing: var(--text-body--letter-spacing);
 }
 /* Plain glass keeps the card's look from before the lens, the composer's surface as every sidebar
@@ -42,40 +53,33 @@
   -webkit-user-select: none;
   user-select: none;
 }
-.wn-card-eyebrow {
-  padding-right: 20px;
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
+/* Short (2026-10-31, "too much text"): the title in the text color, room for the x at its end. */
+.wn-card-title {
+  /* Room for the host's x on the title line. */
+  padding-right: calc(var(--wn-close) + var(--wn-gap));
+  color: var(--page-text);
+  font-weight: 600;
 }
-/* The eyebrow and the build line wrap between their parts ("Nightly ·" | "Oct 26, 7:38 PM"), and
-   inside a part only when it is wider than the card (a long translation at the sidebar's minimum
-   width), so nothing is ever cut off (Leo 2026-10-26). */
-.wn-card-part {
-  display: inline-block;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-/* Design #2 "Readable" (design/whats-new-surfaces-gallery): a hairline sets the version apart, under
-   the build line when there is one (Leo 2026-10-26). */
-.wn-card-eyebrow:not(:has(+ .wn-card-build)),
-.wn-card-build {
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--page-separator);
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-.wn-card-build {
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  font-variant-numeric: tabular-nums;
-}
-/* The build's commit on the card and the version in the popover's heading: plain text a click copies
+/* The version in the card's title and in the popover's heading: plain text a click copies
    the full version from (UpdateSurfaces CopyVersion, 2026-10-31). No tooltip, no link styling: hover only lifts it to the primary text color, and
-   keyboard focus takes the pages' ring (desktop.css). */
+   keyboard focus takes the pages' ring (desktop.css). It is a <button> that reads as the text
+   around it: no box, that text's font and color. */
 .wn-copy-version {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
   cursor: default;
   transition: color 0.12s ease-out;
+}
+/* Outranks the surfaces' `button { user-select: none }` above: the version is words to quote. */
+:is(.wn-card, .wn-pop) .wn-copy-version {
+  -webkit-user-select: text;
+  user-select: text;
 }
 .wn-copy-version:hover { color: var(--page-text); }
 @media (prefers-reduced-motion: reduce) {
@@ -106,41 +110,35 @@
 }
 .wn-card-close svg { width: 8px; height: 8px; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
 .wn-card-close:hover { background: var(--page-hover); color: var(--page-text); }
-.wn-card-headline {
-  margin: 3px 0 2px;
-  font-weight: 600;
+/* The update's top change: the area semibold in the text color, the change after it in the
+   secondary color. It wraps instead of being cut with an ellipsis, so it reads and selects whole
+   (u4466); a long one stops at two lines. */
+.wn-card-note {
+  margin: var(--wn-gap) 0 0;
+  color: var(--page-text-2);
+  font-size: var(--wn-note);
+  line-height: 1.3;
+  letter-spacing: var(--text-detail--letter-spacing);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-/* What changed, one line per area (updateSummary.ts): the area in the text color and semibold, its
-   changes after it in the secondary color, each line wrapping onto a second instead of being cut
-   with an ellipsis, so it reads and selects whole (design #2 "Readable", u4466); a longer one
-   stops at two lines. */
-.wn-card-areas { list-style: none; margin: 5px 0 0; padding: 0; font-size: var(--text-detail); line-height: var(--text-detail--line-height); color: var(--page-text-2); letter-spacing: var(--text-detail--letter-spacing); }
-.wn-card-areas li {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.wn-card-areas li + li { margin-top: 3px; }
 .wn-card-area { font-weight: 600; color: var(--page-text); }
-.wn-card-more { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
 /* The button keeps one line (nxdog93: "See What's New" wrapped onto two lines in a 160 pt
    sidebar, cx-7rone). */
-.wn-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.wn-card-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); margin-top: calc(var(--wn-gap) * 2); }
 .wn-card-actions .wn-card-primary { margin-left: auto; flex: none; }
 /* Self-contained: the sidebar's surface document loads this file, not the page's styles.css. */
 .wn-card-primary {
-  height: 24px;
-  padding: 0 10px;
-  border-radius: 7px;
+  height: var(--cmux-sidebar-card-button, 20px);
+  padding-block: 0;
+  padding-inline: var(--cmux-sidebar-card-button-padding-x, var(--wn-pad-x));
+  border-radius: var(--cmux-sidebar-card-button-radius, 6px);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
   color: var(--page-text);
-  font-size: var(--text-detail);
+  font-size: var(--wn-note);
   font-weight: 500;
   white-space: nowrap;
   max-width: 100%;

@@ -56,6 +56,9 @@ impl AcpmuxOwner {
         fs::write(&config, "{\"harnesses\":{}}").unwrap();
         let mut config = Config::load_from_with(&config, &ProfileSources::none()).unwrap();
         config.store.mode = StoreMode::Memory;
+        // The cmux-tui binary installs acpmux's build id at start (main.rs); so
+        // does this in-process hub, or it reports `unstamped`.
+        acpmux::hub::install_build(acpmux_build_id::build());
         let hub = Hub::new(config.clone(), acpmux::store::open(&config.store, dir).unwrap());
         let cache = dir.join("health.json");
         fs::write(

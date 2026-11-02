@@ -86,6 +86,7 @@ extension TabStripView {
             placed[slot.id] = place
         }
         pinClosingTabs()
+        updateCrowded()
         scrollOffset = TabScrollMath.clamp(scrollOffset, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         if keepsSelectedInView, drag == nil, let slot = model.selectedID.flatMap({ result.slot($0) }) {
             scrollOffset = TabScrollMath.offset(revealing: slot, current: scrollOffset, contentWidth: result.contentWidth, viewportWidth: viewportWidth,
@@ -98,6 +99,17 @@ extension TabStripView {
         // An opening tab first shows where it opens from; the move takes it to its slot.
         if !starts.isEmpty { place(starts, mapping: mappingBefore) }
         applyFrames(move: move, scrollFrom: mappingBefore)
+    }
+
+    /// ``isCrowded`` from the layout just made. Closing mode's pretend width keeps the tabs as they
+    /// were, so a close in progress does not flip it.
+    func updateCrowded() {
+        let squeezed = model.style != .compact && result.standardWidth > 0 && result.standardWidth < metrics.maxTabWidth - 0.5
+        let crowded = closingModeWidth == nil ? result.isOverflowing || squeezed : isCrowded
+        guard crowded != isCrowded else { return }
+        isCrowded = crowded
+        reveal.hover.restAlpha = TabTunables.restingControlAlpha(crowded: crowded)
+        onCrowdedChange?(crowded)
     }
 
     /// A closing tab's left edge stays on the previous tab's right edge minus the close width (0: our
@@ -376,6 +388,9 @@ extension TabStripView {
 }
 
 extension TabStripView: MotionAnimating {
+    /// Autoscroll has no end state: out of sight it just stops.
+    public func motionSettle() {}
+
     /// One autoscroll frame; false when no drag sits in an edge fade and no recorded move travels.
     public func motionStep(_ dt: Double) -> Bool {
         let scrolling = autoscrollDuringDrag(CGFloat(dt))

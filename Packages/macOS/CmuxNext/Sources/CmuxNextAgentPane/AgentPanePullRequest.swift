@@ -129,7 +129,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// Its author's GitHub login; empty when gh does not say.
     public var author: String
     /// Its comments, review comments included (GraphQL `totalCommentsCount`); nil when the read
-    /// did not say, as a `gh pr view` does not (the Inspector's Changes shows it beside a bubble).
+    /// did not say, as a `gh pr view` does not (Session Info's Changes shows it beside a bubble).
     public var comments: Int?
 
     public init(url: String, number: Int, title: String = "", state: String, review: String = "", mergeable: String = "",

@@ -317,6 +317,11 @@ pub mod method {
     pub const SESSION_DELETE: &str = "session/delete";
     pub const SESSION_PROMPT: &str = "session/prompt";
     pub const SESSION_CANCEL: &str = "session/cancel";
+    /// Dedicated, scoped Cloud trigger chat operations. These never fall
+    /// through to the ordinary session/new, session/prompt or info paths.
+    pub const TRIGGER_CHAT_ENSURE: &str = "trigger/chat.ensure";
+    pub const TRIGGER_CHAT_SEND: &str = "trigger/chat.send";
+    pub const TRIGGER_CHAT_STATUS: &str = "trigger/chat.status";
     pub const SESSION_SET_MODE: &str = "session/set_mode";
     pub const SESSION_SET_MODEL: &str = "session/set_model";
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
@@ -379,10 +384,20 @@ pub mod method {
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// The owner lets a person's prompt that waits for them run, `{sessionId, promptId}`
+    /// (`hub/queue_approve.rs`): `{sessionId, promptId, turnId, revision, approved}`.
+    pub const MUX_QUEUE_APPROVE: &str = "_acpmux/queue_approve";
+    /// The owner drops a person's prompt that waits for them, `{sessionId, promptId}`: its
+    /// `session/prompt` answers `queue.declined`. `{sessionId, promptId, declined}`.
+    pub const MUX_QUEUE_DECLINE: &str = "_acpmux/queue_decline";
     /// One queued prompt's whole text and blocks, `{sessionId, promptId}` →
     /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
     /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
     pub const MUX_QUEUE_TEXT: &str = "_acpmux/queue_text";
+    /// The owner reads a queued prompt whole before answering it, `{sessionId, promptId}`
+    /// (`hub/queue_approve.rs`): `{promptId, turnId, revision, text, prompt, inlineParts, author,
+    /// provenance, awaitingOwner}`.
+    pub const MUX_QUEUE_GET: &str = "_acpmux/queue_get";
     /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
     /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
     /// `{interrupted}`, false when no steer waits; an agent without it answers an error.
@@ -467,6 +482,8 @@ pub mod method {
     /// A session's turn cap (`hub/turn_cap.rs`): `{sessionId, turnCapMs?}`, a number sets it
     /// (0 turns it off), null clears it, absent reads it.
     pub const MUX_SET_TURN_CAP: &str = "_acpmux/set_turn_cap";
+    pub const AGENT_SESSION_TURN_PREPARE: &str = "agent-session-turn-prepare";
+    pub const AGENT_SESSION_TURN_ABANDON: &str = "agent-session-turn-abandon";
     /// A chat's inbox threads (`hub/inbox.rs`): `{sessionId}`.
     pub const MUX_INBOX_THREADS: &str = "_acpmux/inbox_threads";
     /// One inbox thread's messages: `{sessionId, threadId, markRead?}`.
@@ -474,6 +491,10 @@ pub mod method {
     /// An answer in an inbox thread, to its sender's inbox: `{sessionId, threadId, text}`.
     pub const MUX_INBOX_REPLY: &str = "_acpmux/inbox_reply";
     pub const MUX_TAG: &str = "_acpmux/tag";
+    /// Ends a session's link to the session that started it (`acpmux session detach`,
+    /// `hub/lane_reports.rs`): `{sessionId}` -> `{sessionId, detached}`. Its turns no longer go
+    /// to that session's chat, and its tag `lane.reportsTo` is removed.
+    pub const MUX_DETACH_PARENT: &str = "_acpmux/detach_parent";
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
     pub const MUX_ARCHIVE: &str = "_acpmux/archive";
@@ -496,6 +517,9 @@ pub mod method {
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
+    /// Stop and delete every chat of one cmux workspace, an incognito one when its window
+    /// closes (`server/chats/workspace_purge.rs`); the local unix socket only.
+    pub const MUX_WORKSPACE_PURGE: &str = "_acpmux/workspace_purge";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
@@ -565,6 +589,12 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// An agent CLI's own sign-in on this machine (`agent_login.rs`): the
+    /// unix socket, the local app and the owner's own peer daemon.
+    pub const MUX_AGENT_LOGIN_START: &str = "_acpmux/agent_login/start";
+    pub const MUX_AGENT_LOGIN_FINISH: &str = "_acpmux/agent_login/finish";
+    pub const MUX_AGENT_LOGIN_CANCEL: &str = "_acpmux/agent_login/cancel";
+    pub const MUX_AGENT_LOGIN_API_KEY: &str = "_acpmux/agent_login/api_key";
     /// Local socket only: bounded, cached inventory snapshots; no health control.
     pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
     /// Local socket only: refresh registries for cached installs, never run CLIs or updates.

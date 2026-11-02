@@ -35,6 +35,10 @@ const TAIL_DEFAULT: u64 = 64 << 10;
 /// The most one tail reads, whatever `maxBytes` asks.
 const TAIL_MAX: u64 = 1 << 20;
 
+/// Leave ample room for JSON-RPC framing and a potentially long cursor. A page never
+/// constructs or sends the full completed-process history.
+const PROCESS_PAGE_BUDGET: usize = crate::rpc::MAX_MESSAGE_BYTES - (64 << 10);
+
 /// Where a process is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -97,11 +101,50 @@ pub(super) struct ProcessTable {
     /// The last log record the table holds.
     through: u64,
     processes: Vec<Process>,
+    /// Stable slots in `processes`: entries never move, even when an update replaces one.
+    by_id: std::collections::HashMap<String, usize>,
+    /// First process with a tool-call ID (the historical Vec::position behavior).
+    by_tool: std::collections::HashMap<String, usize>,
+    /// Only live process slots, ascending by append order. Completed history can grow
+    /// without making idle checks or lost-process propagation scan every old task.
+    running: std::collections::BTreeSet<usize>,
     /// Processes a person asked to stop: their end is the person's.
     stopping: std::collections::HashSet<String>,
 }
 
+#[cfg(test)]
+#[path = "processes_index_tests.rs"]
+mod process_index_tests;
+
+#[cfg(test)]
+#[path = "processes_active_tests.rs"]
+mod process_active_tests;
+
+#[cfg(test)]
+#[path = "processes_page_tests.rs"]
+mod process_page_tests;
+
 impl ProcessTable {
+    /// All appends go here, including records replayed from a logged process update.
+    fn insert(&mut self, process: Process) -> usize {
+        let at = self.processes.len();
+        self.by_id.insert(process.id.clone(), at);
+        self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
+        if process.state == ProcessState::Running {
+            self.running.insert(at);
+        }
+        self.processes.push(process);
+        at
+    }
+
+    fn find_tool(&self, tool: &str) -> Option<usize> {
+        self.by_tool.get(tool).copied()
+    }
+
+    fn find_id(&self, id: &str) -> Option<&Process> {
+        self.by_id.get(id).and_then(|&at| self.processes.get(at))
+    }
+
     /// Folds in the params of one `background_task_update` record, and the
     /// output file the update named (`take_output_file`); returns the
     /// process when it changed. A process ends once: a later end or
@@ -126,7 +169,7 @@ impl ProcessTable {
             _ if with_harness => ProcessState::Lost,
             _ => ProcessState::Killed,
         };
-        let found = self.processes.iter().position(|p| p.tool_call_id == tool);
+        let found = self.find_tool(tool);
         let i = match found {
             Some(i) => i,
             None => {
@@ -134,7 +177,7 @@ impl ProcessTable {
                     self.unused_id(format!("{}/{}", session.id, text("taskId").unwrap_or(tool)));
                 let meta = session.meta();
                 let subagent = params.pointer("/_meta/acpmux/subagent").and_then(Value::as_str);
-                self.processes.push(Process {
+                let process = Process {
                     id,
                     session_id: session.id.clone(),
                     subagent_session_id: subagent.map(str::to_owned),
@@ -154,8 +197,8 @@ impl ProcessTable {
                     output_bytes: None,
                     output_file: None,
                     logged: false,
-                });
-                self.processes.len() - 1
+                };
+                self.insert(process)
             }
         };
         // The output file may be named late (Claude's notification): it is
@@ -189,13 +232,14 @@ impl ProcessTable {
             p.exit_code = update.get("exitCode").and_then(Value::as_i64);
         }
         p.logged = false;
+        self.running.remove(&i);
         Some(i)
     }
 
     /// `id`, or `id-2`, `id-3`, ... when a process already has it (a task id
     /// a later harness used again).
     fn unused_id(&self, id: String) -> String {
-        let taken = |id: &str| self.processes.iter().any(|p| p.id == id);
+        let taken = |id: &str| self.by_id.contains_key(id);
         if !taken(&id) {
             return id;
         }
@@ -209,12 +253,42 @@ impl ProcessTable {
         }
     }
 
-    /// A logged `process_update`: the record as it was decided wins.
+    /// A logged `process_update`: the record as it was decided wins. A rare
+    /// replacement with a changed tool ID keeps the *first* matching row in the index.
     fn upsert(&mut self, mut process: Process) {
         process.logged = true;
-        match self.processes.iter_mut().find(|p| p.id == process.id) {
-            Some(p) => *p = process,
-            None => self.processes.push(process),
+        if let Some(at) = self.by_id.get(&process.id).copied()
+            && let Some(slot) = self.processes.get_mut(at)
+        {
+            let new_tool = process.tool_call_id.clone();
+            let live = process.state == ProcessState::Running;
+            let old_tool = std::mem::replace(slot, process).tool_call_id;
+            if live {
+                self.running.insert(at);
+            } else {
+                self.running.remove(&at);
+            }
+            if old_tool == new_tool {
+                return;
+            }
+            if self.by_tool.get(&old_tool) == Some(&at) {
+                // A logged row can correct its tool-call ID. Repoint the old key to
+                // its next occurrence, if any; this exceptional correction may scan.
+                match self.processes.iter().position(|p| p.tool_call_id == old_tool) {
+                    Some(next) => {
+                        self.by_tool.insert(old_tool, next);
+                    }
+                    None => {
+                        self.by_tool.remove(&old_tool);
+                    }
+                }
+            }
+            self.by_tool
+                .entry(new_tool)
+                .and_modify(|first| *first = (*first).min(at))
+                .or_insert(at);
+        } else {
+            self.insert(process);
         }
     }
 
@@ -231,11 +305,35 @@ impl ProcessTable {
         self.processes.clone()
     }
 
+    /// A narrow append-order window from the same table the full list reads.
+    /// The id cursor survives status updates, because process slots never move.
+    fn page_snapshot(
+        &self,
+        limit: usize,
+        after: Option<&str>,
+    ) -> Result<(Vec<Process>, bool), RpcError> {
+        let start = match after {
+            Some(id) => self
+                .by_id
+                .get(id)
+                .copied()
+                .ok_or_else(|| {
+                    RpcError::invalid_params("cursor is not a process ID in this session")
+                })?
+                .saturating_add(1),
+            None => 0,
+        };
+        let end = start.saturating_add(limit).min(self.processes.len());
+        Ok((self.processes[start..end].to_vec(), end < self.processes.len()))
+    }
+
     /// Every running process ends `lost` for `reason`; returns them.
     /// `logged`: their `process_update` is written now.
     fn lose_running(&mut self, at: u64, reason: &str, logged: bool) -> Vec<Process> {
         let mut lost = Vec::new();
-        for p in self.processes.iter_mut().filter(|p| p.state == ProcessState::Running) {
+        // The ordered slots retain the original oldest-first notification order.
+        for index in std::mem::take(&mut self.running) {
+            let p = &mut self.processes[index];
             self.stopping.remove(&p.id);
             p.state = ProcessState::Lost;
             p.ended_at = Some(at);
@@ -253,10 +351,56 @@ fn process_values(processes: Vec<Process>, length: impl Fn(&str) -> u64) -> Vec<
     processes
         .into_iter()
         .filter_map(|mut process| {
-            process.output_bytes = process.output_file.as_deref().map(|path| length(path));
+            process.output_bytes = process.output_file.as_deref().map(&length);
             serde_json::to_value(process).ok()
         })
         .collect()
+}
+
+/// A byte-bounded process page. Resolve file sizes and serialize after releasing the
+/// table mutex, stopping as soon as the page fills. An oversized command/detail becomes
+/// an explicit identity-preserving stub; a cursor/identity too large even for a stub is
+/// reported as an ordinary RPC error.
+fn process_page_values(
+    processes: Vec<Process>,
+    has_more: bool,
+    budget: usize,
+) -> Result<Value, RpcError> {
+    let mut rows = Vec::new();
+    let (mut used, mut last_id, mut next) = (64_usize, None::<String>, has_more);
+    for mut process in processes {
+        let id = process.id.clone();
+        let cursor_bytes = serde_json::to_string(&id)
+            .map_err(|e| RpcError::internal(format!("cannot encode process cursor: {e}")))?
+            .len();
+        process.output_bytes = process.output_file.as_deref().map(output_len);
+        let mut row = serde_json::to_value(process)
+            .map_err(|e| RpcError::internal(format!("cannot encode process row: {e}")))?;
+        let mut bytes = row.to_string().len();
+        if bytes.saturating_add(cursor_bytes).saturating_add(64) > budget {
+            let full_bytes = bytes;
+            row = json!({
+                "id": row["id"], "sessionId": row["sessionId"],
+                "toolCallId": row["toolCallId"], "taskId": row["taskId"],
+                "harness": row["harness"], "command": "",
+                "startedAt": row["startedAt"], "endedAt": row["endedAt"],
+                "state": row["state"], "origin": row["origin"],
+                "omitted": {"reason": "too_large", "bytes": full_bytes}
+            });
+            bytes = row.to_string().len();
+            if bytes.saturating_add(cursor_bytes).saturating_add(64) > budget {
+                return Err(RpcError::too_large(full_bytes));
+            }
+        }
+        if !rows.is_empty() && used.saturating_add(bytes).saturating_add(cursor_bytes) > budget {
+            next = true;
+            break;
+        }
+        used = used.saturating_add(bytes).saturating_add(1);
+        last_id = Some(id);
+        rows.push(row);
+    }
+    Ok(json!({"processes": rows, "nextCursor": if next { last_id } else { None }}))
 }
 
 /// Takes the output file a shell's session update names
@@ -393,7 +537,7 @@ impl Hub {
                 // change is logged here, once. The log has no output file,
                 // so it is kept here.
                 let tool = params.pointer("/update/toolCallId").and_then(Value::as_str);
-                let i = table.processes.iter().position(|p| Some(p.tool_call_id.as_str()) == tool);
+                let i = tool.and_then(|tool| table.find_tool(tool));
                 let p = i.map(|i| &mut table.processes[i]);
                 if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
                     && p.output_file.is_none()
@@ -422,14 +566,14 @@ impl Hub {
     /// (`idle.rs`).
     pub(super) fn any_process_running(&self, session: &Session) -> bool {
         let table = self.process_table(session);
-        table.processes.iter().any(|p| p.state == ProcessState::Running)
+        !table.running.is_empty()
     }
 
     /// How many of the session's background processes run, from a table this
     /// daemon has read already: never a log scan (`host_load.rs` asks for every chat).
     pub(super) fn running_processes_read(&self, session: &Session) -> usize {
         let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
-        table.processes.iter().filter(|p| p.state == ProcessState::Running).count()
+        table.running.len()
     }
 
     /// `_acpmux/process/list`: the session's processes; without one, those of
@@ -451,6 +595,18 @@ impl Hub {
                 .collect(),
         };
         json!({"processes": process_values(processes, output_len)})
+    }
+
+    /// Optional byte-bounded process-list pages, scoped to one session. The caller
+    /// passes the last id it received, never a numeric offset that can shift.
+    pub(crate) fn list_processes_page(
+        &self,
+        session: &Session,
+        limit: usize,
+        after: Option<&str>,
+    ) -> Result<Value, RpcError> {
+        let (window, has_more) = self.process_table(session).page_snapshot(limit, after)?;
+        process_page_values(window, has_more, PROCESS_PAGE_BUDGET)
     }
 
     /// The session of the process `id` (`<sessionId>/<taskId>`).
@@ -477,8 +633,7 @@ impl Hub {
         let session = self.process_session(id)?;
         let (file, running) = {
             let table = self.process_table(&session);
-            let p = table.processes.iter().find(|p| p.id == id);
-            let p = p.ok_or_else(|| unknown_process(id))?;
+            let p = table.find_id(id).ok_or_else(|| unknown_process(id))?;
             if p.harness == "codex" {
                 return Err(RpcError::invalid_params("tail is Claude Code only for now"));
             }
@@ -521,7 +676,7 @@ impl Hub {
         }
         let (task, running, subagent) = {
             let table = self.process_table(&session);
-            let p = table.processes.iter().find(|p| p.id == id).ok_or_else(unknown)?;
+            let p = table.find_id(id).ok_or_else(unknown)?;
             (p.task_id.clone(), p.state == ProcessState::Running, p.subagent_session_id.clone())
         };
         if !running {
@@ -653,10 +808,7 @@ mod process_list_snapshot_tests {
         let snapshot = table.lock().unwrap().snapshot();
         let rows = process_values(snapshot, |path| {
             assert_eq!(path, "/tmp/task-output");
-            assert!(
-                table.try_lock().is_ok(),
-                "filesystem metadata read under process-table lock"
-            );
+            assert!(table.try_lock().is_ok(), "filesystem metadata read under process-table lock");
             42
         });
         assert_eq!(rows.len(), 1);

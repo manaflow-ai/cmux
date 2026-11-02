@@ -30,6 +30,10 @@ import { listMembers } from "./domains/team-members.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { serverNetworkExternal } from "./server-network-confirm.ts"
 import { hostNetworkExternal } from "./host-network-bind.ts"
+import { hostNetworkTarget } from "./host-network-target.ts"
+import { vmApiConnection } from "./cloud-vm-api-config.ts"
+import { authorizeNativeDial, recheckNativeDial, type NativeDialDeps, type NativeDialPermit, type NativeDialTarget } from "./cloud-native-dial.ts"
+import { vmReceiverPeers, type VmReceiverPeerTarget } from "./cloud-vm-receiver-peers.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
 import { HostReplicaDrops, hostsLeavingOwner, type ReplicaDropTarget } from "./team-host-replica-drop.ts"
 
@@ -246,6 +250,52 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   async cloudPolicy(entity: string) { return cloudPolicyOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS, cloud.idlePause)
+
+  /*
+   * Native network RPCs for the platform CloudDO (cmux-platform). Each answer is pinned to the
+   * caller's live install grant (UserDO networkIdentity) and to this team's current hosts, members
+   * and policy; there is no await between the final state checks and the answer.
+   */
+  private networkIdentity(entity: string) {
+    return (user: string, install: string, grant: string) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).networkIdentity(user, install, grant, entity)
+  }
+  private nativeDialDeps(entity: string): NativeDialDeps | null {
+    if (!this.isBound(entity)) return null
+    const engine = this.bind(entity)
+    return { team: entity, project: this.env.STACK_PROJECT_ID, origin: this.env.CLOUD_VM_API_ORIGIN,
+      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
+      identity: this.networkIdentity(entity), allowed: () => cloudPolicyOf(engine.currentState).connect_services }
+  }
+  /** A fresh one-use device proof joined to this install's own Native VM permissions (cloud.machine.link_token on a Native VM). */
+  async authorizeCloudDial(entity: string, p: Principal, target: NativeDialTarget, proof: unknown, services: ReadonlyArray<string>) {
+    const deps = this.nativeDialDeps(entity)
+    return deps ? authorizeNativeDial(deps, p, target, proof, services) : { ok: false as const, code: "auth.forbidden", message: "no active team network owner" }
+  }
+  /** Recheck a permit after signing; false unless the same grant, host, key, tenant and services still hold. */
+  async recheckCloudDial(entity: string, p: Principal, permit: NativeDialPermit): Promise<boolean> {
+    const deps = this.nativeDialDeps(entity)
+    return deps ? recheckNativeDial(deps, p, permit) : false
+  }
+  /** The Native receiver policy's peers joined to live hosts, owners, grants and team policy (cloud.vm.network_policy). */
+  async vmReceiverPeers(entity: string, target: VmReceiverPeerTarget) {
+    if (!this.isBound(entity)) return null
+    const engine = this.bind(entity)
+    return vmReceiverPeers({ team: entity, project: this.env.STACK_PROJECT_ID, origin: () => this.env.CLOUD_VM_API_ORIGIN,
+      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), now: Date.now,
+      allowed: () => cloudPolicyOf(engine.currentState).connect_services, identity: this.networkIdentity(entity),
+      identities: (user, entries) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).networkIdentities(user, entries, entity)
+    }, target)
+  }
+  /** host.network.target for the platform route (cmux-platform NativeNetwork Target.ts); the caller passes the grant classes it verified. */
+  async hostNetworkTarget(entity: string, p: Principal, params: unknown): Promise<ReadResult> {
+    if (!this.isBound(entity)) return { ok: false, code: "auth.forbidden", message: "no active team network owner" }
+    const engine = this.bind(entity)
+    return hostNetworkTarget({
+      team: entity, project: this.env.STACK_PROJECT_ID, connection: () => vmApiConnection(this.env), revision: () => String(engine.currentSeq),
+      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
+      identity: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).readIdentity(user, install, grant)
+    }, p, params)
+  }
   /** RPC from SchedulerDO (fail closed): the run class as TeamDO would push it now. */
   async runPolicy(entity: string): Promise<{ version: number; runs_allowed: boolean }> {
     return runSyncPush(this.bind(entity).currentState)

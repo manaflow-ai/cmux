@@ -60,10 +60,26 @@ export function mainToolRunCategory(items: readonly AcpmuxActivity[]): ToolRunCa
   return main;
 }
 
+/// Whether the run did more than one kind of work, so its glyph is the several-tools one, not one
+/// kind's. Reads and searches count as one kind: both draw the magnifier (ToolRun.tsx `runIcon`).
+export function isMixedToolRun(items: readonly AcpmuxActivity[]): boolean {
+  return new Set(toolRunCategories(items).map((category) => (category === "read" ? "searched" : category))).size > 1;
+}
+
 /// "Read 6 files, ran 4 commands", in the language `t` speaks, counted as Claude desktop counts a
 /// run (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). Reads count the distinct
 /// files they opened, edits the files they changed, every other category its calls.
 export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): string {
+  // A catalog separator, not Intl.ListFormat: its unit lists join zh-Hans with nothing and add
+  // conjunctions in some languages, while the run reads as a plain comma list.
+  const text = toolRunPhrases(t, items).join(t("toolRun.separator"));
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/// The summary's phrases, one per category in the order the run first did each ("read 6 files",
+/// "ran 4 commands"), lower case as they read inside a line; a message run's line
+/// (messageRuns.ts) puts them between its own.
+export function toolRunPhrases(t: Translate, items: readonly AcpmuxActivity[]): string[] {
   const tools = items.filter((item) => item.tool);
   const count = (category: ToolRunCategory) =>
     category === "edited"
@@ -89,10 +105,7 @@ export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): 
         return one ? t("toolRun.ran.one") : t("toolRun.ran.other", { n });
     }
   };
-  // A catalog separator, not Intl.ListFormat: its unit lists join zh-Hans with nothing and add
-  // conjunctions in some languages, while the run reads as a plain comma list.
-  const text = toolRunCategories(items).map(phrase).join(t("toolRun.separator"));
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  return toolRunCategories(items).map(phrase);
 }
 
 /// The distinct files a run's reads opened, by their locations, or one per read without any.

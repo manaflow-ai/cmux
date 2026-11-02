@@ -29,6 +29,10 @@ check('gh workflow run cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref 
 check(text.count("gh workflow run") == 1 and "cmux-next.yml" not in text.replace("cmux-next-dev-", ""),
       "the kick starts no DEV build itself")
 
+check("vars.LINUX_RUNNER" not in text and "32vcpu" not in text and
+      "|| fromJSON(vars.RUNNER_POOLS).linux }}" in text and "'ubuntu-24.04'" in text,
+      "DEV kick reads the reconciled Linux pool, never a fixed Blacksmith size that can stall")
+
 if failures:
     print("FAIL: cmux NEXT DEV kick\n  " + "\n  ".join(failures))
     sys.exit(1)

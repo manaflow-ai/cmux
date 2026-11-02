@@ -37,6 +37,12 @@ export const tokenDetail = (t: Translate, language: PaneLanguage, split: TurnTok
     cacheWrite: compactTokens(language, split.cacheWrite),
   });
 
+/// The split as plain words, "↓ 12.4K out ↑ 3.9M in", for a tooltip (TurnRows.tsx TurnFooter).
+export const tokensText = (t: Translate, language: PaneLanguage, split: TurnTokenSplit) =>
+  `${t("turn.tokens.out", { tokens: compactTokens(language, split.output) })} ${t("turn.tokens.in", {
+    tokens: compactTokens(language, readTokens(split)),
+  })}`;
+
 /// The tokens' span (no separator before it). `split` wins over `total` when both are known.
 export function TurnTokens({ total, split }: { total?: number; split?: TurnTokenSplit }) {
   const t = useT();

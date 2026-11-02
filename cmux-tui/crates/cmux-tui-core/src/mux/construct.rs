@@ -179,6 +179,8 @@ impl Mux {
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
+        let registry_identity =
+            (registry.registry_id().to_string(), registry.generation().to_string());
         let machine_public_id = registry.machine_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
             registry.session_journal_database_path(),
@@ -200,10 +202,12 @@ impl Mux {
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
+            bound_socket_path: OnceLock::new(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,
             connection_stats: Arc::default(),
+            registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
             state: signaled_mutex::StateMutex::new(state),
@@ -340,6 +344,7 @@ impl Mux {
             journal_kernel,
             journal_ingress,
             output_store,
+            incognito_workspace_keys: Mutex::new(HashSet::new()),
             journal_maintenance: Mutex::new(None),
             journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),

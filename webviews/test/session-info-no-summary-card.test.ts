@@ -1,4 +1,4 @@
-// With Session Info on (the host's default, AgentPaneTunables.inspector), the old summary card is gone:
+// With Session Info on (the host's default, AgentPaneTunables.sessionInfo), the old summary card is gone:
 // no summary button, no card, no subagent rows and no "Open new subagents in panes" checkbox, and
 // Session Info opens on Environment. Leo, 2026-10-31, on the summary card at the top of the pane:
 // "I HATE THAT TOP BIT". #26390 switched `agent.inspector` off, so the header offered the summary
@@ -29,7 +29,7 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
     await pane?.close();
   });
 
-  const open = async (inspector: boolean, dark = false, scale = 1) => {
+  const open = async (sessionInfo: boolean, dark = false, scale = 1) => {
     const page = await pane.open({ width: 900, height: 640, scale, colorScheme: dark ? "dark" : "light" });
     // The pane's theme is the host's (applyTheme), not the browser's color scheme.
     const theme = agentPaneTheme(
@@ -42,8 +42,8 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
     );
     await page.evaluate((theme) => window.cmuxAcpmuxBridge!.applyTheme(theme), theme);
     await page.evaluate(
-      (inspector) => window.cmuxAcpmuxBridge!.applyHeaderState!({ inspector, version: 2 }),
-      inspector,
+      (sessionInfo) => window.cmuxAcpmuxBridge!.applyHeaderState!({ inspector: sessionInfo, version: 2 }),
+      sessionInfo,
     );
     return page;
   };
@@ -65,7 +65,7 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
       if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
       await page.locator(".acpmux-summary-card").first().waitFor({ timeout: 10_000 });
       expect(await visible(page, SUMMARY)).toBeGreaterThan(0);
-      expect(await page.locator("button.acpmux-chat-inspector-toggle").count()).toBe(0);
+      expect(await page.locator("button.acpmux-session-info-toggle").count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -74,16 +74,16 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
   test("on: no summary card or subagent rows anywhere, and Session Info opens on Environment", async () => {
     const page = await open(true);
     try {
-      const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+      const toggle = page.locator("button.acpmux-session-info-toggle");
       await toggle.waitFor({ timeout: 10_000 });
       expect(await visible(page, SUMMARY)).toBe(0);
       if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
-      const panel = page.locator("aside.acpmux-chat-inspector");
+      const panel = page.locator("aside.acpmux-session-info");
       await panel.locator("[data-section]").first().waitFor({ timeout: 10_000 });
       expect(await panel.locator("[data-section]").first().getAttribute("data-section")).toBe("environment");
       // Nothing of the card's sits above the first section, in the panel or over it.
       const above = await page.evaluate((selector) => {
-        const first = document.querySelector<HTMLElement>("aside.acpmux-chat-inspector [data-section]")!;
+        const first = document.querySelector<HTMLElement>("aside.acpmux-session-info [data-section]")!;
         const top = first.getBoundingClientRect().top;
         return [...document.querySelectorAll<HTMLElement>(selector)].filter((node) => {
           const box = node.getBoundingClientRect();
@@ -104,16 +104,16 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
     test("stills: the top of the pane, summary card (off) and Session Info (on)", async () => {
       mkdirSync(path.join(out, "stills"), { recursive: true });
       for (const dark of [false, true])
-        for (const inspector of [false, true]) {
-          const page = await open(inspector, dark, 2);
+        for (const sessionInfo of [false, true]) {
+          const page = await open(sessionInfo, dark, 2);
           try {
             const control = page.locator(
-              inspector ? "button.acpmux-chat-inspector-toggle" : "button.acpmux-summary-button",
+              sessionInfo ? "button.acpmux-session-info-toggle" : "button.acpmux-summary-button",
             );
             await control.waitFor({ timeout: 10_000 });
             if ((await control.getAttribute("aria-pressed")) !== "true") await control.click();
             await page
-              .locator(inspector ? "aside.acpmux-chat-inspector [data-section]" : ".acpmux-summary-card")
+              .locator(sessionInfo ? "aside.acpmux-session-info [data-section]" : ".acpmux-summary-card")
               .first()
               .waitFor({ timeout: 10_000 });
             // Its opening animation done and the frame painted (support/paintedFrames.ts).
@@ -121,7 +121,7 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
               await Promise.all(document.getAnimations().map((one) => one.finished.catch(() => undefined)));
               await window.cmuxPaintFrame();
             });
-            const name = `${inspector ? "after-session-info" : "before-summary-card"}-${dark ? "dark" : "light"}.png`;
+            const name = `${sessionInfo ? "after-session-info" : "before-summary-card"}-${dark ? "dark" : "light"}.png`;
             // The pane's top right: the header's tools and the panel under them, with some transcript.
             await page.screenshot({
               path: path.join(out, "stills", name),

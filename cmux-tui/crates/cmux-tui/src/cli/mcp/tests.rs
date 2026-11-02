@@ -21,6 +21,8 @@ struct Fake {
     fail_apps: bool,
     /// The app refuses every `action.run`, as for a path it cannot open.
     refuse_actions: bool,
+    /// The app applied an open action but lost the acknowledgement.
+    lose_open_transport: bool,
     daemon_snapshot: Option<Value>,
     /// The answer to every daemon request but `session.snapshot`; else
     /// `daemon_snapshot`.
@@ -43,6 +45,9 @@ struct Fake {
     caller: Option<Value>,
     /// The app's `beside` with `caller`: the column right of the chat.
     beside: Value,
+    /// The app's `browser` with `caller`: the browser nearest it; unset
+    /// answers as an app from before #26648 (no `browser`).
+    browser: Option<Value>,
     /// Every `.list` read answers no items (with `resource_result` set).
     empty_lists: bool,
     /// `Backend::identity` fails, as with no app on the socket.
@@ -283,6 +288,15 @@ impl Backend for Fake {
                 idempotency_key: None,
             });
         }
+        if self.lose_open_transport && method == "action.run" {
+            // A real app can apply action.run before its acknowledgement is lost.
+            return Err(CallFailure {
+                kind: FailureKind::InProgress,
+                error: json!({"code": "app.transport", "message": "reply lost",
+                              "retryable": true}),
+                idempotency_key: Some("open-viewer-app-key".into()),
+            });
+        }
         match method {
             "action.list" => Ok(self.actions.clone()),
             "snapshot.get" => {
@@ -345,6 +359,37 @@ impl Backend for Fake {
         }
     }
 
+    // The fake's chat rows stand in for scoped acpmux info, separate from the
+    // daemon's terminal/agent records and the app's visible tab topology.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::super::agents::chat::ChatCommand,
+        _idempotency_key: Option<&str>,
+        _origin: &str,
+    ) -> Result<Value, CallFailure> {
+        let super::super::agents::chat::ChatCommand::State { target } = command else {
+            return Err(CallFailure::local(FailureKind::NotRun, "usage.invalid", "read only"));
+        };
+        self.sent.borrow_mut().push(json!({"kind": "chat", "session": session, "target": target}));
+        let mut live = self.live.borrow_mut();
+        live.settle();
+        let chat = live
+            .daemon
+            .as_ref()
+            .or(self.daemon_snapshot.as_ref())
+            .and_then(|daemon| daemon["chats"].as_array())
+            .and_then(|chats| chats.iter().find(|chat| chat["chat"] == target.as_str()));
+        match chat {
+            Some(chat) => Ok(json!({"schema_version": 1, "action": "chat.state", "result": chat})),
+            None => Err(CallFailure::local(
+                FailureKind::NotRun,
+                "selector.not_found",
+                "no scoped acpmux chat",
+            )),
+        }
+    }
+
     fn browser(
         &self,
         request: browser_tools::Request,
@@ -365,7 +410,13 @@ impl Backend for Fake {
         if self.identity_fails {
             return Err(CallFailure::local(FailureKind::NotRun, "socket.no_app", "no cmux app"));
         }
-        Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
+        Ok(self.caller.clone().map(|caller| {
+            let mut identity = json!({"caller": caller, "beside": self.beside});
+            if let Some(browser) = &self.browser {
+                identity["browser"] = browser.clone();
+            }
+            identity
+        }))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
@@ -1477,6 +1528,7 @@ mod agent_wait;
 mod caller_scope;
 mod catalog;
 mod machine_catalog;
+mod retained;
 mod settings;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
@@ -2031,6 +2083,78 @@ fn open_splits_and_opens_in_one_call() {
     let close = sent.iter().find(|s| s["request"]["operation"] == "pane.close");
     let close = close.unwrap_or_else(|| panic!("the split stays: {sent:?}"));
     assert!(close["request"].to_string().contains(pane), "{close}");
+    drop(sent);
+
+    // A lost acknowledgement is ambiguous: the app may already have opened the viewer.
+    // Preserve that new pane and return its ID so a caller can reconcile the result.
+    let lost = Fake {
+        actions: actions.clone(),
+        resource_result: Some(json!({"pane_id": pane, "id": tab, "focused": true})),
+        lose_open_transport: true,
+        ..Fake::default()
+    };
+    let mut uncertain = Server::new(lost, None);
+    let result = uncertain
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "file", "path": "/work/docs/notes.md",
+                                     "where": "below"}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    assert_eq!(result["structuredContent"]["state"], "in_progress", "{result}");
+    assert_eq!(result["structuredContent"]["idempotency_key"], "open-viewer-app-key");
+    assert_eq!(result["structuredContent"]["created_pane"], pane, "{result}");
+    assert!(
+        result["structuredContent"]["recovery"]
+            .as_str()
+            .is_some_and(|s| s.contains("Inspect created_pane")),
+        "the pending open needs a usable recovery hint: {result}"
+    );
+    let sent = uncertain.backend.sent.borrow();
+    assert!(sent.iter().any(|s| s["method"] == "action.run"), "{sent:?}");
+    assert!(
+        !sent.iter().any(|s| s["request"]["operation"] == "pane.close"),
+        "a lost acknowledgement must never close a possibly successful viewer: {sent:?}"
+    );
+    drop(sent);
+
+    // The same composite ID replays a split and app action under the same
+    // stage keys even if the app drops its acknowledgement twice.
+    uncertain.backend.sent.borrow_mut().clear();
+    let args = json!({"name": "open",
+        "arguments": {"kind": "file", "path": "/work/docs/notes.md", "where": "below",
+                      "idempotency_key": "same-open-request"}});
+    for _ in 0..2 {
+        let result = uncertain.call(&args).expect("open tool result");
+        assert_eq!(result["isError"], true, "{result}");
+        assert_eq!(result["structuredContent"]["state"], "in_progress", "{result}");
+        assert_eq!(result["structuredContent"]["created_pane"], pane, "{result}");
+        assert_eq!(
+            result["structuredContent"]["open_idempotency_key"], "same-open-request",
+            "{result}"
+        );
+    }
+    let sent = uncertain.backend.sent.borrow();
+    let keys = |operation: &str| {
+        sent.iter()
+            .filter(|s| s["request"]["operation"] == operation)
+            .filter_map(|s| s["request"]["idempotency_key"].as_str())
+            .collect::<Vec<_>>()
+    };
+    let splits = keys("pane.split");
+    assert_eq!(splits.len(), 2, "{sent:?}");
+    assert_eq!(splits[0], splits[1], "same split key must be replayed");
+    let actions = sent.iter().filter(|s| s["method"] == "action.run").collect::<Vec<_>>();
+    assert_eq!(actions.len(), 2, "{sent:?}");
+    assert_eq!(actions[0]["key"], actions[1]["key"], "same app run key must be replayed");
+    assert!(
+        actions[0]["key"].as_str().is_some_and(|key| !key.is_empty()),
+        "a composite open must send a stable app action key"
+    );
+    assert!(splits[0] != actions[0]["key"].as_str().unwrap_or_default());
+    assert!(
+        !sent.iter().any(|s| s["request"]["operation"] == "pane.close"),
+        "an uncertain open never rolls back its stage: {sent:?}"
+    );
     drop(sent);
 
     // `where` as an object names its workspace: the page goes there, not to the right.

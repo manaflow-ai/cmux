@@ -54,8 +54,9 @@ extension WorkspaceRowView {
     /// Lawrence 2026-10-20: every row's dot and spinner share one line; msg 11914: whatever else the
     /// row shows (a count, the keycap, the hover close and more) sits left of it,
     /// so a selected row's dot does not move. Never on the leading icon.
-    func layoutColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
-        let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
+    func layoutStatusColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
+        let columns = SidebarStyle.columns(rowWidth: rowWidth)
+        let column = columns.trailingCenter()
         let view: NSView
         if !rowBadge.isHidden {
             // The nearest backing pixel, so the last glyph's center stays on the column (a floor moved it up to a point left).
@@ -75,10 +76,19 @@ extension WorkspaceRowView {
             // A usage warning with no status: the triangle takes the status's place, in its box (Lawrence 2026-10-30).
             usageWarningMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
             view = usageWarningMark
+        } else if badge.state == .dot {
+            // The legacy unread style shares Search's center too. Reserve the column before
+            // laying out counts or other marks, so none can occupy the dot's slot at rest.
+            badge.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: SidebarStyle.unreadDotSize)
+            view = badge
+        } else if !machineMark.isHidden {
+            // A row with no status: the machine mark takes the column, in a status mark's box, as the triangle does.
+            machineMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
+            view = machineMark
         } else {
             return nil
         }
-        return (view, SidebarStyle.trailingAfterColumnMark(markMinX: view.frame.minX, rowWidth: rowWidth))
+        return (view, columns.trailingEdge(before: view.frame))
     }
 
     /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's background.

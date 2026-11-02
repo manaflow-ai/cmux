@@ -29,7 +29,11 @@ jobs:
   kick:
     if: github.repository == 'manaflow-ai/cmux' && format('{0}', vars.CMUX_NEXT_BASE_TIER_COALESCE) != '0'
     name: Dispatch the base tier on the tip at most every 15 minutes
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # This job sleeps for most of a 15-minute window, then makes a GitHub API
+    # dispatch. It reads the reconciled Linux pool (runner_pools.py keeps it on a
+    # live small member), never a fixed Blacksmith size that can stall; the fork
+    # routes in front of it never reach the pool read.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     # The one wait (at most the 15-minute window) plus the listing and the dispatch.
     timeout-minutes: 20
     permissions:

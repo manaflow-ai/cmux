@@ -59,8 +59,13 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         // The background-task runner the in-process hub starts; it inherits this process's
         // hermetic environment.
         ("hub_integration/bg_tasks.rs", "crate::daemon_env::bin().into()"),
+        // The binary `Daemon::start` runs after `apply`, and the copy of it a test replaces.
+        ("durable_agents.rs", "let exe = daemon_env::bin().to_path_buf();"),
+        ("durable_agents/bg_replaced_binary.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
         // Linked into a fake app bundle; that copy starts only after `apply`.
-        ("dev_orphan_exit.rs", "let source = daemon_env::bin();"),
+        ("app_orphan_exit.rs", "let source = daemon_env::bin();"),
+        // Reads the binary's bytes; starts nothing.
+        ("binary_build_stamp.rs", "std::fs::read(daemon_env::bin())"),
     ];
     let mut files = Vec::new();
     rust_files(&tests, &mut files);

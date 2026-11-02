@@ -429,7 +429,7 @@ function Counts({ total, failed }: { total: number; failed: number }) {
 
 const Disclosure = ({ open }: { open: boolean }) => (
   <span className="acpmux-bg__disclosure" aria-hidden="true">
-    <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} row />
+    <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
   </span>
 );
 
@@ -509,10 +509,10 @@ function TaskRow({
     <div className="acpmux-bg__task" data-state={task.state}>
       <button type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
         {task.state === "running" ? (
-          <Spinner size={10} loading />
+          <Spinner size={12} loading />
         ) : (
           <span className="acpmux-bg__disclosure" aria-hidden="true">
-            <Icon name="disclosure.collapsed" size={10} row />
+            <Icon name="disclosure.collapsed" size={12} row />
           </span>
         )}
         <span className="acpmux-bg__label">{task.title}</span>
@@ -555,7 +555,7 @@ function StopSlot({
           onStop(target).catch(() => setState("failed"));
         }}
       >
-        <Icon name="action.stop" size={10} />
+        <Icon name="action.stop" size={12} />
       </button>
     </span>
   );

@@ -25,8 +25,8 @@ const PLACEMENTS: Record<Target, { selector: string; side: "top" | "bottom"; tit
   inspector: {
     selector: ".acpmux-header-panel-toggle",
     side: "bottom",
-    title: "The Inspector shows everything about a chat",
-    body: "The toggle at the top right of an agent chat opens the Inspector over the chat.",
+    title: "Session Info shows everything about a chat",
+    body: "The toggle at the top right of an agent chat opens Session Info over the chat.",
   },
   composer: {
     selector: ".feature-tip-gallery-composer",
@@ -166,10 +166,10 @@ export default componentEntry<Props>({
       "The reference's accent-filled callout, as accent-tinted glass (never opaque). Gallery only.",
     ),
     "browser-veil": variant("browser", "veil", "The card role's thinner veil, no shadow. Gallery only."),
-    "inspector-glass": variant(
+    "session-info-glass": variant(
       "inspector",
       "glass",
-      "A recently shipped toolbar control: the Inspector toggle. Gallery only.",
+      "A recently shipped toolbar control: Session Info toggle. Gallery only.",
     ),
     "composer-glass": variant(
       "composer",

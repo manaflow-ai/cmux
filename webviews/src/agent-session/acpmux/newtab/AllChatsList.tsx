@@ -17,6 +17,7 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import { pressToOpen } from "../../../ui/pressToOpen";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
+import { errorMessage } from "../transportErrors";
 import { AgentMark, ageLabel } from "../NewTabPage";
 import { useNt } from "./strings";
 import { useMinuteClock } from "../clock";
@@ -274,11 +275,17 @@ export function useChatPages(load: LoadChatsPage) {
               const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
               return { ...s, rows: fresh, nextCursor, ready: page.ready !== false };
             }
+            // An index-ready first page without a cursor is the whole list: rows omitted from it
+            // were deleted or archived. A paged first page cannot distinguish those from rows
+            // that merely moved to a later page, so retain older fetched rows in that case.
+            const complete = page.ready !== false && !page.nextCursor;
             const named = new Set(fresh.map((row) => row.key));
-            const rows = mergeFirstPage(
-              fresh,
-              replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
-            );
+            const rows = complete
+              ? fresh
+              : mergeFirstPage(
+                  fresh,
+                  replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
+                );
             // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
             const same =
               rows.length === s.rows.length &&
@@ -289,8 +296,9 @@ export function useChatPages(load: LoadChatsPage) {
                     row.updatedAt === s.rows[i]?.updatedAt &&
                     row.title === s.rows[i]?.title &&
                     row.cwd === s.rows[i]?.cwd),
-              );
-            return same ? s : { ...s, rows };
+              ) &&
+              (!complete || (s.nextCursor === undefined && s.ready));
+            return same ? s : { ...s, rows, ...(complete ? { nextCursor: undefined, ready: true } : {}) };
           });
         }
         const again = refreshing.current === "again";
@@ -366,6 +374,62 @@ function useSelection(rows: AllChatsRow[], query: string) {
   return { selected, click, collapse, clear };
 }
 
+/** A chat-open request keeps its originating row through host acceptance or refusal.
+ * One click creates one request; a late refusal cannot overwrite a newer row's status.
+ * A bulk History open reports failure without offering an unsafe all-rows replay.
+ */
+export function useChatOpenFeedback(onOpen: (key: string) => unknown, onBring?: (keys: string[]) => unknown) {
+  const t = useT();
+  const [opening, setOpening] = useState<string>();
+  const [failure, setFailure] = useState<{ key?: string; message: string }>();
+  const pending = useRef(new Set<string>());
+  const newest = useRef(0);
+  const message = (error: unknown) => errorMessage(error) || t("transport.refused");
+  const open = (key: string) => {
+    if (pending.current.has(key)) return;
+    pending.current.add(key);
+    const ticket = ++newest.current;
+    setOpening(key);
+    setFailure(undefined);
+    // The call begins on this person gesture; the host requires that for some actions.
+    let request: unknown;
+    try {
+      request = onOpen(key);
+    } catch (error) {
+      request = Promise.reject(error);
+    }
+    void Promise.resolve(request).then(
+      () => {
+        pending.current.delete(key);
+        if (ticket === newest.current) setOpening(undefined);
+      },
+      (error: unknown) => {
+        pending.current.delete(key);
+        if (ticket !== newest.current) return;
+        setOpening(undefined);
+        setFailure({ key, message: message(error) });
+      },
+    );
+  };
+  const bring = (keys: string[]) => {
+    if (!onBring) return;
+    const ticket = ++newest.current;
+    setOpening(undefined);
+    setFailure(undefined);
+    let request: unknown;
+    try {
+      request = onBring(keys);
+    } catch (error) {
+      request = Promise.reject(error);
+    }
+    // Some rows in a multi-open may have succeeded. Report the refusal without replaying them.
+    void Promise.resolve(request).catch((error: unknown) => {
+      if (ticket === newest.current) setFailure({ message: message(error) });
+    });
+  };
+  return { opening, failure, open, bring };
+}
+
 /// A chat acpmux can show without running it: Claude Code and Codex (acpmux `hub/watch.rs`).
 export const watchable = (key: string) => /^(claude-code|codex):./.test(key);
 
@@ -381,7 +445,7 @@ export function AllChatsList({
   scrollParent,
 }: {
   load: LoadChatsPage;
-  onOpen(key: string): void;
+  onOpen(key: string): unknown;
   active?: ActiveChat[];
   onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
@@ -389,7 +453,7 @@ export function AllChatsList({
   /// it, without running it, until Take Over (`chats.watch`, the same opener as `cmux agent view`).
   onViewOnly?(key: string): void;
   /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
-  onBring?(keys: string[]): void;
+  onBring?(keys: string[]): unknown;
   now?: number;
   /** New Tab scrolls the whole page; History retains its own list viewport. */
   scrollParent?: string;
@@ -400,6 +464,7 @@ export function AllChatsList({
   const clock = useMinuteClock();
   const now = fixedNow ?? clock;
   const { state, fetchPage } = useChatPages(load);
+  const openFeedback = useChatOpenFeedback(onOpen, onBring);
   const menuKey = useRef<string | undefined>(undefined);
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
   const { rows, nextCursor } = state;
@@ -440,7 +505,7 @@ export function AllChatsList({
       if (event.defaultPrevented || (control && !control.classList.contains("nt-all-row"))) return;
       if (event.key === "Enter") {
         event.preventDefault();
-        onBring(selected);
+        openFeedback.bring(selected);
         clear();
       } else if (event.key === "Escape") {
         event.preventDefault();
@@ -450,7 +515,7 @@ export function AllChatsList({
     // ui-allow: page-wide Enter/Escape for a selection; WebKit leaves no row focused after a click
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onBring, selected, clear]);
+  }, [onBring, selected, clear, openFeedback]);
   // With every project folded nothing scrolls the loader away: it would fetch page after page.
   const pages = view === "chats" || entries.some((entry) => entry.kind === "chat");
   const count = entries.length + (nextCursor && pages ? 1 : 0);
@@ -541,18 +606,19 @@ export function AllChatsList({
           data-focus-ring="row"
           data-untitled={row.title ? undefined : true}
           data-selected={selection.selected.includes(row.key) ? true : undefined}
+          aria-busy={openFeedback.opening === row.key}
           // A plain press opens at once; a Cmd/Shift-click selects on the release, and a press on a row
           // of a multi-selection waits for the release (the Finder rule).
           {...pressToOpen(
             () => {
               selection.collapse(row.key);
-              onOpen(row.key);
+              openFeedback.open(row.key);
             },
             {
               deferPress: () => !!onBring && selection.selected.length > 1 && selection.selected.includes(row.key),
               onClick: (event) => {
                 if (onBring && selection.click(event, row.key)) return;
-                onOpen(row.key);
+                openFeedback.open(row.key);
               },
             },
           )}
@@ -581,7 +647,7 @@ export function AllChatsList({
             label: nt("bringIntoActive"),
             disabled: menuKeys.length === 0,
             onSelect: () => {
-              onBring(menuKeys);
+              openFeedback.bring(menuKeys);
               selection.clear();
             },
           },
@@ -646,6 +712,23 @@ export function AllChatsList({
           />
         </label>
       </header>
+      {openFeedback.failure && (
+        <div className="nt-chats-empty nt-chats-failed" role="alert">
+          {openFeedback.failure.message}
+          {openFeedback.failure.key && (
+            <button
+              type="button"
+              className="nt-chats-retry"
+              onClick={() => {
+                const key = openFeedback.failure?.key;
+                if (key) openFeedback.open(key);
+              }}
+            >
+              {t("picker.tryAgain")}
+            </button>
+          )}
+        </div>
+      )}
       {activeShown.length > 0 && (
         <ul className="nt-all-active" aria-label={t("sidebar.active")}>
           {activeShown.map((chat) => (
@@ -665,7 +748,9 @@ export function AllChatsList({
                   <span className="nt-all-glyph">
                     <AgentMark harness={chat.harness} />
                   </span>
-                  <span className="nt-all-title">{chat.title}</span>
+                  <span className="nt-all-title" title={chat.title}>
+                    {chat.title}
+                  </span>
                   <span className="nt-all-state">{chat.label}</span>
                 </button>
               </ContextMenu>
