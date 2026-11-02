@@ -802,14 +802,18 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const overChat = !push && sessionInfoOverChat(paneWidth, width + (wide ? 0 : overflow), column, wide);
   // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT).
   const popover = sessionInfoPopover(paneHeight, overChat);
-  // Open only from a saved state (a new chat, a relaunch, a pane narrowed under it), it waits for the
-  // person where it would leave the chat too little room (sessionInfoFits) or lie over it (a popover):
-  // it steps aside until the toggle, a running line's count or the palette opens it, and opened it
-  // pushes (cmuxterm-hq#6137: a new chat in a 370px pane opened with the panel over its Retry).
-  const waits = !asked && (popover || !sessionInfoFits(paneWidth));
+  // Open only from a saved state (a new chat, a relaunch), it waits for the person where it would
+  // leave the chat too little room (sessionInfoFits) at its first measured frame, or lie over the chat
+  // (a popover) at any time: it steps aside until the toggle, a running line's count or the palette
+  // opens it, and opened it pushes (cmuxterm-hq#6137: a new chat in a 370px pane opened with the panel
+  // over its Retry). One already showing stays as a split narrows the pane, pushed at its narrow floor.
+  const measuredOnce = useRef(false);
   useLayoutEffect(() => {
-    if (drawn && waits) onSuppress();
-  }, [drawn, waits, onSuppress]);
+    if (!drawn || paneWidth <= 0) return;
+    const first = !measuredOnce.current;
+    measuredOnce.current = true;
+    if (!asked && (popover || (first && !sessionInfoFits(paneWidth)))) onSuppress();
+  }, [drawn, paneWidth, popover, asked, onSuppress]);
   useEffect(() => {
     const doc = shell?.ownerDocument;
     if (!native || !drawn || !popover || !doc) return;

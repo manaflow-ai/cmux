@@ -72,7 +72,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     const panel = page.locator("aside.acpmux-session-info");
     const toggle = page.locator("button.acpmux-session-info-toggle");
     await toggle.waitFor({ timeout: 10_000 });
-    if ((await panel.count()) === 0) await toggle.click({ force: true });
+    // Pressed while it shows: a pane that waits for the person (SessionInfo.tsx sessionInfoFits, a short
+    // pane's popover) leaves it closed, its card possibly still leaving.
+    if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
     await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
     // The chat's shift beside it settles.
     await page.evaluate(() =>
@@ -178,7 +180,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           const toggle = page.locator("button.acpmux-session-info-toggle");
           await toggle.waitFor({ timeout: 10_000 });
           // Session Info's saved state is open (the default): only a pane with room shows it unasked.
-          const unasked = (await page.locator("aside.acpmux-session-info").count()) > 0;
+          const unasked = (await toggle.getAttribute("aria-pressed")) === "true";
           const { panel } = await openSessionInfo(page);
           const box = await rect(page);
           const main = await page.evaluate(() => {
