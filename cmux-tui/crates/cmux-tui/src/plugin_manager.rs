@@ -1614,6 +1614,10 @@ fn non_empty_env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)
 }
 
+fn unix_seconds() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+}
+
 fn now_nanos() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
 }
