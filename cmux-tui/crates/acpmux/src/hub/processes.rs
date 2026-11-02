@@ -500,6 +500,19 @@ impl Hub {
         table.running.len()
     }
 
+    /// The heaviest known build or test the session's running background processes run
+    /// (`host_load::classify_command`), from a table this daemon has read already, as
+    /// [`Self::running_processes_read`].
+    pub(super) fn running_heavy_read(&self, session: &Session) -> Option<crate::host_load::Heavy> {
+        let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        table.running.iter().filter_map(|&at| table.processes.get(at)).fold(None, |best, p| {
+            match crate::host_load::classify_command(&p.command) {
+                Some(heavy) => crate::host_load::heavier(best, heavy),
+                None => best,
+            }
+        })
+    }
+
     /// `_acpmux/process/list`: the session's processes; without one, those of
     /// every chat whose processes this daemon has read (any chat that ran one
     /// since it started, or that it adopted).
