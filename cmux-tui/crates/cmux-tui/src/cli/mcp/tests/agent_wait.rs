@@ -139,12 +139,14 @@ fn agents_wait_unknown_chat_still_reports_selector_not_found() {
 fn agents_wait_visible_chat_tab_stays_busy_until_the_acpmux_turn_ends() {
     const CHAT: &str = "d9914a5a-b950-44b1-b7c2-048a7feb2570";
     const TAB: &str = "tab_d9914a5ab95044b1b7c2048a7feb2570";
-    let snapshot = |running: bool| json!({
-        "workspaces": [{"id": WORKSPACE}],
-        "chats": [{"chat": CHAT, "running": running,
-                   "status": if running { "running" } else { "ready" },
-                   "queued": 0, "pending_permissions": 0}],
-    });
+    let snapshot = |running: bool| {
+        json!({
+            "workspaces": [{"id": WORKSPACE}],
+            "chats": [{"chat": CHAT, "running": running,
+                       "status": if running { "running" } else { "ready" },
+                       "queued": 0, "pending_permissions": 0}],
+        })
+    };
     let qualified = format!("acp:{CHAT}");
     for (target, session) in [(CHAT, CHAT), (TAB, qualified.as_str())] {
         let topology = json!({"topology": {
@@ -155,9 +157,13 @@ fn agents_wait_visible_chat_tab_stays_busy_until_the_acpmux_turn_ends() {
             .then(Duration::from_millis(450), Change::Daemon(snapshot(false)));
         let mut server = Server::new(fake, None);
         let started = Instant::now();
-        let result = call(&mut server, "agents_wait", json!({
-            "until": "idle", "target": target, "timeout_seconds": 3
-        }));
+        let result = call(
+            &mut server,
+            "agents_wait",
+            json!({
+                "until": "idle", "target": target, "timeout_seconds": 3
+            }),
+        );
         assert_eq!(result["isError"], false, "{target}: {result}");
         let receipt = &result["structuredContent"];
         assert_eq!(receipt["matched"], true, "{target}: {result}");
@@ -179,15 +185,25 @@ fn agents_wait_visible_chat_tab_stays_busy_until_the_acpmux_turn_ends() {
 #[test]
 fn agents_wait_accepts_an_acp_prefixed_chat_id() {
     const CHAT: &str = "1f5f31bf-a8a5-4cb8-aa9f-a63180bb2d90";
-    let mut server = Server::new(Fake::live(Some(json!({
-        "workspaces": [{"id": WORKSPACE}],
-        "chats": [{"chat": CHAT, "status": "ready", "running": false,
-                   "queued": 0, "pending_permissions": 0}],
-    })), None), None);
+    let mut server = Server::new(
+        Fake::live(
+            Some(json!({
+                "workspaces": [{"id": WORKSPACE}],
+                "chats": [{"chat": CHAT, "status": "ready", "running": false,
+                           "queued": 0, "pending_permissions": 0}],
+            })),
+            None,
+        ),
+        None,
+    );
     let target = format!("acp:{CHAT}");
-    let result = call(&mut server, "agents_wait", json!({
-        "until": "idle", "target": target, "timeout_seconds": 1
-    }));
+    let result = call(
+        &mut server,
+        "agents_wait",
+        json!({
+            "until": "idle", "target": target, "timeout_seconds": 1
+        }),
+    );
     assert_eq!(result["isError"], false, "{result}");
     assert_eq!(result["structuredContent"]["matched"], true, "{result}");
     assert_eq!(result["structuredContent"]["match"]["chat"], CHAT, "{result}");
@@ -201,14 +217,24 @@ fn agents_wait_accepts_an_acp_prefixed_chat_id() {
 #[test]
 fn agents_wait_disconnected_chat_is_a_stopped_state() {
     const CHAT: &str = "987c255f-8ae7-4d71-8a39-3dcaff2a4003";
-    let mut server = Server::new(Fake::live(Some(json!({
-        "workspaces": [{"id": WORKSPACE}],
-        "chats": [{"chat": CHAT, "status": "disconnected", "running": false,
-                   "queued": 0, "pending_permissions": 0}],
-    })), None), None);
-    let result = call(&mut server, "agents_wait", json!({
-        "until": "idle", "target": CHAT, "timeout_seconds": 1
-    }));
+    let mut server = Server::new(
+        Fake::live(
+            Some(json!({
+                "workspaces": [{"id": WORKSPACE}],
+                "chats": [{"chat": CHAT, "status": "disconnected", "running": false,
+                           "queued": 0, "pending_permissions": 0}],
+            })),
+            None,
+        ),
+        None,
+    );
+    let result = call(
+        &mut server,
+        "agents_wait",
+        json!({
+            "until": "idle", "target": CHAT, "timeout_seconds": 1
+        }),
+    );
     assert_eq!(result["isError"], false, "{result}");
     assert_eq!(result["structuredContent"]["matched"], true, "{result}");
     assert_eq!(result["structuredContent"]["match"]["state"], "disconnected", "{result}");

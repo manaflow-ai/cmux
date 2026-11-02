@@ -17,7 +17,9 @@ extension SidebarBridge {
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings, asks: services.machineAsks)
+        let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry,
+                                                 settings: services.settings, asks: services.machineAsks)
             .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }
@@ -38,14 +40,14 @@ enum SidebarCardFeed {
     /// Announcement cards are `announcement:<id>`.
     static let announcementPrefix = "announcement:"
 
-    /// The cards, and with `window` its top items (`SidebarModel.followTopItems`):
-    /// one task, so the bridge cancels both together. `registry` gives the
-    /// tip card its action's shortcut.
-    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil,
+    /// The cards, and with `window` its top items (`SidebarModel.followTopItems`, over the app's own sidebar
+    /// `document`): one task, so the bridge cancels both together. `registry` gives the tip card its action's shortcut.
+    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?,
+                      document: @escaping @MainActor @Sendable () -> SidebarDocStore?, registry: ActionRegistry? = nil,
                       settings: SettingsController? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry, asks: asks)
         guard window != nil else { return cards }
-        let whatsNew = model.followTopItems()
+        let whatsNew = model.followTopItems(document: document)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
