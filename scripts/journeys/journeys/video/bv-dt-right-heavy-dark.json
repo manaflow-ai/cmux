@@ -32,6 +32,15 @@
    "do": "bv_serve"
   },
   {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "bv",
+   "title": "set-up: a workspace (the page tab opens in its pane, full width, not beside Home)"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
    "do": "bv_open",
    "page": "heavy"
   },

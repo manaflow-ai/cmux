@@ -12,7 +12,10 @@ def setup(theme, page=None):
     steps = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"},
              {"do": "rpc", "title": f"set-up: the app in {theme} (debug.appearance; Chromium and pages follow NSApp)",
               "method": "debug.appearance", "params": {"mode": theme}},
-             {"do": "wait", "seconds": 0.8}, {"do": "bv_serve"}]
+             {"do": "wait", "seconds": 0.8}, {"do": "bv_serve"},
+             {"do": "new_terminal", "via": "key", "name": "bv",
+              "title": "set-up: a workspace (the page tab opens in its pane, full width, not beside Home)"},
+             {"do": "neutral_prompt"}]
     if page:
         steps += [{"do": "bv_open", "page": page}, {"do": "wait", "seconds": 1.5}]
     return steps
