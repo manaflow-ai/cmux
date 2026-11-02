@@ -16,7 +16,8 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-import beacon as bc  # noqa: E402
+sys.path.insert(0, str(HERE.parents[1] / "journeys"))
+import ext_switch as bc  # noqa: E402  (the beacon codec)
 import judge_switch as js  # noqa: E402
 
 W, H, HZ = 1280, 800, 120

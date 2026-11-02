@@ -14,12 +14,13 @@ itself, the settled OLD state (just before the input) and the settled TARGET sta
   - tiles (TILE x TILE video pixels after a DOWN x DOWN area average) label each frame OLD / TARGET / MIXED /
     BLANK / OTHER, separately for the sidebar (x < sidebar edge) and the content;
   - tiles whose pixels move in a settled state (a busy TUI, a CSS animation) carry no vote; beacons
-    (beacon.py: a color barcode of workspace id, pane id and a clock) still say which workspace such a pane shows
+    (scripts/journeys/ext_switch.py beacon: a color barcode of workspace id, pane id and a clock) still say which workspace such a pane shows
     and how old its frame is.
 
 Usage:
   judge_switch.py --video V.mov --events E.json [--out R.json] [--hz 120] [--sidebar-right PX]
 E.json: [{"t": seconds in video time (the HID key-down or mouse-down), "case": "cmd-2", "label": "..."}, ...]
+        With --frames PATH.frames.json (the HARNESS recorder), "t" is in host seconds (CACurrentMediaTime).
         (or {"events": [...]}). Optional per event: "settle_start"/"settle_end" (s after t, default 0.6 / 0.9),
         "pre" (s of OLD reference before t, default 0.25), "window" (s judged after t, default settle_start).
 Exit 0 always when it judged; the verdict per event is in the output ("pass": true/false, "defects": [...]).
@@ -36,8 +37,8 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import beacon as bc  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "journeys"))
+import ext_switch as bc  # noqa: E402  (the beacon codec: scripts/journeys/ext_switch.py)
 
 DOWN = 4          # area-average factor for tile features
 TILE = 8          # tile side in downscaled pixels (32 video pixels at DOWN 4)
@@ -65,16 +66,27 @@ def tiles(small: np.ndarray) -> np.ndarray:
     return x.transpose(0, 2, 1, 3, 4).reshape(th, tw, TILE * TILE * 3)
 
 
-def read_video(path: str, windows: list[tuple[float, float]]):
-    """Yield (t, full_rgb) for frames whose time falls in any window (sorted, non-overlapping)."""
+def movie_times(frames_json: str) -> list[float]:
+    """Host display times of the movie's frames, in movie order, from the HARNESS recorder's PATH.frames.json
+    (`debug.motion record_*`: every ScreenCaptureKit frame as [t host seconds, status, in movie])."""
+    data = json.load(open(frames_json))
+    rows = data.get("frames", data) if isinstance(data, dict) else data
+    return [float(r[0]) for r in rows if (len(r) < 3 or r[2]) and (len(r) < 2 or r[1] != "idle")]
+
+
+def read_video(path: str, windows: list[tuple[float, float]], times: list[float] | None = None):
+    """Yield (t, full_rgb) for frames whose time falls in any window (sorted, non-overlapping). With `times`
+    (movie_times), t is the frame's host display time instead of the movie's own time stamp."""
     import av
 
     with av.open(path) as box:
         stream = box.streams.video[0]
         stream.thread_type = "AUTO"
         wi = 0
-        for frame in box.decode(stream):
-            t = float(frame.time)
+        for i, frame in enumerate(box.decode(stream)):
+            if times is not None and i >= len(times):
+                break
+            t = times[i] if times is not None else float(frame.time)
             while wi < len(windows) and t > windows[wi][1]:
                 wi += 1
             if wi >= len(windows):
@@ -436,7 +448,7 @@ def judge_event(ev: dict, frames: list[tuple[float, np.ndarray, np.ndarray]], hz
     return res
 
 
-def judge(video: str, events: list[dict], hz: float, sidebar_right: int | None):
+def judge(video: str, events: list[dict], hz: float, sidebar_right: int | None, times: list[float] | None = None):
     events = sorted(events, key=lambda e: e["t"])
     windows = []
     for ev in events:
@@ -446,7 +458,7 @@ def judge(video: str, events: list[dict], hz: float, sidebar_right: int | None):
     buf: list[tuple[float, np.ndarray, np.ndarray | None]] = []
     results = []
     ei = 0
-    for t, rgb in read_video(video, windows):
+    for t, rgb in read_video(video, windows, times):
         while ei < len(events) and t > windows[ei][1]:
             results.append(judge_event(events[ei], buf, hz, sidebar_right))
             buf = [b for b in buf if ei + 1 < len(events) and b[0] >= windows[ei + 1][0]]
@@ -483,11 +495,12 @@ def main() -> int:
     ap.add_argument("--out")
     ap.add_argument("--hz", type=float, default=120.0)
     ap.add_argument("--sidebar-right", type=int, default=None, help="sidebar right edge in video pixels")
+    ap.add_argument("--frames", help="the recorder's PATH.frames.json: frame times and event times in host seconds")
     args = ap.parse_args()
     ev = json.load(open(args.events))
     if isinstance(ev, dict):
         ev = ev["events"]
-    results = judge(args.video, ev, args.hz, args.sidebar_right)
+    results = judge(args.video, ev, args.hz, args.sidebar_right, movie_times(args.frames) if args.frames else None)
     out = {"video": args.video, "hz": args.hz, "summary": summary(results), "events": results}
     text = json.dumps(out, indent=1, default=str)
     if args.out:
