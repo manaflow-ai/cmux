@@ -83,6 +83,13 @@
         "blacksmith-4vcpu-ubuntu-2404-arm"
       ]
     },
+    "promotion": {
+      "why": "Nightly promotion overflow after the owned fleet admission has no start for 180 seconds",
+      "members": [
+        "blacksmith-2vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404"
+      ]
+    },
     "windows": {
       "why": "Windows builds and tests",
       "members": [
