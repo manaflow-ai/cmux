@@ -45,7 +45,7 @@ enum WorkspaceGroupClose {
 
     /// The close toast in `window`; its Undo reopens what this close recorded
     /// (`reopen`). Also the bulk closes' toast (`WorkspaceBulkClose`, no group). `undone` runs when its Undo does.
-    /// Undo stops or waits for each of `cleanups` (`closeCleanups`), then reopens each deleted group's record last.
+    /// Undo stops or waits for each of `cleanups` (`closeCleanups`), reopening each deleted group's record before the workspaces.
     static func offerUndo(_ id: String, _ message: String, groups: [(String?, [String])], after seen: Set<String>,
                           in window: NSWindow, _ services: AppServices, cleanups: [GroupCloseCleanup] = [],
                           undone: (@MainActor () -> Void)? = nil) {
@@ -58,12 +58,13 @@ enum WorkspaceGroupClose {
             guard let services else { return }
             // task-owner: one undo, bounded by `arrivalLimit`
             Task { @MainActor in
-                var records: [String] = []
-                for cleanup in cleanups { if let record = await cleanup.undo(limit: arrivalLimit) { records.append(record) } }
-                for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) }
-                for record in records {
-                    if let entry = DaemonClosedHistory.entry(record, in: services) { DaemonClosedHistory.reopen(entry, services: services) }
+                // A deleted group's record goes first: its restore regroups the closed workspaces' kept rows, which the reopens keep.
+                for cleanup in cleanups {
+                    if let record = await cleanup.undo(limit: arrivalLimit), let entry = DaemonClosedHistory.entry(record, in: services) {
+                        DaemonClosedHistory.reopen(entry, services: services)
+                    }
                 }
+                for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) }
             }
         }
     }
