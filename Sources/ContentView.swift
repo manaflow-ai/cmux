@@ -7474,6 +7474,10 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, pinState?.pinned ?? !workspace.isPinned)
             snapshot.setBool(
+                SessionPriorityPaletteCommands.workspaceAdjustableManualKey,
+                SessionPriorityMenuState(workspace: workspace).adjustableManual
+            )
+            snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
             )
