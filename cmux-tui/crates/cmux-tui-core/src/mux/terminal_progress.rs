@@ -36,6 +36,7 @@ impl Mux {
         .remove(id)
         .unwrap_or_default();
         let value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
+        self.run_state_commit_after_apply_hook();
         let deltas = serde_json::json!([{
             "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,
         }]);
