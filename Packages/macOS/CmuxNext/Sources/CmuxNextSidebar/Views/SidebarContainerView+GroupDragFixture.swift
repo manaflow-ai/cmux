@@ -24,7 +24,7 @@ public extension SidebarContainerView {
         case let .lift(group):
             list.cancelDrag()
             if let landing = list.landing { list.finishLand(landing, then: nil) }
-            guard let row = list.displayed.row(for: .group(group)) else { return ["error": 1] }
+            guard let row = list.displayed.groupRow(group) else { return ["error": 1] }
             list.model.docDrag = SidebarDocDrag(item: { key in
                 switch key {
                 case let .workspace(id): id.rawValue

@@ -36,7 +36,7 @@ struct ContextMenuEssentialsTests {
 
     private static let sidebarTrimmedActions: [ActionID] = [
         "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
-        "sidebar.workspaceTabs.toggle", "sidebar.density.compact", "sidebar.density.comfortable",
+        "sidebar.density.compact", "sidebar.density.comfortable",
         // Copy Workspace ID and Copy Workspace Link came back under More > Copy (#27709, classic parity).
         "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
         "agentChat.copyIdentifier", "workspace.showResources", "revealWorkspaceInFinder",
@@ -47,9 +47,10 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
         // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
-        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow", "workspace.duplicate",
+        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
                                "home.messageAbout", "palette.moveWorkspaceToTop", "—",
-                               "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "More", "—", "closeWorkspace"])
+                               "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "palette.copyWorkspaceLink", "More", "—",
+                               "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
         let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }
         let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
@@ -59,14 +60,42 @@ struct ContextMenuEssentialsTests {
         #expect(allActions(menu).contains("workspace.duplicate"))
     }
 
-    /// Classic's row menu copies the workspace's id and link (#27709); here they sit in More > Copy,
-    /// so the top level keeps its essentials.
-    @Test func theWorkspaceMenuCopiesTheIDAndLinkUnderMore() {
-        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
-        #expect(!rows(menu).contains("palette.copyWorkspaceID"))
-        let more = menu.items.first { $0.title == "More" }?.submenu
-        #expect(more.map(allActions)?.contains("palette.copyWorkspaceID") == true)
-        #expect(more.map(allActions)?.contains("palette.copyWorkspaceLink") == true)
+    /// Leo 2026-10-29: "I feel like there's a much better way of doing things than just all of these
+    /// menus ... there's no link to workspace, which is, I mean, that seems pretty important". The
+    /// workspace, tab and pane menus each have one Copy ▸ at their top level, just above More, whose
+    /// first row is the right-clicked object's link, then its ID, then the other identifiers. (#27709 put the
+    /// workspace's ID and link in More > Copy; they move up with the rest.)
+    @Test(arguments: [
+        (ActionMenuContext.workspaceRow, ActionTargetKind.workspace,
+         ["palette.copyWorkspaceLink", "palette.copyWorkspaceID"]),
+        (.tab, .tab, ["palette.copySurfaceLink", "palette.copySurfaceID", "palette.copyPaneLink", "palette.copyPaneID",
+                      "palette.copyIdentifiers", "agentChat.copyIdentifier", "tab.screenshot"]),
+        (.pane, .pane, ["palette.copyPaneLink", "palette.copyPaneID", "pane.screenshot"]),
+    ] as [(ActionMenuContext, ActionTargetKind, [String])])
+    func eachObjectMenuHasOneCopyFolderLinkFirst(context: ActionMenuContext, kind: ActionTargetKind, expected: [String]) throws {
+        let menu = registry().makeContextMenu(for: context, target: ActionTargetRef(kind: kind, id: "x"))
+        let copyTitle = MenuFolder.copy.title
+        let copy = try #require(menu.items.first { $0.title == copyTitle }?.submenu, "\(context) has no top-level Copy")
+        let ids = allActions(copy)
+        // The link first, then the ID; every row the menu shows in the listed order.
+        #expect(Array(ids.prefix(2)) == Array(expected.prefix(2)), "\(context)'s Copy: \(ids)")
+        #expect(ids.filter(expected.contains) == expected.filter(ids.contains), "\(context)'s Copy: \(ids)")
+        #expect(Set(ids).isSubset(of: expected), "\(context)'s Copy has rows the test does not name: \(ids)")
+        // Just above More, and More has no loose copy rows left.
+        let titles = menu.items.map(\.title)
+        let at = try #require(titles.firstIndex(of: copyTitle))
+        #expect(titles.indices.contains(at + 1) && titles[at + 1] == "More", "\(context): \(titles)")
+        let more = menu.items.first { $0.title == "More" }?.submenu.map(allActions) ?? []
+        #expect(Set(more).isDisjoint(with: expected), "\(context)'s More still has copy rows")
+    }
+
+    /// A selection's menu keeps the copy rows in More, as one Copy ▸ (never loose rows).
+    @Test func theSelectionMenusMoreKeepsCopyAsOneFolder() throws {
+        let entries = ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow)
+        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
+        let more = try #require(menu.items.first { $0.title == "More" }?.submenu)
+        let copy = try #require(more.items.first { $0.title == MenuFolder.copy.title }?.submenu)
+        #expect(allActions(copy) == ["palette.copyWorkspaceLink", "palette.copyWorkspaceID"])
     }
 
     /// Leo 2026-10-23: "I don't think anybody actually looks at most of the, like, row settings
@@ -134,29 +163,29 @@ struct ContextMenuEssentialsTests {
         #expect(!allActions(menu).contains("palette.workspaceCustomColor"))
     }
 
-    @Test func theTabAndPaneMenusEndWithMoreAndClose() {
+    @Test func theTabAndPaneMenusKeepTheirFrequentRows() {
         let registry = registry()
         let tab = rows(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t")))
-        #expect(tab.suffix(5) == ["More", "—", "closeTab", "closeOtherTabsInPane", "closeTabsToRight"])
+        #expect(tab.suffix(6) == ["closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "palette.copySurfaceLink", "More"])
+        // The group rows stay at the top (Lawrence 2026-10-14, "my groups UI is lost"; check-group-menus.py).
         #expect(["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].allSatisfy(tab.contains))
         #expect(allActions(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))).contains("renameTab") && tab.contains("palette.toggleTabPin"))
         let pane = rows(registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: "p")))
         #expect(pane.suffix(3) == ["More", "—", "closePane"])
-        #expect(pane.filter { $0 != "—" }.count <= 7)
+        #expect(pane.filter { $0 != "—" }.count <= 8)
         #expect(pane.contains("splitRight") && pane.contains("splitDown"))
     }
 
-    /// The tab menu is Chrome's, in its order (`TabMenuModel::Build`; Leo 2026-10-19): New Tab to
-    /// the Right and the group rows; Reload, Duplicate, Pin, Mute; then Close Tab, Close Other Tabs
-    /// and Close Tabs to the Right at the top level, not in More.
+    /// New Tab to the Right and the group rows (Lawrence's guard, check-group-menus.py), then the
+    /// frequent rows; moves remain in More.
     @Test func theTabMenuFollowsChromesOrder() {
         let menu = registry().makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))
         let tab = rows(menu)
         #expect(tab == ["newTab.toRight", "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab", "—",
                         "reloadTab", "duplicateTab", "palette.toggleTabPin", "toggleTabAudioMute",
-                        "More", "—", "closeTab", "closeOtherTabsInPane", "closeTabsToRight"])
+                        "closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "palette.copySurfaceLink", "More"])
         // The rest moved into More, not gone: Close Tabs to the Left (not in Chrome) and Move Tab to New Window.
-        for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart", "browser.resetPinnedTab"] {
+        for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart"] {
             #expect(allActions(menu).contains(id), "\(id)")
         }
     }

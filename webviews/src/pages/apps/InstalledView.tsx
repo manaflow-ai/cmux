@@ -8,7 +8,7 @@ import type { AppsSnapshot, AppsStore } from "./store";
 import { UpdatesView } from "./UpdatesView";
 
 export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
-  const { t } = strings;
+  const { t, format } = strings;
   if (snap.installed.length === 0)
     return (
       <div className={snap.loading ? "apps-empty" : "apps-empty apps-state"}>
@@ -39,6 +39,14 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                   <span className={app.failure ? "apps-failure selectable" : "apps-muted"}>
                     {app.failure ?? app.id}
                   </span>
+                  {app.instance && (
+                    <span className="apps-instance selectable" data-instance-state={app.instance.state}>
+                      {format(
+                        app.instance.state === "running" ? "store.instance.running" : "store.instance.deploying",
+                        app.instance.target,
+                      )}
+                    </span>
+                  )}
                 </div>
                 <div className="apps-installed-actions">
                   <Switch

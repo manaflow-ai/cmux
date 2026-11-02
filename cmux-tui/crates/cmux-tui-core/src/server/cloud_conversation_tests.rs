@@ -8,7 +8,7 @@ use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
 use super::super::tests::captured_writer;
 use super::super::*;
 use crate::cloud_conversations::testing::{FakeBackend, wait_until};
-use crate::cloud_conversations::{CloudConversations, ServiceOptions};
+use crate::cloud_conversations::{CloudConversations, CloudError, ServiceOptions};
 
 const CONV: &str = "conv_0123456789ABCDEFGHJKMNPQRS";
 const ME: &str = "user_00000000000000000001";
@@ -1075,4 +1075,126 @@ fn a_snapshot_that_never_decodes_is_asked_for_a_bounded_number_of_times_then_the
         vec![("cloud-conversation-resynced".to_string(), 2)],
         "{seen:#?}"
     );
+}
+
+fn inbox_page(conversations: &[&str], next_cursor: Value, revision: &str) -> Value {
+    let entries: Vec<Value> = conversations
+        .iter()
+        .map(|conversation| json!({"conversation": conversation, "last_seq": 1}))
+        .collect();
+    json!({"ok":true,"op":"inbox.list","value":{"entries":entries,"next_cursor":next_cursor},"revision":revision})
+}
+
+fn listed_ids(value: &Value) -> Vec<&str> {
+    value["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["conversation"].as_str())
+        .collect()
+}
+
+/// `cloud-inbox-list` is one page per call, from the client's cursor, and hands
+/// back the owner's `next_cursor`, so a client can read past the newest 200.
+#[test]
+fn inbox_list_reads_one_page_from_the_cursor_and_returns_the_next() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    let first = reply(&mux, client, json!({"id":1,"cmd":"cloud-inbox-list"}));
+    assert_eq!(first["data"]["next_cursor"], "k1", "{first}");
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b"], Value::Null, "8"));
+    let second =
+        reply(&mux, client, json!({"id":2,"cmd":"cloud-inbox-list","cursor":"k1","limit":5}));
+    assert_eq!(listed_ids(&second["data"]), ["conv_b"], "{second}");
+    assert_eq!(second["data"]["next_cursor"], Value::Null);
+    let posted = backend.posted();
+    assert_eq!(posted.len(), 2, "one read per call");
+    assert_eq!(posted[0].body["params"], json!({"limit":200}));
+    assert_eq!(posted[1].body["params"], json!({"limit":5,"cursor":"k1"}));
+}
+
+/// `home-inbox`'s Cloud rows: every page, an entry a later page lists again
+/// once (first copy), the first page's revision.
+#[test]
+fn inbox_list_all_reads_every_page_once() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a", "conv_b"], json!("k1"), "7"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b", "conv_c"], json!("k2"), "8"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_d"], Value::Null, "9"));
+    let all = super::lease_user(&mux, client)
+        .unwrap()
+        .inbox_list_all(false, Duration::from_secs(60))
+        .unwrap();
+    assert_eq!(listed_ids(&all), ["conv_a", "conv_b", "conv_c", "conv_d"]);
+    assert_eq!(all["revision"], "7");
+    assert_eq!(all["next_cursor"], Value::Null);
+    let cursors: Vec<Value> =
+        backend.posted().iter().map(|post| post.body["params"]["cursor"].clone()).collect();
+    assert_eq!(cursors, [Value::Null, json!("k1"), json!("k2")]);
+}
+
+/// A cursor the owner hands back unchanged ends the read instead of looping;
+/// any page that fails fails the read (the app then keeps its last rows).
+#[test]
+fn inbox_list_all_stops_on_a_stuck_cursor_and_fails_on_a_later_failure() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    let service = super::lease_user(&mux, client).unwrap();
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b"], json!("k1"), "7"));
+    let stuck = service.inbox_list_all(false, Duration::from_secs(60)).unwrap();
+    assert_eq!(listed_ids(&stuck), ["conv_a", "conv_b"]);
+    assert_eq!(backend.posted().len(), 2);
+
+    backend.reply("/v1/read", 200, inbox_page(&["conv_c"], json!("k9"), "8"));
+    backend.fail("/v1/read", "connection reset");
+    assert!(service.inbox_list_all(false, Duration::from_secs(60)).is_err());
+
+    // The first page's failure is the read's.
+    backend.fail("/v1/read", "connection reset");
+    assert!(service.inbox_list_all(false, Duration::from_secs(60)).is_err());
+}
+
+/// Past the budget, no further page is read.
+#[test]
+fn inbox_list_all_stops_at_its_budget() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    let read =
+        super::lease_user(&mux, client).unwrap().inbox_list_all(false, Duration::ZERO).unwrap();
+    assert_eq!(listed_ids(&read), ["conv_a"]);
+    assert_eq!(read["next_cursor"], "k1");
+    assert_eq!(backend.posted().len(), 1);
+}
+
+/// A page the owner refuses mid-read (a rate limit) leaves the Cloud rows
+/// `unavailable`, never `signed_out`: the app keeps its last rows instead of
+/// showing the person signed out.
+#[test]
+fn a_refused_inbox_page_leaves_the_cloud_rows_unavailable() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    backend.reply(
+        "/v1/read",
+        429,
+        json!({"error":{"code":"rate_limited","message":"slow down","retryable":true}}),
+    );
+    let error = super::lease_user(&mux, client)
+        .unwrap()
+        .inbox_list_all(false, Duration::from_secs(60))
+        .map_err(anyhow::Error::from)
+        .unwrap_err();
+    assert_eq!(conversations::cloud_rows_failure(&error), "unavailable", "{error}");
+    for (signed_out, state) in [
+        (CloudError::SignedOut, "signed_out"),
+        (CloudError::SessionExpired, "signed_out"),
+        (CloudError::Unauthenticated, "signed_out"),
+        (CloudError::Unavailable("reset".into()), "unavailable"),
+    ] {
+        assert_eq!(conversations::cloud_rows_failure(&signed_out.into()), state);
+    }
 }

@@ -26,6 +26,7 @@ pub use error::FsError;
 pub use listing::Page;
 pub use ops::{FsService, MAX_READ_BYTES, MAX_WRITE_BYTES};
 pub use resolve::Roots;
+pub(crate) use write::PendingWrite;
 pub use write::WriteMode;
 
 /// The capability that carries the `fs.*` ops.

@@ -157,7 +157,8 @@ final class HoverCardPanel: NSPanel {
     /// `sliding` retargets a visible card. A sidebar row's first show is at full strength
     /// and at rest in this frame; the coordinator has already waited for the dwell.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
-                 themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, applyTheme: @escaping () -> Void) {
+                 themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, cornerRadius: CGFloat? = nil,
+                 applyTheme: @escaping () -> Void) {
         let wasDismissing = isDismissing
         let wasOnScreen = isVisible && parentWindowRef === parent
         // Where the card is on screen before this show: a visible card (shown, or fading out
@@ -228,8 +229,9 @@ final class HoverCardPanel: NSPanel {
         }
         self.anchor = anchor
         self.placement = placement
-        // The density setting may have changed the floating panels' radius since the last card.
-        host?.cornerRadius = Self.cornerRadius
+        // This card's shape (a tab's card has the tab's), read on every show: the density setting
+        // may have changed the radius since the last card.
+        host?.cornerRadius = cornerRadius ?? Self.cornerRadius
         place()
         if sweeping {
             snapToRest()

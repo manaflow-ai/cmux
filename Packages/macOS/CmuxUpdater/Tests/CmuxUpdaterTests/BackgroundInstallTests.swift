@@ -89,6 +89,32 @@ import Testing
         #expect(!harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
+    /// A build the host refuses (cmux NEXT: a pulled build) is never downloaded, offered or
+    /// accepted: background mode does not accept it, the prompt flow does not show it, and a
+    /// prompt that waits when the host comes to refuse it is not downloaded.
+    @Test func aRefusedBuildIsNeitherDownloadedNorOffered() {
+        let background = Harness()
+        background.controller.installsUpdatesInBackground = true
+        background.controller.refusesUpdate = { $0 == "0.64.17" }
+        let dropped = ChoiceBox()
+        find(background, into: dropped)
+        #expect(dropped.choice == .dismiss, "refused build 0.64.17 was downloaded")
+        #expect(background.model.state.isIdle, "refused build 0.64.17 left \(background.model.state)")
+
+        let prompt = Harness()
+        prompt.controller.installsUpdatesInBackground = true
+        prompt.controller.downloadsUpdatesInBackground = false
+        let waiting = ChoiceBox()
+        find(prompt, into: waiting)
+        guard case .updateAvailable = prompt.model.state else {
+            Issue.record("expected the update to wait for a click, got \(prompt.model.state)")
+            return
+        }
+        prompt.controller.refusesUpdate = { $0 == "0.64.17" }
+        prompt.controller.acceptAvailableUpdate()
+        #expect(waiting.choice != .install, "refused build 0.64.17 was downloaded on accept")
+    }
+
     @Test func backgroundModeSkipsThePromptForAUserInitiatedCheckToo() {
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true
@@ -203,12 +229,109 @@ import Testing
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true
         let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
-        _ = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
+        let held = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
+        #expect(!held, "the uncancellable silent Sparkle cycle was held")
+        harness.finishSparkleCycle()
+        let resumed = ChoiceBox()
+        find(harness, into: resumed)
+        #expect(resumed.choice == .skip, "the silent installer was not physically cancelled")
+        harness.finishSparkleCycle()
+        #expect(harness.updater.checkForUpdatesCallCount == 2, "no fresh manual cycle cleared Sparkle's skipped version")
+        let download = ChoiceBox(), staged = ChoiceBox()
+        find(harness, into: download)
+        #expect(download.choice == .install)
+        ready(harness, into: staged)
         #expect(harness.controller.stagedUpdate?.versionString == "0.64.17")
         #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17")
 
         harness.controller.installStagedUpdate()
+        #expect(staged.choice == .install)
         #expect(harness.controller.stagedUpdate == nil, "the installing update still reads as staged")
+    }
+
+    /// A silent Sparkle installer can already be in the installing state when the running build
+    /// is pulled. Restart to Update must take that installer back before asking Sparkle for the
+    /// newest build; otherwise ``checkForUpdates()`` is ignored forever while the stale installer
+    /// remains held.
+    @Test func aManualCheckReplacesSparkleSilentInstall() async {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
+        _ = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
+
+        harness.controller.checkForUpdates()
+        harness.finishSparkleCycle()
+        await waitUntil("the replacement check") { harness.updater.checkForUpdatesCallCount == 1 }
+        #expect(harness.controller.stagedUpdate == nil, "the stale silent installer was not released")
+        if case .installing = harness.model.state {
+            Issue.record("the controller stayed in the stale installing state")
+        }
+    }
+
+    @Test func cancellingAStagedUpdateReleasesSparkleSilentInstall() {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
+        _ = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
+        harness.finishSparkleCycle()
+        let resumed = ChoiceBox()
+        find(harness, into: resumed)
+        #expect(resumed.choice == .skip)
+        harness.finishSparkleCycle()
+        #expect(harness.updater.checkForUpdatesCallCount == 2)
+        let download = ChoiceBox(), staged = ChoiceBox()
+        find(harness, into: download)
+        ready(harness, into: staged)
+
+        #expect(harness.controller.cancelStagedUpdate())
+        #expect(staged.choice == .skip, "ordinary quit did not use the non-version-skipping ready reply")
+        #expect(harness.controller.stagedUpdate == nil)
+        #expect(harness.model.state.isIdle)
+    }
+
+    @Test func cancellingOrReplacingACheckInvalidatesThePendingAppcast() async {
+        for replace in [false, true] {
+            let harness = Harness()
+            harness.controller.installsUpdatesInBackground = true
+            harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
+            let (gate, release) = AsyncStream<Void>.makeStream()
+            var prepared = false
+            harness.controller.prepareUpdate = {
+                for await _ in gate {}
+                prepared = true
+            }
+            let found = ChoiceBox()
+            find(harness, into: found)
+            if replace {
+                harness.controller.driver.replaceActiveState(with: .idle)
+            } else {
+                harness.model.state.cancel()
+            }
+            release.finish()
+            await waitUntil("the cancelled policy read") { prepared }
+            #expect(found.choice == .dismiss, "the cancelled check accepted its old appcast")
+            #expect(harness.model.state.isIdle, "the old appcast resurrected a cancelled check")
+            #expect(harness.controller.stagedUpdate == nil)
+        }
+    }
+
+    @Test func thePulledListReadFinishesBeforeAFastAppcastItemIsAccepted() async {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        let (gate, release) = AsyncStream<Void>.makeStream()
+        var pulled = false
+        harness.controller.prepareUpdate = {
+            for await _ in gate {}
+            pulled = true
+        }
+        harness.controller.refusesUpdate = { _ in pulled }
+        let found = ChoiceBox()
+        find(harness, into: found)
+        #expect(found.choice == nil, "the appcast was accepted before the pulled list finished")
+        release.finish()
+        await waitUntil("the refusal after the pulled list") { found.choice == .dismiss }
+        #expect(harness.model.state.isIdle)
+        #expect(harness.controller.stagedUpdate == nil)
     }
 
     @Test func backgroundModeWritesNothingToDefaults() {

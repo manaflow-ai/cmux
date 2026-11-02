@@ -102,7 +102,7 @@ impl Reread {
                 }
             }
             Reread::Sessions => {
-                if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
+                if let Ok(v) = client.whole_list(method::MUX_SESSIONS, json!({})).await {
                     let _ = tx.send(AppMsg::Sessions(
                         v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
                     ));
@@ -537,7 +537,7 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
+            if let Ok(v) = client.whole_list(method::MUX_SESSIONS, json!({})).await {
                 let _ = tx.send(AppMsg::Sessions(
                     v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
                 ));
