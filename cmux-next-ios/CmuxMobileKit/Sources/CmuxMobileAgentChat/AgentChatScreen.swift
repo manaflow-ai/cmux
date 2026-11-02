@@ -49,6 +49,52 @@ public final class AgentChatSurface {
     public var parityRoute: AgentParityRoute?
     /// The session's artifacts browser (a sheet).
     public var showArtifacts = false
+    /// `/status`'s sheet while it is up.
+    var showStatus = false
+    /// The earlier prompt in Edit and Resend's sheet (nil: closed).
+    var editingEarlier: EarlierPromptEdit?
+    /// What the chat's workspace tab does with it (fork into a new tab); nil for a chat
+    /// outside a workspace tab, which then offers neither `/fork` nor an earlier prompt's edit.
+    public var tabActions: AgentChatTabActions?
+
+    /// Edit and Resend on an earlier prompt: its sheet, when the chat can fork before it.
+    func editEarlier(_ turn: AgentTurn, store: AgentChatStore) {
+        guard tabActions != nil, let seq = store.editForkSeq(for: turn) else { return }
+        composerFocused = false
+        editingEarlier = EarlierPromptEdit(turnID: turn.id, throughSeq: seq, original: turn.prompt)
+    }
+
+    /// A cmux command typed in the composer (`/status`, `/fork`, `/continue [harness]`): run
+    /// here; nil when it ran (or opened its screen), else the refusal to show (the draft stays).
+    func run(_ command: CmuxSlashCommand, args: String, store: AgentChatStore) async -> String? {
+        let canFork = tabActions != nil
+        switch command {
+        case .status:
+            showStatus = true
+            return nil
+        case .fork:
+            if let refusal = command.refusal(args: args, canFork: canFork, isRunning: store.isRunning, targets: nil) { return refusal }
+            await tabActions?.fork()
+            return nil
+        case .continue:
+            if let refusal = command.refusal(args: args, canFork: canFork, isRunning: store.isRunning, targets: nil) { return refusal }
+            guard !args.isEmpty else {
+                parityRoute = .handoff
+                return nil
+            }
+            let targets: [AgentHandoffTarget]
+            do {
+                targets = try await store.source.handoffTargets()
+            } catch {
+                return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            }
+            if let refusal = command.refusal(args: args, canFork: canFork, isRunning: store.isRunning, targets: targets) { return refusal }
+            guard let target = CmuxSlashCommand.target(args, in: targets) else { return nil }
+            if let reason = target.unavailableReason { return reason }
+            parityRoute = .handoffTo(target)
+            return nil
+        }
+    }
     /// Find in Chat while its bar is up (nil: closed).
     public var find: AgentChatFind?
     /// Asks the find bar's field for the keyboard (it takes it when the bar opens).
@@ -450,6 +496,14 @@ public struct AgentChatTranscript: View {
         .sheet(isPresented: $surface.showArtifacts) {
             SessionArtifactsSheet(store: store, surface: surface)
         }
+        .sheet(isPresented: $surface.showStatus) {
+            SessionStatusSheet(store: store)
+        }
+        .sheet(item: $surface.editingEarlier) { edit in
+            if let actions = surface.tabActions {
+                EarlierPromptEditSheet(edit: edit, actions: actions)
+            }
+        }
         .cmuxMobileSensoryFeedback(.warning, trigger: warningTrigger)
         // A live ask buzzes, and so does one a reattach caught up on (raised while the link
         // was down); one that was already waiting when the chat opened does not.
@@ -640,7 +694,11 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 retryCount: retryCount)
+                                 retryCount: retryCount,
+                                 cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
+                                 runCmuxCommand: { [surface, store] command, args in
+                                     await surface.run(command, args: args, store: store)
+                                 })
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
                         }
@@ -799,6 +857,8 @@ struct UserBubble: View {
     let promptAt: Date
     let isLast: Bool
     let editAndResend: () -> Void
+    /// Edit and Resend of an earlier prompt (a fork before it), when the chat offers it.
+    var editEarlier: (() -> Void)?
     @State private var selecting = false
 
     var body: some View {
@@ -819,6 +879,8 @@ struct UserBubble: View {
                         Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
                         if isLast {
                             Button("Edit and Resend", systemImage: "pencil") { editAndResend() }
+                        } else if let editEarlier {
+                            Button("Edit and Resend", systemImage: "pencil") { editEarlier() }
                         }
                         ShareLink(item: prompt) { Label("Share", systemImage: "square.and.arrow.up") }
                     }

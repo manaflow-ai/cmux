@@ -44,6 +44,19 @@ final class ChatRowContext {
         }
     }
 
+    /// Whether an earlier prompt's Edit and Resend is offered: a workspace tab's chat that
+    /// can fork before it (the Mac's Edit and Resend, cx-ncc.60).
+    func canEditEarlier(turnID: String) -> Bool {
+        guard surface.tabActions != nil, let turn = store.turns.last(where: { $0.id == turnID }) else { return false }
+        return store.editForkSeq(for: turn) != nil
+    }
+
+    /// An earlier prompt's Edit and Resend: its own sheet (the composer's draft stays).
+    func editEarlier(turnID: String) {
+        guard let turn = store.turns.last(where: { $0.id == turnID }) else { return }
+        surface.editEarlier(turn, store: store)
+    }
+
     /// The turn's changes when a diff opens (cached, else computed for the tap).
     func changeSet(turnID: String, fallbackID: String) async -> DiffChangeSet {
         guard let turn = store.turns.last(where: { $0.id == turnID }) else {
@@ -82,7 +95,9 @@ struct ChatRowView: View {
                 .padding(.bottom, 20)
         case .prompt(let text, let attachments, let at, let isLast):
             let turnID = row.turnID
-            UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast) { context.editAndResend(turnID: turnID) }
+            UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast,
+                       editAndResend: { context.editAndResend(turnID: turnID) },
+                       editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block) { context.messageText(messageID) }

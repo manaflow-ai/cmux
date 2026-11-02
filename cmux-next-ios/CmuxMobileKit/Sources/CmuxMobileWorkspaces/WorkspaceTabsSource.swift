@@ -784,7 +784,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
     func pageAppeared(_ tabID: String) {
         guard focusOnOpen, tabID == activeTabID, let workspace, let tab = workspaceTab(tabID) else { return }
         switch tab.kind {
-        case .agent: surface(tabID).composerFocused = true
+        case .agent:
+            let surface = surface(tabID)
+            surface.composerFocused = true
+            // New Agent Chat from Shortcuts with a prompt: it waits in this new chat's composer.
+            if let draft = sessions.newChatDraft, surface.text.isEmpty {
+                sessions.newChatDraft = nil
+                surface.text = draft
+            }
         case .terminal: terminal.focusInput(for: tab, in: workspace)
         case .browser, .simulator: break
         }
@@ -794,6 +801,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     func surface(_ id: String) -> AgentChatSurface {
         if let surface = surfaces[id] { return surface }
         let surface = AgentChatSurface()
+        // `/fork` and an earlier prompt's Edit and Resend open their copy as a tab beside it.
+        surface.tabActions = AgentChatTabActions(
+            fork: { [weak self] in await self?.fork(id) },
+            editAndResend: { [weak self] seq, prompt in await self?.editAndResend(id, through: seq, prompt: prompt) ?? false }
+        )
         surfaces[id] = surface
         return surface
     }
@@ -1519,6 +1531,32 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    /// Edit and Resend of an earlier prompt (the Mac's, cx-ncc.60): a copy of the chat through the
+    /// turn before it opens in a new tab and comes to the front, then gets the edited prompt; the
+    /// chat itself stays as it was. acpmux's refusal (a Claude chat the Mac started) shows in its
+    /// own words. False when no copy was made.
+    public func editAndResend(_ id: TabsKitTab.ID, through seq: Int, prompt: String) async -> Bool {
+        guard let workspace, let creator, let tab = workspaceTab(id), tab.kind == .agent, pendingTabTitle == nil else { return false }
+        pendingTabTitle = "Fork"
+        defer { pendingTabTitle = nil }
+        let copy: WorkspaceTab
+        do {
+            copy = try await creator.backend.forkAgentChat(tab, through: seq, in: workspace)
+        } catch {
+            show(error, doing: "fork", tab.title)
+            return false
+        }
+        if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == copy.id }) != true {
+            store.appendTab(copy, to: workspaceID)
+        }
+        refreshTabs()
+        activate(copy.id)
+        openedTab = copy.id
+        // The copy's own chat sends it, as a prompt typed there would go.
+        chatStore(copy, workspace).send(prompt: prompt)
+        return true
+    }
+
     /// Archive: the chat is archived on the Mac (its sidebar's Archived list) and its tab closes.
     public func archive(_ id: TabsKitTab.ID) async {
         guard let workspace, let creator, let tab = workspaceTab(id), tab.kind == .agent else { return }
@@ -1791,11 +1829,20 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public static let closeLeftTitle = "Close Tabs to the Left"
     public static let closeRightTitle = "Close Tabs to the Right"
 
+    /// Send Message… for `tab`, while the shell can message the Chief and the Mac named the tab.
+    private func messageItems(_ tab: WorkspaceTab, in workspace: Workspace) -> [TabsKitMenuItem] {
+        guard ChiefMessenger.shared.isAvailable, let subject = ChiefMessageAbout(tab: tab, in: workspace) else { return [] }
+        return [TabsKitMenuItem(id: "tab.messageAbout", title: "Send Message…", systemImage: "paperplane") {
+            ChiefMessenger.shared.messageAbout(subject)
+        }]
+    }
+
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
         let edit = editItems(tab) + groupItems(tab) + moveItems(tab) + savedGroupItems(tab)
-        // Panes and Screens: the workspace's layout pages.
-        let layoutPages = panesItems() + screensItems(tab)
+        // Panes and Screens: the workspace's layout pages; Send Message… (the Mac's tab and
+        // chat row action): a message to the Chief with a link to this tab.
+        let layoutPages = panesItems() + screensItems(tab) + messageItems(tab, in: workspace)
         let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
         let closes = [close] + sideCloseItems(tab)
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }

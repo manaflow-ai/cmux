@@ -27,6 +27,10 @@ public final class AgentSessionDirectory {
         return DisconnectedAgentSource(summary: summary)
     }
 
+    /// A message for the next new agent chat that opens with its composer up (New Agent Chat
+    /// from Shortcuts with a prompt): it goes into that composer, unsent, once.
+    @ObservationIgnored public var newChatDraft: String?
+
     public init() {}
 
     /// A tab's store key: tab ids (`s<surface>`) repeat across Macs, so a

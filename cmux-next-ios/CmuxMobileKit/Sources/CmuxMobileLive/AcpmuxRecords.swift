@@ -36,7 +36,12 @@ struct AcpmuxRecords {
             }
             return events
         case "mux":
-            return mux(kind, msg, at: at)
+            var events = mux(kind, msg, at: at)
+            // A fork through this turn names its record (`acp.session.fork {throughSeq}`).
+            if kind == "turn_result", let turnID = msg["turnId"]?.stringValue, let seq = record["seq"]?.numberValue {
+                events.append(.turnSeq(turnId: turnID, seq: Int(seq)))
+            }
+            return events
         default:
             return []
         }
@@ -47,8 +52,11 @@ struct AcpmuxRecords {
         case "user_message":
             guard let turnID = msg["turnId"]?.stringValue else { return [] }
             // The images the prompt sent (acpmux keeps their bytes; `_acpmux/attachment` reads them).
-            let images = (msg["images"]?.arrayValue ?? []).enumerated().compactMap { index, image -> AgentAttachment? in
-                guard let id = image["id"]?.stringValue, !id.isEmpty else { return nil }
+            let recorded = msg["images"]?.arrayValue ?? []
+            // A video's frames, their note and labels went to the agent only (the Mac's bubble leaves them out).
+            let imageNames = recorded.map { $0["name"]?.stringValue }
+            let images = recorded.enumerated().compactMap { index, image -> AgentAttachment? in
+                guard let id = image["id"]?.stringValue, !id.isEmpty, !AgentVideo.isFrameName(image["name"]?.stringValue) else { return nil }
                 return .recordedImage(id: id, name: image["name"]?.stringValue, index: index)
             }
             var events: [AgentSessionEvent] = []
@@ -56,7 +64,7 @@ struct AcpmuxRecords {
                let previous = retry["turnId"]?.stringValue, previous != turnID {
                 events.append(.turnRetried(previousTurnID: previous, turnID: turnID))
             }
-            events.append(.userMessage(text: msg["text"]?.stringValue ?? "", promptId: msg["promptId"]?.stringValue ?? turnID,
+            events.append(.userMessage(text: AgentVideo.withoutFrameText(msg["text"]?.stringValue ?? "", imageNames: imageNames), promptId: msg["promptId"]?.stringValue ?? turnID,
                                  turnId: turnID, attachments: images, at: at))
             return events
         case "queued":
@@ -71,6 +79,10 @@ struct AcpmuxRecords {
         case "queue_order":
             guard case .array(let ids)? = msg["order"] else { return [] }
             return [.queueOrder(ids.compactMap(\.stringValue))]
+        case "queue_paused":
+            return [.queuePaused(true, reason: msg["reason"]?.stringValue)]
+        case "queue_resumed":
+            return [.queuePaused(false, reason: nil)]
         case "turn_started":
             guard let turnID = msg["turnId"]?.stringValue else { return [] }
             return [.turnStarted(turnId: turnID, at: at)]

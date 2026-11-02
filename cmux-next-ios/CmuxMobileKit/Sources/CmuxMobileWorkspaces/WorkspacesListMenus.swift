@@ -36,6 +36,12 @@ extension WorkspacesList {
         }
         var children: [UIMenuElement] = [UIMenu(title: menuHeader(ws, macName: macName, offline: status == .offline),
                                                 options: .displayInline, children: header)]
+        // Send Message… (the Mac's row action): a message to the Chief with a link to this workspace.
+        if status != .offline, ChiefMessenger.shared.isAvailable, let subject = ChiefMessageAbout(workspace: ws) {
+            children.append(UIMenu(options: .displayInline, children: [
+                action("Send Message…", "paperplane") { ChiefMessenger.shared.messageAbout(subject) },
+            ]))
+        }
         if canManage {
             if creator.canArrange(ws) { children.append(arrangeMenu(ws, inbox: inbox)) }
             var manage: [UIMenuElement] = [action("Rename", "pencil") { startRename(ws) }]

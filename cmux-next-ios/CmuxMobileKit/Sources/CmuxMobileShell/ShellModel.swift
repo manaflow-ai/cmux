@@ -92,6 +92,8 @@ final class ShellModel {
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     let mockMode: Bool
+    /// Send Message… on a workspace or a tab: the message to the Chief being written.
+    var messagingChief: ChiefMessageAbout?
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
     var isFetchingInvite = false
@@ -165,6 +167,7 @@ final class ShellModel {
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }
+        ChiefMessenger.shared.compose = { [weak self] subject in self?.messagingChief = subject }
         creator.onManageFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()
@@ -179,6 +182,24 @@ final class ShellModel {
         tab = .workspaces
         workspacesPath = []
         Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
+    }
+
+    /// New Agent Chat from Shortcuts, Siri or Spotlight (``AgentChatLauncher``): as the
+    /// Workspaces menu's New Agent Chat, a workspace whose only tab is the Mac's default agent,
+    /// in the most recent folder on the Mac new workspaces go to, opened with its composer up and
+    /// `prompt` in it (sent when the person taps Send, as the Mac's quick composer's text is).
+    func startAgentChat(prompt: String?) {
+        guard let mac = creator.targetMac else {
+            toast = CmuxMobileToast(symbol: "desktopcomputer", text: "Connect a Mac to start an agent chat")
+            return
+        }
+        guard creator.options(on: mac.id).agents.contains(""),
+              let workspace = creator.create(start: .agent(""), directory: creator.recentDirectories(on: mac.id).first, macID: mac.id) else {
+            toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "\(mac.name) can't start an agent chat from here")
+            return
+        }
+        AgentSessionDirectory.shared.newChatDraft = prompt
+        show(workspace: workspace)
     }
 
     /// A terminal agent's Feed event: its workspace on Workspaces, at that
@@ -543,6 +564,16 @@ final class ShellModel {
     func callChief() {
         guard !ChiefLiveCall.shared.start() else { return }
         openChiefCallSettings()
+    }
+
+    /// Sends Send Message…'s message to the Chief of the workspace's Mac (Chief follows the
+    /// focused Mac, as a Chief notification moves it), then shows that conversation on Home.
+    func sendToChief(_ text: String, about subject: ChiefMessageAbout) {
+        if let live, live.canLink(macID: subject.macID), live.focusedMacID != subject.macID { live.select(macID: subject.macID) }
+        ChiefSources.shared.mac.send(text: text)
+        messagingChief = nil
+        tab = .home
+        homePath = NavigationPath(chiefConversation: nil)
     }
 
     func openChiefCallSettings() {
