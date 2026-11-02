@@ -56,9 +56,7 @@ export async function traceUpwardAnchors({
   }
 
   function markFor(row: HTMLElement): number | null {
-    const kind = [...row.classList].find(
-      (name) => name.startsWith("acpmux-") && !name.startsWith("acpmux-row"),
-    );
+    const kind = [...row.classList].find((name) => name.startsWith("acpmux-") && !name.startsWith("acpmux-row"));
     if (
       row.classList.contains("acpmux-row--line") ||
       row.classList.contains("acpmux-row--after-step") ||
@@ -82,9 +80,7 @@ export async function traceUpwardAnchors({
         : transcriptMark.prompt;
     if (kind === "acpmux-assistant") return transcriptMark.message;
     if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine")
-      return row.classList.contains("acpmux-row--below")
-        ? transcriptMark.footerSlot
-        : transcriptMark.indicator;
+      return row.classList.contains("acpmux-row--below") ? transcriptMark.footerSlot : transcriptMark.indicator;
     if (kind === "acpmux-turnSummary")
       return row.querySelector(".cv-turn-actions:not(.cv-turn-actions--empty)")
         ? transcriptMark.footerRow
@@ -104,17 +100,12 @@ export async function traceUpwardAnchors({
       previous === transcriptMark.message
     )
       return footer;
-    if (
-      (next === transcriptMark.indicator || next === transcriptMark.footerSlot) &&
-      previous === transcriptMark.prompt
-    )
+    if ((next === transcriptMark.indicator || next === transcriptMark.footerSlot) && previous === transcriptMark.prompt)
       return block;
     if (previous === transcriptMark.prompt || next === transcriptMark.prompt) return turn;
     if (
       previous === transcriptMark.step &&
-      (next === transcriptMark.step ||
-        next === transcriptMark.indicator ||
-        next === transcriptMark.footerSlot)
+      (next === transcriptMark.step || next === transcriptMark.indicator || next === transcriptMark.footerSlot)
     )
       return 0;
     return block;
@@ -139,9 +130,7 @@ export async function traceUpwardAnchors({
         mark: markFor(row),
       };
     });
-    const visible = mounted.filter(
-      (row) => row.height > 0 && row.bottom > 0 && row.y < view.height,
-    );
+    const visible = mounted.filter((row) => row.height > 0 && row.bottom > 0 && row.y < view.height);
     return {
       mounted: new Map(mounted.map((row) => [row.id, row])),
       visible,
@@ -187,9 +176,7 @@ export async function traceUpwardAnchors({
     });
   });
   const baselineAnchor = synchronousBaseline.visible.find((row) => previous.mounted.has(row.id));
-  const baselineDrift = baselineAnchor
-    ? previous.mounted.get(baselineAnchor.id)!.y - baselineAnchor.y
-    : null;
+  const baselineDrift = baselineAnchor ? previous.mounted.get(baselineAnchor.id)!.y - baselineAnchor.y : null;
   const samples: UpwardAnchorFrame[] = [];
   let cancelledWheels = 0;
   let foldToggleClicks = 0;
@@ -231,16 +218,11 @@ export async function traceUpwardAnchors({
               .at(-1)
           : undefined;
         const mountedAfter = bottom
-          ? [...current.mounted.values()]
-              .filter((row) => row.index > bottom.index)
-              .sort((a, b) => a.index - b.index)[0]
+          ? [...current.mounted.values()].filter((row) => row.index > bottom.index).sort((a, b) => a.index - b.index)[0]
           : undefined;
         const topEdgeGap = top
           ? top.index > 0
-            ? Math.max(
-                0,
-                top.y - (mountedBefore ? expectedGap(mountedBefore.mark, top.mark, gridTokens) : 0),
-              )
+            ? Math.max(0, top.y - (mountedBefore ? expectedGap(mountedBefore.mark, top.mark, gridTokens) : 0))
             : 0
           : current.viewHeight;
         const bottomEdgeGap =
@@ -260,9 +242,7 @@ export async function traceUpwardAnchors({
           return [{ gap, expected, previous: previous.id, next: row.id }];
         });
         const positiveGaps = rowBoxGaps.filter((each) => each.gap > 0);
-        const unexpectedRowBoxGaps = rowBoxGaps.filter(
-          (each) => Math.abs(each.gap - each.expected) > 1 / 64,
-        );
+        const unexpectedRowBoxGaps = rowBoxGaps.filter((each) => Math.abs(each.gap - each.expected) > 1 / 64);
         const mountedIndexes = new Set([...current.mounted.values()].map((row) => row.index));
         const missingRow = current.visible.some((row, index, rows) => {
           const previous = rows[index - 1];
@@ -271,9 +251,7 @@ export async function traceUpwardAnchors({
             if (!mountedIndexes.has(missing)) return true;
           return false;
         });
-        const drift = anchor
-          ? current.mounted.get(anchor.id)!.y - anchor.y + command.applied
-          : null;
+        const drift = anchor ? current.mounted.get(anchor.id)!.y - anchor.y + command.applied : null;
         samples.push({
           frame: samples.length,
           paint,
@@ -287,10 +265,7 @@ export async function traceUpwardAnchors({
           drift,
           rowBoxGap: Math.max(0, ...positiveGaps.map((each) => each.gap)),
           expectedRowBoxGap: Math.max(0, ...rowBoxGaps.map((each) => each.expected)),
-          unexpectedRowBoxGap: Math.max(
-            0,
-            ...unexpectedRowBoxGaps.map((each) => Math.abs(each.gap - each.expected)),
-          ),
+          unexpectedRowBoxGap: Math.max(0, ...unexpectedRowBoxGaps.map((each) => Math.abs(each.gap - each.expected))),
           missingRow,
           overlap: Math.max(0, ...rowBoxGaps.map((each) => -each.gap)),
           topEdgeGap,
@@ -337,10 +312,7 @@ export async function traceUpwardAnchors({
             const beforeY = probe?.getBoundingClientRect().top;
             scroller.scrollTop = before + asked;
             applied = scroller.scrollTop - before;
-            geometry =
-              probe && beforeY !== undefined
-                ? beforeY - probe.getBoundingClientRect().top
-                : applied;
+            geometry = probe && beforeY !== undefined ? beforeY - probe.getBoundingClientRect().top : applied;
           } else cancelledWheels += 1;
         }
         driven.set(paint, { asked, applied, geometry });
@@ -357,22 +329,15 @@ export async function traceUpwardAnchors({
     compared: compared.length,
     missingAnchors: samples.length - compared.length,
     blankFrames: samples.filter((sample) => sample.topRowId === null).length,
-    blankBandFrames: samples.filter(
-      (sample) => sample.unexpectedRowBoxGap > 1 / 64 || sample.missingRow,
-    ).length,
+    blankBandFrames: samples.filter((sample) => sample.unexpectedRowBoxGap > 1 / 64 || sample.missingRow).length,
     unexpectedRowBoxFrames: samples.filter((sample) => sample.unexpectedRowBoxGap > 1 / 64).length,
     missingRowFrames: samples.filter((sample) => sample.missingRow).length,
     overlapFrames: samples.filter((sample) => sample.overlap > 1 / 64).length,
     maxRowBoxGap: Math.max(0, ...samples.map((sample) => sample.rowBoxGap)),
     maxExpectedRowBoxGap: Math.max(0, ...samples.map((sample) => sample.expectedRowBoxGap)),
     maxUnexpectedRowBoxGap: Math.max(0, ...samples.map((sample) => sample.unexpectedRowBoxGap)),
-    blankEdgeFrames: samples.filter(
-      (sample) => Math.max(sample.topEdgeGap, sample.bottomEdgeGap) > 8,
-    ).length,
-    maxViewportEdgeGap: Math.max(
-      0,
-      ...samples.flatMap((sample) => [sample.topEdgeGap, sample.bottomEdgeGap]),
-    ),
+    blankEdgeFrames: samples.filter((sample) => Math.max(sample.topEdgeGap, sample.bottomEdgeGap) > 8).length,
+    maxViewportEdgeGap: Math.max(0, ...samples.flatMap((sample) => [sample.topEdgeGap, sample.bottomEdgeGap])),
     cancelledWheels,
     foldToggleClicks,
     foldTransitions,

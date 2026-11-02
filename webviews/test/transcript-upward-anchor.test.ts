@@ -54,10 +54,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         Number(document.querySelector(".acpmux-row")?.getAttribute("aria-setsize")),
       );
       // No warm fling: rows encountered above the viewport must still have estimated heights.
-      const steps = Array.from(
-        { length: 240 },
-        (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!,
-      );
+      const steps = Array.from({ length: 240 }, (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!);
       const result = await page.evaluate(traceUpwardAnchors, { steps });
       // Preserve the complete row-id/y trace in the hosted log, on both a pass and a failure.
       console.log(
@@ -116,9 +113,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         let moved = 0;
         await window.cmuxPaintFrame(() => {
           const before = scroller.scrollTop;
-          scroller.dispatchEvent(
-            new WheelEvent("wheel", { deltaY: -18.25, bubbles: true, cancelable: true }),
-          );
+          scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -18.25, bubbles: true, cancelable: true }));
           scroller.scrollTop -= 18.25;
           moved = scroller.scrollTop - before;
         });
@@ -142,9 +137,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       await page.waitForFunction(() => "__debug" in window);
       const seeded = (await page.evaluate(`window.__debug.seedRows(9000)`)) as { rows: number };
       expect(seeded.rows).toBe(9_000);
-      await page.evaluate(() =>
-        (window as unknown as { __seedFoldStream(): void }).__seedFoldStream(),
-      );
+      await page.evaluate(() => (window as unknown as { __seedFoldStream(): void }).__seedFoldStream());
       const card = page.locator('[data-row-id="gap-incoming"]');
       await card.waitFor();
       await card.evaluate((node) => node.scrollIntoView({ block: "center" }));
@@ -152,13 +145,11 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       const result = await page.evaluate(async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const token = document.createElement("span");
-        token.style.cssText =
-          "position:absolute;width:var(--grid-gap-block);height:0;visibility:hidden";
+        token.style.cssText = "position:absolute;width:var(--grid-gap-block);height:0;visibility:hidden";
         document.body.append(token);
         const gapBlock = Number.parseFloat(getComputedStyle(token).width);
         token.remove();
-        const upper = () =>
-          scroller.querySelector<HTMLElement>('[data-row-id="synthetic-end-2996"]')!;
+        const upper = () => scroller.querySelector<HTMLElement>('[data-row-id="synthetic-end-2996"]')!;
         const lower = () => scroller.querySelector<HTMLElement>('[data-row-id="gap-incoming"]')!;
         await window.cmuxPaintFrame();
         await window.cmuxPaintFrame();
@@ -203,8 +194,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
           });
         };
 
-        for (let quantum = 0; quantum < 32; quantum += 1)
-          await setHeightAndSample(quantum, "folded");
+        for (let quantum = 0; quantum < 32; quantum += 1) await setHeightAndSample(quantum, "folded");
         const toggle = lower().querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!;
         if (!toggle) throw new Error("real received-card fold toggle missing");
         const beforeFold = toggle.getAttribute("aria-expanded");
@@ -217,8 +207,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         const afterFold = lower()
           .querySelector<HTMLButtonElement>(".cv-disclosure__toggle")
           ?.getAttribute("aria-expanded");
-        for (let quantum = 31; quantum >= 0; quantum -= 1)
-          await setHeightAndSample(quantum, "expanded-streaming");
+        for (let quantum = 31; quantum >= 0; quantum -= 1) await setHeightAndSample(quantum, "expanded-streaming");
         return { baseHeight, absoluteTop, beforeFold, afterFold, gapBlock, samples };
       });
       console.log(`transcript-css-top-precision: ${JSON.stringify(result)}`);
@@ -228,9 +217,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       expect(result.samples).toHaveLength(64);
       for (const sample of result.samples) {
         // This guard makes the test fail if the min-height mutation or ResizeObserver never took effect.
-        expect(
-          Math.abs(sample.height - (result.baseHeight + sample.quantum / 64)),
-        ).toBeLessThanOrEqual(1 / 128);
+        expect(Math.abs(sample.height - (result.baseHeight + sample.quantum / 64))).toBeLessThanOrEqual(1 / 128);
         // The summary-to-received pair intentionally uses the transcript block gap. Check both
         // that settled spacing is present and that it does not grow or overlap.
         expect(Math.abs(sample.gap - result.gapBlock)).toBeLessThanOrEqual(1 / 64);
@@ -312,9 +299,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       await page.waitForFunction(() => "__debug" in window);
       const seeded = (await page.evaluate(`window.__debug.seedRows(9000)`)) as { rows: number };
       expect(seeded.rows).toBe(9000);
-      await page.evaluate(() =>
-        (window as unknown as { __seedFoldStream(): void }).__seedFoldStream(),
-      );
+      await page.evaluate(() => (window as unknown as { __seedFoldStream(): void }).__seedFoldStream());
       const card = page.locator('[data-row-id="gap-incoming"]');
       await card.waitFor();
       await card.evaluate((node) => node.scrollIntoView({ block: "start" }));
@@ -322,15 +307,12 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         steps: Array.from({ length: 112 }, () => 0),
         foldStream: true,
       });
-      console.log(
-        `transcript-fold-stream: ${JSON.stringify({ sourceRows: seeded.rows, turns: 3000, ...result })}`,
-      );
+      console.log(`transcript-fold-stream: ${JSON.stringify({ sourceRows: seeded.rows, turns: 3000, ...result })}`);
       expect(result.foldToggleClicks).toBe(4);
       expect(result.foldTransitions).toHaveLength(4);
       for (const transition of result.foldTransitions) {
         const before = transition.before;
-        if (before !== "true" && before !== "false")
-          throw new Error(`unexpected fold state: ${before}`);
+        if (before !== "true" && before !== "false") throw new Error(`unexpected fold state: ${before}`);
         expect(["true", "false"]).toContain(before);
         expect(transition.after).toBe(before === "true" ? "false" : "true");
       }
