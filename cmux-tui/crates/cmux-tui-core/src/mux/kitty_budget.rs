@@ -215,10 +215,10 @@ impl Mux {
                 }
             }
         }
-        budget.capacity = kitty_image_budget_capacity(
-            Self::kitty_image_budget_owner_count(budget),
-            budget.capacity,
-        );
+        // Sized for the terminals a respawn will add too, so their
+        // reservations do not wait for a launch still in flight.
+        let sized_for = budget.sized_for(Self::kitty_image_budget_owner_count(budget));
+        budget.capacity = kitty_image_budget_capacity(sized_for, budget.capacity);
     }
 
     pub(super) fn start_kitty_image_budget_worker(self: &Arc<Self>) {

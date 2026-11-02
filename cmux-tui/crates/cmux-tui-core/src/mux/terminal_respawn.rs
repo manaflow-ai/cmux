@@ -250,8 +250,15 @@ impl Mux {
             self.abandon_terminal_respawn(terminal_id);
             return;
         };
+        // A respawn that starts at once is sized into the Kitty budget now:
+        // its reservation then never waits for another respawn's launch.
+        // One after a backoff is not: it would shrink running terminals for
+        // the length of the backoff.
+        let kitty_expectation =
+            plan.delay.is_zero().then(|| mux.expect_kitty_image_surface(plan.slot));
         let name = format!("terminal-respawn-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
+            let _kitty_expectation = kitty_expectation;
             let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
             if mux.wait_respawn_backoff(delay) {
                 mux.run_terminal_respawn(plan);
