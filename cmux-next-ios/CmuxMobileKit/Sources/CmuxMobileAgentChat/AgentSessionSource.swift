@@ -54,6 +54,12 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case turnRetried(previousTurnID: String, turnID: String)
     case turnStarted(turnId: String, at: Date)
     case turnResult(turnId: String, status: AgentTurn.Status, errorText: String?, at: Date)
+    /// The record seq of a turn's `turn_result`: the turn a fork through it keeps
+    /// (`acp.session.fork {throughSeq}`, the Mac's Edit and Resend of an earlier prompt).
+    case turnSeq(turnId: String, seq: Int)
+    /// acpmux held the waiting prompts (`queue_paused`: a failed turn, or a person's Stop of
+    /// agent messages) or let them go (`queue_resumed`). `reason`: the record's (`stop`), if any.
+    case queuePaused(Bool, reason: String?)
     /// The agent's request to its model failed and it is trying again (Claude Code's
     /// `system/api_retry`): the running turn says so instead of a bare "Working".
     case retrying(attempt: Int, maxAttempts: Int, status: Int?)
@@ -118,6 +124,8 @@ public enum AgentClientIntent: Hashable, Sendable {
     case sendQueuedNow(promptId: String)
     /// Move up / Move down: `_acpmux/queue_edit {op: move, index}` (0 is next).
     case moveQueued(promptId: String, index: Int)
+    /// Resume a paused queue (the Mac's Resume over its queue): `_acpmux/queue_edit {op: resume}`.
+    case resumeQueue
 }
 
 public struct AgentAttachment: Hashable, Sendable, Identifiable {
@@ -131,16 +139,28 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     public var fileURL: URL?
     /// The file's size when its bytes are not held (`fileURL`).
     public var byteCount: Int?
+    /// A video file's length, size and the frames the agent sees with its link (the Mac's
+    /// video chips, webviews composer/videoPrompt.ts); nil for any other file, or a video whose
+    /// frames could not be read (it goes as its link alone, as on the Mac).
+    public var video: AgentVideo?
 
     public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil,
-                fileURL: URL? = nil, byteCount: Int? = nil) {
+                fileURL: URL? = nil, byteCount: Int? = nil, video: AgentVideo? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
         self.data = data
         self.fileURL = fileURL
         self.byteCount = byteCount
+        self.video = video
     }
+
+    /// A PDF, by its name: the Mac sends one up to `maxDocumentBytes` as a `document` block
+    /// the model reads, a larger one as a link to its copy (webviews attachments.ts).
+    public var isPDF: Bool { kind == .file && (name as NSString).pathExtension.lowercased() == "pdf" }
+    /// The most PDF bytes that go inline as a `document` block (webviews attachments.ts
+    /// `MAX_DOCUMENT_BYTES`): its base64 stays under acpmux's one-message bound.
+    public static let maxDocumentBytes = 10 << 20
 
     /// The image MIME type from the data's signature (nil: not an image an
     /// agent accepts; the composer re-encodes others as JPEG).
@@ -194,6 +214,9 @@ public protocol AgentSessionSource: AnyObject {
     func checkpoints() async throws -> [AgentCheckpoint]
     /// Restores the working tree to `checkpoint`; returns a one-line summary.
     func restore(_ checkpoint: AgentCheckpoint) async throws -> String
+    /// The chat's session status (`/status`, the Mac's Session status card): acpmux's own
+    /// detail of the session, as labeled fields.
+    func sessionStatus() async throws -> AgentSessionStatus
     /// Harnesses this session can continue in.
     func handoffTargets() async throws -> [AgentHandoffTarget]
     /// Prepares (or returns the existing) continuation to `target`.
@@ -227,6 +250,10 @@ extension AgentSessionSource {
 
     public func restore(_ checkpoint: AgentCheckpoint) async throws -> String {
         throw AgentFeatureUnavailable("This session can't restore checkpoints.")
+    }
+
+    public func sessionStatus() async throws -> AgentSessionStatus {
+        throw AgentFeatureUnavailable("Status is unavailable for this chat.")
     }
 
     public func handoffTargets() async throws -> [AgentHandoffTarget] {

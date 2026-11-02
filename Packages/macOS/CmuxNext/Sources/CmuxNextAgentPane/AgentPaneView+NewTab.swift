@@ -28,8 +28,19 @@ extension AgentPaneView {
         page.omnibar.tabs = tabs
         page.omnibar.workspaces = workspaces
         model.adoptNewTab(page)
-        guard let data = try? JSONEncoder().encode(page.omnibar), let json = String(data: data, encoding: .utf8) else { return }
+        // Only the two lists that changed: the page takes `tabs` and `workspaces` from this event and keeps the
+        // rest of its bar (webviews newtab/adoption.ts `useNewTabPlaces`). The whole bar (every palette action,
+        // recent pages, commands) was 32 of the 37 ms after Ctrl-`'s handler: each tab change runs this before
+        // the key's commit (NewTabPlacesFeed, SHORTCUT LATENCY 2026-11-02).
+        guard let data = try? JSONEncoder().encode(PlacesEvent(tabs: tabs, workspaces: workspaces)),
+              let json = String(data: data, encoding: .utf8) else { return }
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))")
+    }
+
+    /// The `acpmux-newtab-places` event's detail: the bar's open tabs and workspaces only.
+    private nonisolated struct PlacesEvent: Encodable {
+        let tabs: [AgentPaneOmnibar.Tab]
+        let workspaces: [AgentPaneOmnibar.Workspace]
     }
 
     /// The Commands palette's actions for the bar arrived (they are listed on the frame after the page

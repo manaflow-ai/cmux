@@ -555,6 +555,15 @@ extension LiveCoordinator {
         }
     }
 
+    /// Opens the Mac's link if it was idle and waits for its agents (acpmux) to answer, up to
+    /// `timeout`: New Agent Chat from Shortcuts may run before anything linked that Mac.
+    public func agentsReady(on macID: String, timeout: Duration = .seconds(20)) async -> Bool {
+        guard canLink(macID: macID) else { return false }
+        touch(macID)
+        guard let session = sessions[macID] else { return false }
+        return await session.acpmux.waitUntilReady(timeout: timeout, clock: clock)
+    }
+
     /// The Mac was used now: its link opens if it was closed, and stays while recent.
     public func touch(_ macID: String) {
         lastShown[macID] = ContinuousClock.now
