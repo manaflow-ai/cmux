@@ -118,7 +118,8 @@ struct AgentPaneMenuLookTests {
         try Self.click(search)
         #expect(quoted == ["> selected words\n\n"])
         #expect(attached == ["selected words"])
-        #expect(page == [("pin", ["rowId": "summary-4", "sessionId": "chat-1"]), ("search", ["text": "selected words"])])
+        #expect(page.map { $0.0 } == ["pin", "search"])
+        #expect(page.map { $0.1 } == [["rowId": "summary-4", "sessionId": "chat-1"], ["text": "selected words"]])
     }
 
     @Test func reportCarriesTheOwningSessionForStaleMenuGuards() throws {
