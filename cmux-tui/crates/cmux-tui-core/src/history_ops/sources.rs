@@ -219,4 +219,37 @@ mod tests {
         assert_eq!(entry.session_id, None);
         assert_eq!(entry.provider.as_deref(), Some("claude"));
     }
+
+    /// Port of the `AgentPaneModel.tabTitle` case of the Swift
+    /// `ClosedAgentIdentityTests.daemonClosedSearchFiltersAfterEnrichmentAndBeforeLimit`: an
+    /// untitled closed chat is found by its default title "Agent", which the row leaves empty
+    /// (the app shows it localized). A titled chat, an untitled terminal and a closed screen
+    /// that holds a chat are not.
+    #[test]
+    fn untitled_closed_chat_search_matches_its_default_title() {
+        let chat = serde_json::json!({"kind": "conversation", "url": "about:blank",
+            "agent_session": {"session": "sess-1", "harness": "codex"}});
+        let titled = serde_json::json!({"kind": "conversation", "name": "Fix the upload test",
+            "url": "about:blank", "agent_session": {"session": "sess-2", "harness": "codex"}});
+        let terminal = serde_json::json!({"kind": "terminal"});
+        let mut screen = closed_tab("closed_4", 4, chat.clone());
+        screen["kind"] = serde_json::json!("screen");
+        let items = vec![
+            closed_tab("closed_1", 1, chat),
+            closed_tab("closed_2", 2, titled),
+            closed_tab("closed_3", 3, terminal),
+            screen,
+        ];
+        let entries = closed_entries(&items);
+        let untitled = entries.iter().find(|entry| entry.id == "closed:daemon:closed_1").unwrap();
+        assert_eq!(untitled.title, "", "the app localizes the default title");
+        let query = cmux_history::HistoryQuery {
+            kinds: vec![HistoryKind::Closed],
+            text: "agent".to_owned(),
+            ..Default::default()
+        };
+        let ids: Vec<String> =
+            query.apply(&entries, 100, 0, |_| false).into_iter().map(|entry| entry.id).collect();
+        assert_eq!(ids, vec!["closed:daemon:closed_1".to_owned()]);
+    }
 }
