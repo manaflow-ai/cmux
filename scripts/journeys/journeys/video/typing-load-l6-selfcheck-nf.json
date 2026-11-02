@@ -1,0 +1,124 @@
+{
+  "id": "typing-load-l6-selfcheck-nf",
+  "priority": "P0",
+  "title": "L6 load self-check: the app, 12 TUI panes and every L6 storm for 120 s, no typing and no film (cmux-ad 09:20Z: achieved calls/s before any L6 A/B row)",
+  "why": "Lawrence 2026-11-02: 'video + metric evidence that typing into terminals is never laggy, even when there's a lot of CLI/mcp commands and browser use and browser tabs etc going on in the background'. Rule: key-to-photon <= 1 refresh p95, <= 2 max; no lost or merged key; exact order.",
+  "source": "TYPING UNDER LOAD (lead 02:3xZ)",
+  "budget_seconds": 240,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "video_close_open"
+    },
+    {
+      "do": "load_stop"
+    },
+    {
+      "do": "env_windows",
+      "at": "end"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the typing workspace",
+      "since": "ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 1
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "term"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo typing-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the typing terminal runs its line",
+      "since": "term",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "typing-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "typing-${nonce}",
+      "as": "typing"
+    },
+    {
+      "do": "load_start",
+      "profile": "L6",
+      "seed": 7,
+      "duration": 400,
+      "keep": "typing",
+      "ready_timeout": 120,
+      "args": [
+        "--rate",
+        "120",
+        "--devtools"
+      ]
+    },
+    {
+      "do": "wait",
+      "seconds": 120,
+      "title": "self-check: the L6 load runs 120 s with no measurement (achieved storm rates in the load manifests)"
+    },
+    {
+      "do": "load_stop"
+    }
+  ]
+}
