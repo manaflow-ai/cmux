@@ -9,8 +9,10 @@
 // Python makes no timestamp on a timed path (cmux-ad 2026-11-02 03:40Z). This compiled tool posts each event with
 // CGEventPost at the HID tap at a mach_absolute_time deadline, sets the event's own timestamp to the moment it is
 // posted, and logs that timestamp: the clock of NSEvent.timestamp, CACurrentMediaTime and ScreenCaptureKit's
-// displayTime. A CGEvent timestamp counts mach ticks, not nanoseconds (125/3 ns a tick on Apple silicon; the app's
-// DebugKeySequence notes the same, #30257): the event gets mach_absolute_time(), the log gets the same instant in ns.
+// displayTime. What unit AppKit reads a CGEvent timestamp in differs by macOS (#30257 saw HID ticks; on cmux19,
+// macOS 27, 2026-11-02, AppKit read a stamp as nanoseconds), so the tool calibrates once at start: it stamps a
+// probe event, reads it back through NSEvent, and from then on stamps each event so that NSEvent.timestamp reads
+// the posting instant on CLOCK_UPTIME_RAW. The log holds that instant in ns.
 // The app's input journal and the recorder's frames use the same clock, so a judge lines them up after
 // the run. CuaDriver's call takes 260-290 ms and its drag reached the app at about 12 events/s: not for timed paths.
 //
@@ -37,6 +39,22 @@ let timebase: mach_timebase_info_data_t = { var info = mach_timebase_info_data_t
 
 /// Mach ticks to nanoseconds (the same clock as CLOCK_UPTIME_RAW).
 func nanoseconds(_ ticks: UInt64) -> UInt64 { ticks / UInt64(timebase.denom) * UInt64(timebase.numer) + ticks % UInt64(timebase.denom) * UInt64(timebase.numer) / UInt64(timebase.denom) }
+
+/// Event-timestamp units per second as AppKit reads them on this Mac: a probe stamped with a known value, read back
+/// through NSEvent. nil when AppKit gives no time back.
+let stampUnitsPerSecond: Double? = {
+    guard let probe = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: .zero, mouseButton: .left) else { return nil }
+    let value: UInt64 = 1_000_000_000_000  // 1000 s in nanoseconds, 41,666 s in Apple-silicon ticks: either reads back
+    probe.timestamp = CGEventTimestamp(value)
+    guard let seconds = NSEvent(cgEvent: probe)?.timestamp, seconds > 0 else { return nil }
+    return Double(value) / seconds
+}()
+
+/// The stamp that AppKit reads as `ns` nanoseconds on CLOCK_UPTIME_RAW.
+func stamp(forNanoseconds ns: UInt64) -> CGEventTimestamp? {
+    guard let units = stampUnitsPerSecond else { return nil }
+    return CGEventTimestamp(exactly: (Double(ns) / 1e9 * units).rounded())
+}
 
 /// The largest time any script value may name: an hour (larger values would overflow the sleep math).
 let maxMilliseconds = 3_600_000.0
@@ -74,12 +92,12 @@ final class Injector {
     /// Posts one event at `deadline` with its own timestamp set to the posting moment; logs it.
     func emit(_ make: () -> CGEvent?, at deadline: UInt64, type: String, x: Double = 0, y: Double = 0, key: Int = -1) {
         wait(until: deadline)
-        let ticks = mach_absolute_time()
+        let ns = nanoseconds(mach_absolute_time())
         if post, let event = make() {
-            event.timestamp = CGEventTimestamp(ticks)
+            if let value = stamp(forNanoseconds: ns) { event.timestamp = value }
             event.post(tap: .cghidEventTap)
         }
-        events.append([nanoseconds(ticks), type, x, y, key])
+        events.append([ns, type, x, y, key])
     }
 
     func mouse(_ type: CGEventType, _ p: CGPoint, _ button: CGMouseButton = .left, mods: CGEventFlags, clicks: Int64 = 1,
@@ -177,16 +195,17 @@ func play(_ script: [String: Any], _ inj: Injector, start: UInt64) throws -> [[S
 
 /// An event stamped exactly as `run` stamps one must read back through AppKit on the clock of CLOCK_UPTIME_RAW.
 func stampCheck() -> Int32 {
-    let ticks = mach_absolute_time()
-    guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: .zero, mouseButton: .left) else {
-        FileHandle.standardError.write(Data("hid_inject: no event to stamp\n".utf8))
+    let ns = nanoseconds(mach_absolute_time())
+    guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: .zero, mouseButton: .left),
+          let value = stamp(forNanoseconds: ns) else {
+        FileHandle.standardError.write(Data("hid_inject: no event or no stamp calibration\n".utf8))
         return 5
     }
-    event.timestamp = CGEventTimestamp(ticks)
-    let expected = Double(nanoseconds(ticks)) / 1e9
+    event.timestamp = value
+    let expected = Double(ns) / 1e9
     let read = NSEvent(cgEvent: event)?.timestamp ?? -1
     let off = abs(read - expected)
-    print("stampcheck: NSEvent.timestamp \(read) s, CLOCK_UPTIME_RAW \(expected) s, off \(off * 1000) ms")
+    print("stampcheck: units per second \(stampUnitsPerSecond ?? 0), NSEvent.timestamp \(read) s, CLOCK_UPTIME_RAW \(expected) s, off \(off * 1000) ms")
     return off < 0.005 ? 0 : 5
 }
 
@@ -203,6 +222,9 @@ func main() -> Int32 {
               let script = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw Fail(code: 2, message: "cannot read \(args[2])")
         }
+        if post && stampUnitsPerSecond == nil {
+            throw Fail(code: 5, message: "AppKit read no time from a stamped probe event: timestamps cannot be set")
+        }
         if post && !CGPreflightPostEventAccess() {
             throw Fail(code: 3, message: "no PostEvent (Accessibility) grant for this process: NOT RUN")
         }
@@ -215,6 +237,7 @@ func main() -> Int32 {
             return got >= floor * target
         }
         let log: [String: Any] = ["clock": "mach_absolute_time ns (CLOCK_UPTIME_RAW)", "start_ns": start, "posted": post,
+                                  "stamp_units_per_second": stampUnitsPerSecond ?? 0,
                                   "rate_floor": floor, "rate_ok": rateOK, "steps": steps, "events": inj.events]
         try JSONSerialization.data(withJSONObject: log).write(to: URL(fileURLWithPath: args[3]))
         return rateOK ? 0 : 4
