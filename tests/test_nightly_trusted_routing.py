@@ -739,7 +739,9 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         # Collected only when started, and still the last step before the always() cleanup that ends it.
         self.assertIn("steps.place-light-start.outcome == 'success'", collect['if'])
         self.assertTrue(collect['continue-on-error'])
-        self.assertEqual(names[ids.index('place-light') + 1], 'Stop the helper builds still running')
+        # Only the fleet Linux offer for the primary preparation (a census read, no wait) sits between them.
+        self.assertEqual(names[ids.index('place-light') + 1:],
+                         ['Offer fleet Linux to the primary preparation', 'Stop the helper builds still running'])
         self.assertTrue(steps[-1]['if'].startswith('always()'))
         # The job's outputs read the collecting step.
         outputs = DOC['jobs']['build-nightly-app']['outputs']
@@ -833,6 +835,47 @@ class CmuxTuiClientPrefetch(unittest.TestCase):
         self.assertLess(join, install.index('./scripts/install-cmux-tui-client.sh'))
         # A failed prefetch drops its cache, so the install downloads everything itself.
         self.assertIn('rm -rf "${CMUX_TUI_CLIENT_CACHE:?}"', install[join:install.index('./scripts/install-cmux-tui-client.sh')])
+
+
+class PrimaryPreparationOnFleetLinux(unittest.TestCase):
+    """prepare-nightly-variant-primary takes fleet Linux first: median 45 s on Linux against 202 s on a
+    dedicated nightly Mac (download 49 s and upload 85 s on the Mac network). build-nightly-app's place-fleet
+    names the label only while an idle runner waits there, so the job starts at once; otherwise the light
+    placement's mini, then Blacksmith, as before (#31636 reverted a Blacksmith-only route that queued 5-14 min)."""
+
+    FLEET = 'cmux-fleet-linux-x64'
+    MINI = 'glaeda-nightly-only-m4pro'
+
+    def runs_on(self, **changes):
+        context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
+                   'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404',
+                   'needs.build-nightly-app.outputs.light_attempt': '1',
+                   'needs.build-nightly-app.outputs.light_linux_runner': self.FLEET,
+                   'needs.build-nightly-app.outputs.light_mini_runner': self.MINI,
+                   'needs.build-nightly-app.outputs.light_mini_jobs': ' prepare-nightly-variant-primary ', **changes}
+        source = DOC['jobs']['prepare-nightly-variant-primary']['runs-on'].removeprefix('${{').removesuffix('}}')
+        return evaluate(parse_expression(source), context)
+
+    def test_fleet_linux_first_then_the_mini_then_blacksmith(self):
+        self.assertEqual(self.runs_on(), self.FLEET)
+        self.assertEqual(self.runs_on(**{'needs.build-nightly-app.outputs.light_linux_runner': ''}), self.MINI)
+        self.assertEqual(self.runs_on(**{'needs.build-nightly-app.outputs.light_linux_runner': '',
+                                         'needs.build-nightly-app.outputs.light_mini_jobs': ''}),
+                         'blacksmith-32vcpu-ubuntu-2404')
+        # A re-run keeps attempt 1's outputs; the runner it saw idle may be gone, so it takes Blacksmith.
+        self.assertEqual(self.runs_on(**{'github.run_attempt': 2}), 'blacksmith-32vcpu-ubuntu-2404')
+        self.assertEqual(self.runs_on(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
+
+    def test_the_fallback_leg_keeps_its_mini_and_blacksmith_route(self):
+        fallback = DOC['jobs']['prepare-nightly-variant']
+        self.assertNotIn('light_linux_runner', fallback['runs-on'])
+        self.assertIn('prepare-nightly-variant-primary', fallback['needs'])
+
+    def test_place_fleet_follows_the_light_placement_token(self):
+        step = next(step for step in DOC['jobs']['build-nightly-app']['steps'] if step.get('id') == 'place-fleet')
+        self.assertEqual(step['env']['FLEET_LINUX'], self.FLEET)
+        self.assertIn("steps.light-route-token.outputs.token != ''", step['if'])
+        self.assertEqual(step['run'], 'python3 scripts/ci/portable_job_placement.py')
 
 
 class DaemonBesideTheApp(unittest.TestCase):
