@@ -3,7 +3,14 @@
 // for a Refresh). The host sends it again on the next connection; the sender waits for it there.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { clientWaiter, isLostConnection, lostPrompt, lostPromptSlot, resentAfterLoss, waitForResend } from "./lostPrompt";
+import {
+  clientWaiter,
+  isLostConnection,
+  lostPrompt,
+  lostPromptSlot,
+  resentAfterLoss,
+  waitForResend,
+} from "./lostPrompt";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

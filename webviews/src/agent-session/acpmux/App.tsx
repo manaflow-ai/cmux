@@ -11618,6 +11618,7 @@ function AcpmuxPane() {
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
   }, [
+    connectedClients,
     folderContinuation,
     harnessSwitch,
     newChatPrewarm,
