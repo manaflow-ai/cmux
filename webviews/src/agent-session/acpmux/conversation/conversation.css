@@ -260,6 +260,48 @@
   outline-offset: -1px;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
+/* A sent video (SentVideoTile.tsx): its poster at a sent image's height and shape, a glass play glyph
+   in its middle and its length on a dark scrim in a corner, as a reply's video thumbnail
+   (chips/chips.css .cv-media__play, .cv-media__duration). A click plays it. */
+.cv-user__video {
+  position: relative;
+  display: block;
+}
+/* The arrow, as every cmux control has (no pointing hand), not the image's zoom-in. */
+.cv-user__images .cv-user__video,
+.cv-user__inline-image .cv-user__video {
+  cursor: default;
+}
+.cv-user__video-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--cv-text);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+/* The triangle's visual center is right of its box's. */
+.cv-user__video-play svg {
+  transform: translateX(1px);
+}
+.cv-user__video-length {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: #fff; /* theme-fixed: on its own black scrim over media */
+  background: rgb(0 0 0 / 0.55);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  pointer-events: none;
+}
 /* The slot a thumbnail holds while acpmux reads it: its height, square until the image's shape is known. */
 .cv-user__image-placeholder {
   display: block;
@@ -1912,6 +1954,14 @@ pre.cv-math-source {
   height: var(--cv-footer-button);
   padding-top: 0;
 }
+/* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): 22 tall,
+   its ⌃B hint on its line. */
+.acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
+  height: var(--cv-tool-row-height);
+}
+.acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below .cv-command__bg {
+  top: 0;
+}
 /* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line.
    Hidden, it takes no room, so a long command runs to the line's end; on hover it takes its room
    back and the command's tail goes under it, behind the ellipsis (Leo, 2026-10-24: "if the
@@ -3298,6 +3348,22 @@ button.cv-video-frames__frame:focus-visible {
 .cv-received__sender > .cv-agent-tag {
   flex: 0 1 auto;
   max-width: 100%;
+}
+/* The other machine the sender runs on, after its name: muted, a middle dot before it, and the first
+   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName). */
+.cv-received__host {
+  flex: 0 10 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* The dot sits 4px from the name and from the host, not the sender's 8px gap plus a space. */
+  margin-inline-start: calc(4px - var(--cv-row-icon-gap));
+  color: var(--cv-text-dim);
+}
+.cv-received__host::before {
+  content: "\00B7";
+  margin-inline-end: 4px;
 }
 /* The sender's name is the line's first word: it starts on the rows' text column, its tint
    reaching back into the icon gap (transcript-icon-column.test.ts, transcript-row-alignment.test.ts). */
@@ -5033,6 +5099,13 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
   min-height: var(--cv-footer-button);
 }
+/* Right under a step row it is one more line of the run instead (model.ts isLiveStep, #29965). */
+.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {
+  height: var(--cv-tool-row-height);
+}
+.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
+  min-height: var(--cv-tool-row-height);
+}
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 /* A failed task keeps its red mark, open or closed. A click opens it in place (`.is-toggle`: the
@@ -5498,6 +5571,13 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
   margin: 0;
   padding: 0;
+}
+/* Over the live line the gap is the block gap (24), not the turn gap (transcriptGrid.ts waiting
+   rule), so the row is centred in that: its 28 hit box overhangs the gap by 2 on each side
+   (grid.md Rule 6 allows 6), and its 16 glyphs keep 4 to the bubble and 4 to the live line. */
+article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
+article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
+  top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
 
 

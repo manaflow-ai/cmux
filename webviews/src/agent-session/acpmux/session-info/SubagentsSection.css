@@ -1,3 +1,11 @@
+/* Session Info's running wave (ui/wave.css) sweeps slower than the transcript's: the same shape,
+   every time half again as long (Leo 2026-10-28: "I think it could maybe be a bit slower on the
+   session info region"). The period and step scale together, so the crest still spans the rows. */
+.acpmux-session-info-subagents {
+  --cmux-wave-period: 2.4s;
+  --cmux-wave-step: 180ms;
+}
+
 /* A few completed agents beside the count, as in the Codex Session Info reference.
    The row opens the named list; the decorative preview never adds motion or separate targets. */
 .acpmux-session-info-subagents__avatars {

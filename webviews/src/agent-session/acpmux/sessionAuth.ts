@@ -124,6 +124,15 @@ export function useRouteAuthSwitch(apply: (sessionId: string, routeId: string) =
 export function authBlocksSend(auth: SessionAuth | undefined): boolean {
   return auth?.state === "signedOut" || auth?.state === "expired" || auth?.state === "routeAuthNeeded";
 }
+export function authLoginText(auth: SessionAuth | undefined, t: Translate = translate): string {
+  return t(
+    auth?.state === "expired" ||
+      auth?.state === "routeAuthNeeded" ||
+      (auth?.state === "signedOut" && auth.source === "turn")
+      ? "turn.signInAgain"
+      : "harness.logIn",
+  );
+}
 export function authText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
   if (!auth) return undefined;
   const harness = auth.harness ?? t("picker.model");
@@ -133,7 +142,7 @@ export function authText(auth: SessionAuth | undefined, t: Translate = translate
       : auth.state === "expired"
         ? t("turn.authExpired")
         : auth.state === "routeAuthNeeded"
-          ? `${t("picker.account")} · ${t("harness.logIn")}`
+          ? `${t("picker.account")} · ${authLoginText(auth, t)}`
           : auth.state === "routeUnreachable"
             ? t("turn.failure.unreachableVia", { harness, via: auth.routeId ?? t("picker.account") })
             : auth.state === "peerUnreachable"
@@ -152,7 +161,7 @@ export function authText(auth: SessionAuth | undefined, t: Translate = translate
 
 export function authChipText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
   return authBlocksSend(auth)
-    ? t("harness.logIn")
+    ? authLoginText(auth, t)
     : auth?.state === "routeUnreachable" || auth?.state === "peerUnreachable"
       ? t("picker.unavailable")
       : undefined;
@@ -192,7 +201,9 @@ export function slashLogin(
   return { kind: "terminal", command };
 }
 
-export type SessionAuthQuery = { sessionId: string } | { target: { harness: string; host?: string; routeId?: string } };
+export type SessionAuthQuery =
+  | { sessionId: string }
+  | { target: { harness: string; host?: string; routeId?: string; cwd?: string } };
 export type ReadSessionAuth = (query: SessionAuthQuery, refresh?: boolean) => Promise<unknown>;
 
 export function useSessionAuth(

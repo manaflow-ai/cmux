@@ -1,7 +1,7 @@
 // A page menu (History's row menu) in the app is the app's standard macOS menu: it hands the rows
 // and the pointer to the host, draws nothing in the page, and runs the chosen row.
 import { afterEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { PageMenu } from "./PageMenu";
@@ -204,5 +204,36 @@ test("a newer keyed menu keeps its actions when an older native reply finishes l
     await Promise.resolve();
   });
   expect(ran).toEqual(["new"]);
+  expect(closed).toBe(1);
+});
+
+test("under StrictMode's double-run effects the menu asks once and still runs the pick", async () => {
+  let reply: (value: unknown) => void = () => {};
+  let asked = 0;
+  const ran: string[] = [];
+  let closed = 0;
+  installNativeMenu(() => {
+    asked++;
+    return new Promise<unknown>((resolve) => (reply = resolve));
+  });
+  root = createRoot(installDom());
+  await act(async () => {
+    root!.render(
+      <StrictMode>
+        <PageMenu
+          x={12}
+          y={34}
+          items={[{ id: "remove", label: "Remove", run: () => ran.push("remove") }]}
+          onClose={() => closed++}
+        />
+      </StrictMode>,
+    );
+  });
+  expect(asked).toBe(1);
+  await act(async () => {
+    reply({ picked: "remove" });
+    await Promise.resolve();
+  });
+  expect(ran).toEqual(["remove"]);
   expect(closed).toBe(1);
 });

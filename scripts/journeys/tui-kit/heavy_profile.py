@@ -23,7 +23,8 @@ slug>.sock, else /tmp/cmux-debug-<slug>.sock); `system.identify` gives the app's
 and bundled CLI (Contents/Resources/bin/cmux); `debug.daemon` gives the daemon pid and its --socket.
 --cli, --socket (the daemon's) and --home override each one (a capture slot has its own HOME).
 
-DIR/heavy.json (written after every step, so a failed build can still be torn down): the plan, each
+DIR/heavy.json (written after every step, so a failed or stopped build can still be torn down; SIGTERM
+stops build between steps, exit 3): the plan, each
 workspace, pane and tab id it made with the program it runs, every refusal, the page server's pid, and
 a final check read from `snapshot.get` (workspaces, tabs and shown panes counted). Exit 0 when the
 check matches the plan, 1 when it does not, 2 when the app could not be reached.
@@ -120,7 +121,7 @@ def make_plan(a):
         hidden.append({"name": "tk-%d-w%02d" % (a.seed, w + 1), "tabs": tabs})
     pages = sorted({tab["page_seed"] for ws in hidden for tab in ws["tabs"] if tab["kind"] == "browser"}
                    | {p["page_seed"] for p in shown["extra_column"] if p["kind"] == "browser"})
-    return {"version": 1, "seed": a.seed, "duration": a.duration, "kit": kit, "python": a.python, "out": out,
+    return {"version": 1, "seed": a.seed, "no_focus": bool(getattr(a, "no_focus", False)), "duration": a.duration, "kit": kit, "python": a.python, "out": out,
             "counts": {"workspaces": a.workspaces, "tabs": a.tabs, "shown_tui_panes": a.visible,
                        "shown_panes": a.visible + len(shown["extra_column"]), "columns": columns,
                        "rows_per_column": rows},
@@ -131,6 +132,18 @@ def make_plan(a):
 
 class Refused(Exception):
     pass
+
+
+class Stopped(Exception):
+    """A SIGTERM or SIGINT during build: it stops between steps, with every id made so far recorded."""
+
+
+STOP = []
+
+
+def check_stop():
+    if STOP:
+        raise Stopped()
 
 
 def tag_slug(tag):
@@ -274,6 +287,7 @@ def page_url(base, plan, seed):
 def make_hidden(app, plan, rec, base):
     made = rec.data.setdefault("made", {}).setdefault("hidden", [])
     for ws in plan["hidden"]:
+        check_stop()
         first = ws["tabs"][0]
         try:
             value = app.cmux("workspace", "create", "--name", ws["name"], *run_args(first["argv"]))
@@ -285,6 +299,7 @@ def make_hidden(app, plan, rec, base):
                            "program": first["program"]}]}
         made.append(entry)
         for tab in ws["tabs"][1:]:
+            check_stop()
             try:
                 if tab["kind"] == "browser":
                     v = app.cmux("tab", "create", "browser", "--workspace", entry["workspace_id"], "--pane",
@@ -399,6 +414,7 @@ def make_shown(app, plan, rec, base):
     columns = len(shown["columns"]) + (1 if shown["extra_column"] else 0)
     tops = [value.get("pane_id")]
     for col in shown["columns"][1:]:
+        check_stop()
         cell = col[0]
         v = new_column(app, tops[-1], columns - cell["column"] + 1, cell["argv"])
         tops.append(v.get("pane_id"))
@@ -407,6 +423,7 @@ def make_shown(app, plan, rec, base):
     for c, col in enumerate(shown["columns"]):
         last = tops[c]
         for r, cell in enumerate(col[1:], start=1):
+            check_stop()
             ratio = "%.4f" % (1.0 - 1.0 / (len(col) - r + 1))  # the rows of a column end about even
             try:
                 v = app.cmux("pane", last, "split", "--down", "--ratio", ratio, *run_args(cell["argv"]))
@@ -419,6 +436,7 @@ def make_shown(app, plan, rec, base):
     last = None
     extras = shown["extra_column"]
     for i, spec in enumerate(extras):
+        check_stop()
         # A placeholder terminal makes the pane; the browser tab or agent chat then takes it, and the
         # placeholder tab is closed so each pane shows exactly one tab.
         try:
@@ -450,6 +468,8 @@ def make_shown(app, plan, rec, base):
                 rec.refused("placeholder tab %s" % placeholder, error)
         made["panes"].append(entry)
         rec.save()
+    if plan.get("no_focus"):
+        return  # a background load (load_profiles.py L5): the person's focus stays where it is
     try:
         app.cmux("workspace", made["workspace_id"], "focus")
     except Refused as error:
@@ -466,7 +486,8 @@ def check(app, plan, rec):
     found = {"workspaces": len(ours), "tabs": tabs, "shown_panes": shown_panes,
              "focused_workspace": (topo.get("focus") or {}).get("workspace")}
     want = {"workspaces": plan["counts"]["workspaces"], "tabs": plan["counts"]["tabs"],
-            "shown_panes": plan["counts"]["shown_panes"], "focused_workspace": shown_id}
+            "shown_panes": plan["counts"]["shown_panes"],
+            "focused_workspace": found["focused_workspace"] if plan.get("no_focus") else shown_id}
     rec.data["check"] = {"found": found, "want": want, "ok": found == want}
     rec.save()
     return found == want
@@ -485,14 +506,32 @@ def cmd_build(a):
         return 2
     rec.data["app"] = {"socket": app.app_sock, "daemon_socket": app.daemon_sock, "cli": app.cli,
                        "app_path": app.app_path, "identity": app.identity}
+    if a.build_bins and not tuikit.rust_bin("tk-gradient"):
+        done = subprocess.run([plan["python"], plan["kit"], "build-bins"], capture_output=True, text=True, timeout=1200)
+        rec.data["build_bins"] = {"exit": done.returncode, "out": (done.stdout + done.stderr).strip()[-400:]}
+    engine = "rust" if tuikit.rust_bin("tk-gradient") else "python"
+    rec.data["gradient_engine"] = engine
+    if engine != "rust":
+        # The Python gradient cannot hold 120 fps on a mini (pace_probe): its runs end NOT RUN.
+        rec.data.setdefault("notes", []).append(
+            "tk-gradient is not built: the gradients run the Python engine, which ends NOT RUN below 114 fps; "
+            "run `tuikit.py build-bins` once on this Mac (or pass --build-bins)")
     rec.save()
+    for sig in (signal.SIGTERM, signal.SIGINT):  # stop between steps: a call in flight finishes and is recorded
+        signal.signal(sig, lambda signum, _frame: STOP.append(signum))
     base = start_page_server(plan, rec) if plan["pages"] else None
     started = time.monotonic()
-    make_hidden(app, plan, rec, base)
     try:
-        make_shown(app, plan, rec, base)
-    except Refused as error:
-        rec.refused("shown workspace", error)
+        make_hidden(app, plan, rec, base)
+        try:
+            make_shown(app, plan, rec, base)
+        except Refused as error:
+            rec.refused("shown workspace", error)
+    except Stopped:
+        rec.data["stopped"] = {"signal": STOP[0], "build_seconds": round(time.monotonic() - started, 2)}
+        rec.save()
+        print(json.dumps({"manifest": path, "stopped": True}))
+        return 3
     rec.data["build_seconds"] = round(time.monotonic() - started, 2)
     ok = check(app, plan, rec)
     print(json.dumps({"manifest": path, "ok": ok, "check": rec.data["check"],
@@ -580,6 +619,10 @@ def shape(p):
     p.add_argument("--kit", help="tuikit.py on the Mac that runs the app (default beside this file)")
     p.add_argument("--python", default="/usr/bin/python3")
     p.add_argument("--out", help="manifest, logs and pages (default $TMPDIR/tk-heavy-SEED)")
+    p.add_argument("--build-bins", action="store_true",
+                   help="build the compiled programs first when they are missing (cargo on this Mac)")
+    p.add_argument("--no-focus", action="store_true",
+                   help="do not focus the shown workspace at the end (a background load under typing)")
 
 
 def reach(p):
