@@ -24,6 +24,12 @@
 //!   (`queue_order`) still restores it at the head (`queue.rs` `restore_queue`), and once.
 //! - It goes through the trust gate as the cut turn did (`turn_started` records `trustGate`),
 //!   and carries the images the cut turn's prompt and steers sent (`prompt_images.rs`).
+//!
+//! A move that stops a running turn (`transfer_begin` with `interrupt`, `transfer_out.rs`) logs
+//! the same continuation, with `reason: "moved"` ([`Cut::Move`]), before it stops the turn. The
+//! bundle carries it in the queue, so the turn goes on where the chat lands; a move that does not
+//! happen gives it back to the queue here. #5846 item 1: a chat moves between a laptop and a
+//! Cloud machine mid-turn and keeps working.
 
 use super::{DEFAULT_DELAYS_MS, SUFFIX, configured_attempts, split_attempt};
 use crate::hub::{Hub, Session};
@@ -340,16 +346,75 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, ToolOmissi
     })
 }
 
+/// The opening of a move's continuation when the move did not happen ([`Cut::unmoved`]).
+const STAYED: &str = "This chat did not move: a move to another machine stopped your previous \
+                      turn and then did not happen. You are still on this machine, with the same \
+                      files; processes you started may have ended with the turn.";
+
+/// What cut the turn off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::hub) enum Cut {
+    /// The daemon restarted (an update or a crash).
+    Restart,
+    /// The chat moved to another machine (`transfer_out.rs`).
+    Move,
+}
+
+impl Cut {
+    /// The `reason` of its records and provenance.
+    pub(in crate::hub) fn reason(self) -> &'static str {
+        match self {
+            Cut::Restart => "daemon_restart",
+            Cut::Move => "moved",
+        }
+    }
+
+    /// Whether `reason` is a queued continuation's, which goes ahead of what waited behind the
+    /// cut turn and is no waiting retry (`queue.rs`, `auto_resume/restore.rs`).
+    pub(in crate::hub) fn queued(reason: Option<&str>) -> bool {
+        matches!(reason, Some("daemon_restart" | "moved"))
+    }
+
+    /// A [`Cut::Move`] continuation's text for a move that did not happen (`transfer_out.rs`
+    /// `queue_carried`): the same turn, told it is still on this machine. `None` for any other
+    /// text.
+    pub(in crate::hub) fn unmoved(text: &str) -> Option<String> {
+        text.strip_prefix(Cut::Move.opening()).map(|rest| format!("{STAYED}{rest}"))
+    }
+
+    fn opening(self) -> &'static str {
+        match self {
+            Cut::Restart => {
+                "acpmux restarted (an update or a crash) while your previous turn was running, \
+                 and the turn was cut off."
+            }
+            Cut::Move => {
+                "This chat moved to another machine while your previous turn was running, and the \
+                 turn was cut off. The files and git state came with it, but processes you \
+                 started (dev servers, watchers, background shells) did not: start again any \
+                 that you still need."
+            }
+        }
+    }
+}
+
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
+#[cfg(test)]
 fn continue_text(
     prompts: &[String],
     tools: &[UnfinishedTool],
     omitted_tools: ToolOmission,
 ) -> String {
-    let mut text = String::from(
-        "acpmux restarted (an update or a crash) while your previous turn was running, and the \
-         turn was cut off.",
-    );
+    continue_text_for(Cut::Restart, prompts, tools, omitted_tools)
+}
+
+fn continue_text_for(
+    cut: Cut,
+    prompts: &[String],
+    tools: &[UnfinishedTool],
+    omitted_tools: ToolOmission,
+) -> String {
+    let mut text = String::from(cut.opening());
     for (i, p) in prompts.iter().enumerate() {
         let quoted: String = p.chars().take(MAX_QUOTE_CHARS).collect();
         let what = if i == 0 { "Its prompt" } else { "A message sent into it" };
@@ -388,11 +453,21 @@ impl Hub {
         session: &Arc<Session>,
         turn_id: &str,
     ) -> Option<String> {
+        self.log_continuation(session, turn_id, Cut::Restart)
+    }
+
+    /// [`Self::log_restart_continuation`] for a turn `cut` cut off.
+    pub(in crate::hub) fn log_continuation(
+        &self,
+        session: &Arc<Session>,
+        turn_id: &str,
+        cut: Cut,
+    ) -> Option<String> {
         // One continuation per configured wait, as a transport cut gets: `[]` configures none,
         // which turns it off. A contended config lock reads as the default waits, never as off.
-        let attempts = self.config.try_read().map_or(DEFAULT_DELAYS_MS.len(), |c| {
-            configured_attempts(c.auto_resume_delays_ms.as_ref())
-        });
+        let configured = self.config.try_read().map(|c| c.auto_resume_delays_ms.clone());
+        let attempts =
+            configured.map_or(DEFAULT_DELAYS_MS.len(), |d| configured_attempts(d.as_ref()));
         if attempts == 0 {
             return None;
         }
@@ -407,6 +482,7 @@ impl Hub {
         // no host replay, so carry their terminal control state into this decision too: a Web
         // continuation must not cross a remote-floor cancellation or stale ended control.
         let mut started = false;
+        let mut trigger = false;
         // A carried turn's input is the steers it carried (`carried_turn.rs`), logged in the
         // turns before it: the steers since the last turn that was not carried, by prompt id.
         let mut steered: std::collections::HashMap<String, (Option<String>, Vec<Value>)> =
@@ -441,6 +517,7 @@ impl Hub {
             match e.kind.as_str() {
                 "turn_started" if is_turn => {
                     started = true;
+                    trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
                     tool_start = Some(e.seq);
                     prompt_id = field("promptId");
                     control = field("control");
@@ -489,6 +566,11 @@ impl Hub {
             }
             true
         });
+        // The trigger dispatcher must reauthorize any retry. A generic restart
+        // continuation would drop its principal and execute as the person.
+        if trigger {
+            return None;
+        }
         // The carried steers come first: they started the turn.
         let mut carried_prompts = Vec::new();
         let mut carried_images = Vec::new();
@@ -534,7 +616,7 @@ impl Hub {
         let (root, done) = split_attempt(&prompt_id);
         let attempt = done + 1;
         if attempt > attempts {
-            let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": "daemon_restart"});
+            let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": cut.reason()});
             self.append(session, "mux", "auto_resume_exhausted", msg);
             return None;
         }
@@ -562,10 +644,10 @@ impl Hub {
         if self.logged_prompt(session, &id).is_some() || self.queued_logged(session, &id) {
             return Some(id);
         }
-        let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": "daemon_restart"});
+        let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": cut.reason()});
         self.append(session, "mux", "auto_resume_scheduled", msg);
-        let text = continue_text(&prompts, &unfinished, omitted_tools);
-        let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
+        let text = continue_text_for(cut, &prompts, &unfinished, omitted_tools);
+        let provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
         // Each image's source goes with it as display metadata, so the continuation's record keeps

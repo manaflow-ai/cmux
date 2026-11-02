@@ -42,6 +42,9 @@ public final class TerminalHostView: NSView {
         get { restartAction }
         set { restartAction = newValue; syncRestartButton(); needsLayout = true }
     }
+    /// Called before the terminal session removes this host from its pane.
+    /// Transient input owners use it to cancel work pinned to this surface.
+    public var onClose: (@MainActor () -> Void)?
 
     /// The first cell's top-left in this view's coordinates (top-left
     /// origin): Ghostty's leading and top padding, or with
@@ -68,6 +71,20 @@ public final class TerminalHostView: NSView {
             if let bottomAccessory {
                 bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
                 addSubview(bottomAccessory, positioned: .above, relativeTo: scroller)
+            }
+            needsLayout = true
+        }
+    }
+
+    /// A transient, click-through panel over the terminal's top-leading
+    /// corner. It never changes the terminal's layout height.
+    public var topOverlay: NSView? {
+        didSet {
+            guard oldValue !== topOverlay else { return }
+            oldValue?.removeFromSuperview()
+            if let topOverlay {
+                topOverlay.translatesAutoresizingMaskIntoConstraints = true
+                addSubview(topOverlay, positioned: .above, relativeTo: banner)
             }
             needsLayout = true
         }
@@ -331,6 +348,11 @@ public final class TerminalHostView: NSView {
             let trailing = bounds.width - scroller.reservedWidth - inset
             _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
                 CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
+            }
+        }
+        if let topOverlay, !topOverlay.isHidden {
+            _ = place(topOverlay, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: inset, y: self.bounds.height - inset - size.height)
             }
         }
         // Framed hidden too: the bar shows itself when find opens.

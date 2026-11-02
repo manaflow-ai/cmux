@@ -4,6 +4,95 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Disconnect: deletes the stored provider credential at once and marks the connection revoked.
+    IntegrationRevokeOp {
+        name: "integration.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "destructive",
+        principals: [Session],
+        params: IntegrationRevokeParams,
+        result: Connection,
+        error: IntegrationRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationRevokeParams {
+    pub connection: ConnectionId,
+}
+
+wire_errors! {
+    /// The error codes integration.revoke declares.
+    IntegrationRevokeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role.
+    InviteAcceptOp {
+        name: "invite.accept",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: InviteAcceptParams,
+        result: HomeConversationCommit,
+        error: InviteAcceptError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteAcceptParams {
+    pub code: String,
+    pub secret: String,
+}
+
+wire_errors! {
+    /// The error codes invite.accept declares.
+    InviteAcceptError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Banned = "banned",
+        DuplicateParticipant = "duplicate_participant",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InviteExpired = "invite_expired",
+        InviteNotPending = "invite_not_pending",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownInvite = "unknown_invite",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite.
+    InviteAcceptVerifiedOp {
+        name: "invite.accept_verified",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: InviteAcceptVerifiedParams,
+        result: HomeConversationCommit,
+        error: InviteAcceptVerifiedError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InviteAcceptVerifiedParams {
     pub conversation: ConversationId,
@@ -812,91 +901,5 @@ wire_enum! {
         ImageJpeg = "image/jpeg",
         ImageGif = "image/gif",
         ImageWebp = "image/webp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarGetResultAvatar {
-    pub sha256: String,
-    pub media_type: ParticipantAvatarGetResultAvatarMediaType,
-    pub bytes: i64,
-    /// The image, base64.
-    pub data: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarGetResult {
-    pub participant_id: ParticipantId,
-    pub avatar: Option<ParticipantAvatarGetResultAvatar>,
-}
-
-wire_errors! {
-    /// The error codes participant.avatar.get declares.
-    ParticipantAvatarGetError {
-        AuthForbidden = "auth.forbidden",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's.
-    ParticipantAvatarSetOp {
-        name: "participant.avatar.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: ParticipantAvatarSetParams,
-        result: ParticipantAvatarSetResult,
-        error: ParticipantAvatarSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarSetParams {
-    pub participant_id: ParticipantId,
-    /// The image, base64; at most 1048576 decoded bytes; PNG, JPEG, GIF or WebP by its signature.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bytes: Option<String>,
-    /// true removes the picture (no bytes).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clear: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarSetResult {
-    pub participant_id: ParticipantId,
-    pub avatar: Option<AvatarRef>,
-}
-
-wire_errors! {
-    /// The error codes participant.avatar.set declares.
-    ParticipantAvatarSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        AvatarInvalid = "avatar_invalid",
-        AvatarTooLarge = "avatar_too_large",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        UnknownParticipant = "unknown_participant",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows. role (default member) is at most your own; only the owner adds an admin. A group past 64 members becomes a large group (member rows, a roster in the head). A banned person needs participants.unban first. Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
-    ParticipantsAddOp {
-        name: "participants.add",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ParticipantsAddParams,
-        result: HomeConversationCommit,
-        error: ParticipantsAddError,
     }
 }

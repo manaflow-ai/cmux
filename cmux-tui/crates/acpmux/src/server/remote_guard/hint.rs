@@ -144,7 +144,7 @@ fn update_first(
 ) -> Option<RpcError> {
     let named_folder = params.get("cwd").is_some_and(|c| !c.is_null());
     let served = e.data.as_ref().and_then(|d| d.get("servedAs")).is_some();
-    if !served_peer || named_folder || served || build == Some(crate::hub::BUILD) {
+    if !served_peer || named_folder || served || build == Some(crate::hub::build()) {
         return None;
     }
     if reason_of(e).as_deref() != Some(CWD_OUTSIDE_ROOTS) {
@@ -157,7 +157,7 @@ fn update_first(
         "{}: {peer_name} runs acpmux build {} (this daemon: {}), from before a start with no folder runs in a scratch folder there; run `{update}`, then `{then}`",
         e.message,
         build.unwrap_or("unknown"),
-        crate::hub::BUILD
+        crate::hub::build()
     );
     Some(RpcError::new(e.code, message).with_data(json!({
         "reason": "peer_version_skew",
@@ -722,7 +722,7 @@ newlines')"#
         assert!(update_first(&refused(), "gcp-codex-lane-1", old, true, &named).is_none());
         let told = refused().with_data(json!({"reason": CWD_OUTSIDE_ROOTS, "servedAs": "remote"}));
         assert!(update_first(&told, "gcp-codex-lane-1", old, true, &params).is_none());
-        let same = Some(crate::hub::BUILD);
+        let same = Some(crate::hub::build());
         assert!(update_first(&refused(), "gcp-codex-lane-1", same, true, &params).is_none());
         // A peer that serves this daemon as Web refuses no folder on any build: no update hint.
         assert!(update_first(&refused(), "gcp-codex-lane-1", old, false, &params).is_none());

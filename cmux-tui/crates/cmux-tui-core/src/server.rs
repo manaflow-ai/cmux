@@ -135,10 +135,10 @@ mod agent_session_attach;
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
-    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
-    start_link_share_bridge,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -196,6 +196,8 @@ mod home;
 mod icon_assets;
 mod launch_snapshot;
 pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
+#[cfg(unix)]
+mod native_owner;
 mod new_screen;
 mod personal;
 mod raw_tab;
@@ -624,6 +626,10 @@ struct Request {
     id: Option<Value>,
     #[serde(flatten)]
     cmd: Command,
+    /// A remote device's line, judged again at dispatch
+    /// (`incognito_remote::recheck`, #31210).
+    #[serde(skip)]
+    remote_line: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1832,6 +1838,8 @@ enum Command {
     /// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted chat
     /// server's identity of the person (no fields).
     CloudSelfhostInfo(cloud_conversations::NoParams),
+    /// The cloud environment editor; the signed-in person only.
+    CloudEnvironment(cloud_conversations::EnvironmentParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
@@ -2649,7 +2657,7 @@ use bounded_outbound::{
 #[cfg(test)]
 use bounded_outbound::{
     ControlOutbound, MAX_TERMINAL_CONNECTIONS, claim_terminal_connection,
-    websocket_server_frame_header,
+    claim_terminal_connection_from, websocket_server_frame_header,
 };
 
 mod client_registry;
@@ -2734,6 +2742,8 @@ use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
 
+mod incognito_orphans;
+mod incognito_remote;
 mod resource_connection;
 use resource_connection::{
     handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
@@ -2956,3 +2966,6 @@ mod browser_profile_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(unix)]
+mod cloud_repos;

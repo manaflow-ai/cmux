@@ -120,6 +120,9 @@ pub(crate) fn harness_command(
         &mut cmd,
         if remote_environment { None } else { family },
     );
+    if !remote_environment {
+        crate::login_env::restore_machine_tokio(&mut cmd);
+    }
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -320,7 +323,7 @@ fn resolved_profile_env(
     let resolve = |env: &mut std::collections::BTreeMap<String, String>| {
         crate::config::profiles::resolve_env_refs(
             env,
-            &|var| crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok()),
+            &crate::login_env::reference_var,
             &crate::config::profiles::keychain_lookup,
         )
     };

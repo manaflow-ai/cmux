@@ -1,4 +1,4 @@
-// cmux-web-test-timeout: 600
+// cmux-web-test-timeout: 1200
 // l10n-allow-file: browser test diagnostics, not shipped UI.
 // Leo 2026-10-30, on Settings > Updates with the Update Channel menu open: "look for wastage".
 // Real Chromium and WebKit lay out the settings gallery's Updates page with its Update Channel menu
@@ -15,6 +15,8 @@ import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { categories } from "../src/pages/settings/categories";
+import { loadEntrySources } from "../scripts/gallery/entries";
+import { measureMenus, menuFindings } from "./support/menuGeometry";
 
 await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -261,4 +263,113 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
     expect(opened).toBeGreaterThan(10);
     expect(failures).toEqual([]);
   }, 480_000);
+
+  // Every menu, not only a select's (leo-workspace design/menus.md). Leo, 2026-10-22, on the
+  // right-click menu: "THERE'S SO MUCH BULLSHIT PADDING AND WHATNOT LIKE ALL OVER THE FUCKIGN PLACE";
+  // 2026-10-29: "misaligned checkmark :( can we all audit the checkmarks and whatnot". The menus this
+  // rule was applied to are held to it in both engines, and their 2x stills are written for the PR;
+  // every other *Menu*.gallery variant is opened and measured, and its findings are printed.
+  const HELD: { entry: string; variant: string; still?: string }[] = [
+    { entry: "ui.menu", variant: "open" },
+    { entry: "ui.context-menu", variant: "open" },
+    { entry: "ui.context-menu", variant: "mixed", still: "context-menu-mixed" },
+    { entry: "pages.icon-picker", variant: "tone-menu", still: "icon-picker-tone" },
+    { entry: "agent-pane.options-menu", variant: "several-open", still: "agent-pane-options-menu" },
+    { entry: "agent-pane.saved-environment-panel", variant: "ssh-host-open", still: "host-select" },
+    { entry: "pages.history", variant: "context-menu", still: "history-page-menu" },
+    { entry: "pages.settings", variant: "updates-channel-open" },
+  ];
+
+  async function openMenus(engine: string, entry: string, variant: string, colorScheme?: "light" | "dark") {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browsers.get(engine)!.newPage({
+      viewport: { width: 900, height: 640 },
+      deviceScaleFactor: 2,
+      reducedMotion: "reduce",
+    });
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame(entry, { variant, colorScheme, width: 900, height: 640 })}`,
+    );
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 60_000 });
+    if ((await page.locator("html").getAttribute("data-gallery-ready")) !== "1") {
+      await page.close();
+      return null;
+    }
+    // A variant that does not open its menu itself: its first menu trigger, as a person clicks it.
+    if ((await page.locator('[role="menu"]').count()) === 0) {
+      const trigger = page.locator('[aria-haspopup="menu"]:not(:disabled)').first();
+      if (await trigger.count()) {
+        await trigger.click().catch(() => undefined);
+        await page.waitForSelector('[role="menu"] [role^="menuitem"]', { timeout: 3_000 }).catch(() => undefined);
+      }
+    }
+    await page.mouse.move(2, 2);
+    return page;
+  }
+
+  for (const [engine] of engines)
+    test(`${engine}: the menus this rule covers hug, align and keep one text line`, async () => {
+      const failures: string[] = [];
+      for (const { entry, variant, still } of HELD)
+        for (const colorScheme of still && out ? (["light", "dark"] as const) : ([undefined] as const)) {
+          const page = await openMenus(engine, entry, variant, colorScheme);
+          if (!page) {
+            failures.push(`${entry}/${variant}: the stage did not mount`);
+            continue;
+          }
+          try {
+            const menus = await measureMenus(page);
+            if (menus.length === 0) failures.push(`${entry}/${variant}: no menu opened`);
+            for (const menu of menus) {
+              const findings = menuFindings(menu);
+              console.log(
+                `menu-geometry ${engine} ${entry}/${variant} ${menu.name}: ` +
+                  `text ${menu.rows.map((row) => row.textX?.toFixed(1)).join(",")} ` +
+                  `check ${menu.rows.map((row) => row.checkX?.toFixed(1) ?? "-").join(",")} ` +
+                  `rows ${menu.rows.map((row) => row.height.toFixed(1)).join(",")} ` +
+                  `width ${menu.popup.width.toFixed(0)} alpha ${menu.alpha} blur ${menu.blur}` +
+                  (menu.trigger
+                    ? ` trigger ${menu.trigger.width.toFixed(0)}@${(menu.popup.left - menu.trigger.left).toFixed(1)}`
+                    : "") +
+                  (findings.length ? ` FINDINGS: ${findings.join("; ")}` : ""),
+              );
+              if (colorScheme !== "dark")
+                failures.push(...findings.map((f) => `${entry}/${variant} ${menu.name}: ${f}`));
+            }
+            if (still && out && colorScheme)
+              await page.screenshot({ path: path.join(out, `${still}-${colorScheme}-${engine}.png`) });
+          } finally {
+            await page.close();
+          }
+        }
+      expect(failures).toEqual([]);
+    }, 600_000);
+
+  test("every other menu gallery variant is measured (report)", async () => {
+    const [engine] = engines[0]!;
+    const held = new Set(HELD.map(({ entry, variant }) => `${entry}/${variant}`));
+    const sources = await loadEntrySources();
+    const cases = sources
+      .filter(({ entry, path: file }) => entry.host !== "native" && /Menu[^/]*\.gallery\.tsx?$/.test(file))
+      .flatMap(({ entry }) => Object.keys(entry.variants).map((variant) => ({ entry: entry.id, variant })))
+      .filter(({ entry, variant }) => !held.has(`${entry}/${variant}`));
+    let measured = 0;
+    let withFindings = 0;
+    for (const { entry, variant } of cases) {
+      const page = await openMenus(engine, entry, variant).catch(() => null);
+      if (!page) continue;
+      try {
+        for (const menu of await measureMenus(page)) {
+          measured++;
+          const findings = menuFindings(menu);
+          if (findings.length) withFindings++;
+          console.log(`menu-report ${entry}/${variant} ${menu.name}: ${findings.join("; ") || "ok"}`);
+        }
+      } finally {
+        await page.close();
+      }
+    }
+    console.log(`menu-report: ${measured} menus in ${cases.length} variants; ${withFindings} with findings`);
+    expect(cases.length).toBeGreaterThan(0);
+  }, 900_000);
 });

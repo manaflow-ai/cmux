@@ -141,6 +141,52 @@ test("the store follows sub-sessions only, and tells its readers only when one's
   expect(store.get("a")).toBeUndefined();
 });
 
+test("a sender name shared by live chats never chooses the first one arbitrarily", () => {
+  const store = new SubsessionStore();
+  let changes = 0;
+  store.subscribeNames(() => changes++);
+  const local = summary("local", { name: "reviewer", shortName: "reviewer" });
+  const remote = summary("remote", { name: "gpu/reviewer", shortName: "reviewer", peer: "gpu" });
+  store.set([local, remote]);
+  expect(store.find("reviewer")).toBeUndefined();
+  expect(store.find("gpu/reviewer")).toBe("remote");
+  expect(store.has("local")).toBe(true);
+  expect(store.has("remote")).toBe(true);
+  const before = changes;
+  // Merely changing list order cannot make a colliding sender name actionable or
+  // notify subscribers: the set of identities and hosts has not changed.
+  store.set([remote, local]);
+  expect(store.find("reviewer")).toBeUndefined();
+  expect(changes).toBe(before);
+  // The ambiguous alias becomes actionable when its other live owner leaves.
+  store.set([remote]);
+  expect(store.find("reviewer")).toBe("remote");
+  expect(changes).toBeGreaterThan(before);
+});
+
+test("two peer chats with the same bare sender retain distinct qualified names", () => {
+  const store = new SubsessionStore();
+  store.set([
+    summary("gcp-session", { name: "gcp/audit", peer: "gcp" }),
+    summary("aws-session", { name: "aws/audit", peer: "aws" }),
+  ]);
+  expect(store.find("audit")).toBeUndefined();
+  expect(store.find("gcp/audit")).toBe("gcp-session");
+  expect(store.find("aws/audit")).toBe("aws-session");
+  // An archived chat never hides a unique active sender.
+  store.set([
+    summary("gcp-session", { name: "gcp/audit", peer: "gcp" }),
+    summary("aws-session", { name: "aws/audit", peer: "aws", tags: ["archived"] }),
+  ]);
+  expect(store.find("audit")).toBe("gcp-session");
+  // When all matches are archived and ambiguous, a name alone stays unresolved.
+  store.set([
+    summary("gcp-session", { name: "gcp/audit", peer: "gcp", tags: ["archived"] }),
+    summary("aws-session", { name: "aws/audit", peer: "aws", tags: ["archived"] }),
+  ]);
+  expect(store.find("audit")).toBeUndefined();
+});
+
 test("another agent's message finds its sender's chat by name, and that chat's harness", () => {
   const store = new SubsessionStore();
   let notified = 0;

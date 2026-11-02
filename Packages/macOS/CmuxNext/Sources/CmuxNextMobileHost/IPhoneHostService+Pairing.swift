@@ -27,8 +27,18 @@ extension IPhoneHostService {
     /// Loads the list of the signed-in user; a sign-out forgets that user's phones. The list is
     /// read off the main actor (its seal is a Keychain item), after every save already queued;
     /// until it is in, no phone is trusted and no pairing is decided (each needs `paired`).
+    /// The store's one list file for `directory`, wired to the last quit's record and watched by the quit deadline.
+    func configurePairedFile(_ directory: URL) {
+        let record = pairedQuitRecord
+        let file = pairedStore.configure(directory: directory, lastQuitCutOff: { record?.lastQuitCutOffPairedPhones() ?? false },
+                                         cutOffSettled: { record?.pairedCutOffSettled() })
+        guard pairedFile !== file else { return }
+        pairedFile = file
+        pairedQuitWatch.watch(file)
+    }
+
     func loadPaired(signedOut: Bool) {
-        if let directory = dependencies?.stateDirectory { pairedStore.configure(directory: directory) }
+        if let directory = dependencies?.stateDirectory { configurePairedFile(directory) }
         if pairedStore.current?.userID != account?.userID { resetPrompts() }
         pairedStore.select(userID: account?.userID)
         paired = pairedStore.current
@@ -138,7 +148,7 @@ extension IPhoneHostService {
         if let registered = request.registeredAt { lines.append(IPhoneHostStrings.deviceRegistered(registered)) }
         lines.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(request.approvalKey)))
         let spec = CmuxDialogSpec(
-            title: IPhoneHostStrings.pairTitle(name), lines: lines,
+            title: IPhoneHostStrings.pairTitle(name, key: request.shortFingerprint), lines: lines,
             buttons: [CmuxDialogButton(id: Self.denyButton, title: IPhoneHostStrings.pairDeny, role: .cancel),
                       CmuxDialogButton(id: Self.allowButton, title: IPhoneHostStrings.pairAllow, role: .default)],
             identifier: Self.pairDialogIdentifier)

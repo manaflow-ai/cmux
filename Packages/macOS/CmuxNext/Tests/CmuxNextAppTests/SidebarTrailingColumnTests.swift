@@ -99,8 +99,13 @@ import Testing
     func dotsAndSpinnersShareOneSlot(_ look: Look) throws {
         try Self.withDensity(look.density, textSize: look.textSize) {
             let sidebar = Self.sidebar(look)
-            let slots = try Self.indicatorRows.map { try Self.glyph(sidebar, $0).size }
-            #expect(Set(slots.map { "\($0.width)x\($0.height)" }).count == 1, "\(look.testDescription): slot sizes \(slots)")
+            // The shared slot is the badge cell; the larger unread artwork may use a different
+            // glyph box without moving or resizing that cell (Leo 2026-11-01).
+            let slots = try Self.indicatorRows.map { id in
+                let row = try #require(sidebar.list.rowViews[.workspace(id)] as? WorkspaceRowView)
+                return row.rowBadge.cellSide
+            }
+            #expect(Set(slots).count == 1, "\(look.testDescription): slot sizes \(slots)")
         }
     }
 

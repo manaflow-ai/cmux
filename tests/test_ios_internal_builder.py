@@ -495,21 +495,16 @@ class GitHubApiTests(unittest.TestCase):
 
 
 class TriggerRunnerTests(unittest.TestCase):
-    def test_push_decision_uses_small_ephemeral_linux(self):
+    def test_push_decision_reads_the_linux_pool(self):
         workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
         runs_on = next(line.strip() for line in workflow.splitlines()
                        if line.strip().startswith("runs-on:"))
-        self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", runs_on)
         self.assertIn("'ubuntu-24.04'", runs_on)
-        # A non-Blacksmith LINUX_RUNNER (a fleet pool, a hand failover) still wins;
-        # a Blacksmith one (the 32-vCPU compile size) never picks this job's size.
-        self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER ||", runs_on)
-        self.assertNotIn("|| vars.LINUX_RUNNER ||", runs_on)
-        # Retain the manual run's fallback choice and the existing decision,
-        # even when the iOS builder is held or its shared packages drift.
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || "
-                      "'blacksmith-2vcpu-ubuntu-2404'", runs_on)
-
+        # The reconciled Linux pool, never a fixed Blacksmith size that can stall
+        # (tests/test_ci_linux_single_size.py).
+        self.assertNotIn("32vcpu", runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
 
 if __name__ == "__main__":
     unittest.main()

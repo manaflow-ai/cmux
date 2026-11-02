@@ -156,11 +156,11 @@ const trustThenPermission: Play = async (ctx) => {
   ctx.find({ role: "button", name: allowAlways });
   ctx.find({ role: "button", name: allowOnce });
   geometry(ctx);
-  // These chats offer no modes: Access still mounts for the folder grant, so trust stays revocable.
-  await ctx.click({ selector: ".acpmux-access-trigger" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-access-grant-remove") !== null);
-  await ctx.click({ selector: ".acpmux-access-grant-remove" });
-  await checkTrust(ctx);
+  // The granted trust is revoked from the chat menu's Revoke Granted Access (or Session Info's
+  // Environment), never from the composer's mode menu
+  // (Leo, 2026-10-29): these chats offer no modes, so the composer draws no Access menu for it.
+  if (ctx.document.querySelector(".acpmux-access-trigger, .acpmux-access-grant"))
+    throw new Error("The composer shows a mode menu for granted access");
 };
 const waitingInLine: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-ask"));

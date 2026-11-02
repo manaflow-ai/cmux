@@ -8,6 +8,26 @@ use serde_json::Value;
 
 use super::require_all;
 
+/// `acp.session.fork`: a completed-turn, live, or before-prompt fork.
+/// Before-prompt requests require requestId and omit both throughSeq and live.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkParams {
+    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub through_seq: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+    /// Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_prompt_id: Option<String>,
+    /// Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
+}
+
 /// One session as every list shows it (`Hub::session_summary`). A peer's
 /// session arrives as the peer daemon's own summary plus `peer`, with
 /// `status` `unreachable` while the peer is gone; a peer on an older
@@ -438,6 +458,14 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// A person's prompt that waits for the chat's owner (`author.approval: "owner"`): the queue
+    /// runs past it until the owner approves it (`_acpmux/queue_approve`, naming `turnId` and `revision`) or
+    /// declines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.
+    #[serde(default)]
+    pub awaiting_owner: bool,
+    /// Its version for the owner's approval: 0 when queued, one more at each edit by its author.
+    #[serde(default)]
+    pub revision: u64,
     /// Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
     /// person's next turn completes or the queue is resumed. False otherwise; absent from a peer
     /// on an older acpmux.

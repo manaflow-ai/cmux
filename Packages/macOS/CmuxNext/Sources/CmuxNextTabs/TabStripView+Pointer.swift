@@ -231,7 +231,13 @@ extension TabStripView {
             return
         }
         if pressedNewTab {
-            newTabButton.isPressed = isInNewTabButton(point)
+            let inside = isInNewTabButton(point)
+            newTabButton.isPressed = inside
+            if !inside {
+                // Leaving + cancels the hold. A later release inside still
+                // performs the ordinary click, without restarting the timer.
+                _ = newTabHold.end()
+            }
             return
         }
         if let id = pressedAudioID {

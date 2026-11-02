@@ -51,7 +51,7 @@ enum AgentPaneHandshakeReply {
             if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTab {
                 handshake.newTab = newTab
                 handshake.newSession = true
-                if handshake.cwd == nil { handshake.cwd = newTab.cwd }
+                if handshake.cwd == nil { handshake.cwd = model.tabsNewTabFolder }
             }
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
             handshake.linkScheme = model.linkScheme
@@ -83,6 +83,8 @@ enum AgentPaneHandshakeReply {
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
             }
             model.hasHandshake = true
+            // A handshake starts a connection: the page says when its client is ready (`pane.clientReady`).
+            model.clientReady = false
             model.acpmuxRestartOffered = nil
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
             if let cwd = handshake.cwd, !filled { model.handshakeCwd = cwd }

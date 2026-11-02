@@ -19,7 +19,7 @@ export type SessionInfoGroupId = "about" | "made" | "running";
 /// section's block still draws the hairlines (SessionInfoGroup.tsx): a hairline sits wherever two
 /// adjacent sections come from different blocks, so the default order draws the three blocks.
 export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly SessionInfoSectionId[]>> = {
-  about: ["environment", "context", "connectors"],
+  about: ["environment", "context", "usage", "connectors"],
   made: ["changes", "sources", "outputs"],
   running: ["subagents", "tasks"],
 };

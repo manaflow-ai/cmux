@@ -166,7 +166,7 @@ pub(crate) struct SnapshotHave {
 /// `snapshot-request` (raw v12) and channel `snapshot_request`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SnapshotRequestParams {
-    surface: SurfaceId,
+    pub(super) surface: SurfaceId,
     /// `digest_mismatch | gap | generation_mismatch | attach`; informational.
     #[serde(default)]
     reason: Option<String>,

@@ -95,9 +95,13 @@ export async function changeValue(element: HTMLInputElement | HTMLSelectElement,
 
 export async function fire(element: Element, type: string, init: KeyboardEventInit = {}): Promise<void> {
   await act(async () => {
+    // A mouse event carries its button (0, the primary one), as a real press does: Listbox opens a
+    // row only on a primary press.
     const event = type.startsWith("key")
       ? new window.KeyboardEvent(type, { bubbles: true, cancelable: true, ...init })
-      : new window.Event(type, { bubbles: true, cancelable: true });
+      : type.startsWith("mouse")
+        ? new window.MouseEvent(type, { bubbles: true, cancelable: true, ...init })
+        : new window.Event(type, { bubbles: true, cancelable: true });
     element.dispatchEvent(event);
   });
   await settle();

@@ -160,7 +160,7 @@ export function ContextBreakdownView({ breakdown }: { breakdown: Breakdown }) {
             aria-expanded={open.has(list.id)}
             onClick={() => toggle(list.id)}
           >
-            <Icon name={open.has(list.id) ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+            <Icon name={open.has(list.id) ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
             <span className="acpmux-session-info-row__name">{t(LIST_LABEL[list.id])}</span>
             <span className="acpmux-session-info-row__end">{list.items.length}</span>
           </button>

@@ -64,6 +64,7 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     "agent_message_chunk",
     update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }),
   ];
+  // The read that ends the live turn is its live line ("Read app.ts"), so pages wait on the prompt.
   const live: Step[] = [...start, spawned("a1", "Reviewer"), spawned("a2", "Tester"), read("r1", "src/app.ts")];
   // Finished chats, their group at the same place as LIVE's.
   const done = (answer: string): Step[] => [
@@ -227,7 +228,7 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     // A cold dev server's first load can stall in CI: load it here, again if it stalls.
     for (let attempt = 1; ; attempt++) {
       try {
-        await (await open(LIVE, "Read src/app.ts")).close();
+        await (await open(LIVE, "Review the branch with a few agents")).close();
         break;
       } catch (error) {
         if (attempt === 3) throw error;
@@ -241,7 +242,7 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
   });
 
   test("a group of running agents starts open; a finished chat's starts closed", async () => {
-    const page = await open(LIVE, "Read src/app.ts");
+    const page = await open(LIVE, "Review the branch with a few agents");
     await lines(page).first().waitFor({ timeout: 5_000 });
     await expectGroups(page, { open: ["true"], lines: 2 });
     await page.close();
@@ -251,7 +252,7 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
   });
 
   test("a group the person closes stays closed as its agents work; a later group opens on its own", async () => {
-    const page = await open(LIVE, "Read src/app.ts");
+    const page = await open(LIVE, "Review the branch with a few agents");
     await lines(page).first().waitFor({ timeout: 5_000 });
     await groups(page).first().click();
     await expectGroups(page, { open: ["false"], lines: 0 });
@@ -283,20 +284,20 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
   });
 
   test("a running group the person closed stays closed after a switch away and back", async () => {
-    const page = await open(LIVE, "Read src/app.ts");
+    const page = await open(LIVE, "Review the branch with a few agents");
     await lines(page).first().waitFor({ timeout: 5_000 });
     await groups(page).first().click();
     await expectGroups(page, { open: ["false"], lines: 0 });
     await select(page, DONE);
     await page.getByText("Both reviews are in.").waitFor({ timeout: 10_000 });
     await select(page, LIVE);
-    await page.getByText("Read src/app.ts").waitFor({ timeout: 10_000 });
+    await page.getByText("Read app.ts").first().waitFor({ timeout: 10_000 });
     await expectGroups(page, { open: ["false"], lines: 0 });
     await page.close();
   });
 
   test("an earlier turn's agent a cancel left running opens nothing when the next turn works", async () => {
-    const page = await open(STALE, "Read src/tests.ts");
+    const page = await open(STALE, "Now fix the tests");
     await expectGroups(page, { open: ["false"], lines: 0 });
     await page.close();
   });

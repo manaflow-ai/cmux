@@ -11,6 +11,8 @@ import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
 import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
 import { CodeBlock } from "./CodeBlock";
+import { InlinePreview } from "./InlinePreview";
+import { inlinePreviewKind } from "./previewDocument";
 import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
@@ -20,6 +22,8 @@ import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
+import { fenceStep } from "./fenceRule";
+import { closesFence, codeSpans, fenceOpening } from "../slashCommands";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
@@ -39,6 +43,8 @@ import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
+import { splitSkillText } from "./skillWords";
+import { SkillWord } from "./SkillWord";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { isAgentMotionOff } from "../../shared/motion";
 import { animateScroll } from "../threadMinimap/scrollMotion";
@@ -96,9 +102,12 @@ export const MAX_NESTING = 32;
 const FOOTNOTE_DEF = /^\[\^([\w-]+)\]:\s*(.*)$/;
 
 /** Parse the supported Markdown subset into blocks. */
-export function parseMarkdown(src: string, options: { messageAt?: number } = {}): MdBlock[] {
+/// `commonmark`: fences read as CommonMark reads them (slashCommands.ts fenceOpening and closesFence:
+/// tildes too, at most three spaces of indent, no backtick in a backtick fence's info string), as a
+/// sent prompt's are, so its code is what send reads as code.
+export function parseMarkdown(src: string, options: { messageAt?: number; commonmark?: boolean } = {}): MdBlock[] {
   const lines = normalizeMath(src.replace(/\r\n?/g, "\n").split("\n"));
-  const blocks = parseLines(lines);
+  const blocks = parseLines(lines, 0, options.commonmark === true);
   return options.messageAt === undefined ? blocks : decorateBlocks(blocks, options.messageAt);
 }
 
@@ -136,7 +145,7 @@ function decorateBlocks(blocks: MdBlock[], messageAt?: number): MdBlock[] {
 }
 
 /// `depth`: how many quotes and lists hold these lines (MAX_NESTING).
-function parseLines(lines: string[], depth = 0): MdBlock[] {
+function parseLines(lines: string[], depth = 0, commonmark = false): MdBlock[] {
   const out: MdBlock[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -145,9 +154,24 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       i++;
       continue;
     }
+    const opening = commonmark ? fenceOpening(line) : undefined;
+    if (opening) {
+      const body: string[] = [];
+      i++;
+      while (i < lines.length && !closesFence(lines[i], opening.mark)) body.push(lines[i++]);
+      const open = i >= lines.length;
+      i++;
+      out.push({
+        type: "code",
+        lang: opening.info.trim().split(/\s/)[0] || "text",
+        code: body.join("\n"),
+        ...(open ? { open: true as const } : {}),
+      });
+      continue;
+    }
     // A fence is three or more backticks and closes on a line of at least as many (a reply that
     // quotes Markdown opens with four to show its own three).
-    const fence = line.match(/^\s*(`{3,})([^\s`]*)[^`]*$/);
+    const fence = commonmark ? null : line.match(/^\s*(`{3,})([^\s`]*)[^`]*$/);
     if (fence) {
       const body: string[] = [];
       const closer = new RegExp(`^\\s*\`{${fence[1]!.length},}\\s*$`);
@@ -192,7 +216,7 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
     if (/^\s*>/.test(line)) {
       const body: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) body.push(lines[i++].replace(/^\s*>\s?/, ""));
-      out.push({ type: "blockquote", children: nested(body, depth + 1) });
+      out.push({ type: "blockquote", children: nested(body, depth + 1, commonmark) });
       continue;
     }
     if (
@@ -219,7 +243,7 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       continue;
     }
     if (LIST_RE.test(line)) {
-      const [block, next] = parseList(lines, i, depth);
+      const [block, next] = parseList(lines, i, depth, commonmark);
       out.push(block);
       i = next;
       continue;
@@ -232,7 +256,7 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       lines[i].trim() &&
       !/^(#{1,6})\s/.test(lines[i]) &&
       !FOOTNOTE_DEF.test(lines[i]) &&
-      !/^\s*```/.test(lines[i]) &&
+      (commonmark ? !fenceOpening(lines[i]) : fenceStep(0, lines[i]) === 0) &&
       !/^\s*\$\$/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
       !interruptsParagraph(lines[i])
@@ -277,8 +301,8 @@ function indentOf(l: string) {
 }
 
 /// The blocks of lines nested `depth` levels down, or their text as one paragraph at the cap.
-function nested(lines: string[], depth: number): MdBlock[] {
-  if (depth < MAX_NESTING) return parseLines(lines, depth);
+function nested(lines: string[], depth: number, commonmark = false): MdBlock[] {
+  if (depth < MAX_NESTING) return parseLines(lines, depth, commonmark);
   const text = lines
     .map((line) => line.trim())
     .filter(Boolean)
@@ -286,7 +310,7 @@ function nested(lines: string[], depth: number): MdBlock[] {
   return text ? [{ type: "paragraph", text }] : [];
 }
 
-function parseList(lines: string[], start: number, depth: number): [MdBlock, number] {
+function parseList(lines: string[], start: number, depth: number, commonmark = false): [MdBlock, number] {
   const first = lines[start].match(LIST_RE)!;
   const base = indentOf(lines[start]);
   const ordered = /\d/.test(first[2]);
@@ -320,6 +344,7 @@ function parseList(lines: string[], start: number, depth: number): [MdBlock, num
         item.children = nested(
           inner.map((n) => n.slice(strip)),
           depth + 1,
+          commonmark,
         );
       }
       items.push(item);
@@ -352,6 +377,15 @@ export type InlineOptions = {
   linkBareReferences?: boolean;
   /** The chats the open chat started, whose names draw as chips (started/startedSessions.ts). */
   started?: StartedMentions;
+  /** A sent prompt's skills by shown name, with their descriptions: each `/name` in the renderer's
+   *  plain text draws as a skill word (SkillWord.tsx), never in code. */
+  skills?: ReadonlyMap<string, string>;
+  /** Inline code read as CommonMark reads it (slashCommands.ts codeSpans: a span closes on a run of
+   *  as many backticks, so ``a ` b`` is one span), as a sent prompt's is. */
+  commonmark?: boolean;
+  /** The code spans `renderInline` set aside in this text (`commonmark`), by the index their stand-in
+   *  names; set by the outermost call, read by the calls inside it. */
+  codes?: string[];
   /** How a commit SHA draws: a GitHub chip (replies), or quiet monospace text that links to its
    *  commit when its repository is known (another agent's message, IncomingMessageCard.tsx). */
   commits?: "chip" | "quiet";
@@ -449,7 +483,7 @@ export function linkKind(href: string): "github" | "citation" | "file" | "web" {
 
 export const linkIcon = (href: string) => {
   const kind = linkKind(href);
-  if (kind === "github") return <GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />;
+  if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
   if (kind === "file") return <FileDoc size={16} className="cv-link__icon" />;
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
@@ -507,7 +541,7 @@ function linkedGithubText(
         <UrlChip
           key={`${key}-${index}`}
           href={reference.href}
-          icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+          icon={<GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />}
         >
           {reference.text}
         </UrlChip>
@@ -555,6 +589,25 @@ function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] 
     out.push(
       ...pieces.flatMap((piece): ReactNode[] => {
         const current = `${key}-${index++}`;
+        if (typeof piece === "string" && opts.skills?.size) {
+          const words = splitSkillText(piece, opts.skills);
+          if (words.length > 1 || typeof words[0] !== "string")
+            return words.flatMap((word, at): ReactNode[] =>
+              typeof word === "string"
+                ? softBreakNodes(
+                    linkedGithubText(
+                      word,
+                      `${current}-${at}`,
+                      opts.githubRepository,
+                      opts.linkGithubReferences !== false,
+                      opts.commits === "quiet",
+                      opts.linkBareReferences !== false,
+                    ),
+                    `${current}-${at}`,
+                  )
+                : [<SkillWord key={`${current}-${at}`} {...word} />],
+            );
+        }
         return typeof piece === "string"
           ? softBreakNodes(
               linkedGithubText(
@@ -591,27 +644,58 @@ function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] 
 const INLINE_RE =
   /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$(?!\s[A-Za-z\s'’,.;:!?"()-]*\$\$|[A-Za-z\s'’,.;:!?"()-]*\s\$\$)[^$\n]+?\$\$)|(?<![\\$])(\$(?![({])(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`$]\$(?![A-Za-z0-9])|\\\(.+?\\\))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
+/// Each code span of `source` (CommonMark, slashCommands.ts codeSpans) set aside for the inline
+/// pass: a stand-in the pass reads as one plain span (a backtick, U+E000, its index, U+E001, a
+/// backtick) takes its place, and `keptCode` gives its content back when the span draws. The
+/// stand-in never reaches the page. A span of several backticks drops one space from each end of
+/// its content when both have one, as CommonMark does.
+function keepCodeSpans(source: string): { text: string; codes: string[] } | undefined {
+  const spans = codeSpans(source);
+  if (!spans.length) return undefined;
+  const codes: string[] = [];
+  let text = "";
+  let last = 0;
+  for (const span of spans) {
+    let code = source.slice(span.inner[0], span.inner[1]);
+    if (span.run > 1 && code.length > 2 && code.startsWith(" ") && code.endsWith(" ") && code.trim())
+      code = code.slice(1, -1);
+    text += `${source.slice(last, span.start)}\`\uE000${codes.length}\uE001\``;
+    codes.push(code);
+    last = span.end;
+  }
+  return { text: text + source.slice(last), codes };
+}
+
+/// A code span's content: the span `keepCodeSpans` set aside when `raw` is its stand-in.
+function keptCode(raw: string, opts: InlineOptions): string {
+  const kept = opts.codes && /^\uE000(\d+)\uE001$/.exec(raw);
+  return kept ? (opts.codes![Number(kept[1])] ?? raw) : raw;
+}
+
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {
   const refs: string[] = [];
-  const text = capDataUrls(source, refs);
-  const opts = refs.length ? { ...outer, dataRefs: refs } : outer;
+  const kept = outer.commonmark && !outer.codes ? keepCodeSpans(source) : undefined;
+  const text = capDataUrls(kept ? kept.text : source, refs);
+  const withCodes = kept ? { ...outer, codes: kept.codes } : outer;
+  const opts = refs.length ? { ...withCodes, dataRefs: refs } : withCodes;
   const out: ReactNode[] = [];
   let last = 0;
   let k = 0;
   for (const m of text.matchAll(INLINE_RE)) {
     if (m.index! > last) out.push(...proseText(text.slice(last, m.index), `t${k++}`, opts));
     const t = m[0];
-    const named = m[1] ? opts.started?.mentions.find((mention) => mention.text === t.slice(1, -1)) : undefined;
+    const inner = m[1] ? keptCode(t.slice(1, -1), opts) : "";
+    const named = m[1] ? opts.started?.mentions.find((mention) => mention.text === inner) : undefined;
     if (named) out.push(<StartedSessionChip key={k++} mention={named} text={named.text} onOpen={opts.started!.open} />);
     else if (m[1]) {
-      const path = codePath(t.slice(1, -1));
+      const path = codePath(inner);
       out.push(
         path ? (
-          <PathChip key={k++} path={path} written={t.slice(1, -1)} label={lineLabel(path, t.slice(1, -1))} />
+          <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
         ) : (
           <code key={k++} className="cv-code">
-            <SoftBroken text={t.slice(1, -1)} />
+            <SoftBroken text={inner} />
           </code>
         ),
       );
@@ -979,6 +1063,11 @@ function Block({
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
       if (render) return <RenderCard call={render} actions={trailing} />;
+      // A closed ```html or ```svg fence draws as its document in a sandboxed frame (InlinePreview.tsx);
+      // an open one stayed plain code above, so nothing renders mid-stream.
+      const preview = block.open ? undefined : inlinePreviewKind(block.lang, block.code);
+      if (preview)
+        return <InlinePreview key={block.code} kind={preview} code={block.code} lang={block.lang} actions={trailing} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} actions={trailing} />;
       return <CodeBlock code={block.code} lang={block.lang} actions={trailing} />;
     }
@@ -1114,10 +1203,25 @@ export function Markdown({
   thumbnails,
   messageAt,
   trailing,
+  skills,
+  commonmark = false,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
-  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
+  // A sent prompt (`commonmark`) is whole, never streamed: it parses at once, its code read as send
+  // reads it (parseMarkdown `commonmark`), which the streaming boundaries do not follow.
+  const whole = useMemo(
+    () =>
+      commonmark
+        ? parseMarkdown(children, { messageAt, commonmark: true }).map((block, index) => ({
+            key: String(index),
+            block,
+          }))
+        : undefined,
+    [commonmark, children, messageAt],
+  );
+  const blocks =
+    whole ?? acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
@@ -1145,8 +1249,10 @@ export function Markdown({
       ...(started ? { started } : {}),
       ...(commits ? { commits } : {}),
       ...(thumbnails === false ? { thumbnails } : {}),
+      ...(skills?.size ? { skills } : {}),
+      ...(commonmark ? { commonmark } : {}),
     };
-  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails]);
+  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails, skills, commonmark]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;

@@ -93,6 +93,21 @@ public final class HomeNativeTranscriptView: NSView {
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
     }
+    /// The stop button's Continue action after an accepted Chief stop.
+    public var onContinue: () -> Void = {} {
+        didSet { transcript.onContinue = { [weak self] in self?.onContinue() } }
+    }
+    /// True while the stopped Chief can be continued from the stop button.
+    public var continueAvailable: Bool {
+        get { transcript.continueAvailable }
+        set { transcript.continueAvailable = newValue }
+    }
+    /// A committed person message in a Chief conversation asks its Chief to
+    /// answer again. The host supplies the daemon's `chief.retry` bridge.
+    public var onChiefRetry: ((MessageID) -> Void)? {
+        get { transcript.onChiefRetry }
+        set { transcript.onChiefRetry = newValue }
+    }
     /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows

@@ -19,7 +19,8 @@ const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
-import { isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { useAgentProgress } from "../subagents/agentProgressStore";
+import { isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
@@ -32,6 +33,7 @@ import "./SubagentsSection.css";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { AgentMark } from "../../shared/AgentMark";
 import { TonedIcon } from "../subagents/TonedIcon";
+import { SESSION_INFO_WAVE_STYLE } from "./native/wave";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -190,7 +192,7 @@ export function SubagentsSection({
       working: Boolean(retrying(agent)),
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
-      icon: "agent.session",
+      icon: SUBAGENT_FALLBACK,
       mark: agent.harness ?? harness,
       depth,
       at: agent.endedAt ?? agent.startedAt,
@@ -237,6 +239,7 @@ export function SubagentsSection({
         name={item.name}
         detail={item.detail}
         progress={item.progress}
+        progressAgent={item.agent}
         status={item.status}
         state={item.state}
         working={item.working}
@@ -247,28 +250,12 @@ export function SubagentsSection({
         depth={item.depth}
         onOpen={item.open}
         wave={inWave ? wave[index] : undefined}
-        card={
-          <span className="acpmux-agent-card">
-            <span className="acpmux-agent-card__name">{item.name}</span>
-            <span className="acpmux-agent-card__state" data-status={item.status}>
-              {[
-                item.state,
-                item.time,
-                item.kind,
-                item.progress,
-                item.status === "running" || item.status === "waiting" ? item.detail : undefined,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
-            {item.task && item.task !== item.name && <span className="acpmux-agent-card__task">{item.task}</span>}
-          </span>
-        }
+        card={<AgentCard item={item} />}
       />
     </li>
   );
   return (
-    <div className="acpmux-session-info-subagents">
+    <div className="acpmux-session-info-subagents" style={SESSION_INFO_WAVE_STYLE}>
       {runningLines.length > 0 && (
         <ul className="acpmux-summary-list acpmux-session-info-subagents__running">
           {shown.map((item, index) => line(item, index, true))}
@@ -301,5 +288,26 @@ export function SubagentsSection({
         </>
       )}
     </div>
+  );
+}
+
+function AgentCard({ item }: { item: Line }) {
+  const progress = useAgentProgress(item.agent) ?? item.progress;
+  return (
+    <span className="acpmux-agent-card">
+      <span className="acpmux-agent-card__name">{item.name}</span>
+      <span className="acpmux-agent-card__state" data-status={item.status}>
+        {[
+          item.state,
+          item.time,
+          item.kind,
+          progress,
+          item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </span>
+      {item.task && item.task !== item.name && <span className="acpmux-agent-card__task">{item.task}</span>}
+    </span>
   );
 }

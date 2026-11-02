@@ -200,25 +200,32 @@ struct AgentPageHibernationTests {
         #expect(rig.displaced.isEmpty)
     }
 
-    /// A chat whose page crashed shows the notice at once and does not reload by itself (on the
-    /// old host; the page host's own test is `PageWebViewCrashReloadTests`).
-    @Test func aCrashedChatShowsTheNoticeAndDoesNotReload() throws {
+    /// A hidden chat whose page crashed shows no notice: it owes a retry for when it is shown
+    /// (AgentPageCrashRetry; Leo, 2026-11-01: "why doens't it just retry on its own"). The pane,
+    /// not the page host, decides (`reloadsAfterCrash` stays off).
+    @Test func aHiddenCrashedChatRetriesWhenShown() throws {
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
         let view = try rig.hiddenChat("tab_crash", session: "s-crash")
-        if let page = view.page { #expect(!page.reloadsAfterCrash, "the agent page host reloads a crashed chat") }
+        if let page = view.page { #expect(!page.reloadsAfterCrash, "the page host reloads a crashed chat itself") }
         view.webContentProcessDidTerminate()
-        #expect(view.crashNotice != nil, "a crashed chat showed no notice")
+        #expect(view.crashNotice == nil, "a crashed chat showed the notice instead of retrying")
+        #expect(view.crashRetry.owed, "a hidden crashed chat owes no retry")
     }
 
-    /// Even with a timeout written, a crashed chat keeps its page and notice: a release would
-    /// build it again when shown, a reload the person did not ask for.
+    /// Even with a timeout written, a chat that kept crashing keeps its page and notice: a release
+    /// would build it again when shown, a reload the person did not ask for.
     @Test func aCrashedChatIsNeverReleased() async throws {
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .critical)
         let view = try rig.hiddenChat("tab_crashed", session: "s-crashed")
+        // The injected end ends no real process: a document that finishes loading after it shows
+        // the page lives and takes the notice away (pageLoadedAgain), so the load finishes first.
+        if let page = view.page { await page.waitUntilLoaded() } else { await rig.settle { !view.webView.isLoading } }
+        for _ in 0..<AgentPageCrashBudget.limit { _ = view.crashRetry.budget.ended(at: Date()) }
         view.webContentProcessDidTerminate()
+        #expect(view.crashNotice != nil, "a chat that kept crashing showed no notice")
         rig.advance(minutes: 61)
         await rig.settle { rig.tabs.existingView("tab_crashed") == nil }
         #expect(rig.tabs.existingView("tab_crashed") === view, "a crashed chat was released and rebuilt")

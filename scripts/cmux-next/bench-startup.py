@@ -20,7 +20,7 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
         state root, then one connection's identify and snapshot round trips
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
-      [--mode cold --mode warm] [--profile empty|realistic] [--json out.json]
+      [--mode cold --mode warm] [--profile empty|realistic|stress] [--json out.json]
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
@@ -31,7 +31,14 @@ seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
 terminal tabs and a split, then splits the selected pane and opens an agent
 chat in it, so the measured launch restores a full sidebar, a terminal and
 an agent pane. Its runs wait for the agent pane's handshake as well as the
-first terminal frame.
+first terminal frame. --profile stress seeds one priming launch with the standard
+STRESS session (scripts/cmux-next/perf-stress-session.py: 60 workspaces, the shown
+one 14 panes of 6 tabs with a terminal selected in each, 10 of them printing), so
+the measured launch restores 14 visible terminals; its runs wait for the first
+terminal frame. Its pages' local server is closed once the session is built, so
+every run restores the same pages with no server (like for like across runs). Per-pane launch marks (launch.visible_terminals_drawn, the LAST
+visible terminal's saved frame) are reported when the build has them: a run that
+showed a saved frame waits up to VISIBLE_GRACE_S more for it.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -60,6 +67,9 @@ from bench_launch import account_home, finder_limits, limits_line, require_gui_s
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
+# The reopen number (#31621): every visible terminal's saved frame shown, the last pane's time.
+VISIBLE_MARK = "launch.visible_terminals_drawn"
+VISIBLE_GRACE_S = 1.5
 AGENT_MARK = "agent_pane.handshake_end"
 
 # Rows in launch order; a mark a build does not emit is left out.
@@ -90,6 +100,7 @@ MARKS = [
     ("did_finish_launching_end", "applicationDidFinishLaunching end"),
     ("first_window_frame_committed", "first window frame committed"),
     ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
+    ("launch.post_frame_feeds", "acpmux-backed feeds started"),
     ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
     ("launch.agent_page_warmup", "agent page WebKit warm-up started"),
     ("daemon.connect_start", "first connect attempt"),
@@ -130,13 +141,16 @@ MARKS = [
     ("agent_pane.launch_image_shown", "an agent pane's saved page shown"),
     ("terminal.launch_frames_read", "saved terminal frames read and decoded"),
     ("terminal.launch_frame_missed", "a terminal asked before its read ended"),
-    ("terminal.launch_frame_shown", "a terminal's saved frame shown"),
+    ("terminal.launch_frame_shown", "the FIRST terminal's saved frame shown (not the launch number)"),
+    # The launch number: the LAST terminal of the first window frame to show its saved frame (max over panes).
+    ("launch.visible_terminals_drawn", "every visible terminal's saved frame shown (the last pane)"),
 ]
 REALISTIC_WORKSPACES = 24
 # Launch work that must start only after the first window frame (perf-launch-memory): checked
 # with --order, and always in budget mode (any --budget, as the CI launch gate runs).
 LAUNCH_ORDER = [
     "first_window_frame_committed<launch.non_paint_services",
+    "first_window_frame_committed<launch.post_frame_feeds",
     "first_window_frame_committed<launch.post_window_warmups",
     "first_window_frame_committed<launch.agent_page_warmup",
 ]
@@ -260,15 +274,74 @@ def process_rows(pids):
     return rows
 
 
+def helper_pids(tag):
+    """This copy's helpers under Contents/Resources/bin/ (acpmux, cmux-browser-host, the cmux-tui daemon, the Chief)."""
+    return pgrep(f"{bundle_root(tag)}.*/Contents/Resources/bin/")
+
+
+def helper_name(command):
+    """The executable under Contents/Resources/bin/ that `command` runs ("acpmux", "cmux-tui"), or ""."""
+    match = re.search(r"/Contents/Resources/bin/([^/\s]+)", command)
+    return match.group(1) if match else ""
+
+
+def helper_args(command):
+    """The words after the helper's executable in `command` (["--headless", ...]), or []."""
+    match = re.search(r"/Contents/Resources/bin/[^/\s]+(.*)$", command)
+    return match.group(1).split() if match else []
+
+
+def kept_role(row, parent, grandparent):
+    """Why a helper may outlive the app's quit (plans/cmux-next/quit-persistence.md, a quit that keeps sessions), or
+    None when it must end soon after the app: the cmux-tui daemon keeps the terminals, its screen-detection plugin ends
+    with it, and the Chief's brain host with its own acpmux outlives the app by design (HomeBrainHost.swift). The app's
+    own acpmux and browser host are not here: idle, they end after the quit (#30090); a turn the bench never starts
+    would keep acpmux."""
+    name, args = helper_name(row["command"]), helper_args(row["command"])
+    up = helper_name(parent["command"]) if parent else ""
+    upper = helper_name(grandparent["command"]) if grandparent else ""
+    # The session owner starts `cmux-tui --headless ...` (cmux-tui local_owner.rs). An SSH or Cloud link
+    # (`cmux-tui remote connect ... --headless --exit-with-parent`) must end with the app: it is not kept.
+    if name == "cmux-tui" and args[:1] == ["--headless"] and "--exit-with-parent" not in args:
+        return "cmux-tui daemon (kept terminals)"
+    if name == "cmux-agent-screen-detection" and up == "cmux-tui":
+        return "screen-detection plugin of the kept cmux-tui daemon"
+    # The brain host is `optchat-chief host ...` (HomeBrainHost.swift); a one-shot command ends by itself.
+    if name == "optchat-chief" and args[:1] == ["host"]:
+        return "Chief brain host"
+    if name == "acpmux" and (up == "optchat-chief" or (up == "acpmux" and upper == "optchat-chief")):
+        return "the Chief's acpmux"
+    return None
+
+
+def watched_pids(tag):
+    """What the linger probe follows: the app and its CEF helpers (Contents/MacOS/) and the bundle's helpers."""
+    return sorted(set(app_pids(tag)) | set(helper_pids(tag)))
+
+
 def watch_linger(tag, quit_at):
-    """After the app's quit: every process of the bundle with /Contents/MacOS/ (the app, its CEF helpers, a bundled
-    daemon), each one's exit time after the quit, and the ones alive past LINGER_LIMIT_S. Waits up to LINGER_WAIT_S;
-    ends nothing. Returns the report (also printed as one BENCH-LINGER line)."""
-    first = process_rows(app_pids(tag))
+    """After the app's quit: every process of the bundle with /Contents/MacOS/ (the app, its CEF helpers) or under
+    Contents/Resources/bin/ (acpmux, cmux-browser-host and the other helpers), each one's exit time after the quit, and
+    the ones alive past LINGER_LIMIT_S. A documented survivor (``kept_role``) is listed under `kept` and not waited
+    for. Waits up to LINGER_WAIT_S; ends nothing. Returns the report (also printed as one BENCH-LINGER line)."""
+    rows = process_rows(watched_pids(tag))
+    by_pid = {r["pid"]: r for r in rows}
+    missing = sorted({r["ppid"] for r in rows if r["ppid"] not in by_pid})
+    by_pid.update({r["pid"]: r for r in process_rows(missing)})
+    missing = sorted({by_pid[r["ppid"]]["ppid"] for r in rows if r["ppid"] in by_pid} - set(by_pid))
+    by_pid.update({r["pid"]: r for r in process_rows(missing)})
+    first, kept = [], []
+    for row in rows:
+        parent = by_pid.get(row["ppid"])
+        role = kept_role(row, parent, by_pid.get(parent["ppid"]) if parent else None)
+        if role:
+            kept.append({**row, "role": role})
+        else:
+            first.append(row)
     exits, start = {}, {r["pid"]: r for r in first}
     deadline = quit_at + LINGER_WAIT_S
     while True:
-        live = set(app_pids(tag))
+        live = set(watched_pids(tag))
         now = time.monotonic()
         for pid in start:
             if pid not in live and pid not in exits:
@@ -276,13 +349,15 @@ def watch_linger(tag, quit_at):
         if not (live & set(start)) or now >= deadline:
             break
         time.sleep(0.25)  # bench: a process list read, bounded by the deadline
-    still = process_rows(sorted(set(app_pids(tag)) & set(start)))
+    still = process_rows(sorted(set(watched_pids(tag)) & set(start)))
     report = {"at_quit": first, "exit_s": exits, "past_limit": [p for p, s in exits.items() if s > LINGER_LIMIT_S],
-              "still_running_after_s": LINGER_WAIT_S if still else None, "still": still}
+              "still_running_after_s": LINGER_WAIT_S if still else None, "still": still, "kept": kept}
     print("BENCH-LINGER " + json.dumps(report), flush=True)
     for row in still:
         print(f"  LINGER: {row['pid']} ppid {row['ppid']} cpu {row['cpu']} % up {row['etime']}: {row['command']}",
               flush=True)
+    for row in kept:
+        print(f"  KEPT: {row['pid']} ({row['role']}): {row['command']}", flush=True)
     return report
 
 
@@ -781,6 +856,42 @@ def seed_realistic(tag, scratch, timeout):
         out.write(f"agent focus={seed_layout()}\n" if agent else f"terminals focus={seed_layout()}\n")
 
 
+def seed_stress(tag, scratch, timeout):
+    """Fills the tag's state with the standard STRESS session (see --profile stress) and leaves the daemon running."""
+    import importlib.util  # noqa: E402
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+    spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+    stress = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stress)
+    reset_state(tag)
+    prime = Launch(tag, scratch)
+    try:
+        if not prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True):
+            raise SystemExit(f"tag {tag}: the seeding launch never drew a terminal")
+        app_client(tag).close()  # the control socket answers
+        socket_path = next(path for path in socket_candidates(tag) if os.path.exists(path))
+        session = stress.Stress(stress.socket_rpc(socket_path))
+        try:
+            summary = session.build()
+        finally:
+            # The page server lives only in this process: close it now, so every measured run (this invocation's
+            # and a later one's, which finds the marker) restores the same pages with no server behind them.
+            session.close()
+        print("BENCH-STRESS " + json.dumps(summary), flush=True)
+    finally:
+        prime.quit()
+    with open(seeded_marker(tag), "w") as out:
+        out.write("stress\n")
+
+
+def seeded_stress(tag):
+    try:
+        with open(seeded_marker(tag)) as marker:
+            return marker.read().startswith("stress")
+    except OSError:
+        return False
+
+
 def seeded_agent(tag):
     try:
         with open(seeded_marker(tag)) as marker:
@@ -820,9 +931,13 @@ def one_run(tag, mode, timeout, profile=None):
     # A first launch shows the agent New Tab page, not a terminal: other
     # profiles end at whichever content draws first.
     final = [FINAL_MARK, AGENT_MARK]
-    any_of = profile != "realistic"
+    any_of = profile not in ("realistic", "stress")
     if profile == "empty":
         reset_state(tag)
+    elif profile == "stress":
+        if not seeded_stress(tag):
+            seed_stress(tag, scratch, timeout)
+        final = [FINAL_MARK]
     elif profile == "realistic" and seeded_focus(tag) != seed_layout():
         seed_realistic(tag, scratch, timeout)
     if profile == "realistic" and not seeded_agent(tag):
@@ -849,6 +964,10 @@ def one_run(tag, mode, timeout, profile=None):
     daemons = None
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
+        if reached and "terminal.launch_frame_shown" in launch.marks:
+            # The last visible terminal's saved frame can land after the first live frame: wait briefly for it, so a
+            # run never drops the reopen number (a build without the per-pane mark waits this long and has none).
+            launch.wait_for(VISIBLE_MARK, VISIBLE_GRACE_S)
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
@@ -985,9 +1104,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", default=[])
     parser.add_argument("--app", action="append", default=[], help="a staged `cmux DEV <tag>.app` (fleet artifact)")
-    parser.add_argument("--profile", choices=["empty", "realistic"],
-                        help="empty: no saved state before each run; realistic: a seeded day's work "
-                             "(default: whatever state the tag has)")
+    parser.add_argument("--profile", choices=["empty", "realistic", "stress"],
+                        help="empty: no saved state before each run; realistic: a seeded day's work; stress: the "
+                             "standard STRESS session (default: whatever state the tag has)")
     parser.add_argument("--focus", choices=["agent", "terminal"], default="agent",
                         help="realistic: the focused pane at quit, the agent chat or a terminal beside it")
     parser.add_argument("--chat-pane", choices=["first", "last"], default="last",

@@ -26,6 +26,8 @@ import { RawToggle } from "./SentMessageLine";
 import { isFailed, isRunning } from "./toolGroups";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolImages } from "./ToolRow";
+import { VideoFramesCard } from "./VideoFramesCard";
+import { videoFrames } from "./videoFrames";
 import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ToolLabel } from "./ToolVerb";
@@ -119,12 +121,18 @@ function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?:
   // The machine name stays at hand as the opened call's first line (no tooltip: the line's text
   // already shows, test/tooltip-rules.ts).
   const raw = mcpRawName(tool, call);
+  // A look at a video's frames reads as one ("Looked at 8 video frames") over its filmstrip, which
+  // names the video (videoFrames.ts); opened, the call's response is the tool's note without the frames.
+  const video = useMemo(() => videoFrames(tool), [tool]);
   const label = useMemo(
-    () => cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names),
-    [t, call, tool, names],
+    () =>
+      video
+        ? t("tools.videoFrames", { n: video.count })
+        : (cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names)),
+    [t, video, call, tool, names],
   );
   const exec = isCmuxExec(call);
-  const images = useMemo(() => toolImages(tool), [tool]);
+  const images = useMemo(() => (video ? [] : toolImages(tool)), [video, tool]);
   const running = isRunning(tool);
   // An MCP server's error is often JSON: its message, in one line (toolFailure.ts).
   const failure = useMemo(() => (tool.status === "failed" ? toolFailure(tool) : undefined), [tool]);
@@ -153,6 +161,7 @@ function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?:
         />
       </button>
       <ToolFailureCause failure={failure} />
+      {video && <VideoFramesCard video={video} />}
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (
         <div {...fold.bodyProps}>
@@ -163,7 +172,7 @@ function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?:
               id={detailsId}
               call={call}
               raw={raw}
-              output={tool.output}
+              output={video ? video.text : tool.output}
               tool={tool}
               strip={stripsEnvelopeImages(tool)}
               reveal={reveal}

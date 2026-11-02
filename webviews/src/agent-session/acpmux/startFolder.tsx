@@ -34,7 +34,7 @@ export async function pickFolder(
   callNative: Native,
   cwd: string,
   use: (cwd: string) => void,
-  refused?: () => void,
+  refused?: (error: unknown) => void,
 ): Promise<FolderAsk | undefined> {
   let reply: unknown;
   try {
@@ -46,7 +46,7 @@ export async function pickFolder(
       error !== null &&
       (error as { code?: unknown }).code === "transport.path_invalid"
     ) {
-      refused?.();
+      refused?.(error);
       return undefined;
     }
     use(cwd);

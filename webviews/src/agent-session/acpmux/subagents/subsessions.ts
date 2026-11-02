@@ -167,6 +167,8 @@ export class SubsessionStore {
   /// sub-session card.
   private named = new Map<string, string>();
   private harnesses = new Map<string, string>();
+  /// By id, the model and thinking effort each listed chat runs on, for a sender's hover.
+  private runs = new Map<string, SenderRun>();
   private hosts = new Map<string, string>();
   /// Where each listed chat works, by id: its folder and the other machine it runs on, for the
   /// files its messages name (IncomingMessageCard.tsx), read with the same listeners.
@@ -185,42 +187,59 @@ export class SubsessionStore {
     let changed = false;
     const named = new Map<string, string>();
     const harnesses = new Map<string, string>();
-    // A name a later chat shares never takes an earlier chat's place; a live chat's name comes
-    // before an archived one's.
-    const live = [...sessions].sort((a, b) => Number(Boolean(a.archived)) - Number(Boolean(b.archived)));
-    for (const field of ["name", "shortName"] as const)
-      for (const entry of live) {
-        const name = entry[field]?.trim();
-        if (name && !named.has(name)) named.set(name, entry.sessionId);
-      }
-    // A chat on another machine is listed as `<peer>/<name>` (acpmux hub/peers.rs); its message
-    // signs with the bare name ("[chief-ui] ..."), which finds it after every chat's full name.
-    for (const entry of live) {
+    // The sending chat can arrive with only a name (no session ID). Across peers, two
+    // live chats can share that name: opening the first one would show the wrong chat.
+    // A name resolves only when it identifies exactly one live session; archived chats
+    // are a fallback when no live session uses the name. All aliases of the same session
+    // count once (its full name, short name and a peer's bare name).
+    const candidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
+    const addName = (name: string | undefined, entry: AcpmuxSessionEntry) => {
+      const label = name?.trim();
+      if (!label) return;
+      let matches = candidates.get(label);
+      if (!matches) candidates.set(label, (matches = { live: new Set(), archived: new Set() }));
+      (entry.archived ? matches.archived : matches.live).add(entry.sessionId);
+    };
+    for (const entry of sessions) {
+      addName(entry.name, entry);
+      addName(entry.shortName, entry);
+      // A peer chat may be listed as `<peer>/<name>` but sign a message with the
+      // bare name. The bare alias is safe only when unique across listed chats.
       const name = entry.name?.trim();
       const bare = entry.peer && name?.startsWith(`${entry.peer}/`) ? name.slice(entry.peer.length + 1) : undefined;
-      if (bare && !named.has(bare)) named.set(bare, entry.sessionId);
+      addName(bare, entry);
+    }
+    for (const [name, matches] of candidates) {
+      const active = matches.live.size ? matches.live : matches.archived;
+      if (active.size === 1) named.set(name, active.values().next().value!);
     }
     const hosts = new Map<string, string>();
     const places = new Map<string, SenderPlace>();
+    const runs = new Map<string, SenderRun>();
     for (const entry of sessions) {
       if (entry.harness) harnesses.set(entry.sessionId, entry.harness);
+      if (entry.model || entry.effort)
+        runs.set(entry.sessionId, {
+          ...(entry.model && { model: entry.model }),
+          ...(entry.effort && { effort: entry.effort }),
+        });
       const host = cloudHost(entry);
       if (host) hosts.set(entry.sessionId, host);
       const cwd = entry.cwd?.trim();
       if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
     }
-    const namedKey = JSON.stringify([
-      [...named],
-      [...harnesses],
-      [...places],
-      sessions.map((entry) => entry.sessionId),
-    ]);
+    // Session-list order can change as activity or priority changes. The same identities
+    // and metadata should not notify every sender card only because rows were reordered.
+    const sorted = <T>(map: Map<string, T>) => [...map].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    const ids = new Set(sessions.map((entry) => entry.sessionId));
+    const namedKey = JSON.stringify([sorted(named), sorted(harnesses), sorted(places), sorted(runs), [...ids].sort()]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
-    this.ids = new Set(sessions.map((entry) => entry.sessionId));
+    this.ids = ids;
     this.harnesses = harnesses;
     this.hosts = hosts;
     if (renamed) this.places = places;
+    if (renamed) this.runs = runs;
     this.namedKey = namedKey;
     if (renamed) for (const listener of this.nameListeners) listener();
     for (const entry of sessions) {
@@ -265,6 +284,11 @@ export class SubsessionStore {
 
   harness(sessionId: string): string | undefined {
     return this.harnesses.get(sessionId);
+  }
+
+  /// The model and effort listed chat `sessionId` runs on, when the list names them.
+  run(sessionId: string): SenderRun | undefined {
+    return this.runs.get(sessionId);
   }
 
   /// The other machine listed chat `sessionId` runs on; undefined for this Mac's.
@@ -330,6 +354,9 @@ export function useSubsessionInfos(
 /// undefined for this Mac's).
 export type SenderPlace = { cwd?: string; host?: string };
 
+/// The model and thinking effort a listed chat runs on (its sender's hover, IncomingMessageCard.tsx).
+export type SenderRun = { model?: string; effort?: string };
+
 /// Where the chat a message came from works, while the list has it (subsessions.ts `place`).
 export function useSenderPlace(sessionId: string | undefined): SenderPlace | undefined {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
@@ -344,7 +371,7 @@ export function useSenderPlace(sessionId: string | undefined): SenderPlace | und
 export function useSenderChat(
   name: string,
   sessionId: string | undefined,
-): { sessionId?: string; harness?: string; host?: string } {
+): { sessionId?: string; harness?: string; host?: string; run?: SenderRun } {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const readId = () => sessionId ?? store.find(name);
   const id = useSyncExternalStore(store.subscribeNames, readId, readId);
@@ -352,5 +379,7 @@ export function useSenderChat(
   const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
   const readHost = () => (id ? store.host(id) : undefined);
   const host = useSyncExternalStore(store.subscribeNames, readHost, readHost);
-  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }) };
+  const readRun = () => (id ? store.run(id) : undefined);
+  const run = useSyncExternalStore(store.subscribeNames, readRun, readRun);
+  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }), ...(run && { run }) };
 }

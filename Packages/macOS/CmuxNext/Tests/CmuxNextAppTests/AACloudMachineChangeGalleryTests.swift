@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -11,7 +12,7 @@ import Testing
 /// Before, a pausing record read Paused (and offered Resume); after, the header names the change
 /// on its way. The list, dark and light, This Mac above a Cloud machine with two workspaces.
 /// `CMUX_TEST_REQUIRE_GUI=1`; writes `cloud-machine-change-gallery.tar` for `cmux-ci run --artifact`.
-@MainActor @Suite(.serialized) struct AACloudMachineChangeGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AACloudMachineChangeGalleryTests {
     static func sections(_ status: SidebarMachine.Status) -> [SidebarSection] {
         let local = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let cloudID = MachineID("vm_gallery0000000000000")
@@ -62,7 +63,7 @@ import Testing
         let rep = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
         root.cacheDisplay(in: root.bounds, to: rep)
         let image = try #require(rep.cgImage)
-        window.close()
+        window.closeAfterTest()
         return image
     }
 

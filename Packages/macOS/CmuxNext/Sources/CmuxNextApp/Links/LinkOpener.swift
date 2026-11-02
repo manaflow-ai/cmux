@@ -130,32 +130,32 @@ final class LinkOpener {
     /// one has landed, from the column it made.
     @discardableResult
     func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil,
-              _ make: @escaping Make) -> Bool {
+              focusing focus: FocusState.Target = .content, _ make: @escaping Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         var opened = true
         let now = turns.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
             guard let self, let source else { return done() }
-            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, make, done: done)
+            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, focusing: focus, make, done: done)
         }
         return now ? opened : true
     }
 
     /// ``open(from:background:mainPane:_:)`` in its turn: `done` runs once the open has landed or
     /// failed, so the next open beside `source` reads the column it left.
-    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, _ make: Make,
+    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, focusing focus: FocusState.Target, _ make: Make,
                        done: @escaping @MainActor () -> Void) -> Bool {
         switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind) {
         case .pane(let id):
             defer { done() }
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
-            return moved(from: source, to: .split(.right), background: background, make, done: done)
+            return moved(from: source, to: .split(.right), background: background, focusing: focus, make, done: done)
         case .splitBelow(let id):
             // Made unselected in the pane on the right, which keeps showing what it shows, then moved below it.
             guard let right = source.workspace?.panes[id] else { defer { done() }; return make(source, nil) }
-            return moved(from: right, to: .split(.bottom), background: background, make, done: done)
+            return moved(from: right, to: .split(.bottom), background: background, focusing: focus, make, done: done)
         case .newColumn:
-            return moved(from: source, to: .besideColumn, background: background, make, done: done)
+            return moved(from: source, to: .besideColumn, background: background, focusing: focus, make, done: done)
         case .besideDock:
             // A lone pinned dock closed to tabs: the daemon makes a tab aimed at it in a new column
             // right of it. Home's dock takes tabs, so the tab is made there and moves to the right,
@@ -195,13 +195,13 @@ final class LinkOpener {
 
     /// `make`'s tab, made unselected in `pane` and kept out of its strip (``OutboundTab``), moved to
     /// `destination`; `done` once the move has landed or failed.
-    private func moved(from pane: PaneController, to destination: Destination, background: Bool, _ make: Make,
+    private func moved(from pane: PaneController, to destination: Destination, background: Bool, focusing focus: FocusState.Target = .content, _ make: Make,
                        done: @escaping @MainActor () -> Void) -> Bool {
         let outbound = OutboundTab.begin(in: pane)
         shownInPlace = false
         let made = outbound.started(make(pane) { [weak self, weak pane] surface in
             guard let self, let pane else { done(); return outbound.finish(moved: false) }
-            self.move(surface, from: pane, to: destination, focus: !background, outbound: outbound, then: done)
+            self.move(surface, from: pane, to: destination, focus: !background, target: focus, outbound: outbound, then: done)
         })
         return ended(made, outbound, done)
     }

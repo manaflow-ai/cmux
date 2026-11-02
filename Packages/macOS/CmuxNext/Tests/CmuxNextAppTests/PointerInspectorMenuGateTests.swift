@@ -5,9 +5,9 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 import Testing
 
-/// Inspect Element (#24707, the UI pointer inspector) is a Debug/Labs surface, so the tab bar's +
-/// menu ships without it: the row shows only once Debug Settings' "UI pointer inspector" is on,
-/// last in its own group.
+/// Inspect Element (#24707, the UI pointer inspector) is a feature Leo asked for (ask-5077a4ec48),
+/// so it ships on: the tab bar's + menu ends with it, last in its own group, and leaves it out
+/// only once Debug Settings' "UI pointer inspector" is turned off.
 @MainActor @Suite(.serialized) struct PointerInspectorMenuGateTests {
     /// The + menu's rows as the actions they run, "—" for a separator.
     private func newTabRows(inspector on: Bool?) -> [String] {
@@ -23,20 +23,21 @@ import Testing
         return menu.items.map { $0.isSeparatorItem ? "—" : ActionRegistry.menuRun(of: $0)?.id.rawValue ?? $0.title }
     }
 
-    @Test func theInspectorIsOffByDefault() {
-        #expect(AgentPaneTunables.pointerInspector.defaultValue == false)
+    @Test func theInspectorIsOnByDefault() {
+        #expect(AgentPaneTunables.pointerInspector.defaultValue == true)
     }
 
-    @Test func theNewTabMenuLeavesInspectElementOutByDefault() {
-        for off in [newTabRows(inspector: nil), newTabRows(inspector: false)] {
-            #expect(!off.contains("agentPane.togglePointerInspector"), "\(off)")
-            #expect(off.first == "newSurface" && off.last != "—", "\(off)")
+    @Test func theNewTabMenuLeavesInspectElementOutWhenTheInspectorIsOff() {
+        let off = newTabRows(inspector: false)
+        #expect(!off.contains("agentPane.togglePointerInspector"), "\(off)")
+        #expect(off.first == "newSurface" && off.last != "—", "\(off)")
+    }
+
+    /// On (the default), the row is where #24707 placed it: last, after a separator.
+    @Test func theNewTabMenuEndsWithInspectElementByDefault() {
+        let off = newTabRows(inspector: false)
+        for on in [newTabRows(inspector: nil), newTabRows(inspector: true)] {
+            #expect(on == off + ["—", "agentPane.togglePointerInspector"], "\(on)")
         }
-    }
-
-    /// On, the row comes back where #24707 placed it: last, after a separator.
-    @Test func theNewTabMenuEndsWithInspectElementWhenTheInspectorIsOn() {
-        let off = newTabRows(inspector: nil)
-        #expect(newTabRows(inspector: true) == off + ["—", "agentPane.togglePointerInspector"])
     }
 }

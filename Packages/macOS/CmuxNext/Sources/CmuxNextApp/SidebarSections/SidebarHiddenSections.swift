@@ -46,7 +46,7 @@ enum SidebarHiddenSections {
                 guard settings().showChats else { throw ActionFailure(message: SidebarSectionStrings.alreadyHidden) }
                 return try write([(hidePath, false)], invocation, context)
             }
-            guard try SidebarSectionResolve.owningApp(invocation.target, in: context.services.sidebarLayout.document) != nil, let registry else {
+            guard try SidebarSectionResolve.owningApp(invocation.target, in: context.services.sidebarLayout.document, document: context.services.sidebarDoc.store) != nil, let registry else {
                 throw ActionFailure(message: SidebarSectionStrings.cannotHide)
             }
             _ = registry.perform("sidebar.item.hideApp", invocation: invocation)

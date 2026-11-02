@@ -24,7 +24,8 @@ import UserNotifications
     }
 
     @Test func chiefOpensChief() {
-        #expect(decide(NotificationRoute(kind: "chief", mac: "m", conversationID: "home")) == .chief)
+        #expect(decide(NotificationRoute(kind: "chief", mac: "m", conversationID: "home")) == .chief(conversationID: "home"))
+        #expect(decide(NotificationRoute(kind: "chief", mac: "m")) == .chief(conversationID: nil))
     }
 
     @Test func anAgentEventOpensItsChat() {
@@ -256,6 +257,49 @@ import UserNotifications
         #expect(router.isExpired(at: t0 + NotificationRouter.waitBudget + .milliseconds(1)))
         // The person went somewhere else: the route is dropped.
         router.userNavigated()
+        #expect(router.pending == nil)
+    }
+
+    /// Repeated taps have equal payloads but each tap starts a new wait. A late
+    /// timeout of the first tap must never expire the second tap's route.
+    @Test func repeatedIdenticalRouteRestartsItsOwnBudget() {
+        let router = NotificationRouter()
+        let t0 = ContinuousClock.now
+        router.set(route, at: t0)
+        let firstGeneration = router.routeGeneration
+        router.set(route, at: t0 + .seconds(4))
+        let latestGeneration = router.routeGeneration
+        #expect(latestGeneration != firstGeneration)
+
+        router.expireIfCurrent(route, generation: firstGeneration)
+        #expect(router.expired == 0)
+        #expect(router.pending == route)
+        #expect(!router.isExpired(at: t0 + .seconds(5)))
+
+        router.expireIfCurrent(route, generation: latestGeneration)
+        #expect(router.expired == 1)
+        router.opened()
+        #expect(router.pending == nil)
+        // A callback that won the race against cancellation still has no effect.
+        router.expireIfCurrent(route, generation: latestGeneration)
+        #expect(router.expired == 1)
+    }
+
+    /// Replacing a route with another, or clearing it after a successful
+    /// navigation, invalidates the old timeout without borrowing its budget.
+    @Test func replacedOrClearedRouteCannotExpire() {
+        let router = NotificationRouter()
+        router.set(route)
+        let old = router.routeGeneration
+        let other = NotificationRoute(kind: "question", mac: "second", sessionID: "other")
+        router.set(other)
+        router.expireIfCurrent(route, generation: old)
+        #expect(router.expired == 0)
+        #expect(router.pending == other)
+        let replacementGeneration = router.routeGeneration
+        router.userNavigated()
+        router.expireIfCurrent(other, generation: replacementGeneration)
+        #expect(router.expired == 0)
         #expect(router.pending == nil)
     }
 }
