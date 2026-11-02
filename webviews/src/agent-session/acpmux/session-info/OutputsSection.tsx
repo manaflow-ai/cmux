@@ -107,6 +107,7 @@ export function OutputsSection({
   onOpenFile,
   onOpenArtifacts,
   onOpenDocument,
+  onOpenBeside,
 }: {
   files: readonly TurnFile[];
   links: readonly OutputLink[];
@@ -118,6 +119,9 @@ export function OutputsSection({
   onOpenArtifacts?: () => void;
   /// Opens a document in the side panel beside the chat.
   onOpenDocument?: (artifact: Artifact) => void;
+  /// Opens a link in the pane beside the chat, as Sources and Changes open theirs (SourcesSection.tsx);
+  /// a modified click (⌘, ⌃, ⇧) keeps the link's own behaviour.
+  onOpenBeside?: (url: string) => void;
 }) {
   const t = useT();
   const [all, setAll] = useState(false);
@@ -186,7 +190,17 @@ export function OutputsSection({
     }),
     ...links.map((link) => (
       <li key={link.url}>
-        <a className="acpmux-session-info-row acpmux-session-info-row--button" href={link.url}>
+        <a
+          className="acpmux-session-info-row acpmux-session-info-row--button"
+          href={link.url}
+          onClick={(event) => {
+            // The pane beside the chat opens only loopback pages (URL.isAgentPanePreview); any other
+            // link, and a modified click (⌘, ⌃, ⇧), keeps the link's own behaviour.
+            if (!onOpenBeside || !opensBeside(link.url) || event.metaKey || event.ctrlKey || event.shiftKey) return;
+            event.preventDefault();
+            onOpenBeside(link.url);
+          }}
+        >
           <Icon name="link.web" size={ROW_ICON} row />
           <span className="acpmux-session-info-row__name">{link.label}</span>
           <span className="acpmux-session-info-row__end">{t("sessionInfo.outputs.link")}</span>
@@ -211,4 +225,17 @@ export function OutputsSection({
       )}
     </>
   );
+}
+
+/// A page the pane beside the chat can open: http(s) on localhost or 127.0.0.1 with no user info,
+/// the rule the host's preview applies (URL+AgentPanePreview.swift).
+export function opensBeside(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    if (parsed.username || parsed.password) return false;
+    return parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
 }

@@ -1349,3 +1349,63 @@ fn a_hidden_snapshot_viewer_gets_no_scroll_changed_until_shown() {
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
+
+/// Lead 17:4xZ (SF-5 C): the host bench was too noisy to show that batching engages, so this counts it. A busy
+/// program's 60 lines over 3 s (20 lines/s, as the busy gate) reach a terminal whose snapshot viewer is hidden; each
+/// write comes with the scroll move the frame producer publishes. Every message on the viewer's stream is one wake of
+/// the app's attach reader (output, scroll-changed, digest, ...). Shown, that is two per line (about 120); hidden, at
+/// most one per batch window (one per aligned second, plus the window the writes start in).
+#[test]
+fn a_hidden_viewer_of_a_busy_program_wakes_its_reader_at_most_once_per_second() {
+    let mux = Mux::new_for_test("snapshot-hidden-busy-program", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let version = ghostty_vt::snapshot_version();
+    handle_command(
+        &mux,
+        client,
+        command(json!({
+            "cmd": "attach-surface", "surface": surface.id,
+            "snapshot": "ghostsnp", "snapshot_version": version,
+        })),
+        &writer,
+    )
+    .unwrap();
+    while next_event(&outbound, Duration::from_millis(500)).is_some() {}
+    handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": false})),
+        &writer,
+    )
+    .unwrap();
+
+    let started = Instant::now();
+    let mut messages = Vec::new();
+    for line in 0..60u64 {
+        surface.inject_output_for_test(format!("busy line {line}\r\n").as_bytes());
+        mux.emit_terminal_scroll(surface.id, line + 1, true);
+        let until = Instant::now() + Duration::from_millis(50);
+        while Instant::now() < until {
+            if let Some(event) = next_event(&outbound, Duration::from_millis(5)) {
+                messages.push(event["event"].as_str().unwrap_or("?").to_string());
+            }
+        }
+    }
+    while started.elapsed() < Duration::from_millis(4_200) {
+        if let Some(event) = next_event(&outbound, Duration::from_millis(20)) {
+            messages.push(event["event"].as_str().unwrap_or("?").to_string());
+        }
+    }
+    let outputs = messages.iter().filter(|event| *event == "output").count();
+    assert!(outputs >= 1, "the hidden viewer got none of the program's output: {messages:?}");
+    assert!(
+        messages.len() <= 6,
+        "{} stream messages in 4.2 s for 60 hidden lines (each wakes the app's attach reader; want at most one per second): {messages:?}",
+        messages.len()
+    );
+
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}

@@ -1,9 +1,24 @@
 public import Foundation
 
-public enum NativeDeviceEnrollmentError: Error, Equatable, Sendable {
+public enum NativeDeviceEnrollmentError: Error, Equatable, Sendable, CustomStringConvertible {
     case invalidScope, invalidState, invalidIdentity, busy, signedOut, revoked
-    case refused(Int)
+    /// An HTTP status the backend answered with, and the step that got it: an owner op name or a
+    /// `METHOD /path` template with ids replaced (never an id or a token).
+    case refused(Int, step: String)
     case secureStorage(Int32)
+
+    public var description: String {
+        switch self {
+        case .invalidScope: "invalidScope"
+        case .invalidState: "invalidState"
+        case .invalidIdentity: "invalidIdentity"
+        case .busy: "busy"
+        case .signedOut: "signedOut"
+        case .revoked: "revoked"
+        case .refused(let status, let step): "refused(\(status)) at \(step)"
+        case .secureStorage(let status): "secureStorage(\(status))"
+        }
+    }
 }
 
 /// Explicit backend team and Native tenant/mesh. No endpoint or credential comes from enrollment replies.
@@ -20,6 +35,16 @@ public struct NativeDeviceScope: Encodable, Hashable, Sendable {
     }
 
     static func isDevice(_ value: String) -> Bool { isID(value, prefix: "dev_") }
+    /// `METHOD /path` with device and mesh ids replaced by `{device}` and `{mesh}`, for error detail.
+    static func step(_ method: String, _ path: String) -> String {
+        let template = path.split(separator: "/", omittingEmptySubsequences: false).map { segment -> String in
+            let value = String(segment)
+            if isDevice(value) { return "{device}" }
+            if isID(value, prefix: "mesh_") { return "{mesh}" }
+            return value
+        }.joined(separator: "/")
+        return "\(method) \(template)"
+    }
     static func canonicalOrigin(_ origin: URL) throws -> URL {
         guard var c = URLComponents(url: origin, resolvingAgainstBaseURL: false), c.scheme?.lowercased() == "https", c.host?.isEmpty == false,
               c.user == nil, c.password == nil, c.query == nil, c.fragment == nil, c.path.isEmpty || c.path == "/" else { throw NativeDeviceEnrollmentError.invalidScope }

@@ -27,6 +27,7 @@ struct KeyboardResizeShownLimitTests {
         switch PaneResize.change(for: pane, direction: direction, in: layout, shown: shown) {
         case .splitRatio(let split, let ratio): return layout.settingRatio(ratio, for: split)
         case .columnWidth(let column, let width): return layout.settingWidth(width, for: column)
+        case .rowHeights(let column, let heights): return layout.settingRowHeights(heights, for: column)
         case nil: return nil
         }
     }

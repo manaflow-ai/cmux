@@ -270,6 +270,7 @@ mod resource_tab_deltas;
 #[cfg(test)]
 mod resource_tab_deltas_tests;
 mod resource_topology;
+pub(crate) use resource_topology::with_group_join_notice;
 mod resource_workspace;
 mod rows;
 mod screen_changed;
