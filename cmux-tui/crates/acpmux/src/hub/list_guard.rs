@@ -847,7 +847,7 @@ mod tests {
         .unwrap(); // archive tag
         cached_rows_equal_uncached(&hub);
 
-        hub.mark_seen(&parent); // mark-seen
+        hub.set_visible(&parent, true); // mark-seen
         cached_rows_equal_uncached(&hub);
 
         parent.meta.lock().unwrap().usage = Some(json!({"inputTokens": 12, "size": 4096}));
