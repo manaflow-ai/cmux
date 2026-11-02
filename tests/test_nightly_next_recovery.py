@@ -817,7 +817,13 @@ def run_gate(variables: dict, *, token: str = "app-token", track: str = "nightly
             GITHUB_STEP_SUMMARY=str(work / "summary"),
             RUNNER_TEMP=str(work),
             PUBLISH_TOOLING=str(ROOT / "scripts"),
+            # This run's webview checks passed on the build commit, and the known-bad list is empty
+            # (tests/test_nightly_publish_guard.py drives both checks).
+            WEBVIEW_CHECK="success",
+            WEBVIEW_CHECK_SHA="a" * 40,
+            NIGHTLY_KNOWN_BAD_LIST_FILE=str(work / "known-bad.json"),
         )
+        (work / "known-bad.json").write_text('{"pairs": []}')
         result = subprocess.run(["bash", "-c", gate["run"]], cwd=ROOT, env=env, capture_output=True, text=True)
         result.output = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)  # type: ignore[attr-defined]
         return result

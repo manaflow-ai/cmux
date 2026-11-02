@@ -345,10 +345,12 @@ final class CloudService {
                 if accountScope != nil {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
-                    // Another account's machines and connections end first.
-                    if await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID) { self.dropAllMachines() }
-                    // The install first: the app server path's first list goes
-                    // through the credential relay, which sends the install token.
+                    // Another account's machines, connections and share install end first (its next share binds this one).
+                    if await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID) {
+                        self.dropAllMachines()
+                        if self.shareInstallIdentity !== self.installIdentity { await self.shareInstallIdentity.unbind() }
+                    }
+                    // The install first: the app server path's first list sends its token through the credential relay.
                     await self.installSignedIn()
                     self.hands.start()
                     await self.ensureLink()
@@ -896,9 +898,7 @@ final class CloudService {
         if let stackUser = auth.user?.id {
             let auth = auth
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
-            if shareInstallIdentity !== installIdentity {
-                await shareInstallIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
-            }
+            if shareInstallIdentity !== installIdentity { await shareInstallIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access }) }
         }
         // An ensure that slipped in during the revoke: stop that link too.
         await link.stopLink()

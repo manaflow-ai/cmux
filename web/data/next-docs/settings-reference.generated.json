@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 555,
+  "count": 557,
   "sections": [
     {
       "id": "general",
@@ -1310,6 +1310,22 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.verticalTabs",
+          "title": "Use Vertical Tabs for All Workspaces",
+          "help": "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.verticalTabsExpandOnHover",
+          "title": "Expand Collapsed Vertical Tabs on Hover",
+          "help": "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Tabs"
+        },
+        {
           "key": "tasks.layout",
           "title": "Tasks Layout",
           "help": "Inbox lists what needs you first, with the task beside it. Changes apply at once.",
@@ -1676,18 +1692,6 @@
           ]
         },
         {
-          "key": "agentPane.display.inspector.placement",
-          "title": "Session Info",
-          "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
-          "kind": "choice",
-          "default": "overlay",
-          "group": "Agent Chat",
-          "values": [
-            "push",
-            "overlay"
-          ]
-        },
-        {
           "key": "agentPane.display.minimap",
           "title": "Chat Minimap",
           "help": "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.",
@@ -1722,6 +1726,18 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.placement",
+          "title": "Session Info",
+          "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+          "kind": "choice",
+          "default": "overlay",
+          "group": "Agent Chat",
+          "values": [
+            "push",
+            "overlay"
           ]
         },
         {

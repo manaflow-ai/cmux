@@ -227,6 +227,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// right by default, else the workspace whose tab shows it or a new workspace, as the person
     /// picked; never this chat replaced in place (``AgentPaneAskOpen``).
     case asksOpen(String, AgentPaneAskPlace)
+    /// `chat.attention.open {tabId}`: Needs you went to a marked tab.
+    case attentionOpen(String)
     /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
     /// chat's ask in place, with that ask's allow once or deny once (``AgentPaneAskAnswer``).
     case asksAnswer(AgentPaneAskAnswer)
