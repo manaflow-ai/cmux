@@ -189,6 +189,16 @@ public final class CreationInputBuffer {
         _ = adopt(lane)
     }
 
+    /// The hold waits for a focused page whose content is not made yet (a restored Chromium tab): every key but a close
+    /// waits, with no terminal lane, and runs again as typed once it shows (REOPEN-F4 browser case).
+    public private(set) var awaitsPage = false
+
+    /// The hold waits for `content` (``AwaitedContent``): a terminal by its lane on `machine`, a page with no lane.
+    public func awaitContent(_ content: AwaitedContent, machine: String?) {
+        guard content.hasTerminalLane else { (awaitedTab, awaitsPage) = (content.tab, true); return }
+        awaitSurface(of: HeldLane(tab: content.tab, machine: machine))
+    }
+
     /// The terminal lane `id` delivers to; nil for no lane.
     private func heldLane(_ id: Int?) -> HeldLane? { id.flatMap { id in laneTabs[id].map { HeldLane(tab: $0, machine: laneMachines[id]) } } }
 

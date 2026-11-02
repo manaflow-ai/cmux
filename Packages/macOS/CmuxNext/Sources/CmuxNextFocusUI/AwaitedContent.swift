@@ -14,7 +14,7 @@ public struct AwaitedContent: Equatable, Sendable {
     public let kind: Kind
 
     /// Its held keys go to its terminal by a lane (also at the hold's bound, by the daemon when its view never came).
-    public var hasTerminalLane: Bool { true }
+    public var hasTerminalLane: Bool { kind == .terminal }
 
     public init(tab: String, kind: Kind) {
         (self.tab, self.kind) = (tab, kind)
@@ -41,7 +41,7 @@ public struct AwaitedContent: Equatable, Sendable {
         if let pane {
             // The common case first (every key-down asks): the content shows.
             if pane.shownTab == tab, pane.shownKind == kind { return nil }
-            guard pane.selectedTab == tab, pane.selectedIsLiveTerminal else { return nil }
+            guard pane.selectedTab == tab, kind == .browser || pane.selectedIsLiveTerminal else { return nil }
         } else if !paneInTopology {
             return nil
         }
