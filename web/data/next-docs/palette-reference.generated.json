@@ -2116,6 +2116,12 @@
           "command": "cmux pane set-tint"
         },
         {
+          "id": "artifacts.show",
+          "title": "Show Artifacts",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "pane.focus",
           "title": "Show Pane",
           "shortcut": null,
@@ -7304,12 +7310,6 @@
           "title": "Set Density…",
           "shortcut": null,
           "command": "cmux density set"
-        },
-        {
-          "id": "help.setupGuide",
-          "title": "Setup Guide",
-          "shortcut": null,
-          "command": null
         },
         {
           "id": "app.shareCmux",

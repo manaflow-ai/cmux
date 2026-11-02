@@ -22,6 +22,14 @@ final class AgentPageRetirer {
     private func flush() {
         let views = retiring
         retiring.removeAll()
-        for view in views { BenchSpans.measure("agentPane.close") { view.close() } }
+        // Prompts a page holds for a folder trust answer live only in it: it puts them into their
+        // chats' drafts before its bridge goes (webviews trustHeld.ts).
+        for view in views {
+            // task-owner: one release then close per retired page; ends with its close
+            Task { @MainActor in
+                await AgentPaneWakeState.releaseHeldPrompts(in: view)
+                BenchSpans.measure("agentPane.close") { view.close() }
+            }
+        }
     }
 }

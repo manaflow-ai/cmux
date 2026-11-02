@@ -99,9 +99,10 @@
   --cv-status-gap-plain: 0px;
   --cv-status-gap-plain-over: 0px;
   /* #30865's reply room on the grid: the stack's block gap is the room under a reply. A note in a
-     run of flush lines keeps --cv-note-gap (below) around it. */
+     run of flush lines keeps --cv-note-gap (below) around it: the run gap, as for any prose by a run
+     (design/transcript-spacing.md rule 4). */
   --cv-reply-room: 0px;
-  --cv-note-gap: var(--grid-gap-block);
+  --cv-note-gap: var(--grid-gap-run);
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--grid-gap);
   /* One icon column for every transcript meta row (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN
@@ -172,14 +173,16 @@
 .cv-user__body {
   display: contents;
 }
-/* A prompt's bubble: a small radius, and text inset evenly, 12px from each side (8px of padding
-   plus the line's half-leading above and below). model.ts measures it. Its look is the glass rule
-   below. */
+/* A prompt's bubble, as ChatGPT and Claude draw it (leo-workspace design/transcript-spacing.md
+   "Prompt bubble"; transcriptSpacing.ts BUBBLE): one line is 44 tall (chatgpt.com 44, claude.ai 45),
+   so the block padding is what the line leaves, (44 - line) / 2, at least the 4 base; 16 at the
+   sides (both apps); the cards' 12 radius (claude.ai 12). Was 8 by 12 with a 10 radius (38.75 tall).
+   model.ts measures it. Its look is the glass rule below. */
 .cv-user__bubble {
   box-sizing: border-box;
   max-width: 70%;
-  padding: var(--grid-gap) var(--grid-cards-padding);
-  border-radius: 10px;
+  padding: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2) calc(4 * var(--grid-base));
+  border-radius: var(--grid-cards-radius);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -1487,6 +1490,77 @@
   padding: 6px 12px;
   font-size: calc(var(--cv-font-size) * 12 / 14);
   color: var(--cv-text-muted);
+}
+/* EditDiff.tsx: the rendered lines and their placeholder share one cell until the lines are drawn,
+   so the body keeps the placeholder's height (the same as the lines') through the swap. */
+.cv-edit-diff__stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.cv-edit-diff__stack > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.cv-edit-diff__stack:not([data-painted]) > .cv-edit-diff__hunks {
+  visibility: hidden;
+}
+/* EditDiffLoading.tsx: the edit's own lines in Pierre's font, column and wrapping (EditDiffHunks.tsx
+   `cardUnsafeCSS`, sideways.ts `PIERRE_BLOCK_CSS`), the text clear and painted as bars, so the
+   placeholder is as tall as the rendered diff and the swap moves nothing. */
+.cv-edit-diff__loading-lines {
+  --cv-loading-line-height: var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px));
+  /* Pierre's number column: its digits (4ch at least), 2ch leading + 1ch trailing padding, and a
+     2px divider. The unnumbered diff keeps its 4px indicator lane and 2px divider. */
+  padding-inline-start: calc(var(--cv-loading-digits, 4) * 1ch + 3ch + 2px);
+  font-family: var(--cv-mono);
+  font-size: var(--cv-codeblock-size, var(--cmux-diff-font-size, var(--text-detail)));
+  line-height: var(--cv-loading-line-height);
+  tab-size: 2;
+  color: transparent;
+  user-select: none;
+  pointer-events: none;
+}
+.cv-edit-diff__loading-lines[data-numbered="false"] {
+  padding-inline-start: 6px;
+}
+/* Pierre's box scrolls sideways, its scrollbar `--cv-lane` tall (`--diffs-scrollbar-gutter-override`
+   above; 0 while wrapped): this box scrolls the same way, so it keeps the same lane in the same
+   engines. */
+.cv-edit-diff__loading-lines {
+  overflow-x: scroll;
+  overflow-y: hidden;
+}
+.cv-edit-diff__loading-lines::-webkit-scrollbar {
+  width: 0;
+  height: var(--cv-lane);
+}
+.cv-edit-diff__loading-lines::-webkit-scrollbar-thumb,
+.cv-edit-diff__loading-lines::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cv-edit-diff__loading-line {
+  min-height: var(--cv-loading-line-height);
+  padding-inline: 1ch;
+  white-space: pre;
+}
+.cv-edit-diff__loading-lines[data-wrap="true"] .cv-edit-diff__loading-line {
+  padding-inline-start: 4ch;
+  text-indent: -2ch;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cv-edit-diff__loading-line > span {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--cv-text-muted) 24%, transparent);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* Pierre's line-info separator before a hunk that skips lines (diffTheme.ts: 24px). */
+.cv-edit-diff__loading-sep {
+  height: 24px;
+}
+.cv-edit-diff__loading-rest {
+  height: calc(var(--cv-loading-lines) * var(--cv-loading-line-height));
 }
 .cv-link.is-file {
   color: var(--cv-text);
@@ -3350,9 +3424,12 @@ button.cv-video-frames__frame:focus-visible {
   max-width: 100%;
 }
 /* The other machine the sender runs on, after its name: muted, a middle dot before it, and the first
-   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName). */
+   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName).
+   Flex shrinks each item by its factor times its width, so 10 still cut the name beside a whole host
+   (session-chip-browser.test.ts); 1000 leaves the name under a hundredth of the overflow until the
+   host is gone. */
 .cv-received__host {
-  flex: 0 10 auto;
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

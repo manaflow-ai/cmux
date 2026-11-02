@@ -382,22 +382,30 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether ``paste(_:)`` has text, files or pictures for the message box.
     public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
 
-    /// The live interface scale applies to the native first-run chrome, times the Chief chat's zoom
+    /// The Chief chat's size at Agent Chat Zoom 100%: MessagesLab's metrics (text, bubbles, field) drawn 1.5 times
+    /// larger, the size 150% drew before (https://github.com/manaflow-ai/cmux/issues/28715). The zoom steps from here,
+    /// and Cmd-0 comes back to it.
+    static let defaultChatScale: CGFloat = 1.5
+
+    /// The Chief chat's scale: its default size times Agent Chat Zoom.
+    private static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }
+
+    /// The live interface scale applies to the native first-run chrome, times the Chief chat's scale
     /// (`followZoom`), so the empty chat's panel grows with the header and field around it. The
     /// MessagesLab transcript owns its own text and field metrics.
     private func followTextSize() {
         withObservationTracking {
-            applyTextScale(Typography.userScale * DesignSettings.shared.agentPaneZoom)
+            applyTextScale(Typography.userScale * Self.chatScale)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followTextSize() }
         }
     }
 
     /// Agent Chat Zoom (`agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home, `home.zoomIn`): the Chief chat
-    /// is drawn at it, live, as an agent chat is.
+    /// is drawn at it over its default size (`defaultChatScale`), live, as an agent chat is.
     private func followZoom() {
         withObservationTracking {
-            transcript.zoom = DesignSettings.shared.agentPaneZoom
+            transcript.zoom = Self.chatScale
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followZoom() }
         }
@@ -426,6 +434,11 @@ public final class HomeNativeTranscriptView: NSView {
 
     func applyTextScale(_ scale: CGFloat) {
         firstRun.applyScale(scale)
+        // The notice above the field sits outside the magnified transcript: its caption follows the chat's scale.
+        let caption = Typography.caption
+        let font = NSFont(descriptor: caption.fontDescriptor, size: caption.pointSize * Self.chatScale) ?? caption
+        noticeLabel.font = font
+        noticeButton.font = font
         needsLayout = true
     }
 
@@ -454,11 +467,12 @@ public final class HomeNativeTranscriptView: NSView {
     /// Above the field, inset like it; MessagesLab's field keeps its geometry.
     func layoutNotice() {
         guard notice != nil else { return }
-        let width = max(0, bounds.width - 32)
+        let inset = 16 * Self.chatScale
+        let width = max(0, bounds.width - 2 * inset)
         noticeLabel.preferredMaxLayoutWidth = width
         let height = ceil(noticeLabel.intrinsicContentSize.height)
         let action: CGFloat = noticeAction == nil ? 0 : ceil(noticeButton.intrinsicContentSize.height)
-        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - action - 8, width: width, height: height)
+        noticeLabel.frame = CGRect(x: inset, y: transcript.fieldTop - height - action - inset / 2, width: width, height: height)
         if noticeAction != nil {
             let w = min(width, ceil(noticeButton.intrinsicContentSize.width))
             noticeButton.frame = CGRect(x: (bounds.width - w) / 2, y: noticeLabel.frame.maxY, width: w, height: action)

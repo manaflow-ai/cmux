@@ -704,19 +704,7 @@ function shapeTurn(
   const version = summary.version * VERSION_SPAN + (answer?.version ?? 0);
   const edits: AcpmuxRow[] = [];
   const replies = repliesIn(body);
-  // A personal steer closes the preceding reply for the reader, even though the harness
-  // continues the same turn. Keep that reply and the steer visible when its work collapses.
-  const steerDialogue = new Set<string>();
-  let precedingReply: AcpmuxRow | undefined;
-  for (const row of body) {
-    if (isReply(row)) precedingReply = row;
-    if (row.kind !== "user") continue;
-    if (!row.incoming && continuesTurn(row)) {
-      steerDialogue.add(row.id);
-      if (precedingReply) steerDialogue.add(precedingReply.id);
-    }
-    precedingReply = undefined;
-  }
+  const steerDialogue = steerDialogueIn(body);
   let folded = false;
   // A completed turn gets one fold for its work; personal steers keep their dialogue visible. The
   // row boundary above is still opensTurn/continuesTurn: an unrelated incoming prompt starts a
@@ -747,9 +735,12 @@ function shapeTurn(
     if (work.length && !dialogue) {
       folded = !claudeGroups;
       const from = segment.anchor.at;
+      // Its label counts the fold's messages (`previous`), which can change while the summary's and
+      // the answer's versions do not: the count is part of the version, so the memoized row redraws.
+      const previous = foldMixesMessages(work) ? foldedMessages(work) : undefined;
       const worked: AcpmuxRow = {
         id,
-        version: version * 2 + (open ? 1 : 0),
+        version: (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
         at: from,
         kind: WORKED,
         foldOpen: open,
@@ -761,7 +752,7 @@ function shapeTurn(
         // and the worked for is if it's one contiguous thing ... let's follow those"): work with the
         // agent's own messages between it reads "N previous messages", one stretch of work alone
         // "Worked for".
-        ...(foldMixesMessages(work) && { previous: foldedMessages(work) }),
+        ...(previous !== undefined && { previous }),
       };
       if (!claudeGroups) shaped.push(worked);
       // Open, each run of its work folds into its summary line between the commentary, as in a
@@ -771,18 +762,16 @@ function shapeTurn(
       const runs = liveRuns || claudeGroups;
       if (open)
         shaped.push(
-          ...(runs ? mergeShortNotes(work, claudeGroups ? steerDialogue : undefined, claudeGroups) : work)
-            .flatMap(withoutDrafts)
-            .map((row) => ({
-              ...endedPlan(row),
-              id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
-              settled: true,
-              // A finished turn's earlier replies fold here too; each keeps its action row, while a
-              // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
-              ...(replies.has(row.id) && { foldedReply: true }),
-              // A folded run draws otherwise, so its version moves (memos compare versions).
-              ...(runs && row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
-            })),
+          ...(runs ? mergeShortNotes(work, steerDialogue, claudeGroups) : work).flatMap(withoutDrafts).map((row) => ({
+            ...endedPlan(row),
+            id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
+            settled: true,
+            // A finished turn's earlier replies fold here too; each keeps its action row, while a
+            // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
+            ...(replies.has(row.id) && { foldedReply: true }),
+            // A folded run draws otherwise, so its version moves (memos compare versions).
+            ...(runs && row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
+          })),
         );
     }
     // Context and actionable rows stay available beside the fold. Render cards keep their
@@ -862,13 +851,56 @@ function shapeTurn(
     const failed = tail[lastSummary]!;
     tail[lastSummary] = { ...failed, continuable: true, version: failed.version + VERSION_SPAN };
   }
-  if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
-    shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
-  else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));
+  // Its clock runs from the running turn's first row, after the last turn the agent ended on its
+  // own, never from the prompt's turn's end: a chat that woke itself all night read "Thinking 11h"
+  // under a turn that had just started (Leo, 2026-10-29: "why the fuck are you still depicted as
+  // thinking for 11 hours?").
+  const ended = tail[lastSummary]?.at ?? summary.at;
+  const since = Math.max(ended, tail[lastSummary + 1]?.at ?? ended);
+  // Each turn the agent started on its own ends as a prompt's turn does: its reply's footer is a row
+  // with the reply to copy, in the slot its live line held while the reply streamed (a reply alone
+  // too, not only work), so its end moves nothing (design/transcript-spacing.md "Reply footer").
+  const answered = withTailAnswers(tail);
+  if (
+    live &&
+    liveRuns &&
+    lineBelow &&
+    (tail.some((row) => row.kind === "activity") || tail.slice(lastSummary + 1).some(isReply))
+  )
+    shaped.push(...liveTurn({ ...summary, at: since }, answered, clockOffset, liveRuns, sessionStatus, lineBelow));
+  else shaped.push(...(live ? answered : answered.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
 }
 
+/// `tail` with each of its summaries carrying the reply of the turn it ends, as `shapeTurn` gives the
+/// prompt's own summary: a reply's footer is a 32 row of its own, never an empty one laid over the
+/// gap (transcriptGrid.ts MARK_FOOTER_ROW). A summary after no reply stays as it came.
+function withTailAnswers(tail: AcpmuxRow[]): AcpmuxRow[] {
+  let from = 0;
+  let out: AcpmuxRow[] | undefined;
+  for (let at = 0; at < tail.length; at += 1) {
+    const row = tail[at]!;
+    if (row.kind !== "turnSummary") continue;
+    const body = tail.slice(from, at);
+    from = at + 1;
+    if (row.text) continue;
+    const answer = body[answerAt(body)];
+    if (!answer) continue;
+    out ??= [...tail];
+    out[at] = {
+      ...row,
+      text: answer.text,
+      answerId: answer.id,
+      turnCopy: turnCopyParts(body),
+      version: row.version * VERSION_SPAN + answer.version,
+    };
+  }
+  return out ?? tail;
+}
+
 const VERSION_SPAN = 1_000_000;
+/// Room in a Worked for row's version for its fold's message count (`previous`).
+const PREVIOUS_SPAN = 4096;
 
 /// One render card per render call in `body`, in call order.
 function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {
@@ -1006,7 +1038,8 @@ function liveTurn(
   // The Codex-style live line names the call in flight; a command still running in an earlier run
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = lineBelow && liveRuns && last ? lineCall(drawn, last) : undefined;
-  const rows = liveRuns ? codexRuns(mergeShortNotes(drawn), named?.tool.id) : drawn;
+  // A reply before a steer never joins a run, as in the ended turn (steerDialogueIn).
+  const rows = liveRuns ? codexRuns(mergeShortNotes(drawn, steerDialogueIn(drawn)), named?.tool.id) : drawn;
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const at = user.at + clockOffset;
   if (lineBelow && liveRuns) return codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus);
@@ -1432,6 +1465,25 @@ export function isTakeaway(row: AcpmuxRow): boolean {
     /\?|```|~~~|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text)
   );
 }
+/// A personal steer closes the reply before it for the reader, even though the harness continues the
+/// same turn: that segment ends as a turn does (Leo, 2026-10-31: "the delineation is between
+/// end-of-turn-that-had-a-steer-between vs otherwise"). The steer and the last reply before it stay in
+/// sight: outside a closed "Worked for", and never folded into a run as a quiet note, in a running
+/// turn's Codex-style runs, an opened fold, or a Claude turn's groups. Other interim chatter still folds.
+export function steerDialogueIn(rows: readonly AcpmuxRow[]): Set<string> {
+  const ids = new Set<string>();
+  let precedingReply: AcpmuxRow | undefined;
+  for (const row of rows) {
+    if (isReply(row)) precedingReply = row;
+    if (row.kind !== "user") continue;
+    if (!row.incoming && continuesTurn(row)) {
+      ids.add(row.id);
+      if (precedingReply) ids.add(precedingReply.id);
+    }
+    precedingReply = undefined;
+  }
+  return ids;
+}
 const isShortNote = (row: AcpmuxRow | undefined) => row !== undefined && isReply(row) && !isTakeaway(row);
 const isRun = (row: AcpmuxRow | undefined) => row?.kind === "activity" && !isEdit(row);
 
@@ -1439,7 +1491,7 @@ const isRun = (row: AcpmuxRow | undefined) => row?.kind === "activity" && !isEdi
 /// one stretch of work (Leo 2026-10-20: "it can consolidate a ton of these tool calls"): they draw
 /// as one run, the note folded in among its calls as a quiet line (`note` item, TurnRows.tsx). The
 /// merged row keeps the first run's id; its version moves with each part's.
-/// `keep`: notes that never join a run (an ended Claude turn's reply before a steer). `edits`: a run
+/// `keep`: notes that never join a run (a reply before a steer, `steerDialogueIn`). `edits`: a run
 /// that edited takes notes too, as Claude desktop's groups do ("Edited 2 files, ran 3 commands").
 export function mergeShortNotes(rows: readonly AcpmuxRow[], keep?: ReadonlySet<string>, edits = false): AcpmuxRow[] {
   const run = (row: AcpmuxRow | undefined) => isRun(row) || (edits && row?.kind === "activity");

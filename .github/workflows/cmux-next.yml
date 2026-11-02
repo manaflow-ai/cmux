@@ -752,7 +752,10 @@ jobs:
   path_route:
     if: ${{ inputs.same_tree_sha == '' }}
     name: cmux-next path routing
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The run's router: a declared light job (.github/runners.json hosted_light_jobs), 30-50 s of work
+    # (a depth-2 checkout, the path classifier, a read-only tree probe). Hosted Ubuntu on attempt 1,
+    # ephemeral Blacksmith on a re-run (it runs the checked-out revision's scripts).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
     # Above the probe steps' own limits, so a slow probe fails open (below)
     # instead of cancelling the job and skipping every compile and test job.
     timeout-minutes: 8
@@ -5085,15 +5088,20 @@ jobs:
   # an unavailable wrapper is a successful job but is not a Release compile.
   release-compile-fast:
     needs: [path_route, push-head-preflight, macos-placement]
-    # Like the other build-fleet gateway jobs, it runs only on a gateway runner macos-placement saw
-    # idle in this attempt (gateway_runner); otherwise it skips and release-compile runs on the
-    # push's Mac route at once instead of behind the gateway's queue.
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' }}
+    # It submits the fleet compile check from a gateway runner macos-placement saw idle in this
+    # attempt (gateway_runner), like the other build-fleet gateway jobs. With none idle (or no
+    # reading from this attempt) it does not skip into the Mac queue: it runs on Linux and reads the
+    # build fleet's own Release (-Onone) compile of this push, the one compile-status publishes as
+    # cmux-next/compile (the controller compiles every feat-cmux-next push on the Linux pool). Only
+    # when that gives no verdict does release-compile run on a Mac. On 2026-11-02 from 09:39Z every
+    # gateway runner was busy, so pushes 622a6b75 and 0fa148c5 queued their Mac Release compile for
+    # over two hours while cmux-next/compile had passed both in three minutes.
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
     name: cmux-next Release compile (fleet fast check)
     concurrency:
       group: ${{ format('cmux-next-release-compile-fast-{0}', github.run_id) }}
       cancel-in-progress: false
-    runs-on: ${{ needs.macos-placement.outputs.gateway_runner }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: 30
@@ -5109,8 +5117,48 @@ jobs:
         continue-on-error: true
         env:
           REF: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          # Set when this job took an idle gateway runner; empty on the Linux route.
+          GATEWAY: ${{ needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner || '' }}
+          # The build fleet's compile results (compile-status reads the same endpoint, unauthenticated).
+          RESULTS: https://gh-events.cmux.com/compile-checks/v1
         run: |
           set -uo pipefail
+          # No idle gateway runner: read the fleet's own Release (-Onone) compile of this push,
+          # fail closed (only a result for this sha, repo, recipe 2 and release-onone counts).
+          # Pass and fail are verdicts; anything else hands the gate to the Mac fallback.
+          if [[ -z "$GATEWAY" ]]; then
+            [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "verdict=unavailable" >> "$GITHUB_OUTPUT"; exit 0; }
+            reply="$RUNNER_TEMP/compile-check.json"
+            deadline=$((SECONDS + ${WAIT_SECONDS:-1200}))
+            state=""
+            for attempt in 1 2 3; do
+              left=$((deadline - SECONDS))
+              (( left > 60 )) || break
+              wait=$(( left - 60 < 1800 ? left - 60 : 1800 ))
+              # One blocking read, bounded by what is left: a terminal state returns at once, and a
+              # 404 (no result yet) is retried by curl inside the same bound.
+              if ! timeout "$left" curl -sS --fail --connect-timeout 10 --max-time "$((wait + 30))" \
+                  --retry 60 --retry-delay 30 --retry-max-time "$left" --retry-all-errors \
+                  -o "$reply" "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=$wait"; then
+                echo "no fleet result for $REF yet (read $attempt)"
+                continue
+              fi
+              state="$(jq -r --arg sha "$REF" --arg repo "$REPO" '
+                if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
+                then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
+              echo "read $attempt: $state"
+              case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac
+            done
+            case "$state" in
+              pass) verdict=pass; echo "The build fleet compiled and linked the app at $REF in Release (-Onone) on Linux." ;;
+              fail) verdict=fail; echo "::error title=Fast fleet compile check::the build fleet's Release compile failed at $REF; see cmux-next/compile's log: $(jq -r '.log_url // empty' "$reply" 2>/dev/null)" ;;
+              *) verdict=unavailable; echo "::warning title=Fast fleet compile check::no fleet verdict for $REF (${state:-no result}); the Mac fallback will run." ;;
+            esac
+            echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+            [[ "$verdict" != fail ]]
+            exit
+          fi
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
           if ! [[ -x "$client" ]]; then
             echo "::warning title=Fast fleet compile check::cmux-ci is not installed on $RUNNER_NAME; the Mac fallback will run."
@@ -5615,10 +5663,16 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SHA: ${{ inputs.same_tree_sha || inputs.dev_daily_sha || github.sha }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           FRESH_LABEL: ${{ vars.CI_DEV_COMPILE_RUNNER || 'glaeda-dev-std-xcode-26.6' }}
+          # With no owned runner idle the compile overflows to the Blacksmith macOS label whose queue moves
+          # (dev_landing_place.blacksmith_overflow(), the nightly signer's pick), not the busy DEV slot.
+          # The owner and fork branches only satisfy tests/test_ci_fork_runner_routing.py (this job runs only in
+          # manaflow-ai on dispatch); blacksmith_overflow() drops 'macos-26' and keeps the Blacksmith labels.
+          BLACKSMITH_CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 }}
           GAP_REPO: ${{ runner.temp }}/dev-compile-history
           GAP_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
@@ -6393,6 +6447,7 @@ jobs:
       - name: Place the compile
         id: place
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SHA: ${{ github.sha }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}

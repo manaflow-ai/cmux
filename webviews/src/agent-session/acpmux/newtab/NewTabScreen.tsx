@@ -11,7 +11,8 @@ import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
+import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
+import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
 import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
 import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
@@ -751,7 +752,19 @@ export function NewTabScreen(props: Props) {
       : undefined
     : machine?.peer;
   const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
-  const targetCwd = environment ? environment.folder : machine ? machine.folder : chatFolder;
+  // Match screenActions: an inherited tab folder is not the host's chat start folder.
+  const localChatCwd = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
+  const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
+  const createsWorktree =
+    environment?.kind === "local" && environment.worktree && environment.folder && props.onNewWorktree;
+  // Its final directory (and project-local credentials) exists only after creation.
+  const targetCwd = createsWorktree
+    ? undefined
+    : environment
+      ? environmentCwd
+      : machine
+        ? machine.folder
+        : localChatCwd;
   // Cloud and Sandbox allocate their own destination. Local credentials say nothing about it.
   const authQuery =
     harness && !offMachine && (!remoteTarget || targetHost)
@@ -759,7 +772,7 @@ export function NewTabScreen(props: Props) {
           target: {
             harness,
             ...(targetHost ? { host: targetHost } : {}),
-            ...(targetCwd ? { cwd: targetCwd } : {}),
+            ...(targetCwd?.startsWith("/") ? { cwd: targetCwd } : {}),
           },
         }
       : undefined;
@@ -933,6 +946,21 @@ export function NewTabScreen(props: Props) {
     !!props.loadChatsPage &&
     !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
+  // Every leader, once: the live chats other chats report to (leads.ts).
+  const leads = useMemo(
+    () =>
+      allChats
+        ? leaders(snapshot.sessions).map(({ entry, reports }) => ({
+            id: entry.sessionId,
+            title: entry.displayTitle ?? entry.name ?? entry.sessionId,
+            ...(entry.harness ? { harness: entry.harness } : {}),
+            state:
+              entry.indicator === "failed" ? ("failed" as const) : (sessionMark(entry, false) ?? ("idle" as const)),
+            label: nt("leads.reports", { count: String(reports.length) }),
+          }))
+        : [],
+    [allChats, snapshot.sessions, nt],
+  );
   // The stage layout's suggested actions start with the chats waiting on the user: one asking for
   // input, or one that hit an error or lost its agent. Picked from every chat, not the trimmed
   // recent cards (needsYouCards).
@@ -1748,6 +1776,7 @@ export function NewTabScreen(props: Props) {
                 ? t("header.failed")
                 : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
           }))}
+          leads={leads}
           onOpenActive={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
           {...(props.onViewChat ? { onViewOnly: props.onViewChat } : {})}

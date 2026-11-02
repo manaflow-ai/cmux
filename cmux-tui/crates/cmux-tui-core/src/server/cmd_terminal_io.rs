@@ -118,6 +118,23 @@ pub(super) struct SendParams {
     pub(super) flow: Option<u64>,
 }
 
+/// The terminal a key goes to. A client attached to it (the app's terminal view) keeps its handle from the first key
+/// on, so the person's typing never waits for the session lock that the lists, snapshots and durable mutations of
+/// agents, the CLI and MCP hold (TYPING UNDER LOAD F4: a key waited up to 475 ms there). Anyone else looks it up.
+fn input_surface(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: SurfaceId,
+) -> anyhow::Result<Arc<crate::Surface>> {
+    if let Some(surface) = mux.control_clients.attached_input_surface(client, id) {
+        return Ok(surface);
+    }
+    let generation = crate::route_table::route_generation();
+    let surface = get_surface(mux, id)?;
+    mux.control_clients.remember_attached_input(client, id, &surface, generation);
+    Ok(surface)
+}
+
 pub(super) fn send(
     mux: &Arc<Mux>,
     client: u64,
@@ -155,7 +172,7 @@ pub(super) fn send(
         }
         _ => anyhow::bail!("bad request: send takes exactly one of surface and terminal_id"),
     };
-    let surface = get_surface(mux, surface)?;
+    let surface = input_surface(mux, client, surface)?;
     require_pty(&surface)?;
     // Bytes queued for this terminal while it was being created go first.
     mux.wait_for_creating_input_flush(&surface);
@@ -225,14 +242,14 @@ pub(super) fn send(
             anyhow::anyhow!("submit failed after the text was written: {error}")
         })?;
     }
-    mux.note_terminal_input(surface.id, client);
+    mux.note_terminal_input(&surface, client);
     Ok(json!({}))
 }
 
 pub(super) fn read_screen(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
-    let text = surface.try_with_terminal(|t| t.viewport_text())??;
+    let text = surface.try_with_terminal(|t| t.active_text())??;
     Ok(json!({ "text": text }))
 }
 
@@ -305,7 +322,7 @@ pub(super) fn wait_for(
     let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
     let start = Instant::now();
     let check = || -> anyhow::Result<Option<String>> {
-        let text = surface.try_with_terminal(|t| t.viewport_text())??;
+        let text = surface.try_with_terminal(|t| t.active_text())??;
         Ok(regex.is_match(&text).then_some(text))
     };
     if timeout_ms == 0 {
@@ -451,7 +468,7 @@ pub(super) fn send_key(
     })??;
     mux.wait_for_creating_input_flush(&surface);
     surface.write_bytes(&encoded)?;
-    mux.note_terminal_input(surface.id, client);
+    mux.note_terminal_input(&surface, client);
     Ok(json!({}))
 }
 
@@ -459,7 +476,7 @@ pub(super) fn copy(mux: &Arc<Mux>, surface: SurfaceId, mode: String) -> anyhow::
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
     let text = match mode.as_str() {
-        "screen" => surface.try_with_terminal(|t| t.viewport_text())??,
+        "screen" => surface.try_with_terminal(|t| t.active_text())??,
         "scrollback" => surface.try_with_terminal(|t| t.plain_text())??,
         "selection" => surface.selection_text().ok_or_else(|| anyhow::anyhow!("no selection"))?,
         other => anyhow::bail!("bad mode {other}"),

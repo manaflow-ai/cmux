@@ -49,7 +49,7 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
     await pane?.close();
   });
 
-  /// Session Info on (Debug Settings `agent.inspector`, pushed with the header state) and closed,
+  /// Session Info on (Debug Settings `agent.sessionInfo`, pushed with the header state) and closed,
   /// with the motion tokens at 4 s, so a seeked point holds.
   const ready = async (page: Page, push = true) => {
     await page.evaluate(() => {

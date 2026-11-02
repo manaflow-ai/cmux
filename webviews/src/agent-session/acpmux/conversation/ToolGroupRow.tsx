@@ -14,7 +14,7 @@ import { EditCounts, useEditTotals } from "./EditCounts";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
-import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } from "./icons";
+import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
 import { isQuietThought, isThought } from "./thoughts";
 import { groupCalls, isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
@@ -214,7 +214,7 @@ export function ToolGroupRow({
         ref={fold.headerRef}
         onClick={fold.toggle}
       >
-        <span className="cv-tool__icon">{running ? <Spinner size={16} /> : groupIcon(kind)}</span>
+        <span className="cv-tool__icon">{groupIcon(kind)}</span>
         {write ? (
           <span className="cv-tool__text" data-find-skip>
             <WriteLabel tool={tools[0]!} write={write} t={t} />

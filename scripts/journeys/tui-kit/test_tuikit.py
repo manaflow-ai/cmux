@@ -331,6 +331,123 @@ class GradientRust(unittest.TestCase):
         self.assertLess(gaps[int(0.95 * len(gaps))], 1000 / 120 * 1.5, "p95 frame interval")
 
 
+class BeaconRust(unittest.TestCase):
+    """tk-beacon: the SWITCH FRAMES beacon rows (ext_switch.py's codec), the uptime clock, the rate."""
+
+    def test_rows_decode_and_rate(self):
+        if not tuikit.rust_bin("tk-beacon"):
+            if REQUIRE_RUST:
+                self.fail("tk-beacon is not built (tuikit.py build-bins)")
+            self.skipTest("tk-beacon is not built (tuikit.py build-bins)")
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "b.jsonl")
+            run = PtyRun([PY, KIT, "beacon", "--ws", "5", "--pane", "3", "--duration", "2", "--log", log], 80, 24)
+            data, code = run.collect(20)
+            self.assertEqual(code, 0)
+            events = read_jsonl(log)
+        end = [e for e in events if e["ev"] == "end"][0]
+        self.assertEqual(end["verdict"], "ok", end)
+        self.assertGreaterEqual(end["achieved_hz"], 0.95 * 240)
+        frames_ = frames(data)
+        self.assertGreater(len(frames_), 400)
+        blk = lambda rgb: ("\x1b[48;2;%d;%d;%dm  " % rgb).encode()
+        y, r, one, zero = blk((255, 255, 0)), blk((255, 0, 0)), blk((255, 0, 255)), blk((0, 255, 255))
+        clocks = []
+        for f in (frames_[10], frames_[200]):
+            rows = []
+            for i in range(3):
+                seg = f.split(("\x1b[%d;1H" % (i + 1)).encode(), 1)[1]
+                self.assertTrue(seg.startswith(y))
+                seg = seg[len(y):]
+                bits = []
+                while not seg.startswith(r):
+                    if seg.startswith(one):
+                        bits.append(1)
+                        seg = seg[len(one):]
+                    else:
+                        self.assertTrue(seg.startswith(zero))
+                        bits.append(0)
+                        seg = seg[len(zero):]
+                self.assertEqual(sum(bits) % 2, 0, "parity")
+                rows.append(bits[:-1])
+            ws = int("".join(map(str, rows[0][:6])), 2)
+            pane = int("".join(map(str, rows[0][6:10])), 2)
+            self.assertEqual((ws, pane), (5, 3))
+            g = int("".join(map(str, rows[1] + rows[2])), 2)
+            n, shift = g, 1
+            while (g >> shift) > 0:
+                n ^= g >> shift
+                shift += 1
+            clocks.append(n)
+        self.assertGreater((clocks[1] - clocks[0]) % (1 << 18), 0, "the clock advances")
+        self.assertIn(b"WS 5  PANE 3", data)
+
+
+class BeaconStall(unittest.TestCase):
+    """A beacon that falls behind must show the stall, never hide it (lead 07:4xZ): it skips to the frame of the
+    current time, draws no catch-up burst, and logs the missed frames and the longest gap."""
+
+    def test_forced_stall_shows_as_missed_frames(self):
+        if not tuikit.rust_bin("tk-beacon"):
+            if REQUIRE_RUST:
+                self.fail("tk-beacon is not built (tuikit.py build-bins)")
+            self.skipTest("tk-beacon is not built (tuikit.py build-bins)")
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "b.jsonl")
+            run = PtyRun([PY, KIT, "beacon", "--ws", "2", "--pane", "1", "--hz", "240", "--duration", "1.5", "--log", log,
+                          "--log-frames", "--inject-stall-ms", "50", "--inject-stall-at", "120"], 80, 24)
+            _, code = run.collect(20)
+            self.assertEqual(code, 0)
+            events = read_jsonl(log)
+        end = [e for e in events if e["ev"] == "end"][0]
+        period_ms = 1000 / 240
+        # 50 ms at 240 Hz is 12 frames: at least 10 are missed, and the longest gap holds the stall
+        self.assertGreaterEqual(end["missed_frames"], 10, end)
+        self.assertGreaterEqual(end["longest_gap_ms"], 50, end)
+        self.assertGreaterEqual(end["stalls"], 1, end)
+        gaps = [e for e in events if e["ev"] == "gap"]
+        self.assertTrue(gaps and max(g["missed"] for g in gaps) >= 10, gaps)
+        stamps = [e["mono"] for e in events if e["ev"] == "frame"]
+        intervals = [(b - a) * 1000 for a, b in zip(stamps, stamps[1:])]
+        self.assertGreater(len(intervals), 200)
+        # no catch-up burst: no two drawn frames closer than half a refresh
+        self.assertGreater(min(intervals), 0.5 * period_ms, sorted(intervals)[:5])
+        self.assertGreaterEqual(max(intervals), 50, "the stall is in the drawn frames")
+        # the drawn count and the missed count add up to the schedule (frames due over the run)
+        due = round((stamps[-1] - stamps[0]) * 240) + 1
+        self.assertLessEqual(abs(end["frames"] + end["missed_frames"] - due), 3, (end, due))
+
+
+    def test_sigstop_stall_is_not_filled_by_a_burst(self):
+        """A stall from outside (SIGSTOP 60 ms, then SIGCONT), with no test flag: the old Pacer drew the late
+        frames back to back and kept its count; the beacon must draw fewer frames than were due and log the gap."""
+        if not tuikit.rust_bin("tk-beacon"):
+            if REQUIRE_RUST:
+                self.fail("tk-beacon is not built (tuikit.py build-bins)")
+            self.skipTest("tk-beacon is not built (tuikit.py build-bins)")
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "b.jsonl")
+            path = tuikit.rust_bin("tk-beacon")
+            run = PtyRun([path, "--ws", "1", "--pane", "2", "--hz", "240", "--duration", "1.2", "--log", log], 80, 24)
+            self.assertTrue(run.read_until(b"WS 1  PANE 2", 10))
+            deadline = time.monotonic() + 0.3
+            while time.monotonic() < deadline:
+                run.pump(0.01)
+            os.kill(run.pid, signal.SIGSTOP)
+            time.sleep(0.06)
+            os.kill(run.pid, signal.SIGCONT)
+            _, code = run.collect(20)
+            self.assertEqual(code, 0)
+            events = read_jsonl(log)
+        start = [e for e in events if e["ev"] == "start"][0]
+        end = [e for e in events if e["ev"] == "end"][0]
+        due = (end["mono"] - start["mono"]) * 240
+        # 60 ms is 14 frames at 240 Hz: a burst would draw them all (frames close to due); the beacon misses them
+        self.assertLessEqual(end["frames"], due - 10, (end, due))
+        self.assertGreaterEqual(end["missed_frames"], 10, end)
+        self.assertGreaterEqual(end["longest_gap_ms"], 55, end)
+
+
 class Sigwinch(unittest.TestCase):
     def test_logs_each_sigwinch_and_reflows_per_size(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -854,6 +971,45 @@ class AcpStream(unittest.TestCase):
         n = min(len(a), len(b), 600)
         self.assertGreater(n, 300)
         self.assertEqual(a[:n], b[:n])
+
+
+class CargoPath(unittest.TestCase):
+    """build_bins puts cargo's own folder first on PATH, so cargo finds rustc in a slot whose PATH lacks it."""
+
+    def test_cargo_folder_first_and_no_duplicates(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            cargo = os.path.join(d, "cargo")
+            open(cargo, "w").close()
+            got = tuikit.cargo_path(cargo, "/usr/bin:/bin:" + d)
+            self.assertEqual(got.split(os.pathsep), [d, "/usr/bin", "/bin"])
+
+    def test_build_env_has_cargo_folder_on_path(self):
+        import tempfile
+        seen = {}
+        with tempfile.TemporaryDirectory() as d:
+            cargo = os.path.join(d, "cargo")
+            with open(cargo, "w") as f:
+                f.write("#!/bin/sh\nexit 0\n")
+            os.chmod(cargo, 0o755)
+            saved_find, saved_run, saved_env = tuikit.find_cargo, tuikit.subprocess.run, os.environ.get("CMUX_TUIKIT_NO_BUILD")
+            os.environ.pop("CMUX_TUIKIT_NO_BUILD", None)
+            tuikit.find_cargo = lambda: cargo
+
+            class Done:
+                returncode, stderr = 0, b""
+
+            def run(argv, env=None, **kw):
+                seen["path"] = env.get("PATH")
+                return Done()
+            tuikit.subprocess.run = run
+            try:
+                tuikit.build_bins(quiet=True)
+            finally:
+                tuikit.find_cargo, tuikit.subprocess.run = saved_find, saved_run
+                if saved_env is not None:
+                    os.environ["CMUX_TUIKIT_NO_BUILD"] = saved_env
+        self.assertEqual(seen["path"].split(os.pathsep)[0], d)
 
 
 if __name__ == "__main__":

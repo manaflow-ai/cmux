@@ -27,12 +27,14 @@ tokio::task_local! {
 }
 
 /// Runs request `id` (of `method`), whose list reply may be sent here: then the option is set,
-/// true if the reply went whole (not as its too-large error).
+/// true if the reply went whole (not as its too-large error). The request's future is made on the
+/// heap (`heap_future.rs`): this future, the task's, and their poll frames hold only its pointer.
 pub(super) async fn scope<F: Future>(
     id: Value,
     method: &str,
-    request: F,
+    request: impl FnOnce() -> F,
 ) -> (F::Output, Option<bool>) {
+    let request = crate::heap_future::heap(request);
     let run = async move { (request.await, REPLY.with(|r| r.borrow().2)) };
     REPLY.scope(RefCell::new((id, list_method(method), None)), run).await
 }
