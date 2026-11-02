@@ -348,8 +348,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
                           opener: opener, background: false)
                 return true
             }
-            target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
-                                 opener: target === source ? opener : nil, then: placed)
+            return target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
+                                       opener: target === source ? opener : nil, then: placed)
         }
     }
 
