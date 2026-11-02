@@ -249,6 +249,47 @@
   outline-offset: -1px;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
+/* A sent video (SentVideoTile.tsx): its poster at a sent image's height and shape, a glass play glyph
+   in its middle and its length on a dark scrim in a corner, as a reply's video thumbnail
+   (chips/chips.css .cv-media__play, .cv-media__duration). A click plays it. */
+.cv-user__video {
+  position: relative;
+  display: block;
+}
+.cv-user__images .cv-user__video,
+.cv-user__inline-image .cv-user__video {
+  cursor: pointer;
+}
+.cv-user__video-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--cv-text);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+/* The triangle's visual center is right of its box's. */
+.cv-user__video-play svg {
+  transform: translateX(1px);
+}
+.cv-user__video-length {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: #fff; /* theme-fixed: on its own black scrim over media */
+  background: rgb(0 0 0 / 0.55);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  pointer-events: none;
+}
 /* The slot a thumbnail holds while acpmux reads it: its height, square until the image's shape is known. */
 .cv-user__image-placeholder {
   display: block;

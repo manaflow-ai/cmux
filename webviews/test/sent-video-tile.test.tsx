@@ -97,7 +97,9 @@ function shown() {
     poster: tile?.querySelector("img")?.getAttribute("src"),
     length: tile?.querySelector(".cv-user__video-length")?.textContent,
     title: tile?.getAttribute("title"),
-    images: [...host.querySelectorAll("img")].filter((img) => !tile?.contains(img)).map((img) => img.getAttribute("src")),
+    images: [...host.querySelectorAll("img")]
+      .filter((img) => !tile?.contains(img))
+      .map((img) => img.getAttribute("src")),
     files: [...host.querySelectorAll(".cv-user__files, .cv-user__inline-file")].map((node) => node.textContent),
     bubble: host.querySelector(".cv-user__bubble")?.textContent,
   };
