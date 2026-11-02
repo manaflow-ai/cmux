@@ -35,4 +35,17 @@ extension PaneContentView {
             view.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.5),
         ]
     }
+
+    /// The strip setup no pane changes, done where the view is built (a spare's at rest, RESIZE VIDEOS F1 step c'):
+    /// set in a split's key turn, each setter ran a token pass and a layout of the strip there.
+    func settingUpStrip(_ services: AppServices) -> Self {
+        stripView.previewProvider = services.previews
+        stripView.resourceSource = services.resources
+        stripView.hoverCards = services.hoverCards
+        // The + stays a plain default-tab action, with hold/right-click for the type menu.
+        // Its adjacent chevron exposes that same menu without changing what a plus click does.
+        stripView.opensNewTabMenuOnPress = false
+        stripView.showsNewTabMenuButton = true
+        return self
+    }
 }

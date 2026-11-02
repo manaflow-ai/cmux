@@ -97,16 +97,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.services = services
         self.state = state
         isSuspended = workspace?.drawsNothing == true // a pane made in a parked workspace starts suspended
-        view = spare?.view ?? PaneContentView(stripModel: stripModel) // a split takes the view tree built ahead (F1)
+        // A split takes the view tree built ahead, its strip already set up (F1 steps 1a and c').
+        view = spare?.view ?? PaneContentView(stripModel: stripModel).settingUpStrip(services)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
-        view.stripView.previewProvider = services.previews
-        view.stripView.resourceSource = services.resources
-        // The + stays a plain default-tab action, with hold/right-click for the type menu.
-        // Its adjacent chevron exposes that same menu without changing what a plus click does.
-        view.stripView.opensNewTabMenuOnPress = false
-        view.stripView.showsNewTabMenuButton = true
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
 
         view.onResize = { [weak services, weak paneView = view] in

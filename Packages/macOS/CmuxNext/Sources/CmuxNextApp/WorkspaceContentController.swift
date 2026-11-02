@@ -450,7 +450,7 @@ extension WorkspaceContentController {
     /// out of the window; nothing while parked or in a motion. Memory pressure drops it (`AppServices.memoryPressure`).
     func refillSparePane() {
         guard sparePane == nil, !isParked, !layoutView.isLayoutInMotion else { return }
-        let model = TabStripModel(), view = PaneContentView(stripModel: model)
+        let model = TabStripModel(), view = PaneContentView(stripModel: model).settingUpStrip(services)
         view.identifier = NSUserInterfaceItemIdentifier("cmux.sparePane")
         let size = panes.values.first { $0.isFocusedInWorkspace }?.view.frame.size ?? contentView.bounds.size
         view.frame = NSRect(x: 0, y: 0, width: max(1, (size.width / 2).rounded()), height: max(1, size.height))
