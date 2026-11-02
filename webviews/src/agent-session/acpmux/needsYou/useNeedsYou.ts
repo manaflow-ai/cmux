@@ -5,6 +5,8 @@ import { answerFromHome } from "../HomeInbox";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection, type QuestionReply } from "../question/model";
+import { ATTENTION_OPEN_OP, useAttentionTabs } from "./attentionTabs";
+import type { AttentionTab } from "./attentionTabs";
 import { askContext } from "./context";
 import { nextAsk, needsYouPillOn, pillAsks, type TranscriptNeedsYou } from "./JumpPill";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
@@ -47,10 +49,17 @@ export function useNeedsYou({
   /// Opens a side session about chat `sessionId` with `question` (direct.ts `btw`, then the host's
   /// `chat.sideChat`); rejects when acpmux or the relay refused it.
   sideSession: (sessionId: string, question: string) => Promise<unknown>;
-}): { mode: NeedsYouMode; items: NeedsYouItem[]; actions: NeedsYouActions; pill?: TranscriptNeedsYou } {
+}): {
+  mode: NeedsYouMode;
+  items: NeedsYouItem[];
+  actions: NeedsYouActions;
+  attentionTabs: readonly AttentionTab[];
+  pill?: TranscriptNeedsYou;
+} {
   const mode = needsYouMode();
   const pillOn = needsYouPillOn();
   const { sessions, asks, sessionId, rows, queue, queueApproval } = snapshot;
+  const tabs = useAttentionTabs();
   const items = useMemo(
     () =>
       mode === "off" && !pillOn
@@ -59,8 +68,9 @@ export function useNeedsYou({
             sessions,
             asks: asks ?? [],
             open: { ...(sessionId ? { sessionId } : {}), rows, queue, queueApproval },
+            tabs,
           }),
-    [mode, pillOn, sessions, asks, sessionId, rows, queue, queueApproval],
+    [mode, pillOn, sessions, asks, sessionId, rows, queue, queueApproval, tabs],
   );
   /// Another chat's ask: the app shows that chat's tab or opens it in this chat's side pane on the
   /// right (`chat.asks.open`, AgentPaneAskOpen). Never `chat.select`, which replaced the chat on
@@ -76,6 +86,11 @@ export function useNeedsYou({
     return callNative("chat.asks.open", { sessionId: item.sessionId, ...where }).catch(() => undefined);
   };
   const goTo = (item: NeedsYouItem) => {
+    // A tab an agent marked: the app shows it as Search Tabs does.
+    if (item.kind === "tab") {
+      if (item.tabId) void callNative(ATTENTION_OPEN_OP, { tabId: item.tabId }).catch(() => undefined);
+      return;
+    }
     const reveal = () => {
       if (item.turnId) void revealTurnWhenShown(item.turnId);
       else if (item.promptId) {
@@ -123,11 +138,12 @@ export function useNeedsYou({
     },
     context: (item: NeedsYouItem) => askContext(item, { ...(sessionId ? { sessionId } : {}), rows }, sessions),
     open: (item: NeedsYouItem, place: NeedsYouPlace) => void openElsewhere(item, place),
-    opensElsewhere: (item: NeedsYouItem) => item.sessionId !== sessionId && !isPeer(item),
+    opensElsewhere: (item: NeedsYouItem) => item.kind !== "tab" && item.sessionId !== sessionId && !isPeer(item),
     goTo,
     ask: async (item, question) => {
-      // `_acpmux/btw` is session scoped like an answer: another chat's ask opens that chat on the
-      // side, asked about there.
+      // `_acpmux/btw` is session scoped like an answer: another chat's ask opens in that chat's
+      // tab, asked about there. A marked tab names no chat.
+      if (item.kind === "tab") throw new Error();
       if (item.sessionId !== sessionId) {
         await openElsewhere(item);
         throw new Error();
@@ -162,5 +178,5 @@ export function useNeedsYou({
           },
         }
       : undefined;
-  return { mode, items, actions, ...(pill ? { pill } : {}) };
+  return { mode, items, actions, attentionTabs: tabs, ...(pill ? { pill } : {}) };
 }

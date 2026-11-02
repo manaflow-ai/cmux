@@ -599,6 +599,10 @@ pub struct Mux {
     resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a state mutation after its apply step, inside its open
+    /// registry transaction (a test stands in for a slow write there).
+    #[cfg(test)]
+    state_commit_after_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -644,7 +648,7 @@ pub struct Mux {
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
     agent_hook_children: Mutex<HashMap<TerminalPublicId, agent_hook_children::HookChildren>>,
     agent_roster: Mutex<AgentRosterHost>,
-    agent_roster_fold: Mutex<()>,
+    agent_roster_fold: Mutex<agent_roster_fold::AgentRosterFold>,
     agent_message_pump: agent_message_pump::AgentMessagePump,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,

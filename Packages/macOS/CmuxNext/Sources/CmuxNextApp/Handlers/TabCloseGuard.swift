@@ -125,19 +125,20 @@ enum TabCloseGuard {
         return (warnTab, warnAgent, terminals.compactMap(workingAgent), terminals.filter { workingAgent($0) == nil })
     }
 
-    private static func question(_ tabs: [TabModel], _ reads: (warnTab: Bool, warnAgent: Bool, agents: [String], others: [TabModel]), _ asked: RunningPrograms) -> DestructiveConfirmation.Prompt? {
-        CloseWarning.of(agents: reads.agents, programs: asked.programNames, warnTab: reads.warnTab, warnAgent: reads.warnAgent).map { prompt($0, closing: tabs) }
+    private static func question(_ tabs: [TabModel], _ reads: (warnTab: Bool, warnAgent: Bool, agents: [String], others: [TabModel]), _ answers: [SurfaceID: ProcessAnswer], confirmed: Bool) -> DestructiveConfirmation.Prompt? {
+        let unanswered = confirmed ? reads.others.filter { answers[$0.surface] == .noAnswer }.map(\.displayTitle) : [] // named apart: a title is no program
+        return CloseWarning.of(agents: reads.agents, programs: answers.programNames, unanswered: unanswered, warnTab: reads.warnTab, warnAgent: reads.warnAgent).map { prompt($0, closing: tabs) }
     }
 
     /// The question for closing `tabs` (a tab, a selection, a tab group), or nil to close at once (only a working
     /// agent or a foreground program asks), plus each terminal it asked and its answer.
-    /// `confirmed`: a terminal that gives no answer asks (``DestructiveConfirmation/confirmedPrograms(bySurface:on:)``).
+    /// `confirmed`: a terminal that gives no answer asks, and counts as running its title: only a confirmed "no program"
+    /// closes it without the question (lead, #31875).
     static func promptAndAnswers(closing tabs: [TabModel], on daemon: DaemonService, services: AppServices,
                                  confirmed: Bool = false) async -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
         guard let reads = reads(tabs, services: services) else { return (nil, [:]) }
-        let read = confirmed ? DestructiveConfirmation.confirmedPrograms : DestructiveConfirmation.runningPrograms
-        let asked = reads.warnTab ? await read(reads.others, daemon) : [:]
-        return (question(tabs, reads, asked), asked)
+        let answers = reads.warnTab ? await daemon.processAnswers(of: reads.others) : [:]
+        return (question(tabs, reads, answers, confirmed: confirmed), RunningPrograms(answers, of: reads.others, unansweredRunsTitle: confirmed))
     }
 
     static func prompt(_ warning: CloseWarning, closing tabs: [TabModel]) -> DestructiveConfirmation.Prompt {
@@ -146,10 +147,10 @@ enum TabCloseGuard {
         case .agent(let agent):
             return .init(title: title, body: ConfirmationStrings.agentStillWorking(agent),
                          button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath)
-        case .programs(let programs):
-            return .init(title: title,
-                         body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")),
-                         button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
+        case .programs(let programs, let unanswered):
+            let body = [programs.isEmpty ? nil : ConfirmationStrings.stillRunning(programs.joined(separator: ", ")),
+                        unanswered.isEmpty ? nil : ConfirmationStrings.noAnswer(unanswered.joined(separator: ", "))].compactMap { $0 }
+            return .init(title: title, body: body.joined(separator: " "), button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         }
     }
 

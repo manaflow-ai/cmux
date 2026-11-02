@@ -174,8 +174,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b56c249006d8442bd9011921356a5578ec1c0a3d/CCmuxAppFFI.xcframework.zip",
-    checksum: "9e2608d54e80eabc0178759bdec6ec570f5019158a0ed7eca79f7224dfe150a4"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-8b624259cf797bbff39265f6eae5692073801191/CCmuxAppFFI.xcframework.zip",
+    checksum: "c2a69d4e682ab975b8bc3ba19d6797c573e5a7b0c078139e70cc74dfd54a167c"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -399,10 +399,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextCompat", "CmuxNextCloud", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextCloud", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPalette", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
                            .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
+                .process("Resources/AttentionTabs.xcstrings"),
                 .copy("Resources/agent-pane"),
             ],
             swiftSettings: uiSwiftSettings
