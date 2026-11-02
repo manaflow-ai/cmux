@@ -370,6 +370,7 @@ impl Mux {
             notify_group_joined();
         }
         let fence = seat.is_leader().then(|| {
+            self.run_creation_before_fence_hook();
             let fence = self.creation_wait(|| self.resource_creation_execution.lock().unwrap());
             seat.fence_held();
             fence

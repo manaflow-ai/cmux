@@ -311,6 +311,14 @@ impl ConnectionSurfaceScheduler {
         })
     }
 
+    /// Creates of the connection whose launch step finished and that wait
+    /// to start.
+    #[cfg(test)]
+    pub(super) fn launched_creations_waiting_for_test(&self) -> usize {
+        let queue = self.creations.state.lock().recover_poison();
+        queue.slots.iter().filter(|slot| slot.launched.lock().recover_poison().is_some()).count()
+    }
+
     /// Wake the creates that wait to reply: the connection closed.
     pub(super) fn wake_reply_waiters(&self) {
         let _queue = self.creations.state.lock().recover_poison();
