@@ -47,8 +47,9 @@ import Testing
     }
 
     /// The key's files in `directory`.
+    /// The key's saved frames in `directory` (never an atomic write's file before its rename).
     static func files(_ key: String, in directory: URL) -> [String] {
-        ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).filter { $0.hasPrefix(key + "@") }.sorted()
+        ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).filter { TerminalLaunchFrames.owner(of: $0) == key }.sorted()
     }
 
     /// Waits until `condition` holds or `seconds` pass; the keeper's files lane writes asynchronously.

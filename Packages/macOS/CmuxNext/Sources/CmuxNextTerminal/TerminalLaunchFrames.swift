@@ -475,7 +475,7 @@ public final class TerminalLaunchFrames {
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
-            guard !keeping.contains(owner(of: old)) else { continue }
+            guard !keeping.contains(owner(of: old) ?? old) else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
         for (name, frame) in frames {
@@ -498,8 +498,8 @@ public final class TerminalLaunchFrames {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
-            let tab = owner(of: old)
-            guard tab == key || keeping.map({ !$0.contains(tab) }) == true else { continue }
+            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone.
+            guard let tab = owner(of: old), tab == key || keeping.map({ !$0.contains(tab) }) == true else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
@@ -507,14 +507,18 @@ public final class TerminalLaunchFrames {
     /// Removes every saved frame of `key` (the keeper: a terminal hidden or closed).
     nonisolated static func removeAll(of key: String, in directory: URL) {
         let manager = FileManager.checked
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old.hasPrefix(key + "@") {
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where owner(of: old) == key {
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
 
-    /// The tab key a frame file belongs to (`<key>@<scale>x.jpg`).
-    nonisolated static func owner(of file: String) -> String {
-        file.split(separator: "@", maxSplits: 1).first.map(String.init) ?? file
+    /// The tab key of a saved frame (`<key>@<scale>x.jpg`, scale 1 to 3); nil for any other file, such as Foundation's
+    /// atomic-write file beside one before its rename (`<key>@2x.jpg.sb-<id>`).
+    nonisolated static func owner(of file: String) -> String? {
+        guard file.hasSuffix("x.jpg"), let at = file.lastIndex(of: "@") else { return nil }
+        let scale = file[file.index(after: at)..<file.index(file.endIndex, offsetBy: -"x.jpg".count)]
+        guard scale.count == 1, let digit = scale.first, ("1"..."3").contains(digit) else { return nil }
+        return String(file[..<at])
     }
 
     /// Tab keys are `tab_<hex>`; anything else never becomes a path.
