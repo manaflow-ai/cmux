@@ -11,6 +11,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { SubagentHarnessContext } from "../subagents/SubagentGroup";
 import { SubagentDoneLine } from "../subagents/SubagentDoneLine";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { agentMessage } from "./agentMessages";
@@ -239,6 +240,27 @@ test("the subagent line's duration is in the trailing column, not the sentence",
   expect(row.querySelector("button.cv-subagent-done")!.getAttribute("aria-label")).toBe(
     "Subagent finished: Audit agent friction · 2m 28s",
   );
+});
+
+// Leo, 2026-10-28: "Shouldn't the subagent icon be different?" A subagent's line never draws the
+// chat bubble every chat and session list carries.
+test("a subagent's line with no harness known draws the subagent mark, not the chat bubble", async () => {
+  const { rows } = await fourRows();
+  const icon = rows.subagent!.querySelector(".cv-tool__icon")!;
+  expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
+  expect(icon.querySelector('[data-icon="task.ai"]')).not.toBeNull();
+});
+
+test("a subagent's line draws the chat's harness mark when the subagent names none", async () => {
+  const container = await render(
+    <SubagentHarnessContext.Provider value="claude">
+      <SubagentDoneLine row={subagentRow} />
+    </SubagentHarnessContext.Provider>,
+  );
+  const icon = container.querySelector(".cv-tool__icon")!;
+  expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
+  expect(icon.querySelector('[data-icon="task.ai"]')).toBeNull();
+  expect(icon.children.length).toBeGreaterThan(0);
 });
 
 test("an opened send shows its message once, under the row, not again on the line", async () => {

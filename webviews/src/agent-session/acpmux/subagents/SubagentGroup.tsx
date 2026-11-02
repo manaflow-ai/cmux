@@ -11,7 +11,7 @@ import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
 import { agentTone, AgentTonesContext } from "./agentTones";
-import { AgentIdentity, isRepeatedAgentKind } from "./AgentIdentity";
+import { AgentIdentity, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { subagentProgress } from "./subagentProgress";
 import { waveProps } from "../../../ui/wave";
 
@@ -83,7 +83,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
       style={style}
       data-state={agent.state}
     >
-      <AgentIdentity harness={harness} tone={agentTone(agent.id)} size={14} />
+      <AgentIdentity harness={harness} tone={agentTone(agent.id)} size={14} fallback={SUBAGENT_FALLBACK} />
     </span>
   );
 }
