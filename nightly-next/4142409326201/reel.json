@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4142409326201",
+  "notes": "notes/4142409326201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32083,
+      "title": "webviews test: a screen-tall transcript sizes its view up or down to the measured transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32036,
+      "title": "[ask-13d6907068] Expose model picker harness placement in Settings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32052,
+      "title": "Cloud: cmux cloud start-session gives its machine the Claude login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32081,
+      "title": "cmux NEXT sidebar: Priority rows color the machine tag with MachineColor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32076,
+      "title": "base red: the upward-anchor oracle knows the run gap (#31879 fix forward)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32073,
+      "title": "Session Info: its row menu runs the line's action through AgentPaneMenuAction, not an inline selector",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31846,
+      "title": "agent-pane-policy: a prompt block keeps its upload reference, as the Swift host does (#25979)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32070,
+      "title": "ci(base-red): judge reds against the newest base verdict, not the newest completed run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32054,
+      "title": "tui-kit build_bins: cargo's own folder first on PATH, so cargo finds rustc in a capture slot",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32040,
+      "title": "base red: a debug acpmux request fits a 2 MiB tokio worker (Linux stack overflow in two cmux-tui tests)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
