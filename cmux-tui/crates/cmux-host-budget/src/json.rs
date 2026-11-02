@@ -4,10 +4,7 @@
 //! handles a daemon's verdict and its own the same way. None of them panics on
 //! any input; a bad input gives `None`.
 
-use crate::{
-    Budget, Level, Meter, Reading, Sample, Tracker, evaluate, level_for, pressure_word,
-    with_pressure,
-};
+use crate::{Budget, Level, Meter, Reading, Sample, Tracker, evaluate, level_for, with_pressure};
 use serde::Deserialize;
 use serde_json::Value;
 use std::time::Instant;
@@ -20,12 +17,28 @@ pub fn local_verdict() -> Option<String> {
     serde_json::to_string(&verdict).ok()
 }
 
-/// `verdict` judged again with memory pressure `level` as macOS numbers it
-/// (`DISPATCH_MEMORYPRESSURE_*` and `kern.memorystatus_vm_pressure_level`:
-/// 1 normal, 2 warn, 4 critical; any other is unknown). [`with_pressure`].
-pub fn verdict_with_pressure(verdict: &str, level: u32) -> Option<String> {
+/// `verdict` judged again with the memory pressure of a dispatch source event
+/// ([`dispatch_pressure_word`]). [`with_pressure`].
+pub fn verdict_with_pressure(verdict: &str, flags: u32) -> Option<String> {
     let verdict: Value = serde_json::from_str(verdict).ok()?;
-    serde_json::to_string(&with_pressure(&verdict, pressure_word(level))?).ok()
+    serde_json::to_string(&with_pressure(&verdict, dispatch_pressure_word(flags))?).ok()
+}
+
+/// The pressure of a dispatch memory pressure event: its bit flags
+/// (`DISPATCH_MEMORYPRESSURE_NORMAL` 1, `_WARN` 2, `_CRITICAL` 4) read worst
+/// first, as the app's monitor reads them, so 6 is critical and 3 is warn; an
+/// event with none of them is unknown. (The sysctl level, one of 1, 2 or 4,
+/// is [`crate::pressure_word`].)
+pub fn dispatch_pressure_word(flags: u32) -> &'static str {
+    if flags & 4 != 0 {
+        "critical"
+    } else if flags & 2 != 0 {
+        "warn"
+    } else if flags & 1 != 0 {
+        "normal"
+    } else {
+        "unknown"
+    }
 }
 
 /// What [`judge`] reads: a host, its numbers and the swap rate.

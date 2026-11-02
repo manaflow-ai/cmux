@@ -2,7 +2,7 @@
 #define CMUX_HOST_BUDGET_FFI_H
 
 /* cmux-host-budget's C ABI (cmux-tui/crates/cmux-host-budget/src/ffi.rs),
- * for the app, through cmux-app-ffi:
+ * linked into the app through cmux-app-ffi:
  * the host CPU/RAM budget (cmuxterm-hq#2995) that acpmux's daemon also uses.
  * Verdicts are UTF-8 JSON in acpmux's `host_pressure` shape: pointer and
  * length in, a NUL-terminated string out that the caller frees with
@@ -21,9 +21,11 @@ uint32_t cmux_host_budget_ffi_abi_version(void);
  * another read is in flight. */
 char *cmux_host_budget_local_verdict_json(void);
 
-/* `verdict` judged again with memory pressure `level` (1 normal, 2 warn,
- * 4 critical: DISPATCH_MEMORYPRESSURE_*). NULL when it is not a verdict. */
-char *cmux_host_budget_with_pressure_json(const uint8_t *verdict, size_t verdict_len, uint32_t level);
+/* `verdict` judged again with the pressure of a dispatch memory pressure
+ * event: pass its DISPATCH_MEMORYPRESSURE_* flags as they come (1 normal,
+ * 2 warn, 4 critical); they are read worst first, so 6 is critical. NULL when
+ * it is not a verdict. */
+char *cmux_host_budget_with_pressure_json(const uint8_t *verdict, size_t verdict_len, uint32_t flags);
 
 /* The verdict for given numbers with the built-in formula:
  * {"host", "sample": {...}, "swap_mb_per_min"}. NULL for a bad input. */

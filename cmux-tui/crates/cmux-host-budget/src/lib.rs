@@ -29,8 +29,8 @@
 //! sample ([`HostProbe`]) and the override file ([`load_budget`]) are blocking
 //! reads: run them off the async runtime, as [`Meter`] does. acpmux's
 //! `daemon status` `host_pressure` and the warning on a turn's acceptance read
-//! its meter (feature `tokio`). The macOS app is to link this crate
-//! through cmux-app-ffi (the FFI move PR): it reads its own [`Meter`] when no daemon answers, judges a
+//! its meter (feature `tokio`). The macOS app links this crate
+//! through cmux-app-ffi, and its Swift half is to call it: it reads its own [`Meter`] when no daemon answers, judges a
 //! verdict again with the memory pressure the system reports ([`with_pressure`]),
 //! and turns verdicts into the level it shows ([`Tracker`]). No other copy of
 //! the formula exists.
