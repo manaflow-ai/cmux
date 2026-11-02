@@ -457,3 +457,101 @@ async fn a_query_window_ranks_past_choices_first_and_a_counted_window_reports_it
     assert_eq!(keys(&full)[0], key(N - 1), "newest first: {full}");
     assert_eq!(full["total"], N, "a counted window reports its total: {full}");
 }
+
+/// One record of chat `i` as written: its own folder (`cwd`, none when None) and first prompt.
+fn record_in(i: usize, seconds: usize, cwd: Option<&str>, text: &str) -> Value {
+    let mut value = record(i, seconds, text);
+    match cwd {
+        Some(cwd) => value["cwd"] = json!(cwd),
+        None => {
+            value.as_object_mut().unwrap().remove("cwd");
+        }
+    }
+    value
+}
+
+/// A-7 (rust-migration, rm-chat-lists): what a list row reads is acpmux's, not the app's. Each row of
+/// a window carries the `label` the list shows (its title; with none, the spec's `untitled` word,
+/// else its folder's name, else its harness: the sidebar history's and the palette's rules, until
+/// now kept in Swift) and the `place` it shows (its folder, `~` for the home folder: the text the
+/// palette ranker matches as the row's subtitle).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_window_row_carries_the_label_and_place_its_list_shows() {
+    let base = PathBuf::from("/tmp").join(format!("acpmux-window-label-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&base).unwrap();
+    let home = Home(std::fs::canonicalize(&base).unwrap());
+    let projects = home.0.join(".claude/projects");
+    let user_home = dirs::home_dir().unwrap().to_string_lossy().trim_end_matches('/').to_owned();
+    let under_home = format!("{user_home}/proj");
+    // Newest first: 3, 2, 1, 0. A prompt that starts with `<` names no title (a command record).
+    let chats: [(Option<&str>, &str); 4] = [
+        (Some("/work/p0"), "Fix the build"),
+        (Some("/work/p1/"), "<local-command-stdout>"),
+        (Some(under_home.as_str()), "<local-command-stdout>"),
+        (None, "<local-command-stdout>"),
+    ];
+    let day_ago = std::time::SystemTime::now() - Duration::from_secs(86_400);
+    for (i, (cwd, text)) in chats.iter().enumerate() {
+        let file = session_file(&projects, i);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, format!("{}\n", record_in(i, i, *cwd, text))).unwrap();
+        let at = day_ago + Duration::from_secs(i as u64);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(at).unwrap();
+    }
+    let hub = hub();
+    hub.start_chats(ChatSources {
+        home: home.0.clone(),
+        acpmux_home: home.0.join(".acpmux"),
+        env: Arc::new(|_: &str| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    })
+    .await
+    .unwrap();
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let mut c = Client(in_tx, out_rx, 0, VecDeque::new());
+    let field = |message: &Value, name: &str| -> Vec<Value> {
+        message["rows"].as_array().unwrap().iter().map(|row| row[name].clone()).collect()
+    };
+
+    // The sidebar history's window sends no `untitled`: an untitled chat reads as its folder's
+    // name (a trailing `/` dropped), else as its harness.
+    c.ok("_acpmux/chats_window", json!({"window": "history", "gen": 1, "limit": 10})).await;
+    let full = c.next_window().await;
+    assert_eq!(keys(&full), vec![key(3), key(2), key(1), key(0)], "{full}");
+    assert_eq!(
+        field(&full, "label"),
+        vec![json!("claude-code"), json!("proj"), json!("p1"), json!("Fix the build")],
+        "{full}"
+    );
+    assert_eq!(
+        field(&full, "place"),
+        vec![Value::Null, json!("~/proj"), json!("/work/p1/"), json!("/work/p0")],
+        "{full}"
+    );
+
+    // The palette's window names its own word for an untitled chat, as its ranker reads it.
+    c.ok(
+        "_acpmux/chats_window",
+        json!({"window": "palette", "gen": 1, "limit": 10, "untitled": "New chat", "count": true}),
+    )
+    .await;
+    let full = c.next_window().await;
+    assert_eq!(
+        field(&full, "label"),
+        vec![json!("New chat"), json!("New chat"), json!("New chat"), json!("Fix the build")],
+        "{full}"
+    );
+    // A query window: the row shows what the ranker matched.
+    c.ok(
+        "_acpmux/chats_window",
+        json!({"window": "palette", "gen": 2, "limit": 10, "untitled": "New chat", "query": "proj"}),
+    )
+    .await;
+    let full = c.next_window().await;
+    assert_eq!(keys(&full), vec![key(2)], "{full}");
+    assert_eq!(field(&full, "label"), vec![json!("New chat")], "{full}");
+    assert_eq!(field(&full, "place"), vec![json!("~/proj")], "{full}");
+}
