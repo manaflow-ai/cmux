@@ -121,7 +121,10 @@ import Testing
         order.leave(ticket, of: Rig.browser)
         #expect(await thumbnail.value as? BrowserTabError == .snapshotUnavailable)
         #expect(CaptureSpy.screenshots.isEmpty, "a page hidden before its turn was pictured: \(CaptureSpy.methods)")
-        #expect(order.waiting(Rig.browser) == 0, "the refused picture kept its place in the line")
+        // Calls the tab made meanwhile went behind the ticket; each leaves in its own later turn, so the line empties
+        // only if the refused picture left its place.
+        await rig.until { order.isIdle(Rig.browser) }
+        #expect(order.isIdle(Rig.browser), "the refused picture kept its place in the line (\(order.waiting(Rig.browser)) waiting)")
     }
 
     /// A picture asked for in one turn and awaited in a later one (the leave picture) keeps an answer that comes
