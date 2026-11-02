@@ -4,7 +4,7 @@
 // the end; its state the glyph and tone alone. A click opens it beside the chat.
 import type { StringKey, Translate } from "../../i18n";
 import type { SummaryPullRequest } from "../../summary/sessionSummary";
-import { CHANGES_SHOWN, changesOrder, glyphState, type SessionInfoPullRequestStatus } from "../ChangesSection";
+import { CHANGES_SHOWN, changesOrder, glyphState, KINDS, type SessionInfoPullRequestStatus } from "../ChangesSection";
 import type { PullRequestGlyphState } from "../PullRequestGlyph";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { nativeExternalUrl, safeExternalUrl } from "./links";
@@ -42,7 +42,6 @@ const CHECK_LABELS: Record<string, StringKey> = {
   passing: "rail.checksPassing",
   pending: "rail.checksPending",
 };
-const CHANGE_KINDS = ["code", "tests", "generated", "docs"] as const;
 
 export type ChangesInput = {
   /// The pull requests Changes lists (SessionInfo's `visibleChanges`), in any order.
@@ -122,7 +121,7 @@ export function changesSection(
     ];
     const breakdown = live.breakdown;
     const hoverDetail = breakdown
-      ? CHANGE_KINDS.filter((kind) => breakdown[kind])
+      ? KINDS.filter((kind) => breakdown[kind])
           .map((kind) => {
             const totals = breakdown[kind]!;
             return `${t(`sessionInfo.changes.${kind}` as StringKey)} +${totals.additions} -${totals.deletions}`;
