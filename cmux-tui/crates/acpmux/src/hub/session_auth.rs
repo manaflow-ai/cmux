@@ -526,8 +526,11 @@ impl Hub {
                 profile.env.insert(var.to_owned(), home.display().to_string());
             }
             let id = harness.clone();
-            let check = tokio::task::spawn_blocking(move || {
-                crate::harness_health::fresh_auth_in(&id, &profile, notes.as_ref(), cwd.as_deref())
+            let check = tokio::task::spawn_blocking(move || match cwd.as_deref() {
+                Some(cwd) => {
+                    crate::harness_health::fresh_auth_in(&id, &profile, notes.as_ref(), Some(cwd))
+                }
+                None => crate::harness_health::fresh_auth(&id, &profile, notes.as_ref()),
             })
             .await
             .unwrap_or_else(|e| Err(e.to_string()));
