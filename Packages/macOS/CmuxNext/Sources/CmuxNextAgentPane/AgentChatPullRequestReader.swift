@@ -117,12 +117,15 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         // workflow as well as its name, on both sides, and
         // ``AgentPanePullRequest/latestRuns(_:)`` uses the run id on the base side, because a
         // cancelled run a newer run of the same workflow replaced still sits in this list and
-        // reads as a failure. Trimming either field degrades the match to the name alone, which
-        // would excuse a red of one workflow with a same-named red of another.
+        // reads as a failure. The run's event is read too:
+        // ``AgentPanePullRequest/counted(_:)`` drops a head run only when a newer run of the same
+        // workflow, event and name replaced it. Trimming the run or workflow degrades the match to
+        // the name alone, which would excuse a red of one workflow with a same-named red of
+        // another; trimming the event only stops head runs from being proven superseded.
         let contexts = """
             contexts(first: 100) { nodes { __typename \
             ... on CheckRun { name status conclusion detailsUrl \
-            checkSuite { workflowRun { databaseId workflow { databaseId name } } } } \
+            checkSuite { workflowRun { databaseId event workflow { databaseId name } } } } \
             ... on StatusContext { context state targetUrl } } }
             """
         let fields = """
