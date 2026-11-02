@@ -422,3 +422,61 @@ fn a_remote_device_lane_is_refused() {
         assert!(response.to_string().contains("forbidden"), "{response}");
     }
 }
+
+/// A page connection (a page relay, page origin) gets neither command: a
+/// page's JS would read every workspace and tab title of the session.
+#[test]
+fn a_page_connection_is_refused() {
+    let mut wire = Wire::new();
+    wire.mux.new_workspace(None, Some((80, 22))).unwrap();
+    let client = wire.mux.local_test_client(4);
+    {
+        let mut state = wire.mux.control_clients.state.lock().unwrap();
+        let record = state.clients.get_mut(&client).unwrap();
+        record.origin.role = crate::request_origin::HelloRole::PageRelay;
+    }
+    for request in
+        [json!({"cmd": "control-topology"}), json!({"cmd": "set-control-view", "view": {}})]
+    {
+        let response = wire.send(4, request.clone());
+        assert_eq!(response["ok"], false, "{request}: {response}");
+        assert!(response.to_string().contains("forbidden"), "{response}");
+    }
+    let state = wire.mux.control_clients.state.lock().unwrap();
+    assert!(state.clients.get(&client).is_some_and(|record| record.control_view.is_none()));
+}
+
+/// `set-control-view` takes no connection id: it writes only the caller's
+/// own record. A `client` or `id`-shaped member naming another connection
+/// changes nothing of that connection's record, and a view member the record
+/// does not define (a `client` inside the view) is refused.
+#[test]
+fn set_control_view_writes_only_the_callers_own_record() {
+    let mut wire = Wire::new();
+    wire.mux.new_workspace(None, Some((80, 22))).unwrap();
+    let owner = wire.mux.local_test_client(5);
+    let other = wire.mux.local_test_client(6);
+    let mut owned = Map::new();
+    owned.insert("pane_owner".into(), json!({"selected_tab": "tab_owner"}));
+    wire.ok(5, json!({"cmd": "set-control-view", "view": {"panes": owned}}));
+
+    let mut foreign = Map::new();
+    foreign.insert("pane_owner".into(), json!({"selected_tab": "tab_foreign"}));
+    // Unknown top-level members of a raw command are ignored, so this is the
+    // other connection writing its own record, never the owner's.
+    let reply = wire
+        .send(6, json!({"cmd": "set-control-view", "client": owner, "view": {"panes": foreign}}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let refused = wire.send(6, json!({"cmd": "set-control-view", "view": {"client": owner}}));
+    assert_eq!(refused["ok"], false, "{refused}");
+
+    let state = wire.mux.control_clients.state.lock().unwrap();
+    let view = |client: u64| {
+        state.clients.get(&client).and_then(|record| record.control_view.clone()).unwrap()
+    };
+    let shown = |client: u64| {
+        view(client).panes.get("pane_owner").and_then(|pane| pane.selected_tab.clone())
+    };
+    assert_eq!(shown(owner).as_deref(), Some("tab_owner"), "the owner's record is its own");
+    assert_eq!(shown(other).as_deref(), Some("tab_foreign"), "the other wrote only its own");
+}
