@@ -48,7 +48,10 @@ the head: a comment or review whose first line is
 `Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
 COLLABORATOR, a user, not a bot), not a self-review, the grammar
 scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
-a later BLOCK beats an earlier SHIP, and a push needs a new receipt. The
+a later BLOCK beats an earlier SHIP, and a push needs a new receipt, except a
+merge of the base: a SHIP at an earlier head is carried when only merges came
+after it and they leave the pull request's default changes as reviewed
+(carried_ship). The
 workflow's token cannot see a private org membership (GitHub reports such a
 member as CONTRIBUTOR to it), so a receipt's author who reads as untrusted is
 looked up once: write, maintain or admin access to the repository trusts them
@@ -68,6 +71,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -736,6 +740,97 @@ def approval(owners: list[str], pull: Mapping[str, object], writers: Iterable[st
     return result
 
 
+SHIP_AT = re.compile(r"\bSHIP at ([0-9a-f]{40})\b", re.I)
+CARRY_MAX = 5  # earlier SHIP heads looked at, newest first (ancestry and merges only: cheap git reads)
+CARRY_PATHS = (ACTION_SURFACES, SETTINGS_SCHEMA, SWIFT_SOURCES, *GUARD_FILES)
+
+
+def git(root: Path, *args: str) -> str:
+    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args[:2])}: {result.stderr.strip()[-200:]}")
+    return result.stdout.strip()
+
+
+def has_commits(root: Path, shas: Iterable[str]) -> bool:
+    """`shas` and their history are in `root` (a full clone: the tests' repository, a local run)."""
+    if git(root, "rev-parse", "--is-shallow-repository") == "true":
+        return False
+    return all(subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+                              capture_output=True).returncode == 0 for sha in shas)
+
+
+def sparse_tree(repo: str, sha: str, into: Path) -> Tree:
+    """A checkout of only the defaults' inputs at `sha` (what the workflow's own checkouts hold), as a Tree."""
+    into.mkdir(parents=True)
+    git(into, "init", "-q")
+    git(into, "fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", f"https://github.com/{repo}", sha)
+    git(into, "sparse-checkout", "set", "--no-cone", *CARRY_PATHS)
+    git(into, "checkout", "-q", "FETCH_HEAD")
+    return Tree(None, into.resolve())
+
+
+def carried_ship(pull: Mapping[str, object], head: str, writers: Iterable[str], found: list[Change],
+                 repo: str | None, scratch: Path | None = None) -> tuple[str, str] | None:
+    """(reviewer, earlier head) of a SHIP receipt that still covers `head`'s default changes, or None.
+
+    Autoland, update-branch and lanes merge feat-cmux-next into a reviewed pull request; each merge is a new head,
+    and an exact-head SHIP then no longer names it (2026-11-02: #30961, #31798, #27745 and others red on
+    "N default(s) changed; needs ... SHIP at <head>" with a SHIP one base merge back). A SHIP at an earlier head H
+    is carried when every commit after H is a merge (two parents) and the default changes H made against its
+    merge base with the base are exactly the ones `head` makes now: the merges brought nothing to the pull
+    request's own defaults. A BLOCK at H, or anything unreadable, carries nothing. The trusted checkout this runs
+    from is the base tip; its history is read with git, fetched treeless when it is shallow (as the workflow's
+    merge-base step does), and H's inputs are sparse checkouts."""
+    wanted = [(c.id, c.old, c.new) for c in found]
+    seen: list[str] = []
+    for item, at in sorted(receipt_items(pull), key=lambda pair: str(pair[1] or ""), reverse=True):
+        first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
+        match = SHIP_AT.search(first)
+        if match and match.group(1) != head and match.group(1) not in seen:
+            seen.append(match.group(1))
+    tip = git(ROOT, "rev-parse", "HEAD")
+    history = ROOT
+    for earlier in seen[:CARRY_MAX]:
+        verdict = receipt_verdict(pull, earlier, writers)
+        if not verdict or verdict[0] != "ship":
+            continue
+        try:
+            if history == ROOT and not has_commits(ROOT, (earlier, head)):
+                if not repo or scratch is None:
+                    continue
+                history = scratch / "history.git"
+                if not history.exists():
+                    git(scratch, "init", "-q", "--bare", str(history))
+                    git(history, "fetch", "-q", "--filter=tree:0", "--no-tags", f"https://github.com/{repo}",
+                        tip, head)
+            if subprocess.run(["git", "-C", str(history), "merge-base", "--is-ancestor", earlier, head],
+                              capture_output=True).returncode != 0:
+                continue  # not an ancestor of the head: a force-push replaced it
+            after = [line.split()
+                     for line in git(history, "rev-list", "--first-parent", "--parents", f"{earlier}..{head}").splitlines()]
+            if not after or any(len(line) != 3 for line in after):
+                continue  # not only merges after it: a commit of the pull request's own came after the review
+            base = git(history, "merge-base", tip, earlier)
+            if history == ROOT:
+                before_tree, head_tree = Tree(base), Tree(earlier)
+            else:
+                before_tree = sparse_tree(repo, base, scratch / f"base-{earlier[:12]}")
+                head_tree = sparse_tree(repo, earlier, scratch / f"head-{earlier[:12]}")
+            old, new = defaults(before_tree), defaults(head_tree)
+            then = changes(old, new) + guard_changes(before_tree, head_tree)
+        except (RuntimeError, SystemExit, OSError, ValueError, KeyError) as error:
+            print(f"::warning title=Defaults SHIP not carried::{earlier[:12]}: {str(error)[-200:]}")
+            continue
+        if [(c.id, c.old, c.new) for c in then] == wanted:
+            return verdict[1], earlier
+        print(f"SHIP at {earlier[:12]} not carried: its default changes differ from the head's")
+        # One defaults comparison a run: it doubles the judging time (about 40 s in CI), and the job has 5 minutes.
+        # The newest SHIP on the head's merge-only chain is the one that can cover it; an older one reviewed less.
+        return None
+    return None
+
+
 PULL_QUERY = """
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -912,6 +1007,12 @@ def command_check(args: argparse.Namespace) -> int:
             pull = fetch_pull(args.repo, args.pr)
     writers = repo_writers(args.repo, pull, head_sha) if pull is not None and args.repo else []
     verdict = approval(owners, pull, writers) if pull is not None else None
+    needed = [c for c in found if c not in free]
+    if pull is not None and verdict is not None and needed and not verdict.approved and not verdict.blocked:
+        with tempfile.TemporaryDirectory(prefix="defaults-carry-") as scratch:
+            carried = carried_ship(pull, head_sha, writers, found, args.repo, Path(scratch))
+        if carried:
+            verdict.shipped = f"{carried[0]}, carried from {carried[1][:12]} across base merges"
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
     merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
@@ -931,7 +1032,6 @@ def command_check(args: argparse.Namespace) -> int:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1
-    needed = [c for c in found if c not in free]
     if needed and not (verdict and verdict.approved):
         who = " or ".join(verdict.eligible) if verdict else "a call owner"
         print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "

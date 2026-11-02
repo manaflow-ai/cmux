@@ -483,6 +483,74 @@ enum BrowserResize { static let `default` = true }
                         self.receipt(f"Review (subagent): SHIP at {head}", kind="Bot")):
             self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
 
+    # A SHIP carried across base merges (2026-11-02: #30961, #31798, #27745 waited on a SHIP one base merge back).
+
+    def merged_base(self, pr_head, base_settings=None, extra_merge=None):
+        """The base moves on (another default of its own, a file the pull request does not touch) and is merged into
+        `pr_head`, as autoland's update-branch does; `extra_merge` edits the merge commit itself. The trusted
+        checkout is the new base tip. Returns (new base, merge head)."""
+        self.repo.git("checkout", "-q", self.base)
+        self.repo.sources(BASE_ACTIONS, base_settings or [{"key": "terminal.showJumpToBottomButton", "default": True},
+                                                          BASE_SETTINGS[1]])
+        self.repo.write("README.md", "base moved\n")
+        tip = self.repo.commit("base moves", snapshot=False)
+        self.repo.git("checkout", "-q", pr_head)
+        self.repo.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-commit", "-X", "theirs", tip)
+        # the settings export comes from both sides: the base's new default and the pull request's own
+        self.repo.sources(BASE_ACTIONS, [{"key": "terminal.showJumpToBottomButton", "default": True},
+                                         {"key": "sidebar.numbering", "default": "workspacesOnly"}])
+        for path, text in (extra_merge or {}).items():
+            self.repo.write(path, text)
+        self.repo.git("add", "-A")
+        self.repo.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--no-edit", "-m", "merge base")
+        merge = self.repo.git("rev-parse", "HEAD")
+        self.repo.git("checkout", "-q", tip)
+        return tip, merge
+
+    def check_at(self, base, head, comments):
+        self.base = base
+        return self.check(head, comments=comments)
+
+    def test_a_ship_one_base_merge_back_is_carried(self):
+        reviewed = self.changed_head()
+        tip, merge = self.merged_base(reviewed)
+        result = self.check_at(tip, merge, [self.receipt(f"Review (subagent): SHIP at {reviewed}")])
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn(f"carried from {reviewed[:12]} across base merges", result.summary)
+
+    def test_a_merge_that_changes_the_pull_requests_defaults_carries_nothing(self):
+        reviewed = self.changed_head()
+        flags = "enum PaneSplitCommand {\n    static let optimisticSplitEnabled = true\n}\n"
+        tip, merge = self.merged_base(reviewed, extra_merge={
+            "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneSplitCommand.swift": flags})
+        result = self.check_at(tip, merge, [self.receipt(f"Review (subagent): SHIP at {reviewed}")])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("not carried", result.stdout)
+
+    def test_a_commit_of_its_own_after_the_ship_carries_nothing(self):
+        reviewed = self.changed_head()
+        tip, merge = self.merged_base(reviewed)
+        self.repo.git("checkout", "-q", merge)
+        self.repo.write("NOTES.md", "a change of its own\n")
+        self.repo.git("add", "-A")
+        self.repo.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "own")
+        own = self.repo.git("rev-parse", "HEAD")
+        self.repo.git("checkout", "-q", tip)
+        result = self.check_at(tip, own, [self.receipt(f"Review (subagent): SHIP at {reviewed}")])
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_a_block_at_the_head_or_at_the_earlier_head_is_never_carried_over(self):
+        reviewed = self.changed_head()
+        tip, merge = self.merged_base(reviewed)
+        blocked_now = self.check_at(tip, merge, [
+            self.receipt(f"Review (subagent): SHIP at {reviewed}", at="2026-10-21T10:00:00Z"),
+            self.receipt(f"Review (second): BLOCK at {merge}", at="2026-10-21T11:00:00Z")])
+        self.assertEqual(blocked_now.returncode, 1, blocked_now.stdout)
+        blocked_then = self.check_at(tip, merge, [
+            self.receipt(f"Review (subagent): SHIP at {reviewed}", at="2026-10-21T10:00:00Z"),
+            self.receipt(f"Review (second): BLOCK at {reviewed}", at="2026-10-21T11:00:00Z")])
+        self.assertEqual(blocked_then.returncode, 1, blocked_then.stdout)
+
     def test_the_cmux_bot_ship_receipt_at_the_head_passes(self):
         head = self.changed_head()
         receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
