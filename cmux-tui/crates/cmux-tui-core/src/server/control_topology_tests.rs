@@ -386,7 +386,7 @@ fn each_connection_reads_the_session_topology_with_its_own_view() {
     assert!(bare["registry_id"].is_string(), "{bare}");
 
     let mut panes = Map::new();
-    panes.insert(pane_id.clone(), json!({"selected_tab": tab_id}));
+    panes.insert(pane_id, json!({"selected_tab": tab_id}));
     wire.ok(1, json!({"cmd": "set-control-view", "view": {"panes": panes}}));
     let mine = wire.ok(1, json!({"cmd": "control-topology"}));
     assert_eq!(mine["workspaces"][0]["screens"][0]["panes"][0]["selected_tab"], json!(tab_id));
