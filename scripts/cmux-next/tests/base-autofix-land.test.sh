@@ -240,15 +240,18 @@ for want in "--generated $tmp/exports" --package-dump --sdk --capabilities --doc
 done
 [[ "$first" == *--unverified* ]] && fail "the first round marks verified exports unverified: $first"
 again="$(repair_args CMUX_BASE_AUTOFIX_AGAIN=1)"
-# The app-host files are made from the tip's committed action exports even when they are not current.
-for want in --package-dump --sdk --ratchets --app-host --app-host-committed-exports --unverified-exports \
-  --unverified-settings-exports --no-fmt; do
+for want in --package-dump --sdk --ratchets --unverified-exports --unverified-settings-exports --no-fmt; do
   [[ " $again" == *" $want "* ]] || fail "a round on a moved tip does not pass $want: $again"
 done
-for unwanted in --generated --webviews-fmt-patch --docs-shortcuts; do
+# The graph-only round has no bun: no app-host files unless the tip's exports are current.
+for unwanted in --generated --webviews-fmt-patch --docs-shortcuts --app-host; do
   [[ " $again" == *" $unwanted "* ]] && fail "a round on a moved tip passes $unwanted: $again"
 done
+current="$(repair_args CMUX_BASE_AUTOFIX_AGAIN=1 CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT=1)"
+[[ " $current " == *" --app-host "* ]] || fail "a round on a tip with current exports does not pass --app-host: $current"
 unverified="$(repair_args EXPORTS_VERIFIED=false SETTINGS_VERIFIED=)"
+[[ " $unverified " == *" --app-host "* && " $unverified " == *" --app-host-committed-exports "* ]] \
+  || fail "a first round with unverified exports does not make the app-host files from the committed ones: $unverified"
 [[ " $unverified " == *" --unverified-exports "* && " $unverified " == *" --unverified-settings-exports "* ]] \
   || fail "unverified exports are not marked: $unverified"
 
