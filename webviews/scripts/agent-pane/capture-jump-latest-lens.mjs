@@ -54,7 +54,8 @@ try {
       if (name === "before")
         await page.evaluate(() => document.querySelector(".acpmux-jump-latest")?.classList.remove("ui-glass-fisheye"));
       await page.evaluate(
-        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 400)))),
+        () =>
+          new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 400)))),
       );
       const box = await page.locator(".acpmux-jump-latest").boundingBox();
       if (!box) throw new Error("Jump to latest did not render");
@@ -83,7 +84,9 @@ try {
       await page.close();
     }
     for (const name of ["soft", "medium", "strong"])
-      console.log(`LENS_DIFF ${scheme} ${name} ${Buffer.compare(discs.before, discs[name]) === 0 ? "same" : "differs"}`);
+      console.log(
+        `LENS_DIFF ${scheme} ${name} ${Buffer.compare(discs.before, discs[name]) === 0 ? "same" : "differs"}`,
+      );
     await context.close();
   } finally {
     await browser.close();
