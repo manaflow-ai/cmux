@@ -1,0 +1,151 @@
+{
+ "id": "rv-close-mid-3col-idle-dark",
+ "priority": "P1",
+ "title": "Close the middle of 3 strip columns with Cmd-W: the right column slides left to fill (idle load, dark)",
+ "why": "Lawrence 2026-11-02: every layout animation pixel perfect at 120 Hz with a 12-pane TUI load. The movie and trace are judged per frame (gap, overlap, stretch, stale content, jump, dropped frames).",
+ "source": "RESIZE VIDEOS suite (handoff/resize-videos/FINDINGS.md)",
+ "budget_seconds": 240,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "settings_file",
+   "title": "set-up: theme Builtin Dark, no close warning, columns a third of the window",
+   "set": {
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "followTerminal"
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "layout": {
+     "defaultColumnWidth": 0.3333
+    }
+   }
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rv-close-mid-3col-idle-dark"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "p0"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "use_pane",
+   "pane": "p1",
+   "click": true,
+   "title": "focus p1 (a click)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "rv-close-mid-3col-idle-dark",
+   "seconds": 20,
+   "title": "start the movie and the geometry trace (rv-close-mid-3col-idle-dark)"
+  },
+  {
+   "do": "hid_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close",
+   "title": "Cmd-W closes p1"
+  },
+  {
+   "do": "video_stop",
+   "name": "rv-close-mid-3col-idle-dark",
+   "tail": 1.2,
+   "title": "the motion ends; stop the recording (rv-close-mid-3col-idle-dark)"
+  },
+  {
+   "do": "use_pane",
+   "pane": "p0",
+   "click": true,
+   "title": "after: click into p0"
+  },
+  {
+   "do": "key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "after: Ctrl-C ends p0's load program"
+  },
+  {
+   "do": "type",
+   "text": "echo rv-done-${nonce}",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "rv-done-${nonce}"
+    },
+    {
+     "app_text_line": "rv-done-${nonce}"
+    },
+    {
+     "frame_text": "rv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}
