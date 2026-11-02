@@ -273,6 +273,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `conversation-draft` events on `subscribe`: the Chief's running reply,
     /// which Home grows in the Chief's bubble until the reply is posted.
     case conversationDraftEvents = "conversation-draft-events-v1"
+    /// `subscribe` carries no `scroll-changed`: this app reads each terminal's scroll position on its attach
+    /// stream, and the store applies nothing for the event, so every hidden busy terminal woke the event pump and
+    /// asked for a main-thread frame about 15 times a second (SWITCH FRAMES SF-5).
+    case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
     /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
     /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
     case chiefLive = "chief-live-v1"
@@ -535,7 +539,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .subscribeScrollOnAttach,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,

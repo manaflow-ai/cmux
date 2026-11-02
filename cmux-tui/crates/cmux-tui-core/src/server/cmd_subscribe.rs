@@ -55,6 +55,9 @@ pub(super) fn subscribe_command(
     };
     let event_mux = mux.clone();
     let trusted_pairing_client = mux.control_clients.is_unix(client);
+    // Read once: the handshake sends `set-client-info` before `subscribe`.
+    let scroll_on_attach =
+        mux.control_clients.supports_capability(client, SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY);
     // Conversation events go to the person's own clients: the Unix socket
     // and authenticated WebSocket connections (`ws-conversations-v1`).
     let conversation_client = mux.control_clients.is_owner_client(client);
@@ -98,6 +101,8 @@ pub(super) fn subscribe_command(
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
             let mut value = match &event {
+                // Read on the terminal's attach stream instead (SWITCH FRAMES SF-5).
+                MuxEvent::ScrollChanged { .. } if scroll_on_attach => continue,
                 MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                     if !trusted_pairing_client =>
                 {

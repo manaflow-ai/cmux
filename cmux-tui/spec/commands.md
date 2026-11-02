@@ -8326,6 +8326,8 @@ Protocol v9 adds `surface` for a single-terminal frontend. The server filters un
 
 Clients must require the `surface-subscribe-filter` capability before sending `surface`. A client connected to an older protocol-v9 build must ask the user to restart or upgrade the session instead of silently falling back to an unfiltered stream.
 
+A connection that reads each terminal's scroll position on that terminal's attach stream echoes `subscribe-scroll-on-attach-v1` in `set-client-info` before `subscribe`; its subscription then carries no `scroll-changed` events (the Mac app: with many hidden terminals printing, these events woke its event pump about 15 times a second per terminal for state it reads elsewhere). Every other connection keeps them. `identify` lists the capability.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
