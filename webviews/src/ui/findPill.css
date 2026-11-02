@@ -162,8 +162,16 @@
   background: color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
   color: inherit;
 }
-.find-pill__button[aria-pressed="true"]:active:not(:disabled) {
-  background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 30%, transparent) !important;
+.find-pill__button[aria-pressed="true"]:active {
+  background-color: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 30%, transparent) !important;
+  color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent)))) !important;
+}
+.find-pill__button[data-press-active]:not(:disabled) {
+  background: color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
+  color: inherit;
+}
+.find-pill__button[aria-pressed="true"][data-press-active]:not(:disabled) {
+  background-color: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 30%, transparent) !important;
   color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent)))) !important;
 }
 .find-pill__button[data-press-active]:not(:disabled) {
