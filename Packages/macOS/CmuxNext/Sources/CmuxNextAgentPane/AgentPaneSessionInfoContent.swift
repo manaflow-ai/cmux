@@ -34,9 +34,6 @@ enum SessionInfoMetrics {
 struct SessionInfoLine: Equatable {
     enum Kind: Equatable { case title, header, row, more }
     var id: String?
-    /// Stable native identity, scoped to a section so repeated page row ids do not alias.
-    // swiftlint:disable:next implicit_optional_initialization
-    var identity: String? = nil
     var kind: Kind
     var symbol: String?
     var symbolColor: String?
