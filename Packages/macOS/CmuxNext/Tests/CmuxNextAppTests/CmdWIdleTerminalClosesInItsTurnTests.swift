@@ -204,7 +204,50 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         }
     }
 
+    /// (Review of #31875, Low) The close button of another terminal, one that does not have the focus, pressed while a
+    /// hidden close reads: that close never takes the keys typed meanwhile. They go to the terminal that has the focus
+    /// (the neighbour the hide showed), never into the other terminal when its program asks and the person cancels.
+    @Test func aCloseOfAnUnfocusedTerminalDuringTheReadNeverTakesTheHeldKeys() async throws {
+        try await Self.withFocusedTerminal { t in
+            let neighbour = try await Self.newTerminal(t)
+            let running = try await Self.newTerminal(t) // runs cat: its close asks
+            _ = try await t.connection.request(SendInputRequest(surface: running.surface, text: "cat\r"))
+            try await Self.waitRunning("cat", t, surface: running.surface)
+            t.pane.select(TabID(t.tab.id))
+            let window = try #require(t.pane.view.window)
+            let focused = { t.services.keyRouter.focus(for: window).0?.focus.state.terminalTab }
+            try await PinnedPageTests.until({ focused() == t.tab.id }, report: { "the closing terminal never had the focus: \(focused() ?? "none")" })
+            let hold = t.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            try Self.press("w", .command, keyCode: 13, in: window, t) // the idle terminal's Cmd-W: hidden, it reads
+            try await PinnedPageTests.until({ focused() == neighbour.id && hold.held == 1 },
+                                            report: { "focus \(focused() ?? "none"), neighbour \(neighbour.id), reads held \(hold.held)" })
+            let nonce = String(UInt32.random(in: 100_000...999_999)), before = "kq\(nonce)", after = "zz\(nonce)"
+            for character in before { try Self.press(String(character), in: window, t) }
+            t.pane.handle(.close(TabID(running.id), source: .mouse)) // its close button: the running terminal hides and reads
+            try await PinnedPageTests.until({ hold.held == 2 }, report: { "the running terminal's close did not read: \(hold.held) held" })
+            for character in after { try Self.press(String(character), in: window, t) }
+            hold.release()
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no question for the running terminal" })
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
+            let typed = try? await t.connection.request(WaitForTextRequest(surface: neighbour.surface, pattern: before + after, timeoutMs: 10_000),
+                                                        timeout: .seconds(15))
+            let screen = (try? await t.connection.request(ReadScreenRequest(surface: running.surface), timeout: .seconds(5)))?.text ?? ""
+            #expect(typed?.matched == true, "the keys typed during the read did not reach the focused terminal: \(typed?.text.suffix(300) ?? "no answer")")
+            #expect(!screen.contains(before) && !screen.contains(after), "the cancelled close's terminal got the focused one's keys: \(screen.suffix(300))")
+            #expect(t.store.tab(surface: running.surface) != nil, "the terminal running cat closed with no answer")
+        }
+    }
+
     // MARK: Fixture
+
+    /// A new terminal tab at the end of `t`'s pane, once its strip lists it.
+    private static func newTerminal(_ t: Terminal) async throws -> TabModel {
+        let surface = try await t.connection.newTab(in: t.pane.pane.handle).surface
+        try await PinnedPageTests.until({ t.store.tab(surface: surface).map { t.pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
+        return try #require(t.store.tab(surface: surface))
+    }
 
     private struct Terminal {
         let services: AppServices
@@ -252,12 +295,12 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         _ = try await t.connection.request(SendInputRequest(surface: t.tab.surface, text: text))
     }
 
-    /// Waits until the daemon names `program` as the terminal's foreground program (nil: its shell only).
-    private static func waitRunning(_ program: String?, _ t: Terminal) async throws {
+    /// Waits until the daemon names `program` as the foreground program of the terminal (`surface`, else `t`'s; nil: its shell only).
+    private static func waitRunning(_ program: String?, _ t: Terminal, surface: SurfaceID? = nil) async throws {
         var last = "no answer"
         for _ in 0..<100 {
             // Only an answer counts: a read that did not answer is not "its shell only".
-            if let answer = await t.connection.readProcessInfo(t.tab.surface, timeout: .seconds(1)) {
+            if let answer = await t.connection.readProcessInfo(surface ?? t.tab.surface, timeout: .seconds(1)) {
                 if answer.runningProgram == program { return }
                 last = answer.runningProgram ?? "its shell only"
             }
