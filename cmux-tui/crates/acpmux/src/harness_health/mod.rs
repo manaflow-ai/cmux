@@ -206,7 +206,7 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
         "codex" if program.contains("codex") && home_named("CODEX_HOME") => {
             // A project config can select a provider/profile the home-level probe cannot see.
             // Leave that target inconclusive so a stale OpenAI refusal never blocks its chat.
-            if cwd.is_some_and(|dir| dir.join(".codex/config.toml").is_file()) {
+            if cwd.is_some_and(codex_project_config) {
                 return None;
             }
             let env = crate::login_env::effective_for(Some("codex"), &s.env);
@@ -282,6 +282,20 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
         }
         _ => None,
     }
+}
+
+/// Whether a Codex launch can inherit a project configuration from `cwd` or
+/// one of its ancestors. The home-level login probe cannot account for a
+/// provider selected by any of those files.
+fn codex_project_config(cwd: &Path) -> bool {
+    let mut dir = Some(cwd);
+    while let Some(current) = dir {
+        if current.join(".codex/config.toml").is_file() {
+            return true;
+        }
+        dir = current.parent();
+    }
+    false
 }
 
 /// Whether Codex keeps its login in `<CODEX_HOME>/auth.json`, so `codex
@@ -659,6 +673,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 mod tests {
     use super::{
         Auth, Channel, HarnessHealth, HealthService, Subject, auth_failure, codex_login_in_file,
+        codex_project_config,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -804,6 +819,23 @@ mod tests {
             assert_eq!(codex_login_in_file(&env), file, "{config:?}");
             let _ = std::fs::remove_dir_all(dir);
         }
+    }
+
+    #[test]
+    fn codex_project_config_checks_ancestors_of_the_launch_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "amx-codex-project-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let nested = root.join("src/deep");
+        std::fs::create_dir_all(root.join(".codex")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(root.join(".codex/config.toml"), "model_provider = \"local\"\n").unwrap();
+
+        assert!(codex_project_config(&nested));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
