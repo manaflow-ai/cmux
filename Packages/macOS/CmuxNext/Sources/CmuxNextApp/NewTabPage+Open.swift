@@ -62,9 +62,8 @@ extension NewTabPage {
         let cwd = page.cwd
         page.inputToken = inputToken
         // What a new chat of this window left when its tab opened another chat (cmux#32276): this
-        // page's field takes it once, as a draft. A page that does not open gives it back.
-        let window = services.windowController(showing: pane)?.state.id
-        page.draft = window.flatMap { services.agentTabs.unsentDrafts.takeLeftover(inWindow: $0) }
+        // page's field shows it as a draft, and the slot gives it up once the page reports it showed it.
+        page.draft = services.windowController(showing: pane).flatMap { services.agentTabs.unsentDrafts.leftover(inWindow: $0.state.id) }
         // A moved page (another pane, workspace or window) acts in the pane that shows it now; it
         // opened its pick in the pane it left, or nowhere once that pane closed. Its folder stays
         // the one the page shows (`page.cwd`), as a split's page does.
@@ -84,7 +83,6 @@ extension NewTabPage {
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {
-            if let window, let draft = page.draft { services.agentTabs.unsentDrafts.leave(draft, inWindow: window) }
             openingPanes.remove(openingKey)
             services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
             return

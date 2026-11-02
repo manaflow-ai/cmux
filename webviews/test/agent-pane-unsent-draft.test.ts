@@ -166,8 +166,7 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       // new chat's text is cleared on that session change, so the page leaves it first.
       await page.evaluate(() =>
         (window as unknown as { cmuxAcpmuxActions: Record<string, (params: unknown) => Promise<unknown>> })
-          .cmuxAcpmuxActions["chat.select"]!({ sessionId: "mock-tab-strip" })
-          .catch(() => undefined),
+          .cmuxAcpmuxActions["chat.select"]!({ sessionId: "mock-tab-strip" }).catch(() => undefined),
       );
       await page.waitForFunction(
         () =>

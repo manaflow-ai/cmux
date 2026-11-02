@@ -36,6 +36,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// What a new chat leaves when its tab opens another chat (`chat.leftover`, cmux#32276): its
     /// typed text and prompts held for a trust answer, kept for its window's next new chat.
     case newChatLeftover(String)
+    /// A New Tab page showed that leftover as its draft (`chat.leftoverTaken`): its window's slot gives it up.
+    case newChatLeftoverTaken(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])

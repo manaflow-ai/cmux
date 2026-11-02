@@ -9081,6 +9081,8 @@ function AcpmuxPane() {
   const composerHandle = useRef<ComposerHandle | null>(null);
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void } | undefined>(() => undefined);
+  /// The New Tab context whose leftover the field already showed (``takeNewChatLeftover``).
+  const leftoverShownFor = useRef<NewTabHost | undefined>(undefined);
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
   const [composerShell, setComposerShell] = useState(false);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
@@ -9194,7 +9196,12 @@ function AcpmuxPane() {
   /// host's draft of that chat's tab (`chat.unsentDraft`), and their chips are answered (for the
   /// wake state, which carries them). `behind`: after what the composer or draft holds (sent after
   /// one already given back). `closing`: the page goes (its tab closed), its composer with it.
-  giveBackTrustHeld.current = async (entries, behind = false, closing = false, until = Date.now() + DRAFT_SETTLE_MS) => {
+  giveBackTrustHeld.current = async (
+    entries,
+    behind = false,
+    closing = false,
+    until = Date.now() + DRAFT_SETTLE_MS,
+  ) => {
     const composer = closing ? undefined : composerHandle.current;
     // The chips the shown chat's composer keeps, which its kept chips are now (keptAttachments.ts).
     const shownChips = closing ? (composerHandle.current?.wakeState().attachments ?? []) : undefined;
@@ -9634,7 +9641,10 @@ function AcpmuxPane() {
     } catch (error) {
       // Another chat showed before it went: unsent, its ticket unspent, it waits again; a new chat's
       // start that made its session binds its backlog there.
-      if (isStartCancelled(error) || (error as { message?: unknown } | null)?.message === "agent_session.changed_during_send")
+      if (
+        isStartCancelled(error) ||
+        (error as { message?: unknown } | null)?.message === "agent_session.changed_during_send"
+      )
         throw movedOn(startsChat ? made : undefined);
       throw error;
     }
@@ -10820,8 +10830,14 @@ function AcpmuxPane() {
           // A Quick Composer handoff can close this page only after acpmux takes the prompt.
           // Releasing a local queued row happens earlier, while its gesture may still be pending.
           const turn = client
-            .send(text, attachments, kept?.promptId ?? sendPromptId, accepted && (() => accepted(sessionId)), sendTicket, steer, () =>
-              promptLanded.current(),
+            .send(
+              text,
+              attachments,
+              kept?.promptId ?? sendPromptId,
+              accepted && (() => accepted(sessionId)),
+              sendTicket,
+              steer,
+              () => promptLanded.current(),
             )
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The client counts it from here (it registers the send before its first wait).
@@ -12399,11 +12415,18 @@ function AcpmuxPane() {
     if (handshakenRef.current || pendingSubmits.current.length > 0) return;
     restoreComposerDraft(composerHandle, heldBack, draft.text, draft.attachments);
   };
+  /// What a new chat of this window left (cmux#32276), handed with the page's context: the field
+  /// shows it once per context, and the host's slot gives it up only now that a page shows it.
+  const takeNewChatLeftover = () => {
+    const host = newTabNow.current;
+    if (!host?.draft || leftoverShownFor.current === host) return undefined;
+    leftoverShownFor.current = host;
+    void callNative("chat.leftoverTaken", { text: host.draft }).catch(() => undefined);
+    return { text: host.draft, attachments: [] };
+  };
   /// A page coming back after the chat view stood in for it: what that composer held, as its draft.
   const takeNewTabDraft = () => {
-    // What a new chat of this window left (cmux#32276), handed with the page's context.
-    const left = newTabNow.current?.draft;
-    if (!composerStoodIn.current) return left ? { text: left, attachments: [] } : undefined;
+    if (!composerStoodIn.current) return takeNewChatLeftover();
     const waiting = composerHandle.current?.draft() ?? heldBack.current?.pop();
     if (heldBack.current?.length === 0) heldBack.current = undefined;
     return waiting;

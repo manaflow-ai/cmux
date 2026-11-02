@@ -43,6 +43,10 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSessionHarness: ((_ session: String) -> Void)?
     @ObservationIgnored public var onUnsentDraft: ((String) -> Void)? // a new chat's typed text, until it has a session
     @ObservationIgnored public var onNewChatLeftover: ((String) -> Void)? // what a new chat leaves when its tab opens another chat
+    @ObservationIgnored public var onNewChatLeftoverTaken: ((String) -> Void)? // a New Tab page showed that text as its draft
+    /// What a new chat of this page's window left (``AgentUnsentDrafts/leftover(inWindow:)``), for a
+    /// New Tab page whose host gave it none (``newTabForPage``).
+    @ObservationIgnored public var newChatLeftoverDraft: (() -> String?)?
     @ObservationIgnored public var machineLink: AgentPaneMachineLink? // the chat's machine dot (``AgentPanePageHost/currentEvents(_:)``)
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
@@ -339,6 +343,15 @@ public final class AgentPaneModel {
         newTab = page
     }
 
+    /// The New Tab page's context as the page gets it: with what a new chat of its window left
+    /// (cmux#32276) when the host gave it none. The slot gives it up only once the page reports it
+    /// showed it (`chat.leftoverTaken`).
+    public var newTabForPage: AgentPaneNewTab? {
+        guard var page = newTab else { return nil }
+        if page.draft == nil { page.draft = newChatLeftoverDraft?() }
+        return page
+    }
+
     /// A tab bound to session `session` (an existing chat it opens) adopted this prewarmed, connected
     /// New Tab page: the model is that tab's from here, as if its handshake had named the session
     /// (``AgentPaneView/adoptSession(_:revealTurn:)``). Its first paint is ahead again: the pane
@@ -396,6 +409,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .unsentDraft(let text): if sessionId == nil { onUnsentDraft?(text) }; return AgentPaneReply.success()
         case .newChatLeftover(let text): if sessionId == nil { onNewChatLeftover?(text) }; return AgentPaneReply.success()
+        case .newChatLeftoverTaken(let text): onNewChatLeftoverTaken?(text); return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
             return AgentPaneReply.success()
@@ -436,7 +450,7 @@ public final class AgentPaneModel {
         case .newTabContext:
             AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context")
             // Only a page with no chat yet is a New Tab page; the handshake still sends the same context.
-            guard sessionId == nil, let newTab, let data = try? JSONEncoder().encode(newTab),
+            guard sessionId == nil, let newTab = newTabForPage, let data = try? JSONEncoder().encode(newTab),
                   let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
