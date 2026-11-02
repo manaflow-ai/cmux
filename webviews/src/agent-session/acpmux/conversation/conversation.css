@@ -2839,7 +2839,7 @@ button.cv-video-frames__frame:focus-visible {
 /* An opened run of commands, reads or searches (ToolGroupRow.tsx): the thought that led into the
    run first in full, then a row per step. By default each step is a normal tool row in the
    transcript's one column: its glyph in the header's glyph column, its words at the header's text
-   start, its mark at the right edge, with no card, inset or hairlines around it (Leo, 2026-10-31:
+   start, its mark at the right edge, with no card or inset (Leo, 2026-10-31:
    "WHY IS IT ALGINED SO [...] SHIT" and "why are these indented for no reason"). A line under a
    step (a thought's text, a failure's cause) starts at the same text column.
    Leo, 2026-10-29, asked for the capability of Claude Code desktop's organization ("we want to have
@@ -2850,6 +2850,21 @@ button.cv-video-frames__frame:focus-visible {
 .cv-steps {
   /* Where a step's under-line (a thought's text, a cause) starts. */
   --cv-step-text: var(--cv-tool-text-inset);
+}
+/* A quiet guide between the icon and text columns marks the opened run without indenting it.
+   Keep it inside the transcript row: paint containment clips any outside guide. The comparison
+   gallery's card/tree/zebra looks keep their own rules. */
+:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]) .cv-tool-group.is-flat.cv-steps {
+  position: relative;
+}
+:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]) .cv-tool-group.is-flat.cv-steps::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(var(--cv-row-icon) + var(--cv-row-icon-gap) / 2);
+  width: 1px;
+  background: var(--cv-rule);
+  pointer-events: none;
 }
 /* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
    when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
@@ -3599,7 +3614,13 @@ a.cv-sha:focus-visible {
   font-family: var(--cv-mono);
 }
 .cv-cmux-exec__raw {
-  margin: 2px 0 0 2px;
+  margin: 2px 0 0;
+}
+.cv-cmux-exec__raw > .cv-subsession__raw {
+  padding-inline-start: 0;
+}
+.cv-cmux-exec__raw .cv-subsession__toggle {
+  gap: var(--cv-tool-gap);
 }
 /* The card's box holds the fill and ring, so the output's fades (below) cut the text, not them. */
 .cv-tool-output__box {
