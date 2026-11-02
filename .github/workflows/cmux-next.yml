@@ -5981,6 +5981,7 @@ jobs:
           CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
         run: scripts/cmux-next/dev-vm-cas-key.sh >> "$GITHUB_OUTPUT"
       - name: Restore the DEV compile cache (Blacksmith)
+        id: vm-cas-restore
         if: steps.vm-cas.outputs.prefix != ''
         continue-on-error: true
         timeout-minutes: 10
@@ -6015,7 +6016,9 @@ jobs:
           # CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE=wholemodule (or singlefile, everywhere).
           CMUX_NEXT_COMPILATION_CACHE: ${{ vars.CMUX_NEXT_DEV_COMPILATION_CACHE || '1' }}
           CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'auto' }}
-          CMUX_NEXT_DEV_VM_CACHE: ${{ steps.vm-cas.outputs.prefix != '' && '1' || '' }}
+          # A miss is a restore that succeeded (singlefile fills the line); a failed restore
+          # compiles as before, whole-module with no cache.
+          CMUX_NEXT_DEV_VM_CACHE: ${{ steps.vm-cas-restore.outcome == 'success' && '1' || '' }}
           CMUX_NEXT_DEV_COMPILE_REPORT: ${{ runner.temp }}/cmux-next-dev-landing/report.txt
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/metrics.json
@@ -6044,7 +6047,8 @@ jobs:
 
       # The compile already pruned it to its bound (or dropped it past 6 GiB: lib/compilation-cache.sh).
       - name: Save the DEV compile cache (Blacksmith)
-        if: steps.vm-cas.outputs.prefix != '' && steps.compile-cmux-next-dev-release.outcome == 'success'
+        # Only a vm-mode (singlefile) build's cache: a whole-module one would replay nothing.
+        if: steps.vm-cas-restore.outcome == 'success' && steps.compile-cmux-next-dev-release.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 10
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
