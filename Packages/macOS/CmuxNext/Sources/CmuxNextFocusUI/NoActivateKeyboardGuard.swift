@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// Under `CMUX_NEXT_NO_ACTIVATE=1` the app must never hold the keyboard
 /// unless the user put it there. The app refuses every activation it asks
