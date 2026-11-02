@@ -341,10 +341,10 @@ def test_custom_launcher_profile_reorders_path(failures: list[str]) -> None:
 def test_executable_launcher_inherited_path(failures: list[str]) -> None:
     argv = ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write",
             "", "two words", "literal $(false); 'quoted'", "line1\nline2"]
-    for managed_shim, reordered_path in ((True, True), (False, False)):
+    for managed_shim, reordered_path in ((True, True), (False, False), (False, True)):
         label = f"executable-launcher/managed-shim={managed_shim}/reordered-path={reordered_path}"
         code, actual, calls, env, stderr = run_wrapper(
-            socket_state="stale", argv=argv, launch_command="__script__",
+            socket_state="missing", argv=argv, launch_command="__script__",
             inherited_path_reorders_path=reordered_path,
             managed_shim_available=managed_shim, inherited_other_agent=True,
         )
