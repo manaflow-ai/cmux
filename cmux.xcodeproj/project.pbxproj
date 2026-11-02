@@ -3441,6 +3441,7 @@
 		BD1B01EFB89C3FD91FAF22AF /* SessionPriorityApplyQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBC881599FA22878617EA728 /* SessionPriorityApplyQueue.swift */; };
 		3513B8D83323FEF169B913DC /* SessionPriorityApplyQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3D4620DB63F777E2173A2F /* SessionPriorityApplyQueueTests.swift */; };
 		0510771EF0EB98CC80BF25BC /* SessionPriorityApplyResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4771F77C844041A9C1808708 /* SessionPriorityApplyResult.swift */; };
+		4CFCA9D02BEFC29CA7AF36DB /* SessionPriorityCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE0DA6ACB40DB42FC83571D /* SessionPriorityCommands.swift */; };
 		31EAC0ACD90B594B34B3E592 /* SessionPriorityContextMenuSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21A842B70EE3A9EC96CDFB1 /* SessionPriorityContextMenuSnapshotTests.swift */; };
 		BB77C78C16DF7E7C1D6B86F5 /* SessionPriorityCoordinator+LiveReads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39A78CD8EBD6997DD0CFC5DA /* SessionPriorityCoordinator+LiveReads.swift */; };
 		00BBCB89F3060084AA617224 /* SessionPriorityCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DA4CD57D2810F4B410D9FCC /* SessionPriorityCoordinator.swift */; };
@@ -8221,6 +8222,7 @@
 		CBC881599FA22878617EA728 /* SessionPriorityApplyQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityApplyQueue.swift; sourceTree = "<group>"; };
 		3F3D4620DB63F777E2173A2F /* SessionPriorityApplyQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityApplyQueueTests.swift"; sourceTree = "<group>"; };
 		4771F77C844041A9C1808708 /* SessionPriorityApplyResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityApplyResult.swift; sourceTree = "<group>"; };
+		4CE0DA6ACB40DB42FC83571D /* SessionPriorityCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityCommands.swift; sourceTree = "<group>"; };
 		A21A842B70EE3A9EC96CDFB1 /* SessionPriorityContextMenuSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityContextMenuSnapshotTests.swift"; sourceTree = "<group>"; };
 		39A78CD8EBD6997DD0CFC5DA /* SessionPriorityCoordinator+LiveReads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityCoordinator+LiveReads.swift"; sourceTree = "<group>"; };
 		0DA4CD57D2810F4B410D9FCC /* SessionPriorityCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityCoordinator.swift; sourceTree = "<group>"; };
@@ -13259,6 +13261,7 @@
 				C1A900000000000000000002 /* CmuxCommand.swift */,
 				C1A900000000000000000003 /* GlobalOptions.swift */,
 				F9863ADE859F3FF4220C9B3E /* ClaudeAccountCommands.swift */,
+				4CE0DA6ACB40DB42FC83571D /* SessionPriorityCommands.swift */,
 			);
 			path = Commands;
 			sourceTree = "<group>";
@@ -18597,6 +18600,7 @@
 					C15873000000000000000004 /* RemotesArgumentParser.swift in Sources */,
 				B9000029A1B2C3D4E5F60719 /* RemoteSessionBundledResourceLoader.swift in Sources */,
 				C0DE18477000000000000001 /* RemoteTmuxInvocation.swift in Sources */,
+				4CFCA9D02BEFC29CA7AF36DB /* SessionPriorityCommands.swift in Sources */,
 				C1A900000000000000000022 /* SharedLegacyFacadeCommand.swift in Sources */,
 				A10052000000000000000002 /* SocketClient+StartupWait.swift in Sources */,
 				D1275700D1275700D1275701 /* SocketClient+V2.swift in Sources */,
