@@ -373,6 +373,16 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                 }
             }
         }
+        // Snapshot mode: a snapshot this log still needs is tried again at
+        // the earliest time it may be written, whether or not the terminal
+        // prints again (an idle terminal after a resize, a failed write).
+        if tail {
+            let retry =
+                log.state.lock().unwrap_or_else(PoisonError::into_inner).snapshot_retry_in();
+            if let Some(wait) = retry {
+                store.mark_log_dirty_after(&log, wait);
+            }
+        }
         digests.push((log, Some(digest)));
     }
     // A failed segment write tries again at the next flush, output or not
@@ -531,9 +541,12 @@ fn snapshot_written(
     state.snapshot_generation = Some(generation.clone());
     state.snapshot_size = Some(size);
     state.force_snapshot = false;
-    // The snapshot covers a tail file (one left from snapshot mode too).
-    super::tail::remove(directory, &log.terminal_id);
     if !tail {
+        drop(state);
+        // The snapshot covers a tail file left from snapshot mode. Off the
+        // log's lock (the reader needs it); only the writer touches tails,
+        // under the pass lock.
+        super::tail::remove(directory, &log.terminal_id);
         return;
     }
     let covered = usize::try_from(stream_end.saturating_sub(state.pending_start))
@@ -545,6 +558,10 @@ fn snapshot_written(
     state.tail_bytes = 0;
     state.tail_digest = Some(digest);
     state.tail_unsynced = false;
+    drop(state);
+    // The snapshot covers the tail file. Off the log's lock (the reader
+    // needs it); only the writer touches tails, under the pass lock.
+    super::tail::remove(directory, &log.terminal_id);
 }
 
 /// [`flush_tail`] without the redraw hold: the snapshot that would replace

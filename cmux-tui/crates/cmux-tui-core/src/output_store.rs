@@ -337,6 +337,25 @@ impl LogState {
         self.force_snapshot = true;
     }
 
+    /// Snapshot mode: when the next pass must try the snapshot this log still
+    /// needs (a drop asked for it, a new generation, a resize), at the earliest
+    /// time one may be written: after a write backoff and after the size has
+    /// settled, never sooner than the flush interval. `None` when it needs
+    /// none.
+    fn snapshot_retry_in(&self) -> Option<Duration> {
+        let new_generation = self.snapshot_generation.as_deref() != Some(&*self.generation);
+        let resized = !new_generation
+            && self.size_seen.is_some_and(|(size, _)| self.snapshot_size != Some(size));
+        if !(self.force_snapshot || new_generation || resized) {
+            return None;
+        }
+        let settle = self
+            .size_seen
+            .filter(|_| resized)
+            .map_or(Duration::ZERO, |(_, since)| RESIZE_SETTLE.saturating_sub(since.elapsed()));
+        Some(TAIL_FLUSH_INTERVAL.max(self.retry_wait().unwrap_or_default()).max(settle))
+    }
+
     /// Record the size a capture saw; whether it has held for
     /// [`RESIZE_SETTLE`].
     fn note_size(&mut self, size: (u16, u16)) -> bool {
@@ -695,6 +714,12 @@ impl OutputStore {
             }
             let before = state.pending.len();
             state.pending.extend_from_slice(bytes);
+            // Snapshot mode: past the cap the bytes fall back to the snapshot
+            // here, not at the next pass (which a write backoff or a slow
+            // write can hold off): memory stays bounded between passes.
+            if self.tail_enabled() && state.pending.len() > TAIL_MAX_UNWRITTEN_BYTES {
+                state.fall_back_to_snapshot();
+            }
             // A flood wakes the writer once, when its unwritten bytes cross
             // the threshold, not on every chunk after it; never while a
             // snapshot-mode write backoff holds them (the writer's own
