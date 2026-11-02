@@ -8,7 +8,10 @@ import { HEADER_ACTIONS } from "../src/agent-session/acpmux/header/headerActions
 import { headerQuickTools, type HeaderQuickToolsInput } from "../src/agent-session/acpmux/header/headerQuickTools";
 import { headerState, setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import {
+  boundedNativeText,
   dispatchNativeRowTool,
+  fitNativeRowMenus,
+  NATIVE_MAX_TOTAL_MENU_ITEMS,
   nativeRowToolBindings,
   type NativeRowTool,
 } from "../src/agent-session/acpmux/header/nativeRowTools";
@@ -145,6 +148,62 @@ test("conditional quick actions and Browser's preview delegation keep the web be
   expect(nativeRowToolBindings(browser)[0]!.tool.toggled).toBe(true);
   dispatchNativeRowTool({ id: "browser" }, nativeRowToolBindings(browser));
   expect(calls).toEqual(["preview:toggle:http://localhost:5173/"]);
+});
+
+test("native row menus normalize labels and share one aggregate budget", () => {
+  const rows = (prefix: string, count: number, children = 0) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `${prefix}-${index}`,
+      label: index === 0 ? "" : `${prefix}-${index}`,
+      enabled: true,
+      ...(children
+        ? {
+            children: Array.from({ length: children }, (_, child) => ({
+              id: `${prefix}-${index}-child-${child}`,
+              label: `${prefix}-child-${child}`,
+              enabled: true,
+            })),
+          }
+        : {}),
+    }));
+  const bindings = fitNativeRowMenus([
+    {
+      tool: {
+        id: "fixed",
+        symbol: "checkmark",
+        label: "Fixed",
+        enabled: true,
+        toggled: false,
+        menu: rows("fixed", 32),
+      },
+      menuPriority: "fixed",
+    },
+    {
+      tool: {
+        id: "variable",
+        symbol: "checkmark",
+        label: "Variable",
+        enabled: true,
+        toggled: false,
+        menu: rows("variable", 32, 4),
+        contextMenu: rows("context", 32, 4),
+      },
+    },
+  ]);
+  const count = (items: readonly { children?: readonly any[] }[]): number =>
+    items.reduce((total, item) => total + 1 + (item.children ? count(item.children) : 0), 0);
+  const total = bindings.reduce((sum, { tool }) => sum + count(tool.menu ?? []) + count(tool.contextMenu ?? []), 0);
+  expect(total).toBeLessThanOrEqual(NATIVE_MAX_TOTAL_MENU_ITEMS);
+  expect(bindings[0]!.tool.menu).toHaveLength(32);
+  expect(bindings[1]!.tool.menu!.length + bindings[1]!.tool.contextMenu!.length).toBeLessThan(64);
+  expect(bindings[0]!.tool.menu![0]!.label).toBe("…");
+  for (const { tool } of bindings) {
+    expect(boundedNativeText(tool.label)).toBe(tool.label);
+    for (const item of [...(tool.menu ?? []), ...(tool.contextMenu ?? [])]) {
+      expect(item.label.length).toBeGreaterThan(0);
+      expect(new TextEncoder().encode(item.label).byteLength).toBeLessThanOrEqual(256);
+    }
+  }
 });
 
 let dom: JSDOM | undefined;
@@ -291,11 +350,11 @@ test("host events switch the header to native tools and invoke the same web hand
   await render(true, "first");
   expect(sent).toHaveLength(1);
   expect(sent[0]!.method).toBe("pane.tabRowTools.set");
-  expect(sent[0]!.tools.map(({ id }) => id)).toEqual(["summary", "terminal", "browser"]);
+  expect(sent[0]!.tools.map(({ id }) => id)).toEqual(["summary", "terminal", "browser", "chat-menu"]);
   expect(container.querySelectorAll("[data-quick-action]")).toHaveLength(0);
   expect(container.querySelector(".acpmux-summary-button")).toBeNull();
   expect(container.querySelector(".acpmux-needs-you-button")).not.toBeNull();
-  expect(container.querySelector('button[aria-label="Chat actions"]')).not.toBeNull();
+  expect(container.querySelector('button[aria-label="Chat actions"]')).toBeNull();
   await render(true, "latest");
   expect(sent).toHaveLength(1);
   act(() => {
@@ -317,7 +376,7 @@ test("host events switch the header to native tools and invoke the same web hand
   await render(false, "still-hidden");
   expect(sent).toHaveLength(count);
   await render(true, "shown");
-  expect(sent.at(-1)!.tools).toHaveLength(3);
+  expect(sent.at(-1)!.tools).toHaveLength(4);
   await act(async () => root!.unmount());
   root = undefined;
   expect(sent.at(-1)!.tools).toEqual([]);
@@ -354,7 +413,7 @@ test("a failed native set restores web buttons and recovers on changed state", a
       />,
     ),
   );
-  expect(sent[0]).toHaveLength(3);
+  expect(sent[0]).toHaveLength(4);
   expect(sent.at(-1)).toEqual([]);
   expect(container.querySelectorAll("[data-quick-action]")).toHaveLength(2);
   expect(container.querySelector("[data-summary-fixture]")).not.toBeNull();
@@ -411,4 +470,73 @@ test("tab-row native opt-in requires a true flag and an offered positive height"
   await act(async () => applyHostEvent({ kind: "tabRow", value: { height: 40 } }));
   expect(container.querySelector("[data-native]")?.getAttribute("data-native")).toBe("false");
   expect(sent.at(-1)).toEqual([]);
+});
+
+test("native chat menus publish current state, customize shared actions, and expand from the palette", async () => {
+  const container = mount();
+  const sent: { method: string; params: Record<string, unknown> }[] = [];
+  const invoked: string[] = [];
+  let refreshed = 0;
+  let expanded = 0;
+  const callNative = async (method: string, params: Record<string, unknown>) => {
+    sent.push({ method, params });
+    return { ran: true };
+  };
+  const render = (expand?: string) =>
+    root!.render(
+      <ChatHeaderTools
+        onTerminal={() => {}}
+        onBrowser={() => {}}
+        summary={null}
+        nativeRowTools={{ enabled: true, callNative }}
+        onCustomize={(actions) => invoked.push(actions.map(({ id, mode }) => `${id}:${mode}`).join(" "))}
+        onMenuOpen={async () => {
+          refreshed++;
+        }}
+        expand={expand}
+        onExpanded={() => {
+          expanded++;
+        }}
+        menu={() => [
+          {
+            key: "pin",
+            label: headerState().pinned ? "Unpin" : "Pin",
+            icon: "pin",
+            onSelect: () => invoked.push("pin"),
+          },
+          {
+            key: "continue",
+            label: "Continue In",
+            icon: "next",
+            children: [{ key: "codex", label: "Codex", onSelect: () => invoked.push("codex") }],
+          },
+        ]}
+      />,
+    );
+  await act(async () => render());
+  const published = () =>
+    sent.filter(({ method }) => method === "pane.tabRowTools.set").at(-1)!.params.tools as NativeRowTool[];
+  expect(published().find(({ id }) => id === "chat-menu")!.menu![0].label).toBe("Pin");
+  await act(async () => setHeaderState({ pinned: true }));
+  expect(published().find(({ id }) => id === "chat-menu")!.menu![0].label).toBe("Unpin");
+  expect(
+    published()
+      .find(({ id }) => id === "terminal")!
+      .contextMenu!.some(({ id }) => id === "context:open"),
+  ).toBe(true);
+  act(() => {
+    applyHostEvent({ kind: "tabRowToolInvoked", value: { id: "chat-menu", menuItemId: "continue/codex" } });
+    applyHostEvent({ kind: "tabRowToolInvoked", value: { id: "terminal", menuItemId: "context:open" } });
+  });
+  expect(invoked).toEqual(["codex", "terminal:open browser:toggle"]);
+  await act(async () => render("continue"));
+  expect(sent.at(-1)).toEqual({
+    method: "pane.tabRowTools.openMenu",
+    params: { id: "chat-menu", menuItemId: "continue" },
+  });
+  expect(expanded).toBe(1);
+  expect(refreshed).toBe(0);
+  expect(container.querySelector('button[aria-label="Chat actions"]')).toBeNull();
+  act(() => expect(openPicker(translate("chatMenu.open"))).toBe(true));
+  expect(sent.at(-1)).toEqual({ method: "pane.tabRowTools.openMenu", params: { id: "chat-menu" } });
 });

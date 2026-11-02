@@ -262,34 +262,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
-        let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
-        var sidebarRect = sidebar.convert(sidebar.bounds, to: nil)
-        if shows, sidebar.visualPaneReach > 0 {
-            if sidebarSide == .left { sidebarRect.size.width += sidebar.visualPaneReach }
-            else { sidebarRect.origin.x -= sidebar.visualPaneReach; sidebarRect.size.width += sidebar.visualPaneReach }
-        }
-        host.setOccluder(id: "sidebar", rect: shows ? sidebarRect : nil)
+        host.setOccluder(id: "sidebar", rect: sidebar.occluderRectInWindow)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let normalHit = super.hitTest(point)
-        let local = convert(point, from: superview)
-        if !sidebar.isHidden, sidebar.visualPaneReach > 0 {
-            let sidebarFrame = sidebar.convert(sidebar.bounds, to: self)
-            var expanded = sidebarFrame
-            if sidebarSide == .left {
-                expanded.size.width += sidebar.visualPaneReach
-            } else {
-                expanded.origin.x -= sidebar.visualPaneReach
-                expanded.size.width += sidebar.visualPaneReach
-            }
-            // Root siblings such as the resize handle keep their z-order. Only an otherwise
-            // unclaimed point in the added band is forwarded into the sidebar's extended panel.
-            if normalHit === self, expanded.contains(local), !sidebarFrame.contains(local) {
-                if let hit = sidebar.hitTest(local) { return hit }
-            }
-        }
-        return normalHit
+        sidebar.routePaneReach(super.hitTest(point), at: convert(point, from: superview), in: self)
     }
 
     override func layout() {
@@ -307,8 +284,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
-        // In the curved style the sidebar divider belongs only to the titlebar band above the card;
-        // the row-to-card gap remains plain sidebar background. Flat styles keep the full-height line.
         sidebar.updateResizeLine(cardMaxY: contentHost.frame.maxY)
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
