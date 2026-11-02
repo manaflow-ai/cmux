@@ -92,6 +92,8 @@ fn claude_file_expiry_checks_project_sources_before_a_conclusive_verdict() {
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(project.join(".claude")).unwrap();
     std::fs::create_dir_all(&nested).unwrap();
+    let alias = root.path().join("linked-project");
+    std::os::unix::fs::symlink(&nested, &alias).unwrap();
     std::fs::write(
         home.join(".credentials.json"),
         r#"{"claudeAiOauth":{"accessToken":"synthetic-access","expiresAt":1}}"#,
@@ -118,6 +120,7 @@ fn claude_file_expiry_checks_project_sources_before_a_conclusive_verdict() {
             let found = scoped();
             assert!(found.credential_sources_complete);
             assert!(!found.expired_file_login, "{file}: {contents}");
+            assert!(!acpmux::claude_auth::find_in(&env, &alias).expired_file_login);
             assert!(!format!("{found:?}").contains("synthetic-"));
         }
         std::fs::write(&path, "invalid JSON").unwrap();
