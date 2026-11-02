@@ -816,13 +816,14 @@ impl AgentPort for FakeAgents {
             std::thread::sleep(delay);
         }
         // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
-        if let Some(key) = spec
-            .env
-            .keys()
-            .find(|k| !matches!(k.as_str(), "CMUX_WORKSPACE_ID" | "OPTCHAT_TURN_SEAL"))
-        {
+        if let Some(key) = spec.env.keys().find(|k| {
+            !matches!(
+                k.as_str(),
+                "CMUX_WORKSPACE_ID" | "OPTCHAT_TURN_SEAL" | "CMUX_CHIEF_PARTICIPANT"
+            )
+        }) {
             return Err(format!(
-                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID, OPTCHAT_TURN_SEAL)"
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID, OPTCHAT_TURN_SEAL, CMUX_CHIEF_PARTICIPANT)"
             ));
         }
         let mut inner = self.inner.lock().unwrap();
@@ -1120,6 +1121,7 @@ pub fn settings(dir: &Path) -> Settings {
         home_view: None,
         membership: Default::default(),
         keep_turn_session: false,
+        chief_inbox: None,
         screen_share: Some(dir.join("screen")),
     }
 }
