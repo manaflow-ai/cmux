@@ -297,4 +297,32 @@ struct PersonTerminalKeyboardClaimTests {
             #expect(replayed == ["b", "c"], "the keys typed for the second creation were not run, in order: \(replayed)")
         }
     }
+
+    /// Two new workspaces in one hold; the first one's create failed before the person's click on the focused pane. The
+    /// failed creation is over, so after the click the hold has nothing of the person's left: the keys typed now go to the
+    /// clicked pane at once, never held to run as typed into the second workspace if it shows (review of #32148, note 2).
+    @Test func keysTypedAfterTheClickPassOnWhenAnEarlierNewWorkspaceFailed() async throws {
+        var replayed: [String] = []
+        try await Self.withWindow(replay: { event, _, _ in replayed.append(event.characters ?? "") }) { h in
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(100)
+            let failed = try #require(coordinator.beginWorkspace(in: h.controller), "the first new workspace opened no key hold")
+            let second = try #require(coordinator.beginWorkspace(in: h.controller), "the second new workspace opened no key hold")
+            coordinator.resolve(failed, landed: false, in: h.window) // the first create failed
+            #expect(coordinator.isHolding(in: h.window), "the test needs the second workspace's hold still open")
+            let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 300, y: 300), modifierFlags: [],
+                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: h.window.windowNumber,
+                                                        context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            coordinator.personActed(in: h.window, event: click)
+            var delivered: [String] = []
+            for (characters, code) in [("b", UInt16(11)), ("c", UInt16(8))] {
+                if !router.interceptKeyDown(try Self.key(characters, keyCode: code, in: h.window), in: h.window) { delivered.append(characters) }
+            }
+            #expect(delivered == ["b", "c"], "the keys typed after the click did not go on to the clicked pane at once: \(delivered)")
+            coordinator.resolve(second, landed: false, in: h.window)
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
+            #expect(replayed.isEmpty, "keys typed after the click were held and run later as typed: \(replayed)")
+        }
+    }
 }
