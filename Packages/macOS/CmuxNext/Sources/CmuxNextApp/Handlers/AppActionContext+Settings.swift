@@ -31,6 +31,17 @@ extension AppActionContext {
         })
     }
 
+    /// One validated write as `writer`, awaited (an action effect's confirmation sends it); nil on success.
+    func writeSettingNow(_ path: [String], _ value: JSONValue?, by writer: SettingWriter) async -> ActionWorkFailure? {
+        guard let settings = services.settings else { return nil }
+        do {
+            try await settings.setSetting(at: path, to: value, by: writer)
+            return nil
+        } catch {
+            return ActionWorkFailure(String(describing: error))
+        }
+    }
+
     /// `writeSettings` for one key; nil removes it (its default applies).
     func writeSetting(_ label: String, _ path: [String], _ value: JSONValue?, reloadOnFailure: Bool = false) {
         writeSettings(label, [(path, value)], reloadOnFailure: reloadOnFailure)

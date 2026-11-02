@@ -1,9 +1,7 @@
 // cx-ae9eb: the model rail listed a harness this Mac's acpmux found signed out like any other, so a
 // pick started a chat that failed on its first turn ("authentication failed"). At the composer's
-// boundary: the real catalog and picker, and what the pane sends. A signed-out harness's tab is
-// dimmed and offers Log In (its login command) in place of its models, and no pick or search
-// reaches its models. The full picker is opened by More models' shortcut: the model button opens the
-// compact menu first (Leo 2026-10-20).
+// boundary: the real catalog and compact picker, and what the pane sends. A signed-out harness's
+// tab offers Log In (its login command) in place of its models, and no pick or search reaches them.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
@@ -180,19 +178,18 @@ async function mount(start: {
   return { sent, catalog: BUNDLED_MODEL_CATALOG };
 }
 
-/// The full picker, as More models' shortcut opens it (Cmd-Ctrl-M): the composer's model button opens
-/// the compact menu first (Leo 2026-10-20: one model button), and the full picker is reached from it.
-const openFullPicker = () =>
+/// The shortcut opens the same compact picker as the model button.
+const openQuickPicker = () =>
   dom.window.dispatchEvent(
     new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
   );
 
 const tabFor = (name: string) =>
-  [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
-    (button) => button.title.split(" · ")[0] === name,
+  [...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-quick-rail-tab")].find(
+    (button) => button.getAttribute("aria-label") === name,
   );
 const modelRows = () => [
-  ...host.querySelectorAll<HTMLElement>('.acpmux-mp-models [role="option"][data-key^="model:"]'),
+  ...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-quick-menu .acpmux-quick-item[role="menuitemradio"]'),
 ];
 
 test("a signed-out harness offers Log In, never its models", async () => {
@@ -203,39 +200,71 @@ test("a signed-out harness offers Log In, never its models", async () => {
   });
   const codex = catalog.harnesses.find((entry) => entry.id === "codex")!;
   await act(async () => {
-    openFullPicker();
+    openQuickPicker();
   });
   const tab = tabFor(codex.name);
   expect(tab, "the Codex rail tab").toBeDefined();
-  expect(tab!.getAttribute("aria-disabled")).toBe("true");
+  expect(tab!.title).toContain("Signed out");
   await act(async () => tab!.click());
   expect(modelRows().map((row) => row.textContent)).toEqual([]);
-  // No More models fold either: it would open models a pick refuses (seen on a DEV build).
-  expect(host.querySelector(".acpmux-mp-older")).toBeNull();
-  const login = host.querySelector<HTMLButtonElement>(".acpmux-mp-login");
+  const login = [
+    ...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-quick-menu .acpmux-quick-item"),
+  ].find((item) => item.textContent === "Log In");
   expect(login?.textContent).toBe("Log In");
   await act(async () => login!.click());
   expect(logins).toEqual(["codex: codex login"]);
   expect(sent).toEqual([]);
 });
 
+// Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add credits or add
+// their own api key". cmux credits pay only for the cmux model router: buying a plan signs no local
+// harness in, so a signed-out Claude Code, Codex or Gemini tab offers its own Log In alone, even where
+// the pane can run Add Credits… (the turn card offers that on the router's refusal). Its API key goes in
+// through that Log In; a key saved in Settings > Accounts never reaches the harness's process.
+test("a signed-out harness offers its own Log In alone, never credits or a key that cannot sign it in", async () => {
+  const asked: string[] = [];
+  const signIn = {
+    signedOut: { codex: "codex login" },
+    logIn: () => undefined,
+    access: { addCredits: () => asked.push("credits") },
+  };
+  const { sent, catalog } = await mount({ harness: "claude", signIn });
+  const codex = catalog.harnesses.find((entry) => entry.id === "codex")!;
+  await act(async () => {
+    openQuickPicker();
+  });
+  await act(async () => tabFor(codex.name)!.click());
+  const labels = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .acpmux-quick-item")].map(
+    (item) => item.textContent,
+  );
+  expect(labels).toContain("Log In");
+  expect(labels).not.toContain("Add Credits…");
+  expect(labels).not.toContain("Add API Key…");
+  expect(asked).toEqual([]);
+  expect(sent).toEqual([]);
+});
+
 test("a search never lists a signed-out harness's models", async () => {
-  const { sent, catalog } = await mount({
+  const { sent } = await mount({
     harness: "claude",
     signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined },
   });
-  const codexModels = new Set(catalog.harnesses.find((entry) => entry.id === "codex")!.models.map((model) => model.id));
   await act(async () => {
-    openFullPicker();
+    openQuickPicker();
   });
-  const input = host.querySelector<HTMLInputElement>(".acpmux-mp input")!;
+  const input = dom.window.document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
   const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
     setValue.call(input, "gpt");
     input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
-  const keys = modelRows().map((row) => row.dataset.key!.slice("model:".length));
-  expect(keys.filter((key) => codexModels.has(key))).toEqual([]);
+  // Other providers can offer GPT models; none of these results may come from signed-out Codex.
+  expect(modelRows().length).toBeGreaterThan(0);
+  expect(modelRows().every((row) => !row.querySelector(".acpmux-quick-value")?.textContent?.includes("Codex"))).toBe(
+    true,
+  );
+  const headings = [...dom.window.document.querySelectorAll(".acpmux-quick-menu .ui-menu-group-label")];
+  expect(headings.map((heading) => heading.textContent)).not.toContain("Codex");
   expect(sent).toEqual([]);
 });
 
@@ -249,12 +278,12 @@ test("the running chat's own harness keeps its models", async () => {
     signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined },
   });
   await act(async () => {
-    openFullPicker();
+    openQuickPicker();
   });
   // A started chat's harness is fixed: its menu has no rail, only that harness's models.
-  expect(host.querySelector(".acpmux-mp-harness")).toBeNull();
+  expect(dom.window.document.querySelector(".acpmux-quick-rail")).toBeNull();
   expect(modelRows().length).toBeGreaterThan(0);
-  expect(host.querySelector(".acpmux-mp-login")).toBeNull();
+  expect(dom.window.document.querySelector(".acpmux-quick-menu")?.textContent).not.toContain("Log In");
 });
 
 test("Starred lists no model of a signed-out harness", async () => {
@@ -265,11 +294,14 @@ test("Starred lists no model of a signed-out harness", async () => {
   dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify([codexModel, claudeModel]));
   await mount({ harness: "claude", signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined } });
   await act(async () => {
-    openFullPicker();
+    openQuickPicker();
   });
-  const starred = host.querySelector<HTMLButtonElement>('.acpmux-mp-rail-list [aria-label="Starred"]');
+  const starred = dom.window.document.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Starred"]');
   expect(starred, "the Starred tab").not.toBeNull();
   await act(async () => starred!.click());
-  const keys = modelRows().map((row) => row.dataset.key!.slice("model:".length));
-  expect(keys).toEqual([claudeModel]);
+  const names = modelRows().map((row) => row.textContent ?? "");
+  expect(names).toHaveLength(1);
+  expect(names[0]).toContain(
+    BUNDLED_MODEL_CATALOG.harnesses.find((entry) => entry.id === "claude")!.models[0]!.name.replace(/^Claude /, ""),
+  );
 });

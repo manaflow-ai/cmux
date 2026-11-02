@@ -61,7 +61,7 @@ export interface ProviderImpl {
    * granular consent a user may grant fewer scopes than were asked for.
    */
   readonly scopesFor?: (op: string) => ReadonlyArray<string> | undefined
-  readonly call: (env: Env, http: Http, credential: Credential, op: string, params: Record<string, unknown>) => Promise<CallResult>
+  readonly call: (env: Env, http: Http, credential: Credential, op: string, params: Record<string, unknown>, beforeEffect?: () => Promise<void>) => Promise<CallResult>
   /**
    * A fresh credential when this one is (about to be) expired, else undefined.
    * The ConnectionDO seals the result before any provider call uses it and runs

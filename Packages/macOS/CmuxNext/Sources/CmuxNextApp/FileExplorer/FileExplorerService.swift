@@ -91,7 +91,7 @@ final class FileExplorerService {
     /// The selected tab's folder of `pane` when it is a local terminal's.
     func folder(of pane: PaneController) -> URL? {
         guard let services, let key = pane.currentTabKey,
-              let (tab, model) = services.locateTab(key), services.daemon(for: model).isLocal,
+              let (tab, model) = services.locateTab(key, onMachine: services.machines.local.machineID), services.daemon(for: model).isLocal,
               let cwd = tab.cwd, !cwd.isEmpty else { return nil }
         return URL(fileURLWithPath: cwd, isDirectory: true)
     }

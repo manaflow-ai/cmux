@@ -1,0 +1,42 @@
+{
+  "id": "assistant-uses-remembered-default",
+  "group": "assistant",
+  "owner": "a676",
+  "about": "A preference already in memory (default project, decide without asking) is used: the Chief starts the work instead of asking which project.",
+  "history": [
+    {
+      "kind": "note",
+      "text": "User preference (Oct 21): default project is cmux-next; never ask which project. Pick the sensible default and name it."
+    },
+    {
+      "kind": "user",
+      "text": "Default project is cmux-next, stop asking me."
+    },
+    {
+      "kind": "talk",
+      "text": "Noted."
+    }
+  ],
+  "turns": [
+    {
+      "text": "the sidebar flickers when I drag a workspace between groups, fix it",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "max_words",
+          "n": 80
+        },
+        {
+          "type": "judge",
+          "rubric": "Passes when the Chief starts the fix (a subagent) for cmux-next without asking which project or for permission, and the reply is a few short lines naming the subagent. Fails when it asks the user anything or writes a long plan."
+        }
+      ]
+    }
+  ]
+}

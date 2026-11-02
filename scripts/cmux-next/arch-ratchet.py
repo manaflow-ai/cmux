@@ -20,8 +20,11 @@ Two rules refuse a push:
    (arch_rules/layer_gate.py): the layer rows hold the total only, and the unit of a layer row's rise that
    a gate refusal answers is not refused again (one refusal, one dated entry per edge). Rows: layer_hard, layer_soft,
    layer_upward, layer_unplaced, stateful_singletons, global_mutable_statics,
-   assume_isolated_outside_adapters, app_broadcast_names, observer_sites, blocking_allow_escapes. Report only:
-   assume_isolated_total and app_lines (the app-size rule owns that refusal).
+   assume_isolated_outside_adapters, app_broadcast_names, observer_sites, blocking_allow_escapes, app_lines
+   (CmuxNextApp physical lines; ratcheted since the reward-hacking audit of 2026-10-30, cmux-ad: it rose
+   143,610 -> 164,014 while it was report only). Report only: assume_isolated_total.
+   A new or edited blocking_allow_escapes site (a (file, line text) the base does not have) is refused unless the
+   head's json has a reviewed `escape_reviews` entry for it (escape_rule), whatever exception covers the count.
 2. Record: the push raises a ratcheted total in plans/cmux-next/arch-ratchet.json (or deletes the file)
    beyond what the exceptions it newly applies cover, changes or drops an applied exception, or changes
    method_version without changing arch_counts.py to that METHOD_VERSION. `--update` is the only writer,
@@ -35,7 +38,12 @@ Two rules refuse a push:
    hand-written or copied generated entry therefore lets the totals take no rise the record missed.
 
 The one escape: a dated entry the push adds to the json's `exceptions`
-({"date": "YYYY-MM-DD", "row": "<row>", "allow": <n>, "why": "..."}) lets that push raise the row by n
+({"date": "YYYY-MM-DD", "row": "<row>", "allow": <n>, "why": "...", "author": "<who wrote it>",
+"owner": "<who removes it>", "receipt": "Review (<reviewer>): SHIP at <40-hex sha>", "expiry": "YYYY-MM-DD"})
+lets that push raise the row by n. The receipt is an independent review: its reviewer is not the author, and an
+entry without author, owner, such a receipt or an expiry (not before its date) allows nothing, in a push and in
+--update (reward-hacking audit 2026-10-30: the 19 blocking escapes were allowed by entries their own authors
+wrote). The rule reads the fields; it cannot prove who wrote them, so the receipt also goes in the landing record
 (counted as sums per row against the base's pending entries: editing a pending entry gives nothing; the
 base of a push that merges origin/feat-cmux-next in is where HEAD meets it, so an exception upstream landed
 is in the base and allows the push nothing). The next --update folds every pending entry into the
@@ -126,7 +134,12 @@ FIX = {
                       "helper) is still an observer at each use that configures it",
     "blocking_allow_escapes": "move the blocking call off the main thread (an actor, a detached task) instead of "
                               "allowing it; an allowance is for a call that must block, with its reason",
+    "app_lines": "put new code in its own target, not CmuxNextApp (plans/cmux-next/code-quality.md SW14), or remove "
+                 "as many App lines as the push adds; a move out of the App lowers the row",
 }
+ESCAPE_ROW = "blocking_allow_escapes"
+# An independent review receipt (repo CLAUDE.md, risk tiers): the reviewer named, the exact head it passed.
+RECEIPT = re.compile(r"Review \((?P<who>[^()]+)\): SHIP at (?P<sha>[0-9a-f]{40})")
 
 
 def load_counts():
@@ -302,12 +315,37 @@ def valid_exception(entry, known) -> bool:
         return False
     n = entry.get("allow")
     return (entry.get("row") in known and isinstance(n, int) and not isinstance(n, bool) and n > 0
-            and bool(str(entry.get("why", "")).strip()))
+            and bool(str(entry.get("why", "")).strip()) and (generated(entry) or not review_problems(entry)))
+
+
+def review_problems(entry: dict, since: str | None = None) -> list[str]:
+    """What ENTRY (an exception, or an escape_reviews entry) lacks for an independent review, [] when nothing:
+    a non-empty `author` and `owner`, a `receipt` `Review (<reviewer>): SHIP at <40-hex sha>` whose reviewer is not
+    the author, and an `expiry` date not before SINCE (default: the entry's own `date`, else no lower bound).
+
+    A generated `raised_by` entry is --update's record of an upstream rise and is not judged here."""
+    counts = load_counts()
+    problems = [f"`{key}`" for key in ("author", "owner")
+                if not isinstance(entry.get(key), str) or not entry[key].strip()]
+    found = RECEIPT.fullmatch(str(entry.get("receipt") or "").strip())
+    if not found:
+        problems.append("`receipt` (Review (<reviewer>): SHIP at <40-hex sha>)")
+    elif isinstance(entry.get("author"), str) and found.group("who").strip().casefold() == entry["author"].strip().casefold():
+        problems.append("a receipt from a reviewer who is not the author")
+    expiry = entry.get("expiry")
+    floor = since if since is not None else entry.get("date")
+    if not counts.valid_date(expiry):
+        problems.append("`expiry` (YYYY-MM-DD)")
+    elif counts.valid_date(floor) and expiry < floor:
+        problems.append(f"an `expiry` not before {floor}")
+    return problems
 
 
 def exception_form(row: str, n: int) -> str:
     today = datetime.date.today().isoformat()
-    return f'{{"date": "{today}", "row": "{row}", "allow": {n}, "why": "<the reviewed reason>"}}'
+    return (f'{{"date": "{today}", "row": "{row}", "allow": {n}, "why": "<the reviewed reason>", '
+            '"author": "<you>", "owner": "<who removes it>", '
+            '"receipt": "Review (<an independent reviewer>): SHIP at <full head sha>", "expiry": "YYYY-MM-DD"}')
 
 
 def generated(entry) -> bool:
@@ -336,7 +374,10 @@ def added_exceptions(old: dict | None, new: dict | None, known) -> tuple[dict[st
             seen[key] -= 1
             continue
         if not valid_exception(entry, known):
-            notes.append(f"arch-ratchet: ignored exception {entry!r}: it needs date (YYYY-MM-DD), a row, allow > 0 and why")
+            lacks = review_problems(entry) if isinstance(entry, dict) and not generated(entry) else []
+            notes.append(f"arch-ratchet: ignored exception {entry!r}: it needs date (YYYY-MM-DD), a row, allow > 0, why, "
+                         "author, owner, an independent receipt and an expiry"
+                         + (f" (it lacks {', '.join(lacks)})" if lacks else ""))
             continue
         given = allow.get(entry["row"], 0)
         notes.append(f"arch-ratchet: exception {entry['date']} ({entry['row']} +{entry['allow']}): "
@@ -433,6 +474,72 @@ def count_rule(changes: Changes, answered: dict[str, int] | None = None) -> tupl
     if stale:
         notes.append(f"arch-ratchet: {UPDATE_HINT} ({', '.join(r for r in counts.ROW_IDS if r in stale)})")
     return refusals, notes
+
+
+def escape_reviews_of(record: dict | None) -> list:
+    entries = (record or {}).get("escape_reviews", [])
+    return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+
+
+def escape_key(path: str, text: str) -> tuple[str, str]:
+    """A blocking escape site's identity in `escape_reviews`: its file and its trimmed line (lines move)."""
+    return str(path), " ".join(str(text).split())
+
+
+def reviewed_escapes(record: dict | None) -> collections.Counter:
+    """{(path, text): n} of RECORD's escape_reviews entries in state `reviewed` with an independent receipt, an
+    owner, an author and an expiry (review_problems)."""
+    return collections.Counter(escape_key(e.get("path", ""), e.get("text", "")) for e in escape_reviews_of(record)
+                               if e.get("state") == "reviewed" and not review_problems(e))
+
+
+def escape_rule(changes: Changes) -> list[tuple[str, str]]:
+    """A blocking_allow_escapes site the push adds or edits (a (file, line) the base does not have as often) needs as
+    many reviewed `escape_reviews` entries for that (file, line) in the head's json as the head has sites there.
+    Whatever exception covers the count, an escape nobody but its author reviewed is refused."""
+    delta = changes.delta
+    if ESCAPE_ROW in delta.before.unknown or ESCAPE_ROW in delta.after.unknown:
+        return []
+    before = collections.Counter(escape_key(s.path, s.text) for s in delta.before.sites[ESCAPE_ROW])
+    after = collections.Counter(escape_key(s.path, s.text) for s in delta.after.sites[ESCAPE_ROW])
+    added = [key for key, n in after.items() if n > before.get(key, 0)]
+    if not added:
+        return []
+    reviewed = reviewed_escapes(changes.records()[1])
+    missing = [(key, after[key] - reviewed[key]) for key in sorted(added) if reviewed[key] < after[key]]
+    if not missing:
+        return []
+    lines = [f"arch-ratchet: [{ESCAPE_ROW}] {sum(n for _, n in missing)} blocking escape site(s) this push adds or "
+             f"edits have no reviewed escape_reviews entry in {changes.counts.RATCHET_JSON}:"]
+    for (path, text), n in missing[:12]:
+        lines.append(f"  {path}: {text}" + (f" (x{n})" if n > 1 else ""))
+    lines.append('  Add one entry per site: {"path": "<file>", "text": "<the line, trimmed>", "state": "reviewed", '
+                 '"author": "<who wrote it>", "owner": "<who removes it>", "receipt": "Review (<a reviewer who is not '
+                 'the author>): SHIP at <full sha>", "expiry": "YYYY-MM-DD", "note": "<what the review proved>"}. '
+                 f"Right pattern: {FIX[ESCAPE_ROW]}.")
+    return [(ESCAPE_ROW, "\n".join(lines))]
+
+
+def escape_audit(record: dict | None, sites: list, today: str) -> list[str]:
+    """Report lines (never a gate) on RECORD's escape_reviews against the counted SITES: sites with no entry,
+    entries left unreviewed, entries past their expiry, and entries whose site is gone."""
+    entries = escape_reviews_of(record)
+    have = collections.Counter(escape_key(s.path, s.text) for s in sites)
+    listed = collections.Counter(escape_key(e.get("path", ""), e.get("text", "")) for e in entries)
+    out = []
+    for key, n in sorted(have.items()):
+        if listed[key] < n:
+            out.append(f"no escape_reviews entry: {key[0]}: {key[1]}" + (f" ({n - listed[key]} of {n})" if n > 1 else ""))
+    for e in entries:
+        key = escape_key(e.get("path", ""), e.get("text", ""))
+        where = f"{key[0]}: {key[1]} (owner {e.get('owner') or '?'})"
+        if e.get("state") != "reviewed" or review_problems(e):
+            out.append(f"unreviewed: {where}, expiry {e.get('expiry') or 'none'}")
+        elif str(e.get("expiry")) < today:
+            out.append(f"expired {e.get('expiry')}: {where}")
+        if not have[key]:
+            out.append(f"no such site any more (remove the entry): {where}")
+    return out
 
 
 def stale_rows(changes: Changes, dropped: dict[str, int]) -> list[str]:
@@ -575,7 +682,8 @@ def generated_allowance(old: dict, new: dict, entries: list, derivation: Derivat
 
     def holds(entry: dict) -> bool:
         shas, row = entry.get("raised_by"), entry.get("row")
-        if (row not in counts.ROW_IDS or not valid_exception(entry, counts.ROW_IDS) or not isinstance(shas, list)
+        if (row not in counts.ROW_IDS or row == ESCAPE_ROW or not valid_exception(entry, counts.ROW_IDS)
+                or not isinstance(shas, list)
                 or not shas or not all(isinstance(x, str) and counts.SHA.fullmatch(x) for x in shas)):
             return False
         return all(named[(row, x)] == 1 and x not in named_before and derivation.parents(x) == 1
@@ -715,6 +823,7 @@ def check_own(repo: Path, base: str, head: str, rules=None,
         module_refusals += allow_module_refusals([(row, text) for row, text, _ in kept], changes.allow, ids, notes)
     refusals, extra = count_rule(changes, dict(answered))
     notes += extra
+    refusals += escape_rule(changes)
     got, extra = record_rule(changes, upstream_ref)
     refusals += got
     notes += extra
@@ -819,7 +928,8 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
     counts = load_counts()
     sha, now, _ = counts.full_count(repo, rev)
     record = parse_record(counts.Git(repo).read([(sha, counts.RATCHET_JSON)])[(sha, counts.RATCHET_JSON)])
-    result = {"sha": sha, "recorded_sha": None, "over": {}, "note": None}
+    result = {"sha": sha, "recorded_sha": None, "over": {}, "note": None,
+              "escapes": escape_audit(record, now.sites[ESCAPE_ROW], datetime.date.today().isoformat())}
     if record is None:
         result["note"] = f"no {counts.RATCHET_JSON} at {sha[:11]}"
         return result
@@ -840,12 +950,13 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
 
 
 def audit_lines(result: dict) -> list[str]:
+    escapes = [f"arch-ratchet audit at {result['sha'][:11]}: {ESCAPE_ROW} {line}" for line in result.get("escapes", [])]
     if result["note"]:
-        return [f"arch-ratchet audit at {result['sha'][:11]}: {result['note']}"]
+        return [f"arch-ratchet audit at {result['sha'][:11]}: {result['note']}"] + escapes
     if not result["over"]:
         return [f"arch-ratchet audit at {result['sha'][:11]}: every ratcheted row is at or under arch-ratchet.json "
-                f"(recorded at {str(result['recorded_sha'])[:11]})"]
-    lines = []
+                f"(recorded at {str(result['recorded_sha'])[:11]})"] + escapes
+    lines = escapes
     for row_id, entry in sorted(result["over"].items()):
         by = "; ".join(f"{c['sha']} +{c['rise']} ({c['commit'][:60]})" for c in entry["raised_by"]) or "no single commit"
         lines.append(f"arch-ratchet audit at {result['sha'][:11]}: {row_id} {entry['now']} over the recorded "
@@ -921,7 +1032,9 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM) -> int:
                  if row.ratchet and isinstance(before.get(row.id), int)
                  and totals[row.id] - before[row.id] > allow.get(row.id, 0)}
     since = old.get("measured_sha")
-    landed, named = upstream_rises(repo, since, sha, set(uncovered), before, upstream_ref) if uncovered else ({}, {})
+    # A blocking escape is never recorded as someone else's debt: a rise needs a reviewed exception, wherever it landed.
+    upstream_rows = set(uncovered) - {ESCAPE_ROW}
+    landed, named = upstream_rises(repo, since, sha, upstream_rows, before, upstream_ref) if upstream_rows else ({}, {})
     excess = {row_id: n - was - allow.get(row_id, 0) for row_id, (was, n) in uncovered.items()}
     local = {row_id: e - landed.get(row_id, 0) for row_id, e in excess.items() if e > landed.get(row_id, 0)}
     if local:
@@ -949,7 +1062,7 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM) -> int:
         exceptions.append({"date": today, "row": row_id, "allow": n,
                            "why": f"generated by --update: the rise landed on {upstream_ref} past the hook",
                            "raised_by": shas, "applied_sha": sha})
-    data = counts.record(sha, now, lay, exceptions)
+    data = counts.record(sha, now, lay, exceptions, escape_reviews_of(old))
     counts.write_record(repo, data)
     for row in counts.ROWS:
         was, new = before.get(row.id), data["totals"][row.id]

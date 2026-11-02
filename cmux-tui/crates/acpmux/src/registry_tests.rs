@@ -161,3 +161,12 @@ fn names_with_line_breaks_and_foreign_env_keys_drop_the_agent() {
     let own = r#"{"id": "fast-agent", "name": "F", "version": "1.0.0", "distribution": {"uvx": {"package": "f==1.0.0", "env": {"FAST_AGENT_MODEL": "m", "F_DISABLE_AUTO_UPDATE": "1"}}}}"#;
     assert_eq!(one(own).agents.len(), 1);
 }
+
+/// Hermes Agent's own ACP Registry entry is `hermes-agent`; acpmux already
+/// finds `hermes` on PATH, so the registry id lands on that harness and the
+/// registry never adds a second one.
+#[test]
+fn hermes_registry_id_maps_to_the_path_harness() {
+    assert_eq!(harness_id("hermes-agent").as_deref(), Some("hermes"));
+    assert!(RESERVED_IDS.contains(&"hermes"));
+}

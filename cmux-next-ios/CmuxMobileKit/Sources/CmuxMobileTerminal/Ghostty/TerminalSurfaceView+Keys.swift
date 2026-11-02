@@ -45,9 +45,9 @@ extension TerminalSurfaceView {
     @objc private func navigationKey(_ command: UIKeyCommand) {
         guard let usage = Self.navigationInputs.first(where: { $0.input == command.input })?.usage else { return }
         var mods = TerminalKeyMods(command.modifierFlags)
-        let sticky = input.sticky.consume()
-        if sticky.control { mods.insert(.control) }
-        if sticky.alternate { mods.insert(.alternate) }
+        var sticky = input.sticky.consume()
+        sticky.remove(.command)
+        mods.formUnion(sticky)
         let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: mods)
         perform([.key(event), .key(event.released)])
     }

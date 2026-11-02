@@ -5,13 +5,20 @@ import { useMemo, useRef, useState } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { canRender, RenderCard } from "../conversation/RenderCard";
+import { ToolImages } from "../conversation/ToolRow";
+import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { Close } from "../conversation/icons";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { chatGallery, galleryItems, type GalleryFilter } from "./chatGallery";
 
-const FILTERS: readonly GalleryFilter[] = ["all", "image", "render"];
-const FILTER_LABEL = { all: "gallery.all", image: "gallery.images", render: "gallery.renders" } as const;
+const FILTERS: readonly GalleryFilter[] = ["all", "image", "tool", "render"];
+const FILTER_LABEL = {
+  all: "gallery.all",
+  image: "gallery.images",
+  tool: "plus.tools",
+  render: "gallery.renders",
+} as const;
 
 export function GalleryDialog({
   rows,
@@ -20,7 +27,7 @@ export function GalleryDialog({
 }: {
   rows: readonly AcpmuxRow[];
   onClose(): void;
-  onOpenImage?: (src: string, alt: string) => void;
+  onOpenImage?: (src: string, alt: string, path?: string) => void;
 }) {
   const t = useT();
   const close = useRef<HTMLButtonElement>(null);
@@ -42,7 +49,7 @@ export function GalleryDialog({
       <div className="acpmux-image-viewer-bar">
         <span className="acpmux-image-viewer-title">{t("gallery.title")}</span>
         <span className="acpmux-chat-gallery-filters">
-          {FILTERS.map((kind) => (
+          {FILTERS.filter((kind) => kind !== "tool" || items.some((item) => item.kind === "tool")).map((kind) => (
             <button
               key={kind}
               type="button"
@@ -80,6 +87,12 @@ export function GalleryDialog({
               >
                 <img src={item.src} alt={item.alt} />
               </button>
+            </figure>
+          ) : item.kind === "tool" ? (
+            <figure key={item.key} className="acpmux-chat-gallery-tile" data-gallery-kind="tool">
+              <ImageViewerContext.Provider value={onOpenImage}>
+                <ToolImages sources={[item.source]} />
+              </ImageViewerContext.Provider>
             </figure>
           ) : (
             <figure key={item.key} className="acpmux-chat-gallery-tile is-render" data-gallery-kind="render">

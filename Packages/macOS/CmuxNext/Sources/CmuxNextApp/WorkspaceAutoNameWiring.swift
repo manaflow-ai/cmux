@@ -7,23 +7,35 @@ import CmuxNextWorkspaceNaming
 @MainActor
 struct WorkspaceAutoNameWiring {
     let services: AppServices
+    /// The workspace of every tab asked about (a sidebar row's): its own incognito answer, not a lookup of each tab,
+    /// which reads every tab list (TYPING UNDER LOAD F6). Nil: look each tab up.
+    var workspace: WorkspaceModel?
 
     /// The front-tab reader over this app's setting, pages and terminals.
     var reader: WorkspaceAutoNameReader {
-        WorkspaceAutoNameReader(
+        let known: @MainActor (AppServices) -> Bool? = { [workspace] s in workspace.map { s.windows.isIncognito(workspace: $0) } }
+        return WorkspaceAutoNameReader(
             enabled: { [weak services] in services?.settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true },
             isNewTabPage: { [weak services] tab in services.map { RestoredNewTabPages.shows(tab, in: $0.agentTabs) } ?? false },
             livePage: { [weak services] tab in services?.cache.existingBrowser(tab.id).map { ($0.tab.state.title, $0.tab.state.url) } },
-            incognitoTitle: { [weak services] tab in services.flatMap { s -> String?? in s.cache.browserTabs.isIncognitoTab(tab.id) ? .some(s.cache.incognitoDisplay(tab).title) : nil } },
-            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
+            incognitoTitle: { [weak services] tab in services.flatMap { s -> String?? in known(s) ?? s.cache.browserTabs.isIncognitoTab(tab.id) ? .some(s.cache.incognitoDisplay(tab).title) : nil } },
+            terminal: { [weak services] tab in services.map { Self.nameInput(tab, services: $0, incognito: known($0)) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
             hold: services.autoNameHold,
             allowsLegacyDefaults: { [weak services] workspace in
-                guard let services, let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return true }
+                guard let services, let daemon = services.machines.daemon(holding: workspace) else { return true }
                 return !daemon.supports(DaemonCapability.workspaceNameSource.rawValue)
             })
     }
 
-    /// Variant B's one-time rename (`WorkspaceAutoNamer`) on every daemon that
+    /// `TabMoves.nameInput` for a browser tab whose incognito answer is known (its row's workspace): the same value,
+    /// without the tab lookup that reads every tab list (F6). Other tabs read no tab list there.
+    static func nameInput(_ tab: TabModel, services: AppServices, incognito: Bool?) -> NewWorkspaceName.Tab {
+        guard tab.kind == .browser, tab.appTab == nil, let incognito else { return TabMoves.nameInput(tab, services: services) }
+        let pageTitle = incognito ? nil : services.cache.existingBrowser(tab.id)?.tab.state.title
+        return NewWorkspaceName.Tab(kind: .browser, userName: tab.name, title: tab.titleText, pageTitle: pageTitle, url: tab.url, cwd: tab.cwd)
+    }
+
+    /// Variant B's focused-chat naming (`WorkspaceAutoNamer`) on every daemon that
     /// serves the name-source capability, once settings load.
     func start(settings: SettingsController) {
         let namer = WorkspaceAutoNamer(
@@ -46,14 +58,16 @@ struct WorkspaceAutoNameWiring {
                 guard let services, let window = services.windows.registry.value.owner(of: workspace.id) else { return nil }
                 return services.windows.controller(for: window)?.state.selection.selection(in: pane.id)
             },
-            rename: { [weak services] target, name in
+            rename: { [weak services] target, name, maySend, onFailure in
                 guard let services, target.supportsNameSource, let key = target.workspace.key,
                       let daemon = services.machines.daemon(machine: target.machineID),
-                      daemon.supports(DaemonCapability.workspaceNameSource.rawValue) else { return }
-                daemon.send("auto-rename workspace") {
-                    _ = try await $0.renameWorkspace(key, to: name, source: .auto,
-                                                      expectedNameRevision: target.nameRevision)
+                      daemon.supports(DaemonCapability.workspaceNameSource.rawValue) else { return false }
+                daemon.send("auto-rename workspace", onFailure: { _ in onFailure() }) { connection in
+                    guard await maySend() else { return }
+                    _ = try await connection.renameWorkspace(key, to: name, source: .auto,
+                                                              expectedNameRevision: target.nameRevision)
                 }
+                return true
             })
         Task { [weak settings] in
             await settings?.waitForLoad(atLeast: 1)

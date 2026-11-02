@@ -123,19 +123,26 @@ export const importBatch = (sql: SqlStorage, storage: DurableObjectStorage, body
  * client drops them first). Refused with `brain_busy` while a turn runs (it would roll back appended rows).
  */
 export type AppendItem = { readonly key: string; readonly kind: string; readonly text: string; readonly date: string; readonly source: string }
-export type AppendBody = { readonly mode: "append"; readonly dry_run: boolean; readonly items: ReadonlyArray<AppendItem> }
+export type AppendBody = { readonly mode: "append"; readonly dry_run: boolean; readonly items: ReadonlyArray<AppendItem>; readonly batch?: string }
+/** `{mode: "undo", batch}`: takes back one earlier append (the log's tail) and the summaries that cover it. */
+export type UndoBody = { readonly mode: "undo"; readonly batch: string }
 export type AppendResult = { readonly added: number; readonly duplicate: number; readonly rejected: number; readonly count: number }
 
 export const APPEND_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS oc_import_key (key TEXT PRIMARY KEY, i INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS oc_import_mark (id INTEGER PRIMARY KEY CHECK (id = 1), hashed INTEGER NOT NULL)`,
+  // One import run (a client's several requests share the id): the rows [first_i, last_i] it appended, for undo.
+  `CREATE TABLE IF NOT EXISTS oc_import_batch (id TEXT PRIMARY KEY, first_i INTEGER NOT NULL, last_i INTEGER NOT NULL, at TEXT NOT NULL)`,
 ]
+const BATCH_ID = /^[A-Za-z0-9._:-]{1,64}$/
 
 /** null: not an append body (the copy's parser takes it). */
-export const parseAppendBody = (raw: unknown): AppendBody | ImportFail | null => {
+export const parseAppendBody = (raw: unknown): AppendBody | UndoBody | ImportFail | null => {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
   const b = raw as Record<string, unknown>
+  if (b.mode === "undo") return typeof b.batch === "string" && BATCH_ID.test(b.batch) ? { mode: "undo", batch: b.batch } : bad("batch is the id of an earlier append (A-Z a-z 0-9 . _ : -)")
   if (b.mode !== "append") return null
+  if (b.batch !== undefined && (typeof b.batch !== "string" || !BATCH_ID.test(b.batch))) return bad("batch is 1 to 64 of A-Z a-z 0-9 . _ : -")
   if (!Array.isArray(b.items) || b.items.length > MAX_LINES) return bad(`items is an array of at most ${MAX_LINES}`)
   const items: AppendItem[] = []
   for (const [k, v] of b.items.entries()) {
@@ -145,7 +152,7 @@ export const parseAppendBody = (raw: unknown): AppendBody | ImportFail | null =>
     }
     items.push({ key: o.key, kind: o.kind, text: o.text, date: o.date, source: o.source })
   }
-  return { mode: "append", dry_run: b.dry_run === true, items }
+  return { mode: "append", dry_run: b.dry_run === true, items, ...(typeof b.batch === "string" ? { batch: b.batch } : {}) }
 }
 
 /** The key of a stored or sent message: sha256(kind \0 date_ms \0 text), hex (0 for an unparsable date). */
@@ -194,6 +201,7 @@ export const appendBatch = async (
   }
   const total = () => Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM oc_message`).one().n)
   if (!body.dry_run && fresh.length > 0) {
+    const first = total()
     storage.transactionSync(() => {
       for (const it of fresh) {
         append(sideText(it))
@@ -201,7 +209,46 @@ export const appendBatch = async (
       }
       // The appended rows are keyed by their source key already: they are not hashed again later.
       sql.exec(`INSERT INTO oc_import_mark (id, hashed) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET hashed = excluded.hashed`, total())
+      if (body.batch) {
+        sql.exec(
+          `INSERT INTO oc_import_batch (id, first_i, last_i, at) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET last_i = excluded.last_i`,
+          body.batch,
+          first,
+          total() - 1,
+          new Date().toISOString(),
+        )
+      }
     })
   }
   return { ok: true, added: fresh.length, duplicate, rejected, count: total() }
+}
+
+export type UndoResult = { readonly removed: number; readonly count: number }
+
+/**
+ * Takes back the append `body.batch`: its rows must be the log's tail (nothing was appended after it: a later
+ * import or a live turn makes it `undo_not_tail`, refused). The summaries that cover any of its rows are deleted
+ * (the compactor builds them again from what stays), and the folded view is dropped and loaded again by the caller.
+ */
+export const undoBatch = (sql: SqlStorage, storage: DurableObjectStorage, body: UndoBody): (UndoResult & { ok: true }) | ImportFail => {
+  sql.exec(IMPORT_SCHEMA)
+  for (const q of APPEND_SCHEMA) sql.exec(q)
+  const busy = sql.exec(`SELECT 1 FROM cb_inbox WHERE state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE status NOT IN ('done', 'failed') LIMIT 1`).toArray().length > 0
+  if (busy) return conflict("brain_busy", "a Chief turn runs here: undo after it ends")
+  const row = sql.exec<{ first_i: number; last_i: number }>(`SELECT first_i, last_i FROM oc_import_batch WHERE id = ?`, body.batch).toArray()[0]
+  if (!row) return { ok: false, status: 404, code: "not_found", message: "no such import batch (already undone?)" }
+  const count = Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM oc_message`).one().n)
+  if (row.last_i !== count - 1) return conflict("undo_not_tail", "messages came after this import, so it cannot be taken back", { count })
+  const removed = row.last_i - row.first_i + 1
+  storage.transactionSync(() => {
+    sql.exec(`DELETE FROM oc_message WHERE i >= ?`, row.first_i)
+    sql.exec(`DELETE FROM oc_import_key WHERE i >= ?`, row.first_i)
+    // A node (l, i) covers messages i*2^l .. (i+1)*2^l - 1: every node that reaches the removed rows goes.
+    sql.exec(`DELETE FROM oc_node WHERE (i + 1) * (1 << l) > ?`, row.first_i)
+    sql.exec(`DELETE FROM oc_checkpoint`)
+    sql.exec(`DELETE FROM oc_frozen`)
+    sql.exec(`INSERT INTO oc_import_mark (id, hashed) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET hashed = excluded.hashed`, row.first_i)
+    sql.exec(`DELETE FROM oc_import_batch WHERE id = ? OR first_i >= ?`, body.batch, row.first_i)
+  })
+  return { ok: true, removed, count: row.first_i }
 }

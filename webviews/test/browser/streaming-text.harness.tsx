@@ -126,18 +126,23 @@ const PROMPT_ID = "live-user";
 const ANSWER_ID = "live-answer";
 const expanded = new Set<string>();
 let show: (rows: AcpmuxRow[], working: boolean) => void = () => {};
+/// Draw the running turn's live line under the reply (Debug `agentPane.debug.liveLineBelow`, on in
+/// the app), so the end of the turn swaps that line for the turn's footer as the app does.
+let lineBelow = false;
+/// Turn off the followed view's eased steps (followGlide.ts) to measure the view that steps at once.
+let glide = true;
 
 function Pane() {
   const [state, setState] = useState<{ rows: AcpmuxRow[]; working: boolean }>({ rows: history(), working: false });
   const [dock, setDock] = useState<HTMLElement | null>(null);
   show = (rows, working) => setState({ rows, working });
   return (
-    <div className="acpmux-shell">
+    <div className="acpmux-shell" data-follow-glide={glide ? undefined : "off"}>
       <div className="acpmux-main" data-dock="float">
         <div className="acpmux-stage">
           <header className="acpmux-header" />
           <VirtualTranscript
-            rows={turnView(state.rows, expanded, { working: state.working })}
+            rows={turnView(state.rows, expanded, { working: state.working, lineBelow, liveRuns: lineBelow })}
             sessionId="streaming-text"
             working={state.working}
             jumpButton
@@ -182,6 +187,9 @@ type Frame = {
   fromEnd?: number;
   /// Room between the reply's last drawn line and the top of the bottom stack.
   runway?: number;
+  /// The transcript's scrollable height and offset: the room under the last row shows in them.
+  scrollHeight?: number;
+  scrollTop?: number;
   /// Main-thread work since the last sample: the script of every task that ended in between
   /// (streaming-text.clock.ts), less its synchronous Pierre highlighting, and the style and layout
   /// left to do (forced here, before the sampler reads anything).
@@ -231,6 +239,7 @@ function sampleFrame(t: number, live: boolean): Frame {
     scriptMs,
     layoutMs,
   };
+  if (scroller) Object.assign(frame, { scrollHeight: scroller.scrollHeight, scrollTop: scroller.scrollTop });
   if (scroller && scroller.scrollHeight > scroller.clientHeight)
     frame.fromEnd = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
   if (!row || !markdown) return frame;
@@ -263,6 +272,9 @@ const tailOf = (frame: Frame) => {
 };
 /// Single-frame growth above this many characters reads as a jump, not a flow.
 const JUMP_CHARS = 40;
+/// A settle step larger than this in one frame reads as a snap: an eased 180 ms move over a line
+/// (22.75 px) steps at most about 4 px a frame at 60 Hz.
+const SNAP_PX = 8;
 
 function analyze(
   cadence: Cadence,
@@ -271,6 +283,7 @@ function analyze(
   start: number,
   longTasks: { t: number; ms: number }[] | null,
   dockHeight: number,
+  streamWindowEnd: number,
 ) {
   const at = (t: number) => round2(t - start);
   const live = frames.filter((frame) => frame.live);
@@ -351,6 +364,31 @@ function analyze(
     undefined,
   );
   const under = runwayFrames.filter((frame) => frame.runway! < 0);
+  // Settle: from the last frame that drew the reply growing to the end of the window, the reply's
+  // row should hold still or ease, never jump. A snap is one frame moving it more than SNAP_PX; a
+  // reversal is its top moving down after it rose (the room under it given back at once).
+  let lastGrowth = 0;
+  for (let index = 1; index < frames.length; index += 1)
+    if (frames[index]!.length !== frames[index - 1]!.length) lastGrowth = index;
+  const settleMoves: { t: number; px: number }[] = [];
+  for (let index = Math.max(1, lastGrowth); index < frames.length; index += 1) {
+    const before = frames[index - 1]!.rowTop;
+    const now = frames[index]!.rowTop;
+    if (before === undefined || now === undefined || Math.abs(now - before) <= 0.5) continue;
+    settleMoves.push({ t: at(frames[index]!.t), px: round2(now - before) });
+  }
+  // Follow steps: how far the reply's row moves on screen from one frame to the next while it
+  // streams. A followed view that takes each new line at once moves it a whole line in one frame.
+  const steps: number[] = [];
+  for (let index = 1; index < live.length; index += 1) {
+    const before = live[index - 1]!.rowTop;
+    const now = live[index]!.rowTop;
+    if (before === undefined || now === undefined || Math.abs(now - before) <= 0.5) continue;
+    steps.push(Math.abs(now - before));
+  }
+  // Bottom-edge reversals over the whole run: the reply's top, which a followed view only lifts,
+  // coming back down by more than half a pixel in one frame.
+  const reversals = bounces.length;
   return {
     cadence,
     chars: REPLY.length,
@@ -391,6 +429,9 @@ function analyze(
       maxMs: round2(Math.max(0, ...longTasks.map((task) => task.ms))),
       totalMs: round2(longTasks.reduce((sum, task) => sum + task.ms, 0)),
       tasks: longTasks.slice(0, 20).map((task) => ({ t: at(task.t), ms: round2(task.ms) })),
+      duringStream: longTasks
+        .filter((task) => task.t >= start && task.t < streamWindowEnd && task.ms > 50)
+        .map((task) => ({ t: at(task.t), ms: round2(task.ms) })),
     },
     reveal: {
       // Drawn: the reply's textContent. A closing fence keeps its plain card under the highlighted one
@@ -423,6 +464,18 @@ function analyze(
       bounces: bounces.length,
       bounceEvents: bounces.slice(0, 40),
     },
+    follow: {
+      moving: steps.length,
+      ...stats(steps),
+      overSnap: steps.filter((px) => px > SNAP_PX).length,
+    },
+    settle: {
+      moves: settleMoves.length,
+      maxMovePx: round2(Math.max(0, ...settleMoves.map((move) => Math.abs(move.px)))),
+      snaps: settleMoves.filter((move) => Math.abs(move.px) > SNAP_PX).length,
+      reversals,
+      moveEvents: settleMoves.slice(0, 40),
+    },
     runway: {
       frames: runways.length,
       ...stats(runways),
@@ -442,11 +495,19 @@ async function run({
   cadence,
   seed = 7,
   settleMs = 1_000,
+  liveLine = false,
+  eased = true,
 }: {
   cadence: Cadence;
   seed?: number;
   settleMs?: number;
+  /// Draw the live line under the reply, as the app does by default.
+  liveLine?: boolean;
+  /// Ease the followed view's steps (followGlide.ts), as the app does.
+  eased?: boolean;
 }): Promise<StreamReport> {
+  lineBelow = liveLine;
+  glide = eased;
   const base = history();
   const prompt: AcpmuxRow = {
     id: PROMPT_ID,
@@ -493,7 +554,7 @@ async function run({
     : null;
   const observer = longTasks
     ? new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) if (live) longTasks.push({ t: entry.startTime, ms: entry.duration });
+        for (const entry of list.getEntries()) if (sampling) longTasks.push({ t: entry.startTime, ms: entry.duration });
       })
     : undefined;
   observer?.observe({ type: "longtask", buffered: false });
@@ -533,10 +594,14 @@ async function run({
   live = false;
   // fixed-wait: the settle window is sampled for any jump after the stream; the window is the test
   await new Promise((resolve) => setTimeout(resolve, settleMs));
+  const sampleEnd = performance.now();
+  if (observer && longTasks) {
+    for (const entry of observer.takeRecords()) longTasks.push({ t: entry.startTime, ms: entry.duration });
+  }
   sampling = false;
   observer?.disconnect();
   const dock = document.querySelector<HTMLElement>(".acpmux-dock")?.getBoundingClientRect().height ?? 0;
-  return analyze(cadence, deltas, frames, start, longTasks, dock);
+  return analyze(cadence, deltas, frames, start, longTasks, dock, sampleEnd);
 }
 
 (window as unknown as { __streamingText: { run: typeof run } }).__streamingText = { run };

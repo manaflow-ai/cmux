@@ -3,6 +3,7 @@
   "steps": [
     {"title": "Launch", "wait": 2},
     {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Tour"]},
+    {"title": "Show the Tour workspace (a new workspace takes no focus)", "cmux": ["workspace", "name:Tour", "focus"], "shot": false},
     {"title": "Type in the terminal", "daemon": true,
      "cmux": ["workspace", "name:Tour", "screen", "current", "pane", "current", "tab", "current",
               "terminal", "current", "write", "--text", "echo hello from the cmux-next tour\r"]},

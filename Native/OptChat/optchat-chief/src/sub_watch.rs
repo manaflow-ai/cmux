@@ -676,6 +676,46 @@ pub fn is_ack(report: &str) -> bool {
 }
 
 /// `ms` as `12s`, `5m` or `1h05m`.
+/// Landing follow-ups per subagent before its report reaches the Chief.
+pub const LAND_FOLLOWUPS: u32 = 1;
+
+/// The host's landing follow-up (a676, Lawrence 2026-10-26: "it follows every
+/// open task until done ... with no model call").
+pub const LAND_FOLLOWUP: &str = "[follow-up] Your report says your work is not landed yet. Finish it now: rebase on the branch's latest remote, make it green, plain push, then report the landed range (OLD..NEW) and how you checked it. If only the user can clear what blocks it (money, legal, destructive, sign-in), or your task said not to land, say that in one line instead.";
+
+/// Whether a subagent `report` says code it made is not landed: a word that
+/// implies code waits (unpushed, unlanded, a red check), or a weaker one
+/// (not landed, nothing landed) next to a commit sha. A report with no code
+/// in it ("nothing committed, nothing landed") never counts.
+pub fn unlanded(report: &str) -> bool {
+    // A leading space so " is red" never matches inside "this red".
+    let text = format!(" {}", report.to_lowercase());
+    const STRONG: [&str; 5] = [
+        "unpushed",
+        "not pushed",
+        "unlanded",
+        " is red",
+        " still red",
+    ];
+    const WEAK: [&str; 5] = [
+        "not landed",
+        "nothing landed",
+        "not yet landed",
+        "did not land",
+        "didn't land",
+    ];
+    if STRONG.iter().any(|w| text.contains(w)) {
+        return true;
+    }
+    WEAK.iter().any(|w| text.contains(w))
+        && text.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| {
+            (7..=40).contains(&w.len())
+                && w.chars().all(|c| c.is_ascii_hexdigit())
+                && w.chars().any(|c| c.is_ascii_digit())
+                && w.chars().any(|c| c.is_ascii_alphabetic())
+        })
+}
+
 pub fn minutes(ms: u64) -> String {
     let s = ms / 1000;
     if s < 60 {
@@ -695,5 +735,34 @@ fn clip(text: &str, n: usize) -> String {
         let mut cut: String = one.chars().take(n).collect();
         cut.push('…');
         cut
+    }
+}
+
+#[cfg(test)]
+mod unlanded_tests {
+    use super::unlanded;
+
+    #[test]
+    fn reports_that_leave_code_open_count() {
+        assert!(unlanded(
+            "Fix in 1a2b3c4d5e6, unpushed (VM token rejected)."
+        ));
+        assert!(unlanded("Pushed to a scratch branch; unlanded."));
+        assert!(unlanded(
+            "Commit 9e8f6d9b59 is ready but not landed: CI on it is red."
+        ));
+        assert!(unlanded("CI is red on fa90c797a82."));
+    }
+
+    #[test]
+    fn reports_without_open_code_do_not() {
+        assert!(!unlanded("Landed 5c6369c..c3c07ba on feat-cmux-next."));
+        assert!(!unlanded(
+            "Filed ticket 4906279. Nothing committed, nothing landed."
+        ));
+        assert!(!unlanded("Nothing landed and why: research only."));
+        assert!(!unlanded(
+            "I made this red button bigger; landed 1a2b3c4..5d6e7f8."
+        ));
     }
 }

@@ -14,7 +14,10 @@ export type Answer = string | ((s: Started) => Promise<void>)
  * Freestyle, the Tailscale API and the turn machine at their HTTP boundary; the Worker's own calls go to the real fetch.
  * `bootFails(n)`: the n-th VM's boot fails (it never joins the network).
  */
-export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?: (s: Started, n: number) => Promise<void>, bootFails?: (n: number) => boolean) => {
+export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?: (s: Started, n: number) => Promise<void>, bootFails?: (n: number) => boolean, latency: { create?: number; key?: number; boot?: number; net?: number } = {}) => {
+  // Start and end of the turn's setup calls, in order (a test asserts which ones overlap).
+  const events: Array<{ name: string; at: number }> = []
+  const wait = (ms: number | undefined) => (ms ? new Promise((r) => setTimeout(r, ms)) : undefined)
   const real = globalThis.fetch
   const made: Array<{ id: string; body: any }> = []
   const deleted: Array<string> = []
@@ -48,6 +51,9 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
     const url = new URL(req.url)
     if (url.origin === "https://api.tailscale.com") {
       if (url.pathname === "/api/v2/oauth/token") return Response.json({ access_token: "test-ts-access", expires_in: 3600 })
+      events.push({ name: "key:start", at: Date.now() })
+      await wait(latency.key)
+      events.push({ name: "key:end", at: Date.now() })
       const key = `tskey-auth-test-${keys.length + 1}`
       keys.push(key)
       expect(req.headers.get("authorization")).toBe("Bearer test-ts-access")
@@ -179,8 +185,12 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
       return Response.json({ id: sn[1], displayName: it.body.displayName ?? null, ttlSeconds: it.body.ttlSeconds ?? null })
     }
     if (req.method === "POST" && url.pathname === "/v5/vms") {
+      events.push({ name: "create:start", at: Date.now() })
+      const body = await req.json()
+      await wait(latency.create)
+      events.push({ name: "create:end", at: Date.now() })
       const id = `vm-test${made.length + 1}`
-      made.push({ id, body: await req.json() })
+      made.push({ id, body })
       // A VM starts at its snapshot's size (the small Ubuntu base is 2 vCPU / 4 GiB / 16 GB).
       sizes.set(id, made[made.length - 1]!.body.snapshotId === "freestyle/ubuntu-sm" ? { cpu: 2, memory: 4096, storage: 16384 } : { cpu: 4, memory: 8192, storage: 32768 })
       return Response.json({ id })
@@ -216,6 +226,9 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
       const stdin = body.stdin ? atob(body.stdin) : ""
       const raw = Uint8Array.from(stdin, (c) => c.charCodeAt(0))
       steps.push(`${vm} ${body.command.split(" ")[0]}`)
+      if (body.command.startsWith("/opt/chief-cc/boot.sh ")) await wait(latency.boot)
+      if (body.command === "bash -s") await wait(latency.net)
+      events.push({ name: body.command.split(" ")[0]!, at: Date.now() })
       if (body.command.startsWith("/opt/chief-cc/boot.sh ")) return boots.push({ vm, stdin }), bootFails?.(boots.length) ? Response.json({ statusCode: 1, stdout: "" }) : Response.json({ statusCode: 0, stdout: "ready\n" })
       if (body.command === "bash -s") return nets.push({ vm, script: stdin }), Response.json({ statusCode: 0, stdout: "net ok\n" })
       const start = /^\/opt\/chief-cc\/start\.sh (run_[0-9]+)$/.exec(body.command)
@@ -233,7 +246,7 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
     }
     return new Response("unexpected", { status: 500 })
   })
-  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches, files, uploads, snapshots, lifecycle }
+  return { events, made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches, files, uploads, snapshots, lifecycle }
 }
 
 export const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })

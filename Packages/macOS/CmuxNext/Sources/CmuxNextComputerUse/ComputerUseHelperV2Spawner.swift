@@ -51,6 +51,9 @@ nonisolated protocol ComputerUseHelperV2Spawning: Sendable {
     func spawn(executable: URL, environment: [String: String], logPath: String) throws -> ComputerUseHelperV2Child
     /// SIGTERM to this exact pid, then reap it.
     func terminate(_ pid: pid_t)
+    /// Calls `onExit` once, on the main actor, when `pid` exits; the returned
+    /// closure cancels the watch (`ComputerUseHelperExitWatch`).
+    @MainActor func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void
 }
 
 /// posix_spawn with macOS responsibility disclaimed, so the helper is its
@@ -135,6 +138,10 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
         guard pid > 0 else { return }
         kill(pid, SIGTERM)
         Self.reap(pid)
+    }
+
+    @MainActor func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
+        ComputerUseHelperExitWatch.watch(pid, onExit: onExit)
     }
 
     /// Reaps the child off the main thread so it never stays a zombie.

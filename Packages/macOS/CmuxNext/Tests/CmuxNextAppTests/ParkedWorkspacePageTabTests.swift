@@ -9,7 +9,8 @@ import Testing
 /// panes are the tree as of parking. A page tab opened there without changing the view (a script's
 /// `openSettings`, a background show) must go into a pane the MODEL has, never into a pane the
 /// daemon closed meanwhile.
-@MainActor @Suite(.serialized) struct ParkedWorkspacePageTabTests {
+@MainActor @Suite(.serialized, .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+struct ParkedWorkspacePageTabTests {
     @Test func aPageTabOpenedUnderATopPageGoesToAPaneTheModelHas() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             let window = try #require(services.windows.active)

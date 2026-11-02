@@ -12,7 +12,7 @@ import wasmModule from "./optchat-wasm/optchat_wasm_bg.wasm";
  */
 
 let initialized = false;
-function ensureWasm(): void {
+export function ensureWasm(): void {
   if (initialized) return;
   initSync({ module: wasmModule });
   initialized = true;
@@ -146,6 +146,15 @@ export class Memory {
     this.sql.exec(`INSERT INTO oc_checkpoint (id, json) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET json = excluded.json`, core.checkpoint());
   }
 
+  /** Counts the times the log was cut back (an import's undo): a node built before the cut covers rows that are gone. */
+  generation = 0
+
+  /** The log was cut back in storage (memory-import.ts `undoBatch`): re-fold, and make every node still being built stale. */
+  rewound(): void {
+    this.generation++
+    this.reload()
+  }
+
   /** Re-folds from storage, as after a restart (tests use it to compare views). */
   reload(): void {
     this.core.free();
@@ -195,7 +204,9 @@ export class Memory {
   }
 
   /** Stores a model-built node and refits the view. */
-  complete(l: number, i: number, text: string): void {
+  complete(l: number, i: number, text: string, generation: number = this.generation): void {
+    // Built over rows an undo has since removed: dropped (the compactor builds the node again from what stays).
+    if (generation !== this.generation) return
     this.saveNode(l, i, text);
     this.core.completeIn(l, i, text, this.store);
     this.saveCheckpoint();
@@ -285,6 +296,15 @@ export class Memory {
       const msg = (e as Error).message ?? String(e);
       return msg.startsWith("No line") ? msg : `No line ${id}+${n}.`;
     }
+  }
+
+  /**
+   * A memory tool through the kernel (chief-kernel `call_pure`: `zoom`, `date`), `args_json` and `ctx_json`
+   * (`{utc_offset_minutes}`) as the kernel takes them. Throws for any other tool (the host runs it).
+   */
+  callPure(name: string, argsJson: string, ctxJson: string): string {
+    const date = (i: number) => this.sql.exec<{ date: string }>(`SELECT date FROM oc_message WHERE i = ?`, i).toArray()[0]?.date;
+    return this.core.callPure({ ...this.store, date }, name, argsJson, ctxJson);
   }
 
   /** Local date and time of message `id`. */

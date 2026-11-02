@@ -8,11 +8,14 @@ impl Hub {
     /// person asked: a session in the home folder, `/` or a privacy-protected
     /// folder is never warmed (`protected_folders`, LAUNCH-NO-TCC-PROMPTS). `web`: asked by a Web
     /// client (or a peer forwarding for one), for which an auto-trust rule is no Trust answer.
+    /// `owner`: asked by the person's own client (`vm_boundary::owner`); no other caller starts
+    /// a session at its owner's VM boundary.
     pub async fn warm_sessions(
         self: &Arc<Self>,
         requested: &[String],
         limit: usize,
         web: bool,
+        owner: bool,
     ) -> Vec<Value> {
         // `sessions()` is newest first already; filtering keeps that order.
         let candidates: Vec<_> = self
@@ -25,6 +28,12 @@ impl Hub {
         for session in candidates {
             let cwd = session.meta().cwd.to_string_lossy().into_owned();
             if !seen_cwds.insert(cwd.clone()) || warmed.len() >= limit {
+                continue;
+            }
+            // A session at its owner's VM boundary starts only for the owner's own clients
+            // (`vm_boundary.rs`).
+            if session.meta().vm_boundary && !owner {
+                tracing::info!(session = %session.id, "not warmed: at its owner's VM boundary");
                 continue;
             }
             if let Some(reason) = crate::protected_folders::unasked_refusal(&session.meta().cwd) {
@@ -46,7 +55,7 @@ impl Hub {
     /// Whether the folder-trust gate lets `session`'s agent work: always when
     /// the gate is off; else only for a Trust answer (an unreadable record is none).
     /// `web`: for a Web client, where an auto-trust rule is no answer.
-    async fn folder_trusted(&self, session: &Arc<Session>, web: bool) -> bool {
+    pub(super) async fn folder_trusted(&self, session: &Arc<Session>, web: bool) -> bool {
         let Some(paths) = self.trust_gate() else { return true };
         let meta = session.meta();
         let cwd = meta.cwd.to_string_lossy().into_owned();

@@ -86,8 +86,8 @@ import UserNotifications
     @Test func previewsOffShowNoPayloadButtons() {
         var hidden = question
         hidden.previews = false
-        #expect(PushActions().extensionActions(for: hidden).isEmpty)
-        #expect(!PushActions().extensionActions(for: question).isEmpty)
+        #expect(PushActions().extensionActions(for: hidden) == nil)
+        #expect(PushActions().extensionActions(for: question)?.isEmpty == false)
         // Snapshots load only while the phone is unlocked, whatever previews says.
         #expect(PushForm.loadsSnapshot(unlocked: true) && !PushForm.loadsSnapshot(unlocked: false))
     }

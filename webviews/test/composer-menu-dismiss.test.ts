@@ -10,7 +10,7 @@
 // - A press anywhere else only closes the menu: nothing under it is clicked (the mic does not start
 //   dictation, the field takes no click), as a macOS menu swallows the click that dismisses it.
 // - Escape closes the menu and puts the keyboard back on its chip, with the chip's focus ring.
-// - Picking a permission mode, or a level in the model menu's Effort ›, hands the keyboard back to
+// - Picking a permission mode, or a level (the running model's effort dropdown, else the Effort ›), hands the keyboard back to
 //   the prompt.
 //
 // Real Chromium and WebKit (the app's engine) with real pointer events, on the gallery stage at
@@ -137,30 +137,41 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           .map(([name]) => name),
       names.map((name) => [name, chip(name)] as const),
     );
-  /** Waits until the chips whose menu is open are `want` and every menu has stopped moving (a
-   *  closed one has faded out and left), then returns the chips whose menu is open. If that never
-   *  comes, it returns the state it stopped at, for the expect to show. */
+  /** Waits for each requested chip's actual popup and for every menu to stop moving (a
+   *  closed one has faded out and left), then returns the chips whose menu is open. */
   const settle = async (page: Page, names: string[], want: string[]) => {
-    await page
-      .waitForFunction(
-        ([pairs, want]) => {
-          const open = pairs
-            .filter(([, selector]) => {
-              const button = document.querySelector(selector);
-              return button?.getAttribute("aria-expanded") === "true" || button?.hasAttribute("data-popup-open");
-            })
-            .map(([name]) => name);
-          if (open.join("\n") !== want.join("\n")) return false;
-          const popups = [...document.querySelectorAll(".ui-popup")];
-          if (want.length === 0 ? popups.length > 0 : popups.length === 0) return false;
-          return popups.every((popup) =>
-            popup.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running"),
-          );
-        },
-        [names.map((name) => [name, chip(name)] as const), want] as const,
-        { timeout: 5_000 },
-      )
-      .catch(() => {});
+    await page.waitForFunction(
+      ([pairs, want]) => {
+        const open = pairs
+          .filter(([, selector]) => {
+            const button = document.querySelector(selector);
+            return button?.getAttribute("aria-expanded") === "true" || button?.hasAttribute("data-popup-open");
+          })
+          .map(([name]) => name);
+        if (open.join("\n") !== want.join("\n")) return false;
+        const popups = [...document.querySelectorAll(".ui-popup")];
+        if (want.length === 0 ? popups.length > 0 : popups.length === 0) return false;
+        for (const name of want) {
+          const button = document.querySelector(pairs.find(([label]) => label === name)![1])!;
+          const controls = button.getAttribute("aria-controls");
+          const controlled = controls ? document.getElementById(controls) : null;
+          const popup =
+            controlled?.closest(".ui-popup") ??
+            popups.find(
+              (popup) =>
+                popup.getAttribute("aria-label") === name ||
+                (button.id && popup.getAttribute("aria-labelledby") === button.id),
+            );
+          if (!popup || popup.getBoundingClientRect().height === 0 || getComputedStyle(popup).opacity !== "1")
+            return false;
+        }
+        return popups.every((popup) =>
+          popup.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running"),
+        );
+      },
+      [names.map((name) => [name, chip(name)] as const), want] as const,
+      { timeout: 5_000 },
+    );
     return expanded(page, names);
   };
   /** Waits until the open menus have stopped moving, so a press lands where their rows rest. */
@@ -179,6 +190,38 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       const box = document.querySelector(selector)!.getBoundingClientRect();
       return !!document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest(selector);
     }, chip(name));
+
+  for (const [engine] of engines)
+    for (const width of [760, 300])
+      test(`${engine}: Folder and Environment switch on the same press at ${width} px`, async () => {
+        const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 600 } });
+        try {
+          await page.goto(stageURL("agent-pane.composer-context", "environment-picker", width));
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+            timeout: 120_000,
+          });
+          const folder = 'button[aria-haspopup][aria-label="Folder"]';
+          const environment = 'button[aria-haspopup][aria-label^="Environment:"]';
+          // The fixture starts with Environment open. Each pointer press must both close
+          // that popover and open its sibling, including at the narrow icon-only width.
+          for (const [from, to] of [
+            [environment, folder],
+            [folder, environment],
+          ] as const) {
+            await page.locator(`${from}[aria-expanded="true"]`).waitFor();
+            await pressAt(page, to);
+            await page.locator(`${to}[aria-expanded="true"]`).waitFor();
+            expect(await page.locator(from).getAttribute("aria-expanded")).toBe("false");
+            // Closing may fade. The new trigger must be open before that old surface leaves.
+            await page
+              .locator(from === environment ? ".acpmux-env-popover" : ".acpmux-folder-popover:not(.acpmux-env-popover)")
+              .waitFor({ state: "detached" });
+            expect(await page.locator('.ui-popup input[role="combobox"]:visible').count()).toBe(1);
+          }
+        } finally {
+          await page.close();
+        }
+      });
 
   for (const [engine] of engines)
     for (const width of [760, 300])
@@ -284,7 +327,20 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
             const page = await open(engine, stage, width);
             await pressAt(page, chip(name));
             await settle(page, stage.chips, [name]);
-            if (name === "Model") {
+            // Where the caller picks model and effort together (New Tab), the running model's effort
+            // is a side dropdown beside its row (#27948): its effort item opens the levels.
+            const sideEffort = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
+            const sideLevel = '.acpmux-quick-effort-menu [role="menuitemradio"][aria-checked="false"]';
+            if (name === "Model")
+              await page.locator(`${sideEffort}, .acpmux-quick-sub:has-text("Effort")`).first().waitFor();
+            if (name === "Model" && (await page.locator(sideEffort).count()) > 0) {
+              // A submenu trigger opens on hover or from the keyboard (Base UI ignores a press while it
+              // opens on hover): hover it, then press a level in its dropdown.
+              await page.locator(sideEffort).first().hover();
+              await page.locator(sideLevel).first().waitFor();
+              await menusAtRest(page);
+              await pressAt(page, sideLevel);
+            } else if (name === "Model") {
               // The level rows sit in the model menu's Effort › submenu, the popup with no submenu row.
               await pressAt(page, '.acpmux-quick-sub:has-text("Effort")');
               await page.locator('[role="menu"]:not(:has(.acpmux-quick-sub)) [role="menuitemradio"]').first().waitFor();

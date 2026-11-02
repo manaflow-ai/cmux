@@ -42,7 +42,7 @@ fn open_options() -> std::fs::OpenOptions {
 
 /// The file's bytes when it is a regular file of this user within the size
 /// bound, read through one handle (no symlink, no swap after the check).
-pub(super) fn read_trusted(path: &Path) -> Option<Vec<u8>> {
+pub(in crate::server) fn read_trusted(path: &Path) -> Option<Vec<u8>> {
     let file = open_options().read(true).open(path).ok()?;
     let meta = file.metadata().ok()?;
     if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
@@ -61,8 +61,14 @@ pub(super) fn read_trusted(path: &Path) -> Option<Vec<u8>> {
     (bytes.len() as u64 <= MAX_FILE_BYTES).then_some(bytes)
 }
 
-/// Writes `records` as `directory/name`, owner-only and atomically.
-pub(super) fn save<T: Serialize>(directory: &Path, name: &str, records: &T) -> std::io::Result<()> {
+/// Writes `records` as `directory/name`, owner-only and atomically, and durably: the directory is
+/// synced after the rename, so a host crash after `Ok` never brings back the file before it (an
+/// acknowledged revoke undone, a spent use restored).
+pub(in crate::server) fn save<T: Serialize>(
+    directory: &Path,
+    name: &str,
+    records: &T,
+) -> std::io::Result<()> {
     let bytes = serde_json::to_vec(records)?;
     let path = directory.join(name);
     let temporary = directory.join(format!("{name}.{}.tmp", std::process::id()));
@@ -81,7 +87,10 @@ pub(super) fn save<T: Serialize>(directory: &Path, name: &str, records: &T) -> s
         file.write_all(&bytes)?;
         file.sync_data()?;
         drop(file);
-        std::fs::rename(&temporary, &path)
+        std::fs::rename(&temporary, &path)?;
+        #[cfg(unix)]
+        std::fs::File::open(directory)?.sync_all()?;
+        Ok(())
     })();
     if written.is_err() {
         let _ = std::fs::remove_file(&temporary);

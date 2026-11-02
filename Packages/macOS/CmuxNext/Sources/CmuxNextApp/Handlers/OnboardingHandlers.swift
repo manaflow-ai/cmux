@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
@@ -15,6 +16,7 @@ enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
+        BrowserImportGate(host: services).install(into: registry) { BrowserImportOfferStrings.turnedOff }
         registry.bind("browserProfile.removeImportedData", run: { invocation in
             let record = try context.browserProfile(invocation), sync = services.onboarding.historySync
             Task {  // task-owner: one removal the person asked for; the toast reports it, or that it failed
@@ -41,8 +43,9 @@ enum OnboardingHandlers {
                                               terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self))
                     }
                 }
+                // The caller's acpmux session, by id (O(1)): its title and latest reply.
                 return CookieImportRequester(invocation, among: tabs) { session in
-                    services.chatsFeed?.chats.first { $0.sessionID == session }.map { ($0.title, $0.preview) }
+                    services.agentLanes.lane(session).map { ($0.title, $0.preview) }
                 }
             },
             target: { invocation in
@@ -54,6 +57,8 @@ enum OnboardingHandlers {
             track: { registry.track($0) },
             destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
+        // Brings the Import Cookies banner back (Don't Show Again undone) and shows it; it imports nothing.
+        registry.bindEffect("browser.showCookieImportBanner", effect: { _ in services.onboarding.browserImportOffer.showNow(); return .done })
         // Import suggestion cards (Settings › Import only): the same import run as the window's.
         ImportSuggestionsCenter.shared.bind(into: registry, host: importCardsHost(services))
         // Every entrypoint previews the exact snapshot and waits for the

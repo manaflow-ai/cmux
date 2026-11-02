@@ -39,6 +39,10 @@ icon is one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
 svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS
-  <selector> is an id (screen_…), current, or an exact name. Prefix name:
-  to a name that looks like an id or a command word.
+  <selector> is an id (screen_…), caller, current, or an exact name. Prefix
+  name: to a name that looks like an id or a command word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";

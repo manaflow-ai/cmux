@@ -124,8 +124,12 @@ def procargs(pid):
 
 
 class TagTeardown:
-    def __init__(self, app, acpmux_home=None, acpmux_socket=None, log=None):
+    def __init__(self, app, acpmux_home=None, acpmux_socket=None, log=None, acpmux_home_ok=None):
         self.app = os.path.realpath(app).rstrip("/")
+        # acpmux_home_ok(home): False keeps step 1 from sending `daemon shutdown` to that home (a daemon of the bundle
+        # in a home that is not the tag's own may be a client of another daemon there); step 3 still stops the
+        # bundle's own process by its PID. None: every home.
+        self.acpmux_home_ok = acpmux_home_ok
         self.bin = os.path.join(self.app, "Contents/Resources/bin")
         self.acpmux_home = acpmux_home
         self.acpmux_socket = acpmux_socket
@@ -302,6 +306,9 @@ class TagTeardown:
             if found.get("ACPMUX_HOME"):
                 homes.add((found["ACPMUX_HOME"], found.get("ACPMUX_SOCKET")))
         for home, sock in homes:
+            if self.acpmux_home_ok is not None and not self.acpmux_home_ok(home):
+                self.log(f"teardown: no acpmux daemon shutdown in ACPMUX_HOME={home}: not a home of this tag")
+                continue
             env = dict(os.environ, ACPMUX_HOME=home)
             if sock:
                 env["ACPMUX_SOCKET"] = sock

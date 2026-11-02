@@ -10,6 +10,7 @@ use crate::protocol::{DriverError, DriverEvent};
 use crate::provider::LeaseState;
 use crate::provider_link::ProviderDriver;
 use crate::tab_source::{TabCall, TabRow, TabSource};
+use cmux_json::JsonSet as _;
 use serde_json::Value;
 use std::sync::{Arc, PoisonError};
 
@@ -170,7 +171,7 @@ impl ProviderDriver {
     ) -> Result<Value, DriverError> {
         let tab = self.cef_tab(target_id, agent_source)?;
         let mut params = params.clone();
-        params["targetId"] = Value::String(tab.cdp_id.clone());
+        params.set("targetId", Value::String(tab.cdp_id.clone()));
         let mut result = tab.driver.call(method, &params)?;
         rename_target(&mut result, &tab.cdp_id, target_id);
         Ok(result)

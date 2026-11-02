@@ -3,6 +3,15 @@
 html[data-surface] {
   background: transparent;
 }
+/* The Updated card's host draws the card's glass natively under this page (SidebarUpdatedCardHost:
+   CardSurfaceView, every sidebar card's glass; Leo 2026-10-30: "I don't like the non-glassness").
+   The page draws the words only: the card has no glass of its own (surface.tsx, `glass={false}`),
+   and the html has no fill, not even the one the theme bootstrap paints with !important in an
+   opaque window (WebTheme.bootstrapScript), which covered the native glass. Under Reduce
+   Transparency the host's surface is the opaque fill. */
+html[data-surface="updated"] {
+  background: transparent !important;
+}
 html[data-surface] body {
   overflow: hidden;
 }

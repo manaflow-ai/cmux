@@ -265,6 +265,7 @@ export function resolveVmImage(
   env: VmRuntimeEnv = process.env,
   options: VmImageResolveOptions = {},
 ): VmImageSelection {
+  if (provider === "gcp") return resolveGcpImage(requestedImage, env, options);
   const kind = options.kind;
   if (kind !== undefined && !isVmImageKind(kind)) {
     throw new VmImageConfigError({
@@ -296,6 +297,32 @@ export function resolveVmImage(
     allowedImages: listVmImageIds(provider),
     reason,
   });
+}
+
+/** GCP images live in the user's project, so Labs uses an explicit image URI or deployment default. */
+function resolveGcpImage(
+  requestedImage: string | undefined,
+  env: VmRuntimeEnv,
+  options: VmImageResolveOptions,
+): VmImageSelection {
+  const image = requestedImage?.trim() || env.CMUX_VM_GCP_IMAGE?.trim();
+  if (!image) {
+    throw new VmImageConfigError({
+      provider: "gcp",
+      kind: options.kind,
+      source: requestedImage ? "request" : "default",
+      allowedImages: [],
+      reason: "CMUX_VM_GCP_IMAGE is not configured",
+    });
+  }
+  return {
+    provider: "gcp",
+    image,
+    imageVersion: null,
+    manifestEntry: null,
+    kind: options.kind ?? "base",
+    size: null,
+  };
 }
 
 function resolveRequested(

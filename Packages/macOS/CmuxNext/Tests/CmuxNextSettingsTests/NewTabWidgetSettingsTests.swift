@@ -22,6 +22,17 @@ struct NewTabWidgetSettingsTests {
         #expect(Self.parse(["greeting": .bool(true), "chats": .bool(true)]).newTabWidgets.ids == ["greeting", "chats"])
     }
 
+    /// New Tab picks open, ask or search itself (#22816): an old config's switch key is retired,
+    /// so loading stays clean and Settings/agent writes cannot expose it again.
+    @Test func theRetiredModeSwitchKeyIsIgnored() {
+        let snapshot = Self.parse(["modeSwitch": .bool(true)])
+        #expect(snapshot.newTabWidgets.ids == [])
+        #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
+        #expect(snapshot.retiredKeys == ["tabs.newTabWidgets.modeSwitch"])
+        #expect(SettingsSchema.descriptor(for: ["tabs", "newTabWidgets", "modeSwitch"]) == nil)
+        #expect(!SettingsSchema.agentSettableKeys.contains("tabs.newTabWidgets.modeSwitch"))
+    }
+
     @Test func eachWidgetTurnsOnAndTheGreetingOff() {
         let snapshot = Self.parse([
             "greeting": .bool(false), "projects": .bool(true), "actions": .bool(true),

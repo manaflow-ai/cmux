@@ -18,6 +18,8 @@ nonisolated enum RoomStrings {
     /// The toast after Delete Space (RECOVERABLE-BY-DEFAULT).
     static func deletedToast(_ name: String) -> String { String(format: text("rooms.deletedToast", "Space “%@” deleted"), name) }
     static var delete: String { text("rooms.delete", "Delete") }
+    /// The name a New Incognito Space gets when none is given.
+    static var incognitoName: String { text("rooms.incognitoName", "Incognito") }
     static func noRoom(_ id: String) -> String { String(format: text("rooms.refusal.noRoom", "no space %@"), id) }
     static var defaultCannotBeDeleted: String { text("rooms.refusal.defaultCannotBeDeleted", "the Default space cannot be deleted") }
     static var roomAtEdge: String { text("rooms.refusal.atEdge", "the space is already at the edge") }
@@ -29,6 +31,17 @@ nonisolated enum RoomStrings {
     static var defaultsArgumentRequired: String {
         text("rooms.refusal.defaultsRequired", "a cwd or env argument is required; pass both empty to clear the defaults")
     }
+    static var defaultsMustBeText: String {
+        text("rooms.refusal.defaultsMustBeText", "cwd and env take text; pass one empty (--cwd= or --env=) to clear it")
+    }
+    static var cwdMustBeAbsolute: String { text("rooms.refusal.cwdMustBeAbsolute", "cwd must be an absolute directory or start with ~") }
+    static func clearDefaultsTitle(_ name: String) -> String {
+        String(format: text("rooms.clearDefaultsTitle", "Clear the terminal defaults of “%@”?"), name)
+    }
+    static var clearDefaultsBody: String {
+        text("rooms.clearDefaultsBody", "New terminals in this space stop starting in its directory and stop getting its environment variables.")
+    }
+    static var clearDefaults: String { text("rooms.clearDefaults", "Clear") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "Rooms", bundle: .module)
@@ -65,6 +78,24 @@ enum RoomConfirmation {
         let body = [RoomStrings.deleteClosesBody(closing.count), ConfirmationStrings.stillRunning(programs.joined(separator: ", "))]
         return DestructiveConfirmation.Prompt(title: RoomStrings.deleteTitle(room.name), body: body.joined(separator: "\n"),
                                               button: RoomStrings.delete, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
+    }
+
+    /// Clear Space Terminal Defaults…: asked while the space has defaults; one with none
+    /// has nothing at stake and runs at once. The app's mirror lags a reply, so a space it shows
+    /// without defaults still asks while a defaults run for it is in flight, and asks the daemon
+    /// (whose defaults the clear acts on) before running unasked; a daemon that does not answer asks.
+    @MainActor
+    static func clearDefaultsPrompt(_ invocation: ActionInvocation, _ context: AppActionContext) async -> DestructiveConfirmation.Prompt? {
+        guard let room = try? context.room(invocation) else { return nil }
+        let prompt = DestructiveConfirmation.Prompt(title: RoomStrings.clearDefaultsTitle(room.name), body: RoomStrings.clearDefaultsBody,
+                                                    button: RoomStrings.clearDefaults)
+        if let defaults = room.defaults, !defaults.isEmpty { return prompt }
+        if context.services.roomDefaults.inFlight(room.id) { return prompt }
+        guard let connection = context.services.machines.local.connection else { return nil }
+        let id = room.id
+        guard let personal = try? await connection.listPersonal() else { return prompt }
+        let held = personal.profiles.first(where: { $0.id == id })?.defaults
+        return (held?.isEmpty ?? true) ? nil : prompt
     }
 
     static let toastID = "space-deleted"

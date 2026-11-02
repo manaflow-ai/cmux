@@ -14,7 +14,7 @@
   --ve-surface: var(--cmux-diff-solid-bg, var(--cmux-elevated-background, Canvas));
   --ve-error: var(--cmux-app-danger, light-dark(#b42318, #ff8a80));
   --ve-git: var(--cmux-app-warning, light-dark(#c4501b, #f0884f));
-  --ve-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --ve-font: var(--font-ui);
   color-scheme: light dark;
 }
 

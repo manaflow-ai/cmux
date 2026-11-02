@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import path from "node:path";
+import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
 import { programChecksCommand, programProblems, secretScanCommand } from "../scripts/cmux-vm-image/smoke";
+import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
 import { runChild } from "./helpers/run-child";
 
 const lock = readInputsLock();
@@ -39,7 +41,9 @@ describe("cmux VM image guest commands", () => {
   });
 
   test("program check parsing: exit code, store path and version", () => {
-    const ok = lock.programs.flatMap((p) => Object.keys(p.bin).map((c) => `${c} 0 ${CURRENT_BIN}/${c} :: ${p.expect ?? "x"} ok`)).join("\n");
+    // gh resolves to the GitHub shim, which runs the store's gh (3ebb4a8145d9, github-auth.ts).
+    const resolves = (command: string) => (command === "gh" ? GH_SHIM : `${CURRENT_BIN}/${command}`);
+    const ok = lock.programs.flatMap((p) => Object.keys(p.bin).map((c) => `${c} 0 ${resolves(c)} :: ${p.expect ?? "x"} ok`)).join("\n");
     expect(programProblems(lock, ok)).toEqual([]);
     const bad = ok.replace(`claude 0 ${CURRENT_BIN}/claude`, "claude 127 /usr/local/bin/claude");
     expect(programProblems(lock, bad)).toEqual([`claude: exit 127: ${lock.programs.find((p) => p.name === "claude")!.expect} ok`, `claude: resolves to /usr/local/bin/claude, expected ${CURRENT_BIN}/claude`]);
@@ -73,5 +77,38 @@ describe("Freestyle key by path", () => {
     expect(freestyleApiKey({ FREESTYLE_API_KEY: "direct", FREESTYLE_API_KEY_FILE: join(dir, "k") })).toBe("direct");
     expect(() => freestyleApiKey({ FREESTYLE_API_KEY_FILE: join(dir, "empty") })).toThrow(/empty/);
     expect(() => freestyleApiKey({})).toThrow(/FREESTYLE_API_KEY_FILE/);
+  });
+});
+
+// Bake run 41018544354 (2026-10-30): snapshot.ubuntu.com answered 503 for every InRelease. `apt-get update`
+// still exited 0 (warnings only), apt-cache then knew none of the pins, and the bake failed on the first
+// pin alphabetically ("no size for acl=..."), which read like a bad lock.
+describe("cmux VM image apt index", () => {
+  test("an index outage gets one bounded retry with backoff before failing", async () => {
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout \"${timeout_s}s\" apt-get update -q --error-on=any");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=180");
+    expect(bake.APT_UPDATE_COMMAND).toContain("apt_update_ok=1; break;");
+    expect(bake.APT_UPDATE_COMMAND).not.toContain("then exit 0");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=30");
+    expect(bake.APT_UPDATE_COMMAND).toContain("sleep 5");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout 60s apt-get update -q --error-on=any");
+    expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
+    const payload = bake.APT_UPDATE_COMMAND.match(/printf %s ([A-Za-z0-9+/=]+) \| base64 -d/)?.[1];
+    expect(payload).toBeDefined();
+    const fallbackSources = Buffer.from(payload!, "base64").toString("utf8");
+    expect(fallbackSources).toContain("archive.ubuntu.com/ubuntu");
+    expect(fallbackSources).toContain("security.ubuntu.com/ubuntu");
+    await bashSyntax(bake.APT_UPDATE_COMMAND);
+  });
+
+  test("an empty index is reported as one apt index problem, not the first pin", () => {
+    const pins = { acl: "2.3.2-1build1.1", curl: "8.5.0-2ubuntu10.16", git: "1:2.43.0-1ubuntu7.4" };
+    expect(() => bake.aptDownloadBatches(pins, new Map())).toThrow(
+      "apt index has no size for 3 of 3 locked pins (acl=2.3.2-1build1.1, curl=8.5.0-2ubuntu10.16, git=1:2.43.0-1ubuntu7.4)",
+    );
+    expect(() => bake.aptDownloadBatches(pins, new Map([["acl=2.3.2-1build1.1", 1], ["git=1:2.43.0-1ubuntu7.4", 1]]))).toThrow(
+      "apt index has no size for 1 of 3 locked pins (curl=8.5.0-2ubuntu10.16)",
+    );
+    expect(bake.aptDownloadBatches(pins, new Map(Object.entries(pins).map(([n, v]) => [`${n}=${v}`, 1])))).toHaveLength(1);
   });
 });

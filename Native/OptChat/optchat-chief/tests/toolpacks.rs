@@ -42,7 +42,7 @@ fn put(dir: &Path, name: &str, text: &str) {
 #[test]
 fn shipped_packs_parse_and_github_keeps_a607s_constants() {
     let names: Vec<&str> = toolpacks::BUILTIN.iter().map(|b| b.0).collect();
-    assert_eq!(names, ["browser", "cmux", "github", "vercel"]);
+    assert_eq!(names, ["browser", "cmux", "gdocs", "github", "vercel"]);
     for (name, toml, skill) in toolpacks::BUILTIN {
         let p = toolpacks::parse(toml).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(p.name, name);
@@ -95,7 +95,7 @@ fn own_beats_shared_beats_shipped_and_a_users_copy_is_kept() {
     assert_eq!(toolpacks::chief_dir(&home), home.join("toolpacks"));
 
     let written = toolpacks::install_builtin(&shared).unwrap();
-    assert_eq!(written, ["browser", "cmux", "github", "vercel"]);
+    assert_eq!(written, ["browser", "cmux", "gdocs", "github", "vercel"]);
     assert!(
         toolpacks::install_builtin(&shared).unwrap().is_empty(),
         "no rewrite"

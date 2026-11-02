@@ -42,9 +42,10 @@ pub use sessions::{
 
 /// Largest profile file read, in bytes.
 pub const MAX_PROFILE_BYTES: u64 = 64 * 1024;
-/// Largest icon file accepted, in bytes.
-pub const MAX_ICON_BYTES: u64 = 256 * 1024;
-/// Built-in icon names a profile may use instead of a file.
+pub use super::harness_icon::MAX_ICON_BYTES;
+use super::harness_icon::{IconValue, LoadedIcon};
+/// Built-in icon names a profile may use instead of a file (any agent mark id
+/// from design/agent-icons works too; see `harness_icon`).
 pub const BUILTIN_ICONS: &[&str] =
     &["claude", "openai", "codex", "opencode", "pi", "gemini", "meta", "terminal", "generic"];
 /// Effort ids a profile may declare (the catalog's protocol ids).
@@ -226,9 +227,13 @@ pub struct ProfileMeta {
     pub source_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
-    /// A built-in icon name, or an absolute path to the icon file.
+    /// The `icon` value: an agent mark id, a glyph, an emoji, an SF Symbol
+    /// name, or an absolute path to the icon file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// The parsed icon and a file's bytes, for `iconSpec` (`harness_icon`).
+    #[serde(skip)]
+    pub loaded_icon: LoadedIcon,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Capabilities>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -775,24 +780,35 @@ fn build(
     if models.iter().any(|m| m.id().trim().is_empty()) {
         errors.push(Diagnostic::error(&shown, idr, "a model has an empty id".into(), None));
     }
-    let icon = match file.icon {
+    let mut loaded_icon = LoadedIcon::default();
+    let icon = match file.icon.as_deref().map(IconValue::parse) {
         None => None,
-        Some(icon) if BUILTIN_ICONS.contains(&icon.as_str()) => Some(icon),
-        Some(icon) if icon.contains('.') || icon.contains('/') => match check_icon(path, &icon) {
-            Ok(p) => Some(p),
+        Some(Ok(IconValue::File(name))) => match super::harness_icon::read_icon_file(path, &name) {
+            Ok((abs, mime, data)) => {
+                loaded_icon = LoadedIcon {
+                    value: Some(IconValue::File(abs.clone())),
+                    image: Some((mime, data)),
+                };
+                Some(abs)
+            }
             Err(message) => {
                 errors.push(Diagnostic::error(&shown, idr, message, None));
                 None
             }
         },
-        Some(icon) => {
+        Some(Ok(value)) => {
+            let wire = value.wire();
+            loaded_icon = LoadedIcon { value: Some(value), image: None };
+            Some(wire)
+        }
+        Some(Err(message)) => {
             warnings.push(Diagnostic::warning(
                 &shown,
                 idr,
-                format!("unknown built-in icon {icon:?}; the generic icon is shown"),
+                format!("{message}; cmux picks the icon"),
                 Some(format!(
-                    "use a file (icon = \"{id}.svg\") or one of {}",
-                    BUILTIN_ICONS.join(", ")
+                    "set it with `cmux harness icon {id} VALUE` (an emoji, an SF Symbol, an agent \
+                     mark or an .svg/.png file), or remove the icon line"
                 )),
             ));
             None
@@ -838,6 +854,7 @@ fn build(
         source_path: shown,
         display_name: file.name,
         icon,
+        loaded_icon,
         capabilities: file.capabilities,
         auth: file.auth,
         sessions: file.sessions,
@@ -846,22 +863,6 @@ fn build(
         hooks: file.hooks,
     };
     Ok((id, profile, meta, warnings))
-}
-
-/// The icon file next to the profile: absolute path when it is a small
-/// svg or png.
-fn check_icon(profile: &Path, icon: &str) -> Result<String, String> {
-    let dir = profile.parent().unwrap_or(Path::new("."));
-    let path = dir.join(icon);
-    let ext = path.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
-    if ext != "svg" && ext != "png" {
-        return Err(format!("icon {icon:?} must be an .svg or .png file"));
-    }
-    let meta = std::fs::metadata(&path).map_err(|_| format!("icon file {icon:?} is missing"))?;
-    if !meta.is_file() || meta.len() > MAX_ICON_BYTES {
-        return Err(format!("icon {icon:?} must be a file of at most {MAX_ICON_BYTES} bytes"));
-    }
-    Ok(path.to_string_lossy().into_owned())
 }
 
 pub fn valid_id(id: &str) -> bool {

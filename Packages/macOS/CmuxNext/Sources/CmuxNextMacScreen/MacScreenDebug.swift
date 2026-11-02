@@ -13,6 +13,16 @@ import CmuxScreenKit
 ///   `system_shortcuts` (the setting), `system_shortcuts_tap` (the tap is
 ///   installed) and `accessibility` (this Mac trusts cmux for Accessibility).
 /// - `open` {url?, pane?}: opens the record at `url` (default the home page) in a new Mac Screen tab.
+/// - `display_fps` {fps?, tab?}: the refresh rate each tab (or `tab`)
+///   reports to its Mac instead of its display's; no `fps` reports the
+///   display's own again. Returns the tabs as `state` does.
+/// - `quality` {quality, tab?}: the Quality menu's choice (auto, smooth,
+///   low, medium, high) for each tab (or `tab`), as the menu sets it.
+///
+/// Each streaming row also has `target_fps` (the rate the Mac says it
+/// streams at), `display_fps` (the rate this pane reported), and WebRTC's
+/// totals `frames_received`, `frames_decoded`, `frames_dropped` and
+/// `kilobytes_per_second`.
 extension MacScreenPages {
     /// Registers `debug.mac_screen` (development builds; nothing in Release).
     /// `openTab` opens a record in a new Mac Screen tab of the named pane (or
@@ -39,6 +49,17 @@ extension MacScreenPages {
             let url = params["url"]?.stringValue.flatMap(URL.init(string:)) ?? MacScreenRecord.homeURL
             guard MacScreenRecord.matches(url) else { return ["error": "url must be a cmux://mac-screen record"] }
             return open(url)
+        case "display_fps":
+            let fps = params["fps"]?.intValue
+            if let fps, !(1 ... 1000).contains(fps) { return ["error": "fps must be 1...1000"] }
+            for tab in tabs { tab.pane?.view.debugDisplayFrameRate = fps }
+            return ["tabs": .array(tabs.map(row))]
+        case "quality":
+            guard let quality = params["quality"]?.stringValue.flatMap(ScreenQuality.init(rawValue:)) else {
+                return ["error": "quality: auto, smooth, low, medium, high"]
+            }
+            for tab in tabs { tab.pane?.view.chrome.actions.setQuality(quality) }
+            return ["tabs": .array(tabs.map(row))]
         case "state":
             systemShortcuts.refreshAccessibility()
             return [
@@ -81,6 +102,12 @@ extension MacScreenPages {
             row["encoding"] = .string(session.stats.encoding)
             row["frame"] = .string("\(Int(session.frameSize.width))x\(Int(session.frameSize.height))")
             row["quality"] = .string(session.preferences.quality.rawValue)
+            row["target_fps"] = session.stats.targetFps.map { .number(Double($0)) } ?? .null
+            row["display_fps"] = session.displayMaximumFrameRate.map { .number(Double($0)) } ?? .null
+            row["frames_received"] = .number(session.stats.framesReceived)
+            row["frames_decoded"] = .number(session.stats.framesDecoded)
+            row["frames_dropped"] = .number(session.stats.framesDropped)
+            row["kilobytes_per_second"] = .number(session.stats.kilobytesPerSecond)
         }
         return .object(row)
     }

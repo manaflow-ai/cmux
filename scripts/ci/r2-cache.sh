@@ -44,7 +44,27 @@ fi
 namespace="v1/$platform"
 set_output() { if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "$1=$2" >> "$GITHUB_OUTPUT"; fi; }
 
+lan_cache="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lan_cache_fetch.py"
 fetch() { # <relative object path> <destination file>
+  # An archive comes from the site's LAN cache host first, through the mini's glaeda broker: the minis
+  # share one slow uplink, and the host fetches each object over it once. A miss there means the bucket
+  # has none; anything else (no broker, host down) falls through to the bucket.
+  if [[ "$1" == */objects/* ]] && [[ -S "${CMUX_LAN_CACHE_SOCKET:-$HOME/.local/state/glaeda/lan-fetch/fetch.sock}" ]] \
+      && command -v python3 >/dev/null 2>&1; then
+    # The broker writes into a directory of its own, removed afterwards: a broker that answers late can
+    # never touch the file the bucket download below writes.
+    local lan_status=1 lan_dir
+    if lan_dir="$(mktemp -d "${TMPDIR:-/tmp}/r2-cache-lan.XXXXXX")"; then
+      lan_status=0
+      python3 "$lan_cache" "${CI_CACHE_R2_PUBLIC_URL%/}" "$1" "$lan_dir/object" || lan_status=$?
+      if [[ "$lan_status" == 0 ]] && mv -f "$lan_dir/object" "$2"; then
+        rm -rf "$lan_dir"
+        return 0
+      fi
+      rm -rf "$lan_dir"
+      [[ "$lan_status" == 3 ]] && return 22
+    fi
+  fi
   curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
     --connect-timeout 15 --max-time 900 -o "$2" "${CI_CACHE_R2_PUBLIC_URL%/}/$1"
 }
@@ -65,7 +85,23 @@ unpack() { # <extension> <archive>
 }
 
 restore_key() { # <key>; returns 0 when the directory was restored
-  local candidate="$1" work extension
+  local candidate="$1" work extension target
+  # nightly_build_state.py links workspace cache paths to a persistent runner
+  # directory. Preserve that link and its populated contents: replacing it
+  # would silently move a multi-GiB cache back into the ephemeral workspace.
+  if [[ -L "$dir" ]]; then
+    target="$(python3 - "$dir" <<'PY2'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY2
+)"
+    if [[ -n "$(find "$target" -mindepth 1 -print -quit 2>/dev/null)" ]]; then
+      echo "r2-cache: preserving populated symlink target $target"
+      return 1
+    fi
+    dir="$target"
+  fi
   work="$(mktemp -d)"
   for extension in tar.zst tar.gz; do
     if [[ "$extension" == "tar.zst" ]] && ! command -v zstd >/dev/null 2>&1; then

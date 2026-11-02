@@ -87,6 +87,12 @@ impl Unit {
             ("ACPMUX_SOCKET".into(), home.join("s.sock").display().to_string()),
             ("ACPMUX_CATALOG_FETCH".into(), "0".into()),
             ("ACPMUX_LOGIN_ENV".into(), "0".into()),
+            // No session scope, so the test never sets the limits of the
+            // user's real `acpmuxsessions.slice` (`session_scope.rs`).
+            ("ACPMUX_SESSION_MEMORY_MB".into(), "0".into()),
+            ("ACPMUX_SESSION_MEMORY_HIGH_MB".into(), "0".into()),
+            ("ACPMUX_SESSION_TASKS_MAX".into(), "0".into()),
+            ("ACPMUX_SESSION_CPU_WEIGHT".into(), "0".into()),
         ]);
         if !scopes {
             env.push(("ACPMUX_HOST_SCOPES".into(), "0".into()));

@@ -181,4 +181,4 @@ jobs:
         with:
           name: feed-reply-evidence-${{ inputs.tag }}
           path: reply-evidence
-          retention-days: 14
+          retention-days: 3

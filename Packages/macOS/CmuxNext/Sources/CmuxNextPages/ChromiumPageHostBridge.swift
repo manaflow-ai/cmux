@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -38,6 +39,9 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     private var draining = false
     /// Number of messages answered (tests wait on it).
     public private(set) var answered = 0
+    /// Binding calls waiting for their parse off the main actor, in arrival order.
+    private var inbox: AsyncStream<String>.Continuation?
+    private var reading: Task<Void, Never>?
 
     /// - Parameters:
     ///   - page: The Chromium page.
@@ -122,6 +126,11 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         return scripts.map { "try {\n\($0)\n} catch (e) { console.error(e) }" }.joined(separator: "\n")
     }
 
+    nonisolated deinit {
+        inbox?.finish()
+        reading?.cancel()
+    }
+
     public func uninstall() {
         handler = nil
         scripts.removeAll()
@@ -129,19 +138,58 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     // MARK: Messages
 
-    /// Handles one raw DevTools message of the page: true when it was this bridge's binding call.
+    /// Handles one raw DevTools message of the page: true when it is a binding call for this
+    /// bridge. The method and binding name come from the message's bytes on the caller's actor;
+    /// the event and its payload (up to ``maximumPayloadBytes`` of JSON) are parsed off the main
+    /// actor, and the calls are answered in the order they arrived.
     @discardableResult
     public func receive(devToolsMessage json: String) -> Bool {
-        guard json.contains(Self.bindingName), let call = ChromiumPageHostWire.BindingCall(event: json),
-              call.name == Self.bindingName else { return false }
-        guard call.payload.utf8.count <= Self.maximumPayloadBytes,
-              let message = ChromiumPageHostWire.Message(payload: call.payload) else {
-            logger.error("page host binding payload refused")
-            return true
-        }
-        // task-owner: one message; its reply goes back to the context that sent it
-        Task { [weak self] in await self?.answer(message, context: call.contextID) }
+        let head = DevToolsMessageHead(json: json)
+        guard head.method == "Runtime.bindingCalled", head.contains(Self.bindingName) else { return false }
+        if inbox == nil { startReading() }
+        if case .dropped = inbox?.yield(json) { logger.error("page host binding call dropped: \(Self.maximumWaitingCalls) wait for their parse") }
         return true
+    }
+
+    /// The most binding calls that wait for their parse; a page that posts faster loses the newest.
+    nonisolated static let maximumWaitingCalls = 4096
+
+    private func startReading() {
+        let (calls, inbox) = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingOldest(Self.maximumWaitingCalls))
+        self.inbox = inbox
+        // task-owner: the bridge's binding-call reader; deinit finishes its stream and cancels it
+        reading = Task { [weak self] in
+            for await json in calls {
+                let parsed = await Self.parse(json)
+                guard let self else { return }
+                switch parsed {
+                case .call(let message, let context):
+                    // task-owner: one message; its reply goes back to the context that sent it
+                    Task { [weak self] in await self?.answer(message, context: context) }
+                case .refused:
+                    logger.error("page host binding payload refused")
+                case .other:
+                    break
+                }
+            }
+        }
+    }
+
+    /// A binding call, parsed off the caller's actor.
+    private nonisolated enum ParsedCall {
+        case call(ChromiumPageHostWire.Message, context: Int)
+        case refused
+        /// Another binding's call, or no binding call at all.
+        case other
+    }
+
+    /// The parse makes its result and keeps no reference to it, so the result is `sending`.
+    @concurrent
+    private nonisolated static func parse(_ json: String) async -> sending ParsedCall {
+        guard let call = ChromiumPageHostWire.BindingCall(event: json), call.name == bindingName else { return .other }
+        guard call.payload.utf8.count <= maximumPayloadBytes,
+              let message = ChromiumPageHostWire.Message(payload: call.payload) else { return .refused }
+        return .call(message, context: call.contextID)
     }
 
     private func answer(_ message: ChromiumPageHostWire.Message, context: Int) async {
@@ -177,7 +225,9 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     /// Installs `window.webkit.messageHandlers.<name>` for ``PageHostTrust/handlerName`` (with
     /// replies) and each of `handlers` (without) over the binding. Messages posted before the
-    /// binding exists wait in the page and go out once it appears.
+    /// binding exists wait in the page and go out once it appears. A call past
+    /// ``maximumPayloadBytes`` is never sent (``receive(devToolsMessage:)`` drops it unanswered):
+    /// it settles at once with a `cmux.protocol.too_large` error envelope.
     public static func pageScript(handlers: [String]) -> String {
         let names = ([PageHostTrust.handlerName] + handlers).map(ChromiumPageHostWire.jsonString).joined(separator: ", ")
         let replying = ChromiumPageHostWire.jsonString(PageHostTrust.handlerName)
@@ -189,6 +239,18 @@ public final class ChromiumPageHostBridge: PageHostBridge {
           const queue = [];
           let next = 1;
           let retries = 0;
+          const limit = \(maximumPayloadBytes);
+          // UTF-8 bytes, counted only when the text could be past the limit.
+          const tooLarge = (text) => {
+            if (text.length > limit) return true;
+            if (text.length * 3 <= limit) return false;
+            let bytes = 0;
+            for (let at = 0; at < text.length; at += 1) {
+              const code = text.charCodeAt(at);
+              bytes += code < 0x80 ? 1 : code < 0x800 || (code >= 0xd800 && code < 0xe000) ? 2 : 3;
+            }
+            return bytes > limit;
+          };
           const flush = () => {
             const binding = globalThis.\(bindingName);
             if (typeof binding !== "function") return false;
@@ -213,8 +275,13 @@ public final class ChromiumPageHostBridge: PageHostBridge {
                 if (name !== \(replying)) { send(JSON.stringify({ name, body })); return undefined; }
                 return new Promise((resolve) => {
                   const seq = next++;
+                  const text = JSON.stringify({ name, seq, body });
+                  if (tooLarge(text)) {
+                    resolve({ t: "err", id: body?.id, code: "cmux.protocol.too_large", message: "The request is too large to send." });
+                    return;
+                  }
                   pending.set(seq, resolve);
-                  send(JSON.stringify({ name, seq, body }));
+                  send(text);
                 });
               },
             };

@@ -81,6 +81,9 @@ pub enum Kind {
     NumberList(NumberRange),
     /// An object whose members are strings.
     StringMap,
+    /// An object of notification sound rules (Swift `soundRules`): each member
+    /// a sound name, or `{"sound", "volume", "events"}` (`NotificationSoundRule`).
+    SoundRules,
 }
 
 impl Kind {
@@ -104,6 +107,7 @@ impl Kind {
             Kind::StringList | Kind::OrderedChoices(_) => "string_list",
             Kind::NumberList(_) => "number_list",
             Kind::StringMap => "string_map",
+            Kind::SoundRules => "sound_rules",
         }
     }
 }
@@ -295,6 +299,7 @@ fn row(raw: Value) -> Result<Row, String> {
         "string_list" => Kind::StringList,
         "number_list" => Kind::NumberList(range()?),
         "string_map" => Kind::StringMap,
+        "sound_rules" => Kind::SoundRules,
         other => return Err(format!("{}: unknown kind {other}", parsed.key)),
     };
     let validation = match parsed.validation.as_str() {

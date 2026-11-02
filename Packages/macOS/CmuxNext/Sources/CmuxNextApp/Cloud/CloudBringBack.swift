@@ -8,8 +8,9 @@ import Foundation
 /// Bring Back Local (cmuxterm-hq#1874 slice 4): the one action behind the palette's "Bring Back
 /// Local", the Cloud chat tab and chat page right-click menus and `cmux cloud bring-back`; the
 /// reverse of ``CloudMove``. For a chat a move took from this Mac (``CloudMovedChats``) it merges
-/// the machine's folder back into the chat's folder here (`cmux link sync pull`, a three-way merge
-/// against what the move pushed), moves the chat from the machine's tab to this Mac in that folder
+/// the machine's folder back into the chat's folder here (`cmux link seed pull --or-copy`: a seeded
+/// git project as the seed's diff, a copied folder as `cmux link sync pull`'s three-way merge
+/// against what the move pushed; the CLI picks), moves the chat from the machine's tab to this Mac in that folder
 /// (`cmux link agent move`; this Mac's daemon takes it under its own guard, never with a VM's
 /// control), and opens it here: a workspace whose terminal runs in the folder and whose chat tab
 /// is bound to the session on this Mac. The machine's tab, whose chat closed, closes only then.
@@ -89,7 +90,7 @@ struct CloudBringBack {
     /// error that names no Retry keeps the one a stop saved before (cx-rppd.8).
     private func stopped(_ error: any Error, tab tabID: String, toast toastID: String) -> ActionWorkFailure {
         let retries = services.cloud.bringBackRetries
-        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudBringBackStrings.failed(String(describing: error)),
+        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudBringBackStrings.failed(CloudStrings.errorText(error)),
                                                      retry: retries[tabID])
         services.cloud.logger.error("cloud bring back failed: \(failure.message, privacy: .public)")
         retries[tabID] = failure.retry
@@ -136,10 +137,10 @@ struct CloudBringBack {
         }
         let pulled: CloudMoveCLI.Answer
         do {
-            pulled = try await cli.syncPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
+            pulled = try await cli.bringBackPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
         } catch {
             // Timed out or didn't launch: nothing moved, so Retry runs it again on this machine.
-            throw Failure(message: CloudBringBackStrings.syncFailed(name, String(describing: error)), retry: again)
+            throw Failure(message: CloudBringBackStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
         }
         guard pulled.ok else {
             // A conflict changed nothing here: the chat stays on the machine until the files are settled.
@@ -149,8 +150,10 @@ struct CloudBringBack {
         }
         let moved: CloudMoveCLI.Answer
         do {
+            // A running turn goes on here, with what it wrote on the machine since the pull above.
+            let sync = CloudMoveCLI.FrozenSync(pull: true, socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
             moved = try await cli.agentMove(from: machineSocket, surface: tab.surface.rawValue, to: localSocket, cwd: entry.localChat,
-                                            askFirst: askFirst)
+                                            sync: sync, askFirst: askFirst)
         } catch {
             services.cloud.logger.error("cloud bring back: link agent move: \(String(describing: error), privacy: .public)")
             throw Failure(message: CloudBringBackStrings.unresolved, retry: again)
@@ -187,7 +190,7 @@ struct CloudBringBack {
         do {
             try await show(shown)
         } catch {
-            throw Failure(message: CloudBringBackStrings.tabFailed(String(describing: error)), retry: .show(shown))
+            throw Failure(message: CloudBringBackStrings.tabFailed(CloudStrings.errorText(error)), retry: .show(shown))
         }
         if let host = shown.host, let moved = shown.movedSession { services.cloud.movedChats.forget(host: host, session: moved) }
         // Reopen Closed never offers it.
@@ -240,6 +243,8 @@ struct CloudBringBack {
         }
         if detail.contains("transfer.family") { return Failure(message: CloudBringBackStrings.familyBlocks) }
         switch answer.errorCode {
+        // The turn's last changes conflicted: the chat went back to the machine and goes on there.
+        case "sync_conflict": return Failure(message: CloudBringBackStrings.conflict(answer.conflicts), retry: retry)
         case "move_unresolved", CloudMoveCLI.badAnswer: return Failure(message: CloudBringBackStrings.unresolved, retry: retry)
         case "move_in_progress": return Failure(message: CloudMoveStrings.inProgress, retry: retry)
         case "source_unreachable", "target_unreachable": return Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)

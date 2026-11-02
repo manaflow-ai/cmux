@@ -1,7 +1,8 @@
 // The New Tab page's field follows the browser omnibar's pointer and hover rules (OmnibarPointer,
 // cx-d0d.80; Lawrence 2026-10-13): the I-beam over the whole field row at rest and while editing,
-// the arrow over its buttons, and no hover lift on the box: it is quiet, as Claude's and ChatGPT's
-// composers are (Leo 2026-10-18).
+// the arrow over its buttons (463e538e: every clickable thing shows the arrow, "change all pointers
+// back to cursor-default"), and no hover lift on the box: it is quiet, as Claude's and ChatGPT's composers are
+// (Leo 2026-10-18).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -95,12 +96,14 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
       }
       // A press beside the text focuses the field (wherever the I-beam shows, a click focuses).
       await page.mouse.click(row.x + 4, row.y + row.height / 2);
-      expect(await page.evaluate(() => document.activeElement?.classList.contains("nt-field"))).toBe(true);
+      // The field is MarkdownField: its editable element, inside `.nt-field`, takes the focus.
+      expect(await page.evaluate(() => document.activeElement?.closest(".nt-field") != null)).toBe(true);
     }
     const button = page.locator(".nt-box button").first();
     const box = (await button.boundingBox())!;
     const got = await cursorAt(page, box.x + box.width / 2, box.y + box.height / 2);
     console.log("new-tab-omnibar-pointer button:", JSON.stringify(got));
+    // The first button is the enabled model chip; every enabled button shows the arrow (463e538e).
     expect(got.cursor).toBe("default");
     await page.close();
   });
@@ -115,7 +118,7 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     await page.waitForFunction(() => document.querySelector(".nt-box")?.matches(":hover"));
     await eased(page);
     expect(await fill(page), "no hover lift (Leo 2026-10-18)").toBe(rest);
-    await page.locator(".nt-field").focus();
+    await page.locator(".nt-field .ProseMirror").focus();
     expect(await fill(page)).toBe(rest);
     await page.close();
   });

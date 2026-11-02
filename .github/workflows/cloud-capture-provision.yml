@@ -1,0 +1,60 @@
+name: Cloud capture account provision
+
+# Makes (or finds) the staging Cloud test account the team's Cloud capture runs sign in as, gives it a
+# fresh random password and the `pro` operator plan, and seals the email and password to the capture
+# environment's GitHub public key (scripts/ci/cloud_capture_provision.py). The run publishes only that
+# ciphertext (artifact `sealed-secrets`, 1 day); only GitHub can open it. A maintainer then stores it with
+# `python3 scripts/ci/sealed_secrets.py put sealed-secrets.json` (docs/ci-sealed-secrets.md).
+#
+# The password exists only inside the Provision step: masked as soon as it is made, sent to Stack, sealed
+# and dropped. Every run is a rotation, so rerunning is how the credential is replaced.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-capture-provision
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    # The staging server key is handed only to feat-cmux-next's own code.
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cloud-vm-staging
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The dispatched commit itself, never a later tip: the server key goes only to code that was reviewed.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+
+      - name: libsodium
+        run: |
+          set -euo pipefail
+          if ! ldconfig -p | grep -q 'libsodium\.so\.23'; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends libsodium23
+          fi
+
+      - name: Provision and seal
+        env:
+          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+        run: python3 scripts/ci/cloud_capture_provision.py --out "$RUNNER_TEMP/sealed-secrets.json"
+
+      - name: Upload the sealed bundle (ciphertext only)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sealed-secrets
+          path: ${{ runner.temp }}/sealed-secrets.json
+          retention-days: 1
+          if-no-files-found: error

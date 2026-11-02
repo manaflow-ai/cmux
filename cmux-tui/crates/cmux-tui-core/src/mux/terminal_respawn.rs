@@ -468,11 +468,13 @@ impl Mux {
             self.unregister_kitty_image_surface(old)?;
         }
         drop(old_runtime);
-        let (record, seed_source) = {
-            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            let record = registry.terminal_relaunch_record(&plan.terminal_id)?;
-            (record, self.previous_screen(&registry, &plan))
-        };
+        let record = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_relaunch_record(&plan.terminal_id)?;
+        // Its own short registry holds: the rebuild runs with no lock.
+        let seed_source = self.previous_screen(&plan);
         let launch = self.respawn_launch(&plan, record.as_ref(), seed_source, geometry);
         let workspace_key = {
             let mut registry =
@@ -593,9 +595,33 @@ impl Mux {
         if durable.lifecycle != TerminalLifecycle::Launching {
             return Ok(false);
         }
+        // A tab's name lives on its durable tab row, not on the runtime: the
+        // new runtime starts unnamed, and the dead one is gone (after a
+        // reboot it never existed in this owner).
+        let tab_names = registry
+            .resource_tabs_of_content(plan.public_id.as_str())?
+            .into_iter()
+            .filter_map(|tab| Some((tab.public_id, tab.name?)))
+            .collect::<HashMap<_, _>>();
         let before = state.clone();
         insert_restored_terminal_runtime_checked(&mut state, surface.clone())?;
         let content = ContentPublicId::Terminal(plan.public_id.clone());
+        {
+            let mut restored =
+                self.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner);
+            for slot in state.placements_of_content(&content) {
+                restored.remove(slot);
+                let name = state
+                    .resource_indexes
+                    .tab_ids
+                    .get(slot)
+                    .and_then(|tab_id| tab_names.get(tab_id))
+                    .cloned();
+                if let Some(placed) = state.surfaces.get(slot) {
+                    placed.set_name(name);
+                }
+            }
+        }
         let tab_ids = state
             .placements_of_content(&content)
             .iter()

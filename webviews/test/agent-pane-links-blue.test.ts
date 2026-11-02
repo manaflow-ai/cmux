@@ -1,7 +1,7 @@
 // Links in agent replies are blue, period (Leo 2026-10-19, as Claude desktop and Codex): a markdown
 // link and a bare URL's chip are a clear blue in a light and a dark page and under any terminal
 // theme, which shifts the blue only mildly (its ANSI bright blue is a fifth of it), and they carry
-// an underline. A pull request reference is a pill. This loads the real stylesheets in Chromium.
+// an underline. A pull request reference shares prose metrics. This loads the real stylesheets in Chromium.
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -86,8 +86,8 @@ await requireBrowserLane("agent-pane-links-blue.test.ts", async () => {
         // Blue: its blue channel well above red, and above green.
         expect(b - r).toBeGreaterThan(90);
         expect(b).toBeGreaterThan(g);
-        if (!look.ref) expect(look.underline).toContain("underline");
-        else expect(look.background).not.toBe("rgba(0, 0, 0, 0)");
+        expect(look.underline).toContain("underline");
+        expect(look.background).toBe("rgba(0, 0, 0, 0)");
       }
     });
   }

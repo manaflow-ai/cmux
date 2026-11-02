@@ -42,6 +42,12 @@ Pin/Unpin); Cmd-Shift-P, the CLI (`workspace archive-unarchive`, `workspace-grou
 `sidebar toggle-item-archive`) and MCP run the same actions. A band tile (Pinned, custom and app
 sections) does not offer it: tiles draw no dimmed look, and app sections are provider-owned.
 
+## Auto-archive and groups (2026-10-25)
+
+auto-archive-DESIGN.md: a group whose last unarchived member archives is archived too
+(`extra.archived_by`), Unarchive of a member restores its groups, and a live drop into an archived
+group restores it. Idle workspaces archive per `workspaces.autoArchive.style` (default: suggest).
+
 ## Open
 
 - Band tiles: the CLI can still archive one (it moves last, undimmed).
@@ -53,3 +59,10 @@ sections) does not offer it: tiles draw no dimmed look, and app sections are pro
 
 `sidebar_doc::archive_tests` (Rust, the reducer and the view rows). Client: the row reads the
 archived flag from the mirror's typed rows.
+
+## Drawn: one Archive section (2026-10-31, Lawrence 19197)
+
+The document keeps rule 1 (an archived item keeps its section and group) and rule 2 (archived items list last). The
+list draws them apart: archived workspaces and wholly archived groups (archived, or every workspace archived) sit
+under one "Archive (N)" row at the bottom of the sidebar, closed by default (`SidebarLayout+ArchiveSection`). The
+active workspace, a filter, the session tree and Group by Status draw them in place.

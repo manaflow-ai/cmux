@@ -54,24 +54,6 @@ impl AgentSource {
     }
 }
 
-/// The agent-record state a committed hook journal event implies, or `None`
-/// for events that carry no lifecycle transition (child agents, unclassified
-/// state changes) so they never churn the record.
-pub(super) fn agent_state_for_hook_kind(kind: &str) -> Option<AgentState> {
-    Some(match kind {
-        // A freshly started session sits at its prompt; a completed turn
-        // returns to it.
-        "agent.session.started" | "agent.turn.completed" => AgentState::Idle,
-        "agent.turn.started" => AgentState::Working,
-        "agent.approval.requested"
-        | "agent.question.requested"
-        | "agent.plan_review.requested"
-        | "agent.error.reported" => AgentState::Blocked,
-        "agent.session.ended" => AgentState::Done,
-        _ => return None,
-    })
-}
-
 /// Title, body, and level for the notification an agent hook event earns,
 /// or `None` for transitions that need no attention (session start, turn
 /// start, child lifecycle, session end).

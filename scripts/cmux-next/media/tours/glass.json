@@ -4,6 +4,7 @@
   "steps": [
     {"title": "Launch over art", "wait": 4},
     {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Glass"]},
+    {"title": "Show the Glass workspace (a new workspace takes no focus)", "cmux": ["workspace", "name:Glass", "focus"], "shot": false},
     {"title": "Terminal text and ANSI colors over art", "daemon": true,
      "cmux": ["workspace", "name:Glass", "screen", "current", "pane", "current", "tab", "current",
               "terminal", "current", "write", "--text",

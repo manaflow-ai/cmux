@@ -43,6 +43,8 @@ bun run check      # what CI runs
 bun run check:fix  # format and apply lint fixes
 ```
 
+Run tests with `bun run test [files, directories or name filters]`: it runs each file in its own `bun test` process, as CI does (`scripts/ci/run-webviews-tests.sh`). Never run a bare `bun test` over many files: one process leaks globals from file to file and fails tests that pass alone and in CI. `bun test FILE` on one file is fine.
+
 Interaction latency (plans/cmux-next/zero-latency.md): `bun run latency` builds the harness pages
 (`test/latency/`) for production and measures every page's named actions (input to paint) in
 headless Chromium and WebKit; it fails when a response does not paint within the input's frame or

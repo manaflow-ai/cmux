@@ -12,7 +12,7 @@ import CmuxNextIcons
 /// profile exists.
 @MainActor
 enum BrowserProfileLinkMenu {
-    static func items(for link: URL?, target: ActionTargetRef?, services: AppServices) -> [NSMenuItem] {
+    static func items(for link: URL?, target: ActionTargetRef?, machineID: String? = nil, services: AppServices) -> [NSMenuItem] {
         let profiles = services.browserProfiles.ordered
         guard let link, link.scheme == "http" || link.scheme == "https", profiles.count > 1, let title = services.registry.descriptor(for: "browserProfile.openLink")?.title else { return [] }
         let submenu = NSMenu()
@@ -23,7 +23,7 @@ enum BrowserProfileLinkMenu {
         for item in profileItems(profiles, asset: asset, run: { [weak services] record in
             services?.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
                 target: target,
-                arguments: ["browserProfile": .string(record.id), "url": .string(link.absoluteString)]))
+                arguments: ["browserProfile": .string(record.id), "url": .string(link.absoluteString)]).onMachine(machineID))
         }) {
             submenu.addItem(item)
         }
@@ -53,7 +53,19 @@ enum BrowserProfileLinkMenu {
         let size = NSSize(width: 16, height: 16)
         switch IconValue(wire: icon) {
         case .symbol(let name) where NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil:
-            return NSImage.menuSymbol(name) ?? NSImage(size: size)
+            guard let symbol = NSImage.menuSymbol(name) else { return NSImage(size: size) }
+            // The symbol keeps its own size, so it sits centered in the square (scaled down only if
+            // it is larger), and the square stays a template the menu tints like the title.
+            let framed = NSImage(size: size, flipped: false) { rect in
+                let natural = symbol.size
+                let fit = min(1, rect.width / max(natural.width, 1), rect.height / max(natural.height, 1))
+                let drawn = NSSize(width: natural.width * fit, height: natural.height * fit)
+                symbol.draw(in: NSRect(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2,
+                                       width: drawn.width, height: drawn.height))
+                return true
+            }
+            framed.isTemplate = true
+            return framed
         case .emoji(let emoji):
             return NSImage(size: size, flipped: false) { rect in
                 // 12 pt: a color emoji's glyph runs past its point size.

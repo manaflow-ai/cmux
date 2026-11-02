@@ -127,7 +127,7 @@ import Testing
         host.add(blank)
         host.ensureCreated(blank)
         let request = try #require(rig.runtime.pendingWindows.keys.first)
-        Spy.devToolsCalls = []
+        Spy.devToolsSent = []
         rig.runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
         try #require(blank.browserID == 7)
         #expect(Spy.devToolsCalls.filter { $0 == "Page.setWebLifecycleState" }.count == 1, "\(Spy.devToolsCalls)")
@@ -143,9 +143,106 @@ import Testing
         host.add(blank)
         host.ensureCreated(blank)
         let request = try #require(rig.runtime.pendingWindows.keys.first)
-        Spy.devToolsCalls = []
+        Spy.devToolsSent = []
         rig.runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
         #expect(!Spy.devToolsCalls.contains("Page.setWebLifecycleState"), "\(Spy.devToolsCalls)")
+    }
+
+    /// A bridge sends the rest of its batch after the runtime's last owner is gone.
+    ///
+    /// `CEFTab.runtime` is `unowned` and nothing in the tab/host island retains the runtime, so the
+    /// runtime can be released while its tabs live on. `CEFMediaBridge.run` and
+    /// `CEFVerificationBridge.run` send a batch of calls from one `Task` that captured `[weak tab]`
+    /// and re-read `tab.runtime` each time round: the in-flight `runtime.devTools(...)` held the
+    /// runtime, but nothing held it between two calls of the batch, so once the last owner went the
+    /// next read found a destroyed object and trapped in `swift_abortRetainUnowned`.
+    ///
+    /// That trap aborts the process instead of failing one test, so before the fix this reads as a
+    /// crash and not as a failed expectation: on CI it killed the swift test helper part-way
+    /// through and every test after it went unreported (cmux#25530).
+    ///
+    /// Fork API 24 is the DevTools path; from 29 `CEFAgentRelay.browserAttached` does not attach
+    /// these bridges at all.
+    /// This test's own browser id. Every other test in the suite attaches browser 7, so a call
+    /// recorded against this one can only have come from this test's bridges -- which is what lets
+    /// the progress assertion below read the static `Spy` without depending on what ran before it.
+    private static let lateBrowser: Int32 = 77
+
+    /// The methods only the two bridges this PR fixes send, and only *after* the first call of
+    /// their batch. API 24 also attaches `CEFFirstPaintBridge`, which is already safe (it takes a
+    /// strong `let runtime = tab.runtime` before its Task) and sends `Page.enable`,
+    /// `Page.setLifecycleEventsEnabled` and `Page.getFrameTree`. Counting any call to this
+    /// browser would let one of those satisfy the progress assertion while the batches this test
+    /// exists for never resumed, so the oracle is narrowed to methods first paint never sends.
+    private static let lateBatchMethods: Set<String> = ["Runtime.addBinding", "Page.addScriptToEvaluateOnNewDocument"]
+
+    @Test func aBridgeSendsTheRestOfItsBatchAfterItsRuntimesLastOwnerIsGone() async throws {
+        weak var runtime: CEFRuntime?
+        var tab: CEFTab?
+        var parked: [Int32] = []
+        var sentBeforeRelease = 0
+        do {
+            let rig = try Rig(forkAPI: 24)
+            runtime = rig.runtime
+            tab = try rig.attachedTab(browser: Self.lateBrowser)
+            // Nothing answers the spy's DevTools calls, so each bridge Task parks on the first call
+            // of its batch, with the rest still to send.
+            await rig.settle()
+            parked = Spy.unanswered
+            sentBeforeRelease = Self.lateBatchCalls
+            rig.close()
+        }
+        try #require(!parked.isEmpty, "no DevTools call is parked, so the rest of this proves nothing")
+        try #require(Self.callsToLateBrowser > 0, "no bridge call went to this test's browser, so its batches never started")
+
+        // The rig was the runtime's only owner. The tab lives on, as a pane's tab does while the
+        // runtime is torn down. Answering the parked calls lets each Task go round to the next call
+        // of its batch: the read that trapped. The answer takes its own reference inside
+        // `answerParked`, so the runtime is unowned again before the yield the Task resumes on --
+        // holding one here would be what keeps it alive and would prove nothing.
+        func answerParked() {
+            guard let runtime else { return }
+            for id in Spy.unanswered {
+                runtime.handle(.devToolsResult(browser: Self.lateBrowser, messageID: id, success: true, json: "{}"))
+            }
+            Spy.unanswered = []
+        }
+        // Drains until one of the two fixed bridges has sent a later call of its batch, rather than
+        // until the queue happens to be empty: `answerParked` clearing `Spy.unanswered` is not
+        // progress, and a loop that stopped there would pass without ever reaching the read that
+        // trapped.
+        for _ in 0..<500 where Self.lateBatchCalls == sentBeforeRelease {
+            answerParked()
+            await Task.yield()
+        }
+
+        // The progress oracle. One of the two fixed bridges issuing a later call of its batch *is*
+        // the read that trapped, so this fails rather than passes vacuously if the batch never
+        // resumed -- if the drain loop times out, if the weak runtime is already nil, or if a
+        // future change stops parking mid-batch. Two filters make it specific: the browser, so a
+        // leaked task from an earlier test in this serialized suite cannot satisfy it, and the
+        // method, so the already-safe first-paint bridge attached alongside cannot either.
+        #expect(Self.lateBatchCalls > sentBeforeRelease,
+                "neither fixed bridge sent a later call of its batch after its runtime's last owner went, so this test never exercised the unowned read")
+
+        // Surviving to here is the other half of the assertion, and the half an expectation cannot
+        // express: before the fix the read traps in `swift_abortRetainUnowned`, which aborts the
+        // whole process instead of failing a test (the run that proved it exited 1 on signal 6 with
+        // `closure #1 in CEFMediaBridge.run` in frame 6; the same suite with the fix exits 0).
+        withExtendedLifetime(tab) {}
+    }
+
+    /// Every DevTools call recorded against this test's browser.
+    private static var callsToLateBrowser: Int {
+        Spy.devToolsSent.filter { $0.browser == lateBrowser }.count
+    }
+
+    /// The calls to this test's browser that only `CEFMediaBridge.run` or
+    /// `CEFVerificationBridge.run` can have sent, past the first call of their batch.
+    private static var lateBatchCalls: Int {
+        Spy.devToolsSent
+            .filter { $0.browser == lateBrowser && lateBatchMethods.contains($0.method) }
+            .count
     }
 
     // MARK: Rig
@@ -161,15 +258,15 @@ import Testing
             runtime = CEFRuntime(shim: try Spy.library(), storage: CEFProfileStorage(root: root))
         }
 
-        /// A tab whose browser 7 exists (AFTER_CREATED).
-        func attachedTab() throws -> CEFTab {
+        /// A tab whose browser exists (AFTER_CREATED); 7 unless a test needs its own id.
+        func attachedTab(browser: Int32 = 7) throws -> CEFTab {
             let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
             let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
             host.add(tab)
             host.ensureCreated(tab)
             let request = try #require(runtime.pendingWindows.keys.first)
-            runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
-            try #require(tab.browserID == 7)
+            runtime.handle(.afterCreated(browser: browser, request: request, window: 1))
+            try #require(tab.browserID == browser)
             return tab
         }
 
@@ -202,7 +299,11 @@ private nonisolated enum Spy {
     struct Evaluation { let token: Int32; let world: String; let gesture: Int32 }
     struct Script { let world: String; let source: String; let allFrames: Int32 }
     nonisolated(unsafe) static var forkAPI: Int32 = 0
-    nonisolated(unsafe) static var devToolsCalls: [String] = []
+    /// Every DevTools call sent, with the browser it went to. One array rather than two, so a
+    /// test that clears the methods cannot leave the browsers behind and misalign them.
+    nonisolated(unsafe) static var devToolsSent: [(method: String, browser: Int32)] = []
+    /// The methods of `devToolsSent`, which is what most tests here assert on.
+    static var devToolsCalls: [String] { devToolsSent.map(\.method) }
     nonisolated(unsafe) static var watched: [Int32] = []
     nonisolated(unsafe) static var evaluations: [Evaluation] = []
     nonisolated(unsafe) static var frozen: [Int32] = []
@@ -219,7 +320,7 @@ private nonisolated enum Spy {
 
     static func reset(forkAPI api: Int32) {
         forkAPI = api
-        devToolsCalls = []
+        devToolsSent = []
         watched = []
         evaluations = []
         frozen = []
@@ -235,8 +336,8 @@ private nonisolated enum Spy {
     static func library() throws -> CEFShimLibrary {
         let version: @convention(c) () -> Int32 = { Spy.forkAPI }
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
-        let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, method, _ in
-            Spy.devToolsCalls.append(method.map { String(cString: $0) } ?? "")
+        let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { browser, method, _ in
+            Spy.devToolsSent.append((method.map { String(cString: $0) } ?? "", browser))
             Spy.nextMessage += 1
             Spy.unanswered.append(Spy.nextMessage)
             return Spy.nextMessage

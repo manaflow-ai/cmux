@@ -54,7 +54,27 @@ pub fn breaks_params_rule(
     }
     let Some(raw_acpmux) = meta.get("acpmux") else { return false };
     let Some(acpmux) = raw_acpmux.as_object() else { return true };
-    acpmux.keys().any(|k| !contains(&known.acpmux, k) || contains(denied, k))
+    if acpmux.keys().any(|k| !contains(&known.acpmux, k) || contains(denied, k)) {
+        return true;
+    }
+    // A start's model is a spawn parameter (Claude Code's `--model`, `${model}`
+    // in a harness's argv or env): one model id, never a flag or anything else.
+    method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m))
+}
+
+/// The longest `_meta.acpmux.model` a start may carry, in bytes.
+pub const MAXIMUM_MODEL_ID_BYTES: usize = 256;
+
+/// One model id as harnesses name them (`claude-opus-5-5[1m]`,
+/// `provider/model:tag`, `model@version`): 1 to [`MAXIMUM_MODEL_ID_BYTES`]
+/// ASCII letters, digits and `._-/:@[]+`, not starting with `-`
+/// (AcpmuxPaneMethods+Params.swift `isModelID`).
+pub fn is_model_id(value: &Value) -> bool {
+    let Some(model) = value.as_str() else { return false };
+    !model.is_empty()
+        && model.len() <= MAXIMUM_MODEL_ID_BYTES
+        && !model.starts_with('-')
+        && model.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-/:@[]+".contains(&b))
 }
 
 /// A session/prompt with every `_meta` inside its prompt blocks removed, at

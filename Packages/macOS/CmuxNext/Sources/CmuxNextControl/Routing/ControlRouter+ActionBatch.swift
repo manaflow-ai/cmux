@@ -13,6 +13,8 @@ import Foundation
 ///   refuses the whole batch: `not_run`, with `data.op` its index.
 /// - The ops run in order in one main-actor work item, an automation task of the main-thread
 ///   scheduler: the person never sees a frame with half the batch, and the model publishes once.
+/// - An op the App would refuse as not available (a pane or tab target that shows no chat)
+///   refuses the batch before any op runs, `atomic` or not: `not_run`, with `data.op` its index.
 /// - A handler that refuses at run time stops the batch there: the ops before it ran
 ///   (`data.applied`), the rest did not.
 /// - Bounded: at most ``ControlRouter/Configuration/batchOpLimit`` ops. A larger batch is
@@ -117,11 +119,19 @@ extension ControlRouter {
         var runs: [ControlActionRun] = []
         runs.reserveCapacity(requests.count)
         let size = max(transactionSize, 1)
+        let all = requests
         do {
             for start in stride(from: 0, to: requests.count, by: size) {
                 let transaction = Array(requests.dropFirst(start).prefix(size))
                 let ran = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline,
                                                   countingFrom: call.engineStartMark) { () throws -> [ControlActionRun] in
+                    // Before the first op: an op the App would refuse here (a pane or tab target's
+                    // live chat or canvas facts) refuses the whole batch, also `atomic: false`, before
+                    // any op applies. A later op that becomes unavailable is refused when it runs.
+                    if start == 0, let index = executor.firstUnavailable(all) {
+                        let action = all.dropFirst(index).first?.actionID ?? call.method
+                        throw (ControlError.actionOutcome(.unavailable, action: action) ?? expired).atBatchOp(index)
+                    }
                     // The request may have answered `not_run` already: then never run.
                     guard progress.begin(), scope.noting("handler") else { throw expired }
                     // The queue runs this from a run-loop block, where no task is current (cx-bpcj).

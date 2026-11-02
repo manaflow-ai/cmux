@@ -1,5 +1,4 @@
 @testable import CmuxNextSettings
-import CryptoKit
 import Foundation
 import Testing
 
@@ -17,68 +16,18 @@ import Testing
         return try SettingsSchemaExport().catalogKeys(xcstrings: Data(contentsOf: url))
     }
 
-    /// The exporter's inputs, for the freshness stamp. The export runs code
-    /// compiled from these files and reads the catalog among them; the two
-    /// exporter tests decide which files are written and how. Keep in step
-    /// with `settings_source_stamp` in scripts/ci/defaults_guard.py, which
-    /// recomputes the stamp without a Swift build.
-    static let sourceDirectory = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
-    static let sourceExtensions: Set<String> = ["swift", "xcstrings"]
-    static let exporterFiles = [
-        "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
-        "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
-    ]
-
-    struct SymbolicLinkInSources: Error, CustomStringConvertible {
-        let path: String
-        var description: String { "\(path) is a symbolic link; the settings export stamp reads no links" }
-    }
-
-    /// One `sha256  path` entry per input (lowercase hex of the file's bytes,
-    /// two spaces, the repository-relative path) in UTF-8 path order, a blank
-    /// line between entries and a newline at the end. An entry per file, apart,
-    /// means two pull requests that edit different sources change lines git
-    /// merges cleanly, and the merged stamp is the merged sources' (#21946).
-    static func sourceStamp() throws -> String {
-        let files = FileManager.default
-        var paths = exporterFiles
-        let directory = repoRoot.appending(path: sourceDirectory).path
-        for sub in try files.subpathsOfDirectory(atPath: directory) {
-            let path = "\(sourceDirectory)/\(sub)"
-            let type = try files.attributesOfItem(atPath: repoRoot.appending(path: path).path)[.type] as? FileAttributeType
-            if type == .typeSymbolicLink { throw SymbolicLinkInSources(path: path) }
-            if type == .typeRegular, sourceExtensions.contains((sub as NSString).pathExtension) { paths.append(path) }
-        }
-        var entries: [String] = []
-        for path in paths.sorted(by: { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }) {
-            if (try files.attributesOfItem(atPath: repoRoot.appending(path: path).path)[.type] as? FileAttributeType) == .typeSymbolicLink {
-                throw SymbolicLinkInSources(path: path)
-            }
-            let digest = SHA256.hash(data: try Data(contentsOf: repoRoot.appending(path: path)))
-            entries.append(digest.map { String(format: "%02x", $0) }.joined() + "  " + path)
-        }
-        return entries.joined(separator: "\n\n") + "\n"
-    }
-
-    /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter SettingsSchemaExportTests` rewrites it,
-    /// and `schemas/settings-export/settings-schema.sources.sha256`, the digests of the sources it was
-    /// exported from: `defaults_guard.py check-fresh` recomputes them and fails when the sources
-    /// moved without a re-export (e190c402850c landed a schema exported before a merge). The stamp is
-    /// outside schemas/settings, a web bundle input, so a source-only edit does not rebuild the bundles.
+    /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter SettingsSchemaExportTests` rewrites it.
+    /// The generated files job of cmux-next.yml runs that export and fails when the committed copy
+    /// differs; no committed stamp of the sources stands in for it (Leo 2026-10-21).
     @Test func exportIsFresh() throws {
         let url = Self.repoRoot.appending(path: "schemas/settings/settings-schema.json")
-        let stampURL = Self.repoRoot.appending(path: "schemas/settings-export/settings-schema.sources.sha256")
         let current = try SettingsSchemaExport().json(catalog: Self.catalog())
-        let currentStamp = try Self.sourceStamp()
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try current.write(to: url, atomically: true, encoding: .utf8)
-            try currentStamp.write(to: stampURL, atomically: true, encoding: .utf8)
         }
         let stored = try String(contentsOf: url, encoding: .utf8)
         #expect(stored == current, "settings-schema.json is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
-        let storedStamp = try? String(contentsOf: stampURL, encoding: .utf8)
-        #expect(storedStamp == currentStamp, "settings-schema.sources.sha256 is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
     }
 
     /// Every row carries values Swift accepts or refuses, so another validator
@@ -117,6 +66,39 @@ import Testing
         #expect(unknown.isEmpty, "agent policy names unknown keys: \(unknown.sorted())")
         #expect(SettingsSchema.agentSettableKeys.contains("appearance.backgroundOpacity"))
         #expect(SettingsSchema.agentSettableKeys.contains("appearance.backgroundBlur"))
+    }
+
+    /// The checked-in schema is the descriptor registry consumed by the
+    /// daemon, CLI and MCP clients. Every row must carry the same surface
+    /// declaration that the native Settings page and palette use; otherwise
+    /// a new descriptor can silently become provider-dependent.
+    @Test func everyRowDeclaresSurfaceParity() throws {
+        let data = try SettingsSchemaExport().json(catalog: Self.catalog()).data(using: .utf8)!
+        let root = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let rows = try #require(root["rows"] as? [[String: Any]])
+        let rowsByKey = Dictionary(uniqueKeysWithValues: rows.compactMap { row in
+            (row["key"] as? String).map { ($0, row) }
+        })
+        #expect(rowsByKey.count == SettingsSchema.all.count)
+        for descriptor in SettingsSchema.all {
+            let plan = descriptor.surfacePlan
+            let row = try #require(rowsByKey[descriptor.id], Comment(rawValue: descriptor.id))
+            let surfaces = try #require(row["surfaces"] as? [String: Any], Comment(rawValue: descriptor.id))
+            #expect(Set(surfaces.keys) == Set(["palette", "cli", "mcp", "socket"]), Comment(rawValue: descriptor.id))
+            for (name, expected) in [("cli", plan.cli), ("mcp", plan.mcp), ("socket", plan.socket)] {
+                let surface = try #require(surfaces[name] as? [String: Any], Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["operations"] as? [String] == expected.operations, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["aliases"] as? [String] == expected.aliases, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["app_operations"] as? [String] == expected.appOperations, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["app_aliases"] as? [String] == expected.appAliases, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["offered"] as? Bool == expected.offered, Comment(rawValue: "\(descriptor.id): \(name)"))
+            }
+            let palette = try #require(surfaces["palette"] as? [String: Any], Comment(rawValue: "\(descriptor.id): palette"))
+            #expect(palette["offered"] as? Bool == plan.palette.offered, Comment(rawValue: descriptor.id))
+            #expect(palette["operations"] as? [String] == plan.palette.operations, Comment(rawValue: descriptor.id))
+            #expect(palette["row"] as? String == plan.palette.row, Comment(rawValue: descriptor.id))
+            #expect(palette["editor"] as? String == plan.palette.editor, Comment(rawValue: descriptor.id))
+        }
     }
 
     /// A key missing from the catalog fails the export.

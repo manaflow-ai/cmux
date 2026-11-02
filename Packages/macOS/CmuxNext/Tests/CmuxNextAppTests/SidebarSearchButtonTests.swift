@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar's Search button (plans/cmux-next/sidebar-search.md; Lawrence 2026-10-20: "in sidebar
-/// bottom left we should add a search icon button for search"): a magnifying glass in the footer row
-/// right after the profile avatar, a full hit target, labeled for VoiceOver, that hands its own view
+/// bottom left we should add a search icon button for search"): a magnifying glass at the footer row's
+/// right end (Lawrence 2026-10-27), the profile avatar at its left, a full hit target, labeled for VoiceOver, that hands its own view
 /// to the App as the palette's anchor. `sidebar.showSearchButton` off hides it.
-@MainActor @Suite(.serialized) struct SidebarSearchButtonTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarSearchButtonTests {
     struct Harness {
         let model: SidebarModel
         let design: DesignSettings
@@ -52,15 +53,23 @@ import Testing
         #expect(button.accessibilityLabel() == Strings.searchButton)
 
         let frame = h.frame(of: button)
-        // A full hit target (the avatar's 28 pt square), not a glyph-sized one.
-        #expect(frame.width >= 28 && frame.height >= 28, "hit target \(frame.size)")
         // In the footer row, at the sidebar's bottom.
         #expect(frame.maxY <= h.sidebar.bounds.maxY && frame.minY >= h.sidebar.bounds.maxY - 3 * frame.height, "frame \(frame)")
-        // Right after the avatar, on its line.
+        // The footer uses the same trailing accessory column as rows and group headers. Keep the
+        // full hit target clear of the sidebar's resize band as well.
         let avatar = try #require(h.sidebar.footerBand.profileControl?.view)
         let avatarFrame = h.frame(of: avatar)
-        #expect(frame.minX >= avatarFrame.maxX, "search \(frame) after avatar \(avatarFrame)")
-        #expect(frame.minX - avatarFrame.maxX <= 12, "search \(frame) beside avatar \(avatarFrame)")
+        // A full hit target, as tall as the avatar's row (a723: the footer row's height), not glyph-sized.
+        #expect(frame.width >= avatarFrame.height - 0.5 && frame.height >= avatarFrame.height - 0.5,
+                "hit target \(frame.size), avatar \(avatarFrame.size)")
+        #expect(frame.minX > h.sidebar.bounds.midX, "search \(frame) on the right half")
+        let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: h.sidebar.bounds.width)
+        #expect(abs(frame.midX - column) <= 0.51,
+                "search \(frame) centers on the shared trailing column \(column)")
+        let band = SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth),
+                                     gutter: Metrics.mainPaneGutter)
+        #expect(frame.maxX <= h.sidebar.bounds.maxX - band.inside + 0.51,
+                "search \(frame) reaches into the resize band \(band)")
         #expect(abs(frame.midY - avatarFrame.midY) <= 1, "search \(frame) on the avatar's line \(avatarFrame)")
         // The spaces dots never cover it.
         if !h.sidebar.profileBar.isHidden {

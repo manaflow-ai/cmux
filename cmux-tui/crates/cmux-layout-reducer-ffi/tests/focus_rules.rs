@@ -13,6 +13,15 @@
 //! topology the event carried). The corpus also holds every combination of
 //! the child-window key facts and seeded type-ahead queue sequences, each
 //! with the Swift rule's answers.
+//!
+//! Seeds 38, 44, 57, 81 and 88 were re-recorded from the Rust rules when a
+//! closed pane's column whose id changed (two columns collapsing into a
+//! split screen) started to map to its surviving panes: each now focuses
+//! the closed pane's column neighbor instead of the first pane. Seed 111
+//! step 7, seed 63 step 23 and seed 104 step 10 were rewritten to the Rust
+//! rules' output when a programmatic sidebar responder stopped taking a
+//! pane's keyboard and stopped dropping a keyboard sidebar focus (QUIT P0,
+//! 2026-11-01): the old steps encoded that bug. The Swift recorder is gone.
 
 use cmux_focus_core::event::{FocusEffect, FocusEvent};
 use cmux_focus_core::reducer;
@@ -182,4 +191,129 @@ fn a_child_window_that_becomes_key_is_decided_as_the_swift_rule_did() {
         assert_eq!(response["decision"], json!({decision: {}}), "{}", case["facts"]);
         assert_eq!(response["shouldReclaim"], case["shouldReclaim"], "{}", case["facts"]);
     }
+}
+
+/// Cmd-W on the only pane of one of a screen's two columns leaves a plain
+/// split screen, whose one column takes the screen's id. The focus stays in
+/// the column that is left, never on a pane of another screen that was
+/// focused earlier.
+#[test]
+fn closing_one_of_two_columns_keeps_the_focus_on_its_screen() {
+    let topology = |panes: &[&str], screens: Value| -> FocusEvent {
+        let panes: Vec<Value> = panes
+            .iter()
+            .map(|pane| {
+                let tab = format!("{pane}-tab");
+                json!({"id": pane, "selected": tab, "tabs": [{"id": tab, "kind": "terminal"}]})
+            })
+            .collect();
+        serde_json::from_value(json!({"topology": {"_0": {
+            "workspace": "ws", "panes": panes, "screens": screens,
+        }}}))
+        .unwrap()
+    };
+    let mut state = FocusState::default();
+    let mut effects = Vec::new();
+    let FocusEvent::Topology { topology: before } = topology(
+        &["p1", "p2", "q1"],
+        json!([[{"id": "c1", "panes": ["p1"]}, {"id": "c2", "panes": ["p2"]}],
+               [{"id": "s2", "panes": ["q1"]}]]),
+    ) else {
+        unreachable!()
+    };
+    reducer::set_topology(&mut state, before, &mut effects);
+    for pane in ["p1", "q1", "p2"] {
+        let event: FocusEvent = serde_json::from_value(
+            json!({"focusPane": {"_0": pane, "source": "mouse", "workspace": "ws"}}),
+        )
+        .unwrap();
+        reducer::reduce(&mut state, &event, &mut effects);
+    }
+    assert_eq!(state.pane.as_deref(), Some("p2"));
+    let FocusEvent::Topology { topology: after } = topology(
+        &["p1", "q1"],
+        json!([[{"id": "s1", "panes": ["p1"]}], [{"id": "s2", "panes": ["q1"]}]]),
+    ) else {
+        unreachable!()
+    };
+    reducer::set_topology(&mut state, after, &mut effects);
+    assert_eq!(
+        state.pane.as_deref(),
+        Some("p1"),
+        "the focus left the screen for a pane of another screen"
+    );
+}
+
+/// QUIT P0 (2026-11-01): at a relaunch the restored pane's content is not
+/// presented yet, the window comes forward, and AppKit picks the sidebar list
+/// as its first key view on its own. That programmatic report must not take
+/// the focused pane's keyboard: the first line typed after the reopen went to
+/// the sidebar list. A person's click or key still moves focus there, and the
+/// list's echo of a sidebar focus the state already has keeps it as it is.
+fn restored_two_panes() -> FocusState {
+    let mut state = FocusState::default();
+    let mut effects = Vec::new();
+    let event: FocusEvent =
+        serde_json::from_value(json!({"topology": {"_0": {"workspace": "w", "panes": [
+        {"id": "main", "selected": "t1", "tabs": [{"id": "t1", "kind": "terminal"}]},
+        {"id": "right", "selected": "t2", "tabs": [{"id": "t2", "kind": "terminal"}]}]}}}))
+        .unwrap();
+    reducer::reduce(&mut state, &event, &mut effects);
+    let focus: FocusEvent =
+        serde_json::from_value(json!({"focusPane": {"_0": "right", "source": "programmatic"}}))
+            .unwrap();
+    reducer::reduce(&mut state, &focus, &mut effects);
+    state
+}
+
+fn send(state: &mut FocusState, event: Value) -> Vec<FocusEffect> {
+    let mut effects = Vec::new();
+    reducer::reduce(state, &serde_json::from_value(event).unwrap(), &mut effects);
+    effects
+}
+
+fn target(state: &FocusState) -> Value {
+    state.export()["target"].clone()
+}
+
+#[test]
+fn a_sidebar_responder_the_platform_picks_never_takes_a_panes_keyboard() {
+    let mut state = restored_two_panes();
+    assert_eq!(target(&state), json!({"content": {}}));
+    let effects =
+        send(&mut state, json!({"responder": {"_0": {"sidebar": {}}, "source": "programmatic"}}));
+    assert_eq!(
+        target(&state),
+        json!({"content": {}}),
+        "the platform's own pick moved focus to the sidebar"
+    );
+    assert_eq!(state.export()["pane"], json!("right"));
+    assert!(
+        effects.iter().any(|e| matches!(e, FocusEffect::MoveResponder { .. })),
+        "the pane's keyboard is not re-applied: {effects:?}"
+    );
+}
+
+#[test]
+fn a_person_still_puts_the_keyboard_on_the_sidebar() {
+    for (source, keyboard) in [("mouse", false), ("keyboard", true)] {
+        let mut state = restored_two_panes();
+        send(&mut state, json!({"responder": {"_0": {"sidebar": {}}, "source": source}}));
+        assert_eq!(target(&state), json!({"sidebar": {"keyboard": keyboard}}), "{source}");
+    }
+}
+
+#[test]
+fn the_lists_echo_keeps_a_keyboard_sidebar_focus() {
+    let mut state = restored_two_panes();
+    send(
+        &mut state,
+        json!({"focusTarget": {"_0": {"sidebar": {"keyboard": true}}, "source": "keyboard"}}),
+    );
+    send(&mut state, json!({"responder": {"_0": {"sidebar": {}}, "source": "programmatic"}}));
+    assert_eq!(
+        target(&state),
+        json!({"sidebar": {"keyboard": true}}),
+        "the echo dropped the keyboard flag"
+    );
 }

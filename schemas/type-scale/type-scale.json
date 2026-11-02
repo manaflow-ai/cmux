@@ -1,12 +1,34 @@
 {
   "about": "The one type scale of cmux NEXT, native and web (Leo 2026-10-13: unify the font sizes). scripts/cmux-next/gen-type-scale.py writes the CSS tokens (webviews/src/pages/shared/desktop.css) and the Swift ones (CmuxNextDesign/TypeScale.generated.swift) from this file. Sizes are points on macOS and CSS px in the webviews; reading content (transcript, prompt) follows the user's content size and is not a step.",
+  "font": {
+    "about": "The UI font of every chrome surface, native and web (Leo 2026-10-21, ask-52da478628: Inter, bundled, with its calculated tracking). Pinned by leo-bans.json; scripts/cmux-next/check-leo-bans.py fails when it changes without Leo's order. CSS names the face `family` (`--font-ui`, the bundled WOFF2); AppKit finds the registered TTF by `fileFamily`, its own name. `fallback` follows it in --font-ui.",
+    "family": "Inter",
+    "fileFamily": "Inter Variable",
+    "files": {
+      "native": "InterVariable.ttf",
+      "web": "InterVariable.woff2"
+    },
+    "fallback": [
+      "-apple-system",
+      "BlinkMacSystemFont",
+      "\"SF Pro Text\"",
+      "system-ui",
+      "sans-serif"
+    ]
+  },
+  "tracking": {
+    "about": "Letter spacing per size, in em: a + b * e^(c * size), size in px (pt natively). Inter's dynamic metrics (rsms, Inter docs). gen-type-scale.py writes each step's `tracking` from these constants (4 decimals); natively every Inter font gets em * size points of kern at its own size. The other recorded value is the 2026-10-19 study's flat -0.011em versus SF Pro (a = -0.011, b = 0); change the constants only with Leo's order.",
+    "a": -0.0223,
+    "b": 0.185,
+    "c": -0.1745
+  },
   "steps": [
-    { "name": "caption", "size": 11, "lineHeight": 14, "for": "shortcuts, badges, counters, tooltips, group labels" },
-    { "name": "detail", "size": 12, "lineHeight": 16, "for": "secondary lines, metadata, section headers, footer rows" },
-    { "name": "body", "size": 13, "lineHeight": 18, "for": "chrome text: labels, rows, menus, controls, settings" },
-    { "name": "field", "size": 14, "lineHeight": 18, "for": "the browser address bar's text" },
-    { "name": "title", "size": 15, "lineHeight": 20, "for": "card and panel titles, search fields" },
-    { "name": "heading", "size": 20, "lineHeight": 26, "for": "page headings" }
+    { "name": "caption", "size": 11, "lineHeight": 14, "tracking": 0.0048, "for": "shortcuts, badges, counters, tooltips, group labels" },
+    { "name": "detail", "size": 12, "lineHeight": 16, "tracking": 0.0005, "for": "secondary lines, metadata, section headers, footer rows" },
+    { "name": "body", "size": 13, "lineHeight": 18, "tracking": -0.0032, "for": "chrome text: labels, rows, menus, controls, settings" },
+    { "name": "field", "size": 14, "lineHeight": 18, "tracking": -0.0062, "for": "the browser address bar's text" },
+    { "name": "title", "size": 15, "lineHeight": 20, "tracking": -0.0088, "for": "card and panel titles, search fields" },
+    { "name": "heading", "size": 20, "lineHeight": 26, "tracking": -0.0167, "for": "page headings" }
   ],
   "weights": [
     { "name": "regular", "weight": 400, "for": "everything by default" },

@@ -14,10 +14,13 @@ extension WindowManager {
     /// Starts the next restored full screen window that is on screen. One at
     /// a time; a window clears its flag only once in full screen (or when
     /// its transition never starts), so a window still off screen keeps it
-    /// and enters when presented. Tests and no-activate runs never do.
+    /// and enters when presented. Tests and no-activate runs never do. After an update relaunch
+    /// behind the user's app it waits until the user is in cmux (entering full screen switches Space
+    /// and activates the app); the app's activation retries it (`AppDelegate`).
     func enterRestoredFullScreens() {
         guard fullScreenRestoreReady, !fullScreenRestoreRunning, ordersWindowsIn,
-              services.environment.testWindow == nil, !services.environment.noActivate else { return }
+              services.environment.testWindow == nil, !services.environment.noActivate,
+              services.environment.relaunchBehind == nil || (NSApp.isActive && !services.input.isRelaunchBehind) else { return }
         guard let controller = controllers.first(where: { $0.state.restoresFullScreen && $0.window?.isVisible == true }),
               let window = controller.window else { return }
         if window.styleMask.contains(.fullScreen) {

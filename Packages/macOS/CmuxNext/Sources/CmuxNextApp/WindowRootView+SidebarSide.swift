@@ -14,7 +14,8 @@ extension WindowRootView {
     /// under the traffic lights re-check themselves (`syncOverlay`).
     func applySidebarSide() {
         for (side, constraints) in sidePins where side != sidebarSide { NSLayoutConstraint.deactivate(constraints) }
-        NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
+        // A page with the whole window keeps the content host on the window's edges (`presentsPage`).
+        NSLayoutConstraint.activate((sidePins[sidebarSide] ?? []).filter { !presentsPage || $0.firstItem !== contentHost })
         applySidebarRail()
         sidebar.side = sidebarSide
         // The right sidebar's inset moves to the other edge with it.
@@ -47,8 +48,8 @@ extension WindowRootView {
     func layoutRightPanel(rowHeight: CGFloat) {
         guard let rightPanel else { return }
         let width = rightPanelWidth
-        rightPanel.isHidden = width <= 0
-        guard width > 0 else { return }
+        rightPanel.isHidden = width <= 0 || presentsPage
+        guard width > 0, !presentsPage else { return }
         let x = sidebarSide == .left ? bounds.width - width : 0
         rightPanel.topInset = rowHeight
         rightPanel.innerEdge = sidebarSide == .left ? .minX : .maxX

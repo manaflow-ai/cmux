@@ -80,13 +80,7 @@ const native = { "acp.trust.get": { cwd: CWD, level: "unknown" }, "acp.trust.set
 // Real rendered accessibility surfaces, not guessed card heights. Includes the transcript viewport:
 // a floated queue or a flex-shrunk ask must not paint into a sibling's frame.
 function geometry(ctx: PlayContext) {
-  const selectors = [
-    ".acpmux-pr-dock",
-    ".acpmux-trust-ask",
-    ".acpmux-permission-panel",
-    ".acpmux-composer-queue",
-    ".acpmux-composer-box",
-  ];
+  const selectors = [".acpmux-trust-ask", ".acpmux-permission-panel", ".acpmux-composer-queue", ".acpmux-composer-box"];
   const layers = selectors.flatMap((selector) =>
     [...ctx.document.querySelectorAll(selector)].map((node) => ({
       selector,
@@ -115,10 +109,17 @@ const checkTrust: Play = async (ctx) => {
     throw new Error("Tool permission is visible before folder trust");
 };
 const checkPrQueue: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-dock"));
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-queue"));
   geometry(ctx);
   await ctx.click({ selector: ".acpmux-queued" });
+  // Expanding a wrapped prompt animates the queue's height. Inspect the staged end state,
+  // after its ResizeObserver has reserved that height above the floating stack.
+  await ctx.waitFor(() =>
+    ctx
+      .find({ selector: ".acpmux-composer-queue" })
+      .getAnimations()
+      .every((animation) => animation.playState !== "running"),
+  );
   geometry(ctx);
   // A started chat has no folder/host strip (#20869, locationRow.ts): the queue is the composer's
   // top strip, and no hidden slot for the strip may hold space above it.
@@ -155,11 +156,11 @@ const trustThenPermission: Play = async (ctx) => {
   ctx.find({ role: "button", name: allowAlways });
   ctx.find({ role: "button", name: allowOnce });
   geometry(ctx);
-  // These chats offer no modes: Access still mounts for the folder grant, so trust stays revocable.
-  await ctx.click({ selector: ".acpmux-access-trigger" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-access-grant-remove") !== null);
-  await ctx.click({ selector: ".acpmux-access-grant-remove" });
-  await checkTrust(ctx);
+  // The granted trust is revoked from the chat menu's Revoke Granted Access (or Session Info's
+  // Environment), never from the composer's mode menu
+  // (Leo, 2026-10-29): these chats offer no modes, so the composer draws no Access menu for it.
+  if (ctx.document.querySelector(".acpmux-access-trigger, .acpmux-access-grant"))
+    throw new Error("The composer shows a mode menu for granted access");
 };
 const waitingInLine: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-ask"));
@@ -198,10 +199,12 @@ const shortPane =
   async (ctx) => {
     await checkTrust(ctx);
     const field = ".acpmux-composer-box .ProseMirror";
-    for (let line = 0; line < lines; line++) {
-      if (line) await ctx.press("Shift+Enter");
-      await ctx.type(`draft line ${line + 1}`, line ? undefined : { selector: field });
-    }
+    // Keep the draft as one trusted input action: each extra play step waits for a settled frame,
+    // which made this fixture spend ~3.7 s typing twelve lines on every health retry. The newline
+    // characters preserve the same multiline ProseMirror draft without weakening any geometry check.
+    await ctx.type(Array.from({ length: lines }, (_, line) => "draft line " + (line + 1)).join("\n"), {
+      selector: field,
+    });
     const main = ctx.document.querySelector(".acpmux-main")!.getBoundingClientRect();
     const foot = ctx.document.querySelector(".acpmux-composer-foot")?.getBoundingClientRect();
     if (foot && foot.bottom > main.bottom + 0.5)
@@ -216,7 +219,11 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-composer-bar" }],
   covers: ["agent-session/acpmux/PermissionCard.tsx", "agent-session/acpmux/TrustAsk.tsx"],
   variants: {
-    "pr-queue": { snapshot: prQueue, native: { "acp.trust.get": { cwd: CWD, level: "trusted" } }, play: checkPrQueue },
+    "pr-queue": {
+      snapshot: prQueue,
+      native: { "acp.trust.get": { cwd: CWD, level: "trusted" } },
+      play: checkPrQueue,
+    },
     "trust-permission-queue": { snapshot: grouped, native, play: checkTrust },
     "trust-individual-queue": { snapshot: individual, native, play: checkTrust },
     "trust-then-permission": { snapshot: grouped, native, play: trustThenPermission },

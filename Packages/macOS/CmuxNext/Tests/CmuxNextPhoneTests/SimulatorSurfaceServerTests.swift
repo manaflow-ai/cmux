@@ -42,6 +42,16 @@ import Testing
     }
 
     /// Every key hostd lets a phone press has a HID usage here, and nothing else does.
+    /// hostd's `encode` line carries a bitrate from the wire; `Int(1e30)` used to trap on the main actor.
+    @Test func aWireBitrateIsClampedNeverATrap() {
+        #expect(SurfaceFrameEncoder.bitrate(fromWire: 1e30) == 40_000)
+        #expect(SurfaceFrameEncoder.bitrate(fromWire: -1e30) == 300)
+        #expect(SurfaceFrameEncoder.bitrate(fromWire: .infinity) == 40_000)
+        #expect(SurfaceFrameEncoder.bitrate(fromWire: .nan) == 4_000)
+        #expect(SurfaceFrameEncoder.bitrate(fromWire: nil) == 4_000)
+        #expect(SurfaceFrameEncoder.bitrate(fromWire: 2500) == 2_500)
+    }
+
     @Test func theKeysHostdAllowsAreTheKeysTheSimulatorGets() {
         let hostd = ["Backspace", "Enter", "Tab", "Escape", "Delete", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]
         #expect(hostd.allSatisfy { SimulatorSurfaceServer.Session.keyUsage($0) != nil })

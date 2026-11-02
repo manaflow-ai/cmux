@@ -165,7 +165,7 @@ for bad in "--archs" "--archs i386" "$TMP/kept-x86 --archs x86_64"; do
   [[ $status -eq 2 && ! -e "$TMP/archs" ]] || fail "'$bad' was not refused (exit $status)"
 done
 
-# 7. The build setting is OTHER_SWIFT_FLAGS=$(inherited) [-DCMUX_BENCH_HOOKS], never a doubled
+# 7. The build setting is OTHER_SWIFT_FLAGS=$(inherited) [bench defines], never a doubled
 #    "OTHER_SWIFT_FLAGS=OTHER_SWIFT_FLAGS=...": c6d2865fcf9 passed that to xcodebuild, which then read
 #    "-DXcode..." as an input file and failed every plain Release compile (landq 2026-10-25, tip 7921f4febe78).
 rm -f "$TMP/swiftflags"
@@ -174,7 +174,10 @@ run || fail "the plain release compile exited $?"
   || fail "plain OTHER_SWIFT_FLAGS is '$(cat "$TMP/swiftflags")'"
 rm -f "$TMP/swiftflags"
 RC_ARG=--bench-hooks run || fail "the bench-hooks release compile exited $?"
-[[ "$(cat "$TMP/swiftflags")" == 'OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_BENCH_HOOKS' ]] \
+# The bench defines come from one shared file (lib/bench-swift-defines.sh, also reload.sh's).
+# shellcheck source=../lib/bench-swift-defines.sh
+source "$ROOT/scripts/cmux-next/lib/bench-swift-defines.sh"
+[[ "$(cat "$TMP/swiftflags")" == "OTHER_SWIFT_FLAGS=\$(inherited) $CMUX_BENCH_SWIFT_DEFINES" ]] \
   || fail "bench OTHER_SWIFT_FLAGS is '$(cat "$TMP/swiftflags")'"
 
 printf 'release compile DerivedData tests: ok\n'

@@ -91,8 +91,10 @@ import CmuxNextWakeupsTestSupport
     }
 
     /// A NIGHTLY on build 100 following `ring`, with build 300 staged ("Update Ready").
+    /// `replaceable`: found updates download by themselves; `cancellable`: this app's driver holds
+    /// the staged installer; `pulled`: the builds on the feed's pulled.json.
     static func make(ring: String, feed xml: String = feed(), held: Bool = false, replaceable: Bool = true,
-                     checkAutomatically: Bool = true) -> Harness {
+                     cancellable: Bool = true, pulled: [String] = [], checkAutomatically: Bool = true) -> Harness {
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "1.0.0", build: "100",
                                            minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml", hasPublicKey: true)
@@ -108,8 +110,10 @@ import CmuxNextWakeupsTestSupport
         updater.stagedBuild = { sparkle.staged }
         updater.cancelStaged = { sparkle.cancels += 1; return true }
         updater.stagedRefresh.replaceable = { replaceable }
+        updater.stagedRefresh.cancellable = { cancellable }
+        let list = try! JSONSerialization.data(withJSONObject: pulled.map { ["build": $0, "reason": "crashed at launch in the fresh-home smoke"] })
+        updater.pulledWatch.fetch = { _ in list }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
-        updater.stagedRefresh.deltaWindow = 45 * 60
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: interval, downloadAutomatically: true, ring: ring)
         updater.start()
         updater.debugIndicatorPhase = .ready(version: "3.0.0")
@@ -196,16 +200,15 @@ import CmuxNextWakeupsTestSupport
         #expect(h.sparkle.cancels == 0)
     }
 
-    /// A scheduled swap waits for the deltas nightly-next lists minutes after a build's full
-    /// archive, as Sparkle's scheduled check does; a build that lists them, or a check the person
-    /// asked for, swaps at once.
-    @Test func aFreshDevBuildWithNoDeltasWaitsForTheNextScheduledCheck() async throws {
+    /// A scheduled swap never waits for the deltas nightly-next lists minutes after a build's full
+    /// archive: a newer build replaces the staged one at once, deltas listed or not.
+    @Test func aFreshDevBuildWithNoDeltasSwapsAtOnce() async throws {
         let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: 10))
         try await h.clock.waitForSleeper()
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
-        #expect(h.sparkle.cancels == 0, "a build whose deltas may still come replaced the staged one")
-        #expect(h.updater.stagedRefresh.timer.isScheduled, "the next scheduled check was not armed")
+        #expect(h.sparkle.cancels == 1, "a newer build was held back for its deltas")
+        #expect(h.sparkle.backgroundChecks == 1)
     }
 
     @Test func aFreshDevBuildThatListsDeltasSwapsAtOnce() async throws {

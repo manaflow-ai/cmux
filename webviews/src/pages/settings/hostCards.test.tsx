@@ -312,6 +312,44 @@ test("Advanced names the loaded settings file and shows one Reload Configuration
   page.unmount();
 });
 
+test("an aerial macOS has not downloaded shows as a cloud tile that opens the Wallpaper pane", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const moving = { collection: "video", collection_title: "Moving wallpapers", video: true };
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: [
+        ...(page.provider.host.backdrops ?? []),
+        { id: "system:/aerials/4KSDR240FPS/A1.mov", title: "Tahoe Morning", attribution: "", ...moving },
+        {
+          id: "system:/aerials/4KSDR240FPS/B2.mov",
+          title: "Iceland Dusk",
+          attribution: "",
+          ...moving,
+          downloaded: false,
+        },
+      ],
+    }),
+  );
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const ready = picker.querySelector<HTMLButtonElement>('[aria-label="Tahoe Morning"]')!;
+  const pending = picker.querySelector<HTMLButtonElement>('[aria-label="Iceland Dusk"]')!;
+  expect(ready.classList.contains("backdrop-pending")).toBe(false);
+  expect(ready.querySelector("img")).not.toBeNull();
+  // No thumbnail to fetch for a movie that is not on disk: an empty tile with a cloud.
+  expect(pending.classList.contains("backdrop-pending")).toBe(true);
+  expect(pending.querySelector("img")).toBeNull();
+  expect(pending.querySelector("svg.backdrop-download")).not.toBeNull();
+  await act(async () => pending.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.wallpaper_settings").length).toBe(1);
+  expect(
+    runs(page, "cmux.settings.set").filter((p) => (p as { key: string }).key === "appearance.background").length,
+  ).toBe(0);
+  page.unmount();
+});
+
 test("Add from a Link downloads an image and sets it; a refused link says why; your images can be removed", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
@@ -413,5 +451,59 @@ test("an art tile shows one title line; its full credit is the tooltip (macOS 15
   // A tile whose help text is not its credit keeps both, title first.
   const none = page.container.querySelector<HTMLButtonElement>(".backdrop-grid > button")!;
   expect(none.querySelector(".row-help")).toBeNull();
+  page.unmount();
+});
+
+test("my desktop wallpaper and my screen saver lead the picker; a click on either makes it the background", async () => {
+  const aerial = "system:/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS/B2.mov";
+  const page = await renderPage({ path: "/settings/appearance" });
+  page.provider.screenSaver = aerial;
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: [
+        ...(page.provider.host.backdrops ?? []),
+        { id: "desktop", title: "Desktop Wallpaper", attribution: "Your current macOS desktop picture" },
+        {
+          id: aerial,
+          title: "Iceland Dusk",
+          attribution: "",
+          collection: "video",
+          collection_title: "Moving wallpapers",
+          video: true,
+        },
+      ],
+    }),
+  );
+  // Back from System Settings (where the screen saver is chosen): the page reads it again.
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const top = [...picker.querySelector(".backdrop-grid")!.querySelectorAll<HTMLButtonElement>(":scope > button")];
+  expect(top.slice(0, 3).map((tile) => tile.getAttribute("aria-label"))).toEqual([
+    "Desktop Wallpaper",
+    "Screen Saver",
+    "No wallpaper",
+  ]);
+  // The desktop picture is no longer repeated in an untitled group further down.
+  expect(picker.querySelectorAll('[aria-label="Desktop Wallpaper"]').length).toBe(1);
+  // The screen saver tile names its aerial in the tooltip and plays like a moving wallpaper.
+  const saver = top[1]!;
+  expect(saver.title).toBe("Screen Saver\nIceland Dusk");
+  await act(async () => saver.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: aerial });
+  await act(async () => top[0]!.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "desktop" });
+  page.unmount();
+});
+
+test("a screen saver that is not an aerial adds no tile", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  expect(picker.querySelector('[aria-label="Screen Saver"]')).toBeNull();
+  expect(runs(page, "cmux.settings.backdrop.image.screen_saver").length).toBeGreaterThan(0);
   page.unmount();
 });

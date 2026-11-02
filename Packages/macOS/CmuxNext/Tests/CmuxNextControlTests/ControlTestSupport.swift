@@ -53,8 +53,13 @@ final class LineClient {
         self.descriptor = descriptor
         var noSigPipe: Int32 = 1
         setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-        var timeout = timeval(tv_sec: 5, tv_usec: 0)
-        setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        // No receive timeout: a read waits for its line or for EOF. The old
+        // 5 s SO_RCVTIMEO was shorter than the 30 s `.loadTolerant` router
+        // deadline, so in the full parallel run an `action.run` queued behind
+        // a busy main actor (held past 6 s there) answered after the client
+        // had given up, and the test read "" (ControlSocketServerTests
+        // .servesV1AndV2Lines). A server that never answers is a hang that
+        // scripts/cmux-next/swift-test-with-hang-sampler.sh names and samples.
     }
 
     deinit { close(descriptor) }
@@ -69,8 +74,10 @@ final class LineClient {
     func readLine() -> String {
         var result: [UInt8] = []
         var byte: UInt8 = 0
-        while read(descriptor, &byte, 1) == 1 {
-            if byte == 0x0A { break }
+        while true {
+            let count = read(descriptor, &byte, 1)
+            if count < 0, errno == EINTR { continue }
+            guard count == 1, byte != 0x0A else { break }
             result.append(byte)
         }
         return String(decoding: result, as: UTF8.self)
@@ -134,6 +141,9 @@ extension ControlRouter.Configuration {
     /// shares the main actor with thousands of tests, so a queued
     /// `action.run` can wait seconds before it starts; the production 2 s
     /// deadline would then answer `timeout` and the test would check the
-    /// wrong thing. Deadline tests set their own short deadlines.
-    static let loadTolerant = ControlRouter.Configuration(requestDeadline: .seconds(30))
+    /// wrong thing. Deadline tests set their own short deadlines. An action
+    /// that starts a terminal (splitRight, agent.openSessionWorkspace) runs
+    /// under the terminal start deadline instead (6 s), which a loaded run
+    /// also passed before the action started, so it is lifted too.
+    static let loadTolerant = ControlRouter.Configuration(requestDeadline: .seconds(30), terminalStartDeadline: .seconds(30))
 }

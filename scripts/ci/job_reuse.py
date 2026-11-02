@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import urllib.parse
+import urllib.error
 import urllib.request
 
 KEY = re.compile(r"^job-pass-[a-z0-9-]+-[0-9a-f]{40}$")
@@ -48,6 +49,25 @@ def pick(artifacts: list[dict], key: str, repository_id: str) -> dict | None:
     return max(trusted, key=lambda item: item.get("created_at") or "", default=None)
 
 
+def note_call(headers, method: str, path: str) -> None:
+    """One `gh-call` line for a response already received (scripts/ci/gh_call_log.py reads them).
+
+    Inline rather than imported: this script is often checked out alone (sparse). Reads only headers this
+    call already has; no request of its own, nothing outside Actions, and it never raises."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    try:
+        import datetime as _dt
+        get = (lambda name: str((headers.get(name) if headers is not None else "") or "-").strip() or "-")
+        fields = (_dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                  os.environ.get("GITHUB_WORKFLOW", ""), os.environ.get("GITHUB_JOB", ""),
+                  get("X-RateLimit-Resource"), get("X-RateLimit-Used"), get("X-RateLimit-Remaining"),
+                  get("X-RateLimit-Reset"), f"{method.upper()} {path.split('?', 1)[0]}")
+        print("\t".join(["gh-call", *(" ".join(str(f).split()) or "-" for f in fields)]), file=sys.stderr, flush=True)
+    except Exception:  # noqa: BLE001 - logging only
+        pass
+
+
 def listing(key: str, path: str | None) -> list[dict]:
     if path:
         text = open(path, encoding="utf-8").read()
@@ -63,8 +83,11 @@ def listing(key: str, path: str | None) -> list[dict]:
                                                        "X-GitHub-Api-Version": "2022-11-28"})
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
+                note_call(response.headers, "GET", f"/repos/{repo}/actions/artifacts")
                 text = response.read().decode()
         except OSError as error:
+            if isinstance(error, urllib.error.HTTPError):
+                note_call(error.headers, "GET", f"/repos/{repo}/actions/artifacts")
             raise Miss(f"listing artifacts failed: {error}") from error
     try:
         data = json.loads(text)

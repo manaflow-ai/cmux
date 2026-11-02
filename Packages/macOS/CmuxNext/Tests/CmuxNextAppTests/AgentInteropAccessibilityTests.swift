@@ -4,6 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextLayout
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Agent interop: a computer-use agent (OpenAI computer use, cmux-cua, any AXUIElement client)
@@ -11,7 +12,7 @@ import Testing
 /// hosts the real views in a window and walks the tree the way a client does; every pressable
 /// element (button, menu button, tab, disclosure, splitter) has a label and a stable
 /// `cmux.<area>.<control>` identifier, and no image is exposed without a description.
-@MainActor @Suite(.serialized) struct AgentInteropAccessibilityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AgentInteropAccessibilityTests {
     private let audit = AccessibilityAudit()
 
     private func window(_ view: NSView, size: NSSize) -> NSWindow {
@@ -37,7 +38,7 @@ import Testing
         let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: TabID("tab1")))
         strip.dragsWindowFromEmptySpace = false
         let host = window(strip, size: NSSize(width: 900, height: TabStripView.preferredHeight))
-        defer { host.orderOut(nil) }
+        defer { host.close() }
 
         // The walk reaches the strip's elements at all (a broken walk would pass vacuously).
         let labels = audit.nodes(under: strip).map(\.label)
@@ -62,7 +63,7 @@ import Testing
         toolbar.show([PaneToolbarItem(id: "pane.splitRight", title: "Split Right", symbol: "rectangle.split.2x1", shortcut: nil)],
                      more: true, lit: false)
         let host = window(toolbar, size: NSSize(width: 120, height: 32))
-        defer { host.orderOut(nil) }
+        defer { host.close() }
         expectClean(toolbar, "pane toolbar")
         let ids = audit.identifiers(under: toolbar)
         #expect(ids.contains("cmux.pane.more"), "\(ids.sorted())")
@@ -76,7 +77,7 @@ import Testing
         band.describeToggle(title: "Toggle Left Sidebar", shortcut: nil)
         band.describeHistory(back: "Go Back", forward: "Go Forward")
         let host = window(band, size: NSSize(width: TitlebarToolbarBand.width, height: 32))
-        defer { host.orderOut(nil) }
+        defer { host.close() }
         expectClean(band, "titlebar band")
         let ids = audit.identifiers(under: band)
         for expected in ["cmux.titlebar.toggleSidebar", "cmux.titlebar.back", "cmux.titlebar.forward"] {
@@ -89,7 +90,7 @@ import Testing
     @Test func sidebarRowsGroupsAndButtonsAreNamedAndIdentified() throws {
         let (sidebar, first) = try SidebarGroupChromeLookTests.sidebar()
         let host = window(sidebar, size: NSSize(width: 240, height: 600))
-        defer { host.orderOut(nil) }
+        defer { host.close() }
         expectClean(sidebar, "sidebar")
         let ids = audit.identifiers(under: sidebar)
         for expected in ["cmux.sidebar.newWorkspace", "cmux.sidebar.workspace.\(first.rawValue)",
@@ -105,7 +106,7 @@ import Testing
         model.activeProfileID = ProfileKey("default")
         let bar = ProfileBarView(model: model)
         let host = window(bar, size: NSSize(width: 240, height: 28))
-        defer { host.orderOut(nil) }
+        defer { host.close() }
         bar.refresh() // the sidebar refreshes the bar when its model changes
         expectClean(bar, "spaces strip")
         let ids = audit.identifiers(under: bar)
@@ -118,7 +119,7 @@ import Testing
     @Test func groupHeaderActionsAreNamedAndIdentifiedWhenShown() throws {
         let (sidebar, _) = try SidebarGroupChromeLookTests.sidebar()
         let host = window(sidebar, size: NSSize(width: 240, height: 600))
-        defer { host.orderOut(nil) }
+        defer { host.close() }
         let header = try #require(sidebar.list.rowViews[.group(SidebarGroupChromeLookTests.open)] as? GroupHeaderRowView)
         header.isKeyboardFocused = true
         header.layoutSubtreeIfNeeded()
@@ -138,7 +139,7 @@ import Testing
         container.addSubview(split)
         container.addSubview(handle)
         let host = window(container, size: NSSize(width: 200, height: 200))
-        defer { host.orderOut(nil) }
+        defer { host.close() }
         split.frame = NSRect(x: 100, y: 0, width: 6, height: 200)
         handle.frame = NSRect(x: 0, y: 0, width: 6, height: 200)
         expectClean(container, "dividers")

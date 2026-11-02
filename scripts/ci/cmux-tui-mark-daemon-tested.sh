@@ -6,6 +6,9 @@
 # Usage: cmux-tui-mark-daemon-tested.sh <key> [<legacy key>]
 # Env: R2_ENDPOINT and the R2 AWS_* credentials; GITHUB_SHA, GITHUB_RUN_ID,
 # GITHUB_SERVER_URL and GITHUB_REPOSITORY (the run that tested the tree).
+# The marker names no runner OS. Markers written on 2026-10-26 and 27 carry
+# an extra "os" field; request-nightly-next.sh and every other reader check
+# only that the marker exists, so markers with or without it promote alike.
 # Caller: cmux-tui-artifacts.yml publish-tree-tested, after the run's daemon
 # tests of this key passed. The publisher (publish-tree)
 # publishes without the marker and never write it (cx-y0nf2).

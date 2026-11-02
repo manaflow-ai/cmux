@@ -3,8 +3,9 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, LazyLock};
 
-use cmux_worktree_care::inventory::{self, Facts, Repo};
+use cmux_worktree_care::inventory::{self, Facts, FinishedMemo, Repo};
 use cmux_worktree_care::pass::{self, Options};
 use cmux_worktree_care::policy::{Action, Pressure, Settings};
 use cmux_worktree_care::procs::{Open, Uses};
@@ -12,12 +13,12 @@ use cmux_worktree_care::restore::restore;
 use cmux_worktree_care::{Store, archive};
 
 /// Nothing registered as working anywhere.
-fn nothing() -> std::sync::Arc<Uses> {
-    std::sync::Arc::new(|| Ok(Vec::new()))
+fn nothing() -> Arc<Uses> {
+    Arc::new(|| Ok(Vec::new()))
 }
 
-fn closed() -> std::sync::Arc<Open> {
-    std::sync::Arc::new(|_| Ok(None))
+fn closed() -> Arc<Open> {
+    Arc::new(|_| Ok(None))
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -68,10 +69,19 @@ fn repository(name: &str) -> (PathBuf, PathBuf) {
     (base, main)
 }
 
+/// This test process's finished answers, shared by its scans as the
+/// library's own memo is. Their merge-tree lock is in this process's own
+/// folder: with the library's in-memory memo it is the host-wide lock in
+/// `Store::default_dir()`, and while another test's merge-tree or the
+/// person's cleanup daemon held it, a squash check was "busy, unknown" and a
+/// finished branch read as unfinished.
+static FINISHED: LazyLock<Arc<FinishedMemo>> =
+    LazyLock::new(|| Arc::new(FinishedMemo::load(scratch("finished").join("finished.json"))));
+
 fn scan(main: &Path) -> Repo {
     let common =
         PathBuf::from(git(main, &["rev-parse", "--path-format=absolute", "--git-common-dir"]));
-    inventory::scan(&common, &[]).unwrap()
+    inventory::scan_with_memo(&common, &[], Arc::clone(&FINISHED)).unwrap()
 }
 
 fn facts_of<'a>(repo: &'a Repo, path: &Path) -> (&'a inventory::Worktree, &'a Facts) {
@@ -206,7 +216,7 @@ fn care_a_worktree_a_program_has_open_stays() {
     let repo = scan(&main);
     let (worktree, facts) = facts_of(&repo, &wt);
     let store = Store::open(base.join("store")).unwrap();
-    let held: std::sync::Arc<Open> = std::sync::Arc::new(|_| Ok(Some(4242)));
+    let held: Arc<Open> = Arc::new(|_| Ok(Some(4242)));
     let error = archive::reclaim(
         &repo,
         worktree,
@@ -219,7 +229,7 @@ fn care_a_worktree_a_program_has_open_stays() {
     )
     .unwrap_err();
     assert!(error.contains("4242"), "{error}");
-    let failing: std::sync::Arc<Open> = std::sync::Arc::new(|_| Err("lsof: timed out".into()));
+    let failing: Arc<Open> = Arc::new(|_| Err("lsof: timed out".into()));
     let error = archive::reclaim(
         &repo,
         worktree,
@@ -236,6 +246,23 @@ fn care_a_worktree_a_program_has_open_stays() {
     assert_eq!(std::fs::read_to_string(wt.join("notes.txt")).unwrap(), "not pushed\n");
     assert!(store.list().is_empty());
     assert_eq!(git(&main, &["for-each-ref", "refs/cmux/archive"]).trim(), "");
+}
+
+/// The host-wide merge-tree lock that scans with no state folder of their
+/// own share (`.merge-tree.lock` in `Store::default_dir()`), held until the
+/// file is dropped. Waits for a merge-tree another process is running.
+fn host_merge_tree_lock() -> std::fs::File {
+    let dir = Store::default_dir().expect("a home folder");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(dir.join(".merge-tree.lock"))
+        .unwrap();
+    file.lock().unwrap();
+    file
 }
 
 #[test]
@@ -255,6 +282,10 @@ fn care_a_squash_merged_branch_is_finished() {
     git(&main, &["commit", "-qam", "later"]);
     git(&main, &["push", "-q", "origin", "HEAD:main"]);
     git(&main, &["fetch", "-q", "origin"]);
+    // A merge-tree elsewhere on this machine (another test process, the
+    // person's own cleanup daemon) holds the host-wide lock through the scan:
+    // what this test reads must not depend on what else runs on the host.
+    let _host_busy = host_merge_tree_lock();
     let repo = scan(&main);
     let (_, facts) = facts_of(&repo, &wt);
     assert_eq!(facts.unpushed, 2);
@@ -263,6 +294,39 @@ fn care_a_squash_merged_branch_is_finished() {
         "{:?}",
         facts.finished
     );
+}
+
+/// Loose objects in the repository's object folder.
+fn loose_objects(main: &Path) -> String {
+    git(main, &["count-objects", "-v"])
+        .lines()
+        .find(|line| line.starts_with("count:"))
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[test]
+fn care_a_scan_writes_no_object_into_the_repository() {
+    let (base, main) = repository("no-objects");
+    let wt = base.join("wt-e");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/e", wt.to_str().unwrap()]);
+    write(&wt.join("src/lib.txt"), "feature\n");
+    git(&wt, &["commit", "-qam", "e1"]);
+    // main moves on elsewhere: merging feat/e into it makes trees neither has.
+    write(&main.join("docs/later.txt"), "later\n");
+    git(&main, &["add", "."]);
+    git(&main, &["commit", "-qm", "later"]);
+    git(&main, &["push", "-q", "origin", "HEAD:main"]);
+    git(&main, &["fetch", "-q", "origin"]);
+    git(&main, &["repack", "-qad"]);
+    let before = loose_objects(&main);
+    for _ in 0..2 {
+        // The second scan answers from what the first found.
+        let repo = scan(&main);
+        let (_, facts) = facts_of(&repo, &wt);
+        assert_eq!(facts.finished, None, "the work is not on main");
+    }
+    assert_eq!(loose_objects(&main), before, "merge-tree's trees went to a scratch folder");
 }
 
 #[test]
@@ -506,7 +570,7 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
     let options = Options {
         roots: vec![base.clone()],
         sessions: Vec::new(),
-        uses: std::sync::Arc::new(move || {
+        uses: Arc::new(move || {
             // This test process stands in for the session's: `inside` skips
             // its own pid, so the record names its parent.
             cmux_worktree_care::procs::claude_sessions(std::slice::from_ref(&registry)).map(

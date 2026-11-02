@@ -17,6 +17,13 @@
 # <run-dir> holds install.cmd (the pinned install command) and receives
 # `result` (one line: OK, UNVERIFIED, SKIP, PENDING, ROLLBACK or FAIL), `log`, and the
 # replaced binary. One run at a time per machine: a second run reports SKIP busy.
+# An optional <run-dir>/expect-build (one 40-hex commit, written by the cmux NEXT
+# app's automatic update) is checked under the lock before anything changes: a
+# binary whose `--version` does not name that commit (another, none, or no
+# answer) was updated since the caller chose to replace it, maybe to a newer
+# build, so the run reports SKIP changed. Such a run also holds the in-place
+# updater's lock (`cmux link machine update`, apply.rs) for its whole run, so
+# neither replaces the other's build mid-run.
 set -u
 TARGET_SHA=${1:?target sha256}
 TARGET_COMMIT=${2:?target commit}
@@ -30,7 +37,31 @@ exec 9> "$(dirname "$RUN")/lock"
 flock -n 9 || finish "SKIP busy another upgrade run holds the lock"
 
 daemon_pid() { pgrep -f "cmux-tui server start --session cloud" | head -1; }
-host_pids() { ps -eo pid=,args= | awk '$2 ~ /(cmux-tui|\/proc\/self\/exe)$/ && $3=="__terminal-host"{print $1}' | sort -n | tr '\n' ' '; }
+# The commit the binary on disk names in `--version` (`cmux X (COMMIT; ghostty ...)`), run as the
+# daemon's user like term_count, within 10 seconds; empty when none.
+bin_commit() { if [ "$H" = /root ]; then U=root; else U=cmux; fi; sudo -n -u "$U" env HOME="$H" timeout --signal=KILL 10s "$BIN" --version 2>/dev/null | sed -n 's/.*(\([0-9a-f]\{40\}\)[;)].*/\1/p' | head -n 1; }
+# Under the lock: the binary still names the commit the caller saw (<run-dir>/expect-build), or
+# there is no such file (the fleet runner's runs).
+still_expected() {
+  [ -f "$RUN/expect-build" ] || return 0
+  want=$(tr -d '[:space:]' < "$RUN/expect-build")
+  now=$(bin_commit)
+  [ -n "$now" ] && [ "$now" = "$want" ]
+}
+# With <run-dir>/expect-build: the in-place updater's lock beside the binary, held on fd 8 until
+# the run ends (created as the daemon's user, so that updater can still open it).
+hold_inplace_lock() {
+  [ -f "$RUN/expect-build" ] || return 0
+  L="$(dirname "$BIN")/.cmux-tui.update.lock"
+  if [ ! -e "$L" ]; then : > "$L" && { [ "$H" = /root ] || chown cmux:cmux "$L"; }; fi
+  exec 8>> "$L" && flock -n 8
+}
+# A process's start time (field 22 of /proc/PID/stat; the command name before it may hold spaces).
+proc_start() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f20; }
+# Each live terminal host as PID:START, so a pid the kernel reuses after a host exits never
+# passes for that host (host_alive).
+host_pids() { ps -eo pid=,args= | awk '$2 ~ /(cmux-tui|\/proc\/self\/exe)$/ && $3=="__terminal-host"{print $1}' | sort -n | while read -r p; do s=$(proc_start "$p"); [ -n "$s" ] && printf '%s:%s ' "$p" "$s"; done; }
+host_alive() { s=$(proc_start "${1%%:*}"); [ -n "$s" ] && [ "$s" = "${1#*:}" ]; }
 daemon_has_trusted_carrier() { tr '\0' ' ' < "/proc/$1/cmdline" | grep -q -- --remote-ws-trusted-carrier; }
 daemon_has_supported_cloud_entry() {
   daemon_has_trusted_carrier "$1" && return 0
@@ -96,6 +127,9 @@ wait_serving() {
 
 # pidfd readiness is the kernel's process-exit signal. The two bounded waits
 # own TERM/KILL escalation without polling or waiting forever for a D-state task.
+# The pid is checked to still be the daemon once its pidfd is open (from then on
+# the kernel cannot reuse it): one that already exited, its pid taken by another
+# process, is left alone.
 stop_child() {
   [ -n "${1:-}" ] || return 0
   python3 - "$1" <<'PYTHON'
@@ -104,6 +138,14 @@ pid = int(sys.argv[1])
 try:
     fd = os.pidfd_open(pid)
 except ProcessLookupError:
+    sys.exit(0)
+try:
+    with open(f"/proc/{pid}/cmdline", "rb") as source:
+        daemon = b"server\0start\0--session\0cloud" in source.read()
+except OSError:
+    daemon = False
+if not daemon:
+    os.close(fd)
     sys.exit(0)
 with selectors.DefaultSelector() as selector:
     selector.register(fd, selectors.EVENT_READ)
@@ -149,13 +191,11 @@ canary_crash_loop() {
   D=$(daemon_pid)
   stop_child "$D" || finish "FAIL canary-daemon-still-running"
   install_state_mount || rollback_upgrade "$STATE_MOUNT_FAILURE"
-  if ! sh "$RUN/install.cmd" >> "$RUN/log" 2>&1; then
-    [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade canary-install
-  fi
+  sh "$RUN/install.cmd" >> "$RUN/log" 2>&1 || rollback_upgrade canary-install
   [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade canary-pin-mismatch
   say "canary staged target=$TARGET_SHA"
   if N=$(wait_serving "$TARGET_SHA"); then
-    LOST=""; for p in $HOSTS_BEFORE; do kill -0 "$p" 2>/dev/null || LOST="$LOST $p"; done
+    LOST=""; for p in $HOSTS_BEFORE; do host_alive "$p" || LOST="$LOST ${p%%:*}"; done
     [ -z "$LOST" ] || rollback_upgrade "canary-lost-hosts=[${LOST# }]"
     finish "OK canary daemon=$N hosts-before=$(echo $HOSTS_BEFORE | wc -w)"
   fi
@@ -164,6 +204,8 @@ canary_crash_loop() {
 
 if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then H=/home/cmux; else H=/root; fi
 BIN="$H/.cmux/bin/cmux-tui"
+hold_inplace_lock || finish "SKIP busy an in-place update of this machine is running"
+still_expected || finish "SKIP changed binary=$(bin_commit) expected=$(tr -d '[:space:]' < "$RUN/expect-build")"
 # A crash-looping daemon is between restarts some of the time. Without a
 # live child, its carrier contract cannot be proven; retry after inspecting it.
 D=$(daemon_pid)
@@ -175,7 +217,9 @@ if [ "$(exe_sha "$D")" = "$TARGET_SHA" ]; then
     finish "FAIL $STATE_MOUNT_FAILURE"
   }
   # The next restart runs the binary on disk, so it must match too.
-  [ "$(bin_sha)" = "$TARGET_SHA" ] || sh "$RUN/install.cmd" >> "$RUN/log" 2>&1
+  if [ "$(bin_sha)" != "$TARGET_SHA" ]; then
+    sh "$RUN/install.cmd" >> "$RUN/log" 2>&1 || finish "FAIL install"
+  fi
   [ "$(bin_sha)" = "$TARGET_SHA" ] && finish "OK already-current daemon=$D" || finish "FAIL daemon-current-but-binary-not"
 fi
 FREE=$(df -Pm "$H" | awk 'NR==2{print $4}')
@@ -189,17 +233,13 @@ OLD_SHA=$(bin_sha)
 say "before daemon=$D old=$OLD_SHA target=$TARGET_COMMIT hosts=[$HOSTS_BEFORE] terminals=$TERMS_BEFORE free=${FREE}MB"
 cp -p "$BIN" "$RUN/cmux-tui.prev" && [ "$(sha256sum "$RUN/cmux-tui.prev" | cut -d' ' -f1)" = "$OLD_SHA" ] || finish "FAIL backup (nothing changed)"
 install_state_mount || rollback_upgrade "$STATE_MOUNT_FAILURE"
-if ! sh "$RUN/install.cmd" >> "$RUN/log" 2>&1; then
-  # The binary step runs first; a hook-step failure leaves the pinned binary, which is still correct.
-  [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade install
-  say "install: hook step failed, binary is pinned; continuing"
-fi
+sh "$RUN/install.cmd" >> "$RUN/log" 2>&1 || rollback_upgrade install
 [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade pin-mismatch
 D=$(daemon_pid)
 stop_child "$D" || rollback_upgrade daemon-still-running
 
 if N=$(wait_serving "$TARGET_SHA"); then
-  LOST=""; for p in $HOSTS_BEFORE; do kill -0 "$p" 2>/dev/null || LOST="$LOST $p"; done
+  LOST=""; for p in $HOSTS_BEFORE; do host_alive "$p" || LOST="$LOST ${p%%:*}"; done
   TERMS_AFTER=$(term_count)
   [ -z "$LOST" ] || rollback_upgrade "lost-hosts=[${LOST# }]"
   # Every host survived, but without both counts the terminals are not proven.

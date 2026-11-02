@@ -60,7 +60,11 @@ pub(crate) fn decide(
     if config.owner.as_deref().is_some_and(|owner| same_login(owner, login)) {
         return Decision::Owner(identity);
     }
-    if config.allow.iter().any(|allowed| same_login(allowed, login)) {
+    // A login with a shared chat always goes through the filtered proxy (its grant), even if it
+    // is also on the full-access list: shares are checked before `allow` (chat-multiplayer
+    // design section 2), so its author is always stamped from WhoIs.
+    let shared = config.shares.iter().any(|share| same_login(&share.login, login));
+    if !shared && config.allow.iter().any(|allowed| same_login(allowed, login)) {
         return Decision::Allowed(identity);
     }
     match grant::check(config, login) {

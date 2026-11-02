@@ -28,7 +28,7 @@
 
 use std::io::BufReader;
 use std::os::unix::net::UnixStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{PROTOCOL, ResourceOperation};
@@ -37,7 +37,7 @@ use serde_json::{Map, Value, json};
 use super::GlobalArgs;
 use super::app::{ActionName, action_run_params, insert_run_key, request_with_retry};
 use super::command::{RequestPlan, WireOperation};
-use super::resolve::{Failure, read, read_response, send};
+use super::resolve::{Failure, read, read_response, response_failure, send_request};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -59,11 +59,15 @@ fn applies(plan: &RequestPlan) -> bool {
 /// explicitly; otherwise the app this `cmux` belongs to owns the session
 /// when the daemon socket is that app's own daemon socket.
 pub(super) fn owning_app(global: &GlobalArgs, daemon_socket: &Path) -> Option<UnixStream> {
+    super::app::connect(&owning_app_socket(global, daemon_socket)?).ok()
+}
+
+/// The control socket path of [`owning_app`], unconnected.
+pub(super) fn owning_app_socket(global: &GlobalArgs, daemon_socket: &Path) -> Option<PathBuf> {
     if global.app_socket.is_none() && !app_daemon_is(daemon_socket) {
         return None;
     }
-    let socket = super::app::socket_path(global).ok()?;
-    super::app::connect(&socket).ok()
+    super::app::socket_path(global).ok()
 }
 
 /// Whether `daemon_socket` is the own daemon of the app this `cmux`
@@ -456,8 +460,8 @@ fn mutate(
     });
     let encoded = super::resolve::encode_request_bytes(&request)
         .map_err(|error| Failure::Transport(format!("cmux: {error}")))?;
-    send(reader, &encoded).map_err(Failure::Transport)?;
-    match read_response(reader, &id).map_err(Failure::Transport)? {
+    send_request(reader, &encoded)?;
+    match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
         Err(error) => Err(Failure::Resource(error)),
     }

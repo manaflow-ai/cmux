@@ -27,6 +27,17 @@ struct AgentPaneThoughtTunablesTests {
             == ["live-thought-viewport": "off"])
     }
 
+    /// A mouse wheel's notch glides the transcript (webviews acpmux/wheelGlide.ts) by default, which
+    /// sets no attribute; off, `data-wheel-glide="off"`.
+    @Test func wheelGlideIsOnByDefaultAndOffSetsItsAttribute() {
+        #expect(AgentPaneTunables.wheelGlide.descriptor.key == "agentPane.debug.wheelGlide")
+        #expect(AgentPaneTunables.wheelGlide.defaultValue == true)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.wheelGlide" })
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, wheelGlide: true).isEmpty)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, wheelGlide: false)
+            == ["wheel-glide": "off"])
+    }
+
     /// The turn preview card (webviews conversation/PreviewCard.tsx) is off by default and sets no
     /// attribute; on, `data-turn-preview-cards="on"`.
     @Test func turnPreviewCardsAreOffByDefaultAndOnSetsTheirAttribute() {

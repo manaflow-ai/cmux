@@ -1,7 +1,4 @@
-// A prompt's action row under its bubble follows Leo's spec (2026-10-21), after Claude's: the read receipt (one check delivered, two read, "Read by
-// <agent>"), its age ("3 days ago", the exact time on hover), a dot, then Copy, Retry and Fork, then
-// cmux's Edit; no Pin. Before, a prompt showed a lone bookmark there and a steer said "Steered · the
-// agent read it" under it. The row shows on hover or focus only.
+// Sent prompts show age and normal hover actions, without receipt checks or state dots.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -37,7 +34,7 @@ afterAll(() => {
 const HOUR = 3_600_000;
 // Each item of the row by its name: a control's label (Retry's wrapper by its button's), else its text.
 const labels = () =>
-  [...host.querySelectorAll(".cv-user__actions > *")].map(
+  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > *")].map(
     (node) =>
       node.getAttribute("aria-label") ??
       node.querySelector("button")?.getAttribute("aria-label") ??
@@ -61,7 +58,7 @@ async function draw(row: AcpmuxRow, actions: object) {
   );
 }
 
-test("a read prompt's row is Leo's: check, age, dot, Copy, Edit, Retry, Fork, each naming itself; no Pin", async () => {
+test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt checks or state dots", async () => {
   const forked: number[] = [];
   const sent: [string, string][] = [];
   const row: AcpmuxRow = {
@@ -82,12 +79,12 @@ test("a read prompt's row is Leo's: check, age, dot, Copy, Edit, Retry, Fork, ea
     route: { name: "Claude Code", harness: "claude" },
   });
   // Leo's row, then the direct prompt actions: Copy, Edit, Retry and Fork.
-  expect(labels()).toEqual(["Read by Claude Code", "3 days ago", "·", "Copy", "Edit", "Retry", "Fork from here"]);
+  expect(labels()).toEqual(["3 days ago", "Copy", "Edit", "Retry", "Fork from here"]);
   expect(host.querySelector(".cv-message-pin")).toBeNull();
-  expect(host.querySelector(".cv-user__read")?.getAttribute("data-read")).toBe("true");
+  expect(host.querySelector(".cv-user__read")).toBeNull();
   expect(host.querySelector("time.cv-user__time")?.getAttribute("dateTime")).toBe(new Date(row.at).toISOString());
   // Each names itself on hover; the time gives its exact date and time.
-  expect(tooltip(".cv-user__read")).toBe("Read by Claude Code");
+  expect(host.querySelector(".cv-user__dot")).toBeNull();
   expect(tooltip("time")?.replace(/\s/g, " ")).toBe(
     new Date(row.at)
       .toLocaleString("en-US", {
@@ -251,27 +248,27 @@ test("a chat that cannot fork at a prompt hides Fork there rather than showing i
     { id: "user-2", version: 1, at: Date.now(), kind: "user", seq: 2, text: "First" },
     { fork: () => {}, forkSeq: 9, promptTurns: new Map([["user-2", 3]]), retry: () => {} },
   );
-  expect(labels()).toEqual(["Read by the agent", "just now", "·", "Copy", "Retry"]);
+  expect(labels()).toEqual(["just now", "Copy", "Retry"]);
 });
 
 test("a prompt still being sent has no receipt, and one that cannot fork offers no Fork", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", pending: true, text: "Next" }, {});
-  expect(labels()).toEqual(["just now", "·", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy"]);
 });
 
-test("a steer the agent has not read yet shows one check: delivered when the step ends", async () => {
+test("the normal hover actions never add an unread receipt", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", steer: "waiting", text: "Also this" }, {});
-  expect(labels()).toEqual(["Delivered when the current step ends", "just now", "·", "Copy"]);
-  expect(host.querySelector(".cv-user__read")?.getAttribute("data-read")).toBe("false");
+  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(host.querySelector(".cv-user__read")).toBeNull();
   // No "Steering" / "Steered" line under the bubble any more.
   expect(host.textContent).not.toContain("Steer");
 });
 
-test("a read steer reads Read by the agent when the chat names no agent", async () => {
+test("a read steer shows only normal hover actions", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", steer: "landed", text: "Also this" }, {});
-  expect(labels()).toEqual(["Read by the agent", "just now", "·", "Copy"]);
-  // The same two checks as any read prompt, and no "Steered · the agent read it" line.
-  expect(host.querySelector(".cv-user__read")?.getAttribute("data-read")).toBe("true");
+  expect(labels()).toEqual(["just now", "Copy"]);
+  // No receipt check or Steered state label.
+  expect(host.querySelector(".cv-user__read")).toBeNull();
   expect(host.textContent).not.toContain("Steer");
 });
 
@@ -286,24 +283,24 @@ test("Retry under a prompt sends it again (shown under every prompt)", async () 
   expect(sent).toEqual([["user-4", "Cover it"]]);
 });
 
-test("a steer this pane sent reads delivered while it waits for the agent, though acpmux recorded it", async () => {
+test("a recorded steer has no receipt checks in its normal hover actions", async () => {
   const delivery = { state: "read", promptId: "p-1", sessionId: "s-1", sentAt: Date.now() } as const;
   const steer: AcpmuxRow = { id: "user-7", version: 1, at: Date.now(), kind: "user", seq: 7, text: "Rebase first" };
   await draw({ ...steer, steer: "waiting", delivery }, {});
-  expect(labels()).toEqual(["Delivered when the current step ends", "just now", "·", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy"]);
   await draw({ ...steer, steer: "landed", delivery }, {});
-  expect(labels()).toEqual(["Read by the agent", "just now", "·", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy"]);
 });
 
-test("a prompt this pane sent shows no receipt on its way, one check once delivered, two once read", async () => {
+test("normal hover actions stay free of receipt checks across sending, delivered and read", async () => {
   const sent = { promptId: "p-2", sessionId: "s-1", sentAt: Date.now() };
   const prompt: AcpmuxRow = { id: "user-8", version: 1, at: Date.now(), kind: "user", seq: 8, text: "Ship it" };
   await draw({ ...prompt, delivery: { ...sent, state: "sending" } }, {});
-  expect(labels()).toEqual(["just now", "·", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy"]);
   await draw({ ...prompt, delivery: { ...sent, state: "delivered" } }, {});
-  expect(labels()).toEqual(["Delivered", "just now", "·", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy"]);
   await draw({ ...prompt, delivery: { ...sent, state: "read" } }, { route: { name: "Codex" } });
-  expect(labels()).toEqual(["Read by Codex", "just now", "·", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy"]);
 });
 
 test("the relative time words a message's age as Claude's hover row does, in the pane's language", async () => {
@@ -360,4 +357,26 @@ test("the time under a prompt names its exact time, shown above it", async () =>
   const time = host.querySelector("time.cv-user__time")!;
   expect(time.getAttribute("title")?.replace(/\s/g, " ")).toBe("Oct 20, 2026, 10:16 PM");
   expect(time.getAttribute("data-tooltip-side")).toBe("top");
+});
+
+test("Option-click Fork offers destinations without starting a fork", async () => {
+  const { installMessageMenuReporter } = await import("../src/agent-session/acpmux/conversation/messageMenu");
+  const reports: unknown[] = [];
+  const remove = installMessageMenuReporter(document, () => ({ postMessage: (report) => reports.push(report) }));
+  const forked: number[] = [];
+  try {
+    const row: AcpmuxRow = { id: "option-fork", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Fork this" };
+    await draw(row, { fork: (seq: number) => forked.push(seq), forkAny: true, promptTurns: new Map([[row.id, 5]]) });
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
+    act(() => {
+      button.dispatchEvent(new window.MouseEvent("click", { bubbles: true, altKey: true }));
+    });
+    expect(reports).toEqual([expect.objectContaining({ forkDestinations: 5 })]);
+    expect(forked).toEqual([]);
+    expect(button.dataset.forkState).toBe("idle");
+    act(() => button.click());
+    expect(forked).toEqual([5]);
+  } finally {
+    remove();
+  }
 });

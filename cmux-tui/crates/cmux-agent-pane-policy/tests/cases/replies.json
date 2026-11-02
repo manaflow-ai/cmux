@@ -116,5 +116,96 @@
    "id": null,
    "result": {}
   }
+ },
+ {
+  "name": "peer reconnect keeps each peer's name, state and error, never its endpoint",
+  "method": "_acpmux/peer_reconnect",
+  "page_id": "8",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 41,
+   "result": {
+    "peers": [
+     {
+      "name": "studio",
+      "url": "wss://studio.example/acpmux?token=s",
+      "connected": false,
+      "state": "failed",
+      "error": "doctor: host unreachable",
+      "attempts": 3
+     },
+     {
+      "name": "box",
+      "state": "connected",
+      "url": "ssh://box"
+     }
+    ],
+    "token": "s"
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 8,
+   "result": {
+    "peers": [
+     {
+      "name": "studio",
+      "state": "failed",
+      "error": "doctor: host unreachable"
+     },
+     {
+      "name": "box",
+      "state": "connected"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "peer snapshot keeps each peer's name, state, lastSeen and error, never its endpoint or a boolean lastSeen",
+  "method": "_acpmux/peers",
+  "page_id": "9",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 42,
+   "result": {
+    "peers": [
+     {
+      "name": "studio",
+      "url": "ssh://studio",
+      "token": "s",
+      "state": "restarting",
+      "lastSeen": 1793357781599,
+      "error": "daemon restarting",
+      "attempts": 2
+     },
+     {
+      "name": "box",
+      "state": "connected",
+      "lastSeen": true,
+      "error": null
+     }
+    ],
+    "token": "s"
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 9,
+   "result": {
+    "peers": [
+     {
+      "name": "studio",
+      "state": "restarting",
+      "lastSeen": 1793357781599,
+      "error": "daemon restarting"
+     },
+     {
+      "name": "box",
+      "state": "connected"
+     }
+    ]
+   }
+  }
  }
 ]

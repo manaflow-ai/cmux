@@ -95,7 +95,7 @@ fi
 echo "blocking-probe: preflight ok ($(grep -c 'interpos' "$out/preflight.txt") dyld interposing lines)"
 
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 \
-  | tee "$out/reload.log" | tail -n 40
+  | tee "$out/reload.log"
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "blocking-probe: the tagged reload printed no app path; its errors, then its last lines:" >&2

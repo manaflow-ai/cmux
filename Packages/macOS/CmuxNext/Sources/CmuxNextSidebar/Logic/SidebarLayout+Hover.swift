@@ -1,7 +1,7 @@
 public import CoreGraphics
 
 /// Which row the pointer hovers. From rest, a row with hover controls (a
-/// workspace or a tab row) takes the hover only inside its hover pill, a hit
+/// workspace row) takes the hover only inside its hover pill, a hit
 /// shape inside the drawn fill (nothing draws it): the row's frame inset by
 /// `inset` top and bottom, with corners rounded by `cornerRadius` (Leo
 /// 2026-10-19). Once a row is hovered, the hover follows the pointer: inside
@@ -48,7 +48,7 @@ extension SidebarRowKey {
     /// Rows that show hover controls, so they take the hover only inside their hover pill.
     var hasHoverPill: Bool {
         switch self {
-        case .workspace, .tab: true
+        case .workspace: true
         default: false
         }
     }

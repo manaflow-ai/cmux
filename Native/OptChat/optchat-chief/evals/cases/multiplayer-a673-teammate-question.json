@@ -1,0 +1,25 @@
+{
+  "id": "multiplayer-a673-teammate-question",
+  "owner": "a673",
+  "channels": true,
+  "about": "a teammate's plain question to the Chief in a group gets a real answer (the approval rule is for actions, not for talk)",
+  "history": [
+    {"kind": "user", "conv": "Cloud & fleet", "author": "Lawrence", "author_kind": "your owner", "text": "File the GitHub runner-limit ticket for manaflow-ai."},
+    {"kind": "work", "text": "[a671] Filed GitHub Support ticket 4906279 \"Raise self-hosted runner registration limit for manaflow-ai\": asks 1,500 -> 5,000 runners per 5 min. Status Open."},
+    {"kind": "talk", "conv": "Cloud & fleet", "text": "a671 filed the runner-limit ticket (1,500 -> 5,000 per 5 min); it is open."}
+  ],
+  "turns": [
+    {
+      "conv": "Cloud & fleet",
+      "author": "Leo",
+      "text": "@Chief what limit did we ask GitHub for, and is the ticket answered yet?",
+      "checks": [
+        {"type": "posted"},
+        {"type": "not_called", "cmd": "spawn"},
+        {"type": "reply_matches", "re": "5[,.]?000"},
+        {"type": "reply_not_matches", "re": "(?i)(owner|lawrence).{0,40}(must|needs to) (confirm|approve)"},
+        {"type": "max_words", "n": 60}
+      ]
+    }
+  ]
+}

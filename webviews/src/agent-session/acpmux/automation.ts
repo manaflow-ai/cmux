@@ -4,6 +4,7 @@ import { turnFiles, turnPathsOnly } from "./diff";
 import { pathKey, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { permissionKeys, permissionOption } from "./permissionKeys";
 import type { PermissionDecision } from "./permissions/protocol";
+import type { RunMode } from "./sandboxRun";
 
 // Automation verbs for the DEBUG `debug.agent_pane` socket method (window.cmuxAcpmuxDebug).
 // Each verb runs the same page action a click or key runs (callNative and its
@@ -14,6 +15,8 @@ export type AutomationHost = {
   snapshot(): AcpmuxSnapshot;
   /// The page's action path (callNative): chat.send, chat.new, chat.permission, ...
   call(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  /// Settles once `call(method)` can run (the chat connected: pageAction), or rejects when it never does.
+  ready?(method: string): Promise<void>;
   /// The sidebar row's selection path.
   selectSession(sessionId: string): void;
   /// The edited-files card's "View changes" path.
@@ -22,7 +25,48 @@ export type AutomationHost = {
   diff(): { open: boolean; paths: string[] };
   /// The location row's folder pick (startFolder.tsx: the host takes it or asks first).
   pickFolder?(cwd: string): void;
+  /// The composer itself: what Return sends, and where a new chat runs (composeSend, runMode).
+  compose?: AutomationCompose;
 };
+
+/// The chat composer as a person drives it: `send` puts `text` in the prompt and sends it as Return
+/// does (false: the composer kept it, e.g. a Cloud start that waits on its machine), so the place the
+/// composer shows decides where it goes: this Mac, Sandboxed, or Cloud's `cloud.startChat`.
+export type AutomationCompose = {
+  send(text: string): Promise<boolean | undefined>;
+  runMode(): RunMode | undefined;
+  /// The run row's pick, as a click on it (false: the composer offers no run place now).
+  setRunMode(mode: RunMode): boolean;
+  /// The Cloud start this page sent (cloudStartProgress.ts), or null.
+  cloudStart(): unknown;
+};
+
+/// How long an automation verb waits for the chat's own action (pageAction).
+export const PAGE_ACTION_WAIT_MS = 20_000;
+
+type PageAction = (params: Record<string, unknown>) => Promise<unknown>;
+
+/// The chat's own action `method` (cmuxAcpmuxActions, which the page installs once its chat
+/// connects to acpmux), waiting up to `waitMs` for it. Every automation verb is such an action:
+/// called before the chat connects, the page's callNative would send it to the native host,
+/// which has no chat verbs and refuses it with only the op's name (`cmux.agent.chat.new`). So a
+/// verb sent right after the pane opens (a capture's new_chat) waits for the chat instead, and
+/// one that never connects says so.
+export async function pageAction(
+  actions: () => Record<string, PageAction> | undefined,
+  method: string,
+  waitMs = PAGE_ACTION_WAIT_MS,
+  pause: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<PageAction> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const action = actions()?.[method];
+    if (action) return action;
+    if (Date.now() >= deadline)
+      throw new Error(`${method}: the chat did not connect to acpmux within ${Math.round(waitMs / 1000)} s`);
+    await pause(100);
+  }
+}
 
 const TRANSCRIPT_ROWS = 30;
 const TRANSCRIPT_CHARS = 500;
@@ -52,6 +96,18 @@ export function automationState(host: AutomationHost) {
       .slice(-TRANSCRIPT_ROWS)
       .map((row) => ({ kind: row.kind, text: (row.text ?? "").slice(0, TRANSCRIPT_CHARS) })),
     lastAssistant: assistant ? { text: assistant.text ?? "", streaming: assistant.streaming === true } : null,
+    /// The last prompts as the pane draws them, with their way to the agent (composer-delivery-DESIGN.md):
+    /// a live proof of a send that stays "Still sending" reads it here.
+    prompts: snapshot.rows
+      .filter((row) => row.kind === "user")
+      .slice(-TRANSCRIPT_ROWS)
+      .map((row) => ({
+        text: (row.text ?? "").slice(0, TRANSCRIPT_CHARS),
+        pending: row.pending === true,
+        delivery: row.delivery?.state ?? null,
+        slow: row.delivery?.slow === true,
+      })),
+    queued: snapshot.queue.map((entry) => entry.prompt.slice(0, TRANSCRIPT_CHARS)),
     sessions: snapshot.sessions.map((session) => ({
       sessionId: session.sessionId,
       title: session.displayTitle ?? session.title ?? session.name ?? null,
@@ -93,12 +149,25 @@ function changedFiles(rows: readonly AcpmuxRow[]): string[] {
   return [...byKey.values()];
 }
 
+/// `{error}` when the chat never made `method` ready (host.ready), else undefined. A verb that reports
+/// itself accepted after a window (sendPrompt, newChat) waits for this first, so a chat that never
+/// connected is an error, never an accepted send.
+async function notReady(host: AutomationHost, method: string): Promise<{ error: string } | undefined> {
+  if (!host.ready) return undefined;
+  return host.ready(method).then(
+    () => undefined,
+    (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+  );
+}
+
 /// How long sendPrompt waits for chat.send to fail before it reports the prompt as sent.
 /// chat.send settles only when the turn ends, which can be minutes or wait on an ask.
 export const SEND_ACCEPT_WINDOW_MS = 1_500;
 
 export async function sendPrompt(host: AutomationHost, text: string, acceptWindowMs = SEND_ACCEPT_WINDOW_MS) {
   if (!text.trim()) return { error: "empty prompt" };
+  const refused = await notReady(host, "chat.send");
+  if (refused) return refused;
   const turn = host.call("chat.send", { text }).then(
     () => ({ ended: true as const }),
     (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
@@ -119,6 +188,8 @@ export async function newChat(
   cwd?: string,
   acceptWindowMs = SEND_ACCEPT_WINDOW_MS,
 ) {
+  const refused = await notReady(host, "chat.new");
+  if (refused) return refused;
   const started = host.call("chat.new", { ...(harness ? { harness } : {}), ...(cwd ? { cwd } : {}) }).then(
     () => ({ started: true as const }),
     (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
@@ -129,6 +200,29 @@ export async function newChat(
   ]);
   if ("error" in outcome) return { error: outcome.error };
   return { sessionId: host.snapshot().sessionId ?? null, ...("pending" in outcome ? { pending: true } : {}) };
+}
+
+/// Sends `text` through the composer's own send, as typing it and pressing Return does (sendPrompt
+/// goes to `chat.send` and so never takes a Cloud start). `{sent: false}`: the composer kept the
+/// prompt, which a Cloud start does until its chat opens on the machine (read `cloudStart`).
+export async function composeSend(host: AutomationHost, text: string) {
+  if (!text.trim()) return { error: "empty prompt" };
+  if (!host.compose) return { error: "the page has no composer" };
+  const sent = await host.compose.send(text);
+  if (sent === undefined) return { error: "no composer shows (the New Tab page?)" };
+  return { sent, runMode: host.compose.runMode() ?? null, cloudStart: host.compose.cloudStart() ?? null };
+}
+
+const RUN_MODES: readonly RunMode[] = ["persistent", "sandboxed", "cloud"];
+
+/// Reads, or with `mode` picks as the run row's click does, where this new chat runs.
+export function runMode(host: AutomationHost, mode?: string) {
+  if (!host.compose) return { error: "the page has no composer" };
+  if (mode !== undefined) {
+    if (!RUN_MODES.includes(mode as RunMode)) return { error: `mode must be one of ${RUN_MODES.join(", ")}` };
+    if (!host.compose.setRunMode(mode as RunMode)) return { error: "the composer offers no run place now" };
+  }
+  return { runMode: host.compose.runMode() ?? null, cloudStart: host.compose.cloudStart() ?? null };
 }
 
 /// Picks `cwd` as the folder chip's menu does; a folder that needs the user's answer shows the

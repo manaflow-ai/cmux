@@ -3,14 +3,6 @@ import CmuxNextDaemon
 import Foundation
 import Observation
 
-/// Bumped whenever a page is installed, so tab strips that show a live page
-/// instead of its daemon record (incognito tabs) re-render once it exists.
-@Observable
-final class PageInstallCounter {
-    private(set) var revision = 0
-    func bump() { revision &+= 1 }
-}
-
 /// What incognito pages keep in memory for the omnibar: their own history
 /// and suggestions, never mixed with the normal ones. The history has no
 /// persistence, so its index lives in memory only. Bookmark rows come from

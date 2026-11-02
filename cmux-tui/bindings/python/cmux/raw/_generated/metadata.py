@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2'
+IR_SHA256 = 'ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8'
 
 
 @dataclass(frozen=True)
@@ -575,6 +575,18 @@ COMMANDS = {
             'origin': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-conversation-presence': CommandMetadata(
+        'cloud-conversation-presence',
+        'local-admin',
+        12,
+        'cloud-conversation-presence-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'viewing': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-conversation-run': CommandMetadata(
         'cloud-conversation-run',
         'local-admin',
@@ -663,6 +675,20 @@ COMMANDS = {
             'conversation': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-environment': CommandMetadata(
+        'cloud-environment',
+        'local-admin',
+        12,
+        'cloud-environments-v1',
+        ('local-admin',),
+        None,
+        {
+            'access_token': CommandFieldMetadata(None, None),
+            'action': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+            'platform_origin': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-host-replica-clear': CommandMetadata(
         'cloud-host-replica-clear',
         'local-admin',
@@ -707,6 +733,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'cursor': CommandFieldMetadata(None, None),
             'include_archived': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
         },
@@ -1085,6 +1112,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'answers': CommandFieldMetadata(None, 'conversation-run-answers-v1'),
             'before_started_at': CommandFieldMetadata(None, None),
             'conversation': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
@@ -2296,6 +2324,7 @@ COMMANDS = {
             'pane_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
+            'side': CommandFieldMetadata(12, 'column-left-v1'),
             'tab_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
@@ -3876,6 +3905,7 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'cloud-conversation-changed': EventMetadata('cloud-conversation-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-live': EventMetadata('cloud-conversation-live', 12, 'cloud-chief-live-v1', ('subscribe',), 'emitted'),
+    'cloud-conversation-presence': EventMetadata('cloud-conversation-presence', 12, 'cloud-conversation-presence-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-resynced': EventMetadata('cloud-conversation-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-run-changed': EventMetadata('cloud-conversation-run-changed', 12, 'cloud-conversation-runs-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-typing': EventMetadata('cloud-conversation-typing', 12, 'cloud-conversation-typing-v1', ('subscribe',), 'emitted'),

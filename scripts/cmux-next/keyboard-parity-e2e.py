@@ -273,7 +273,10 @@ def reopened(pre, post, ctx):
 
 
 def location(pre, post, ctx):
-    """A browser's address bar, else the New Tab page's field (focusLocation)."""
+    """A browser's address bar, a chat's composer, else the New Tab page's field (focusLocation)."""
+    if ctx.get("focus") == "composer":
+        composer = rpc("debug.agent_pane", {"action": "composer_focused"}) or {}
+        return composer.get("focused") is True and post["resolved"] == "agentPage", f"composer={composer.get('focused')} resolved={post['resolved']}"
     if ctx.get("focus") == "page":
         text = f"{post['responder']} {post['classified']} {post['target']}".lower()
         return any(w in text for w in ("location", "omnibar", "address")), f"target={post['target']} responder={post['responder']}"

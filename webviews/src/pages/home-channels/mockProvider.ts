@@ -31,6 +31,15 @@ const agent = (name: string): HomeParticipant => ({
 const builder = agent("Builder");
 const reviewer = agent("Reviewer");
 const docs = agent("Docs");
+/** Teammates (gallery `teammates`): people on the same Home, as `tailnet:<login>` ids. */
+const human = (login: string, name: string): HomeParticipant => ({
+  id: `tailnet:${login}`,
+  kind: "human",
+  name,
+  chief: false,
+});
+export const ana = human("ana@example.com", "Ana Ruiz");
+export const sam = human("sam@example.com", "Sam Okafor");
 
 const MINUTE = 60_000;
 const BASE = Date.UTC(2026, 9, 10, 9, 0, 0);
@@ -90,7 +99,10 @@ function conversation(
   };
 }
 
-export function sampleHome(): { conversations: HomeConversation[]; messages: Map<string, HomeMessage[]> } {
+export function sampleHome(): {
+  conversations: HomeConversation[];
+  messages: Map<string, HomeMessage[]>;
+} {
   const messages = new Map<string, HomeMessage[]>();
   const chiefDM = [
     text("c-chief", 1, me, BASE, "What is left on the release?"),
@@ -160,6 +172,18 @@ export function addLongThread(home: ReturnType<typeof sampleHome>): void {
   list.push(text(id, 132, chief, BASE - 90 * MINUTE, "Queue is moving again."));
   home.messages.set(id, list);
   home.conversations.push(conversation(id, "incident", "group", [chief, builder, reviewer], list));
+}
+
+/** #launch (gallery `teammates`): a channel two teammates share with you and the Chief. */
+export function addTeammates(home: ReturnType<typeof sampleHome>): void {
+  const id = "c-launch";
+  const list = [
+    text(id, 1, ana, BASE + 40 * MINUTE, "Launch checklist is up. I take the store listing."),
+    text(id, 2, sam, BASE + 41 * MINUTE, "I take the release notes."),
+    text(id, 3, chief, BASE + 42 * MINUTE, "Noted. I post each item here when it lands."),
+  ];
+  home.messages.set(id, list);
+  home.conversations.push(conversation(id, "launch", "group", [ana, sam, chief], list));
 }
 
 /** A sample file part (gallery `media`): the mock draws its pixels when the page reads it. */
@@ -243,13 +267,13 @@ const DRAFT_TEXT = ["Checking the release: ", "Builder's fix is merged, ", "Revi
 
 /** Sample agent runs (`MockRuns`): none, the Chief's finished run on its last DM reply, or that
  * plus a run that works now and streams its steps. */
-export type MockRuns = "none" | "done" | "live";
+export type MockRuns = "none" | "done" | "live" | "messages";
 
 const RUN_TURN = "turn:mock:c-chief-m4";
 const LIVE_TURN = "turn:mock:c-chief-m6";
 const SESSION = { kind: "acpmux", id: "01a139a8-f91e-7be2-86aa-516bf4c7e5e5" };
 
-function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
+function sampleRun(messages = false): { run: HomeRun; steps: HomeRunStep[] } {
   const at = BASE + 2 * MINUTE + 4_000;
   const tool = (
     seq: number,
@@ -322,6 +346,37 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
       links: [{ label: "Agent session", url: `cmux://chief/5176e030/session/${SESSION.id}` }],
     },
   ];
+  if (messages) {
+    steps.unshift(
+      tool(
+        0,
+        "tell",
+        "mcp__optchat__tell",
+        "other",
+        "Tell a1",
+        {
+          id: "a1",
+          message:
+            "Please verify the release checklist and report the result. Keep the existing settings and check the fresh Home launch before finishing.",
+        },
+        "delivered",
+      ),
+      {
+        id: "report:a1:1:0",
+        seq: 1,
+        at,
+        rev: 1,
+        kind: "note",
+        text: "[a1] Verified the release checklist. The fresh Home launch passed and the existing settings are unchanged.",
+        attachments: [],
+        links: [],
+      },
+    );
+    steps.forEach((step, index) => {
+      step.seq = index + 1;
+      step.rev = index + 1;
+    });
+  }
   return {
     run: {
       id: RUN_TURN,
@@ -496,11 +551,30 @@ export class MockHomeProvider implements PageClient {
     /** The owner refuses pins and marks (the page puts the row back and says why). */
     private readonly refuseInbox = false,
     media = false,
+    teammates = false,
   ) {
     if (longThread) addLongThread(this.data);
     if (media) addMedia(this.data);
+    if (teammates) addTeammates(this.data);
     if (runMode !== "none") {
-      const done = sampleRun();
+      const done = sampleRun(runMode === "messages");
+      if (runMode === "messages") {
+        const reports = done.steps.filter((step) => step.kind === "note");
+        done.steps = done.steps.filter((step) => step.kind !== "note");
+        done.run.stepCount = done.steps.length;
+        const reportRun: HomeRun = {
+          id: `reports:${RUN_TURN}`,
+          conversation: done.run.conversation,
+          author: done.run.author,
+          status: "done",
+          startedAt: done.run.startedAt,
+          updatedAt: done.run.updatedAt,
+          rev: 1,
+          stepCount: reports.length,
+          answers: done.run.answers,
+        };
+        this.runs.set(reportRun.id, { run: reportRun, steps: reports });
+      }
       this.runs.set(done.run.id, done);
       const list = this.data.messages.get("c-chief") ?? [];
       const reply = list.find((m) => m.id === "c-chief-m4");
@@ -1007,6 +1081,18 @@ export class MockHomeProvider implements PageClient {
 
   handle(_op: string, _handler: PageHandler): () => void {
     return () => undefined;
+  }
+
+  /** Who has `conversation` open, as the owner's `conversation-presence` says (gallery `teammates`). */
+  viewing(conversation: string, participants: readonly string[]): void {
+    this.emit({
+      presence: [{ conversation, participants: participants.map((participant) => ({ participant, viewing: true })) }],
+    });
+  }
+
+  /** A participant starts or stops typing (gallery `teammates`). */
+  typing(conversation: string, participant: string, on: boolean): void {
+    this.emit({ typing: [{ conversation, participant, on }] });
   }
 
   private emit(batch: HomeEventBatch): void {

@@ -9,6 +9,12 @@ enum TabMirror {
     typealias Locate = @MainActor (String) -> (pane: PaneID, daemon: DaemonService)?
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.tab-mirror")
 
+    /// A creation reply is not yet a usable placement target until its tree has the tab.
+    @MainActor static func performWhenReached(_ key: String, in locate: @escaping Locate, perform: @MainActor () -> Void) async {
+        guard await reaches(key, in: locate), !Task.isCancelled else { return }
+        perform()
+    }
+
     /// Whether `locate` finds tab `key` within 10 s (at once when it already does); logs when not.
     static func reaches(_ key: String, in locate: @escaping Locate) async -> Bool {
         if locate(key) != nil { return true }

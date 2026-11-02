@@ -18,7 +18,7 @@ import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
 import type { OverlayServerRow } from "../db/overlay-servers.ts";
 import { AuditStore, OwnershipStore } from "../db/stores.ts";
-import { actorRef, CurrentPrincipal, type Principal } from "../domain/principal.ts";
+import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 import {
   BadRequest,
@@ -48,20 +48,26 @@ import {
 } from "../lib/ids.ts";
 import type { RateClass } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
-import { compileAcl, isAddressRuleKey, outsideSourceSlash64, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
+import { outsideSourceSlash64, parseDeviceIpv6, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
 import { ENROLLMENT_CODE_TTL_MS, MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
 import { actorOf, ownerStillValid } from "../mesh/owner.ts";
 import { projectOverlayPeers } from "../mesh/overlay-policy.ts";
+import { projectVmPeers } from "../mesh/vm-policy.ts";
 import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
+import { MESH_CREATION_LABEL } from "../proofs/mesh-creation.ts";
 import { ownedDeviceAddressRules, ownedMeshRules, sameMeshDevice, sameMeshVm } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { callerActsOnDevice, callerActsOnTunnel, enrolledBy, isTenantAdmin, type CallerActsOnDevice } from "../proofs/device-owner.ts";
 import { tenantOwnsDevice, tenantOwnsMesh, tenantOwnsTunnel, tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamMesh, type TunnelInfo } from "../upstream/mesh.ts";
 import { audited, dependencyDown, rateLimit } from "./common.ts";
+import { createMeshWithKey } from "./mesh-creation.ts";
+import { readMeshMember } from "./mesh-member.ts";
+import { compileMeshPolicy as compileFor } from "./mesh-policy-inventory.ts";
+import { readVmReceiverPolicy } from "./vm-receiver-policy.ts";
 
 const experimentOff = () => new NotFound({ message: "Not found" });
 const meshNotFound = () => new NotFound({ message: "Mesh not found" });
@@ -198,46 +204,6 @@ const toTunnel = (row: MeshDeviceRow, info: TunnelInfo) =>
 
 const EMPTY_ACL: AclDocument = { rules: [] };
 
-/** Compiles `document` against the mesh's live devices and VMs. Lenient: names that left the mesh are skipped. */
-const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: AclDocument, strict: boolean, additional: ReadonlyArray<OverlayServerRow> = []) =>
-  Effect.gen(function* () {
-    const store = yield* MeshStore;
-    const config = yield* MeshConfig;
-    const gatewayDevices = yield* store.listDevices(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
-    const servers = yield* store.listOverlayServers(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("overlay.list")));
-    const devices = [...gatewayDevices, ...servers, ...additional];
-    const members = yield* store.listMembers(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listMembers")));
-    const deviceIpv6 = yield* store.deviceAddresses(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.deviceAddresses")));
-    const recorded = yield* store.listRules(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
-    const existingAddressKeys = new Set(recorded.filter((rule) => isAddressRuleKey(rule.key)).map((rule) => rule.key));
-    const deviceIds = devices.map((device) => device.deviceId);
-    const vmIds = members.map((member) => member.vmId);
-    const known = new Set([...deviceIds, ...vmIds]);
-    const effective: AclDocument = strict
-      ? document
-      : {
-          rules: document.rules
-            .map((rule) => ({
-              src: rule.src.filter((entry) => entry.endsWith(":*") || known.has(entry)),
-              dst: rule.dst.filter((entry) => entry.endsWith(":*") || known.has(entry)),
-              allow: rule.allow,
-            }))
-            .filter((rule) => rule.src.length > 0 && rule.dst.length > 0),
-        };
-    const result: CompileResult = compileAcl({
-      document: effective,
-      deviceIds,
-      sourceDeviceIds: gatewayDevices.map((device) => device.deviceId),
-      vmIds,
-      deviceIpv6,
-      existingAddressKeys,
-      rulesPerResource: config.budgets.rulesPerResource,
-      rulesPerMesh: config.budgets.rulesPerMesh,
-      overlayRulesPerMesh: config.budgets.overlayRulesPerMesh,
-      overlayRulesPerDevice: config.budgets.overlayRulesPerDevice,
-    });
-    return { result, members, devices };
-  });
 
 const compiled = (result: CompileResult) =>
   Effect.gen(function* () {
@@ -494,15 +460,7 @@ const peerMapOf = (tenantId: Principal["tenantId"], deviceId: string, row: MeshD
     const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (version) => version.document });
     const { result, members } = yield* compileFor(tenantId, row.meshId, document, false);
     const rules = result.ok ? result.rules : [];
-    const addresses = new Map(members.map((member) => [member.vmId, member.ipv4]));
-    const peers = [...peersOf(deviceId, rules)].map(([vmId, allowed]) => ({
-      kind: "vm" as const,
-      id: VmId_(vmId),
-      address: addresses.get(vmId) ?? null,
-      allow: allowed.map((rule) =>
-        rule.protocol === null ? { protocol: "any" as const } : rule.port === null ? { protocol: rule.protocol } : { protocol: rule.protocol, port: rule.port },
-      ),
-    }));
+    const peers = projectVmPeers(deviceId, members, rules).map((peer) => ({ ...peer, id: VmId_(peer.id) }));
     return new PeerMap({
       deviceId: DeviceId_(deviceId),
       meshId: MeshId_(row.meshId),
@@ -517,7 +475,7 @@ export const overlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: strin
     const store = yield* MeshStore;
     const acl = yield* store.currentAcl(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl")));
     const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (version) => version.document });
-    const { result, devices } = yield* compileFor(tenantId, row.meshId, document, false);
+    const { result, members, devices } = yield* compileFor(tenantId, row.meshId, document, false);
     if (!result.ok) return yield* Effect.fail(unavailable());
     // Re-read the subject under the lock: an earlier ownership proof may have
     // raced a deletion or key rotation while waiting for the writer.
@@ -546,6 +504,7 @@ export const overlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: strin
       wgPublicKey: subject.wgPublicKey, installPublicKey: subject.installPublicKey,
       aclVersion: Option.match(acl, { onNone: () => 0, onSome: (version) => version.version }),
       peers: projectOverlayPeers(deviceId, identities, result.overlayRules).map((peer) => ({ ...peer, deviceId: DeviceId_(peer.deviceId) })),
+      vms: projectVmPeers(deviceId, members, result.rules).map((peer) => ({ ...peer, id: VmId_(peer.id) })),
     };
     const policyDigest = yield* sha256Hex(`cmux-device-overlay-policy-v1\n${JSON.stringify(projection)}`);
     return new OverlayPolicy({ ...projection, policyDigest });
@@ -794,7 +753,13 @@ export const meshEnrollHandlers = HttpApiBuilder.group(CmuxVmApi, "meshEnroll", 
 
 export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =>
   handlers
-    .handle("createMesh", ({ payload }) =>
+    .handle("createMeshIntent", ({ payload, headers }) =>
+      withMeshCaller("mesh:write", "write", (caller, scope) => audited("mesh.create", null, Effect.gen(function* () {
+        yield* requireAdmin(caller.value, "mesh:write");
+        return yield* createMeshWithKey(caller, scope, headers["idempotency-key"], payload);
+      }), (mesh) => mesh.id)),
+    )
+    .handle("createMesh", ({ payload, headers }) =>
       withMeshCaller("mesh:write", "write", (caller, scope) =>
         audited(
           "mesh.create",
@@ -802,6 +767,8 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
           Effect.gen(function* () {
             const principal = caller.value;
             yield* requireAdmin(principal, "mesh:write");
+            if (headers["idempotency-key"] !== undefined) return yield* createMeshWithKey(caller, scope, headers["idempotency-key"], payload);
+            if (principal.resourceAllowlist !== null || !carriesRequiredLabels(principal, {})) return yield* Effect.fail(new Forbidden({ message: "This credential cannot create this mesh" }));
             const store = yield* MeshStore;
             const ownership = yield* OwnershipStore;
             const upstream = yield* UpstreamMesh;
@@ -860,7 +827,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
           const ownership = yield* OwnershipStore;
           const store = yield* MeshStore;
           const rows = yield* ownership
-            .listPage(principal.tenantId, "mesh", { limit: 100, after: null, only: principal.resourceAllowlist, labels: null })
+            .listPage(principal.tenantId, "mesh", { limit: 100, after: null, only: principal.resourceAllowlist, labels: principal.requiredLabels ?? null })
             .pipe(Effect.catchAll(dependencyDown("ownership.list")));
           const items = yield* Effect.forEach(rows, (row) =>
             Effect.map(store.cidrOf(principal.tenantId, row.cmuxId).pipe(Effect.catchAll(dependencyDown("mesh.cidrOf"))), (cidr) =>
@@ -899,6 +866,13 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             if (devices.length > 0 || members.length > 0 || servers.length > 0) {
               return yield* Effect.fail(new Conflict({ message: "Remove the mesh's devices and VMs first" }));
             }
+            const creationKey = proofs.owns.labels[MESH_CREATION_LABEL];
+            const limits = yield* TenantLimits;
+            const fence = (op: "cancel" | "cancelled") => creationKey === undefined ? Effect.void :
+              limits.meshCreation(principal.tenantId, { op, key: creationKey, meshId: mesh.value }).pipe(
+                Effect.mapError(() => unavailable()), Effect.flatMap((result) => result.state === "record" ? Effect.void : Effect.fail(unavailable())),
+              );
+            yield* fence("cancel");
             yield* upstream.deleteNetwork(mesh, proofs).pipe(
               Effect.catchIf((error) => error.status === 404, () => Effect.void),
               Effect.mapError((error) => (error.status === 409 ? new Conflict({ message: "The mesh still has members; retry shortly" }) : unavailable())),
@@ -906,6 +880,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const at = yield* now;
             yield* (yield* OwnershipStore).markDeleted(principal.tenantId, "mesh", mesh.value, at).pipe(Effect.catchAll(dependencyDown("ownership.delete")));
             yield* store.releaseSlot(principal.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.releaseSlot")));
+            yield* fence("cancelled");
           })),
         ),
       ),
@@ -1027,6 +1002,29 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
           );
         }),
       ),
+    )
+    .handle("getMeshVm", ({ path }) =>
+      withOwnedMesh(path.meshId, "mesh:read", "read", (caller, mesh, proofs) =>
+        Effect.gen(function* () {
+          const scope = keyHasScope(caller, "vm:read");
+          if (scope === null) return yield* Effect.fail(missingScope("vm:read"));
+          const parsed = parseVmId(path.vmId);
+          if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
+          return yield* name(parsed.value, (vm) => withMeshWriter(caller.value.tenantId, mesh.value,
+            readMeshMember(caller, mesh, vm, { ownsMesh: proofs.owns, meshScope: proofs.scope, vmScope: scope })));
+        }),
+      ),
+    )
+    .handle("getVmReceiverPolicy", ({ path }) =>
+      withOwnedMesh(path.meshId, "mesh:read", "read", (caller, mesh, proofs) => Effect.gen(function* () {
+        const scope = keyHasScope(caller, "vm:read");
+        if (scope === null) return yield* Effect.fail(missingScope("vm:read"));
+        const parsed = parseVmId(path.vmId);
+        if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
+        return yield* name(parsed.value, (vm) => audited("mesh.vm.receiver_policy", vm.value,
+          withMeshWriter(caller.value.tenantId, mesh.value,
+            readVmReceiverPolicy(caller, mesh, vm, { ownsMesh: proofs.owns, meshScope: proofs.scope, vmScope: scope }))));
+      })),
     )
     .handle("attachMeshVm", ({ path }) =>
       withOwnedMesh(path.meshId, "mesh:write", "write", (caller, mesh, proofs) =>

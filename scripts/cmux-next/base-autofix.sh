@@ -4,7 +4,7 @@
 #   - generated files: copies DIR's files (the cmux-next generated files job's
 #     cmux-next-generated-patch artifact, or the base autofix's action-exports
 #     artifact: the action contracts, the CI target graph and the settings
-#     exports with their source stamp, regenerated on a Mac by
+#     exports, regenerated on a Mac by
 #     regenerate-action-exports.sh and regenerate-settings-exports.sh, at their
 #     repository paths) over the checkout;
 #   - the CI target graph: rewrites Packages/macOS/CmuxNext/ci-target-graph.json
@@ -25,7 +25,9 @@
 #     and settings exports (scripts/ci/defaults_guard.py snapshot), after
 #     --generated copied the regenerated exports in;
 #   - the namespace ratchet: drops the rows of scripts/lint-namespace-types-ratchet.txt
-#     whose type is fixed or gone (shrink only; with --ratchets);
+#     whose type is fixed or gone (shrink only; with --ratchets), and the
+#     namespace lint's safe rewrites of new findings (--namespace-fix; with
+#     --ratchets);
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
 #     cloud catalog (backend/packages/protocol/scripts/export-client.ts and
 #     export-rust-client.ts; with --cloud-clients);
@@ -169,6 +171,23 @@ if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-docs-shortcuts.ts" ]]
   fi
 fi
 
+# 1e1. The cmux-next docs reference pages (web/data/next-docs), from the same
+# export and the settings schema (plans/cmux-next/docs-DESIGN.md).
+if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-next-docs.ts" ]]; then
+  (cd "$repo" && bun web/scripts/export-next-docs.ts >/dev/null)
+  changed="$(git -C "$repo" status --porcelain -- web/data/next-docs | cut -c4-)"
+  if [[ -n "$changed" ]]; then
+    while IFS= read -r rel; do
+      if frozen "$rel"; then
+        git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+        echo "skipped (frozen): $rel (stale; bun web/scripts/export-next-docs.ts)"
+      else
+        echo "fixed: regenerated $rel"
+      fi
+    done <<<"$changed"
+  fi
+fi
+
 # 1e2. The app-host generated files, from the same export and the operation catalogs.
 app_host_gen=cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts
 if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
@@ -219,6 +238,38 @@ if (( ratchets )) && [[ -f "$repo/$ratchet" ]]; then
     (cd "$repo" && NAMESPACE_RATCHET_UPDATE=1 bash scripts/lint-ios-package-conventions.sh >/dev/null 2>&1) || true
     [[ "$before" == "$(cksum < "$repo/$ratchet")" ]] || echo "fixed: dropped stale rows from $ratchet"
   fi
+fi
+
+# 1f'. The namespace lint's safe rewrites (an all-static enum or type becomes a
+# struct with an init, as --namespace-fix writes). A pull request into
+# feat-cmux-next only warns on them and its namespace autofix may have no write
+# token, so one that lands with a new finding turns package-conventions-lint red
+# on every later base push (#28989, #28136). The fixer only rewrites reported
+# findings, never a baselined or ratcheted type; a frozen file is put back.
+if (( ratchets )) && [[ -f "$repo/scripts/lint-ios-package-conventions.sh" ]]; then
+  # Swift files an earlier step already changed keep their contents from before the fixer, so a
+  # frozen one is put back to them and a rewrite in the rest is still reported.
+  before_dir="$(mktemp -d "${TMPDIR:-/tmp}/base-autofix-namespace.XXXXXX")"
+  while IFS= read -r path; do
+    [[ "$path" == *.swift && -f "$repo/$path" ]] || continue
+    mkdir -p "$before_dir/$(dirname "$path")" && cp "$repo/$path" "$before_dir/$path"
+  done < <(git -C "$repo" diff --name-only -- 'Packages/*' 'ios/cmux/*')
+  (cd "$repo" && bash scripts/lint-ios-package-conventions.sh --namespace-fix >/dev/null 2>&1) || true
+  while IFS= read -r path; do
+    [[ "$path" == *.swift ]] || continue
+    if [[ -f "$before_dir/$path" ]]; then
+      cmp -s "$before_dir/$path" "$repo/$path" && continue
+      frozen "$path" && cp "$before_dir/$path" "$repo/$path"
+    elif frozen "$path"; then
+      git -C "$repo" checkout --quiet -- "$path"
+    fi
+    if frozen "$path"; then
+      echo "skipped (frozen): $path (./scripts/lint-ios-package-conventions.sh --namespace-fix)"
+    else
+      echo "fixed: namespace rewrite in $path"
+    fi
+  done < <(git -C "$repo" diff --name-only -- 'Packages/*' 'ios/cmux/*')
+  rm -rf "$before_dir"
 fi
 
 # 1g. The cloud wire clients. The generators need no installed packages.

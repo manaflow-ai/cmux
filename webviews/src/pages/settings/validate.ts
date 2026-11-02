@@ -204,6 +204,15 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
         Object.values(value).every((item) => typeof item === "string")
         ? null
         : "expected an object of strings";
+    case "sound_rules":
+      return typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        Object.values(value).every(
+          (item) => typeof item === "string" || (typeof item === "object" && item !== null && !Array.isArray(item)),
+        )
+        ? null
+        : "expected an object of sound rules";
     case "string_list":
       if (row.choices) {
         const values = row.choices.map((choice) => choice.value);

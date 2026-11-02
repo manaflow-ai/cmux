@@ -143,9 +143,11 @@ describe("web popups draw one hairline edge", () => {
   });
 
   // The popups the coherence passes moved onto the shared elevation; each must still be covered.
+  // The New Tab suggestions (.acpmux-omni) became liquid glass in #24477 (2026-10-22); the glass
+  // draws their one edge, checked with the glass popups below.
   test("the pane's menus and popovers are all checked", () => {
     const selectors = uses.map((use) => use.selector).join("\n");
-    for (const popup of [".acpmux-omni", ".acpmux-summary-card", ".lg-palette", ".find-pill"]) {
+    for (const popup of [".acpmux-summary-card", ".lg-palette", ".find-pill"]) {
       expect(selectors).toContain(popup);
     }
   });
@@ -170,6 +172,7 @@ describe("web popups draw one hairline edge", () => {
     ".acpmux-needs-you",
     ".acpmux-agents-list",
     ".md-link-popover",
+    ".acpmux-omni",
   ];
   test("a glass popup's elevation is the drop alone, under the glass's one rim", () => {
     const elevations = css.flatMap(({ text }) =>

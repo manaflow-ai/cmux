@@ -25,18 +25,13 @@ body {
   grid-template-columns: 52px 252px 1fr;
   height: 100%;
   color: var(--agent-text);
-  font:
-    13px -apple-system,
-    BlinkMacSystemFont,
-    "Helvetica Neue",
-    sans-serif;
+  font: 13px var(--font-ui);
   letter-spacing: 0.04px;
 }
 .proto-window button {
   font: inherit;
   letter-spacing: inherit;
   color: inherit;
-  cursor: default;
 }
 
 /* Rail and stack: one translucent sidebar surface. */
@@ -443,6 +438,7 @@ body {
   font: inherit;
   font-size: var(--text-body);
   text-align: start;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .proto-history-row > span {
   flex: 1;
@@ -469,6 +465,7 @@ body {
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: 16px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* Content: a quiet tab strip over the active tab. */

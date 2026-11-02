@@ -13,6 +13,8 @@ import Observation
 public final class TerminalHostView: NSView {
     private weak var current: TerminalSurfaceView?
     /// The session's theme; nil paints the config background.
+    /// Called with the App Theme's veil this terminal draws on, or nil (``paintBackground()``).
+    var onVeil: ((ThemeRGB?) -> Void)?
     var theme: GhosttyThemeConfig? {
         didSet { paintBackground() }
     }
@@ -40,6 +42,9 @@ public final class TerminalHostView: NSView {
         get { restartAction }
         set { restartAction = newValue; syncRestartButton(); needsLayout = true }
     }
+    /// Called before the terminal session removes this host from its pane.
+    /// Transient input owners use it to cancel work pinned to this surface.
+    public var onClose: (@MainActor () -> Void)?
 
     /// The first cell's top-left in this view's coordinates (top-left
     /// origin): Ghostty's leading and top padding, or with
@@ -71,10 +76,28 @@ public final class TerminalHostView: NSView {
         }
     }
 
+    /// A transient, click-through panel over the terminal's top-leading
+    /// corner. It never changes the terminal's layout height.
+    public var topOverlay: NSView? {
+        didSet {
+            guard oldValue !== topOverlay else { return }
+            oldValue?.removeFromSuperview()
+            if let topOverlay {
+                topOverlay.translatesAutoresizingMaskIntoConstraints = true
+                addSubview(topOverlay, positioned: .above, relativeTo: banner)
+            }
+            needsLayout = true
+        }
+    }
+
     /// The accessory's height, 0 while there is none or it is hidden.
-    private var accessoryHeight: CGFloat {
+    private var accessoryHeight: CGFloat { accessoryHeight(forHostHeight: bounds.height) }
+
+    /// The accessory's height in a host `height` points tall (at most all of it): a pane's spring measures
+    /// it against the size the host will rest at, not the size it has now (a composer taller than a short pane).
+    private func accessoryHeight(forHostHeight height: CGFloat) -> CGFloat {
         guard let bottomAccessory, !bottomAccessory.isHidden else { return 0 }
-        return min(bounds.height, ceil(bottomAccessory.fittingSize.height))
+        return min(height, ceil(bottomAccessory.fittingSize.height))
     }
 
     /// The part of the host the terminal shows in: all of it, less the accessory's strip.
@@ -160,15 +183,24 @@ public final class TerminalHostView: NSView {
         needsLayout = true
     }
 
-    /// Builds the restart button once the shell has ended and the App gave an action.
+    /// Builds the restart button once the shell has ended, or cmux lost its
+    /// link to it (Recover), and the App gave an action.
     private func syncRestartButton() {
-        if restartButton == nil, shownStatus == .exited, restartAction != nil {
+        let offered = shownStatus == .exited || shellStall == .linkLost
+        if restartButton == nil, offered, restartAction != nil {
             let button = TerminalRestartButton()
             addOverlay(button)
             restartButton = button
         }
         restartButton?.onRestart = restartAction
-        restartButton?.show(shownStatus)
+        restartButton?.show(shownStatus, stall: shellStall)
+    }
+
+    /// The restart button's title while shown ("Restart Shell Here" or
+    /// "Recover"), nil while hidden (diagnostics and tests).
+    var restartButtonTitle: String? {
+        guard let restartButton, !restartButton.isHidden else { return nil }
+        return restartButton.shownTitle
     }
 
     /// Above the status banner, as the find bar is.
@@ -204,6 +236,7 @@ public final class TerminalHostView: NSView {
     func showShellStall(_ stall: TerminalShellStall?) {
         shellStall = stall
         banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
+        syncRestartButton()
         needsLayout = true
     }
 
@@ -268,7 +301,7 @@ public final class TerminalHostView: NSView {
     /// The size the surface takes in a host of `hostSize` points: less the accessory's strip and a legacy
     /// scroller's.
     func surfaceSize(forHostSize hostSize: CGSize) -> CGSize {
-        CGSize(width: max(0, hostSize.width - scroller.reservedWidth), height: max(0, hostSize.height - accessoryHeight))
+        CGSize(width: max(0, hostSize.width - scroller.reservedWidth), height: max(0, hostSize.height - accessoryHeight(forHostHeight: hostSize.height)))
     }
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
@@ -315,6 +348,11 @@ public final class TerminalHostView: NSView {
             let trailing = bounds.width - scroller.reservedWidth - inset
             _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
                 CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
+            }
+        }
+        if let topOverlay, !topOverlay.isHidden {
+            _ = place(topOverlay, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: inset, y: self.bounds.height - inset - size.height)
             }
         }
         // Framed hidden too: the bar shows itself when find opens.
@@ -374,7 +412,7 @@ public final class TerminalHostView: NSView {
     /// `GhosttyRuntime.backgroundColor`. Where the window is see-through
     /// (translucent, glass, or over art) the window root paints the one
     /// sheet and the host stays clear, as the panes around it do, unless the
-    /// terminal's theme differs from theirs: its background then lies over
+    /// terminal's own theme differs from theirs: its background then lies over
     /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
@@ -384,6 +422,11 @@ public final class TerminalHostView: NSView {
         let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
                                       selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
         GhosttyRuntime.setSeeThrough(superview != nil && !backdrop.panesPaintBackground, host: self)
+        // Under an App Theme, a terminal on the terminal theme draws on the App Theme's one veil
+        // (sidebar and panes alike), its colors raised to read on it; on an opaque window or with
+        // its own theme it keeps its own background.
+        let veil = !backdrop.panesPaintBackground && theme == nil && scope.store.appTheme != nil
+        onVeil?(veil ? superview?.themeTokens.windowBackground.withAlpha(1) : nil)
         let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
         if let fill {
             layer?.backgroundColor = fill.cgColor

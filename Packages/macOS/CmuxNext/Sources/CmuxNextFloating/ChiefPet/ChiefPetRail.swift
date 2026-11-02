@@ -85,19 +85,22 @@ final class ChiefPetTool: NSButton {
         recolor()
     }
 
-    /// `image` turned about its center, still a template so it takes the tint.
+    /// Keep the source's drawing handler: flattening it to a CGImage here freezes the chevron
+    /// at one backing scale, unlike the other controls when the pet moves to a Retina display.
     static func turned(_ image: NSImage, by degrees: CGFloat) -> NSImage {
-        guard degrees != 0, let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-              let context = CGContext(data: nil, width: source.width, height: source.height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return image }
-        let width = CGFloat(source.width), height = CGFloat(source.height)
-        context.translateBy(x: width / 2, y: height / 2)
-        context.rotate(by: degrees * .pi / 180)
-        context.translateBy(x: -width / 2, y: -height / 2)
-        context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
-        guard let rotated = context.makeImage() else { return image }
-        let turned = NSImage(cgImage: rotated, size: image.size)
+        guard degrees != 0 else { return image }
+        let turned = NSImage(size: image.size, flipped: false) { rect in
+            guard let graphics = NSGraphicsContext.current,
+                  let representation = image.bestRepresentation(for: rect, context: graphics, hints: nil)
+            else { return false }
+            let context = graphics.cgContext
+            context.saveGState()
+            defer { context.restoreGState() }
+            context.translateBy(x: rect.midX, y: rect.midY)
+            context.rotate(by: degrees * .pi / 180)
+            context.translateBy(x: -rect.midX, y: -rect.midY)
+            return representation.draw(in: rect)
+        }
         turned.isTemplate = image.isTemplate
         return turned
     }

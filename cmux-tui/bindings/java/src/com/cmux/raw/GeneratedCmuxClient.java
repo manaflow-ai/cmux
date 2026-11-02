@@ -208,6 +208,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudConversationPresence(CloudConversationPresenceRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_PRESENCE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudConversationRun(CloudConversationRunRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_RUN, request.toWire());
         return Wire.immutableJson(result);
@@ -240,6 +245,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object cloudConversationUnsubscribe(CloudConversationUnsubscribeRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_UNSUBSCRIBE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudEnvironment(CloudEnvironmentRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_ENVIRONMENT, request.toWire());
         return Wire.immutableJson(result);
     }
 

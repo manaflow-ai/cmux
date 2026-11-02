@@ -1,7 +1,8 @@
 // The interaction state of one question card: which item is shown, which row is highlighted,
-// what is chosen and the Other drafts. A pure reducer, ported 1:1 from the Swift
-// AgentQuestionCardState (Packages/Shared/CmuxAgentQuestion), so keyboard behavior is the same
-// in the Mac card and the agent tab. Two inputs differ from the Swift port (Leo, 2026-10-24: "just
+// what is chosen and the Other drafts. A pure reducer, adapted from the Swift
+// AgentQuestionCardState (Packages/Shared/CmuxAgentQuestion). The web card additionally wraps
+// option navigation and Enter chooses its focused option before submitting. Click inputs differ
+// (Leo, 2026-10-24: "just
 // clicking it directly just automatically sends the input. So it makes the skip and submit buttons
 // redundant"): a click only chooses its row and never advances or sends, and on a single-choice
 // question the arrows move the choice with the highlight, as a radio group does, so Submit and ⌘↩
@@ -141,9 +142,9 @@ export function sendCard(state: CardState, input: CardInput): Step {
       return choose(highlight(input.value - 1), input.value - 1, item, !item.multiSelect);
     }
     case "up":
-      return move(state, item, Math.max(highlightedRow(state, item) - 1, 0));
+      return rows ? move(state, item, (highlightedRow(state, item) + rows - 1) % rows) : { state, effect: NONE };
     case "down":
-      return move(state, item, Math.min(highlightedRow(state, item) + 1, rows - 1));
+      return rows ? move(state, item, (highlightedRow(state, item) + 1) % rows) : { state, effect: NONE };
     case "previousItem":
       return { state: { ...state, editingOther: false, activeItem: Math.max(state.activeItem - 1, 0) }, effect: NONE };
     case "nextItem":
@@ -167,11 +168,16 @@ export function sendCard(state: CardState, input: CardInput): Step {
         return { state, effect: NONE };
       return choose(highlight(input.row), input.row, item, true);
     }
-    case "confirm":
+    case "confirm": {
       if (state.editingOther) return advance({ ...state, editingOther: false });
-      // Multi-select: Enter ends this item's choices (Space toggles).
-      if (item.multiSelect) return advance(state);
-      return choose(state, highlightedRow(state, item), item, true);
+      const row = highlightedRow(state, item);
+      if (row < 0 || row >= rows) return { state, effect: NONE };
+      // Enter includes the focused option. Preserve an already-checked option rather than
+      // toggling it off; Space still toggles without submitting.
+      if (item.multiSelect && !isOtherRow(row, item) && isChosen(state, item.options[row]!, item))
+        return advance(state);
+      return choose(state, row, item, true);
+    }
     case "otherText": {
       if (!item.allowsOther) return { state, effect: NONE };
       const next: CardState = { ...state, otherDrafts: { ...state.otherDrafts, [item.id]: input.text } };

@@ -1,7 +1,8 @@
 public import Foundation
+import MessagesLabHome
 
 /// The Chief's avatar as the app resolved it (Settings > the Chief's
-/// profile, else ``chiefDefault``), for the Home list's Chief tile and
+/// profile, else ``chiefDefault``, its monogram), for the Home list's Chief tile and
 /// row to match the transcript header.
 public nonisolated enum HomeChiefAvatar: Hashable, Sendable, Codable {
     /// A picture file on this Mac (profile.json's picture).
@@ -9,9 +10,11 @@ public nonisolated enum HomeChiefAvatar: Hashable, Sendable, Codable {
     /// The profile's text avatar: one or two letters, or an emoji.
     case text(String)
 
-    /// The text a Chief with no avatar of its own shows: the saluting face.
-    public static let defaultText = "🫡"
-    /// The avatar a Chief with no avatar of its own shows (drawn as text, so
+    /// The text the default Chief ("Chief") shows with no avatar of its own: its iMessage-style
+    /// monogram (Lawrence 2026-10-30: "just maybe CH for chief? like in imessage. no profile pic by
+    /// default"), never a pet character or 🫡.
+    public static let defaultText = "CH"
+    /// The avatar the default Chief shows with no avatar of its own: its monogram (drawn as text, so
     /// it is sharp at every size and in light and dark).
     public static let chiefDefault = HomeChiefAvatar.text(defaultText)
 
@@ -19,14 +22,12 @@ public nonisolated enum HomeChiefAvatar: Hashable, Sendable, Codable {
     /// - Parameter own: The avatar the Chief's profile sets, or nil for none.
     public static func resolved(_ own: HomeChiefAvatar?) -> HomeChiefAvatar { own ?? chiefDefault }
 
-    /// The header's avatar: the Chief's own picture or text, else the
-    /// default text (no picture).
-    /// - Parameters:
-    ///   - text: The profile's text avatar, or nil.
-    ///   - hasPicture: Whether the profile's picture was read.
-    /// - Returns: The text to draw when no picture shows.
-    public static func headerText(_ text: String?, hasPicture: Bool) -> String? {
-        text ?? (hasPicture ? nil : defaultText)
+    /// The monogram letters of a Chief named `name` (`MonogramAvatar`: "Chief" is CH, "Scout Two"
+    /// is ST); the default Chief's ``defaultText`` for an empty name.
+    /// - Parameter name: The Chief's shown name.
+    /// - Returns: One or two uppercased letters or digits.
+    public static func monogram(of name: String) -> String {
+        name.isEmpty ? defaultText : MonogramAvatar(name: name).initials
     }
 
     /// Letters and digits draw as a monogram, like the header's; anything

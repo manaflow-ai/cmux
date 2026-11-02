@@ -4,7 +4,7 @@ public import CmuxNextDesignTokens
 /// How agent work shows on a row, tab or transcript line (WORKING-LOOK). The spinner is the default
 /// (Leo 2026-10-21: "WHO BROUGHT BACK BLINKING ICONS? WE SAID NO BLINKING. WE SAID SPINNER."); the
 /// breathing and still dots of 2026-10-20 stay as Debug choices. Applies where a status icon set
-/// draws work as the turning arc (the Codex-like default and the spinner sets); loading (a page, a
+/// draws work as the working spinner (the Codex-like default and the spinner sets); loading (a page, a
 /// command) keeps its spinner. Web pages get it as `data-working-look` (`WebTheme.workingLook`).
 /// Under Reduce Motion or the static look nothing moves, whatever the look.
 public nonisolated enum StatusWorkingLook: String, Sendable, CaseIterable, TunableChoice {
@@ -13,7 +13,7 @@ public nonisolated enum StatusWorkingLook: String, Sendable, CaseIterable, Tunab
     case breathe
     /// The same dot held still; on web pages the working row's words shimmer.
     case shimmer
-    /// The turning arc (the default).
+    /// The working spinner: a faint ring with a short sweep turning (the default, `StatusIndicatorPlan.working`).
     case spinner
 
     /// The Debug Settings switch (section "Status Indicators").
@@ -30,10 +30,10 @@ public nonisolated enum StatusWorkingLook: String, Sendable, CaseIterable, Tunab
         }
     }
 
-    /// `plan` restyled for this look: agent work drawn as the turning arc becomes the accent dot,
+    /// `plan` restyled for this look: agent work drawn as the working spinner becomes the accent dot,
     /// breathing for `breathe` and still for `shimmer`. Anything else is unchanged.
     func restyle(_ plan: StatusIndicatorPlan, for state: StatusIndicatorState) -> StatusIndicatorPlan {
-        guard self != .spinner, state.isWorking, state.progress == nil, plan.glyph == .arc else { return plan }
+        guard self != .spinner, state.isWorking, state.progress == nil, plan.glyph == StatusIndicatorPlan.workingGlyph else { return plan }
         return StatusIndicatorPlan(glyph: .dot, animation: self == .breathe ? .breathe : nil, tint: .working)
     }
 }

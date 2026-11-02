@@ -19,13 +19,38 @@ nonisolated extension AcpmuxPaneMethods {
     /// ``maximumAnswerBytes`` UTF-8 bytes (per string, never a list's strings together).
     static func breaksAnswersRule(_ object: [String: Any]?, options: AcpmuxPermissionOptions) -> Bool {
         guard let object, object["method"] as? String == "_acpmux/permission_respond",
-              let params = object["params"] as? [String: Any], let rawAnswers = params["answers"] else { return false }
+              let params = object["params"] as? [String: Any] else { return false }
+        if let annotations = params["annotations"], breaksAnnotationsRule(annotations, params: params, options: options) {
+            return true
+        }
+        guard let rawAnswers = params["answers"] else { return false }
         guard let permission = params["permissionId"] as? String,
               let keys = options.questionKeys(permissionId: permission),
               let answers = rawAnswers as? [String: Any],
               (1...maximumAnswerItems).contains(answers.count) else { return true }
         return answers.contains { key, value in
             key.utf8.count > maximumAnswerBytes || !keys.contains(key) || !fitsAnswer(value)
+        }
+    }
+
+    /// The most UTF-8 bytes of one annotation string (a chosen preview or the notes).
+    static let maximumAnnotationBytes = 65536
+
+    /// Whether a page frame's `annotations` (Claude Code's AskUserQuestion answer field: question
+    /// text -> `{preview?, notes?}`) break the rule. They go only beside `answers`, to a pending
+    /// question the daemon sent this pane, keyed by its own items like the answers; each value is
+    /// an object of `preview` and `notes` strings of at most ``maximumAnnotationBytes`` bytes.
+    /// acpmux checks the preview against the question's own options and bounds the notes.
+    static func breaksAnnotationsRule(_ raw: Any, params: [String: Any], options: AcpmuxPermissionOptions) -> Bool {
+        guard params["answers"] != nil, let permission = params["permissionId"] as? String,
+              let keys = options.questionKeys(permissionId: permission),
+              let annotations = raw as? [String: Any],
+              (1...maximumAnswerItems).contains(annotations.count) else { return true }
+        return annotations.contains { key, value in
+            guard keys.contains(key), let note = value as? [String: Any], !note.isEmpty else { return true }
+            return note.contains { field, text in
+                !["preview", "notes"].contains(field) || (text as? String).map { $0.utf8.count > maximumAnnotationBytes } ?? true
+            }
         }
     }
 

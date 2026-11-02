@@ -64,6 +64,12 @@ final class CEFRuntime {
     /// An incognito request: the App opens `url` (nil: a new tab page) in a
     /// cmux incognito window, or in the incognito window of `source`.
     var openOffTheRecord: ((URL?, CEFTab?) -> Void)?
+    /// Tabs with an agent's file offer standing: while any does, Chromium sends file choosers to the app
+    /// (`CEFRuntime+FileDialogs`).
+    var agentFileOffers: Set<ObjectIdentifier> = []
+    /// Asks the person for files when a chooser reaches the app with no offer for its tab (the App's
+    /// made-ahead panel, as WebKit tabs use); nil cancels such a chooser.
+    var fileInput: (any WebFileInputAnswering)?
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?
@@ -82,6 +88,8 @@ final class CEFRuntime {
     var nextRequest: Int32 = 1
     /// In-process DevTools calls waiting for their result (with deadlines).
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
+    /// Each browser's DevTools calls and freezes, in the order they were made (``CEFDevToolsCallOrder``).
+    let devToolsOrder = CEFDevToolsCallOrder()
     /// Results Chromium sends while `shim.devToolsCall` is still running: a
     /// method the browser process answers synchronously (for example
     /// `Emulation.setEmitTouchEventsForMouse` or `setGeolocationOverride`)
@@ -410,7 +418,10 @@ final class CEFRuntime {
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
-            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
+            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
+            // Debug Settings (DEV and NIGHTLY), read when Chromium starts: on the first page, well after
+            // the override file loaded; Release keeps the default.
+            asyncLiveResize: BrowserResizeTunables.dragResizeAtLaunch != .synced
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")

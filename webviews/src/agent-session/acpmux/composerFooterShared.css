@@ -5,6 +5,17 @@
 :root {
   --acpmux-context-control-size: 22px;
   --acpmux-context-glyph-size: 12px;
+  --acpmux-permission-pill-height: 28px;
+  --acpmux-permission-pill-inset: 8px;
+  --acpmux-permission-pill-radius: 999px;
+}
+
+/* Codex's composer-permission-mode-picker.png: the capsule keeps its own inset in either look,
+   independent of the quiet footer's chip spacing. */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips .acpmux-access .acpmux-picker-button {
+  height: var(--acpmux-permission-pill-height);
+  padding-inline: var(--acpmux-permission-pill-inset);
+  border-radius: var(--acpmux-permission-pill-radius);
 }
 
 .acpmux-context-ring {

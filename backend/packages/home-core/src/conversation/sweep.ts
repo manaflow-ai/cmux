@@ -3,7 +3,7 @@ import { isOpen } from "./cloud.ts"
 import { summary } from "./create.ts"
 import type { OutboxItem, ReduceContext, ReduceResult, RowReader, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
-import { mentionsOf, previewOf, type FanOut, type UnreadCounts } from "./fanout.ts"
+import { mentionsOf, previewOf, rowKind, type FanOut, type UnreadCounts } from "./fanout.ts"
 import { formatRfc3339Millis, parseRfc3339Millis } from "./ids.ts"
 import { closeExpired } from "./invite-ops.ts"
 import { unreadFloor } from "./domain.ts"
@@ -163,7 +163,7 @@ const sweepBumps = (head: ConversationHead, newest: Message | null, lastAt: stri
         user: participant.id,
         conversation: head.id,
         rev: head.rev,
-        kind: head.kind ?? "group",
+        kind: rowKind(head, participant.id),
         title: head.title,
         last_seq: head.last_seq,
         last_at: lastAt,

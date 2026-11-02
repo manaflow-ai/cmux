@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// 2026-10-20: "I actually wanted to match Helium not Chrome ... size, spacing, and the hover
 /// effects"). Each number cites the Helium patch it comes from; plans/cmux-next/helium-parity.md
 /// has the full table. Colors stay cmux's own.
-@MainActor @Suite(.serialized) struct HeliumChromeParityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HeliumChromeParityTests {
     private func window(_ size: CGSize) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

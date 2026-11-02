@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextNowPlaying
 @testable import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Observation
 import Testing
@@ -14,7 +15,7 @@ import Testing
 /// offers Hide, Hide Until Relaunch, Never Show Media Card (`sidebar.nowPlaying.enabled` off) and
 /// Play/Pause. Every row and the x run one registered action, which the palette, the CLI and MCP
 /// reach too; Show Media Card brings the card back.
-@MainActor @Suite(.serialized) struct NowPlayingCardDismissTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NowPlayingCardDismissTests {
     @Observable final class FakeSource: NowPlayingSource {
         var nowPlaying: SidebarNowPlaying?
         @ObservationIgnored var commands: [SidebarNowPlayingCommand] = []
@@ -134,7 +135,9 @@ import Testing
                 "the x \(h.card.closeButton.frame) is not at the card's top right")
         #expect(h.card.closeButton.accessibilityLabel()?.isEmpty == false, "the x has no VoiceOver label")
         h.card.setHovered(false)
-        #expect(h.card.closeButton.alphaValue == 0, "the x stays after the pointer leaves")
+        // Gone either way: faded to 0, or hidden at once when the hover fade is instant (Reduce
+        // Motion, process-wide and set by suites that run alongside).
+        #expect(h.card.closeButton.isHidden || h.card.closeButton.alphaValue == 0, "the x stays after the pointer leaves")
     }
 
     @Test func theCloseButtonHidesTheCardUntilOtherMediaStarts() async throws {
