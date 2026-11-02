@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// What a section or row needs from the panel: its colors and how a click reaches the page. A value,
 /// not the store, so a row holds no reference to it.
@@ -234,7 +235,8 @@ final class SessionInfoListView: NSView {
     private var ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil }, move: { _, _, _ in }, flush: {})
     private var pendingItems: [SessionInfoItem]?
     private var pendingInk: SessionInfoInk?
-    private var revealTask: Task<Void, Never>?
+    /// Clears a revealed row's highlight; a new reveal replaces the pending one.
+    private let revealTimer = DemandTimer(owner: "SessionInfo.reveal")
     var width: CGFloat = 0 { didSet { if width != oldValue { place() } } }
 
     @discardableResult
@@ -342,13 +344,9 @@ final class SessionInfoListView: NSView {
         let rect = target.frame
         scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, rect.minY - SessionInfoMetrics.rowHeight)))
         scroll.reflectScrolledClipView(scroll.contentView)
-        revealTask?.cancel()
         target.layer?.backgroundColor = ink.colors.hover.withAlphaComponent(0.8).cgColor
-        revealTask = Task { @MainActor [weak self, weak target] in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            guard !Task.isCancelled else { return }
+        revealTimer.schedule(after: .milliseconds(350)) { @MainActor [weak target] in
             target?.layer?.backgroundColor = nil
-            self?.revealTask = nil
         }
     }
 
