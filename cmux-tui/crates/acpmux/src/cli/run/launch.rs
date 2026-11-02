@@ -788,6 +788,32 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// An app older than `defaultName` refuses the argument: the open runs again without it, so
+    /// the launch still shows its session (named `workspace-N` there), as before the default name.
+    #[cfg(unix)]
+    #[test]
+    fn an_app_without_default_name_still_shows_the_session() {
+        let dir = std::env::temp_dir().join(format!("acpmux-group-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cli = dir.join("cmux");
+        let log = dir.join("calls");
+        crate::test_exec::write_executable(
+            &cli,
+            &format!(
+                "#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$*\" in *--default-name*) echo \"agent.openSessionWorkspace has no argument 'defaultName'\" >&2; exit 1;; esac\n",
+                log.display()
+            ),
+        );
+        show_in_group("session-id", "lane-name", None, Some("peer/lane"), "g", Some(&cli), None)
+            .unwrap();
+        let calls = std::fs::read_to_string(&log).unwrap();
+        let calls: Vec<&str> = calls.lines().collect();
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        assert!(calls[0].contains("--default-name peer/lane"), "{calls:?}");
+        assert!(!calls[1].contains("--default-name"), "{calls:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn an_empty_or_missing_prompt_file_fails() {
         let dir = std::env::temp_dir().join(format!("acpmux-launch-{}", uuid::Uuid::now_v7()));
