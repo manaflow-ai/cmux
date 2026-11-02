@@ -55,7 +55,7 @@ fn two_quick_edits_both_show_on_the_confirmed_tree() {
     assert_eq!(body["results"][1]["result"]["bookmark"]["index"], 0);
     assert_eq!(
         body["results"][2],
-        json!({"error_code": "invalid_params", "message": "a folder has no url"})
+        json!({"error_code": "invalid_params", "reason": "invalid_kind", "message": "a folder has no url"})
     );
 }
 

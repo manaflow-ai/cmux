@@ -8,7 +8,7 @@
 use cmux_bookmarks_core::preview::{self, OpResult};
 use cmux_bookmarks_core::{
     Applied, Bookmark, BookmarkError, BookmarkImport, BookmarkImportNode, BookmarkInput,
-    BookmarkOp, BookmarkUpdate, MAX_BOOKMARK_DEPTH, Tree, has_url_scheme,
+    BookmarkOp, BookmarkUpdate, MAX_BOOKMARK_DEPTH, Reason, Tree, has_url_scheme,
 };
 use serde_json::json;
 
@@ -441,6 +441,28 @@ fn op_json_is_the_daemon_fingerprint_shape_and_reads_back() {
     );
 }
 
+/// The app maps each reason to its own localized text (BookmarkAppStrings).
+#[test]
+fn each_refusal_names_its_rule() {
+    let mut tree = sample();
+    let mut reason = |op| apply(&mut tree, op).expect_err("refused").reason();
+    assert_eq!(reason(BookmarkOp::Delete { bookmark: id(0x7777) }), Reason::NotFound);
+    assert_eq!(
+        reason(bookmark("X", "https://x.com", "nope", &id(0x4), None)),
+        Reason::InvalidParent
+    );
+    assert_eq!(reason(bookmark("X", "https://x.com", &a(), &id(0x4), None)), Reason::InvalidParent);
+    assert_eq!(reason(moved(&work(), &deep(), 0)), Reason::Cycle);
+    assert_eq!(reason(bookmark("R", "relative/path", "bar", &id(0x6), None)), Reason::InvalidUrl);
+    let url = BookmarkUpdate { url: Some("https://x.com".into()), ..BookmarkUpdate::default() };
+    assert_eq!(reason(BookmarkOp::Update { bookmark: work(), update: url }), Reason::InvalidKind);
+    assert_eq!(
+        reason(bookmark(&"t".repeat(4097), "https://x.com", "bar", &id(0x6), None)),
+        Reason::TooLarge
+    );
+    assert_eq!(reason(bookmark("X", "https://x.com", "bar", "a", None)), Reason::Invalid);
+}
+
 // MARK: The app's preview
 
 /// V-11: two quick edits both show before either echo arrives.
@@ -464,6 +486,7 @@ fn the_preview_shows_every_pending_edit_on_the_confirmed_tree() {
         response.results[2],
         OpResult::Refused {
             error_code: "not_found",
+            reason: Reason::NotFound,
             message: format!("unknown bookmark {}", id(0x7777))
         }
     );

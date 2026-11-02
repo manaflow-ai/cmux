@@ -57,11 +57,34 @@ pub const MAX_BOOKMARK_KEY_BYTES: usize = 4096;
 // MARK: Errors
 
 /// A refused bookmark op. `code` is the response envelope's `error_code`:
-/// `invalid_params` or `not_found`.
+/// `invalid_params` or `not_found`. `reason` says which rule refused it, so
+/// the app can show its own localized text; the daemon's wire does not
+/// carry it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BookmarkError {
     code: &'static str,
+    reason: Reason,
     message: String,
+}
+
+/// The rule that refused an op.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reason {
+    /// The bookmark or browser profile is unknown.
+    NotFound,
+    /// The parent is not a root or a folder.
+    InvalidParent,
+    /// A folder would move into itself or a descendant.
+    Cycle,
+    InvalidUrl,
+    /// A field the node's kind does not have (a folder's URL, a URL's icon).
+    InvalidKind,
+    /// Too many nodes, or too long a title or key.
+    TooLarge,
+    TooDeep,
+    /// Any other refusal (a malformed id, profile, time or import).
+    Invalid,
 }
 
 impl BookmarkError {
@@ -69,11 +92,21 @@ impl BookmarkError {
     pub const NOT_FOUND_CODE: &'static str = "not_found";
 
     pub fn invalid(message: impl Into<String>) -> Self {
-        Self { code: Self::INVALID_PARAMS_CODE, message: message.into() }
+        Self { code: Self::INVALID_PARAMS_CODE, reason: Reason::Invalid, message: message.into() }
     }
 
     pub fn not_found(message: impl Into<String>) -> Self {
-        Self { code: Self::NOT_FOUND_CODE, message: message.into() }
+        Self { code: Self::NOT_FOUND_CODE, reason: Reason::NotFound, message: message.into() }
+    }
+
+    /// The same refusal, named as `reason`.
+    pub fn because(mut self, reason: Reason) -> Self {
+        self.reason = reason;
+        self
+    }
+
+    pub fn reason(&self) -> Reason {
+        self.reason
     }
 
     pub fn code(&self) -> &'static str {
@@ -98,7 +131,15 @@ impl fmt::Display for BookmarkError {
 
 impl std::error::Error for BookmarkError {}
 
+/// `ensure_valid!(Reason; condition, message...)`, or without the reason
+/// for `Reason::Invalid`.
 macro_rules! ensure_valid {
+    ($reason:ident; $condition:expr, $($message:tt)+) => {
+        if !$condition {
+            let error = $crate::BookmarkError::invalid(format!($($message)+));
+            return Err(error.because($crate::Reason::$reason));
+        }
+    };
     ($condition:expr, $($message:tt)+) => {
         if !$condition {
             return Err($crate::BookmarkError::invalid(format!($($message)+)));
@@ -284,12 +325,15 @@ pub fn validate_profile_shape(value: &str) -> Result<(), BookmarkError> {
 }
 
 pub fn validate_kind(kind: &str) -> Result<(), BookmarkError> {
-    ensure_valid!(kind == "url" || kind == "folder", "kind must be \"url\" or \"folder\"");
+    ensure_valid!(InvalidKind;
+        kind == "url" || kind == "folder",
+        "kind must be \"url\" or \"folder\""
+    );
     Ok(())
 }
 
 pub fn validate_title(title: &str) -> Result<(), BookmarkError> {
-    ensure_valid!(
+    ensure_valid!(TooLarge;
         title.len() <= MAX_BOOKMARK_TITLE_BYTES,
         "title exceeds {MAX_BOOKMARK_TITLE_BYTES} bytes"
     );
@@ -305,12 +349,15 @@ pub fn validate_title(title: &str) -> Result<(), BookmarkError> {
 /// every URL the parser accepts, so an edit the daemon would take is never
 /// refused in the app; one the daemon refuses comes back as its refusal.
 pub fn validate_url(url: &str) -> Result<(), BookmarkError> {
-    ensure_valid!(
+    ensure_valid!(InvalidUrl;
         url.len() <= MAX_BOOKMARK_URL_BYTES,
         "url exceeds {MAX_BOOKMARK_URL_BYTES} bytes"
     );
-    ensure_valid!(!url.chars().any(char::is_control), "url contains a control character");
-    ensure_valid!(parses_as_absolute_url(url), "url must be an absolute URL");
+    ensure_valid!(InvalidUrl;
+        !url.chars().any(char::is_control),
+        "url contains a control character"
+    );
+    ensure_valid!(InvalidUrl; parses_as_absolute_url(url), "url must be an absolute URL");
     Ok(())
 }
 
@@ -339,15 +386,19 @@ pub fn validate_kind_url(kind: &str, url: Option<&str>) -> Result<(), BookmarkEr
     validate_kind(kind)?;
     match (kind, url) {
         ("url", Some(url)) => validate_url(url),
-        ("url", None) => Err(BookmarkError::invalid("a url bookmark needs a url")),
-        (_, Some(_)) => Err(BookmarkError::invalid("a folder has no url")),
+        ("url", None) => {
+            Err(BookmarkError::invalid("a url bookmark needs a url").because(Reason::InvalidUrl))
+        }
+        (_, Some(_)) => {
+            Err(BookmarkError::invalid("a folder has no url").because(Reason::InvalidKind))
+        }
         _ => Ok(()),
     }
 }
 
 pub fn validate_key(label: &str, value: Option<&str>) -> Result<(), BookmarkError> {
     if let Some(value) = value {
-        ensure_valid!(
+        ensure_valid!(TooLarge;
             value.len() <= MAX_BOOKMARK_KEY_BYTES,
             "{label} exceeds {MAX_BOOKMARK_KEY_BYTES} bytes"
         );
@@ -374,11 +425,11 @@ pub fn validate_import_nodes(
     let mut stack = nodes.iter().map(|node| (node, 1usize)).collect::<Vec<_>>();
     while let Some((node, level)) = stack.pop() {
         count = count.saturating_add(1);
-        ensure_valid!(
+        ensure_valid!(TooLarge;
             count <= MAX_BOOKMARKS_PER_PROFILE,
             "a profile holds at most {MAX_BOOKMARKS_PER_PROFILE} bookmarks"
         );
-        ensure_valid!(
+        ensure_valid!(TooDeep;
             level <= MAX_BOOKMARK_DEPTH,
             "bookmarks nest at most {MAX_BOOKMARK_DEPTH} deep"
         );
@@ -389,7 +440,7 @@ pub fn validate_import_nodes(
             stored_ms("created_ms", created_ms)?;
         }
         if let Some(children) = &node.children {
-            ensure_valid!(node.kind == "folder", "only a folder has children");
+            ensure_valid!(InvalidKind; node.kind == "folder", "only a folder has children");
             stack.extend(children.iter().map(|child| (child, level.saturating_add(1))));
         }
     }

@@ -201,7 +201,7 @@ impl Tree {
         validate_title(&input.title)?;
         validate_key("favicon_key", input.favicon_key.as_deref())?;
         validate_key("source_key", input.source_key.as_deref())?;
-        ensure_valid!(
+        ensure_valid!(InvalidKind;
             input.source_key.is_none() || input.kind == "folder",
             "source_key marks an imported folder; a url has none"
         );
@@ -217,7 +217,7 @@ impl Tree {
         }
         self.ensure_profile(&input.browser_profile_id)?;
         let parent_depth = self.resolve_parent(&input.parent)?;
-        ensure_valid!(
+        ensure_valid!(TooDeep;
             parent_depth < MAX_BOOKMARK_DEPTH,
             "bookmarks nest at most {MAX_BOOKMARK_DEPTH} deep"
         );
@@ -260,8 +260,11 @@ impl Tree {
             stored_ms("last_used_ms", last_used_ms)?;
         }
         let before = self.existing(id)?.clone();
-        ensure_valid!(update.url.is_none() || before.kind == "url", "a folder has no url");
-        ensure_valid!(
+        ensure_valid!(InvalidKind;
+            update.url.is_none() || before.kind == "url",
+            "a folder has no url"
+        );
+        ensure_valid!(InvalidKind;
             update.icon.is_none() || before.kind == "folder",
             "only a folder has an icon"
         );
@@ -298,7 +301,7 @@ impl Tree {
         let node = self.existing(id)?.clone();
         let parent_depth = self.resolve_parent(parent)?;
         if !is_root(parent) {
-            ensure_valid!(
+            ensure_valid!(Cycle;
                 !self.ancestors(parent)?.contains(&id),
                 "a folder cannot move into itself or a descendant"
             );
@@ -315,7 +318,7 @@ impl Tree {
             self.reindex(parent);
             new != old
         } else {
-            ensure_valid!(
+            ensure_valid!(TooDeep;
                 parent_depth.saturating_add(self.subtree_height(id)) <= MAX_BOOKMARK_DEPTH,
                 "bookmarks nest at most {MAX_BOOKMARK_DEPTH} deep"
             );
@@ -374,7 +377,7 @@ impl Tree {
         if let Some(folder) = existing {
             let stored = self.existing(&folder)?.clone();
             let folder_depth = self.node_depth(&folder)?;
-            ensure_valid!(
+            ensure_valid!(TooDeep;
                 folder_depth.saturating_sub(1).saturating_add(height) <= MAX_BOOKMARK_DEPTH,
                 "bookmarks nest at most {MAX_BOOKMARK_DEPTH} deep"
             );
@@ -409,7 +412,7 @@ impl Tree {
             }
             return Ok((root_ids, count));
         }
-        ensure_valid!(
+        ensure_valid!(TooDeep;
             parent_depth.saturating_add(height) <= MAX_BOOKMARK_DEPTH,
             "bookmarks nest at most {MAX_BOOKMARK_DEPTH} deep"
         );
@@ -483,12 +486,12 @@ impl Tree {
         if is_root(parent) {
             return Ok(0);
         }
-        ensure_valid!(
+        ensure_valid!(InvalidParent;
             validate_bookmark_id(parent).is_ok(),
             "parent must be \"bar\", \"other\" or a folder id"
         );
         let profile = &self.profile;
-        ensure_valid!(
+        ensure_valid!(InvalidParent;
             self.nodes.get(parent).is_some_and(|folder| folder.kind == "folder"),
             "parent {parent} is not a folder of browser profile {profile}"
         );
@@ -533,7 +536,7 @@ impl Tree {
 
     fn ensure_capacity(&self, removed: usize, added: usize) -> Result<(), BookmarkError> {
         let total = self.nodes.len().saturating_sub(removed).saturating_add(added);
-        ensure_valid!(
+        ensure_valid!(TooLarge;
             total <= MAX_BOOKMARKS_PER_PROFILE,
             "a profile holds at most {MAX_BOOKMARKS_PER_PROFILE} bookmarks"
         );

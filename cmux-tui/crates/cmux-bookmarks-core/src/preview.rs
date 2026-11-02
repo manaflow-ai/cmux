@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{Bookmark, BookmarkOp, Tree};
+use crate::{Bookmark, BookmarkOp, Reason, Tree};
 
 /// `{browser_profile_id, tree: [Bookmark], ops: [BookmarkOp], now_ms, seed?}`.
 /// `ops` use the daemon's op JSON (`{"op": "create", ...}`, the replay
@@ -33,12 +33,13 @@ pub struct Response {
     pub results: Vec<OpResult>,
 }
 
-/// `{result, changed}` (the daemon's wire result) or `{error_code, message}`.
+/// `{result, changed}` (the daemon's wire result) or `{error_code, reason,
+/// message}` (`reason` names the rule, for the app's localized text).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum OpResult {
     Applied { result: Value, changed: bool },
-    Refused { error_code: &'static str, message: String },
+    Refused { error_code: &'static str, reason: Reason, message: String },
 }
 
 pub fn respond(request: Request) -> Response {
@@ -50,9 +51,11 @@ pub fn respond(request: Request) -> Response {
         .into_iter()
         .map(|op| match tree.apply(op, request.now_ms, &mut mint) {
             Ok(applied) => OpResult::Applied { result: applied.result, changed: applied.changed },
-            Err(error) => {
-                OpResult::Refused { error_code: error.code(), message: error.message().to_string() }
-            }
+            Err(error) => OpResult::Refused {
+                error_code: error.code(),
+                reason: error.reason(),
+                message: error.message().to_string(),
+            },
         })
         .collect();
     Response { tree: tree.listing(), results }
