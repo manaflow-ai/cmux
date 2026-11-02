@@ -358,3 +358,47 @@ fn kill_all_heavy_load_disk_writes_per_pane() {
         })
     );
 }
+
+/// MEASUREMENT (scratch): from the new daemon's spawn to each respawned
+/// terminal's new runtime in its tab (resolvable surface) and to its
+/// restored text with the session line, for N terminals killed at once.
+fn respawn_latency(count: usize) -> serde_json::Value {
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness(&format!("respawn-latency-{count}"));
+    let home = harness.dir.clone();
+    let mut terminals = Vec::new();
+    for index in 0..count {
+        let (terminal_id, incarnation, surface) =
+            start_shell_in(&harness, &format!("lat{index}"), &home);
+        send_line(&harness.socket, surface, &format!("seq -f 'lat{index}-%g' 1 100"));
+        terminals.push((terminal_id, incarnation, surface));
+    }
+    for (index, (_, _, surface)) in terminals.iter().enumerate() {
+        wait_for_screen(&harness.socket, *surface, &format!("lat{index}-100\n"));
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    let records = wait_for_host_records(&harness.host_root(), count);
+    harness.signal_daemon(libc::SIGSTOP);
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    harness.sigkill();
+    let spawned = Instant::now();
+    harness.restart();
+    let socket_ms = spawned.elapsed().as_millis();
+    let mut surface_ms = Vec::new();
+    let mut text_ms = Vec::new();
+    for (terminal_id, incarnation, _) in &terminals {
+        let surface = respawned_surface(&harness, terminal_id, incarnation);
+        surface_ms.push(spawned.elapsed().as_millis());
+        wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+        text_ms.push(spawned.elapsed().as_millis());
+    }
+    serde_json::json!({"terminals": count, "socket_ms": socket_ms, "surface_ms": surface_ms, "text_ms": text_ms})
+}
+
+#[test]
+fn kill_all_respawn_latency_matrix() {
+    let report = [1, 4, 12].map(respawn_latency);
+    panic!("respawn-latency: {}", serde_json::to_string(&report).unwrap());
+}
