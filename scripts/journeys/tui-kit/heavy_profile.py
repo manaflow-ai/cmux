@@ -48,7 +48,7 @@ HIDDEN_PROGRAMS = (
     ("top", ["--fps", "2"]),
     ("flood", ["--rate", "30"]),
     ("sigwinch", ["--tick", "1"]),
-    ("gradient", ["--fps", "10", "--cell", "2"]),
+    ("gradient", ["--fps", "10", "--cell", "2", "--pace", "sleep"]),  # hidden: no core-pegging spin
     ("agent-stream", ["--cps", "40"]),
 )
 
