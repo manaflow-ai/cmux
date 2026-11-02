@@ -5,6 +5,7 @@ import type { Play } from "../../gallery/play";
 import { useT } from "./i18n";
 import { ContextRing } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
+import { compactingUsage } from "./usageStats";
 
 type Props = {
   used?: number;
@@ -153,6 +154,27 @@ export default componentEntry<Props>({
         },
       },
       play: hoverCard,
+    },
+    "card-autocompact-window": {
+      note: "Shipped (Leo, 2026-11-02: \"whatever a user set their compact window to it should be that instead of always showing the defautl (e.g. we should be seieng 400k)\"): a 1M model whose chat compacts at 400K reads 85% · 339.9K / 400K, the window Claude Code's /context names (compactingUsage), not the model's 1M.",
+      props: {
+        ...compactingUsage({ used: 339_900, size: 1_000_000 }, undefined, { maxTokens: 400_000 }),
+        details: true,
+        breakdown: {
+          maxTokens: 400_000,
+          categories: [
+            { name: "Messages", kind: "used", tokens: 280_900 },
+            { name: "MCP tools", kind: "used", tokens: 10_600 },
+            { name: "System prompt", kind: "used", tokens: 48_400 },
+            { name: "Free space", kind: "free", tokens: 60_100 },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        await hoverCard(ctx);
+        const line = ctx.document.querySelector(".acpmux-context-card-line")?.textContent ?? "";
+        if (!/339\.9K\s*\/\s*400K/.test(line)) throw new Error(`The context card reads "${line}", not / 400K`);
+      },
     },
     "popover-near-limit": {
       note: "A near-full context window keeps the usage track legible without expanding the popover or changing the composer row.",
