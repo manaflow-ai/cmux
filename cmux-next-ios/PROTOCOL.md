@@ -999,6 +999,8 @@ characters become spaces, then it cuts to the limit in code points):
 | Field | Limit | Meaning |
 | --- | --- | --- |
 | `kind` | | adds `terminal` (an OSC 9, OSC 777 or OSC 99 desktop notification from a program in a cmux terminal) |
+| `kind` | | adds `computer_use` (a Computer Use approval question; docs/computer-use-approvals.md, "Phone wire (macOS)"). Not a phone preference: it goes to every phone whose `kinds` has `permission`, and `wants` lists it then |
+| `computerUse` | 2048 bytes as JSON | with `kind` `computer_use` only, required: `{request, always}`, the worker's request object (its `digest` 64 hex) as the Mac sent it, never cleaned or cut (the phone recomputes the digest from it), and whether Always Allow may be offered. Category `CMUX_MOBILE_COMPUTER_USE`, banner "<Agent> wants to use <title>", subtitle "<workspace> · <Mac>", time-sensitive, `apns-expiration` at the request's `answerable_until_ms` |
 | `workspace` | 60 | the workspace's title (`place` stays the folder name) |
 | `workspaceId`, `tabId` | 128 | the daemon's ids; `tabId` is `s<surface>` for a terminal |
 | `permissionId` | 128 | the acpmux permission id of a question or permission |

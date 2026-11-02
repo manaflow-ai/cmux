@@ -231,8 +231,9 @@ describe("targets and wants", () => {
     expect(pushTargets(regs, MAC, "question").map((r) => r.deviceId)).toEqual(["a"])
     expect(pushTargets(regs, MAC, "terminal")).toEqual([])
     expect(pushTargets(regs, OTHER, "terminal").map((r) => r.deviceId)).toEqual(["b"])
-    expect(wantedKinds(regs, MAC)).toEqual(["question", "permission", "completed"])
-    expect(wantedKinds(regs, OTHER)).toEqual(["question", "permission", "terminal"])
+    // computer_use rides the permission preference.
+    expect(wantedKinds(regs, MAC)).toEqual(["question", "permission", "completed", "computer_use"])
+    expect(wantedKinds(regs, OTHER)).toEqual(["question", "permission", "terminal", "computer_use"])
   })
 })
 

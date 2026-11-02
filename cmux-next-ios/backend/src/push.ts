@@ -3,6 +3,27 @@ import type { Env } from "./env.ts"
 import { PUSH_KINDS, type PushKind, type PushRegistration } from "./store.ts"
 
 /**
+ * What a Mac may notify: the phone's preference kinds plus `computer_use`, a Computer Use approval question
+ * (docs/computer-use-approvals.md, "Phone wire"). It is not a preference of its own: it goes to every phone
+ * that wants permission requests, so a phone registered before it existed still gets the question.
+ */
+export const NOTIFY_KINDS = [...PUSH_KINDS, "computer_use"] as const
+export type NotifyKind = (typeof NOTIFY_KINDS)[number]
+
+/** The preference that decides whether a phone gets `kind`. */
+const preferenceOf = (kind: NotifyKind): PushKind => (kind === "computer_use" ? "permission" : kind)
+
+/** An approval question pushed to the phone as the Mac asked it (`computerUse` in the notify body). */
+export interface ComputerUseAsk {
+  readonly request: Readonly<Record<string, unknown>>
+  readonly always: boolean
+}
+
+/** The largest `computerUse` object, as JSON bytes: the whole payload must stay under 4096 bytes untrimmed. */
+export const MAX_COMPUTER_USE_BYTES = 2048
+const DIGEST = /^[0-9a-f]{64}$/
+
+/**
  * APNs for Feed-worthy agent events (PROTOCOL.md `POST /v1/devices/:deviceId/notify`). A deployed Worker's
  * fetch reaches APNs over HTTP/2 through Cloudflare's edge. Secrets: APNS_KEY_P8 (PKCS#8 PEM), APNS_KEY_ID,
  * APNS_TEAM_ID. Without them `notify` answers `configured:false` and sends nothing.
@@ -60,7 +81,7 @@ export type PushState = (typeof PUSH_STATES)[number]
 /** What the Mac reports, cleaned. The Worker writes the banner text itself from these fields. */
 export interface NotifyEvent {
   readonly eventId: string
-  readonly kind: PushKind
+  readonly kind: NotifyKind
   readonly agent?: string
   readonly place?: string
   readonly macId: string
@@ -78,6 +99,8 @@ export interface NotifyEvent {
   questions?: ReadonlyArray<PushQuestion>
   readonly tail?: ReadonlyArray<string>
   readonly state?: PushState
+  /** A Computer Use approval question (`kind` `computer_use`): the request object, never trimmed. */
+  readonly computerUse?: ComputerUseAsk
   /** Per phone device id: the content sealed to that phone's push key and the Mac's signature (API 0.14.0). */
   readonly sealed?: Readonly<Record<string, SealedBox>>
 }
@@ -142,7 +165,15 @@ const present = (v: unknown) => v !== undefined && v !== null
  */
 export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macId" | "macName"> | string => {
   if (typeof b.eventId !== "string" || !EVENT_ID.test(b.eventId)) return "eventId must be 1-64 of A-Z a-z 0-9 . _ : -"
-  if (!(PUSH_KINDS as ReadonlyArray<unknown>).includes(b.kind)) return `kind must be one of ${PUSH_KINDS.join(", ")}`
+  if (!(NOTIFY_KINDS as ReadonlyArray<unknown>).includes(b.kind)) return `kind must be one of ${NOTIFY_KINDS.join(", ")}`
+  let computerUse: ComputerUseAsk | undefined
+  if (b.kind === "computer_use") {
+    // The phone recomputes the digest from this object before it offers an Allow, so it travels as sent:
+    // never cleaned or cut. A question without it is useless to the phone, so it is refused, not dropped.
+    const cu = parseComputerUse(b.computerUse)
+    if (typeof cu === "string") return cu
+    computerUse = cu
+  }
   // Everything else is optional: a malformed field is dropped, not the push (a lost ask is worse than a plain one).
   const ids: Record<string, string> = {}
   for (const [k, re] of [
@@ -212,32 +243,44 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
   }
   return {
     eventId: b.eventId,
-    kind: b.kind as PushKind,
+    kind: b.kind as NotifyKind,
     ...texts,
     ...ids,
     ...(state ? { state } : {}),
     ...(options ? { options } : {}),
     ...(questions ? { questions } : {}),
     ...(tail ? { tail } : {}),
+    ...(computerUse ? { computerUse } : {}),
     ...(sealed ? { sealed } : {})
   }
 }
 
+const parseComputerUse = (v: unknown): ComputerUseAsk | string => {
+  const bad = `computerUse must be {request: {…, digest: 64 hex}, always: boolean} of at most ${MAX_COMPUTER_USE_BYTES} bytes`
+  if (!isObject(v) || !isObject(v.request) || typeof v.always !== "boolean") return bad
+  if (typeof v.request.digest !== "string" || !DIGEST.test(v.request.digest)) return bad
+  if (new TextEncoder().encode(JSON.stringify(v)).length > MAX_COMPUTER_USE_BYTES) return bad
+  return { request: v.request, always: v.always }
+}
+
 /** The rate-limit key of a notify: terminal notifications have their own bucket, so a program that loops
  * OSC 9 never starves a Mac's questions and permission requests (review M3). */
-export const notifyLimitKey = (macId: string, kind: PushKind): string => (kind === "terminal" ? `${macId}:terminal` : macId)
+export const notifyLimitKey = (macId: string, kind: NotifyKind): string => (kind === "terminal" ? `${macId}:terminal` : macId)
 
-const TITLES: Record<PushKind, (agent: string) => string> = {
+const TITLES: Record<NotifyKind, (agent: string) => string> = {
   question: (a) => `${a} has a question`,
   permission: (a) => `${a} needs permission`,
   completed: (a) => `${a} finished`,
   failed: (a) => `${a} stopped with an error`,
   chief: () => "Chief replied",
-  terminal: () => "Terminal"
+  terminal: () => "Terminal",
+  computer_use: (a) => `${a} wants to use an app`
 }
 
 /** Kinds that end a turn: a session's newer one replaces its older one on the phone. */
-const TURN_KINDS: ReadonlySet<PushKind> = new Set<PushKind>(["completed", "failed", "chief"])
+const TURN_KINDS: ReadonlySet<NotifyKind> = new Set<NotifyKind>(["completed", "failed", "chief"])
+/** Kinds that wait for an answer: time-sensitive, and never coalesced. */
+const isAsk = (kind: NotifyKind) => kind === "question" || kind === "permission" || kind === "computer_use"
 
 /** 64-bit FNV-1a of a string, 16 hex digits: a short stable stand-in for a long id. */
 const fnv = (text: string): string => {
@@ -308,6 +351,8 @@ const alert = (e: NotifyEvent, previews: boolean) => {
       case "terminal":
         // A program chooses its own title: it never stands where an agent's banner would (review M3).
         return [where ? `Terminal · ${where}` : "Terminal", [e.title, e.body].filter(Boolean).join(": ")]
+      case "computer_use":
+        return [e.title ? `${agent} wants to use ${e.title}` : TITLES.computer_use(agent), "Allow or deny it on this iPhone."]
     }
   })()
   return { title, subtitle: where ? `${where} · ${e.macName}` : e.macName, body }
@@ -322,7 +367,7 @@ const shorten = (s: string) => {
 }
 
 /** The `cmuxMobile` object of a v2 payload: the Mac's name, the routing ids and the content the phone acts on. */
-export type MobilePayload = { v: 2; mac: string; macName: string; kind: PushKind; eventId: string; previews: boolean } & Partial<
+export type MobilePayload = { v: 2; mac: string; macName: string; kind: NotifyKind; eventId: string; previews: boolean } & Partial<
   Pick<
     NotifyEvent,
     | "agent"
@@ -340,11 +385,12 @@ export type MobilePayload = { v: 2; mac: string; macName: string; kind: PushKind
     | "questions"
     | "tail"
     | "state"
+    | "computerUse"
   >
 >
 
 const build = (e: NotifyEvent, previews: boolean): { aps: Record<string, unknown> & { alert: { title: string; subtitle?: string; body: string }; "thread-id": string; category: string }; cmuxMobile: MobilePayload } => {
-  const ask = e.kind === "question" || e.kind === "permission"
+  const ask = isAsk(e.kind)
   const thread = threadId(e)
   const optional = <K extends keyof NotifyEvent>(k: K) => (e[k] !== undefined && e[k] !== "" ? { [k]: e[k] } : {})
   return {
@@ -378,6 +424,7 @@ const build = (e: NotifyEvent, previews: boolean): { aps: Record<string, unknown
       ...optional("questions"),
       ...optional("tail"),
       ...optional("state"),
+      ...optional("computerUse"),
       previews
     }
   }
@@ -430,7 +477,8 @@ export const apnsPayload = (e: NotifyEvent, opts: { previews?: boolean } = {}) =
       ...(cur.permissionId ? { permissionId: cur.permissionId } : {}),
       ...(cur.conversationId ? { conversationId: cur.conversationId } : {}),
       ...(cur.notificationId ? { notificationId: cur.notificationId } : {}),
-      ...(cur.state ? { state: cur.state } : {})
+      ...(cur.state ? { state: cur.state } : {}),
+      ...(cur.computerUse ? { computerUse: cur.computerUse } : {})
     }
     set(next)
   }
@@ -438,18 +486,21 @@ export const apnsPayload = (e: NotifyEvent, opts: { previews?: boolean } = {}) =
 }
 
 /** The registrations to push `kind` from `macId` to: they want the kind and did not mute the Mac. */
-export const pushTargets = (regs: ReadonlyArray<PushRegistration>, macId: string, kind: PushKind): Array<PushRegistration> =>
-  regs.filter((r) => r.kinds.includes(kind) && !r.mutedMacs.includes(macId))
+export const pushTargets = (regs: ReadonlyArray<PushRegistration>, macId: string, kind: NotifyKind): Array<PushRegistration> =>
+  regs.filter((r) => r.kinds.includes(preferenceOf(kind)) && !r.mutedMacs.includes(macId))
 
 /** The kinds some phone that has not muted `macId` wants, in PUSH_KINDS order. */
-export const wantedKinds = (regs: ReadonlyArray<PushRegistration>, macId: string): Array<PushKind> => {
+export const wantedKinds = (regs: ReadonlyArray<PushRegistration>, macId: string): Array<NotifyKind> => {
   const wanted = new Set(regs.filter((r) => !r.mutedMacs.includes(macId)).flatMap((r) => r.kinds))
-  return PUSH_KINDS.filter((k) => wanted.has(k))
+  return NOTIFY_KINDS.filter((k) => wanted.has(preferenceOf(k)))
 }
 
 export const apnsRequest = (target: PushRegistration, e: NotifyEvent, token: string, now: number): Request => {
   const host = target.environment === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com"
-  const ask = e.kind === "question" || e.kind === "permission"
+  const ask = isAsk(e.kind)
+  // A Computer Use question can be answered until its answerable_until_ms (10 minutes), not for a day.
+  const until = e.computerUse?.request.answerable_until_ms
+  const expiresMs = e.kind === "computer_use" && typeof until === "number" && Number.isFinite(until) ? Math.min(until, now + 24 * 3600_000) : now + (ask ? 24 * 3600_000 : 3600_000)
   return new Request(`https://${host}/3/device/${target.token}`, {
     method: "POST",
     headers: {
@@ -458,7 +509,7 @@ export const apnsRequest = (target: PushRegistration, e: NotifyEvent, token: str
       "apns-push-type": "alert",
       "apns-priority": "10",
       // An ask matters for a day; a finished turn or a terminal notification for an hour.
-      "apns-expiration": String(Math.floor((now + (ask ? 24 * 3600_000 : 3600_000)) / 1000)),
+      "apns-expiration": String(Math.floor(expiresMs / 1000)),
       "apns-collapse-id": collapseId(e),
       "content-type": "application/json"
     },
@@ -476,7 +527,7 @@ const sealedFor = (e: NotifyEvent, target: PushRegistration): SealedBox | undefi
  * thread is a hash, the category the kind's (the extension sets the exact one).
  */
 export const sealedPayload = (e: NotifyEvent, sealed: SealedBox, opts: { previews?: boolean } = {}) => {
-  const ask = e.kind === "question" || e.kind === "permission"
+  const ask = isAsk(e.kind)
   const thread = fnv(threadId(e))
   return {
     aps: {
