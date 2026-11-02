@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4150738990701",
+  "notes": "notes/4150738990701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32525,
+      "title": "Cloud Native: name the step a refused Native call came from",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32515,
+      "title": "cmux NEXT captures: a window image paints a Chromium page only inside its page window's clip (no Home bubbles through a chat under the dock)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32514,
+      "title": "ci(nightly): both nightly-next build slots on a Mac build in one root, with a 10 GiB compile cache",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32526,
+      "title": "ci(nightly): clear three guard-group base reds from the nightly-freshness PRs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32518,
+      "title": "tests: prove a hidden terminal's output is batched (SWITCH FRAMES SF-5 C counts)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
