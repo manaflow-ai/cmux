@@ -649,6 +649,26 @@ enum BrowserResize { static let `default` = true }
                                            body=f"Review (subagent): BLOCK at {head}", extra_comments=[ship])
         self.assertEqual(result.returncode, 1, result.stdout)
 
+    def carried_private_check(self, body, extra_comments=()):
+        """private_member_check's pull request one base merge after `reviewed`, with the receipts at `reviewed`."""
+        reviewed = self.changed_head()
+        tip, merge = self.merged_base(reviewed)
+        self.base = tip
+        return self.private_member_check(merge, {"austinywang": "write"}, body=body.format(reviewed=reviewed),
+                                         extra_comments=[dict(c, body=c["body"].format(reviewed=reviewed))
+                                                         for c in extra_comments])
+
+    def test_a_private_members_ship_one_base_merge_back_is_carried(self):
+        result = self.carried_private_check("Review (subagent): SHIP at {reviewed}")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(len(result.calls), 1, result.calls)
+
+    def test_a_private_members_block_one_base_merge_back_still_beats_a_ship(self):
+        ship = {"databaseId": 1, "body": "Review (subagent): SHIP at {reviewed}", "createdAt": "2026-10-28T20:00:00Z",
+                "authorAssociation": "MEMBER", "author": {"login": AUTHOR, "__typename": "User"}}
+        result = self.carried_private_check("Review (subagent): BLOCK at {reviewed}", extra_comments=[ship])
+        self.assertEqual(result.returncode, 1, result.stdout)
+
     def test_a_receipt_below_the_first_line_does_not_pass(self):
         head = self.changed_head()
         result = self.check(head, comments=[self.receipt(f"Thanks!\nReview (subagent): SHIP at {head}")])

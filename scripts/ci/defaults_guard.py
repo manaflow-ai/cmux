@@ -792,9 +792,6 @@ def carried_ship(pull: Mapping[str, object], head: str, writers: Iterable[str], 
     tip = git(ROOT, "rev-parse", "HEAD")
     history = ROOT
     for earlier in seen[:CARRY_MAX]:
-        verdict = receipt_verdict(pull, earlier, writers)
-        if not verdict or verdict[0] != "ship":
-            continue
         try:
             if history == ROOT and not has_commits(ROOT, (earlier, head)):
                 if not repo or scratch is None:
@@ -811,6 +808,11 @@ def carried_ship(pull: Mapping[str, object], head: str, writers: Iterable[str], 
                      for line in git(history, "rev-list", "--first-parent", "--parents", f"{earlier}..{head}").splitlines()]
             if not after or any(len(line) != 3 for line in after):
                 continue  # not only merges after it: a commit of the pull request's own came after the review
+            # A private org member reads as untrusted; their receipts at this earlier head are looked up like the
+            # head's, so their SHIP counts and their BLOCK still wins (#32027).
+            verdict = receipt_verdict(pull, earlier, [*writers, *(repo_writers(repo, pull, earlier) if repo else [])])
+            if not verdict or verdict[0] != "ship":
+                continue
             base = git(history, "merge-base", tip, earlier)
             if history == ROOT:
                 before_tree, head_tree = Tree(base), Tree(earlier)
