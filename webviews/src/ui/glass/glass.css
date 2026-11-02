@@ -168,7 +168,8 @@
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
     :root:not([data-reduce-transparency]) .ui-glass.ui-glass-fisheye {
-      background: var(--glass-fisheye-tint);
+      /* The color alone, so a surface's own background-image (a hover wash) still draws. */
+      background-color: var(--glass-fisheye-tint);
       backdrop-filter: var(--glass-fisheye) saturate(1.15);
       box-shadow:
         inset 0.75px 1px 0.5px -0.25px var(--glass-specular),

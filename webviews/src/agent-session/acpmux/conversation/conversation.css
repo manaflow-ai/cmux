@@ -4964,10 +4964,12 @@ a.cv-sha:focus-visible {
 }
 /* Through the fisheye (Chromium: glass.css FISHEYE) the words under the disc read large behind the
    arrow, so the arrow carries a soft halo of the surface and stays legible over them. */
-@supports not (-webkit-backdrop-filter: none) {
-  .acpmux-jump-latest.ui-glass-fisheye .acpmux-jump-latest__arrow {
-    filter: drop-shadow(0 0 1px var(--glass-surface)) drop-shadow(0 0 1px var(--glass-surface))
-      drop-shadow(0 0 3px var(--glass-surface));
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root:not([data-reduce-transparency]) .acpmux-jump-latest.ui-glass-fisheye .acpmux-jump-latest__arrow {
+      filter: drop-shadow(0 0 1px var(--glass-surface)) drop-shadow(0 0 1px var(--glass-surface))
+        drop-shadow(0 0 3px var(--glass-surface));
+    }
   }
 }
 @media (prefers-reduced-motion: no-preference) {
