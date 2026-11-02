@@ -46,7 +46,7 @@ time.sleep(60)
     let after = std::fs::symlink_metadata(&socket).map(|m| m.ino()).ok();
     let _ = holder.kill();
     let _ = holder.wait();
-    let error = bound.err().expect("a bind without the lock took the holder's socket path");
+    let error = bound.expect_err("a bind without the lock took the holder's socket path");
     assert!(error.to_string().contains(&holder.id().to_string()), "{error:#}");
     assert_eq!(after, Some(before), "a bind without the lock unlinked the holder's socket");
 }
