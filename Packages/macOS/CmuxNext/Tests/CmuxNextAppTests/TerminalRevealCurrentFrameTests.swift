@@ -9,7 +9,7 @@ import Testing
 /// a terminal shown again by a workspace or tab switch shows its CURRENT content in the switch frame, not the
 /// picture it showed when it was hidden. A hidden terminal keeps parsing output (an agent at work in a background
 /// workspace); the frame the switch commits must already carry what it parsed.
-@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalRevealCurrentFrameTests {
+@MainActor @Suite(.serialized) struct TerminalRevealCurrentFrameTests {
     /// Which half of `surface` holds the text: rows of solid blocks in the top half or the bottom half.
     enum Half: Equatable, CustomStringConvertible {
         case none, top, bottom, both
