@@ -16,13 +16,28 @@ struct LinkHintTypingTests {
         #expect(!session.takesKeys)
     }
 
-    /// Review of #32537: keys typed while the page's answer is out are never held, sent again, reordered or doubled.
-    /// The session takes no key before its labels show; the page gets each one as typed, in order.
-    @Test func aSessionTakesNoKeyBeforeItsLabelsShow() {
+    /// Lead review of #32537, case 1 (a text field has the keyboard): every key typed while the page answered goes to
+    /// the field, once each, in the order typed; the `f` that started the session reached it first (the page sees a
+    /// letter before cmux hears it was unhandled).
+    @Test func keysTypedWhileThePageAnswersGoToTheTextFieldOnceInOrder() {
+        var held = LinkHintHeldKeys<Character>()
+        for key in "ieldkeysok" { held.hold(key) }
+        #expect(String(held.release(after: .passThrough)) == "ieldkeysok", "keys typed during the page's answer were lost or reordered")
+        #expect(held.release(after: .passThrough).isEmpty, "a held key went to the page twice")
+    }
+
+    /// Lead review of #32537, case 2 (no text field has the keyboard, link hints start): the letters typed before the
+    /// labels show are hint keys, checked when the labels show; none reaches the page (a page shortcut on the same
+    /// letter would run).
+    @Test func hintLettersTypedBeforeTheLabelsShowPickAndNeverReachThePage() {
         var session = LinkHintSession(mode: .follow)
-        #expect(!session.takesKeys, "a key typed during the collect was taken from the page")
-        _ = session.show([Self.field], editing: false)
-        #expect(session.takesKeys)
+        var held = LinkHintHeldKeys<Character>()
+        let targets = (0..<30).map { LinkHintTarget(x: Double($0), y: 1, left: Double($0), top: 0) }
+        let label = Array(LinkHintSession.labels(count: targets.count))[7]
+        for key in label { held.hold(key); _ = session.type(String(key)) }
+        let outcome = session.show(targets, editing: false)
+        #expect(outcome == .pick(targets[7]), "the letters typed before the labels showed did not pick: \(outcome)")
+        #expect(held.release(after: outcome).isEmpty, "a hint letter reached the page")
     }
 
     @Test func aSessionWhosePageIsNotEditingStillLabelsAndPicks() {
