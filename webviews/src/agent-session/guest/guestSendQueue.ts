@@ -20,9 +20,6 @@ const timers: GuestSendTimers = {
   clear: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
 };
 
-const decided = (state: GuestPrompt["state"]) =>
-  state === "approved" || state === "declined" || state === "removed" || state === "refused";
-
 /** One guest tab's outbox. A socket snapshot proves it can send; a close stops its timer. */
 export class GuestSendQueue {
   private connected = false;
