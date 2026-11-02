@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import CmuxNextWakeups
 import Testing
+import os
 
 /// Leo (launch-speed-first): "the first frame is never blank". A terminal pane is held clear for
 /// launch until its terminal's first live frame: about 150 ms of empty glass on a capture mini with
@@ -143,5 +144,96 @@ import Testing
         #expect(await !Self.launch(directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.content.alphaValue == 0, "the pane waits for its first live frame, as before")
         #expect(pane.held == nil)
+    }
+
+    /// A pane's content held for launch whose terminal has no surface yet (the scheduler keeps it for a later frame).
+    @MainActor struct WaitingPane {
+        let window: NSWindow
+        let content: NSView
+
+        init(reveal: LaunchReveal) {
+            _ = NSApplication.shared
+            window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 200, y: 200), size: TerminalLaunchFrameTests.size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            content = NSView(frame: NSRect(origin: .zero, size: TerminalLaunchFrameTests.size))
+            window.contentView = content
+            reveal.hold(content, until: .pane)
+        }
+
+        /// The surface's size in this pane (`TerminalHostView.surfaceWidth`).
+        var surfaceSize: NSSize { NSSize(width: TerminalHostView.surfaceWidth(hostWidth: content.bounds.width), height: content.bounds.height) }
+    }
+
+    /// REOPEN-F1: a pane waiting for its surface shows its last frame at once, unheld, and the surface takes it over.
+    @Test func aPaneWaitingForItsSurfaceShowsItsFrameAtOnceAndTheSurfaceTakesItOver() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let waiting = WaitingPane(reveal: reveal)
+        defer { waiting.window.close() }
+        let directory = try await Self.saved(["tab-1": Self.frame(waiting.surfaceSize, scale: waiting.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = await Self.launch(directory)
+        #expect(frames.showAhead("tab-1", in: waiting.content, reveal: reveal))
+        #expect(waiting.content.alphaValue == 1, "the pane stayed held clear: the window's first frame would show it empty")
+        #expect(frames.showsAhead(in: waiting.content))
+        // Its surface comes on a later frame.
+        let io = ScriptedTerminalIO()
+        defer { io.finish() }
+        let session = TerminalSession(io: io)
+        session.view.frame = waiting.content.bounds
+        waiting.content.addSubview(session.view)
+        #expect(frames.show("tab-1", on: session, in: waiting.content, reveal: reveal), "the surface did not take the frame over")
+        #expect(!frames.showsAhead(in: waiting.content), "two frames: the one shown ahead stayed over the surface")
+        #expect(waiting.content.alphaValue == 1)
+    }
+
+    /// The reopen number is the LAST terminal of the first window frame to show its frame, never the first; a terminal
+    /// that never shows one leaves it unset.
+    @Test func theLaunchNumberIsTheLastPaneAndOnlyOnceEveryPaneShowed() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let left = WaitingPane(reveal: reveal), right = WaitingPane(reveal: reveal), bare = WaitingPane(reveal: reveal)
+        defer { for pane in [left, right, bare] { pane.window.close() } }
+        let image = Self.frame(left.surfaceSize, scale: left.window.backingScaleFactor)
+        let directory = try await Self.saved(["tab-l": image, "tab-r": image])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let drawn = OSAllocatedUnfairLock<[String: Date]>(initialState: [:])
+        let frames = TerminalLaunchFrames(directory: directory)
+        await frames.prefetch(on: Self.work, markAt: { name, date in drawn.withLock { $0[name] = date } })?.value
+        #expect(frames.showAhead("tab-l", in: left.content, reveal: reveal))
+        #expect(frames.showAhead("tab-r", in: right.content, reveal: reveal))
+        frames.closeLaunch()
+        let last = try #require(frames.lastLaunchPaneShown)
+        #expect(last == frames.launchPanes.values.compactMap(\.shown).max(), "the launch number is not the last pane")
+        #expect(drawn.withLock { $0[TerminalLaunchFrames.visibleTerminalsDrawn] } == last)
+        // A launch with a terminal that has no saved frame is not drawn by the frames.
+        let other = try await Self.saved(["tab-l": image])
+        defer { try? FileManager.default.removeItem(at: other) }
+        let partial = TerminalLaunchFrames(directory: other)
+        await partial.prefetch(on: Self.work)?.value
+        #expect(partial.showAhead("tab-l", in: left.content, reveal: reveal))
+        #expect(!partial.showAhead("tab-none", in: bare.content, reveal: reveal))
+        partial.closeLaunch()
+        #expect(partial.lastLaunchPaneShown == nil, "a pane with no frame counted as drawn")
+        #expect(partial.launchPanes["tab-none"]?.missed == "no_frame")
+    }
+
+    /// Review P1: a pane that asked ahead while the read ran, then showed something else, never gets that frame over
+    /// its new content when the read ends.
+    @Test func anAskAheadThatTheSelectionReplacedShowsNoFrameWhenTheReadEnds() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let waiting = WaitingPane(reveal: reveal)
+        defer { waiting.window.close() }
+        let directory = try await Self.saved(["tab-1": Self.frame(waiting.surfaceSize, scale: waiting.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probe = LaunchReadProbe(held: true)
+        let frames = TerminalLaunchFrames(directory: directory, reader: probe.reader)
+        let read = try #require(frames.prefetch(on: Self.work), "the launch read did not start")
+        #expect(await probe.waitForStart(), "the read never started")
+        #expect(!frames.showAhead("tab-1", in: waiting.content, reveal: reveal))
+        // The pane shows a page now.
+        frames.withdrawAhead(in: waiting.content)
+        probe.release()
+        await read.value
+        #expect(!frames.showsAhead(in: waiting.content), "the old tab's frame went over the content the pane shows now")
     }
 }

@@ -274,8 +274,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
                                 trailing: accessory, layout: layout, interactive: !row.isNoninteractive)
         if row.kind == .slider, let accessory {
             // Preferred slider width yields to the actual padded row, including narrow rails.
-            accessory.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor,
-                                                constant: layout.leading).isActive = true
+            accessory.leadingAnchor.constraint(greaterThanOrEqualTo: view.contentGuide.leadingAnchor).isActive = true
         }
         view.isEnabled = row.disabled != true
         view.themedToolTip = row.disabledReason

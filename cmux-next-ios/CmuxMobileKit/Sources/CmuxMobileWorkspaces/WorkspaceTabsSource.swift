@@ -1868,7 +1868,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Copy Link", systemImage: "link", isEnabled: model.url != nil) { UIPasteboard.general.url = model.url },
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
                 ] + (streamedPage.map { page in
-                    [TabsKitMenuItem(title: "Hard Reload", systemImage: "arrow.clockwise.circle") { page.hardReload() }]
+                    [
+                        TabsKitMenuItem(title: "Hard Reload", systemImage: "arrow.clockwise.circle") { page.hardReload() },
+                        // The Mac's Find… (Cmd-F): the find bar over the page; the Mac's browser finds.
+                        TabsKitMenuItem(id: "browser.find", title: "Find…", systemImage: "magnifyingglass") { page.showFind() },
+                    ]
                 } ?? []) + [
                     TabsKitMenuItem(title: "Open in Safari", systemImage: "safari", isEnabled: web != nil) {
                         if let web { UIApplication.shared.open(web) }

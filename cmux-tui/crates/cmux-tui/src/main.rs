@@ -1713,7 +1713,7 @@ pub fn main() -> std::process::ExitCode {
     // Before any mode can serve `identify` or `ping`, or run acpmux.
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
-    acpmux::hub::install_build(acpmux_build_id::BUILD);
+    acpmux::hub::install_build(acpmux_build_id::build());
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
@@ -2511,6 +2511,10 @@ fn run_server(
     ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux.configure_journal_plugin(config.agents.plugin.clone());
+    // Check installed plugins in the background so a remote Git host never
+    // delays the daemon's first response. The worker's daily marker and
+    // source/working-tree checks keep local development installs untouched.
+    let _plugin_auto_update = plugin_manager::start_auto_update();
     mux.configure_browser_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener

@@ -1,6 +1,7 @@
 // The create sheet: name, memory (the plan's `memory_options_mb`; sizes in
 // `locked_memory_options_mb` show disabled with the reason), source (base image or one of the team's
-// snapshots, sent as `from_snapshot`) and the plan's active machine limit as the backend reports it.
+// snapshots, sent as `from_snapshot`; a snapshot list that failed says so with Retry, which keeps
+// the draft) and the plan's active machine limit as the backend reports it.
 // The page never computes a limit: a refusal (`plan_required`, `quota_exceeded`, `size_locked`)
 // shows as a sentence with "See plans". Create is a money op, so the host confirms it natively. The
 // draft holds one idempotency key, so a double submit or a retry creates one machine. Plain Return
@@ -107,6 +108,19 @@ export function CreateSheet({
           ))}
         </select>
       </label>
+      {draft.snapshotsFailed && (
+        <p className="cloud-muted cloud-create-snapshots-failed" role="alert">
+          {t(L.createSnapshotsFailed)}{" "}
+          <button
+            type="button"
+            className="cloud-link-button"
+            disabled={draft.submitting}
+            onClick={() => store.retrySnapshots()}
+          >
+            {t(L.retry)}
+          </button>
+        </p>
+      )}
       {plan && (
         <p className={`cloud-plan-limit${reached ? " reached" : ""}`}>
           {format(t(reached ? L.createLimitReached : L.createLimit), {
