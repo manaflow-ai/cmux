@@ -65,4 +65,40 @@ struct SplitDuringSplitCrossAxisTests {
         #expect(max(worst.dx, worst.dw) <= 1, "p4 left the column of p3: \(worst.dx) pt in x, \(worst.dw) pt in width at frame \(worst.frame)")
         #expect(dividerWorst <= 1, "the new divider left the column of p3 by \(dividerWorst) pt")
     }
+
+    /// Guard (review of #31766): a split's new pane follows across the axis only the pane it split from, never a
+    /// neighbour that touches the same line. p1 is full height beside a column whose p2 still grows down (p5 closed);
+    /// Cmd-D on p1 puts p4 between them: p4 is full height from its first frame, not on p2's vertical spring.
+    @Test func aSplitBesideAColumnThatMovesUpAndDownStaysAtRestAcrossTheAxis() throws {
+        let start: SplitNode = .split("r", axis: .horizontal, ratio: 0.5, a: .leaf("p1"),
+                                      b: .split("c", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p5")))
+        let closed: SplitNode = .split("r", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
+        let split: SplitNode = .split("r", axis: .horizontal, ratio: 0.5,
+                                      a: .split("n", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p4")), b: .leaf("p2"))
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(start))], activeScreenID: "s", focusedPane: "p1")
+        let root = LayoutRootView(model: model, contentProvider: Panes())
+        root.context.reduceMotionOverride = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        window.contentView = root
+        root.layoutSubtreeIfNeeded()
+        root.driver.isManual = true
+        let screen = try #require(root.screenViews["s"])
+        func show(_ tree: SplitNode) {
+            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))])
+            root.syncWithModel()
+        }
+        show(closed)
+        for _ in 0..<4 { root.advanceFrame(1.0 / 120) }
+        let growing = try #require(screen.paneFrames["p2"])
+        #expect(abs(growing.rect.height - growing.targetRect.height) > 10, "p2 still grows down")
+        show(split)
+        var worst: CGFloat = 0
+        for _ in 0..<300 {
+            let p4 = try #require(screen.paneFrames["p4"])
+            worst = max(worst, abs(p4.rect.minY - p4.targetRect.minY), abs(p4.rect.height - p4.targetRect.height))
+            if !root.advanceFrame(1.0 / 120) { break }
+        }
+        #expect(worst <= 1, "p4 moved up or down with the neighbour column by \(worst) pt")
+    }
 }

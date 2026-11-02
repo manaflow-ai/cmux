@@ -83,8 +83,15 @@ extension SplitMotion {
         if seed.width == 0 { horizontal = true } else if seed.height == 0 { horizontal = false } else { return }
         let reach: CGFloat = 16
         var best: (distance: CGFloat, shift: CGFloat, velocity: CGFloat, beside: AnimatedFrame)?
+        // The cross axis follows the nearest edge whose pane shares the new pane's cross-axis targets (the pane the
+        // split gave space from), not a neighbour that only touches the same line.
+        var crossBeside: (distance: CGFloat, frame: AnimatedFrame)?
         func consider(_ distance: CGFloat, _ shift: CGFloat, _ velocity: CGFloat, _ beside: AnimatedFrame) {
             if distance <= reach, distance < (best?.distance ?? .infinity) { best = (distance, shift, velocity, beside) }
+            let sameCross = horizontal
+                ? abs(beside.y.target - seed.minY) < 0.5 && abs(beside.height.target - seed.height) < 0.5
+                : abs(beside.x.target - seed.minX) < 0.5 && abs(beside.width.target - seed.width) < 0.5
+            if distance <= reach, sameCross, distance < (crossBeside?.distance ?? .infinity) { crossBeside = (distance, beside) }
         }
         for (pane, other) in panes where !skipping.contains(pane) {
             let target = other.targetRect, shown = other.rect
@@ -98,24 +105,28 @@ extension SplitMotion {
                 consider(abs(target.minY - seed.minY), shown.minY - target.minY, other.y.velocity, other)
             }
         }
+        if let cross = crossBeside?.frame {
+            if horizontal { follow(&frame.y, &frame.height, beside: cross.y, cross.height) } else { follow(&frame.x, &frame.width, beside: cross.x, cross.width) }
+        }
         guard let best else { return }
         if horizontal {
             frame.x.value += best.shift
             frame.x.target = frame.x.value
             frame.x.velocity = best.velocity
-            follow(&frame.y, &frame.height, beside: best.beside.y, best.beside.height)
         } else {
             frame.y.value += best.shift
             frame.y.target = frame.y.value
             frame.y.velocity = best.velocity
-            follow(&frame.x, &frame.width, beside: best.beside.x, best.beside.width)
         }
     }
 
     /// The cross-axis start of a new pane or divider (`origin` and `length` at their targets) beside a frame whose
-    /// cross axis is `besideOrigin`/`besideLength`: as far from its targets as that frame shows from its own, with
-    /// its velocities, so the two move as one (equal targets: the same shown values).
+    /// cross axis is `besideOrigin`/`besideLength`: where that frame shows, with its velocities, so the two move as
+    /// one. Only for a frame with the same cross-axis targets (the pane the split gave space from, in its column or
+    /// row): a neighbour that only touches the edge (a full-height pane beside a column whose panes move up and down)
+    /// leaves the cross axis at rest.
     static func follow(_ origin: inout SpringValue, _ length: inout SpringValue, beside besideOrigin: SpringValue, _ besideLength: SpringValue) {
+        guard abs(origin.target - besideOrigin.target) < 0.5, abs(length.target - besideLength.target) < 0.5 else { return }
         origin.value = origin.target + (besideOrigin.value - besideOrigin.target)
         origin.velocity = besideOrigin.velocity
         length.value = length.target + (besideLength.value - besideLength.target)
