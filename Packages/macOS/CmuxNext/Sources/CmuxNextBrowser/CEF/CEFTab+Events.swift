@@ -54,8 +54,8 @@ extension CEFTab {
             // nothing on an ordinary navigation: the memo already matches.
             reapplyColorScheme()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
-            documentArrived()
         case .loadEnd:
+            if PageBackground.isRealPage(committedURL) { documentArrived() } // its script ran: a focused field and listeners exist
             if let navigation { machine.apply(.finished(navigation)) }
             // Read-then-settle, as at the first paint (one read per document), and a fresh read after it.
             documentDidFinishLoad()

@@ -278,10 +278,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
 
-    /// The page can take keys from now on: Chromium created its browser and the first document committed (or failed to
-    /// load). Before that a key reached the empty document a restore then replaced. Once per browser.
+    /// The page can take keys from now on: Chromium created its browser and a real document finished loading (or failed
+    /// to load). Before that a key reached the empty document a restore then replaced, or a page whose script had not
+    /// run. Once per browser.
     @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
-    /// The first document of this browser committed or failed (``onReadyForKeys``).
+    /// A real document of this browser finished loading or failed (``onReadyForKeys``).
     @ObservationIgnored var hasDocument = false
 
     func attach(browser: Int32) {
@@ -332,7 +333,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         refreshExtensionActions()
     }
 
-    /// The first document of this browser committed or failed: the page takes keys now.
+    /// A real document of this browser finished loading or failed: the page takes keys now.
     func documentArrived() {
         guard !hasDocument else { return }
         hasDocument = true
