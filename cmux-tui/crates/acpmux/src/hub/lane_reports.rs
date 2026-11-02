@@ -4,10 +4,16 @@
 //!
 //! Who a lane reports to is the link the daemon keeps, set from the session its connection
 //! proved it runs in (its caller token). The lane's tag `lane.reportsTo` (the parent's exact
-//! session id) shows it; changing or removing that tag changes nothing.
+//! session id) shows it; removing or changing that tag ends the link, and setting it never
+//! makes one.
 //!
 //! - `session/new` from inside a session: that session is the new one's parent. A run tied to
-//!   its connection (`--ephemeral`) is no lane and gets none.
+//!   its connection (`--ephemeral`) or one that asks for no parent (`acpmux new --no-parent`,
+//!   `_meta.acpmux.parent: null`) is no lane and gets none.
+//! - A lane the person prompts (the app, or a proven person) is theirs from then on: its link
+//!   ends, so its turns stop showing in the parent's chat. One started with `--report-to`
+//!   (`_meta.acpmux.reportTo`) asked to report, and keeps reporting.
+//! - `_acpmux/detach_parent` (`acpmux session detach`) ends a lane's link and removes its tag.
 //! - A lane keeps the parent that started it; a session that gives it a later task does not
 //!   take it over yet (a follow-up).
 //!
@@ -94,6 +100,8 @@ fn matches(re: &Option<Regex>, text: &str) -> Vec<String> {
 #[derive(Debug, Clone, Default)]
 struct Link {
     parent: String,
+    /// It was started with `--report-to`: a person's prompt keeps the link.
+    asked: bool,
     /// The last report's content, to leave out the same report again.
     last: Option<String>,
     /// Pull requests a report already named.
@@ -384,8 +392,9 @@ impl Hub {
     }
 
     /// From now on `parent` hears the end of each of `child`'s turns (both exact ids): tags the
-    /// child and keeps the link. Turns done now are not reported.
-    pub(crate) fn lane_link(&self, parent: &str, child: &str) {
+    /// child and keeps the link. Turns done now are not reported. `asked`: it was started with
+    /// `--report-to`, so a person's prompt does not end the link.
+    pub(crate) fn lane_link(&self, parent: &str, child: &str, asked: bool) {
         // A session never becomes the child of itself or of its own descendant.
         if parent == child || self.lane_below(parent, child) {
             return;
@@ -401,7 +410,7 @@ impl Hub {
             if !self.lane_open(parent) || !self.lane_open(child) {
                 return false;
             }
-            let link = Link { parent: parent.to_owned(), ..Link::default() };
+            let link = Link { parent: parent.to_owned(), asked, ..Link::default() };
             links.insert(child.to_owned(), link);
             true
         });
@@ -410,6 +419,45 @@ impl Hub {
         }
         let set = serde_json::Map::from_iter([(TAG.to_owned(), json!(parent))]);
         self.set_tags(&s, Some(&set), &[], None);
+    }
+
+    /// Ends `lane`'s link, if it has one: no report of it is queued or sent from now on. Its tag
+    /// is left to the caller. Whether it had one.
+    fn lane_unlink(&self, lane: &str) -> bool {
+        let had = self.lane_links(|links| links.remove(lane).is_some());
+        if had {
+            self.lane_report_unlinked(lane);
+        }
+        had
+    }
+
+    /// Ends `session`'s link and removes its tag (`acpmux session detach`): whether it had a
+    /// link.
+    pub(crate) fn lane_detach(&self, session: &Session) -> Result<bool, RpcError> {
+        let had = self.lane_unlink(&session.id);
+        if session.meta().tags.contains_key(TAG) {
+            self.set_tags_answered(session, None, &[TAG.to_owned()], None)?;
+        }
+        Ok(had)
+    }
+
+    /// The person prompted `session` directly: a lane that did not ask to report (`--report-to`)
+    /// is theirs now and reports to its parent no more.
+    pub(crate) fn lane_person_prompted(&self, session: &Session) {
+        let asked = self.lane_links(|links| links.get(&session.id).map(|l| l.asked));
+        if asked == Some(false) {
+            let _ = self.lane_detach(session);
+        }
+    }
+
+    /// `session`'s tags changed: a removed tag, or one that no longer names its parent, ends its
+    /// link. The tag is shown, never trusted, so setting it never makes a link.
+    pub(super) fn lane_tags_changed(&self, session: &Session) {
+        let Some(parent) = self.lane_report_parent(&session.id) else { return };
+        let tagged = session.meta().tags.get(TAG).map(|t| t.value.clone());
+        if tagged.as_deref() != Some(parent.as_str()) {
+            self.lane_unlink(&session.id);
+        }
     }
 
     /// `session`'s turn started (its turn count counts it), with `provenance` for the whole turn
@@ -1003,7 +1051,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         // A worker's report starts the lane's turn 1, whose agent then fails to start: the lane
         // is stuck, and its parent must hear it.
         lane.meta.lock().unwrap().turn_count = 1;
@@ -1160,7 +1208,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         // The cap is full, its oldest report leaving the window in 300 ms; the lane never ends
         // another turn.
         let oldest = now_ms() - WINDOW_MS + 300;
@@ -1189,7 +1237,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
         // Taken a minute before the parent accepts it (its admission waited).
         let taken = now_ms() - 60_000;
@@ -1210,7 +1258,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
         let now = now_ms();
         let due = hub.lane_take_due(&lane.id, now).unwrap();
@@ -1233,7 +1281,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         let (h, p) = (hub.clone(), parent.clone());
         let blocks = vec![json!({"type": "text", "text": "until-cancel"})];
         let busy = tokio::spawn(async move {
@@ -1280,7 +1328,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         let (h, l) = (hub.clone(), lane.clone());
         let blocks = vec![json!({"type": "text", "text": "until-cancel"})];
         let run = tokio::spawn(async move {
@@ -1315,7 +1363,7 @@ mod tests {
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
         let parent = hub.new_session(start()).await.unwrap();
         let lane = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_link(&parent.id, &lane.id, false);
         let queued = Report {
             content: "idle\nlast words".into(),
             prompt_id: format!("{PROMPT_PREFIX}test"),
@@ -1354,27 +1402,27 @@ mod tests {
         let child = hub.new_session(start()).await.unwrap();
         // The parent closes after `session/new` read it and before the link goes in.
         hub.kill(&parent, false).await.unwrap();
-        hub.lane_link(&parent.id, &child.id);
+        hub.lane_link(&parent.id, &child.id, false);
         assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
         // A child that closed after `lane_link` read it and before the link went in is not
         // linked again: its close retired its links already.
         let closing = hub.new_session(start()).await.unwrap();
         let open_parent = hub.new_session(start()).await.unwrap();
         hub.kill(&closing, false).await.unwrap();
-        hub.lane_link(&open_parent.id, &closing.id);
+        hub.lane_link(&open_parent.id, &closing.id, false);
         assert!(!hub.lane_links(|l| l.contains_key(&closing.id)));
         hub.kill(&closing, true).await.unwrap();
         hub.kill(&open_parent, true).await.unwrap();
         // An open parent is linked.
         let open = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&open.id, &child.id);
+        hub.lane_link(&open.id, &child.id, false);
         assert!(hub.lane_links(|l| l.get(&child.id).is_some_and(|l| l.parent == open.id)));
         // Its parent closing retires it; a child is never linked under its own descendant.
         hub.kill(&open, false).await.unwrap();
         assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
         let grandchild = hub.new_session(start()).await.unwrap();
-        hub.lane_link(&child.id, &grandchild.id);
-        hub.lane_link(&grandchild.id, &child.id);
+        hub.lane_link(&child.id, &grandchild.id, false);
+        hub.lane_link(&grandchild.id, &child.id, false);
         assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
         hub.kill(&grandchild, true).await.unwrap();
         for s in [&child, &open] {

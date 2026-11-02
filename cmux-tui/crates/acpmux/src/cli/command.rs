@@ -494,6 +494,8 @@ pub enum Command {
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
     #[command(hide = true)]
+    DetachParent { session: String },
+    #[command(hide = true)]
     Fork {
         session: String,
         #[arg(long, short)]
@@ -849,6 +851,9 @@ pub enum SessionCmd {
     Restart { session: String },
     /// Rename a session.
     Rename { session: String, new_name: String },
+    /// Detach a session from the session that started it: its turns stop showing in that
+    /// session's chat, and its `lane.reportsTo` tag goes. The session keeps running.
+    Detach { session: String },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app. On a machine a
     /// person works at, a stopped chat first moves to a fleet machine, as `session move --machine
@@ -1295,6 +1300,11 @@ pub struct NewArgs {
     /// Needs a prompt; prints the child's reply when its turn ends (with -d, only starts it).
     #[arg(long, value_name = "SESSION")]
     pub parent: Option<String>,
+    /// Start it with no parent, though this command runs inside a session: it is not that
+    /// session's child, and its turns never show in that session's chat. `acpmux session detach`
+    /// does the same for a session already started.
+    #[arg(long, conflicts_with = "parent")]
+    pub no_parent: bool,
     /// Show the session in the cmux app's sidebar, in this workspace group
     /// (made when missing). Runs `cmux agent open` on this machine, including
     /// with --machine: the agent runs remotely, its workspace opens here. A human
@@ -1338,6 +1348,7 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
+            SessionCmd::Detach { session } => Command::DetachParent { session },
             SessionCmd::Resume { session, mesh } if !mesh.mesh => Command::ResumeQueue { session },
             SessionCmd::Inbox { session, opts } if opts.digest || opts.dry_run => {
                 Command::InboxDigest { session, dry_run: opts.dry_run || !opts.digest }

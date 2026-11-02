@@ -41,6 +41,7 @@ impl Hub {
             }
         }
         self.child_tags.note(session);
+        self.lane_tags_changed(session);
         let saved = self.save_meta_answered(session);
         self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));
         saved
