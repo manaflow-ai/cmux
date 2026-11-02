@@ -4127,6 +4127,94 @@ class SharedRunnerStateTests(unittest.TestCase):
         import gzip
         return base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
 
+    def queue_document(self, now, *, created=None, generated=None, branch="main", expired=False,
+                       snapshot=None):
+        doc = self.document()
+        doc["generated_at"] = pool.iso(now)
+        created = created or now - dt.timedelta(seconds=1)
+        generated = generated or now
+        doc["queue_snapshot"] = {
+            "artifact": {
+                "id": 7,
+                "name": pool.ARTIFACT_NAME,
+                "expired": expired,
+                "created_at": pool.iso(created),
+                "workflow_run": {"id": 8, "head_branch": branch,
+                                  "repository_id": 1, "head_repository_id": 1},
+            },
+            "snapshot": snapshot or {"generated_at": pool.iso(generated), "pools": {}},
+        }
+        return doc
+
+    def test_fresh_embedded_queue_snapshot_avoids_both_artifact_reads(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(now)
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", side_effect=AssertionError("artifact list")), \
+                unittest.mock.patch.object(client, "download", side_effect=AssertionError("artifact zip")):
+            snapshot = client.snapshot(now=now)
+        self.assertEqual(snapshot["generated_at"], document["queue_snapshot"]["snapshot"]["generated_at"])
+
+    def test_embedded_queue_snapshot_rejects_stale_artifact_without_redating(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(now, created=now - dt.timedelta(minutes=pool.MAX_SNAPSHOT_MINUTES + 1))
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+            self.assertIsNone(client.snapshot(now=now))
+        get.assert_called_once()
+
+    def test_embedded_queue_snapshot_rejects_old_source_snapshot_even_with_fresh_artifact(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(
+            now, generated=now - dt.timedelta(minutes=pool.MAX_SNAPSHOT_MINUTES + 1),
+        )
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+            self.assertIsNone(client.snapshot(now=now))
+        get.assert_called_once()
+
+    def test_malformed_embedded_queue_snapshot_uses_existing_artifact_path(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        document = self.queue_document(now)
+        document["queue_snapshot"]["artifact"]["workflow_run"].pop("head_repository_id")
+        with unittest.mock.patch.object(pool, "runner_state", return_value=document), \
+                unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+            self.assertIsNone(client.snapshot(now=now))
+        get.assert_called_once()
+
+    def test_malformed_optional_queue_snapshot_does_not_hide_runner_roster(self):
+        doc = self.document()
+        doc["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        doc["queue_snapshot"] = {"artifact": "not metadata", "snapshot": {}}
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
+            rows = pool.GitHub("synthetic-token", "manaflow-ai/cmux").runners()
+        self.assertEqual([row["name"] for row in rows], ["synthetic-dedicated"])
+
+    def test_embedded_queue_snapshot_rechecks_branch_fork_expiry_and_clock_skew(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        variants = {
+            "wrong branch": {"branch": "feature"},
+            "fork": {"snapshot": {"generated_at": pool.iso(now), "pools": {}},
+                     "head_repository_id": 2},
+            "expired": {"expired": True},
+            "future artifact": {"created": now + dt.timedelta(seconds=6)},
+            "future snapshot": {"generated": now + dt.timedelta(seconds=6)},
+            "redated snapshot": {"created": now - dt.timedelta(seconds=1),
+                                  "generated": now + dt.timedelta(seconds=6)},
+        }
+        for name, changes in variants.items():
+            with self.subTest(name=name):
+                document = self.queue_document(now, **{key: value for key, value in changes.items()
+                                                        if key in {"created", "generated", "branch", "expired", "snapshot"}})
+                if "head_repository_id" in changes:
+                    document["queue_snapshot"]["artifact"]["workflow_run"]["head_repository_id"] = changes["head_repository_id"]
+                self.assertIsNone(pool.document_queue_snapshot(document, now=now, branch="main"))
+
     def test_accepted_document_returns_registered_runners_without_a_live_read(self):
         doc = self.document()
         doc["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()

@@ -175,6 +175,7 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
               snapshot={noChat()}
               lastAgent="codex"
               cwd="/Users/you/src/app"
+              startCwd="/Users/you/src/app"
               onAsk={(...args) => {
                 asks.push(args);
               }}
@@ -212,6 +213,7 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
 async function newTabPage(
   options: {
     auth?: unknown;
+    startCwd?: string | null;
     signedOut?: Record<string, string>;
     chips?: ComponentProps<typeof NewTabScreen>["chips"];
     onAsk?: (...args: unknown[]) => unknown;
@@ -239,6 +241,7 @@ async function newTabPage(
             snapshot={noChat()}
             lastAgent="codex"
             cwd="/Users/you/src/app"
+            startCwd={options.startCwd === null ? undefined : (options.startCwd ?? "/Users/you/src/app")}
             onAsk={(...args) => {
               asks.push(args);
               return options.onAsk?.(...args) as void;
@@ -423,6 +426,17 @@ test("Cloud mode without its launch handler still checks the local fallback", as
     expect(page.queries).toEqual([{ target: { harness: "codex", cwd: "/Users/you/src/app" } }]);
     expect(page.asks).toEqual([]);
     expect(page.field.value).toBe("fix the flaky upload test");
+  } finally {
+    await act(async () => page.root.unmount());
+  }
+});
+
+test("an inherited page folder is not preflighted before the host names a chat start folder", async () => {
+  const page = await newTabPage({ auth: READY, startCwd: null });
+  try {
+    expect(page.queries).toEqual([{ target: { harness: "codex" } }]);
+    await page.pressReturn();
+    expect(page.asks).toHaveLength(1);
   } finally {
     await act(async () => page.root.unmount());
   }
