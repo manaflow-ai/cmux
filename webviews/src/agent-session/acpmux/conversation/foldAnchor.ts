@@ -52,8 +52,10 @@ export function atFoldBottom(scrollTop: number, clientHeight: number, scrollHeig
 /// Whether a click on `toggle` opens what it holds: a closed disclosure (`aria-expanded="false"`, on
 /// itself or on its header's button) or the `<summary>` of a closed `<details>`.
 export function opensBody(toggle: HTMLElement): boolean {
-  if (toggle.matches("summary")) return !(toggle.parentElement as HTMLDetailsElement | null)?.open;
-  const expanded = toggle.matches("[aria-expanded]") ? toggle : toggle.querySelector("[aria-expanded]:not([aria-haspopup])");
+  if (toggle.tagName === "SUMMARY") return !(toggle.parentElement as HTMLDetailsElement | null)?.open;
+  const expanded = toggle.hasAttribute("aria-expanded")
+    ? toggle
+    : toggle.querySelector("[aria-expanded]:not([aria-haspopup])");
   return expanded?.getAttribute("aria-expanded") === "false";
 }
 

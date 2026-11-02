@@ -5192,11 +5192,13 @@ export function VirtualTranscript({
         stopBottomStackFold();
         return false;
       }
-      // At the bottom: the view follows the latest row, or its offset is at (or within the deadband
-      // of) the end.
+      // At the bottom: a transcript that scrolls, following the latest row or with its offset at (or
+      // within the deadband of) its end. One shorter than its view keeps the clicked line.
+      const scrolls = node.scrollHeight > node.clientHeight + 0.5;
       if (
-        !followingRef.current &&
-        !atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
+        !scrolls ||
+        (!followingRef.current &&
+          !atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX))
       ) {
         stopBottomStackFold();
         return false;
