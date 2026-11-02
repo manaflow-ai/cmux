@@ -17,6 +17,7 @@ extension TabContentCache {
             let target = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID, generation: daemon.store.generation)
             entry.confirm(validity: daemon.terminalViewValidity(of: tab), target: target,
                           themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab), store: daemon.store)
+            entry.session.showsTerminal(daemon.terminalIdentity(of: tab), carrying: nil) // a restart then carries its frame
             self.goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
             self.onTerminalConfirmed?(tab, daemon)
         }
