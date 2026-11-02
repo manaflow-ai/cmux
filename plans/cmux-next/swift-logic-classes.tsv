@@ -11464,7 +11464,6 @@ CmuxNextTerminal	struct	TerminalPointerMods	0	PLATFORM	0	0	Packages/macOS/CmuxNe
 CmuxNextTerminal	class	TerminalRestartButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalRestartButton.swift	Terminal view, frame, pasteboard, input and chrome code
 CmuxNextTerminal	class	TerminalRetryButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalRetryButton.swift	Terminal view, frame, pasteboard, input and chrome code
 CmuxNextTerminal	class	TerminalScroller	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalScroller.swift	from class TerminalScroller:17: Terminal view, frame, pasteboard, input and chrome code
-CmuxNextTerminal	class	TerminalScrollerDocument	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalScroller.swift	from class TerminalScroller:17: Terminal view, frame, pasteboard, input and chrome code
 CmuxNextTerminal	struct	TerminalScrollerGeometry	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalScroller.swift	from class TerminalScroller:17: Terminal view, frame, pasteboard, input and chrome code
 CmuxNextTerminal	enum	TerminalSecureInput	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSecureInput.swift	Terminal view, frame, pasteboard, input and chrome code
 CmuxNextTerminal	enum	TerminalServices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSelection.swift	from struct TerminalSelection:8: Terminal view, frame, pasteboard, input and chrome code
