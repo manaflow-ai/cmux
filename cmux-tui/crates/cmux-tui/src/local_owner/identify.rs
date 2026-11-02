@@ -69,6 +69,16 @@ pub(super) fn identify(
     stream: Box<dyn transport::Stream>,
     deadline: Instant,
 ) -> Result<Value, IdentifyError> {
+    exchange(stream, deadline, &serde_json::json!({"id":1,"cmd":"identify"}))
+}
+
+/// Send one request with id 1 on a fresh connection and return its `data`,
+/// with the same bounds and refusal handling as `identify`.
+pub(super) fn exchange(
+    stream: Box<dyn transport::Stream>,
+    deadline: Instant,
+    request: &Value,
+) -> Result<Value, IdentifyError> {
     let timeout =
         Some(deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(2)));
     let mut connection = BufReader::new(stream);
@@ -78,7 +88,7 @@ pub(super) fn identify(
     {
         return Err(refused_or_failed(&mut connection, &error));
     }
-    if writeln!(connection.get_mut(), "{}", serde_json::json!({"id":1,"cmd":"identify"}))
+    if writeln!(connection.get_mut(), "{request}")
         .and_then(|()| connection.get_mut().flush())
         .is_err()
     {

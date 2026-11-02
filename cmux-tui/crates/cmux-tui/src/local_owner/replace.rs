@@ -17,6 +17,10 @@
 //!   awaited by the normal ensure), or the owner refuses every connection
 //!   at its connection limit for that bound (a wedged owner whose connection
 //!   threads never end, https://github.com/manaflow-ai/cmux/issues/22311),
+//!   or it answers but reports its workspace registry lock held past
+//!   `wedged::WEDGED_REGISTRY_HOLD`, or it closes every connection without
+//!   a word for that bound while it still listens (an owner hung in its
+//!   shutdown, https://github.com/manaflow-ai/cmux/issues/32621),
 //! - the same process still listens after the exit watch is armed.
 //!
 //! The caller decides when an owner is stuck: an owner also holds connections
@@ -198,8 +202,11 @@ fn listener_of(key: Option<String>) -> Result<Listener, ReplaceError> {
 
 /// How one `identify` on a fresh connection ended.
 enum Probe {
-    /// An answer (also "still starting"), or the connection closed.
+    /// An answer (also "still starting"), or data that is not one.
     Answered,
+    /// The owner closed or broke the connection without an answer: one that
+    /// is ending drops new connections until it stops listening.
+    Closed,
     /// No answer before the deadline.
     Silent,
     /// The owner refused the connection at its connection limit.
@@ -209,8 +216,10 @@ enum Probe {
 /// Whether the owner gives no answer for `PROBE_DEADLINE`: one `identify`
 /// stays unanswered, or every connection is refused at the connection limit
 /// (re-asked on a new connection, since a healthy owner frees a slot as soon
-/// as one of its clients leaves). Any answer, also "still starting", or a
-/// closed connection is not a stuck owner.
+/// as one of its clients leaves), or every connection is closed unanswered
+/// for that bound while the owner still listens (an owner hung in its
+/// shutdown). An answer, also "still starting", is not a stuck owner unless
+/// the owner reports its registry lock wedged (`wedged::registry_wedged`).
 fn unresponsive(
     spec: &OwnerSpec,
     mut stream: Box<dyn cmux_tui_core::platform::transport::Stream>,
@@ -222,10 +231,12 @@ fn unresponsive(
         // still gets the full silent-probe bound to answer.
         let read_until = Instant::now() + PROBE_DEADLINE;
         match probe(stream, read_until) {
-            Probe::Answered => return false,
+            Probe::Answered => {
+                return super::wedged::registry_wedged(spec, Instant::now() + PROBE_DEADLINE);
+            }
             Probe::Silent => return true,
-            Probe::Refused if Instant::now() >= deadline => return true,
-            Probe::Refused => {}
+            Probe::Refused | Probe::Closed if Instant::now() >= deadline => return true,
+            Probe::Refused | Probe::Closed => {}
         }
         std::thread::sleep(super::BUSY_POLL_INTERVAL);
         let Ok(next) =
@@ -252,7 +263,7 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         Err(error) if is_timeout(&error) => return Probe::Silent,
         // A full owner may close before this write lands.
         Err(_) if super::identify::refused_after_write(&mut connection) => return Probe::Refused,
-        Err(_) => return Probe::Answered,
+        Err(_) => return Probe::Closed,
     }
     let mut line = Vec::new();
     loop {
@@ -268,6 +279,7 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         // retained across interrupted reads, just as identify does.
         let available = (super::identify::RESPONSE_LIMIT + 2).saturating_sub(line.len());
         match connection.by_ref().take(available as u64).read_until(b'\n', &mut line) {
+            Ok(0) if line.is_empty() => return Probe::Closed,
             Ok(_) if line.len() > super::identify::RESPONSE_LIMIT || !line.ends_with(b"\n") => {
                 // Malformed input is not evidence authorizing replacement.
                 return Probe::Answered;
@@ -282,7 +294,7 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
                 // because it sent malformed data and then stalled.
                 return Probe::Answered;
             }
-            Err(_) => return Probe::Answered,
+            Err(_) => return Probe::Closed,
         }
     }
 }
@@ -296,7 +308,7 @@ fn closed(
     if super::identify::refused_after_closed(connection, error) {
         Probe::Refused
     } else {
-        Probe::Answered
+        Probe::Closed
     }
 }
 

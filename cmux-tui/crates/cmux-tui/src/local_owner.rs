@@ -131,6 +131,7 @@ pub(crate) use exit_with::{
 mod identify;
 #[cfg(all(test, unix))]
 mod recovery_tests;
+mod wedged;
 use identify::{IdentifyError, identify};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
 pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
@@ -309,6 +310,11 @@ enum Attempt {
     /// continues it, so ensure reports it unavailable now instead of waiting
     /// out `RESTORE_DEADLINE`, and the app offers "Restart cmux-tui".
     Stopped,
+    /// The owner answered, but its workspace registry lock has been held
+    /// past `wedged::WEDGED_REGISTRY_HOLD`: no request that needs it will
+    /// ever finish, so ensure reports it unavailable instead of reusing it
+    /// (https://github.com/manaflow-ai/cmux/issues/32621).
+    Wedged,
     Ready(ReadyOwner),
 }
 
@@ -379,7 +385,7 @@ pub(crate) fn ensure_owner(
                 std::thread::sleep(BUSY_POLL_INTERVAL);
                 continue;
             }
-            Attempt::Stopped => return Err(EnsureError::NotReady),
+            Attempt::Stopped | Attempt::Wedged => return Err(EnsureError::NotReady),
             // The lock is released once the spawn is issued. A redundant
             // owner spawned by a racing ensure finds the socket live at its
             // bind, exits before it restores anything, and every caller
@@ -453,7 +459,7 @@ fn wait_while_starting(
                 progress.restoring(pid);
                 POLL_INTERVAL
             }
-            Attempt::Stopped => return Err(EnsureError::NotReady),
+            Attempt::Stopped | Attempt::Wedged => return Err(EnsureError::NotReady),
             Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
             Attempt::Busy => BUSY_POLL_INTERVAL,
         };
@@ -492,7 +498,7 @@ fn wait_until_ready(
                 seen_alive = true;
                 progress.restoring(pid);
             }
-            Attempt::Stopped => return Err(EnsureError::NotReady),
+            Attempt::Stopped | Attempt::Wedged => return Err(EnsureError::NotReady),
             // Accepted but unanswered: keep what is known about the owner,
             // but only consecutive refusals count toward its connection-limit
             // deadline.
@@ -650,6 +656,9 @@ fn attempt(
     let Some(generation) = identity["generation"].as_str().filter(|value| !value.is_empty()) else {
         return Err(EnsureError::InvalidIdentity);
     };
+    if wedged::registry_wedged(spec, deadline) {
+        return Ok(Attempt::Wedged);
+    }
     Ok(Attempt::Ready(ReadyOwner {
         session: session.to_string(),
         pid,
