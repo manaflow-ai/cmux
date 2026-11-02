@@ -226,6 +226,11 @@ pub struct Peer {
     /// payload is intentionally not retained: the next bounded page fetches it
     /// from the peer journal, so memory cannot grow with a long turn.
     replay_highwater: StdMutex<HashMap<String, u64>>,
+    /// Per chat replayed on this link, the last sequence its replay delivered. A live frame the
+    /// peer queued before the final page can still be read after it: one at or below this is a
+    /// repeat and dropped. It lasts only until the chat's first newer live frame, or the next
+    /// request about the chat (a `session/load` sends its history again, which is no repeat).
+    replay_tail: StdMutex<HashMap<String, u64>>,
     notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
     /// A replacement requested now attempts immediately, even if its cache is parked.
@@ -353,6 +358,7 @@ impl Peer {
             marks: AtomicU64::new(0),
             cursors: StdMutex::new(HashMap::new()),
             replay_highwater: StdMutex::new(HashMap::new()),
+            replay_tail: StdMutex::new(HashMap::new()),
             notices,
             stop: AtomicBool::new(false),
             retry_immediately: AtomicBool::new(false),
@@ -1003,6 +1009,9 @@ impl Peer {
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
         self.pending.lock().await.insert(key.clone(), tx);
+        if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
+            self.replay_tail.lock_or_recover().remove(session);
+        }
         if m == method::SESSION_PROMPT
             && let (Some(session), Some(prompt)) = (
                 params.get("sessionId").and_then(Value::as_str),
@@ -1406,6 +1415,7 @@ impl Peer {
         // produce events. A live record must not move the replay cursor past a gap.
         let replay_cursors = replayable(&self.cursors.lock_or_recover());
         *self.replay_highwater.lock_or_recover() = replay_cursors.into_iter().collect();
+        self.replay_tail.lock_or_recover().clear();
         *self.last_error.lock_or_recover() = None;
         self.received.reset();
         self.with_link(|l| l.opened(crate::store::now_ms()));
@@ -1632,6 +1642,7 @@ impl Peer {
                             && highwater.get(&sid).copied().unwrap_or(after) <= after;
                         if caught_up {
                             highwater.remove(&sid);
+                            me.replay_tail.lock_or_recover().insert(sid.clone(), after);
                         }
                         caught_up
                     };
@@ -1923,10 +1934,14 @@ impl Peer {
                                 }).flatten();
                             // A live frame can have been queued before the final replay page,
                             // yet be read after the gate opens. Its sequence already arrived.
-                            if let Some((id, seq)) = &cursor_event
-                                && *seq > 0
-                                && self.cursors.lock_or_recover().get(id).is_some_and(|last| last >= seq)
-                            { continue; }
+                            if let Some((id, seq)) = &cursor_event {
+                                let mut tails = self.replay_tail.lock_or_recover();
+                                match tails.get(id) {
+                                    Some(tail) if *seq > 0 && tail >= seq => continue,
+                                    Some(_) => { tails.remove(id); }
+                                    None => {}
+                                }
+                            }
                             let notice = if m == method::MUX_SESSION_CHANGED {
                                 let session = p.get("session").cloned().unwrap_or(Value::Null);
                                 // Remote session_changed notifications carry the
