@@ -472,3 +472,46 @@ fn the_apps_observation_json_decodes() {
         }])
     );
 }
+
+// MARK: debug.focus's Ghostty check (GhosttyFocusAgreementTests)
+
+fn tabs(ids: &[&str]) -> Vec<String> {
+    ids.iter().map(|id| (*id).to_owned()).collect()
+}
+
+fn own(ids: &[&str]) -> HashSet<String> {
+    ids.iter().map(|id| (*id).to_owned()).collect()
+}
+
+/// The same texts as the Swift check, for each case.
+#[test]
+fn the_key_windows_terminal_must_be_the_only_ghostty_focus_of_its_tabs() {
+    let terminal = Resolved::Terminal { pane: "p".into(), tab: "t".into() };
+    assert_eq!(
+        terminal.ghostty_mismatch(&tabs(&["t", "elsewhere"]), &own(&["t", "u"]), true),
+        None
+    );
+    assert_eq!(
+        terminal.ghostty_mismatch(&tabs(&["u"]), &own(&["t", "u"]), true).as_deref(),
+        Some("ghostty focused [\"u\"] != [t]")
+    );
+    assert_eq!(
+        terminal.ghostty_mismatch(&[], &own(&["t"]), true).as_deref(),
+        Some("ghostty focused [] != [t]")
+    );
+}
+
+#[test]
+fn no_other_focus_may_leave_a_ghostty_focus_in_its_window() {
+    let sidebar = Resolved::Sidebar {};
+    assert_eq!(sidebar.ghostty_mismatch(&tabs(&["elsewhere"]), &own(&["t"]), true), None);
+    assert_eq!(
+        sidebar.ghostty_mismatch(&tabs(&["t"]), &own(&["t"]), true).as_deref(),
+        Some("ghostty focused [\"t\"] while model is sidebar")
+    );
+    let terminal = Resolved::Terminal { pane: "p".into(), tab: "t".into() };
+    assert_eq!(
+        terminal.ghostty_mismatch(&tabs(&["t"]), &own(&["t"]), false).as_deref(),
+        Some("ghostty focused [\"t\"] while model is terminal (window not key)")
+    );
+}
