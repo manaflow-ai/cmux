@@ -250,6 +250,13 @@ their members' text column while the existing rail and edge geometry stays uncha
 marks use the shared 20 pt pitch and the existing row edge contract. Requested by Leo's grid
 alignment ask (grid.md 5.4), coordinated by `claude-sr2/grid-system`.
 
+Two-line rows (2026-11-02, fix forward of #27598): the title still centers on its capitals, but the
+second and meta lines stack under the title's line box again, and a collapsed two-line row's icon and
+trailing marks center on the whole row (only an expanded row puts them on the title's line). Leo
+2026-10-14: "wait that's not centered? why is it superscript?" (`SidebarStatusGlyphCenterTests`); Leo
+2026-10-20 on one- and two-line rows' spacing (`SidebarRowLineSpacingTests`). Takes back only those two
+side effects of 2ea3aa86e3f; the grid columns stay.
+
 ### Group editor opening (2026-10-28)
 
 Leo's standing rule: "Menus open on the click, with no fade-in or delay"; "Fade out, yes".
@@ -278,6 +285,13 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## Rename field on a whole pixel (2026-11-02)
+
+User 2026-10-31: "double click to rename workspaces must not have layout shift". Since #27598 a title can
+sit on a fractional y (centered on its capitals); the in-place rename field now snaps its top to a backing
+pixel after aligning to the title's pen, so AppKit's whole-pixel field editor no longer draws the text a
+point off the title. Regression: `SidebarRenameInPlaceTests`.
 
 ## Last workspace close keeps its group (2026-11-01)
 

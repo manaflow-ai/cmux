@@ -212,8 +212,11 @@ export class AcpmuxClient {
       });
       all.push(...page.events);
       const last = page.events.at(-1)?.seq;
-      // A page that does not move the cursor would repeat forever.
-      if (!page.hasMore || typeof last !== "number" || last <= cursor) break;
+      if (!page.hasMore) break;
+      // A repeated, empty or malformed page cannot finish the requested history.
+      // Report the protocol error so the owner retries instead of accepting a short log.
+      if (typeof last !== "number" || !Number.isSafeInteger(last) || last <= cursor)
+        throw new Error("_acpmux/events: hasMore without cursor progress");
       cursor = last;
     }
     return all;
