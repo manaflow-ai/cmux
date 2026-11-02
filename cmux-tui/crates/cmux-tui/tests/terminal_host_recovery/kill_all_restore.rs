@@ -269,3 +269,92 @@ fn kill_all_respawned_shell_keeps_its_directory_path_string() {
         link.display()
     );
 }
+
+/// Bytes `pid` handed to write(2) and friends: macOS `ri_logical_writes`
+/// (proc_pid_rusage), Linux `wchar` (/proc). `None` elsewhere.
+fn logical_writes(pid: u32) -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut info = std::mem::MaybeUninit::<libc::rusage_info_v4>::zeroed();
+        // SAFETY: the buffer is a rusage_info_v4, the flavor asks for v4.
+        let status = unsafe {
+            libc::proc_pid_rusage(
+                pid as libc::c_int,
+                libc::RUSAGE_INFO_V4,
+                info.as_mut_ptr().cast::<libc::c_void>().cast(),
+            )
+        };
+        if status != 0 {
+            return None;
+        }
+        // SAFETY: proc_pid_rusage filled it.
+        Some(unsafe { info.assume_init() }.ri_logical_writes)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let io = fs::read_to_string(format!("/proc/{pid}/io")).ok()?;
+        io.lines().find_map(|line| line.strip_prefix("wchar: "))?.trim().parse().ok()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
+/// Measurement, not a check (it runs only with `CMUX_KILL_ALL_HEAVY_SECS`
+/// set, the window in seconds): the daemon's disk writes
+/// under the HEAVY load of the reopen films, 12 panes of a full-screen TUI
+/// that repaints 40 rows with new content at about 60 Hz. Prints
+/// `kill-all-heavy: {...}` with the logical write bytes per pane per second
+/// and the state folder size. Run it at the base and at the fix for the
+/// before/after.
+#[test]
+fn kill_all_heavy_load_disk_writes_per_pane() {
+    const PANES: usize = 12;
+    let Some(window) = std::env::var("CMUX_KILL_ALL_HEAVY_SECS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .map(Duration::from_secs)
+    else {
+        return;
+    };
+    let _exclusive = exclusive_process_test();
+    let harness = production_harness("kill-all-heavy");
+    let frame = "i=0; while :; do i=$((i+1)); printf '\\033[?2026h\\033[H'; j=0; \
+                 while [ $j -lt 40 ]; do printf 'row %02d frame %08d build step output text\\033[K\\r\\n' $j $i; \
+                 j=$((j+1)); done; printf '\\033[?2026l'; sleep 0.016; done";
+    for index in 0..PANES {
+        request(
+            &harness.socket,
+            serde_json::json!({
+                "id":index,"cmd":"run","argv":["/bin/sh","-c",frame],
+                "new_workspace":true,"cols":120,"rows":40,
+            }),
+        );
+    }
+    wait_for_host_records(&harness.host_root(), PANES);
+    std::thread::sleep(Duration::from_secs(3));
+    let pid = harness.child.as_ref().unwrap().id();
+    let before = logical_writes(pid);
+    let started = Instant::now();
+    std::thread::sleep(window);
+    let after = logical_writes(pid);
+    let seconds = started.elapsed().as_secs_f64();
+    let folder = walk_files(&harness.state)
+        .iter()
+        .filter_map(|path| fs::metadata(path).ok())
+        .map(|metadata| metadata.len())
+        .sum::<u64>();
+    let written = before.zip(after).map(|(before, after)| after.saturating_sub(before));
+    eprintln!(
+        "kill-all-heavy: {}",
+        serde_json::json!({
+            "panes": PANES,
+            "seconds": seconds,
+            "daemon_logical_write_bytes": written,
+            "bytes_per_pane_per_second": written.map(|bytes| bytes as f64 / PANES as f64 / seconds),
+            "state_folder_bytes": folder,
+        })
+    );
+}
