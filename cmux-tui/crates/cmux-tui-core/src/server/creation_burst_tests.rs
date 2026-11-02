@@ -161,10 +161,11 @@ fn a_create_that_panics_still_starts_the_next_one() {
     assert!(replied, "the split behind a create that panicked did not answer");
 }
 
-/// When a connection's next split cannot join the open group (the group is
-/// full), it leads the next group, and that group commits after the open
-/// one, so the panes keep the request order (second review of #32461): the
-/// two leaders raced for the creation fence, and the later one could win.
+/// Nine splits on one connection: the first eight fill one group, and the
+/// ninth commits after them, so the panes keep the request order. Group
+/// leaders take the creation fence in group order; with the terminal pool's
+/// 8 workers busy in the first group the ninth also starts only after it,
+/// so this test guards the order rather than reproducing a race.
 #[test]
 fn a_split_that_leads_the_next_group_commits_after_the_open_group() {
     const SPLITS: u64 = 9;
@@ -177,8 +178,7 @@ fn a_split_that_leads_the_next_group_commits_after_the_open_group() {
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     // The first group's leader stops after it joined and before it takes
-    // the creation fence, until its 7 members and the next group's leader
-    // wait (or, before the fix, the next leader took the fence instead).
+    // the creation fence, until its 7 other members wait in the group.
     let (release_tx, release_rx) = mpsc::channel::<()>();
     mux.set_creation_before_fence_hook_for_test(Box::new(move || {
         release_rx.recv().unwrap();
@@ -194,8 +194,9 @@ fn a_split_that_leads_the_next_group_commits_after_the_open_group() {
             &scheduler,
         ));
     }
-    let _ = reaches(|| mux.creations_waiting_for_test() == 8);
+    let joined = reaches(|| mux.creations_waiting_for_test() == 7);
     release_tx.send(()).unwrap();
+    assert!(joined, "the first eight splits did not wait in one group");
     scheduler.finish_and_wait();
 
     let replies = std::iter::from_fn(|| outbound.try_pop())
