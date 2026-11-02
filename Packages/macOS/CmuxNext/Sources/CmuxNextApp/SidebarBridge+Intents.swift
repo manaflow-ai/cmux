@@ -205,7 +205,7 @@ extension SidebarBridge {
         sections = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)
             .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
-        if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
+        if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state.id, windows: services.windows.connectingRowWindows(making: state.id)) }
         rows.show(sections, shownAt: shownAt)
         model.profiles = SidebarSpaceBar.profiles(services.machines.local, window: state.id, windows: services.windows)
         groupFlow.openPendingEditor()

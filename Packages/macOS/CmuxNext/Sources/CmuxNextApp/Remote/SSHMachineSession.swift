@@ -59,6 +59,8 @@ final class SSHMachineSession {
     /// Offer to install when the next probe finds cmux-tui missing or too
     /// old (set by a user-initiated connect, cleared when offered).
     @ObservationIgnored var offersInstall = false
+    /// The window whose action connected it, where its "Connecting to…" row lists (#31490).
+    @ObservationIgnored var connectingWindow: String?
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
     /// In use by another cmux daemon: only a person's Reconnect takes it over (G5). Retries spent: Offline (G4).
