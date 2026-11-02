@@ -37,16 +37,20 @@ public struct ChiefComputerDirectory: Equatable, Sendable {
     }
 
     public var paid: Bool
+    /// The Mac shows the Cloud machine's screen on phones (`phone.cloudDesktop`, off by default).
+    public var desktops: Bool
     public var machines: [Machine]
 
-    public init(paid: Bool, machines: [Machine]) {
+    public init(paid: Bool, desktops: Bool = true, machines: [Machine]) {
         self.paid = paid
+        self.desktops = desktops
         self.machines = machines
     }
 
     /// The card shows only for an account that pays for cmux Cloud and has
-    /// started a machine at least once.
-    public var showsComputer: Bool { paid && machines.contains(where: \.ran) }
+    /// started a machine at least once, from a Mac whose owner turned on
+    /// `phone.cloudDesktop`.
+    public var showsComputer: Bool { paid && desktops && machines.contains(where: \.ran) }
 
     /// The machine the card shows: the first running one, else the first one
     /// that has run (directory order); nil when the card is hidden.

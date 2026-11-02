@@ -73,10 +73,12 @@ fn unknown_status() -> String {
     "unknown".to_owned()
 }
 
-/// One `cloud_links` snapshot: whether the account pays for cmux Cloud, and its links.
+/// One `cloud_links` snapshot: whether the account pays for cmux Cloud, whether this Mac
+/// streams Cloud desktops to phones (`phone.cloudDesktop`), and its links.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CloudLinks {
     pub paid: bool,
+    pub desktops: bool,
     pub links: Vec<CloudLink>,
 }
 
@@ -121,12 +123,12 @@ pub async fn request_cloud_links() -> Result<CloudLinks, &'static str> {
         Ok(Err(_)) | Err(_) => Err("Cloud link snapshot unavailable"),
     }
 }
-fn resolve_cloud_links(request: u64, paid: bool, links: Vec<CloudLink>) {
+fn resolve_cloud_links(request: u64, paid: bool, desktops: bool, links: Vec<CloudLink>) {
     let links = links.into_iter().take(128).collect();
     if let Some(sender) =
         cloud_link_broker().pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&request)
     {
-        let _ = sender.send(CloudLinks { paid, links });
+        let _ = sender.send(CloudLinks { paid, desktops, links });
     }
 }
 
@@ -224,11 +226,14 @@ pub enum Inbound {
         credentials: std::collections::HashMap<String, Secret>,
     },
     /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
-    /// older app: false) says the account pays for cmux Cloud.
+    /// older app: false) says the account pays for cmux Cloud; `desktops` (absent: false) that
+    /// the person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
     CloudLinks {
         request: u64,
         #[serde(default)]
         paid: bool,
+        #[serde(default)]
+        desktops: bool,
         links: Vec<CloudLink>,
     },
 }
@@ -391,8 +396,8 @@ pub fn spawn_stdin_reader() -> Supplied {
                     devices_tx.send_replace(Some(trust));
                 }
                 Some(Inbound::PhoneCredentials { credentials }) => set_phone_credentials(credentials),
-                Some(Inbound::CloudLinks { request, paid, links }) => {
-                    resolve_cloud_links(request, paid, links);
+                Some(Inbound::CloudLinks { request, paid, desktops, links }) => {
+                    resolve_cloud_links(request, paid, desktops, links);
                 }
                 Some(Inbound::DropPhone { phone_device_id }) => {
                     let _ =
@@ -483,6 +488,7 @@ mod tests {
             Some(Inbound::CloudLinks {
                 request: 7,
                 paid: false,
+                desktops: false,
                 links: vec![CloudLink {
                     machine_id: "m".into(),
                     team_id: "t".into(),
@@ -502,11 +508,12 @@ mod tests {
     fn cloud_links_carry_paid_status_and_ran_and_asleep_machines_have_no_socket() {
         assert_eq!(
             Inbound::parse(
-                r#"{"type":"cloud_links","request":8,"paid":true,"links":[{"machine_id":"m","team_id":"t","name":"Dev box","socket":null,"owner":true,"status":"paused","ran":true}]}"#
+                r#"{"type":"cloud_links","request":8,"paid":true,"desktops":true,"links":[{"machine_id":"m","team_id":"t","name":"Dev box","socket":null,"owner":true,"status":"paused","ran":true}]}"#
             ),
             Some(Inbound::CloudLinks {
                 request: 8,
                 paid: true,
+                desktops: true,
                 links: vec![CloudLink {
                     machine_id: "m".into(),
                     team_id: "t".into(),
@@ -519,12 +526,14 @@ mod tests {
             })
         );
         // An older app's line: no paid, status, ran, name, socket or owner.
-        let Some(Inbound::CloudLinks { paid, links, .. }) = Inbound::parse(
+        let Some(Inbound::CloudLinks { paid, desktops, links, .. }) = Inbound::parse(
             r#"{"type":"cloud_links","request":9,"links":[{"machine_id":"m","team_id":"t"}]}"#,
         ) else {
             panic!("a cloud_links line")
         };
         assert!(!paid);
+        // An older app never turned Cloud desktops on.
+        assert!(!desktops);
         assert_eq!((links[0].status.as_str(), links[0].ran, links[0].owner), ("unknown", false, false));
         assert_eq!(links[0].socket, None);
     }

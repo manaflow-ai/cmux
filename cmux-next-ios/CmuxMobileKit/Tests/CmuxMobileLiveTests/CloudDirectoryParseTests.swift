@@ -19,11 +19,12 @@ private actor ReplyChannel: LinkChannel {
 @Suite struct CloudDirectoryParseTests {
     @Test func readsPaidStatusAndRan() async throws {
         let directory = try await CloudChatDirectory.readDirectory(ReplyChannel(#"""
-        {"paid":true,"machines":[
+        {"paid":true,"desktops":true,"machines":[
           {"machine_id":"m1","team_id":"t1","name":"Dev box","status":"running","ran":true},
           {"machine_id":"m2","team_id":"t1","name":"New box","status":"provisioning","ran":false}]}
         """#))
         #expect(directory.paid)
+        #expect(directory.desktops)
         #expect(directory.machines.map(\.status) == ["running", "provisioning"])
         #expect(directory.machines.map(\.ran) == [true, false])
         let computer = LiveCoordinator.computerDirectory(directory)
@@ -31,10 +32,19 @@ private actor ReplyChannel: LinkChannel {
         #expect(computer.computer?.name == "Dev box")
     }
 
+    @Test func aMacWithCloudDesktopsOffHidesTheCard() async throws {
+        let directory = try await CloudChatDirectory.readDirectory(ReplyChannel(#"""
+        {"paid":true,"desktops":false,"machines":[
+          {"machine_id":"m1","team_id":"t1","name":"Dev box","status":"running","ran":true}]}
+        """#))
+        #expect(!LiveCoordinator.computerDirectory(directory).showsComputer)
+    }
+
     @Test func anOlderMacsReplyHidesTheCard() async throws {
         let directory = try await CloudChatDirectory.readDirectory(ReplyChannel(
             #"{"machines":[{"machine_id":"m1","team_id":"t1","name":"Dev box"}]}"#))
         #expect(!directory.paid)
+        #expect(!directory.desktops)
         #expect(directory.machines.first?.status == nil)
         #expect(directory.machines.first?.ran == false)
         #expect(!LiveCoordinator.computerDirectory(directory).showsComputer)

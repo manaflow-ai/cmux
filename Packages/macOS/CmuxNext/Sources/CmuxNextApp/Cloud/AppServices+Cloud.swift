@@ -176,15 +176,16 @@ extension AppServices {
         typealias Failure = CloudDesktopSurfaceSources.Failure
         let account = (cloud.auth.user?.id, cloud.auth.teamID)
         let matches = await phoneCloudLinks().links.filter { $0.machineID == target.machine && $0.teamID == target.team }
-        guard account.0 != nil, matches.count == 1, let link = matches.first, link.owner, cloud.auth.isSignedIn,
+        // `phone.cloudDesktop` (default off): the person lets phones view the machine's screen.
+        guard settings?.snapshot.sessions.phoneSeesCloudDesktop == true, account.0 != nil, matches.count == 1, let link = matches.first, link.owner, cloud.auth.isSignedIn,
               cloud.auth.user?.id == account.0, cloud.auth.teamID == account.1,
               let session = machines.session(link.machineID) else { throw Failure.forbidden }
         guard session.machine.shownStatus == .running else { throw Failure.asleep }
         guard let open = cloudDesktopTransport(machine: session.machineID) else { throw Failure.unreachable }
-        let frames = CloudDesktopFrames(machine: session.machineID, open: open), machines = machines, cloud = cloud
+        let frames = CloudDesktopFrames(machine: session.machineID, open: open), machines = machines, cloud = cloud, settings = settings
         return .init(feed: SurfaceFrameFeed(start: { frames.start(frame: $0, ended: $1) }, stop: { frames.stop() }),
-                     label: session.machineID) { [weak session] in
-            guard let session else { return false }
+                     label: session.machineID) { [weak session, weak settings] in
+            guard let session, settings?.snapshot.sessions.phoneSeesCloudDesktop == true else { return false }
             return cloud.auth.isSignedIn && cloud.auth.user?.id == account.0 && cloud.auth.teamID == account.1
                 && machines.session(session.machineID) === session && session.machine.shownStatus == .running
         }
@@ -203,11 +204,10 @@ extension AppServices {
             guard let link = session.appLink, !session.machine.isGoneForPhones else { continue }
             let socket = await link.currentLinkSocket
             guard machines.session(session.machineID) === session, !session.machine.isGoneForPhones else { continue }
-            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket,
-                                              cachedOwner: link.ownership.callerOwnsVM ? true : nil, user: user))
+            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, cachedOwner: link.ownership.callerOwnsVM, user: user))
         }
         // An account transition during either actor hop invalidates the whole answer.
         guard cloud.auth.isSignedIn, cloud.auth.user?.id == user, cloud.auth.teamID == selectedTeam else { return MobileHostCloudLinks() }
-        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, links: result)
+        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, desktops: settings?.snapshot.sessions.phoneSeesCloudDesktop == true, links: result)
     }
 }

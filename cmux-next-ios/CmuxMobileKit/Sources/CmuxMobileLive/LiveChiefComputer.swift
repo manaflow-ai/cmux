@@ -26,7 +26,7 @@ extension LiveCoordinator: ChiefComputerSource {
     }
 
     nonisolated static func computerDirectory(_ directory: CloudDirectory) -> ChiefComputerDirectory {
-        ChiefComputerDirectory(paid: directory.paid, machines: directory.machines.map {
+        ChiefComputerDirectory(paid: directory.paid, desktops: directory.desktops, machines: directory.machines.map {
             .init(machineID: $0.machineID, teamID: $0.teamID, name: $0.name, status: $0.status, ran: $0.ran)
         })
     }

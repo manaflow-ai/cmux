@@ -18,6 +18,8 @@ import Testing
         #expect(!ChiefComputerDirectory(paid: false, machines: [ran]).showsComputer)
         #expect(!ChiefComputerDirectory(paid: true, machines: [never]).showsComputer)
         #expect(!ChiefComputerDirectory(paid: true, machines: []).showsComputer)
+        // The Mac's owner has not turned on phone.cloudDesktop: no card.
+        #expect(!ChiefComputerDirectory(paid: true, desktops: false, machines: [ran]).showsComputer)
         #expect(ChiefComputerDirectory(paid: false, machines: [ran]).computer == nil)
     }
 

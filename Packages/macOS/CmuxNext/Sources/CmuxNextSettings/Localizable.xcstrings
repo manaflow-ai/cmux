@@ -123855,6 +123855,268 @@
         }
       }
     },
+    "settings.phone.cloudDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Your Cloud Machine's Screen on Your Phone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار شاشة جهاز Cloud الخاص بك على هاتفك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži ekran svoje Cloud mašine na telefonu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis din Cloud-maskines skærm på din telefon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm deiner Cloud-Maschine auf dem iPhone zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar la pantalla de tu máquina de Cloud en tu teléfono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l'écran de votre machine Cloud sur votre téléphone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra lo schermo della tua macchina Cloud sul telefono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudマシンの画面をスマートフォンに表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញអេក្រង់ម៉ាស៊ីន Cloud របស់អ្នកនៅលើទូរសព្ទរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴대폰에 Cloud 머신 화면 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-maskinens skjerm på telefonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj ekran maszyny Cloud na telefonie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar a tela da sua máquina do Cloud no seu telefone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать экран вашей машины Cloud на телефоне"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงหน้าจอเครื่อง Cloud ของคุณบนโทรศัพท์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud makinenizin ekranını telefonunuzda gösterin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати екран вашої машини Cloud на телефоні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị màn hình máy Cloud trên điện thoại của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在手机上显示你的 Cloud 机器屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在手機上顯示你的 Cloud 機器螢幕"
+          }
+        }
+      }
+    },
+    "settings.phone.cloudDesktop.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض صفحة Chief على هاتفك شاشة جهاز Cloud قيد التشغيل للعرض فقط. يبثّها هذا الـ Mac أثناء فتح الصفحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief stranica na telefonu prikazuje ekran tvoje pokrenute Cloud mašine, samo za pregled. Ovaj Mac je prenosi dok je stranica otvorena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief-siden på din telefon viser skærmen på din kørende Cloud-maskine, kun til visning. Denne Mac streamer den, mens siden er åben."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Chief-Seite auf deinem iPhone zeigt den Bildschirm deiner laufenden Cloud-Maschine, nur zum Ansehen. Dieser Mac überträgt ihn, solange die Seite offen ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página de Chief de tu teléfono muestra la pantalla de tu máquina de Cloud en ejecución, solo para ver. Este Mac la transmite mientras la página está abierta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page Chief de votre téléphone affiche l'écran de votre machine Cloud en cours d'exécution, en lecture seule. Ce Mac le diffuse tant que la page est ouverte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina Chief del telefono mostra lo schermo della tua macchina Cloud in esecuzione, solo in visualizzazione. Questo Mac lo trasmette mentre la pagina è aperta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマートフォンのChiefページに、実行中のCloudマシンの画面を表示します（表示のみ）。ページを開いている間、このMacが配信します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រ Chief នៅលើទូរសព្ទរបស់អ្នកបង្ហាញអេក្រង់ម៉ាស៊ីន Cloud ដែលកំពុងដំណើរការ សម្រាប់មើលតែប៉ុណ្ណោះ។ Mac នេះផ្សាយវា ពេលទំព័របើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴대폰의 Chief 페이지에 실행 중인 Cloud 머신 화면이 보기 전용으로 표시됩니다. 페이지가 열려 있는 동안 이 Mac이 스트리밍합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief-siden på telefonen viser skjermen til Cloud-maskinen som kjører, bare for visning. Denne Macen strømmer den mens siden er åpen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona Chief na telefonie pokazuje ekran działającej maszyny Cloud, tylko do podglądu. Ten Mac przesyła go, gdy strona jest otwarta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página do Chief no seu telefone mostra a tela da sua máquina do Cloud em execução, apenas para visualização. Este Mac a transmite enquanto a página está aberta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница Chief на телефоне показывает экран вашей работающей машины Cloud, только для просмотра. Этот Mac транслирует его, пока страница открыта."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้า Chief บนโทรศัพท์จะแสดงหน้าจอเครื่อง Cloud ที่กำลังทำงานของคุณแบบดูอย่างเดียว Mac เครื่องนี้สตรีมหน้าจอขณะที่หน้าเปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telefonunuzdaki Chief sayfası, çalışan Cloud makinenizin ekranını yalnızca görüntüleme amaçlı gösterir. Sayfa açıkken bu Mac ekranı aktarır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінка Chief на телефоні показує екран вашої запущеної машини Cloud лише для перегляду. Цей Mac транслює його, поки сторінка відкрита."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang Chief trên điện thoại hiển thị màn hình máy Cloud đang chạy của bạn, chỉ để xem. Máy Mac này phát trực tiếp khi trang đang mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机上的 Chief 页面会显示你正在运行的 Cloud 机器屏幕，仅供查看。页面打开时由这台 Mac 串流。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手機上的 Chief 頁面會顯示你正在執行的 Cloud 機器螢幕，僅供檢視。頁面開啟時由這台 Mac 串流。"
+          }
+        }
+      }
+    },
     "settings.phone.keepAwake": {
       "extractionState": "manual",
       "localizations": {

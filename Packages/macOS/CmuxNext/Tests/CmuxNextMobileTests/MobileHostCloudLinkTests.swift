@@ -13,12 +13,13 @@ struct MobileHostCloudLinkTests {
                                        status: "running", ran: true)
         let asleep = MobileHostCloudLink(machineID: "vm_2", teamID: "team_backend", name: "Asleep", socket: nil, owner: true,
                                          status: "paused", ran: true)
-        let line = try #require(MobileHostLaunch.cloudLinksLine(request: request, links: MobileHostCloudLinks(paid: true, links: [link, asleep])))
+        let line = try #require(MobileHostLaunch.cloudLinksLine(request: request, links: MobileHostCloudLinks(paid: true, desktops: true, links: [link, asleep])))
         #expect(line.last == 0x0a)
         let reply = try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
         #expect(reply["type"] as? String == "cloud_links")
         #expect(reply["request"] as? Int == 17)
         #expect(reply["paid"] as? Bool == true)
+        #expect(reply["desktops"] as? Bool == true)
         let rows = try #require(reply["links"] as? [[String: Any]])
         let row = try #require(rows.first)
         #expect(row["machine_id"] as? String == "vm_1")
@@ -40,6 +41,8 @@ struct MobileHostCloudLinkTests {
         let line = try #require(MobileHostLaunch.cloudLinksLine(request: 3, links: MobileHostCloudLinks()))
         let reply = try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
         #expect(reply["paid"] as? Bool == false)
+        // phone.cloudDesktop is off unless the person turned it on.
+        #expect(reply["desktops"] as? Bool == false)
         #expect((reply["links"] as? [Any])?.isEmpty == true)
     }
 

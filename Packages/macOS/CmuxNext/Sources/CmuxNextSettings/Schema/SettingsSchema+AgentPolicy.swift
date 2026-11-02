@@ -403,6 +403,7 @@ extension SettingsSchema {
         "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy,
+        "phone.cloudDesktop": .privacy,
         // On, a phone signed in to the same account can open this Mac's terminals and agents.
         "mobile.allowIPhoneConnections": .userOnly,
         // Which device sizes a terminal shown on this Mac and a phone; the person sets it here or on the phone.

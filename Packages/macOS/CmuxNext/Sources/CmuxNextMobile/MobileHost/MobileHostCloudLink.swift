@@ -47,10 +47,13 @@ public struct MobileHostCloudLink: Encodable, Sendable, Equatable {
 public struct MobileHostCloudLinks: Sendable, Equatable {
     /// The account's plan pays for cmux Cloud; false when the plan is unknown.
     public var paid: Bool
+    /// The person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
+    public var desktops: Bool
     public var links: [MobileHostCloudLink]
 
-    public init(paid: Bool = false, links: [MobileHostCloudLink] = []) {
+    public init(paid: Bool = false, desktops: Bool = false, links: [MobileHostCloudLink] = []) {
         self.paid = paid
+        self.desktops = desktops
         self.links = links
     }
 }
@@ -58,18 +61,20 @@ public struct MobileHostCloudLinks: Sendable, Equatable {
 extension MobileHostLaunch {
     /// The `cloud_links` answer to hostd's `need_cloud_links`.
     public static func cloudLinksLine(request: UInt64, links: MobileHostCloudLinks) -> Data? {
-        cloudLinksLine(request: request, paid: links.paid, links: links.links)
+        cloudLinksLine(request: request, paid: links.paid, desktops: links.desktops, links: links.links)
     }
 
-    /// The `cloud_links` answer to hostd's `need_cloud_links`. `paid`: the account pays for cmux Cloud.
-    public static func cloudLinksLine(request: UInt64, paid: Bool, links: [MobileHostCloudLink]) -> Data? {
+    /// The `cloud_links` answer to hostd's `need_cloud_links`. `paid`: the account pays for cmux Cloud;
+    /// `desktops`: phones may view the account's Cloud machine's screen (`phone.cloudDesktop`).
+    public static func cloudLinksLine(request: UInt64, paid: Bool, desktops: Bool = false, links: [MobileHostCloudLink]) -> Data? {
         struct Reply: Encodable {
             let type = "cloud_links"
             let request: UInt64
             let paid: Bool
+            let desktops: Bool
             let links: [MobileHostCloudLink]
         }
-        guard var data = try? JSONEncoder().encode(Reply(request: request, paid: paid, links: links)) else { return nil }
+        guard var data = try? JSONEncoder().encode(Reply(request: request, paid: paid, desktops: desktops, links: links)) else { return nil }
         data.append(0x0a)
         return data
     }

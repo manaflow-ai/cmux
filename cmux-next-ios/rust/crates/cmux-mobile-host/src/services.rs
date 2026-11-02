@@ -244,7 +244,7 @@ pub(crate) fn cloud_directory_reply(snapshot: control::CloudLinks) -> Value {
             })
         })
         .collect::<Vec<_>>();
-    serde_json::json!({"paid": snapshot.paid, "machines": machines})
+    serde_json::json!({"paid": snapshot.paid, "desktops": snapshot.desktops, "machines": machines})
 }
 
 /// Return only authenticated Cloud machines ([`cloud_directory_reply`]).
@@ -1862,6 +1862,7 @@ mod tests {
         asleep.socket = None;
         let snapshot = control::CloudLinks {
             paid: true,
+            desktops: true,
             links: vec![
                 cloud_link("m1", "t", true, "running", true),
                 asleep,
@@ -1877,7 +1878,7 @@ mod tests {
         let reply = cloud_directory_reply(snapshot);
         assert_eq!(
             reply,
-            serde_json::json!({"paid": true, "machines": [
+            serde_json::json!({"paid": true, "desktops": true, "machines": [
                 {"machine_id": "m1", "team_id": "t", "name": "m1 box", "status": "running", "ran": true},
                 {"machine_id": "m2", "team_id": "t", "name": "m2 box", "status": "paused", "ran": true},
                 {"machine_id": "m5", "team_id": "t", "name": "m5 box", "status": "unknown", "ran": false},
@@ -1888,7 +1889,7 @@ mod tests {
         // An older app's snapshot: not paid, nothing has run.
         assert_eq!(
             cloud_directory_reply(control::CloudLinks::default()),
-            serde_json::json!({"paid": false, "machines": []})
+            serde_json::json!({"paid": false, "desktops": false, "machines": []})
         );
     }
 

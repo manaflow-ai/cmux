@@ -39,21 +39,26 @@ public struct CloudChatMachine: Decodable, Hashable, Identifiable, Sendable {
 }
 
 /// The paired Mac's `cloud-directory` reply: whether the account pays for
-/// cmux Cloud, and its machines. An older Mac's reply has no `paid`: false.
+/// cmux Cloud, whether the Mac shows its Cloud machine's screen on phones
+/// (`desktops`, the Mac's `phone.cloudDesktop`), and its machines. An older
+/// Mac's reply has neither field: false.
 public struct CloudDirectory: Decodable, Hashable, Sendable {
     public let paid: Bool
+    public let desktops: Bool
     public let machines: [CloudChatMachine]
 
-    enum CodingKeys: String, CodingKey { case paid, machines }
+    enum CodingKeys: String, CodingKey { case paid, desktops, machines }
 
-    public init(paid: Bool, machines: [CloudChatMachine]) {
+    public init(paid: Bool, desktops: Bool = false, machines: [CloudChatMachine]) {
         self.paid = paid
+        self.desktops = desktops
         self.machines = machines
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         paid = try container.decodeIfPresent(Bool.self, forKey: .paid) ?? false
+        desktops = try container.decodeIfPresent(Bool.self, forKey: .desktops) ?? false
         machines = try container.decode([CloudChatMachine].self, forKey: .machines)
     }
 }

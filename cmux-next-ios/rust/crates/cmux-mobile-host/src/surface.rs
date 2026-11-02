@@ -219,6 +219,9 @@ pub async fn serve(
             return Err(Refusal::new("no_surface_host", "this Mac does not stream Cloud desktops"));
         }
         let snapshot = request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
+        if !snapshot.desktops {
+            return Err(Refusal::new("forbidden", "this Mac does not show Cloud desktops on phones"));
+        }
         cloud_desktop_access(snapshot.links, machine_id, team_id)?;
     } else {
         return Err(Refusal::new("bad_request", "invalid tab"));
