@@ -19,7 +19,8 @@ extension SidebarWorkspaceSnapshotFactory {
     }
 
     /// `rows` plus the account row when `appendsAccount`. Compact mode shows it in the
-    /// status glyph tooltip instead, so it adds nothing there.
+    /// status glyph tooltip instead, so it adds nothing there. The row reflects the panes, so it
+    /// replaces a status entry another caller set under the same key rather than showing twice.
     func rowsIncludingClaudeAccount(
         _ rows: [SidebarStatusEntry],
         appendsAccount: Bool,
@@ -28,7 +29,7 @@ extension SidebarWorkspaceSnapshotFactory {
         guard appendsAccount,
               let row = Self.claudeAccountRow(labels: claudeAccountLabels(orderedPanelIds: orderedPanelIds))
         else { return rows }
-        return rows + [row]
+        return rows.filter { $0.key != row.key } + [row]
     }
 
     /// Unique non-default Claude account labels of the workspace's panes, in panel order, from
