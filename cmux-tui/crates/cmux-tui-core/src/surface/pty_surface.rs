@@ -518,7 +518,9 @@ impl PtySurface {
         if let Some((offset, at_bottom)) = commit.scroll
             && let Some(mux) = self.mux.upgrade()
         {
-            mux.emit_terminal_scroll(self.event_surface_id, offset, at_bottom);
+            // Not output's move: it replaces a position output deferred to
+            // the next frame, so that older one is never published after it.
+            self.frame_requests.publish_scroll_now(&mux, self.event_surface_id, offset, at_bottom);
         }
         commit.changed
     }
