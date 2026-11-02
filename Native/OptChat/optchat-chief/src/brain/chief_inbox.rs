@@ -49,9 +49,13 @@ fn handle(name: &str) -> String {
     }
 }
 
-/// The stable session's name for the Chief called `title`: `chief` for
-/// "Chief", `chief-codex-chief` for "Codex Chief".
-pub fn name(title: &str) -> String {
+/// The stable session's name for Chief `participant` called `title`:
+/// `chief` for the default Chief (agent_mux, whatever its localized name),
+/// `chief-codex-chief` for "Codex Chief".
+pub fn name(participant: &str, title: &str) -> String {
+    if participant == cmux_chief::rules::AGENT_MUX {
+        return "chief".to_owned();
+    }
     let handle = handle(title);
     if handle == "chief" || handle.starts_with("chief-") {
         handle
@@ -68,11 +72,11 @@ impl Brain {
         let Some(title) = self.settings.chief_inbox.clone() else {
             return;
         };
-        let session = name(&title);
-        if listed.iter().any(|n| *n == session) {
+        let participant = self.settings.membership.participant.clone();
+        let session = name(&participant, &title);
+        if listed.contains(&session) {
             return;
         }
-        let participant = self.settings.membership.participant.clone();
         let spec = SessionSpec {
             name: session.clone(),
             cwd: self.settings.session_dir.clone(),
@@ -103,10 +107,11 @@ mod tests {
 
     #[test]
     fn a_chiefs_session_is_named_after_it() {
-        assert_eq!(name("Chief"), "chief");
-        assert_eq!(name("Codex Chief"), "chief-codex-chief");
-        assert_eq!(name("Hybrid Chief"), "chief-hybrid-chief");
-        assert_eq!(name("Chief 2"), "chief-2");
-        assert_eq!(name("  "), "chief");
+        let other = "agent_codex";
+        assert_eq!(name(cmux_chief::rules::AGENT_MUX, "Chef"), "chief");
+        assert_eq!(name(other, "Codex Chief"), "chief-codex-chief");
+        assert_eq!(name(other, "Hybrid Chief"), "chief-hybrid-chief");
+        assert_eq!(name(other, "Chief 2"), "chief-2");
+        assert_eq!(name(other, "  "), "chief");
     }
 }

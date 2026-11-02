@@ -805,7 +805,7 @@ fn start(
         instructions,
         chief_inbox
             .as_deref()
-            .map(crate::brain::chief_inbox_name)
+            .map(|title| crate::brain::chief_inbox_name(&membership.participant, title))
             .as_deref(),
     );
     let (mut harness, mut compactor_harness) =

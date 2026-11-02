@@ -13,9 +13,17 @@ use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::brain::{Input, Settings};
 
 fn harness(inbox: Option<&str>) -> Harness {
+    harness_as(inbox, "agent_codex")
+}
+
+fn harness_as(inbox: Option<&str>, participant: &str) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     let s = Settings {
         chief_inbox: inbox.map(str::to_owned),
+        membership: optchat_chief::membership::Membership {
+            participant: participant.to_owned(),
+            ..Default::default()
+        },
         ..settings(dir.path())
     };
     let owner = Arc::new(Mutex::new(Owner {
@@ -45,7 +53,7 @@ fn a_chief_gets_one_listed_session_on_the_chief_harness_that_relays_into_its_cha
     assert_eq!(specs.len(), 1, "{specs:?}");
     let spec = &specs[0];
     assert_eq!(spec.name, "chief-codex-chief");
-    let participant = settings(h.dir.path()).membership.participant;
+    let participant = "agent_codex".to_owned();
     // The relay (`cmux chief acp`) posts into this Chief's conversation.
     assert_eq!(
         spec.env.get("CMUX_CHIEF_PARTICIPANT"),
@@ -71,7 +79,8 @@ fn a_chief_gets_one_listed_session_on_the_chief_harness_that_relays_into_its_cha
 
 #[test]
 fn the_session_is_made_once_and_kept_when_acpmux_lists_it() {
-    let mut h = harness(Some("Chief"));
+    // The default Chief's session is `chief`, whatever its localized name.
+    let mut h = harness_as(Some("Chef"), "agent_mux");
     let listed: cmux_chief::acp::SessionSummary = serde_json::from_value(serde_json::json!({
         "sessionId": "s-inbox", "name": "chief", "status": "idle", "harness": "chief"
     }))

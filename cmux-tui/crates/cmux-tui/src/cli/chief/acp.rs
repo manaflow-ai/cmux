@@ -594,6 +594,15 @@ mod tests {
             "c-mux"
         );
         assert!(super::super::link::select_chief_of(&chats, "agent_other").is_none());
+        // Another Chief answers in its DM with the person, never in a group
+        // it is in (optchat-chief `daemon::select_chief_of`).
+        let group = json!({"id": "c-group", "created_at": "2025-01-01", "participants": [
+            {"id": "user_local"}, {"id": "agent_codex"}, {"id": "agent_mux"}]});
+        let with_group = [vec![group], chats].concat();
+        assert_eq!(
+            super::super::link::select_chief_of(&with_group, "agent_codex").unwrap()["id"],
+            "c-codex"
+        );
     }
 
     #[test]
