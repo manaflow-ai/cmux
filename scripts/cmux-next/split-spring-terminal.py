@@ -289,6 +289,13 @@ if "--suite=cef-api30" in sys.argv:
         "resize": ["cef-resize-sync-bench.py", "--label", "api30"],
         "split": ["split-resize-bench.py", "--variants=live,hold,synced,resizeSync,live-hosted,resizeSync-hosted"],
         **{f"split{i}": ["split-resize-bench.py", "--variants=live,resizeSync,live-hosted,resizeSync-hosted"] for i in range(2, 9)},
+        # Idle cost per mode: set the mode in the build's tunables (the verify's hosted rows), then idle-budget.py.
+        "mode-off": ["cef-layer-verify.py", "--mode", "off", "--checks", "hosted", "--tunables", "build"],
+        "mode-on": ["cef-layer-verify.py", "--mode", "on", "--checks", "hosted", "--tunables", "build"],
+        "idle-off": ["idle-budget.py", "--sessions", "light,stress-static"],
+        "idle-on": ["idle-budget.py", "--sessions", "light,stress-static"],
+        # More STRESS runs of the resize bench (off, on, on0), for the column-close long frame.
+        **{f"resize{i}": ["cef-resize-sync-bench.py", "--label", f"api30-{i}", "--benches", "stress"] for i in range(2, 6)},
     }
     results = {}
     for name in want.split(","):
