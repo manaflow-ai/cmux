@@ -63,6 +63,7 @@ import {
   LANE_NOTICE_BATCH,
   MESSAGE_RUN,
   isLineRow,
+  isLiveStep,
   restRoom,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
@@ -5445,7 +5446,10 @@ export function VirtualTranscript({
                       key={`${sessionId ?? ""}:${row.id}`}
                       row={row}
                       kind={kind}
-                      joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
+                      joinsPrevious={
+                        (isStepRow(row) && isStepRow(rows[absoluteIndex - 1])) ||
+                        isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
+                      }
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       beforeFooter={isBeforeFooter(row, next)}
                       beforeIndicator={next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR}
