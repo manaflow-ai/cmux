@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4149439773601",
+  "notes": "notes/4149439773601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32484,
+      "title": "app FFI re-pin: retry the pin commit, and find a write whose answer was lost",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32477,
+      "title": "app FFI re-pin: verify before pushing, commit through the contents API",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32476,
+      "title": "CmuxNext Cloud: the start's checks, the vm-kind word, the machine login reading and the harness login call Rust; the Swift copies and their tests go (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31921,
+      "title": "Focus rules move into cmux-focus-core with app FFI calls: close successors, Close Tab aim, address bar memory, input invariants (A12 step A)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27854,
+      "title": "fix(media): reload failed preview grants on demand",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32479,
+      "title": "ci: platform-prod-secrets is dispatch-only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32475,
+      "title": "Cloud: the start's link redial wait and isDrop live in CmuxNextCloud (fixes the tip arch red from 920b27890c31)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32468,
+      "title": "fix(reopen): no path removes a shown terminal's saved frame (#32372 review P3)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32446,
+      "title": "cmux-tui + app: a hidden terminal's output reaches the app once a second, at once when shown (SWITCH FRAMES SF-5 C)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
