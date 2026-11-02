@@ -17,7 +17,8 @@ export type ComposerAttachmentState = {
   percent?: number;
 };
 
-const TILES = ".acpmux-attachment, .acpmux-md-inline-chip";
+// A staged chip placed in the prompt is its strip tile inside an inline wrapper: the tile is read.
+const TILES = ".acpmux-attachment, .acpmux-md-inline-chip:not([data-chip=\"strip\"])";
 
 export function composerAttachmentsState(root: ParentNode = document): ComposerAttachmentState[] {
   return [...root.querySelectorAll<HTMLElement>(TILES)].map((tile) => {
