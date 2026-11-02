@@ -326,7 +326,7 @@ class StormL1(Base):
             if os.environ.get("CMUX_TUIKIT_REQUIRE_RUST") == "1":
                 self.fail("tk-storm is not built (tuikit.py build-bins)")
             self.skipTest("tk-storm is not built (tuikit.py build-bins)")
-        done, out, app = self.run_tool("L1", "--duration", "4", "--rate", "50", "--keep", "pane_keep",
+        done, out, app = self.run_tool("L1", "--duration", "4", "--rate", "60", "--keep", "pane_keep",
                                        "--engine", "rust")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         m = self.manifest(out, "L1")
@@ -334,11 +334,21 @@ class StormL1(Base):
         calls = m["calls"]
         self.assertEqual(calls["engine"], "rust")
         self.assertEqual(calls["verdict"], "ok", calls)
-        self.assertGreaterEqual(calls["achieved_per_s"], 0.95 * 50, calls)
+        self.assertGreaterEqual(calls["ok_per_s"], 0.95 * 60, calls)
         self.assertEqual(calls["failed"], 0, calls)  # the stand-in CLI refuses argv outside the real shapes
         with open(os.path.join(out, "L1", "storm-calls.jsonl")) as f:
-            workers = {json.loads(line)["worker"] for line in f}
-        self.assertEqual(workers, set(range(8)))
+            lines = [json.loads(line) for line in f]
+        self.assertEqual({c["worker"] for c in lines}, set(range(8)))
+        # every counted call is in the log; at most one in flight per worker drained after the stop
+        self.assertTrue(calls["calls"] <= len(lines) <= calls["calls"] + 8, (calls["calls"], len(lines)))
+        # a held schedule, not a burst: no second holds much more than the rate
+        per_second = {}
+        for c in lines:
+            per_second[int(c["t_mono"])] = per_second.get(int(c["t_mono"]), 0) + 1
+        self.assertLessEqual(max(per_second.values()), 1.3 * 60 + 8, per_second)
+        self.assertGreaterEqual(len({c["kind"] for c in lines}), 12, sorted({c["kind"] for c in lines}))
+        closed = m["calls"].get("setup_and_teardown_calls")
+        self.assertIsNotNone(closed)
         self.assert_no_focus_verbs()
         self.assert_torn_down(app)
 

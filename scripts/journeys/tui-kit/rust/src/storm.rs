@@ -2,10 +2,48 @@
 //! commands and app-socket reads, on one shared schedule (call n is due at start + n / rate), from N
 //! worker threads. Each worker closes only the tabs it made.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::mpsc;
 use std::time::Duration;
+
+/// load_profiles.py's CLI timeout: a call that takes longer is killed and counted as failed.
+pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Runs `cmd` with its output read on a helper thread, killed after `timeout`. The wait is a channel
+/// receive (woken by the exit, not by a timer), so it adds no latency to the call.
+fn run_with_timeout(
+    mut cmd: Command,
+    timeout: Duration,
+) -> std::io::Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut out = child.stdout.take();
+    let mut err = child.stderr.take();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut o = Vec::new();
+        let mut e = Vec::new();
+        if let Some(out) = out.as_mut() {
+            let _ = out.read_to_end(&mut o);
+        }
+        if let Some(err) = err.as_mut() {
+            let _ = err.read_to_end(&mut e);
+        }
+        let _ = tx.send((o, e));
+    });
+    match rx.recv_timeout(timeout) {
+        Ok((o, e)) => Ok((child.wait()?, o, e)),
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("no answer in {} s (killed)", timeout.as_secs()),
+            ))
+        }
+    }
+}
 
 /// (kind, weight): load_profiles.py `L1_KINDS`.
 pub const KINDS: [(&str, u32); 13] = [
@@ -100,8 +138,8 @@ pub fn tab_id(json: &str) -> Option<String> {
 impl Target {
     /// One CLI command: `cmux --socket D --app-socket A --json ARGS` with HOME and a plain PATH.
     pub fn cli(&self, args: &[String]) -> Outcome {
-        let out = Command::new(&self.cli)
-            .arg("--socket")
+        let mut cmd = Command::new(&self.cli);
+        cmd.arg("--socket")
             .arg(&self.daemon_socket)
             .arg("--app-socket")
             .arg(&self.app_socket)
@@ -111,27 +149,26 @@ impl Target {
             .env("HOME", &self.home)
             .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
             .env("CMUX_QUIET", "1")
-            .stdin(Stdio::null())
-            .output();
-        match out {
+            .stdin(Stdio::null());
+        match run_with_timeout(cmd, CALL_TIMEOUT) {
             Err(e) => Outcome {
                 ok: false,
-                error: Some(format!("spawn: {e}")),
+                error: Some(format!("spawn or wait: {e}")),
                 tab_made: None,
             },
-            Ok(out) if out.status.success() => Outcome {
+            Ok((status, stdout, _)) if status.success() => Outcome {
                 ok: true,
                 error: None,
-                tab_made: tab_id(&String::from_utf8_lossy(&out.stdout)),
+                tab_made: tab_id(&String::from_utf8_lossy(&stdout)),
             },
-            Ok(out) => {
-                let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-                text.push_str(&String::from_utf8_lossy(&out.stderr));
+            Ok((status, stdout, stderr)) => {
+                let mut text = String::from_utf8_lossy(&stdout).into_owned();
+                text.push_str(&String::from_utf8_lossy(&stderr));
                 Outcome {
                     ok: false,
                     error: Some(format!(
                         "exit {:?}: {}",
-                        out.status.code(),
+                        status.code(),
                         text.trim().chars().take(200).collect::<String>()
                     )),
                     tab_made: None,

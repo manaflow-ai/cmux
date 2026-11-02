@@ -120,7 +120,8 @@ class Calls:
                    "asked_per_s": self.asked}
             if self.asked:
                 # cmux-ad 03:40Z: below 95 % of the asked rate the run is NOT RUN
-                out["verdict"] = "NOT RUN" if achieved < tuikit.RATE_FLOOR * self.asked else "ok"
+                # the calls that worked: calls that fail fast are no load
+                out["verdict"] = "NOT RUN" if out["ok_per_s"] < tuikit.RATE_FLOOR * self.asked else "ok"
                 if out["verdict"] != "ok":
                     out["below_asked"] = "achieved %.1f of %d calls/s asked: the workers wait on the CLI (rate cap " \
                                          "about workers / call latency)" % (achieved, self.asked)
@@ -420,6 +421,9 @@ class L1(Profile):
     def load_rust(self, path):
         """tk-storm runs the same mix on a held schedule; this process only waits for the stop."""
         self.manifest["engine"] = "rust"
+        missing = [k for k in ("workspace_id", "pane_id", "terminal_id") if not self.ws.get(k)]
+        if missing:
+            raise heavy_profile.Refused("the storm workspace lacks %s: %s" % (", ".join(missing), self.ws))
         summary_path = os.path.join(self.dir, "storm-summary.json")
         argv = [path, "--cli", self.app.cli, "--socket", self.app.daemon_sock, "--app-socket", self.app.app_sock,
                 "--home", self.app.home, "--workspace", self.ws["workspace_id"], "--pane", self.ws["pane_id"],
@@ -429,7 +433,10 @@ class L1(Profile):
         proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=open(os.path.join(self.dir, "tk-storm.err"), "w"))
         self.manifest["processes"].append({"pid": proc.pid, "label": "tk-storm", "argv": argv})
         self.save()
-        self.stop.wait()
+        while not self.stop.wait(0.5):
+            if proc.poll() is not None:  # it ended by itself (a crash or bad options): no load is running
+                break
+        early = proc.poll()
         proc.terminate()  # tk-storm ends at its next call and writes its summary
         try:
             proc.wait(60)
@@ -440,7 +447,11 @@ class L1(Profile):
             with open(summary_path) as f:
                 self.storm = json.load(f)
         except (OSError, ValueError) as error:
-            raise heavy_profile.Refused("tk-storm wrote no summary (exit %s): %s" % (proc.returncode, error))
+            with open(os.path.join(self.dir, "tk-storm.err")) as f:
+                err = f.read()[-300:]
+            raise heavy_profile.Refused("tk-storm wrote no summary (exit %s): %s %s" % (proc.returncode, error, err))
+        if early is not None:
+            self.refused("tk-storm", "ended by itself before the stop (exit %s)" % early)
         self.manifest["made"]["tabs"].extend(self.storm.get("leftover_tabs") or [])
         self.save()
 

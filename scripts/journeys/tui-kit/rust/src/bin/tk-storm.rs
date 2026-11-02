@@ -44,8 +44,19 @@ struct Shared {
     log: Mutex<Log>,
     by_kind: Mutex<BTreeMap<String, u64>>,
     leftover: Mutex<Vec<String>>,
-    calls: AtomicU64,
-    failed: AtomicU64,
+    /// (start, ok) of every call: the rate counts only calls that started inside the load window.
+    starts: Mutex<Vec<(f64, bool)>>,
+    /// f64 bits of the moment a worker first saw the quit flag (0: not yet).
+    quit_at: AtomicU64,
+}
+
+impl Shared {
+    fn note_quit(&self) {
+        let now = sys::monotonic().to_bits();
+        let _ = self
+            .quit_at
+            .compare_exchange(0, now, Ordering::SeqCst, Ordering::SeqCst);
+    }
 }
 
 fn need(a: &Args, name: &str) -> Result<String, String> {
@@ -105,8 +116,8 @@ fn main() -> ExitCode {
         log: Mutex::new(log),
         by_kind: Mutex::new(BTreeMap::new()),
         leftover: Mutex::new(Vec::new()),
-        calls: AtomicU64::new(0),
-        failed: AtomicU64::new(0),
+        starts: Mutex::new(Vec::new()),
+        quit_at: AtomicU64::new(0),
     });
     let next = Arc::new(AtomicU64::new(0));
     let start = sys::monotonic();
@@ -128,22 +139,41 @@ fn main() -> ExitCode {
     for h in handles {
         let _ = h.join();
     }
-    let end = sys::monotonic().min(stop_at);
+    // The load window ends when the stop came (SIGTERM, or the duration), not when the last call in
+    // flight drained; only calls that started inside it count (the review of #31764).
+    let quit_bits = shared.quit_at.load(Ordering::SeqCst);
+    let end = if quit_bits != 0 {
+        f64::from_bits(quit_bits).min(stop_at)
+    } else {
+        sys::monotonic().min(stop_at)
+    };
     let span = (end - start).max(1e-9);
-    let calls = shared.calls.load(Ordering::SeqCst);
-    let failed = shared.failed.load(Ordering::SeqCst);
+    let (mut calls, mut failed, mut drained) = (0_u64, 0_u64, 0_u64);
+    if let Ok(starts) = shared.starts.lock() {
+        for (t, ok) in starts.iter() {
+            if *t < end {
+                calls += 1;
+                if !*ok {
+                    failed += 1;
+                }
+            } else {
+                drained += 1;
+            }
+        }
+    }
     let achieved = calls as f64 / span;
-    let verdict = if achieved < 0.95 * rate {
+    let ok_rate = (calls - failed) as f64 / span;
+    // The verdict counts the calls that worked: calls that fail fast are no load.
+    let verdict = if ok_rate < 0.95 * rate {
         "NOT RUN"
     } else {
         "ok"
     };
     let mut summary = String::from("{");
     summary.push_str(&format!(
-        "\"calls\": {calls}, \"failed\": {failed}, \"load_seconds\": {span:.3}, \"achieved_per_s\": {achieved:.2}, \
-         \"ok_per_s\": {:.2}, \"asked_per_s\": {rate:.2}, \"workers\": {workers}, \"verdict\": \"{verdict}\", \
-         \"engine\": \"rust\", \"by_kind\": {{",
-        (calls - failed) as f64 / span
+        "\"calls\": {calls}, \"failed\": {failed}, \"drained_after_stop\": {drained}, \"load_seconds\": {span:.3}, \
+         \"achieved_per_s\": {achieved:.2}, \"ok_per_s\": {ok_rate:.2}, \"asked_per_s\": {rate:.2}, \
+         \"workers\": {workers}, \"verdict\": \"{verdict}\", \"engine\": \"rust\", \"by_kind\": {{"
     ));
     if let Ok(kinds) = shared.by_kind.lock() {
         let parts: Vec<String> = kinds.iter().map(|(k, v)| format!("\"{k}\": {v}")).collect();
@@ -191,6 +221,7 @@ fn run_worker(
         }
         loop {
             if sys::quit_requested() {
+                shared.note_quit();
                 break;
             }
             let left = due - sys::monotonic();
@@ -199,7 +230,11 @@ fn run_worker(
             }
             std::thread::sleep(Duration::from_secs_f64(left.min(0.05)));
         }
-        if sys::quit_requested() || sys::monotonic() >= stop_at {
+        if sys::quit_requested() {
+            shared.note_quit();
+            break;
+        }
+        if sys::monotonic() >= stop_at {
             break;
         }
         let mut kind = rng.pick();
@@ -229,11 +264,14 @@ fn run_worker(
             }
         }
         if let (Some(tab), false) = (close.as_ref(), outcome.ok) {
-            mine.insert(0, tab.clone()); // not closed: still this worker's
+            // not closed: the caller's teardown tries it again; this worker makes new tabs instead of
+            // failing the same close every time
+            if let Ok(mut left) = shared.leftover.lock() {
+                left.push(tab.clone());
+            }
         }
-        shared.calls.fetch_add(1, Ordering::SeqCst);
-        if !outcome.ok {
-            shared.failed.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut starts) = shared.starts.lock() {
+            starts.push((t0, outcome.ok));
         }
         if let Ok(mut kinds) = shared.by_kind.lock() {
             *kinds.entry(kind.to_string()).or_insert(0) += 1;
