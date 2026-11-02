@@ -9,8 +9,8 @@
 // hands it.
 import { closeHistory } from "@milkdown/kit/prose/history";
 import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
-import { type EditorState, Plugin, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
-import type { EditorView, NodeView } from "@milkdown/kit/prose/view";
+import { type EditorState, Plugin, Selection, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
+import { Decoration, DecorationSet, type EditorView, type NodeView } from "@milkdown/kit/prose/view";
 import { $node, $prose } from "@milkdown/kit/utils";
 import {
   escapeTextMarks,
@@ -177,13 +177,95 @@ function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeVi
   };
 }
 
+/// A piece of a selection as a copy carries it (composer/composerCopy.ts): a run of its text, as the
+/// field copies text (a line or block break a newline), or a placed attachment, by id.
+export type SelectionPart = { text: string } | { id: string };
+
+/// Stands in for each placed attachment while the selection's text is read: a private-use character,
+/// never in a node's text the field's own copy writes (`selectionParts`).
+const PART_MARK = "\uE000";
+
+/// The selection of `state` as its runs of text and its placed attachments, in order. Text runs
+/// read as the field's own copy does (MarkdownField `copiedText`).
+export function selectionParts(state: EditorState): SelectionPart[] {
+  const { from, to } = state.selection;
+  const ids: string[] = [];
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.type.name === INLINE_NODE) ids.push(idOf(node));
+  });
+  const text = state.doc.textBetween(from, to, "\n", (leaf) =>
+    leaf.type.name === INLINE_NODE ? PART_MARK : (leaf.type.spec.leafText?.(leaf) ?? ""),
+  );
+  const parts: SelectionPart[] = [];
+  text.split(PART_MARK).forEach((run, index) => {
+    const id = index > 0 ? ids[index - 1] : undefined;
+    if (id !== undefined) parts.push({ id });
+    if (run) parts.push({ text: run });
+  });
+  return parts;
+}
+
+/// Whether the selection of `state` holds the whole draft: Select All, or a drag from its start to
+/// its end.
+export function wholeSelected(state: EditorState): boolean {
+  const { selection, doc } = state;
+  if (selection.empty) return false;
+  return selection.from <= Selection.atStart(doc).from && selection.to >= Selection.atEnd(doc).to;
+}
+
+/// The placed attachments inside a selection wear the selection's tint, as its text does: a chip is
+/// not text, so the browser's own highlight passes over it (Leo, 2026-11-01: "select all in composer
+/// which also selects all the attachments").
+function selectedDecorations(state: EditorState): DecorationSet | null {
+  const { selection, doc } = state;
+  if (selection.empty) return null;
+  const marks: Decoration[] = [];
+  doc.nodesBetween(selection.from, selection.to, (node, pos) => {
+    if (node.type.name === INLINE_NODE)
+      marks.push(Decoration.node(pos, pos + node.nodeSize, { class: "acpmux-md-inline-selected" }));
+  });
+  return marks.length ? DecorationSet.create(doc, marks) : null;
+}
+
+/// Which way a key moves the caret through the document by one character: -1 back, 1 forward, 0
+/// for any other key. Left and Right follow the text's direction at the caret, as ProseMirror's own
+/// arrows do; the Mac's Ctrl-B and Ctrl-F always go back and forward.
+function horizontalStep(view: EditorView, event: KeyboardEvent): -1 | 0 | 1 {
+  if (event.isComposing || event.metaKey || event.altKey || event.shiftKey) return 0;
+  if (event.ctrlKey) {
+    if (!/Mac|iPhone|iPad/.test(view.dom.ownerDocument.defaultView?.navigator.platform ?? "")) return 0;
+    return event.code === "KeyB" ? -1 : event.code === "KeyF" ? 1 : 0;
+  }
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return 0;
+  const { node } = view.domAtPos(view.state.selection.head);
+  const at = node.nodeType === 1 ? (node as Element) : node.parentElement;
+  const rtl = at ? view.dom.ownerDocument.defaultView?.getComputedStyle(at).direction === "rtl" : false;
+  return (event.key === "ArrowLeft") !== rtl ? -1 : 1;
+}
+
 export function inlinePlugin(views: InlineViews) {
   return $prose(
     () =>
       new Plugin({
         props: {
+          decorations: selectedDecorations,
           nodeViews: { [INLINE_NODE]: (node, view) => nodeView(node, view, views) },
           handleKeyDown: (view, event) => {
+            // Left and Right step over a placed attachment as over one character, never selecting it
+            // (Leo, 2026-11-01: "i dont want left arrow to be selecting them??? just jump over them
+            // treat them like it's one character"), as do the Mac's Ctrl-B and Ctrl-F. ProseMirror's
+            // own Shift+arrow already extends over it as one unit.
+            const step = horizontalStep(view, event);
+            if (step !== 0) {
+              const { selection } = view.state;
+              if (!selection.empty || !(selection instanceof TextSelection)) return false;
+              const { $head } = selection;
+              const adjacent = $head.textOffset ? null : step < 0 ? $head.nodeBefore : $head.nodeAfter;
+              if (adjacent?.type.name !== INLINE_NODE) return false;
+              const to = $head.pos + step * adjacent.nodeSize;
+              view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, to)).scrollIntoView());
+              return true;
+            }
             if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
             const { selection } = view.state;
             if (!selection.empty || !(selection instanceof TextSelection)) return false;

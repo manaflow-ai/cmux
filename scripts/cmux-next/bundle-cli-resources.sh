@@ -16,7 +16,7 @@ mkdir -p "$bin"
 # reused DerivedData bundle. The cmux-tui outputs are owned by another phase.
 owned_bins=(
   cmux-code-mode-mcp cmux-code-mode-run start-cmux-profiling submit-cmux-profile
-  cmux-code-mode-runner cmux-dev-shim-install cmux-code-mode-macos-profile
+  cmux-code-mode-runner cmux-code-mode-sandbox cmux-dev-shim-install cmux-code-mode-macos-profile
   cmux-open-url open xdg-open
 )
 for name in "${owned_bins[@]}"; do
@@ -41,6 +41,7 @@ cp "$src/cmux-tui/spec/resource-operations-v2.json" "$code_mode/resource-operati
 cp "$src/backend/catalog/cloud-operations.json" "$code_mode/cloud-operations.json"
 cp "$src/backend/catalog/cloud-relay-operations.json" "$code_mode/cloud-relay-operations.json"
 install -m 755 "$src/scripts/cmux-next/cmux-code-mode-runner" "$bin/cmux-code-mode-runner"
+install -m 755 "$src/scripts/cmux-next/cmux-code-mode-sandbox" "$bin/cmux-code-mode-sandbox"
 # The managed dev shim, from its one source: tools that open this build
 # refresh a user's managed `cmux` shim from it (plans/cmux-next/version-skew.md).
 install -m 755 "$src/scripts/lib/cmux-dev-shim-install" "$bin/cmux-dev-shim-install"

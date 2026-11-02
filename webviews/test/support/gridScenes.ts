@@ -1,3 +1,4 @@
+import { sessionInfoGridScenes } from "./sessionInfoGridScenes";
 import type { GridLine, GridMetric, GridPoint, GridScene } from "./gridLines";
 
 // Roles identify ink targets; selectors remain available while surfaces migrate.
@@ -28,9 +29,8 @@ const selectorRoles: Record<string, string> = {
   ".acpmux-queued-kind": "lead",
   ".acpmux-permission-request-icon": "icon",
   ".acpmux-permission-card-leading": "icon",
-  ".acpmux-chat-inspector-section__icon": "icon",
+  ".acpmux-session-info-section__icon": "icon",
   ".cv-tool__chevron": "chevron",
-  ".acpmux-running-tray__finished svg": "chevron",
   ".acpmux-running-tray__status": "chevron",
 };
 const point = (selector: string, metric: GridMetric, role?: string): GridPoint => ({
@@ -61,7 +61,7 @@ const centered = (glyph: string, control: string): GridLine[] => [
 ];
 const scene = (surface: string, entry: string, variant: string, root: string, lines: GridLine[]): GridScene => ({
   surface,
-  level: "warn",
+  level: surface.startsWith("composer.") ? "fail" : "warn",
   entry,
   variant,
   root,
@@ -72,7 +72,9 @@ const plus = ".acpmux-composer-plus .acpmux-picker-button";
 
 const placeholder = ".acpmux-md-placeholder";
 const composer = (variant: string, text = placeholder, entry = "agent-pane.composer-row") => {
-  const last = variant === "claude-auto" ? ".acpmux-mic" : ".acpmux-send:not(.acpmux-steer-now)";
+  // Claude's look keeps the mic last in every state (#29796): Send, Stop or steer stands one control
+  // in from it, so the box's trailing line is the mic's.
+  const last = ".acpmux-mic";
   return scene("composer.box", entry, variant, ".acpmux-composer-box", [
     left("edge: control inset", plus, "left", token("composer-inset")),
     left("lead", `${plus} svg`, "cx", token("composer-lead-center")),
@@ -87,6 +89,17 @@ const composer = (variant: string, text = placeholder, entry = "agent-pane.compo
     value("mid: trailing control", last, "cy", point(plus, "cy")),
   ]);
 };
+// A two-line draft grows the box, and + and Send stay on its last line, so the one-line box's
+// height and first-line optical center do not apply; its text column is still the 44 px line.
+const draftLines = scene("composer.box", "agent-pane.composer-row", "grid-draft-lines", ".acpmux-composer-box", [
+  left("edge: control inset", plus, "left", token("composer-inset")),
+  left("lead", `${plus} svg`, "cx", token("composer-lead-center")),
+  left("text", ".acpmux-md p", "text", token("composer-text")),
+  trail(".acpmux-mic svg", token("composer-trail-center")),
+  value("radius", ":scope", "radius", token("composer-radius")),
+  ...centered(`${plus} svg`, plus),
+  value("mid: trailing control", ".acpmux-mic", "cy", point(plus, "cy")),
+]);
 const running = composer("grid-running");
 running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue" };
 // The capture fixture's prompt shows no placeholder (MarkdownField hides it whenever the field holds
@@ -96,6 +109,8 @@ const attachScreenshot = composer("attach-screenshot", placeholder, "agent-pane.
 attachScreenshot.absent = {
   [placeholder]: "The capture fixture's prompt shows no placeholder; claude-auto measures the text line.",
 };
+// A fail-level scene counts an unmeasured line as off, so the absent text lines are not listed here.
+attachScreenshot.lines = attachScreenshot.lines.filter((line) => line.actual.selector !== placeholder);
 
 const stackToken: Record<string, string> = {
   "stack.strip": "strip",
@@ -166,16 +181,87 @@ const card = (
     mid(title, icon),
   ]);
 
+const changesInset = `calc(3 * ${token("base")})`;
+const changesPanel = (): GridScene[] =>
+  [
+    scene("changes.panel", "agent-pane.diff-panel", "loaded-scope", ".acpmux-branch-row", [
+      value("control: branch pill", ".acpmux-branch-pill", "height", token("row")),
+      value("control: create PR", ".acpmux-pull-request-create", "height", token("row")),
+      value("button padding: create PR", ".acpmux-pull-request-create", "padding", changesInset),
+      from("branch arrow gap", ".acpmux-branch-arrow", "left", point(".acpmux-branch-from", "right"), token("gap")),
+    ]),
+    scene("changes.panel", "agent-pane.diff-panel", "tracked-only", ".acpmux-changes-banner", [
+      value("edge: padding", ":scope", "padding", changesInset),
+      from("edge: top", ".acpmux-changes-banner-text", "top", point(":scope", "top"), changesInset),
+      value("control: copy cleanup", ".acpmux-changes-banner-action", "height", token("pill")),
+      value("button padding: copy cleanup", ".acpmux-changes-banner-action", "padding", token("gap")),
+      value("button padding: refresh", ".acpmux-changes-banner-refresh", "padding", token("gap")),
+    ]),
+    scene("changes.panel", "agent-pane.diff-panel", "open-file-error", ".acpmux-diff-notice", [
+      value("edge: padding", ":scope", "padding", changesInset),
+      left("text", ".acpmux-diff-notice-text", "text", changesInset),
+      from("edge: top", ".acpmux-git-secondary", "top", point(":scope", "top"), token("gap")),
+      value("control: dismiss", ".acpmux-git-secondary", "height", token("pill")),
+      value("button padding: dismiss", ".acpmux-git-secondary", "padding", token("gap")),
+      trail(".acpmux-git-secondary", changesInset, "right"),
+    ]),
+    scene("changes.panel", "agent-pane.diff-panel", "stage-hunk", ".acpmux-hunk-actions", [
+      value("edge: padding", ":scope", "padding", changesInset),
+      value("control: stage hunk", ".acpmux-hunk-stage", "height", token("pill")),
+      value("button padding: stage hunk", ".acpmux-hunk-stage", "padding", token("gap")),
+      trail(".acpmux-hunk-stage", changesInset, "right"),
+    ]),
+    ...["toolbar", "stage-hunk"].map((variant) =>
+      scene("changes.panel", "agent-pane.diff-panel", variant, ".acpmux-diff-keys", [
+        value("edge: padding", ":scope", "padding", changesInset),
+        left("text", ".acpmux-diff-key", "left", changesInset),
+        from("edge: bottom", ":scope", "bottom", point(".acpmux-diff-key", "bottom"), token("base")),
+      ]),
+    ),
+    scene("changes.panel", "agent-pane.diff-panel", "review-file", ".acpmux-revert-bar", [
+      value("edge: padding", ":scope", "padding", changesInset),
+      left("text", ".acpmux-revert-count", "text", changesInset),
+      value("control: field", ".acpmux-revert-bar input", "height", token("row")),
+      value("field padding", ".acpmux-revert-bar input", "padding", changesInset),
+      value("control: send", ".acpmux-revert-send", "height", token("row")),
+      value("button padding: send", ".acpmux-revert-send", "padding", changesInset),
+      trail(".acpmux-revert-send", changesInset, "right"),
+    ]),
+    scene("changes.panel", "agent-pane.diff-panel", "review-file", ".acpmux-hunk-actions[data-decision]", [
+      value("control: undo", ".acpmux-hunk-undo", "height", token("pill")),
+      value("button padding: undo", ".acpmux-hunk-undo", "padding", token("gap")),
+      trail(".acpmux-hunk-undo", changesInset, "right"),
+    ]),
+    scene("changes.panel", "agent-pane.diff-panel", "review-file", ".acpmux-hunk-actions:not([data-decision])", [
+      value("control: accept", ".acpmux-hunk-accept", "height", token("pill")),
+      value("button padding: reject", ".acpmux-hunk-reject", "padding", token("gap")),
+      value("button padding: accept", ".acpmux-hunk-accept", "padding", token("gap")),
+      trail(".acpmux-hunk-accept", changesInset, "right"),
+    ]),
+    scene("changes.panel", "agent-pane.diff-panel", "review-threads", ".acpmux-review-thread", [
+      value("edge: padding", ":scope", "padding", token("gap")),
+    ]),
+    scene("changes.panel", "agent-pane.diff-panel", "address-thread", ".acpmux-review-actions", [
+      value("control: address", ".acpmux-review-address", "height", token("pill")),
+      value("button padding: address", ".acpmux-review-address", "padding", token("gap")),
+    ]),
+  ].map((item) => ({ ...item, level: "fail" as const }));
+// A 28 control (grid.md section 4) and the harness rows' text: lead 8 + the 20 box + 8.
+const control28 = `calc(${token("base")} * 7)`;
+const harnessText = `calc(${token("gap")} + ${token("icon-box-comfortable")} + ${token("gap")})`;
+const noticeCard = ".acpmux-host-error-card";
+
 /** Promotion is per surface and requires a fleet measurement; no surface is assumed to pass. */
 export const gridScenes: GridScene[] = [
+  ...sessionInfoGridScenes,
   composer("claude-auto"),
   running,
   composer("grid-draft", ".acpmux-md p"),
+  draftLines,
   attachScreenshot,
   scene("composer.foot", "agent-pane.composer-row", "claude-auto", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
-    from("text", ".acpmux-mode-text", "text", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
     from(
       "lead",
       ".acpmux-access-trigger svg",
@@ -190,7 +276,28 @@ export const gridScenes: GridScene[] = [
       point(".acpmux-context-ring svg", "cx"),
       token("composer-trail-center"),
     ),
-    mid(".acpmux-mode-text", ":scope"),
+    value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
+    mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
+    value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
+  ]),
+  scene("composer.foot", "agent-pane.composer-row", "grid-running", ".acpmux-composer-foot", [
+    from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
+    value("row height", ":scope", "height", token("composer-quiet-row-height")),
+    from(
+      "lead",
+      ".acpmux-access-trigger svg",
+      "cx",
+      point(".acpmux-composer-box", "left"),
+      token("composer-lead-center"),
+    ),
+    from(
+      "trail",
+      ".acpmux-composer-box",
+      "right",
+      point(".acpmux-context-ring svg", "cx"),
+      token("composer-trail-center"),
+    ),
+    value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
     value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
   ]),
@@ -219,7 +326,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-agent-line",
     ".acpmux-lineage__icon",
     ".acpmux-summary-agent__name",
-    ".acpmux-agent-line__stop-slot button",
+    ".acpmux-agent-line__stop-slot",
   ),
   ...["several-running", "grid-31"].map((variant) =>
     stack(
@@ -247,9 +354,6 @@ export const gridScenes: GridScene[] = [
     left("header: lead", ".acpmux-running-tray__head .acpmux-lineage__icon", "cx", token("tray-lead-center")),
     left("header: text", ".acpmux-running-tray__title", "text", token("tray-text")),
     mid(".acpmux-running-tray__title", ".acpmux-running-tray__head .acpmux-lineage__icon"),
-    left("footer: text", ".acpmux-running-tray__finished .acpmux-summary-text", "text", token("tray-text")),
-    trail(".acpmux-running-tray__finished svg", token("tray-trail-center")),
-    mid(".acpmux-running-tray__finished .acpmux-summary-text", ".acpmux-running-tray__finished svg"),
   ]),
   stack(
     "stack.queued",
@@ -300,12 +404,22 @@ export const gridScenes: GridScene[] = [
     trail(".cv-tool__chevron", `calc(${token("transcript-icon-box")} - ${token("transcript-icon-box")})`, "right"),
     mid(".cv-tool__text, .cv-command__text", ".cv-tool__icon"),
   ]),
-  scene("transcript.actions", "agent-pane.reply-actions", "after-steer", ".cv-reply-actions", [
-    trail(".cv-turn-time", token("transcript-action-trail-center")),
-    value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
-    ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
-    mid(".cv-turn-time", ".cv-iconbtn"),
-  ]),
+  // The turn footer's action row (TurnRows.tsx TurnFooter): Copy, Pin, Read aloud and More, then its
+  // time. A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
+  // agent-pane.reply-actions gallery entry is gone), so the footer under the first turn, which the
+  // `footer` variant points at, is the one action row the transcript draws.
+  scene(
+    "transcript.actions",
+    "agent-pane.transcript-row-alignment",
+    "footer",
+    ".acpmux-turnSummary .cv-turn-actions:not(.cv-turn-actions--empty)",
+    [
+      trail(".cv-turn-time", token("transcript-action-trail-center")),
+      value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
+      ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
+      mid(".cv-turn-time", ".cv-iconbtn"),
+    ],
+  ),
   card(
     "transcript.cards",
     "agent-pane.permission-card",
@@ -336,39 +450,145 @@ export const gridScenes: GridScene[] = [
     ".acpmux-summary-text",
     ".acpmux-summary-card__close",
   ),
-  // Glance has a bare Environment and heterogeneous section bodies (ChatInspector.tsx).
-  // Section roots keep a proven header absence from excusing another section's selector.
+  // The Changes panel (DiffPanel.tsx): its bars (notice, hunk actions, revert, keys) inset their
+  // content 12 from the panel edge, every control in them is 24 or 28 tall, and a button's side
+  // padding is 8 (24 tall) or 12 (28 tall).
+  ...changesPanel(),
+  // The failed turn's card (TurnRows.tsx TurnFailure, default `card` arm): Lawrence via Leo,
+  // 2026-10-28, "needs more left padding". Its icon box sits on the card's lead and the cause and
+  // its buttons on the card's text column; there is no trailing control.
+  {
+    ...scene("transcript.cards", "agent-pane.turn-error-card", "rate-limited", ".cv-turn-error--card", [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      from("edge: top", ".cv-turn-error__cause", "top", point(":scope", "top"), token("cards-padding")),
+      left("lead", ".cv-turn-error__icon", "left", token("cards-lead")),
+      value("icon box", ".cv-turn-error__icon", "width", token("icon-box")),
+      left("text: heading", ".cv-turn-error__cause", "text", token("cards-text")),
+      left("text: actions", ".cv-turn-error__actions > :first-child", "left", token("cards-text")),
+      value("radius", ":scope", "radius", token("cards-radius")),
+      mid(".cv-turn-error__cause", ".cv-turn-error__icon"),
+    ]),
+    level: "fail",
+  },
+  // Session status (HarnessStatusCard.tsx): Lawrence via Leo, 2026-10-28, "copy all alignment
+  // with 'X'". The header actions centre on the header's first line (the harness eyebrow), and
+  // the close control is the card's 28 trailing control ending 12 in.
+  {
+    ...scene("transcript.cards", "agent-pane.harness-status", "claude", ".acpmux-harness-status", [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      value("radius", ":scope", "radius", token("cards-radius")),
+      value("close control", ".acpmux-harness-status__close", "width", token("cards-control")),
+      trail(".acpmux-harness-status__close", token("cards-trail-center")),
+      ...centered(".acpmux-harness-status__close svg", ".acpmux-harness-status__close"),
+      value(
+        "mid: close on first line",
+        ".acpmux-harness-status__close",
+        "cy",
+        point(".acpmux-harness-status__eyebrow", "optical"),
+      ),
+      mid(".acpmux-harness-status__copy-all", ".acpmux-harness-status__close"),
+    ]),
+    level: "fail",
+  },
+  // The notice and error card over the composer (`.acpmux-host-error-card`: HostError.tsx's
+  // folder harness card, HarnessHealthNotice.tsx, RulesNotice.tsx). It is a card (grid.md 5.6):
+  // padding 12, radius 12, its action row 8 under the text with an 8 gap between buttons. It has
+  // no header icon and no trailing control, so it has no lead, text column or trail line.
   ...[
-    ["environment", ".acpmux-chat-inspector-row__name"],
-    ["context", ".acpmux-chat-inspector-context__total > span:first-child"],
-    ["connectors", ".acpmux-chat-inspector-row__name"],
-    ["changes", ".acpmux-chat-inspector-pr__title"],
-    ["sources", ".acpmux-chat-inspector-source__label"],
-    ["outputs", ".acpmux-chat-inspector-row__name"],
-    ["subagents", ".acpmux-summary-text"],
-    ["tasks", ".acpmux-chat-inspector-task__command"],
-  ].map(([section, body]) => {
-    const entry = card(
-      "transcript.cards",
-      "agent-pane.chat-inspector",
-      "layout-glance-open",
-      `.acpmux-chat-inspector-section[data-section="${section}"]`,
-      ".acpmux-chat-inspector-section__icon",
-      ".acpmux-chat-inspector-section__title",
-      body!,
-      ".acpmux-chat-inspector-section__fold",
-    );
-    entry.absent = {};
-    if (section !== "context" && section !== "connectors")
-      entry.absent[".acpmux-chat-inspector-section__icon"] =
-        `ChatInspector's ${section} section supplies no header icon in layout-glance-open.`;
-    if (section === "environment") {
-      entry.absent[".acpmux-chat-inspector-section__title"] =
-        "Glance Environment is bare: InspectorSection renders its body without a header.";
-      entry.absent[".acpmux-chat-inspector-section__fold"] = "Bare Environment has no section disclosure control.";
-    }
-    return entry;
-  }),
+    ["agent-pane.host-error", "enable", noticeCard],
+    ["agent-pane.harness-health-notice", "signed-out", `.acpmux-harness-notice ${noticeCard}`],
+  ].map(([entry, variant, root]) => ({
+    ...scene("cards.notice", entry!, variant!, root!, [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      value("edge: padding top", ":scope", "padding-top", token("cards-padding")),
+      value("edge: padding bottom", ":scope", "padding-bottom", token("cards-padding")),
+      from(
+        "action row",
+        ".acpmux-host-error-actions > button:first-child",
+        "top",
+        point(":scope > p:last-of-type", "bottom"),
+        token("gap"),
+      ),
+      ...(variant === "signed-out"
+        ? [
+            from(
+              "actions: gap",
+              ".acpmux-host-error-actions > button:nth-child(2)",
+              "left",
+              point(".acpmux-host-error-actions > button:first-child", "right"),
+              token("gap"),
+            ),
+          ]
+        : []),
+      value("radius", ":scope", "radius", token("cards-radius")),
+    ]),
+    level: "fail" as const,
+  })),
+  {
+    ...scene("cards.notice", "agent-pane.rules-notice", "collapsed", `.acpmux-rules-notice ${noticeCard}`, [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      value("edge: padding top", ":scope", "padding-top", token("cards-padding")),
+      value("edge: padding bottom", ":scope", "padding-bottom", token("cards-padding")),
+      value("radius", ":scope", "radius", token("cards-radius")),
+    ]),
+    level: "fail",
+  },
+  // Session Info is measured above as one row surface, not as independent padded cards.
+  // Settings-style lists in a pane (grid.md 5.7): the Harnesses page (HarnessesScreen.tsx). Its rows
+  // are section 3 rows with the row box as the highlight: the mark's 20 box 8 in, the name and
+  // status 8 after it, the trailing action ending 8 in. The page's 28 controls and its side inset
+  // sit on the 4 grid (16 minimum).
+  ...[
+    ["this-mac", "claude"],
+    // this-mac's play signs Codex in, which takes its action away: its Codex row is measured in
+    // hover, the variant with no play.
+    ["hover", "codex"],
+  ].map(([variant, harness]): GridScene => ({
+    ...scene("pane.lists", "agent-pane.harnesses", variant!, `.acpmux-harness-row[data-harness-row="${harness}"]`, [
+      left("lead", ".agent-mark", "left", token("gap")),
+      value("icon box", ".agent-mark", "width", token("icon-box-comfortable")),
+      left("text: name", ".acpmux-harness-name", "text", harnessText),
+      left("text: detail", ".acpmux-harness-detail", "text", harnessText),
+      trail(".acpmux-harness-action", token("gap"), "right"),
+      value("action control", ".acpmux-harness-action", "height", control28),
+      value("mid: icon", ".agent-mark", "cy", point(":scope", "cy")),
+      value("mid: action", ".acpmux-harness-action", "cy", point(":scope", "cy")),
+    ]),
+    level: "fail",
+  })),
+  {
+    ...scene("pane.lists", "agent-pane.harnesses", "this-mac", ".acpmux-harnesses", [
+      value(
+        "edge: side inset",
+        ":scope",
+        "padding",
+        // The page centres a 560 column in the pane (the gallery's pane is the viewport); the inset
+        // rounds down to the 4 grid, 16 at least.
+        `max(calc(${token("base")} * 4), round(down, calc((100vw - 560px) / 2), ${token("base")}))`,
+      ),
+      value("close control", ".acpmux-harnesses-close", "height", control28),
+      value("close control: width", ".acpmux-harnesses-close", "width", control28),
+      value("close radius", ".acpmux-harnesses-close", "radius", `calc(${token("base")} * 1.5)`),
+      ...centered(".acpmux-harnesses-close svg", ".acpmux-harnesses-close"),
+      // Custom harness… is a row of the same list (#28906): its text on the rows' text column, its
+      // end 8 in like theirs.
+      from(
+        "custom: text",
+        ".acpmux-harnesses-custom .acpmux-harness-name",
+        "text",
+        point(".acpmux-harnesses-custom", "left"),
+        harnessText,
+      ),
+      from(
+        "custom: end",
+        ".acpmux-harnesses-custom",
+        "right",
+        point(".acpmux-harnesses-custom .acpmux-harness-detail", "right"),
+        token("gap"),
+      ),
+    ]),
+    level: "fail",
+  },
 ];
 
 // These are omissions in the current component design, not selector fallbacks. All other
@@ -401,9 +621,12 @@ const absentBySurface: Record<string, Record<string, string>> = {
 for (const item of gridScenes) {
   item.absent = { ...absentBySurface[item.surface], ...item.absent };
   if (item.surface === "transcript.cards" && item.variant === "finished-open") {
-    // SummaryCard.gallery.tsx sets column=true; both controls require !card.column.
+    // SummaryCard.gallery.tsx sets column=true; both controls require !card.column. The column has
+    // no title row either (#29895: it starts with Environment, as the popover does since #28744).
     item.absent[".acpmux-summary-card__fold--icon"] =
-      "The inline summary column has a text heading without the popover fold icon.";
+      "The inline summary column has no title row, so no popover fold icon.";
+    item.absent[".acpmux-summary-card__title"] =
+      "The inline summary column has no title row; it starts with Environment (#29895).";
     item.absent[".acpmux-summary-card__close"] = "The inline summary column has no popover close control.";
   }
 }

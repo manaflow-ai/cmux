@@ -2,12 +2,12 @@
 // before the last safe boundary is final: it is parsed once, keeps its object (so a memoized block
 // never renders again) and its key. Only the tail after that boundary is parsed again.
 import { type MdBlock, parseMarkdown } from "./Markdown";
+import { fenceStep } from "./fenceRule";
 import { safeTail } from "./safeTail";
 
 export type KeyedBlock = { key: string; block: MdBlock };
 
 const LIST_START = /^(\s*)([-*+]|\d+[.)])\s+/;
-const FENCE = /^\s*```/;
 const DISPLAY_OPEN = /^\s*\\\[/;
 const DISPLAY_CLOSE = /\\\]\s*$/;
 /// A line opening a `$$` display that does not close on it (Markdown.tsx displayMath).
@@ -90,7 +90,7 @@ export class IncrementalMarkdown {
 /// this renderer and in the estimator's lexer.
 export function lastBlockBoundary(source: string, from: number): number {
   let boundary = from;
-  let fenced = false;
+  let fenced = 0;
   let display = false;
   let closer = DISPLAY_CLOSE;
   // The closed end always follows a blank line.
@@ -100,10 +100,10 @@ export function lastBlockBoundary(source: string, from: number): number {
     const newline = source.indexOf("\n", start);
     if (newline < 0) break; // The last line is still streaming.
     const line = source.slice(start, newline).replace(/\r$/, "");
-    if (start > from && previousBlank && !fenced && !display && /^\S/.test(line) && !LIST_START.test(line))
+    if (start > from && previousBlank && fenced === 0 && !display && /^\S/.test(line) && !LIST_START.test(line))
       boundary = start;
-    if (FENCE.test(line) && !display) fenced = !fenced;
-    else if (!fenced) {
+    if (!display && fenceStep(fenced, line) !== fenced) fenced = fenceStep(fenced, line);
+    else if (fenced === 0) {
       if (display) display = !closer.test(line);
       else if (DOLLARS_OPEN.test(line)) [display, closer] = [true, DOLLARS_CLOSE];
       else if (DISPLAY_OPEN.test(line))

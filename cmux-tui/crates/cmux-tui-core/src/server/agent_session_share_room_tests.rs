@@ -1633,6 +1633,29 @@ fn an_early_prompt_waits_for_the_attachment_and_a_hello_guest_outlives_one_left_
     assert_eq!(fake.frame()["method"], "session/prompt");
 }
 
+/// A guest frame of another protocol version (or none) starts no relay and sends no prompt.
+#[test]
+fn a_guest_frame_of_another_version_is_ignored() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-version", &room);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 2, "t": "guest_joined", "guest_id": ann}));
+    room.send(json!({"t": "guest_joined", "guest_id": ann}));
+    room.none(
+        "a snapshot for a guest_joined that is not v1",
+        |s| matches!(s, Seen::Frame { frame, .. } if frame["t"] == "snapshot"),
+    );
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    room.send(json!({"v": 2, "t": "guest_prompt", "guest_id": ann, "client_id": "v2",
+        "text": "hello"}));
+    assert!(
+        fake.next_frame(Duration::from_millis(500)).is_none_or(|f| f["method"] != "session/prompt"),
+        "a v2 prompt never reaches the daemon"
+    );
+}
+
 /// A guest relay's connection takes one of the daemon's connection permits like any client's:
 /// with none free no relay starts, and the guest's next join gets one once a permit is back.
 #[test]

@@ -234,6 +234,10 @@ pub(super) fn intercept(
     if !mux.is_remote_client(client) {
         return None;
     }
+    #[cfg(unix)]
+    if mux.is_native_agent_owner(client) && super::native_owner::raw_command(mux, client, cmd) {
+        return None;
+    }
     Some(match cmd {
         Command::Identify { .. } => Ok(identify()),
         Command::SetClientInfo { name, capabilities, .. } => {
@@ -264,10 +268,18 @@ pub(super) fn handle_frame(
     if mux.daemon_handoff_in_progress() {
         return writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok();
     }
+    #[cfg(unix)]
+    if let Some(keep_open) = super::native_owner::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
     // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
     // checks, outside the conversation allowlist.
     #[cfg(unix)]
     if let Some(keep_open) = super::fs_wire::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = super::cloud_repos::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     if gate::check_frame(message).is_err() {

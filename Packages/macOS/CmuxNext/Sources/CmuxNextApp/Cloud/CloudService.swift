@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -26,6 +27,10 @@ final class CloudService {
     /// A machine's exec and file routes: ``api`` on the legacy link, the cmux API Worker's on the
     /// app server link, whose machines have no `/api/vm` row (cmux-platform#89).
     @ObservationIgnored let machineAPI: CloudAPIClient
+    /// Same person and team as the machine API, at the configured platform preview origin.
+    var previewAPI: CloudAPIClient? {
+        configuration.platformPreviewAPIBaseURL().map { machineAPI.previewClient(baseURL: $0) }
+    }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let networkAccess = CloudNetworkAccessQueue() // one network policy read-then-write per machine
@@ -56,6 +61,10 @@ final class CloudService {
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
+    /// The install guest links' owner tokens come from (``CloudConfiguration/shareAPIBaseURL(environment:)``):
+    /// ``installIdentity`` when both name one API, else a second install there, registered at the first share
+    /// (``shareOwnerToken()``) and revoked with it.
+    @ObservationIgnored let shareInstallIdentity: MacInstallIdentity
     /// `phone.cloudReplica`: this Mac's workspace list for phones while it is off.
     @ObservationIgnored let hostReplica: CloudHostReplicaFollower
     /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
@@ -72,6 +81,7 @@ final class CloudService {
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
+    @ObservationIgnored private let refreshGate = CloudRefreshGate()
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
@@ -137,6 +147,8 @@ final class CloudService {
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
     @ObservationIgnored let uploads = CloudUploads()
+    /// Staged uploads into ssh-peer chats, beside the Cloud ones (``AgentPeerUploads``).
+    @ObservationIgnored let peerUploads = AgentPaneStagedUploads<AgentPeerUploads.Target>(owner: "AgentPeerUploads.stageExpiry")
 
     /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event
     /// batches run on it (one main thread, one budget).
@@ -145,7 +157,7 @@ final class CloudService {
     /// - Parameters:
     ///   - mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
     ///   - work: The app's blocking-work lanes: the install id is read on its files lane (``CloudDeviceID``).
-    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, authCaptureFixture: Bool = false) {
+    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, loginKeychain: LoginKeychain, authCaptureFixture: Bool = false) {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
@@ -157,20 +169,26 @@ final class CloudService {
         api = CloudAPIClient(
             configuration: configuration,
             tokens: { try await auth.tokens() },
-            teamID: { await auth.teamID }
-        )
-        let identity = MacInstallIdentity(
-            store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
-                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
-                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
-            transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
-            deviceName: Self.deviceName,
-            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        )
+            teamID: { await auth.teamID })
+        let configuration = self.configuration, paths = self.paths
+        let install = { (api: URL, folder: String) in
+            MacInstallIdentity(
+                store: .forApp(directory: paths.root.appendingPathComponent(folder, isDirectory: true),
+                               service: "\(configuration.bundleID ?? "cmux").install-key.\(api.host ?? "unknown")",
+                               team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, loginKeychain: loginKeychain),
+                transport: InstallHTTPTransport(baseURL: api),
+                deviceName: Self.deviceName,
+                clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            )
+        }
+        let identity = install(configuration.ownerAPIBaseURL(), "install")
         installIdentity = identity
+        let shareAPI = configuration.shareAPIBaseURL()
+        shareInstallIdentity = shareAPI == configuration.ownerAPIBaseURL() ? identity : install(shareAPI, "install-share")
         machineAPI = configuration.linkSource == .appServer
             ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
-                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
+                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
+                                            machineIO: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
             : api
         let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build
@@ -211,24 +229,14 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
-        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
+        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
+            signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
+            allowedOps: { await CloudCredentialRelay.bundledServedOps() })
+        credentialProvider = CloudCredentialProvider(relay: relay)
+        let launcher = configuration.linkSource == .appServer
+            ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build, relay: relay) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
-        let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
-        let clientHeaders = identity.requestHeaders
-        credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
-            post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
-            token: { try await identity.installToken() },
-            invalidate: { await identity.invalidate() },
-            // The team is the backend team the relay bills: the install
-            // token's team claim (never the Stack team id) (cx-i6g4).
-            session: { [auth] in
-                guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
-                let token = try? await identity.installToken()
-                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
-            },
-            allowedOps: { await CloudCredentialRelay.bundledServedOps() }
-        ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
@@ -333,6 +341,7 @@ final class CloudService {
                     // expired): no link keeps running for it.
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
+                    if self.shareInstallIdentity !== self.installIdentity { await self.shareInstallIdentity.unbind() }
                     self.hands.stop()
                 }
             }
@@ -404,6 +413,7 @@ final class CloudService {
     }
 
     func stop() {
+        refreshGate.cancel()
         signedOutCreation.cancel()
         for observer in observers { observer.cancel() }
         observers.removeAll(); changes.stop()
@@ -467,11 +477,22 @@ final class CloudService {
     /// one signed in when it lands, changes nothing: it can neither bring back
     /// a signed-out account's machines, nor undo a create or delete it did not
     /// see, nor mark the store loaded with an older answer than the latest.
-    /// True only when this call's own list landed: a failed, skipped or superseded call is false,
+    /// True only when this call's batch landed for the same account: a failed or skipped call is false,
     /// whatever the store held before it.
     @discardableResult
     func refresh() async -> Bool {
         guard auth.isSignedIn, unavailableReason == nil else { return false }
+        let account = listAccount
+        let refreshed = await refreshGate.run { [weak self] in
+            guard let self else { return false }
+            return await self.performRefresh()
+        }
+        return refreshed && auth.isSignedIn && unavailableReason == nil && account == listAccount && hasLoadedCurrentMachines
+    }
+
+    /// The gate starts each batch in current auth/policy state, including follow-ups.
+    private func performRefresh() async -> Bool {
+        guard auth.isSignedIn, unavailableReason == nil, !Task.isCancelled else { return false }
         changes.start()
         lastRefresh = .now
         listGeneration += 1
@@ -491,7 +512,7 @@ final class CloudService {
                 list = listed.machines
                 limits = listed.limits
             }
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
             machines.cloudLimits = limits
             planSizes = CloudWorkspaceSetupWizard.SizeOption.options(limits: limits, machines: list)
             if let limits { planObserved(limits.planId) }
@@ -505,7 +526,7 @@ final class CloudService {
             await startHubForSSHRoutes()
             return true
         } catch {
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
             return false
@@ -855,6 +876,9 @@ final class CloudService {
         if let stackUser = auth.user?.id {
             let auth = auth
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
+            if shareInstallIdentity !== installIdentity {
+                await shareInstallIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
+            }
         }
         // An ensure that slipped in during the revoke: stop that link too.
         await link.stopLink()
@@ -878,6 +902,21 @@ final class CloudService {
             hostReplica.installReady()
         } catch {
             logger.error("install registration failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// A guest link's owner token from ``shareInstallIdentity``, registering that install first when sign-in
+    /// did not: a DEV build on the local backend never calls the Cloud API (``mayCallCloud``), but its links'
+    /// room is a Worker's. Nil signed out, or with Cloud off for the organization or its team missing.
+    func shareOwnerToken() async -> String? {
+        guard let stackUser = auth.user?.id, !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
+        let auth = auth
+        do {
+            try await shareInstallIdentity.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
+            return try await shareInstallIdentity.installToken()
+        } catch {
+            logger.error("share owner token failed: \(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 }

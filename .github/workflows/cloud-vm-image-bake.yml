@@ -68,6 +68,11 @@ on:
         required: false
         default: false
         type: boolean
+      native_receiver:
+        description: Dedicated development VM API image with the root Native receiver; never promotes a direct Cloud image
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -150,7 +155,15 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Validate the input lock
-        run: bun test tests/vm-image-cmux-vm-lock.test.ts
+        env:
+          NATIVE_RECEIVER: ${{ inputs.native_receiver && 'true' || '' }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          if [ -n "$NATIVE_RECEIVER" ] && [ "$MODE" != bake ]; then
+            echo 'Native receiver images support development bake mode only' >&2
+            exit 1
+          fi
+          bun test tests/vm-image-cmux-vm-lock.test.ts
 
       - name: Bake
         if: inputs.mode == 'bake'
@@ -160,11 +173,12 @@ jobs:
           AGENT_TOOLS: ${{ inputs.agent_tools && '--agent-tools' || '' }}
           TEAM_VM: ${{ inputs.team_vm && '--team-vm' || '' }}
           DEV_TREE: ${{ inputs.dev_tree && '--dev-tree' || '' }}
+          NATIVE_RECEIVER: ${{ inputs.native_receiver && '--native-receiver' || '' }}
         run: |
           set -euo pipefail
           mkdir -p "$OUT_DIR"
           # shellcheck disable=SC2086
-          bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" $AGENT_TOOLS $TEAM_VM $DEV_TREE | tee "$OUT_DIR/bake.out"
+          bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" $AGENT_TOOLS $TEAM_VM $DEV_TREE $NATIVE_RECEIVER | tee "$OUT_DIR/bake.out"
           snapshot="$(awk '/^IMAGE_ID /{print $2}' "$OUT_DIR/bake.out" | tail -1)"
           test -n "$snapshot"
           echo "snapshot=$snapshot" >> "$GITHUB_OUTPUT"
@@ -179,10 +193,11 @@ jobs:
           PROBES: ${{ inputs.probes && '--agent-probe --resize-probe' || '' }}
           # A team image must also pass the /srv/team check.
           TEAM_VM: ${{ inputs.team_vm && '--team-vm' || '' }}
+          NATIVE_RECEIVER: ${{ inputs.native_receiver && '--native-receiver' || '' }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086
-          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --out-dir "$OUT_DIR" $PROBES $TEAM_VM | tee "$OUT_DIR/smoke.out"
+          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --out-dir "$OUT_DIR" $PROBES $TEAM_VM $NATIVE_RECEIVER | tee "$OUT_DIR/smoke.out"
 
       # Time to first build on new machines of this image (first-build.ts); first-build-before
       # measures the dev channel's image the same way.
@@ -208,6 +223,7 @@ jobs:
           AGENT_TOOLS: ${{ inputs.agent_tools && '--agent-tools' || '' }}
           TEAM_VM: ${{ inputs.team_vm && '--team-vm' || '' }}
           DEV_TREE: ${{ inputs.dev_tree && '--dev-tree' || '' }}
+          NATIVE_RECEIVER: ${{ inputs.native_receiver && '--native-receiver' || '' }}
           PROBES: ${{ inputs.probes && '--agent-probe --resize-probe' || '' }}
           CLONES: ${{ inputs.clones }}
         run: |
@@ -215,15 +231,20 @@ jobs:
           bake_json="$(find "$OUT_DIR" -maxdepth 1 -name 'bake-*.json' | head -1)"
           smoke_json="$OUT_DIR/smoke-$TAG.json"
           jq -e '.passed == true' "$smoke_json" > /dev/null
+          # Native candidates go to the VM API's approved image catalog. Never emit the
+          # channel-dev.json consumed by the direct Cloud promotion workflow for one.
+          candidate="$OUT_DIR/channel-dev.json"
+          if [ -n "$NATIVE_RECEIVER" ]; then candidate="$OUT_DIR/native-image.json"; fi
           jq -n --slurpfile b "$bake_json" --slurpfile s "$smoke_json" --arg id "$SNAPSHOT" --arg sha "$SOURCE_SHA" --arg run "$RUN_ID" \
-            --arg var "$SNAPSHOT_VAR" --arg bake "images/cmux-vm/bake.ts $AGENT_TOOLS $TEAM_VM $DEV_TREE" --arg smoke "smoke.ts --clones $CLONES $PROBES $TEAM_VM" \
+            --arg var "$SNAPSHOT_VAR" --arg bake "images/cmux-vm/bake.ts $AGENT_TOOLS $TEAM_VM $DEV_TREE $NATIVE_RECEIVER" --arg smoke "smoke.ts --clones $CLONES $PROBES $TEAM_VM $NATIVE_RECEIVER" \
             'def words: split(" ") | map(select(. != "")) | join(" ");
              ($bake | words) as $bake | ($smoke | words) as $smoke |
              {schema: 1, env: "dev", var: $var, snapshot: $b[0].name, snapshot_id: $id, lock_sha256: $b[0].lockSha256, source_sha: $sha, run: ($run|tonumber), baked_at: (now|todate),
               bake: "\($bake) (CI run \($run))", smoke: {result: "PASSED", at: (now|todate), detail: "\($smoke) (CI run \($run)): \($s[0].checks | length) checks passed"}}
-             + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)' \
-            > "$OUT_DIR/channel-dev.json"
-          cat "$OUT_DIR/channel-dev.json"
+             + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)
+             | if $b[0].nativeReceiver then del(.var) + {native_receiver: true, transport: "vm-api"} else . end' \
+            > "$candidate"
+          cat "$candidate"
 
       # The copy repeats the dev image's lock and flags. The key must not be the dev account's
       # (prod-copy.ts account-check: it resolves a trusted recorded
@@ -450,7 +471,7 @@ jobs:
   first-build-report:
     if: always() && inputs.mode == 'bake' && inputs.dev_tree
     needs: [bake, first-build-before]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Checkout

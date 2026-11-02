@@ -16,7 +16,7 @@ impl Translator {
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": {"subtype": "initialize", "hooks": {}, "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"]}
+                            "request": initialize_request()
                         })];
                         // Ultracode and fast mode survive a respawn on the live channel
                         // (no CLI flag); the answer ("boot-*") needs no reply.
@@ -501,4 +501,22 @@ fn resource_text(b: &Value) -> String {
         Some(text) => format!("<resource uri=\"{uri}\"{path}>\n{text}\n</resource>"),
         None => format!("<resource uri=\"{uri}\"{path} />"),
     }
+}
+
+/// Claude Code's `initialize` control request.
+///
+/// `perTaskStopAffordance` says this client stops background tasks one by one (a background
+/// process's kill, `_acpmux/process/kill`, and a subagent's stop, `_acpmux/subagent_stop`, both
+/// Claude Code's `stop_task`). Without it Claude Code's headless `interrupt` (what Stop sends)
+/// also kills every running background shell and background subagent, and marks each subagent
+/// stopped by the user so it is never resumed. With it the interrupt stops only the turn, as Esc
+/// does in the CLI, and background work runs on and reports when it ends (Leo, 2026-10-31:
+/// "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING").
+pub(super) fn initialize_request() -> Value {
+    json!({
+        "subtype": "initialize",
+        "hooks": {},
+        "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"],
+        "perTaskStopAffordance": true,
+    })
 }

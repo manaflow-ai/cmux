@@ -8,6 +8,10 @@ import { NewTabScreen } from "./NewTabScreen";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 import type { SavedEnvironment } from "../environments";
 import type { RunMode } from "../sandboxRun";
+import type { MarkdownFieldElement } from "../MarkdownField";
+import { proseMirrorGlobals } from "../promptFieldTesting";
+import { inlineToken, type ComposerAttachment } from "../attachments";
+import { translate } from "../i18n";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -16,7 +20,9 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 beforeEach(() => {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+  });
   const requestAnimationFrame = (callback: FrameRequestCallback) =>
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   for (const key of [
@@ -25,6 +31,8 @@ beforeEach(() => {
     "navigator",
     "Node",
     "HTMLElement",
+    "MutationObserver",
+    "getSelection",
     "Element",
     "getComputedStyle",
     "ResizeObserver",
@@ -34,6 +42,7 @@ beforeEach(() => {
   ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
+    ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
     window: dom.window,
     document: dom.window.document,
     navigator: dom.window.navigator,
@@ -67,20 +76,44 @@ afterEach(() => {
   dom = undefined;
 });
 
-async function typePrompt(text: string) {
-  const field = container.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
-  await act(async () => {
-    setValue.call(field, text);
-    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-  });
+async function promptField() {
+  const field = container.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   return field;
 }
 
-async function press(field: HTMLTextAreaElement, key: string) {
+async function typePrompt(text: string) {
+  const field = await promptField();
+  field.acpmuxMarkdownField!.writeText(text, text.length, text.length);
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  return field;
+}
+
+async function press(field: MarkdownFieldElement, key: string) {
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   await act(async () => {
-    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    editor.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
   });
+}
+
+/// The environment control's machine list: Machines… on its right-click menu (its main list is This
+/// Mac and Cloud).
+async function openMachines(button: HTMLElement) {
+  await act(async () =>
+    button.dispatchEvent(
+      new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+    (candidate) => candidate.textContent === translate("composer.machinesList"),
+  );
+  expect(item, "no Machines… item").toBeTruthy();
+  await act(async () => item!.click());
+}
+
+function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-field")) {
+  return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
 
 test("New Tab exposes the chat composer attachment menu", async () => {
@@ -102,7 +135,7 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   const add = container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button");
   expect(add).toBeTruthy();
   await act(async () => add!.click());
-  expect(container.querySelector('.acpmux-newtab-plus [data-value="attach"]')).toBeTruthy();
+  expect(container.querySelector('.acpmux-newtab-plus [data-value="add.files"]')).toBeTruthy();
 });
 
 test("New Tab + offers Search chats and Search pages as app actions, and no Search files", async () => {
@@ -197,8 +230,13 @@ test("cancelling a saved environment browse keeps the New Tab project", async ()
     '.acpmux-location-picker[data-kind="computer"] .acpmux-location-button',
   );
   expect(environmentButton).toBeTruthy();
-  await act(async () => environmentButton!.click());
-  const create = [...document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find((item) =>
+  // Create environment is the control's right-click menu (the list holds only where a chat runs).
+  await act(async () =>
+    environmentButton!.dispatchEvent(
+      new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const create = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((item) =>
     item.textContent?.includes("Create environment"),
   );
   expect(create).toBeTruthy();
@@ -278,6 +316,67 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
+test("Do not work in a project, then a remote machine with a folder: headline, location and send name that folder", async () => {
+  const remoteFolder = "/remote/project";
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat(
+          [
+            {
+              sessionId: "remote-chat",
+              peer: "build-box",
+              host: "build-box",
+              hostKind: "local",
+              cwd: remoteFolder,
+            },
+          ],
+          { peers: ["build-box"], peerKinds: { "build-box": "ssh" } },
+        )}
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        pageWidgets={new Set(["greeting"])}
+        machineName="This Mac"
+        environments
+        onAsk={(...args) => asks.push(args)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+
+  const folder = container.querySelector<HTMLButtonElement>('.nt-location [aria-label="Folder"]');
+  expect(folder).toBeTruthy();
+  await act(async () => folder!.click());
+  const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("Do not work in a project"),
+  );
+  expect(noProject).toBeTruthy();
+  await act(async () => noProject!.click());
+  expect(container.querySelector(".nt-headline-text")?.textContent).toBe("What should we work on at This Mac?");
+
+  await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
+  await act(async () => document.querySelector<HTMLElement>('.acpmux-env-row[data-kind="ssh"]')!.click());
+
+  // The machine pick took its known folder: the chat starts there, so all three name it.
+  const headline = container.querySelector(".nt-headline-text")?.textContent ?? "";
+  expect(headline).toContain("project");
+  expect(headline).toContain("build-box");
+  expect(container.querySelector(".nt-location")?.textContent).toContain("project");
+  expect(container.querySelector(".nt-location")?.textContent).not.toContain("No project");
+  await typePrompt("fix it");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks.length).toBe(1);
+  expect(asks[0]?.[2]).toBe(remoteFolder);
+  expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
+});
+
 test.each(["", "Implement a todo list"])("Return without a harness opens setup for typed draft %j", async (draft) => {
   let opened = 0;
   const searches: string[] = [];
@@ -295,12 +394,12 @@ test.each(["", "Implement a todo list"])("Return without a harness opens setup f
         />,
       );
     });
-    const field = draft ? await typePrompt(draft) : container.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const field = draft ? await typePrompt(draft) : await promptField();
     expect(typed).toEqual(draft ? [draft] : []);
     await press(field, "Enter");
     expect(opened).toBe(1);
     expect(searches).toEqual([]);
-    expect(field.value).toBe(draft);
+    expect(promptValue(field)).toBe(draft);
   } finally {
     unregister();
   }
@@ -355,6 +454,123 @@ test("Return on a typed address still opens it without a harness", async () => {
   }
 });
 
+test("the `/` menu opens mid-prompt with the skills and writes the pick in place, as in chat", async () => {
+  const snapshot = noChat([], {
+    catalog: [],
+    commands: [
+      { name: "model", description: "", source: "cmux" },
+      { name: "compact", description: "", source: "agent" },
+      { name: "review-pr", description: "", source: "skill" },
+    ],
+  });
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} snapshot={snapshot} />);
+  });
+  const names = () =>
+    [...container.querySelectorAll("#acpmux-slash-menu [role='option'] .acpmux-slash-name")].map((row) =>
+      row.textContent?.trim(),
+    );
+  await typePrompt("/");
+  expect(names()).toEqual(["/model", "/compact", "/review-pr"]);
+  await typePrompt("src/app");
+  expect(names()).toEqual([]);
+  const field = await typePrompt("fix it /");
+  expect(names()).toEqual(["/review-pr"]);
+  await press(field, "Enter");
+  expect(promptValue()).toBe("fix it /review-pr ");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+  expect([...container.querySelectorAll(".nt-field .acpmux-slash-token")].map((token) => token.textContent)).toEqual([
+    "/review-pr",
+  ]);
+});
+
+test("a Codex skill typed without its `$` goes to the agent as `/$name`, other text as typed", async () => {
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { commands: [{ name: "$emil-color", description: "", source: "skill" }] })}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("Use /emil-color in src/emil-color");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks.length).toBe(1);
+  expect((asks[0] as unknown[])[1]).toBe("Use /$emil-color in src/emil-color");
+});
+
+test("mid-prompt a Codex skill named like a command goes with its `$`, picked or not", async () => {
+  // New Tab opens a leading `/word` as a path, so its prompts name a skill further on, where only a
+  // skill is read (slashCommands.ts withSkillDollars).
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], {
+          commands: [
+            { name: "$emil-color", description: "", source: "skill" },
+            { name: "emil-color", description: "", source: "agent" },
+          ],
+        })}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("use /emil-color now");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect((asks[0] as unknown[])[1]).toBe("use /$emil-color now");
+});
+
+test("Return sends a path or short word at the end; Shift and Cmd Return never pick; a full name sends", async () => {
+  const asks: unknown[][] = [];
+  const skill = { name: "design-vocabulary", description: "Design words", source: "skill" as const };
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { commands: [skill] })}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  const key = async (field: MarkdownFieldElement, init: KeyboardEventInit) => {
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+    await act(async () => {
+      editor.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+    });
+  };
+  for (const typed of ["look in /dev", "great job /s"]) {
+    const field = await typePrompt(typed);
+    await press(field, "Enter");
+    expect(promptValue()).not.toContain("/design-vocabulary");
+  }
+  expect(asks.map((ask) => ask[1])).toEqual(["look in /dev", "great job /s"]);
+  // The menu is open on `/des`: Shift-Return and Cmd-Return keep their meaning, no pick.
+  let field = await typePrompt("use /des");
+  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await key(field, { key: "Enter", shiftKey: true });
+  expect(promptValue()).toBe("use /des");
+  field = await typePrompt("use /des");
+  await key(field, { key: "Enter", metaKey: true });
+  expect(promptValue()).not.toContain("/design-vocabulary");
+  // The whole name typed: Return sends it, as in chat.
+  field = await typePrompt("use /design-vocabulary");
+  await press(field, "Enter");
+  expect(asks.at(-1)?.[1]).toBe("use /design-vocabulary");
+});
+
+test("a /word anywhere in the text loads the agent's command list, not only one at the caret", async () => {
+  const asked: string[] = [];
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} onCommands={(harness) => asked.push(harness)} />);
+  });
+  await typePrompt("use /emil-color now");
+  expect(asked.length).toBe(1);
+});
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];
@@ -376,12 +592,13 @@ test("a chosen document uses the New Tab upload path and becomes sendable", asyn
       />,
     );
   });
+  await promptField();
   const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
   const file = new dom!.window.File(["hello"], "notes.txt", { type: "text/plain" });
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   expect(uploaded).toEqual([[file]]);
-  expect(container.querySelector(".acpmux-attachments")).not.toBeNull();
+  expect(container.querySelector(".acpmux-md-inline-chip")).not.toBeNull();
   const send = container.querySelector<HTMLButtonElement>(".nt-send")!;
   expect(send.disabled).toBe(false);
   await act(async () => send.click());
@@ -412,6 +629,7 @@ test("with Run as Sandboxed, a send goes to the sandbox, not a new chat, with it
       />,
     );
   });
+  await promptField();
   const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
   const file = new dom!.window.File(["hello"], "notes.txt", { type: "text/plain" });
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
@@ -443,12 +661,7 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
       />,
     );
   });
-  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
-  await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
-    setter.call(field, "fix the flaky test");
-    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-  });
+  await typePrompt("fix the flaky test");
   answer = "A Cloud chat takes text only for now.";
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(asks).toEqual([]);
@@ -456,7 +669,7 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect((clouded[0] as unknown[])[1]).toBe("fix the flaky test");
   expect(container.querySelector('[role="alert"]')?.textContent).toBe("A Cloud chat takes text only for now.");
   // A refused send (attachments, or Cloud no longer offered) keeps the prompt to send again.
-  expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("fix the flaky test");
+  expect(promptValue()).toBe("fix the flaky test");
 });
 
 test("with Cloud picked and Do not work in a project, a send names no folder: not even the tab's inherited one", async () => {
@@ -489,17 +702,12 @@ test("with Cloud picked and Do not work in a project, a send names no folder: no
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
-  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
-  await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
-    setter.call(field, "fix the flaky test");
-    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-  });
+  await typePrompt("fix the flaky test");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
-  // The App sends it as a start with nothing copied (cloudRun.ts cloudStartFolder: `home`).
+  // The App starts Cloud with nothing copied, preserving the base behavior.
   expect(clouded.length).toBe(1);
-  expect((clouded[0] as unknown[])[1]).toBe("fix the flaky test");
-  expect((clouded[0] as unknown[])[2]).toBeUndefined();
+  expect(clouded[0]?.[1]).toBe("fix the flaky test");
+  expect(clouded[0]?.[2]).toBeUndefined();
 });
 
 test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
@@ -524,22 +732,29 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
     act(async () => {
       container.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
     });
-  const field = () => container.querySelector<HTMLTextAreaElement>("textarea")!;
+  const field = () => promptValue();
   await act(async () => root!.render(page(true)));
+  await promptField();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
   // Typing on the page (outside the field) goes nowhere while the start is out.
   await typeOnPage("x");
-  expect(field().value).toBe("");
+  expect(field()).toBe("");
   // A failed start keeps the prompt here to edit and send again.
   await act(async () => root!.render(page(false)));
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
   await typeOnPage("x");
-  expect(field().value).toBe("x");
+  expect(field()).toBe("x");
 });
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
-  const repoB: SavedEnvironment = { id: "b", name: "Repo B", kind: "local", folder: "/repo/B", updatedAt: 1 };
+  const repoB: SavedEnvironment = {
+    id: "b",
+    name: "Repo B",
+    kind: "local",
+    folder: "/repo/B",
+    updatedAt: 1,
+  };
   function Page() {
     const [mode, setMode] = useState<RunMode>("persistent");
     return (
@@ -555,7 +770,11 @@ test("picking Cloud drops a saved environment picked before: the send names the 
         onOpenSession={() => {}}
         onShowAll={() => {}}
         environments
-        savedEnvironments={{ list: async () => [repoB], save: async () => repoB, remove: async () => {} }}
+        savedEnvironments={{
+          list: async () => [repoB],
+          save: async () => repoB,
+          remove: async () => {},
+        }}
         runMode={{ mode, onMode: setMode }}
         onCloud={(...args) => (clouded.push(args), false)}
       />
@@ -564,8 +783,9 @@ test("picking Cloud drops a saved environment picked before: the send names the 
   const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const computer = () =>
     container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
-  const choose = async (selector: string) => {
-    await act(async () => computer().click());
+  const choose = async (selector: string, machines = false) => {
+    if (machines) await openMachines(computer());
+    else await act(async () => computer().click());
     await settle();
     const row = document.querySelector<HTMLElement>(`.acpmux-env-popover ${selector}`)!;
     await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
@@ -573,16 +793,11 @@ test("picking Cloud drops a saved environment picked before: the send names the 
   };
   await act(async () => root!.render(<Page />));
   await settle();
-  await choose(".acpmux-env-saved");
+  await choose(".acpmux-env-saved", true);
   expect(computer().getAttribute("aria-label")).toContain("Repo B");
   await choose('[data-mode="cloud"]');
   expect(computer().getAttribute("aria-label")).not.toContain("Repo B");
-  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
-  await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
-    setter.call(field, "fix the flaky test");
-    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-  });
+  await typePrompt("fix the flaky test");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(clouded.length).toBe(1);
   expect((clouded[0] as unknown[])[2]).toBe("/repo/A");
@@ -645,12 +860,15 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => root!.render(<main />));
   expect(left).toEqual([]);
   await act(async () => root!.render(page()));
+  await promptField();
   const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
   const file = new dom!.window.File(["hello"], "notes.txt", { type: "text/plain" });
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   await act(async () => root!.render(<main />));
-  expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+  expect(left).toHaveLength(1);
+  const attachment = (left[0]![1] as ComposerAttachment[])[0]!;
+  expect(left).toEqual([[inlineToken(attachment.id), [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
 });
 
 test("keeps a changed machine choice while browse settles, then permits retry", async () => {
@@ -682,7 +900,7 @@ test("keeps a changed machine choice while browse settles, then permits retry", 
     await act(async () => document.querySelector<HTMLElement>("[data-choose]")!.click());
   };
   const machine = async (kind: string) => {
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!.click());
+    await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
     await act(async () => document.querySelector<HTMLElement>(`.acpmux-env-row[data-kind="${kind}"]`)!.click());
   };
   await browse();

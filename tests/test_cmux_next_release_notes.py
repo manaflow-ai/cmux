@@ -33,6 +33,20 @@ class ReleaseNotesTests(unittest.TestCase):
         titles = [entry["title"]["en"].lower() for entry in digest["entries"]]
         self.assertEqual(len(titles), len(set(titles)), titles)
 
+    def test_short_title_never_cuts_inside_parentheses(self):
+        # Leo 2026-11-01: What's New showed "Routing follow-ups (trim recovered route" over
+        # "Prepared presets only, cap before split).", one line cut at a comma inside its parens.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_parens", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        line = "Routing follow-ups (trim recovered route, prepared presets only, cap before split)"
+        self.assertIsNone(notes.short_title(line, 60))
+        self.assertEqual(
+            notes.short_title("Routing follow-ups (trim route, presets only), and the cap moves before the split in every pass", 60),
+            "Routing follow-ups (trim route, presets only)",
+        )
+
     def setUp(self):
         self.repo = tempfile.mkdtemp()
         git(self.repo, "init", "-q")
@@ -73,6 +87,24 @@ class ReleaseNotesTests(unittest.TestCase):
         notes = self.build(added, build="3")
         self.assertEqual(notes["highlights"], [])
         self.assertEqual(notes["changes"], ["sidebar: tidy"])
+
+    def test_added_then_reverted_highlight_is_absent_from_notes_and_digest(self):
+        path = "release-notes/next/highlights/reverted-tray.md"
+        with open(os.path.join(self.repo, path), "w") as f:
+            f.write("title: Reverted tray\naction: palette.checkForUpdates | Try it\n\nA reverted feature.\n")
+        git(self.repo, "add", path)
+        git(self.repo, "commit", "-q", "-m", "feat: Add tray highlight")
+        git(self.repo, "revert", "--no-edit", "HEAD")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        # The checkout can contain an untracked stale copy; the source tree wins.
+        with open(os.path.join(self.repo, path), "w") as f:
+            f.write("title: Stale tray\n\nDo not publish this.\n")
+        for since in (self.base, ""):
+            with self.subTest(since=since):
+                notes = self.build(since)
+                self.assertEqual([h["id"] for h in notes["highlights"]], ["update-card"])
+                self.assertEqual([e["id"] for e in notes["whatsNew"]["entries"]], ["update-card"])
+                self.assert_valid_digest(notes["whatsNew"])
 
     def test_a_long_summary_line_without_a_clause_stays_out_of_the_digest(self):
         since = self.head

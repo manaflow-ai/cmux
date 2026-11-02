@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../NewTabPage";
-import { omnibarContext } from "../omnibar";
+import { EMPTY_OMNIBAR, omnibarActions, omnibarContext } from "../omnibar";
 import { parseWeather } from "./ambient";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
@@ -13,6 +13,34 @@ export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
 export const NEW_TAB_PLACES_EVENT = "acpmux-newtab-places";
 /// The weather widget's reading arrived or changed while the page shows (AgentPaneView.refreshNewTabWeather).
 export const NEW_TAB_WEATHER_EVENT = "acpmux-newtab-weather";
+
+/// A tab opening an existing chat adopted this prewarmed page (AgentPaneView.adoptSession): the
+/// page leaves its New Tab screen and switches to that chat in place.
+export const SESSION_ADOPT_EVENT = "acpmux-session-adopt";
+
+/// The chat a session adopt event names, and the turn its open asks to show (a subagent's pane).
+export type SessionAdoption = { sessionId: string; revealTurn?: string };
+
+/// The adoption an event's detail names; undefined when it names no session.
+export function sessionAdoption(detail: unknown): SessionAdoption | undefined {
+  if (typeof detail !== "object" || detail === null) return undefined;
+  const { sessionId, revealTurn } = detail as { sessionId?: unknown; revealTurn?: unknown };
+  if (typeof sessionId !== "string" || !sessionId) return undefined;
+  return typeof revealTurn === "string" && revealTurn ? { sessionId, revealTurn } : { sessionId };
+}
+
+/// Calls `onAdopt` with each session adopt event, rendered inside the event: the page's next
+/// frame never draws its New Tab screen again.
+export function useSessionAdoption(onAdopt: (adoption: SessionAdoption) => void): void {
+  useEffect(() => {
+    const handle = (event: Event) => {
+      const adoption = sessionAdoption((event as CustomEvent).detail);
+      if (adoption) flushSync(() => onAdopt(adoption));
+    };
+    window.addEventListener(SESSION_ADOPT_EVENT, handle);
+    return () => window.removeEventListener(SESSION_ADOPT_EVENT, handle);
+  }, [onAdopt]);
+}
 
 /// The context the host gave as the document committed (AgentPaneNavigation), for the first
 /// render: the page draws New Tab with no round trip (cx-z9kz0). Undefined when it came too late
@@ -56,6 +84,32 @@ export function useEarlyNewTabContext(
     };
   }, [callNative, onContext, onSettled, applied]);
   return applied;
+}
+
+/// The handshake's answer for a page that drew New Tab from an earlier context (the one injected as
+/// the document committed, or `newTab.context`'s): the page keeps its own state and takes only what
+/// that context lacked. The folder the handshake filled in (seed, start folder), and the Commands
+/// palette's actions: they are listed on the frame after the page shows
+/// (NewTabPage.fillPaletteActions), and on a cold page their `acpmux-newtab-places` event can come
+/// before `useNewTabPlaces` listens, so the handshake, read after they were listed, carries them.
+export function withHandshakeNewTab(
+  current: NewTabHost | undefined,
+  handshake: { newTab?: unknown; cwd?: unknown },
+): NewTabHost | undefined {
+  if (!current) return current;
+  const cwd = !current.cwd && typeof handshake.cwd === "string" && handshake.cwd ? handshake.cwd : undefined;
+  const newTab = handshake.newTab;
+  const omnibar = typeof newTab === "object" && newTab !== null ? (newTab as { omnibar?: unknown }).omnibar : undefined;
+  const actions =
+    !current.omnibar?.actions?.length && typeof omnibar === "object" && omnibar !== null
+      ? omnibarActions((omnibar as { actions?: unknown }).actions)
+      : undefined;
+  if (!cwd && !actions?.length) return current;
+  return {
+    ...current,
+    ...(cwd ? { cwd } : {}),
+    ...(actions?.length ? { omnibar: { ...(current.omnibar ?? EMPTY_OMNIBAR), actions } } : {}),
+  };
 }
 
 /// Calls `onAdopt` with each adopt event's context and returns the adoption count, a key that

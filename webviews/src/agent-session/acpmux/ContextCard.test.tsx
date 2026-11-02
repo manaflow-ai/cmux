@@ -1,6 +1,6 @@
 // The context ring's hover card keeps the shared glass material compact: one left-aligned
 // "used / window · percent" line, a thin usage bar, short category rows when reported, and a
-// Details row when the Inspector can open.
+// Details row when Session Info can open.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -160,8 +160,45 @@ test("the Details action is a full-width row beneath the summary", async () => {
   await wait();
   const details = card()!.querySelector<HTMLButtonElement>(".acpmux-context-card-details")!;
   expect(details.textContent).toContain(translate("context.details"));
-  expect(details.textContent).toContain("›");
+  expect(details.querySelector(".acpmux-context-card-details-chevron")).not.toBeNull();
   expect(details.closest(".acpmux-context-card-foot")).not.toBeNull();
+  // The row is the card's last child, outside the inset summary, so it can run edge to edge.
+  expect(details.closest(".acpmux-context-card-body")).toBeNull();
+});
+
+test("the card is glass in the page's portal, never inside the ring's (glass) composer", async () => {
+  const ring = await mount({ used: 131_400, size: 1_000_000, onOpenDetails: () => {} });
+  await act(async () => ring.focus());
+  await wait();
+  const shown = card()!;
+  expect(shown.classList.contains("ui-glass")).toBe(true);
+  // An ancestor glass would be the card's backdrop root, and its blur would see nothing behind.
+  expect(shown.closest(".acpmux-context")).toBeNull();
+  expect(shown.parentElement!.closest(".ui-glass")).toBeNull();
+});
+
+test("Details runs edge to edge: no card padding or border, its lower corners on the card's radius", () => {
+  const css = readFileSync(join(import.meta.dir, "contextCard.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = (selector: string) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const body = new RegExp(`(?:^|})\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+    return Object.fromEntries(
+      body
+        .split(";")
+        .map((line) => line.split(":").map((part) => part.trim()))
+        .filter(([name, value]) => name && value)
+        .map(([name, ...value]) => [name, value.join(":")]),
+    );
+  };
+  const outer = rule(".acpmux-context-card.ui-card");
+  expect(outer.padding).toBe("0");
+  expect(outer["border-width"]).toBe("0");
+  const details = rule(".acpmux-context-card-details");
+  expect(details.margin).toBe("0");
+  expect(details["border-end-start-radius"]).toBe(outer["border-radius"]);
+  expect(details["border-end-end-radius"]).toBe(outer["border-radius"]);
+  // Compact or breakdown, no variant puts an inset back.
+  expect(rule(".acpmux-context-pop--compact.ui-card").padding).toBeUndefined();
 });
 
 test("the card shows no plan-limits section when the harness reports none", async () => {
@@ -171,14 +208,13 @@ test("the card shows no plan-limits section when the harness reports none", asyn
   expect(card()!.querySelector(".acpmux-context-card-limits")).toBeNull();
 });
 
-test("Details › opens the Inspector's Context section", async () => {
+test("Details › opens Session Info's Context section", async () => {
   let opened = 0;
   const ring = await mount({ used: 60_000, size: 200_000, onOpenDetails: () => opened++ });
   await act(async () => ring.focus());
   await wait();
   const details = card()!.querySelector<HTMLButtonElement>(".acpmux-context-card-details")!;
   expect(details.textContent).toContain(translate("context.details"));
-  expect(details.textContent).toContain("›");
   await act(async () => details.click());
   expect(opened).toBe(1);
 });
@@ -277,7 +313,7 @@ test("Tab from the ring reaches Details ›, and Tab past it leaves the card", a
   await tab(ring);
   const details = card()!.querySelector<HTMLButtonElement>(".acpmux-context-card-details")!;
   expect(document.activeElement).toBe(details);
-  // Return on the focused link opens the Inspector, as a click does.
+  // Return on the focused link opens Session Info, as a click does.
   await act(async () => details.click());
   expect(opened).toBe(1);
   await act(async () => ring.focus());

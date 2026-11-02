@@ -46,6 +46,19 @@ import UIKit
         }
 
         var text: String { String(decoding: sent, as: UTF8.self) }
+
+        /// What the app was sent, once at least `expected`'s bytes have come. Ghostty
+        /// can write from its own thread; those bytes reach `onInput` on a later turn of
+        /// the main queue, not during the wheel or tap that caused them, so reading
+        /// `text` at once found it empty (1 run in 16 of the full kit). The limit is a
+        /// watchdog against a hang, not a time the bytes are expected to take.
+        func text(awaiting expected: String) async -> String {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+            while sent.count < expected.utf8.count, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+            return text
+        }
     }
 
     /// TUI capability check F1: a tap in an app that asked for the mouse
@@ -57,7 +70,8 @@ import UIKit
         await rig.feed("\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1006h")
         rig.sent = Data()
         #expect(rig.tap(column: 3, row: 5))
-        #expect(rig.text == "\u{1b}[<0;4;6M\u{1b}[<0;4;6m")
+        let click = "\u{1b}[<0;4;6M\u{1b}[<0;4;6m"
+        #expect(await rig.text(awaiting: click) == click)
     }
 
     @Test func aTapSendsNothingWithoutMouseReporting() async throws {
@@ -75,10 +89,12 @@ import UIKit
         await rig.feed("\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1006h")
         rig.sent = Data()
         rig.wheel(rows: 3, column: 3, row: 5)
-        #expect(rig.text == String(repeating: "\u{1b}[<64;4;6M", count: 3))
+        let up = String(repeating: "\u{1b}[<64;4;6M", count: 3)
+        #expect(await rig.text(awaiting: up) == up)
         rig.sent = Data()
         rig.wheel(rows: -2, column: 0, row: 0)
-        #expect(rig.text == String(repeating: "\u{1b}[<65;1;1M", count: 2))
+        let down = String(repeating: "\u{1b}[<65;1;1M", count: 2)
+        #expect(await rig.text(awaiting: down) == down)
     }
 
     @Test(arguments: ["1002", "1003"])
@@ -88,10 +104,12 @@ import UIKit
         await rig.feed("\u{1b}[?1049h\u{1b}[?\(mode)h\u{1b}[?1006h")
         rig.sent = Data()
         rig.wheel(rows: 2, column: 3, row: 5)
+        let wheel = String(repeating: "\u{1b}[<64;4;6M", count: 2)
+        let text = await rig.text(awaiting: wheel)
         // Any-motion tracking may also report the pointer reaching the cell first.
-        #expect(rig.text.hasSuffix(String(repeating: "\u{1b}[<64;4;6M", count: 2)))
-        #expect(rig.text.components(separatedBy: "[<64;").count == 3)
-        #expect(!rig.text.contains("\u{1b}[A"))
+        #expect(text.hasSuffix(wheel))
+        #expect(text.components(separatedBy: "[<64;").count == 3)
+        #expect(!text.contains("\u{1b}[A"))
     }
 
     /// TUI fast scroll, through Ghostty's own encoder: a slow drag of two
@@ -110,13 +128,14 @@ import UIKit
         let slowWheel = scroll.moved(translationY: 2 * row, velocityY: 150)
         let slow = try #require(slowWheel)
         rig.surface.scrollWheel(at: at, deltaY: slow.dy, momentum: slow.momentum)
-        #expect(rig.text == String(repeating: "\u{1b}[<64;4;6M", count: 2))
+        let line = String(repeating: "\u{1b}[<64;4;6M", count: 2)
+        #expect(await rig.text(awaiting: line) == line)
         rig.sent = Data()
         let fastWheel = scroll.moved(translationY: 4 * row, velocityY: 3000)
         let fast = try #require(fastWheel)
         rig.surface.scrollWheel(at: at, deltaY: fast.dy, momentum: fast.momentum)
-        let reports = Int(2 * TerminalTUIScroll.maximumGain)
-        #expect(rig.text == String(repeating: "\u{1b}[<64;4;6M", count: reports))
+        let accelerated = String(repeating: "\u{1b}[<64;4;6M", count: Int(2 * TerminalTUIScroll.maximumGain))
+        #expect(await rig.text(awaiting: accelerated) == accelerated)
     }
 
     @Test func theAlternateScreenGetsArrowsByDefault() async throws {
@@ -125,10 +144,10 @@ import UIKit
         await rig.feed("\u{1b}[?1049h")
         rig.sent = Data()
         rig.wheel(rows: 2, column: 1, row: 1)
-        #expect(rig.text == "\u{1b}[A\u{1b}[A")
+        #expect(await rig.text(awaiting: "\u{1b}[A\u{1b}[A") == "\u{1b}[A\u{1b}[A")
         rig.sent = Data()
         rig.wheel(rows: -1, column: 1, row: 1)
-        #expect(rig.text == "\u{1b}[B")
+        #expect(await rig.text(awaiting: "\u{1b}[B") == "\u{1b}[B")
     }
 
     @Test func applicationCursorKeysSendSS3Arrows() async throws {
@@ -137,7 +156,7 @@ import UIKit
         await rig.feed("\u{1b}[?1049h\u{1b}[?1h")
         rig.sent = Data()
         rig.wheel(rows: 1, column: 1, row: 1)
-        #expect(rig.text == "\u{1b}OA")
+        #expect(await rig.text(awaiting: "\u{1b}OA") == "\u{1b}OA")
     }
 
     @Test func alternateScrollOffSendsNothing() async throws {
@@ -157,7 +176,7 @@ import UIKit
         rig.wheel(rows: 0.6, column: 1, row: 1)
         #expect(rig.sent.isEmpty)
         rig.wheel(rows: 0.6, column: 1, row: 1)
-        #expect(rig.text == "\u{1b}[A")
+        #expect(await rig.text(awaiting: "\u{1b}[A") == "\u{1b}[A")
     }
 }
 #endif
