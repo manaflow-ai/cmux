@@ -36,7 +36,97 @@ pub(super) fn with_terminals(
         .ok()
         .and_then(|terminals| terminals.as_array().cloned())
         .unwrap_or_default();
+    // A bare list is the roster of everything `cmux agent message` can
+    // reach. A terminal selector intentionally keeps the daemon's existing
+    // agent.list response and never starts or contacts acpmux.
+    let result = if plan.params.get("terminal_id").is_none() {
+        let mut queued_params =
+            plan.params.as_object().map(super::super::resolve::route).unwrap_or_default();
+        queued_params.insert("state".into(), json!("queued"));
+        queued_params.insert("limit".into(), json!(1000));
+        let queued =
+            super::super::resolve::read(reader, ResourceOperation::AgentMessageList, queued_params)
+                .ok()
+                .and_then(|messages| messages.as_array().cloned())
+                .unwrap_or_default();
+        let sessions = super::super::agent_message::acp::sessions().unwrap_or_default();
+        merge_sources(result, &sessions, &queued, plan.params.get("state").and_then(Value::as_str))
+    } else {
+        result
+    };
     shape(result, &terminals, view, unix_ms())
+}
+
+/// Add the address and delivery metadata shared by terminal and acpmux rows.
+/// Terminal rows are already filtered by the daemon; the state filter must be
+/// applied to acpmux summaries here because they come from a second source.
+fn merge_sources(rows: Value, sessions: &[Value], queued: &[Value], state: Option<&str>) -> Value {
+    let mut rows = match rows {
+        Value::Array(rows) => rows,
+        other => return other,
+    };
+    let queued = queued_counts(queued);
+    for row in &mut rows {
+        let Some(address) = row.get("terminal_id").and_then(Value::as_str).map(str::to_owned)
+        else {
+            continue;
+        };
+        if let Some(object) = row.as_object_mut() {
+            object.insert("address".into(), Value::String(address.clone()));
+            object.insert("kind".into(), json!("terminal"));
+            object.insert(
+                "queued_messages".into(),
+                json!(queued.get(&address).copied().unwrap_or(0)),
+            );
+        }
+    }
+    for session in sessions {
+        let Some(id) = session.get("sessionId").and_then(Value::as_str) else { continue };
+        let acp_state =
+            acp_state(session.get("status").and_then(Value::as_str).unwrap_or_default());
+        if state.is_some_and(|wanted| wanted != acp_state) {
+            continue;
+        }
+        let address = format!("acp:{id}");
+        rows.push(json!({
+            "address": address,
+            "kind": "acp",
+            "name": session.get("name").cloned().unwrap_or(Value::String(id.to_owned())),
+            "agent": session.get("harness").cloned().unwrap_or(Value::Null),
+            "state": acp_state,
+            "status": session.get("status").cloned().unwrap_or(Value::Null),
+            "cwd": session.get("cwd").cloned().unwrap_or(Value::Null),
+            "model": session.get("model").cloned().unwrap_or(Value::Null),
+            "agent_session_id": session.get("agentSessionId").cloned().unwrap_or(Value::Null),
+            "updated_at_ms": session.get("updatedAt").cloned().unwrap_or(json!(0)),
+            "queued_messages": queued.get(&address).copied().unwrap_or(0),
+        }));
+    }
+    Value::Array(rows)
+}
+
+fn queued_counts(messages: &[Value]) -> HashMap<String, u64> {
+    let mut counts = HashMap::new();
+    for message in messages {
+        for delivery in message.get("deliveries").and_then(Value::as_array).into_iter().flatten() {
+            if delivery.get("state").and_then(Value::as_str) == Some("queued")
+                && let Some(recipient) = delivery.get("recipient").and_then(Value::as_str)
+            {
+                *counts.entry(recipient.to_owned()).or_insert(0) += 1;
+            }
+        }
+    }
+    counts
+}
+
+fn acp_state(status: &str) -> &'static str {
+    match status {
+        "running" => "working",
+        "waiting" => "blocked",
+        "idle" | "ready" => "idle",
+        "closed" => "done",
+        _ => "unknown",
+    }
 }
 
 /// [`with_terminals`] for `--all-sessions`: `agents` is the joined rows,
@@ -169,10 +259,16 @@ pub(super) fn human(result: &Value, home: Option<&str>) -> String {
             }
             row.push(cell(agent.get("state")));
             row.push(agent["age_ms"].as_u64().map_or_else(|| "-".to_owned(), age_text));
-            row.push(cell(agent.pointer("/extra/agent")));
-            row.push(truncate(cell(agent.get("title")), MAX_TITLE));
+            row.push(agent_name(agent));
+            row.push(truncate(
+                agent
+                    .get("title")
+                    .or_else(|| agent.get("name"))
+                    .map_or_else(|| "-".to_owned(), human_cell),
+                MAX_TITLE,
+            ));
             row.push(agent["cwd"].as_str().map_or_else(|| "-".to_owned(), |cwd| folder(cwd, home)));
-            row.push(cell(agent.get("terminal_id")));
+            row.push(cell(agent.get("terminal_id").or_else(|| agent.get("address"))));
             row
         })
         .collect::<Vec<_>>();
@@ -226,7 +322,19 @@ fn state_of(agent: &Value) -> &str {
 }
 
 fn id_of(agent: &Value) -> &str {
-    agent.get("id").and_then(Value::as_str).unwrap_or_default()
+    agent
+        .get("id")
+        .and_then(Value::as_str)
+        .or_else(|| agent.get("address").and_then(Value::as_str))
+        .unwrap_or_default()
+}
+
+fn agent_name(agent: &Value) -> String {
+    agent
+        .pointer("/extra/agent")
+        .and_then(Value::as_str)
+        .or_else(|| agent.get("agent").and_then(Value::as_str))
+        .map_or_else(|| "-".to_owned(), str::to_owned)
 }
 
 /// `updated_at_ms` is a decimal string on the wire.

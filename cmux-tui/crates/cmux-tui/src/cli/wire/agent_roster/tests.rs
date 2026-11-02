@@ -141,6 +141,54 @@ fn json_shape_has_agents_with_age_title_and_folder_and_counts() {
 }
 
 #[test]
+fn bare_roster_joins_acpmux_sessions_with_message_addresses() {
+    let terminal = agent("agent_terminal", "working", NOW - 1_000, "term_1");
+    let sessions = [json!({
+        "sessionId": "acp-1",
+        "name": "review",
+        "harness": "claude",
+        "status": "waiting",
+        "cwd": "/repo",
+        "model": "sonnet",
+        "agentSessionId": "native-1",
+        "updatedAt": NOW - 2_000,
+    })];
+    let queued = [
+        json!({"deliveries": [
+            {"recipient": "term_1", "state": "queued"},
+            {"recipient": "acp:acp-1", "state": "delivered"},
+        ]}),
+        json!({"deliveries": [{"recipient": "term_1", "state": "queued"}]}),
+    ];
+    let rows = merge_sources(json!([terminal]), &sessions, &queued, None);
+    let result = shape(rows, &[], AgentRosterView::default(), NOW);
+    let agents = result["agents"].as_array().unwrap();
+    assert_eq!(agents.len(), 2);
+    assert_eq!(agents[0]["address"], "term_1");
+    assert_eq!(agents[0]["kind"], "terminal");
+    assert_eq!(agents[0]["queued_messages"], 2);
+    assert_eq!(agents[1]["address"], "acp:acp-1");
+    assert_eq!(agents[1]["kind"], "acp");
+    assert_eq!(agents[1]["agent"], "claude");
+    assert_eq!(agents[1]["state"], "blocked");
+    assert_eq!(agents[1]["queued_messages"], 0);
+    assert_eq!(result["counts"]["total"], 2);
+}
+
+#[test]
+fn acpmux_state_filter_applies_before_roster_sorting() {
+    let sessions = [
+        json!({"sessionId": "idle", "status": "ready", "updatedAt": NOW}),
+        json!({"sessionId": "working", "status": "running", "updatedAt": NOW}),
+    ];
+    let rows = merge_sources(json!([]), &sessions, &[], Some("idle"));
+    let agents = rows.as_array().unwrap();
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0]["address"], "acp:idle");
+    assert_eq!(agents[0]["state"], "idle");
+}
+
+#[test]
 fn an_empty_title_or_folder_is_left_out() {
     let terminals = [json!({"id": "term_1", "title": "", "cwd": ""})];
     let rows = json!([agent("agent_a", "idle", NOW, "term_1")]);

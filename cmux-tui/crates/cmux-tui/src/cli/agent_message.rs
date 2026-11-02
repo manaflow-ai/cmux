@@ -779,6 +779,14 @@ mod acp {
                 .map_err(|error| format!("{error:#}"))
         })
     }
+
+    /// The running daemon's session summaries, without starting it.
+    pub(super) fn sessions() -> Result<Vec<Value>, String> {
+        runtime()?.block_on(async {
+            let client = acpmux::deliver::connect().await.map_err(|error| format!("{error:#}"))?;
+            acpmux::deliver::sessions(&client).await.map_err(|error| format!("{error:#}"))
+        })
+    }
 }
 
 #[cfg(not(unix))]
@@ -786,6 +794,10 @@ mod acp {
     const UNSUPPORTED: &str = "acpmux sessions are not available on this platform";
 
     pub(super) fn resolve(_key: &str) -> Result<String, String> {
+        Err(UNSUPPORTED.to_owned())
+    }
+
+    pub(super) fn sessions() -> Result<Vec<Value>, String> {
         Err(UNSUPPORTED.to_owned())
     }
 }
