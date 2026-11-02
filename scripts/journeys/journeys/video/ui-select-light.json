@@ -1,0 +1,131 @@
+{
+ "id": "ui-select-light",
+ "priority": "P2",
+ "title": "UI VIDEO U8 light: text selection by real HID drags in a terminal, filmed by the app's recorder",
+ "why": "UI VIDEO (STATUS 4269): the selection follows the pointer every refresh and clears in one frame.",
+ "source": "UI VIDEO (STATUS 4269); handoff/resize-videos/UI-VIDEO.md",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "switch_profile",
+   "title": "set-up: 2 workspaces, 2 beacon panes each",
+   "workspaces": 2,
+   "panes": 2,
+   "prefix": "up-${nonce}"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "video_start",
+   "name": "ui-select-light",
+   "mbps": 25,
+   "seconds": 110
+  },
+  {
+   "do": "hid_drag",
+   "title": "select the beacon label text in 700 ms",
+   "target": {
+    "window_point": [
+     205,
+     103
+    ]
+   },
+   "by": [
+    220,
+    0
+   ],
+   "duration_ms": 700
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     500,
+     400
+    ]
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_drag",
+   "title": "select the beacon label text in 200 ms",
+   "target": {
+    "window_point": [
+     205,
+     103
+    ]
+   },
+   "by": [
+    220,
+    0
+   ],
+   "duration_ms": 200
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     500,
+     400
+    ]
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "video_stop",
+   "name": "ui-select-light",
+   "tail": 0.8
+  },
+  {
+   "do": "switch_adopt_shown"
+  },
+  {
+   "do": "expect",
+   "title": "the palette is closed and a beacon pane shows",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "PANE"
+    },
+    {
+     "app_text_contains": "PANE"
+    },
+    {
+     "frame_text": "PANE"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

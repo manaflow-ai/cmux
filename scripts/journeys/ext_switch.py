@@ -591,11 +591,16 @@ def step_switch_keys(j, step):
             # The HID key-down's host time: the action's start less its event's age (-1: no event age known).
             ev["t"] = start - age / 1000.0 if age >= 0 else start
             ev["t_wall"] = ev["t"] + s["wall_offset"]  # the same instant on the wall clock (the beacon's clock)
+        else:
+            # No registry run (an AppKit-handled key such as the palette's Escape): the send time. CuaDriver posts
+            # the key on return, so the key-down is between sent and returned.
+            ev["t"] = s["send_returned_host_s"]
+            ev["t_source"] = "sent"
             ev["t_source"] = "keydown" if age >= 0 else "action-start"
         events.append(ev)
     (j.out / "video").mkdir(exist_ok=True)
     (j.out / "video" / (name + "-keys.events.json")).write_text(json.dumps({"events": events, "runs": runs}, indent=1))
-    missing = [e["case"] for e in events if "t" not in e]
+    missing = [e["case"] for e in events if e.get("t_source") == "sent"]
     wrong = [e["case"] for e in events if e.get("expect") and e.get("shown") != e["expect"]]
     return {"keys": len(sent), "runs": len(runs), "missing_runs": missing, "wrong_target": wrong,
             "via": via, "entrypoints": sorted({str(e.get("entrypoint")) for e in events}),

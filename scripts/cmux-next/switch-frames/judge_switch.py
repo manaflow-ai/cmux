@@ -576,7 +576,14 @@ def main() -> int:
     ap.add_argument("--wall-hint", type=float, help="--clock beacon: a wall time (s) inside the film, to unwrap the clock")
     args = ap.parse_args()
     ev = json.load(open(args.events))
-    if isinstance(ev, dict):
+    if isinstance(ev, dict) and "hid" in ev and "events" not in ev:
+        # The kit's <case>.events.json: each HID action is one event. A key or click is judged from its send; a
+        # drag from its end (the drop: OLD = before the drag ended... TARGET = settled after the drop).
+        ev = [{"t": h["t_returned"] if h.get("kind") == "drag" else h["t_sent"],
+               "case": f"{h.get('kind')}-{i}", "label": json.dumps(h.get("args"))[:120],
+               "pre": 0.12 if h.get("kind") == "drag" else 0.25}
+              for i, h in enumerate(ev["hid"])]
+    elif isinstance(ev, dict):
         ev = ev["events"]
     times = movie_times(args.frames) if args.frames else None
     clock_note = None

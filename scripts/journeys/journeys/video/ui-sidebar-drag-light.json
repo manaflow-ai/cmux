@@ -1,0 +1,147 @@
+{
+ "id": "ui-sidebar-drag-light",
+ "priority": "P2",
+ "title": "UI VIDEO U3 light: sidebar drag-reorder by real HID drags (slow 900 ms, fast 250 ms), filmed by the app's recorder",
+ "why": "UI VIDEO (STATUS 4269): the dragged row follows the pointer every refresh, the drop lands in one frame, no jump back. The kit's video_judge (pacing) and judge_switch (drop frame) read the movie.",
+ "source": "UI VIDEO (STATUS 4269); handoff/resize-videos/UI-VIDEO.md",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "switch_profile",
+   "title": "set-up: 2 workspaces, 2 beacon panes each",
+   "workspaces": 2,
+   "panes": 2,
+   "prefix": "up-${nonce}"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "video_start",
+   "name": "ui-sidebar-drag-light",
+   "mbps": 25,
+   "seconds": 110
+  },
+  {
+   "do": "hid_drag",
+   "title": "drag the top sidebar row 3 rows down in 900 ms",
+   "target": {
+    "window_point": [
+     90,
+     70
+    ]
+   },
+   "by": [
+    0,
+    77
+   ],
+   "duration_ms": 900,
+   "hold_ms": 120
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "hid_drag",
+   "title": "drag the top sidebar row 3 rows down in 250 ms",
+   "target": {
+    "window_point": [
+     90,
+     70
+    ]
+   },
+   "by": [
+    0,
+    77
+   ],
+   "duration_ms": 250,
+   "hold_ms": 120
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "hid_drag",
+   "title": "drag the top sidebar row 3 rows down in 900 ms",
+   "target": {
+    "window_point": [
+     90,
+     70
+    ]
+   },
+   "by": [
+    0,
+    77
+   ],
+   "duration_ms": 900,
+   "hold_ms": 120
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "hid_drag",
+   "title": "drag the top sidebar row 3 rows down in 250 ms",
+   "target": {
+    "window_point": [
+     90,
+     70
+    ]
+   },
+   "by": [
+    0,
+    77
+   ],
+   "duration_ms": 250,
+   "hold_ms": 120
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "video_stop",
+   "name": "ui-sidebar-drag-light",
+   "tail": 0.8
+  },
+  {
+   "do": "switch_adopt_shown"
+  },
+  {
+   "do": "expect",
+   "title": "the palette is closed and a beacon pane shows",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "PANE"
+    },
+    {
+     "app_text_contains": "PANE"
+    },
+    {
+     "frame_text": "PANE"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
