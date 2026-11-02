@@ -370,7 +370,8 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextLayout",
-        "CmuxNextSidebar"
+        "CmuxNextSidebar",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

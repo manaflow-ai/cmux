@@ -255,15 +255,25 @@ public actor NativeDeviceEnrollment {
     }
     private func owner<T: Decodable & Sendable, P: Encodable & Sendable>(_ op: String, _ params: P, key: String, context: NativeInstallContext) async throws -> T {
         let response = try await identity.nativeOwnerPost(JSONEncoder().encode(NativeOwnerCall(op: op, params: params, idempotency_key: key)), context: context)
-        guard response.status == 200, response.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(response.status, step: op) }
+        guard response.status == 200, response.body.count <= 1_048_576 else {
+            NativeNetworkRefusal.log(op, status: response.status, body: response.body)
+            throw NativeDeviceEnrollmentError.refused(response.status, step: op)
+        }
         let decoded = try JSONDecoder().decode(NativeOwnerReply<T>.self, from: response.body)
-        guard decoded.ok, let value = decoded.value else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        guard decoded.ok, let value = decoded.value else {
+            // An owner refusal comes back as 200 with `ok: false` and its code under `error`.
+            let refused = try? JSONDecoder().decode(NativeOwnerRefusal.self, from: response.body)
+            NativeNetworkRefusal.log(op, status: response.status, code: refused?.error?.code, message: refused?.error?.message)
+            throw NativeDeviceEnrollmentError.invalidIdentity
+        }
         return value
     }
     private func readNative<T: Decodable & Sendable>(_ method: String, _ path: String, body: Data? = nil, bearer: String? = nil) async throws -> T {
         let reply = try await native.send(method: method, path: path, body: body, bearer: bearer, tenant: bearer == nil ? nil : scope.tenant)
         guard reply.status == 200 || reply.status == 201, reply.body.count <= 1_048_576 else {
-            throw NativeDeviceEnrollmentError.refused(reply.status, step: NativeDeviceScope.step(method, path))
+            let step = NativeDeviceScope.step(method, path)
+            NativeNetworkRefusal.log(step, status: reply.status, body: reply.body)
+            throw NativeDeviceEnrollmentError.refused(reply.status, step: step)
         }
         return try JSONDecoder().decode(T.self, from: reply.body)
     }
