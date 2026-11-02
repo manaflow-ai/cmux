@@ -100,9 +100,14 @@ import Testing
         defer { unlink(marker) }
         // The leader ignores TERM and waits for a descendant. The descendant records TERM and exits;
         // a direct-pid stop leaves it running, while the process-group stop reaches it atomically.
-        let script = "trap '' TERM; /bin/sh -c 'trap \"echo term > \\(marker); exit 0\" TERM; while :; do sleep 1; done' & wait"
+        // The leader ignores TERM only after it forks the descendant: a shell started with TERM ignored
+        // cannot trap it ("signals ignored upon entry to the shell cannot be trapped"), so a descendant
+        // forked after `trap '' TERM` never wrote the marker.
+        let script = "/bin/sh -c 'trap \"echo term > \\(marker); exit 0\" TERM; while :; do sleep 1; done' & trap '' TERM; wait"
         let request = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), ["-c", script], timeout: .seconds(1),
-                                     killGrace: .milliseconds(200), terminationScope: .processGroup)
+                                     onCancel: .finish, killGrace: .seconds(2), terminationScope: .processGroup)
+        // `.finish`: the run resolves at the leader's exit, which waits for the descendant's trap to write the
+        // marker; a `.stop` run resolves at the timeout itself, before the descendant has run its trap.
         await #expect(throws: ProcessFailure.timedOut) { try await processes.run(request) }
         #expect(FileManager.default.fileExists(atPath: marker))
     }
