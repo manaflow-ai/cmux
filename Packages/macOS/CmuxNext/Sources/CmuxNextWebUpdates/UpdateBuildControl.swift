@@ -1,4 +1,5 @@
 public import CmuxNextControl
+import CmuxNextSettings
 public import CmuxNextUpdater
 public import Foundation
 
