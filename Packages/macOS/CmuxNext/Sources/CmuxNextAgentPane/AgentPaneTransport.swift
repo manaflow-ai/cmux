@@ -471,8 +471,9 @@ import CmuxNextCompat
             trustDaemon = nil
             gestures.clearTickets(connection: current)
             localAppToken = nil
-            // A connection the daemon closed: the page was told, so its prompts are the page's again
-            // (Retry), unless Debug Settings agentPane.debug.lostPromptReplay sends them again.
+            // A connection the daemon closed: its prompts go again on the next connection, where the
+            // page waits for them, unless Debug Settings agentPane.debug.lostPromptReplay is off (then
+            // they are the page's again).
             promptRelay?.ended(byDaemon: deliver != nil && !AgentPaneTunables.lostPromptReplay.value)
             // Kept in the log (notice, not info): the page's "connection interrupted" needs its reason.
             Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
