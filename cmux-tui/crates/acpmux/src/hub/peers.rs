@@ -1106,7 +1106,11 @@ impl Hub {
     }
 
     /// Capture immutable row handles under the lock, then normalize and visit outside it.
-    fn visit_remote_rows(&self, keep: impl Fn(&Value) -> bool, mut visit: impl FnMut(Value)) {
+    pub(super) fn visit_remote_rows(
+        &self,
+        keep: impl Fn(&Value) -> bool,
+        mut visit: impl FnMut(Value),
+    ) {
         let states: HashMap<String, &'static str> = self
             .peers
             .lock()
