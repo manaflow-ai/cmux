@@ -156,6 +156,17 @@ test("accepts only a completed guest seed's validated checkout commit", () => {
     checkoutRepository: "team/project", checkoutCommit: "a".repeat(40),
   });
 
+  const sha256 = cloudStartPushed(begun(), {
+    key: "k-1",
+    clone: {
+      state: "done",
+      checkout_state: "guest_verified",
+      checkout_repository: "team/project",
+      checkout_commit: "b".repeat(64),
+    },
+  });
+  expect(sha256?.clone?.checkoutCommit).toBe("b".repeat(64));
+
   for (const [state, checkoutRepo, commit] of [
     ["running", "team/project", "a".repeat(40)],
     ["done", "team/project/other", "a".repeat(40)],
