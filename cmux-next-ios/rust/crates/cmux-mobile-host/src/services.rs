@@ -241,6 +241,9 @@ pub(crate) fn cloud_directory_reply(snapshot: control::CloudLinks) -> Value {
                 "name": link.name,
                 "status": cloud_status(&link.status),
                 "ran": link.ran,
+                // Whether a Cloud chat can open now (the app has the machine's live link). An
+                // asleep machine is listed for the Chief's Computer card, never as a chat.
+                "linked": link.socket.is_some(),
             })
         })
         .collect::<Vec<_>>();
@@ -1879,9 +1882,9 @@ mod tests {
         assert_eq!(
             reply,
             serde_json::json!({"paid": true, "desktops": true, "machines": [
-                {"machine_id": "m1", "team_id": "t", "name": "m1 box", "status": "running", "ran": true},
-                {"machine_id": "m2", "team_id": "t", "name": "m2 box", "status": "paused", "ran": true},
-                {"machine_id": "m5", "team_id": "t", "name": "m5 box", "status": "unknown", "ran": false},
+                {"machine_id": "m1", "team_id": "t", "name": "m1 box", "status": "running", "ran": true, "linked": true},
+                {"machine_id": "m2", "team_id": "t", "name": "m2 box", "status": "paused", "ran": true, "linked": false},
+                {"machine_id": "m5", "team_id": "t", "name": "m5 box", "status": "unknown", "ran": false, "linked": true},
             ]})
         );
         let text = reply.to_string();

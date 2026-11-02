@@ -14,18 +14,23 @@ public struct CloudChatMachine: Decodable, Hashable, Identifiable, Sendable {
     public let status: String?
     /// The machine has run at least once (false from a Mac that does not say).
     public let ran: Bool
+    /// A Cloud chat can open now: the Mac holds the machine's live link. An asleep machine is
+    /// listed only for the Chief's Computer card. An older Mac lists only linked machines: true.
+    public let linked: Bool
     public var id: String { teamID + "\u{1}" + machineID }
 
     enum CodingKeys: String, CodingKey {
-        case machineID = "machine_id", teamID = "team_id", name, status, ran
+        case machineID = "machine_id", teamID = "team_id", name, status, ran, linked
     }
 
-    public init(machineID: String, teamID: String, name: String, status: String? = nil, ran: Bool = false) {
+    public init(machineID: String, teamID: String, name: String, status: String? = nil, ran: Bool = false,
+                linked: Bool = true) {
         self.machineID = machineID
         self.teamID = teamID
         self.name = name
         self.status = status
         self.ran = ran
+        self.linked = linked
     }
 
     public init(from decoder: any Decoder) throws {
@@ -35,6 +40,7 @@ public struct CloudChatMachine: Decodable, Hashable, Identifiable, Sendable {
         name = try container.decode(String.self, forKey: .name)
         status = try container.decodeIfPresent(String.self, forKey: .status)
         ran = try container.decodeIfPresent(Bool.self, forKey: .ran) ?? false
+        linked = try container.decodeIfPresent(Bool.self, forKey: .linked) ?? true
     }
 }
 
@@ -46,6 +52,9 @@ public struct CloudDirectory: Decodable, Hashable, Sendable {
     public let paid: Bool
     public let desktops: Bool
     public let machines: [CloudChatMachine]
+
+    /// The machines a Cloud chat can open on now; an asleep one is the Computer card's only.
+    public var chatMachines: [CloudChatMachine] { machines.filter(\.linked) }
 
     enum CodingKeys: String, CodingKey { case paid, desktops, machines }
 
@@ -169,8 +178,9 @@ extension LiveCoordinator {
         return (session, link)
     }
 
+    /// The machines a Cloud chat can open on now (asleep ones are the Computer card's only).
     public func cloudMachines(on macID: String) async throws -> [CloudChatMachine] {
-        try await cloudDirectory(on: macID).machines
+        try await cloudDirectory(on: macID).chatMachines
     }
 
     /// The paired Mac's whole Cloud directory: its machines and whether Cloud is paid.
@@ -264,7 +274,7 @@ public enum CloudChatDirectory {
     }
 
     static func read(_ channel: any LinkChannel) async throws -> [CloudChatMachine] {
-        try await readDirectory(channel).machines
+        try await readDirectory(channel).chatMachines
     }
 
     static func readDirectory(_ channel: any LinkChannel) async throws -> CloudDirectory {

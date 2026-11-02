@@ -134,7 +134,11 @@ private struct ChiefComputerLiveScreen: View {
             // Off screen, the Mac stops reading the machine's desktop.
             stream.close()
         }
-        .onChange(of: scenePhase) { _, phase in stream.setAppActive(phase == .active) }
+        .onChange(of: scenePhase) { _, phase in
+            stream.setAppActive(phase == .active)
+            // In the background the Mac stops reading the desktop too; back on screen it reopens.
+            if phase == .background { stream.close() } else if phase == .active { stream.reconnect() }
+        }
     }
 }
 #endif

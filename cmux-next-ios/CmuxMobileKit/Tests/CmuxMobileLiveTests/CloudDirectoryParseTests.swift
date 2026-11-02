@@ -53,5 +53,16 @@ private actor ReplyChannel: LinkChannel {
             #"{"machines":[{"machine_id":"m1","team_id":"t1","name":"Dev box"}]}"#))
         #expect(machines.map(\.machineID) == ["m1"])
     }
+
+    @Test func anAsleepMachineIsTheComputerCardsButNeverAChat() async throws {
+        let reply = #"{"paid":true,"desktops":true,"machines":["#
+            + #"{"machine_id":"m1","team_id":"t1","name":"Up","status":"running","ran":true,"linked":true},"#
+            + #"{"machine_id":"m2","team_id":"t1","name":"Zzz","status":"paused","ran":true,"linked":false}]}"#
+        let directory = try await CloudChatDirectory.readDirectory(ReplyChannel(reply))
+        #expect(directory.machines.map(\.machineID) == ["m1", "m2"])
+        #expect(directory.chatMachines.map(\.machineID) == ["m1"])
+        let chats = try await CloudChatDirectory.read(ReplyChannel(reply))
+        #expect(chats.map(\.machineID) == ["m1"])
+    }
 }
 #endif

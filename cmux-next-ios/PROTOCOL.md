@@ -547,11 +547,15 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
 - `cloud-directory` (link protocol 2): no arguments; one JSON data frame
-  `{"paid","machines":[{"machine_id","team_id","name","status","ran"}]}` followed by `eof`.
-  `paid` says the account pays for cmux Cloud; `status` is the machine's Cloud
-  status (`running`, `paused`, `starting`, ...); `ran` says it has run at least once.
-  A machine that is asleep (no live carrier) is listed too. An older Mac sends
-  neither field: the phone reads `paid` and `ran` as false and `status` as unknown.
+  `{"paid","desktops","machines":[{"machine_id","team_id","name","status","ran","linked"}]}`
+  followed by `eof`. `paid` says the account pays for cmux Cloud; `desktops` is the
+  Mac's `phone.cloudDesktop` setting; `status` is the machine's Cloud status
+  (`running`, `paused`, `starting`, ...); `ran` says it has run at least once;
+  `linked` says the Mac holds its live carrier, so a Cloud chat can open on it.
+  A machine that is asleep (no live carrier, `linked` false) is listed too, for the
+  Chief's Computer card only; the Cloud chats list leaves it out. An older Mac sends
+  none of these fields: the phone reads `paid`, `desktops` and `ran` as false,
+  `status` as unknown and `linked` as true (it listed only linked machines).
   Hostd obtains this list from the signed-in Mac app's authenticated owner
   CloudLinkSession objects. Carrier paths and ownership markers are never sent
   to the phone; conflicting duplicate machine/team entries are omitted.
