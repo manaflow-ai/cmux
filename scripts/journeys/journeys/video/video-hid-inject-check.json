@@ -1,0 +1,71 @@
+{
+ "id": "video-hid-inject-check",
+ "priority": "P1",
+ "title": "Injector proof: hid_inject's 120 Hz drag on a mini (plan, via open, direct), the PostEvent grant and the app's journal",
+ "why": "cmux-ad 03:40Z: timed input must come from a compiled injector, not CuaDriver. This round shows whether hid_inject reaches 95% of 120 Hz and whether its events reach the app on these minis without a new grant.",
+ "source": "handoff/resize-videos (harness owner)",
+ "budget_seconds": 150,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window fills the screen",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rvh"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "hid_inject_check",
+   "hz": 120
+  },
+  {
+   "do": "type",
+   "text": "echo rvh-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "the app still answers",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "rvh-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "rvh-done-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

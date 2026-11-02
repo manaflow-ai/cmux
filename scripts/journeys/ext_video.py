@@ -481,5 +481,80 @@ def step_action_try(j, step):
         return {"refused": str(error)[:300]}
 
 
-STEPS = {"action_try": step_action_try, "video_count": step_video_count, "sck_probe": step_sck_probe, "video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
+def _hid_inject_app(j):
+    """Builds hid_inject.swift once per journey into an app bundle (its own bundle id, so a PostEvent grant can name
+    it) beside the kit; returns the bundle path."""
+    import subprocess
+    cached = getattr(j, "hid_inject_app", None)
+    if cached:
+        return cached
+    here = os.path.dirname(os.path.abspath(__file__))
+    app = os.path.join(os.path.dirname(here), "HIDInject.app")
+    exe_dir = os.path.join(app, "Contents", "MacOS")
+    os.makedirs(exe_dir, exist_ok=True)
+    built = subprocess.run(["xcrun", "swiftc", "-O", "-swift-version", "5", "-target", "arm64-apple-macos14.4",
+                            os.path.join(here, "hid_inject.swift"), "-o", os.path.join(exe_dir, "hid_inject")],
+                           capture_output=True, text=True, timeout=300)
+    if built.returncode:
+        raise D.StepError(f"hid_inject: build failed: {built.stderr[-500:]}")
+    with open(os.path.join(app, "Contents", "Info.plist"), "w") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key>'
+                '<string>hid_inject</string><key>CFBundleIdentifier</key><string>ai.manaflow.resize-videos.hidinject</string>'
+                '<key>CFBundleName</key><string>HIDInject</string><key>CFBundlePackageType</key><string>APPL</string>'
+                '<key>LSUIElement</key><true/><key>LSMinimumSystemVersion</key><string>14.4</string></dict></plist>')
+    subprocess.run(["codesign", "-s", "-", "--force", app], capture_output=True, timeout=60)
+    j.hid_inject_app = app
+    return app
+
+
+def run_hid_inject(j, script, mode="run", via_open=True):
+    """Runs hid_inject on SCRIPT; returns (exit code, log dict or None, stderr). via_open: as an app in the GUI
+    session (the process a PostEvent grant would name); else directly from this driver's process."""
+    import subprocess
+    app = _hid_inject_app(j)
+    work = _vdir(j)
+    stamp = f"{int(time.monotonic() * 1000)}"  # a file name only, never a measurement
+    script_path, log_path, err_path = work / f".hid-{stamp}.json", work / f".hid-{stamp}.log.json", work / f".hid-{stamp}.err"
+    script_path.write_text(json.dumps(script))
+    exe = os.path.join(app, "Contents", "MacOS", "hid_inject")
+    if via_open:
+        done = subprocess.run(["open", "-W", "-n", "--stderr", str(err_path), app, "--args", mode, str(script_path), str(log_path)],
+                              capture_output=True, text=True, timeout=120)
+        code = done.returncode
+    else:
+        done = subprocess.run([exe, mode, str(script_path), str(log_path)], capture_output=True, text=True, timeout=120)
+        code = done.returncode
+        err_path.write_text(done.stderr or "")
+    log = json.loads(log_path.read_text()) if log_path.exists() else None
+    err = err_path.read_text() if err_path.exists() else ""
+    return code, log, err
+
+
+def step_hid_inject_check(j, step):
+    """Proof of the compiled injector on this mini (no recording): plan mode (timing only), then a real 120 Hz drag
+    over the window's empty top-right area via `open` and directly; reports the achieved rates, whether the app's
+    journal got the events, and the PostEvent preflight answer."""
+    import hid_inject_log as H
+    win = R._layers_window(j)
+    if not win or not win.get("primary_max_y"):
+        raise D.NotRun("hid_inject_check: debug.layers has no main window frame on the primary display")
+    wx, wy, ww, wh = win["frame"]
+    top = win["primary_max_y"] - (wy + wh)
+    a, b = [wx + ww - 300, top + 300], [wx + ww - 60, top + 300]
+    script = {"start_delay_ms": 150, "rate_floor": 0.95,
+              "steps": [{"do": "drag", "from": a, "to": b, "duration_ms": 500, "hz": int(step.get("hz", 120))}]}
+    out = {"problems": H.validate_script(script)}
+    code, log, err = run_hid_inject(j, script, mode="plan", via_open=False)
+    out["plan"] = {"exit": code, "steps": (log or {}).get("steps"), "err": err[-200:]}
+    for via in ("open", "direct"):
+        seq = R._journal_last_seq(j)
+        code, log, err = run_hid_inject(j, script, mode="run", via_open=via == "open")
+        time.sleep(0.3)
+        got = [e for e in R._journal_entries(j, 400) if int(e.get("seq") or 0) > seq and "mouse" in (e.get("kind") or {})]
+        out[via] = {"exit": code, "verdict": H.verdict(log) if log else ["not run", err[-200:]],
+                    "steps": (log or {}).get("steps"), "app_mouse_events": len(got), "err": err[-200:]}
+    return out
+
+
+STEPS = {"hid_inject_check": step_hid_inject_check, "action_try": step_action_try, "video_count": step_video_count, "sck_probe": step_sck_probe, "video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
          "hid_click": step_hid_click, "hid_key": step_hid_key, "layout_note": step_layout_note}
