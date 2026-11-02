@@ -259,12 +259,10 @@ impl Ledger {
     /// legacy copy with unknown source; None: this send has not started copying.
     /// A retry must compare this before reusing even a directory that still exists.
     pub(crate) fn copy_source(&self, send: &Send, machine: &str) -> Option<Option<String>> {
-        self.entry(send)
-            .filter(|entry| entry.machine_id == machine)
-            .and_then(|entry| {
-                (entry.place.is_some() || entry.copied_chat.is_some())
-                    .then(|| entry.copy_source.clone())
-            })
+        self.entry(send).filter(|entry| entry.machine_id == machine).and_then(|entry| {
+            (entry.place.is_some() || entry.copied_chat.is_some())
+                .then(|| entry.copy_source.clone())
+        })
     }
 
     /// The folder of `send`'s copy to `machine` that started and did not
@@ -298,7 +296,8 @@ impl Ledger {
 
     /// `send`'s copy into `place` finished on `machine`, its chat's folder there `chat`.
     pub(crate) fn record_copy(&mut self, chat: &str, send: &Send, machine: &str, place: &str) {
-        let copy_source = self.entry(send)
+        let copy_source = self
+            .entry(send)
             .filter(|entry| entry.machine_id == machine)
             .and_then(|entry| entry.copy_source.clone());
         self.put(Entry {
