@@ -49,7 +49,8 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
         /// switch is decided and again, synchronously, right before the pane restarts.
         ///
         /// - Parameters:
-        ///   - receivedInputSinceReport: Whether the pane got input after the limit was reported.
+        ///   - receivedInputSinceReport: Whether the pane got input since the limit was reported,
+        ///     including in the report's own millisecond.
         ///   - screen: The pane's screen as the shared prompt classifier reads it.
         static func paneInUse(
             receivedInputSinceReport: Bool,

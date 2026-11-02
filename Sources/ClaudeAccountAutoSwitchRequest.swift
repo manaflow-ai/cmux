@@ -125,7 +125,7 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
         case .switchTo(let target, let sendContinue):
             if pendingWork { return .holdBack(exhaustion, .backgroundWork) }
             if let inUse = ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(
-                receivedInputSinceReport: ledger.receivedInput(panelId: panelId, after: occurredAtMs),
+                receivedInputSinceReport: ledger.receivedInput(panelId: panelId, since: occurredAtMs),
                 screen: sourceScreen
             ) {
                 return .holdBack(exhaustion, inUse)

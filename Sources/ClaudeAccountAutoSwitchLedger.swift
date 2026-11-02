@@ -32,14 +32,16 @@ struct ClaudeAccountAutoSwitchLedger: Equatable, Sendable {
         exhaustedUntil[accountKey] = max(until, exhaustedUntil[accountKey] ?? until)
     }
 
-    /// Records input reaching the pane at `atMs` (milliseconds since 1970).
+    /// Records input reaching the pane at `atMs` (milliseconds since 1970, wall clock). The latest
+    /// time seen is kept, so a backward clock step can't hide input that came later.
     mutating func noteInput(panelId: UUID, atMs: Int64) {
-        lastInputAtMs[panelId] = atMs
+        lastInputAtMs[panelId] = max(atMs, lastInputAtMs[panelId] ?? atMs)
     }
 
-    /// Whether the pane received input after `ms`.
-    func receivedInput(panelId: UUID, after ms: Int64) -> Bool {
-        (lastInputAtMs[panelId] ?? .min) > ms
+    /// Whether the pane received input at or after `ms`. Input stamped in that same millisecond
+    /// may have come after it, so it counts: every caller leans toward holding back.
+    func receivedInput(panelId: UUID, since ms: Int64) -> Bool {
+        (lastInputAtMs[panelId] ?? .min) >= ms
     }
 
     /// Counts an automatic switch of the pane that finished at `atMs`.

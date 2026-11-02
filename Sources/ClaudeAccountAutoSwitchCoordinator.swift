@@ -241,7 +241,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
         workspace: Workspace
     ) -> ClaudeAccountAutoSwitchAction.HoldBack? {
         ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(
-            receivedInputSinceReport: ledger.receivedInput(panelId: request.panelId, after: request.occurredAtMs),
+            receivedInputSinceReport: ledger.receivedInput(panelId: request.panelId, since: request.occurredAtMs),
             screen: Self.screenState(of: workspace, panelId: request.panelId)
         )
     }

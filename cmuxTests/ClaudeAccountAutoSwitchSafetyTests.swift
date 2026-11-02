@@ -226,13 +226,13 @@ struct ClaudeAccountAutoSwitchLedgerTests {
     @Test
     func inputCountsFromTheGivenTimeOn() {
         var ledger = ClaudeAccountAutoSwitchLedger()
-        #expect(!ledger.receivedInput(panelId: panelId, after: 100))
+        #expect(!ledger.receivedInput(panelId: panelId, since: 100))
         ledger.noteInput(panelId: panelId, atMs: 150)
-        #expect(ledger.receivedInput(panelId: panelId, after: 100))
+        #expect(ledger.receivedInput(panelId: panelId, since: 100))
         // Input stamped in the report's own millisecond may have come after it: it counts.
-        #expect(ledger.receivedInput(panelId: panelId, after: 150))
-        #expect(!ledger.receivedInput(panelId: panelId, after: 151))
-        #expect(!ledger.receivedInput(panelId: UUID(), after: 0))
+        #expect(ledger.receivedInput(panelId: panelId, since: 150))
+        #expect(!ledger.receivedInput(panelId: panelId, since: 151))
+        #expect(!ledger.receivedInput(panelId: UUID(), since: 0))
     }
 
     @Test
@@ -242,7 +242,7 @@ struct ClaudeAccountAutoSwitchLedgerTests {
         var ledger = ClaudeAccountAutoSwitchLedger()
         ledger.noteInput(panelId: panelId, atMs: 1_100)
         ledger.noteInput(panelId: panelId, atMs: 900)
-        #expect(ledger.receivedInput(panelId: panelId, after: 1_000))
+        #expect(ledger.receivedInput(panelId: panelId, since: 1_000))
     }
 
     @Test
