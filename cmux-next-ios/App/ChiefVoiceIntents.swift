@@ -70,5 +70,14 @@ struct CmuxMobileAppShortcuts: AppShortcutsProvider {
             shortTitle: "Voice Note for Chief",
             systemImageName: "waveform"
         )
+        AppShortcut(
+            intent: NewAgentChatIntent(),
+            phrases: [
+                "New agent chat in \(.applicationName)",
+                "Start an agent in \(.applicationName)",
+            ],
+            shortTitle: "New Agent Chat",
+            systemImageName: "sparkle"
+        )
     }
 }

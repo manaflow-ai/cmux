@@ -173,6 +173,13 @@ public final class AgentChatStore {
     public private(set) var isLoadingEarlier = false
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
+    /// Each ended turn's `turn_result` record seq, by turn id: the turn a fork through it keeps
+    /// (Edit and Resend of an earlier prompt).
+    public private(set) var turnSeqs: [String: Int] = [:]
+    /// acpmux holds the waiting prompts (`queue_paused`) until the person resumes them.
+    public private(set) var queuePaused = false
+    /// The pause's reason as acpmux logged it (`stop`: a person's Stop held agent messages).
+    public private(set) var queuePauseReason: String?
 
     /// The chat's title: the agent's session title, else the session's name, else (a new
     /// session) the first prompt trimmed to 40 characters, as ChatGPT and Claude do.
@@ -529,6 +536,33 @@ public final class AgentChatStore {
         return turn.prompt
     }
 
+    /// The turn an edit of `turn`'s prompt forks through (the Mac's Edit and Resend, webviews
+    /// conversation/editPrompt.ts): the seq of the completed turn right before it, or nil when
+    /// its prompt can't be edited that way. A chat's first prompt has no turn before it; a
+    /// failed or cancelled turn before it was never answered whole; only Claude and Codex
+    /// chats fork through an earlier turn (acpmux `fork_through.rs`).
+    public func editForkSeq(for turn: AgentTurn) -> Int? {
+        guard ["claude", "codex"].contains(Self.family(of: summary.harness)),
+              let index = turns.firstIndex(where: { $0.id == turn.id }), index > 0, !turn.prompt.isEmpty else { return nil }
+        let before = turns[index - 1]
+        guard before.status == .completed else { return nil }
+        return turnSeqs[before.id]
+    }
+
+    /// The harness family acpmux forks by: Claude Code's profiles (`claude-sr`, `cmux`) are Claude's.
+    nonisolated static func family(of harness: String) -> String {
+        let id = harness.lowercased()
+        if id == "claude" || id.hasPrefix("claude-") || id == "cmux" { return "claude" }
+        if id == "codex" || id.hasPrefix("codex-") { return "codex" }
+        return id
+    }
+
+    /// Resume (the Mac's Resume over a paused queue): acpmux runs the held prompts again.
+    public func resumeQueue() {
+        guard queuePaused else { return }
+        source.send(.resumeQueue)
+    }
+
     /// The queued row's X: takes the prompt back into the composer, returning the text the
     /// composer gets. Only an empty composer (whitespace counts as empty) takes it: a draft
     /// there is never replaced, so the prompt stays queued and this returns nil (the row then
@@ -638,6 +672,11 @@ public final class AgentChatStore {
         case .retrying(let attempt, let maxAttempts, let status):
             guard let index = turns.indices.last, turns[index].status == .running else { return }
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
+        case .turnSeq(let turnId, let seq):
+            turnSeqs[turnId] = seq
+        case .queuePaused(let paused, let reason):
+            queuePaused = paused
+            queuePauseReason = paused ? reason : nil
         case .turnResult(let turnId, let status, let errorText, let at):
             mutateTurn(turnId) { turn in
                 turn.retry = nil
@@ -775,6 +814,7 @@ public final class AgentChatStore {
         let older = AgentChatStore(source: EarlierHistorySource(summary: summary))
         older.nextFrame = nil
         older.apply(.batch(events))
+        turnSeqs.merge(older.turnSeqs) { current, _ in current }
         let shown = Set(turns.map(\.id))
         let added = older.turns.filter { !shown.contains($0.id) }
         guard !added.isEmpty else { return }

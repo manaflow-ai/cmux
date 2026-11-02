@@ -309,6 +309,10 @@ public struct RootView: View {
         // A live Chief call (even minimized) ends with the account; a call asked for while signed out is dropped.
         ChiefLiveCall.shared.signedOut()
         ChiefCallLauncher.shared.cancelPending()
+        AgentChatLauncher.shared.cancelPending()
+        AgentSessionDirectory.shared.newChatDraft = nil
+        // Send Message… needs a signed-in shell's Chief.
+        ChiefMessenger.shared.compose = nil
         // A pending approval/reply or notification route belongs to the old
         // account, including if sign-out came from an expired server session.
         PushReplies.shared.signedOut()
@@ -520,6 +524,9 @@ struct ShellView: View {
         }
         .sheet(item: $shell.cloudChats) { item in
             CloudChatsScreen(shell: shell, attention: item.attention)
+        }
+        .sheet(item: $shell.messagingChief) { subject in
+            ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
@@ -743,8 +750,14 @@ private struct LiveCallHost: ViewModifier {
                 call.configure(store: shell.store, accountID: user?.id,
                                userName: user?.name.split(separator: " ").first.map(String.init))
                 ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+                AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
+                ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
             }
-            .onDisappear { ChiefCallLauncher.shared.handler = nil }
+            .onDisappear {
+                ChiefCallLauncher.shared.handler = nil
+                AgentChatLauncher.shared.handler = nil
+                ChiefMessenger.shared.compose = nil
+            }
     }
 }
 

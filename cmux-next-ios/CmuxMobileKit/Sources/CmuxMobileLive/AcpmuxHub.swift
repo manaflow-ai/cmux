@@ -490,6 +490,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     _ = try await hub.request("_acpmux/queue_edit", .object([
                         "sessionId": session, "promptId": .string(promptID), "op": .string("move"), "index": .number(Double(index)),
                     ]))
+                case .resumeQueue:
+                    // `resume` names no prompt: it lets the whole held queue go (hub/queue_edit.rs).
+                    _ = try await hub.request("_acpmux/queue_edit", .object(["sessionId": session, "op": .string("resume")]))
                 }
             } catch {
                 if AcpmuxSessionSource.isFullAccessRefusal(error) { hub.fullAccessRefused() }
@@ -516,7 +519,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// A failed upload throws, so nothing is sent without its attachments.
     func promptBlocks(text: String, attachments: [AgentAttachment], hub: AcpmuxHub) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
-        for attachment in attachments where attachment.imageMIMEType == nil {
+        // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
+        // past the prompt's inline budget the rest go as links to their uploaded copies.
+        let attachments = await Self.inlinePDFs(attachments)
+        let inline = Self.inlineDocuments(attachments)
+        for attachment in attachments where attachment.imageMIMEType == nil && !inline.contains(attachment.id) {
             let payload: LinkUpload.Payload
             if let data = attachment.data {
                 payload = .data(data)
@@ -528,7 +535,27 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             guard let link = hub.macLink else { throw LinkError(code: "offline", message: "Connect to \(summary.macName) to send \(attachment.name).") }
             uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: baseDirectory, link: link, macName: summary.macName)
         }
-        return Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded)
+        // Base64 of PDFs and video frames (megabytes) is made off the main actor.
+        return await Task.detached(priority: .userInitiated) {
+            Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded, inlineDocuments: inline)
+        }.value
+    }
+
+    /// The most PDF bytes one prompt carries inline: their base64 stays well under acpmux's
+    /// one-message bound (31 MiB) with room for the text and images.
+    nonisolated static let inlineDocumentBudget = 16 << 20
+
+    /// The PDFs that go as `document` blocks: each one up to its cap, in order, while the
+    /// prompt's total stays within `inlineDocumentBudget`.
+    nonisolated static func inlineDocuments(_ attachments: [AgentAttachment]) -> Set<String> {
+        var total = 0
+        var ids: Set<String> = []
+        for attachment in attachments {
+            guard let data = documentData(attachment), total + data.count <= inlineDocumentBudget else { continue }
+            total += data.count
+            ids.insert(attachment.id)
+        }
+        return ids
     }
 
     /// Uploads into the session's folder; a folder the Mac won't write to
@@ -543,13 +570,43 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
     }
 
-    /// The blocks for `text` and `attachments`, with each file's path on the Mac.
-    static func promptBlocks(text: String, attachments: [AgentAttachment], uploaded: [String: String] = [:]) -> [JSONValue] {
+    /// Each PDF up to `AgentAttachment.maxDocumentBytes` that the composer kept by its URL, with
+    /// its bytes read (off the main actor, inside its security scope); the rest as they were.
+    nonisolated static func inlinePDFs(_ attachments: [AgentAttachment]) async -> [AgentAttachment] {
+        guard attachments.contains(where: { $0.isPDF && $0.data == nil && $0.fileURL != nil }) else { return attachments }
+        return await Task.detached(priority: .userInitiated) {
+            attachments.map { attachment in
+                guard attachment.isPDF, attachment.data == nil, let url = attachment.fileURL,
+                      (attachment.byteCount ?? .max) <= AgentAttachment.maxDocumentBytes,
+                      let data = ScopedFile(url).withAccess({ try? Data(contentsOf: $0, options: .mappedIfSafe) }),
+                      data.count <= AgentAttachment.maxDocumentBytes else { return attachment }
+                var read = attachment
+                read.data = data
+                return read
+            }
+        }.value
+    }
+
+    /// A PDF's bytes when it goes as a `document` block: its own, up to the cap.
+    nonisolated static func documentData(_ attachment: AgentAttachment) -> Data? {
+        guard attachment.isPDF, let data = attachment.data, data.count <= AgentAttachment.maxDocumentBytes,
+              data.starts(with: Array("%PDF".utf8)) else { return nil }
+        return data
+    }
+
+    /// The blocks for `text` and `attachments`, with each file's path on the Mac. A video's
+    /// link is followed by its frames note and each frame (label, then image), as the Mac sends it.
+    nonisolated static func promptBlocks(text: String, attachments: [AgentAttachment], uploaded: [String: String] = [:],
+                                         inlineDocuments: Set<String>? = nil) -> [JSONValue] {
+        let inline = inlineDocuments ?? Self.inlineDocuments(attachments)
         var blocks: [JSONValue] = []
         if !text.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string(text)])) }
         for attachment in attachments {
             if let mime = attachment.imageMIMEType, let data = attachment.data {
                 blocks.append(.object(["type": .string("image"), "mimeType": .string(mime), "data": .string(data.base64EncodedString())]))
+            } else if inline.contains(attachment.id), let data = documentData(attachment) {
+                blocks.append(.object(["type": .string("document"), "mimeType": .string("application/pdf"),
+                                       "data": .string(data.base64EncodedString()), "name": .string(attachment.name)]))
             } else if let path = uploaded[attachment.id] {
                 let uri = URL(fileURLWithPath: path).absoluteString
                 let mime = Self.mimeType(name: attachment.name)
@@ -563,6 +620,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                                                      "name": .string(attachment.name), "mimeType": .string(mime)]
                     if let size = attachment.data?.count ?? attachment.byteCount { link["size"] = .number(Double(size)) }
                     blocks.append(.object(link))
+                    if let video = attachment.video, !video.frames.isEmpty {
+                        blocks.append(.object(["type": .string("text"), "text": .string(video.framesNote(name: attachment.name))]))
+                        for frame in video.frames {
+                            let name = AgentVideo.frameName(attachment.name, atMs: frame.atMs)
+                            blocks.append(.object(["type": .string("text"), "text": .string(name)]))
+                            blocks.append(.object(["type": .string("image"), "mimeType": .string("image/jpeg"),
+                                                   "data": .string(frame.jpeg.base64EncodedString()), "name": .string(name)]))
+                        }
+                    }
                 }
             }
         }
@@ -570,7 +636,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return blocks
     }
 
-    static func mimeType(name: String) -> String {
+    nonisolated static func mimeType(name: String) -> String {
         let ext = (name as NSString).pathExtension
         return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
     }
@@ -585,10 +651,87 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         throw AgentFeatureUnavailable("Restore checkpoints from the cmux app on \(summary.macName).")
     }
 
+    /// `/status`: acpmux's detail of the session (`_acpmux/info`, which this phone already
+    /// reads for approvals), as the Mac's Session status card labels it.
+    public func sessionStatus() async throws -> AgentSessionStatus {
+        guard let hub else { throw AgentFeatureUnavailable("Status is unavailable for this chat.") }
+        do {
+            let info = try await hub.request("_acpmux/info", .object(["sessionId": .string(sessionID)]))
+            return Self.sessionStatus(info, macName: summary.macName, fallbackHarness: summary.agentName)
+        } catch let error as AcpmuxConnection.RPCError {
+            throw AgentFeatureUnavailable(error.message)
+        }
+    }
+
+    /// The card's fields from an `_acpmux/info` reply (webviews acpmux/HarnessStatusCard.tsx): only
+    /// labels and the agent's own auth-source label are read, never another value of `agentInfo`
+    /// (arbitrary keys there may hold a credential).
+    nonisolated static func sessionStatus(_ info: JSONValue, macName: String, fallbackHarness: String) -> AgentSessionStatus {
+        let agent = info["agentInfo"] ?? .null
+        func text(_ value: JSONValue?) -> String? {
+            guard let value = value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+            return value
+        }
+        let notReported = String(localized: "Not reported")
+        let version = text(agent["version"]) ?? notReported
+        let model = text(info["model"]) ?? text(info["models"]?["currentModelId"]) ?? notReported
+        let effortOption = info["configOptions"]?.arrayValue?.first { option in
+            ["effort", "reasoning_effort", "thought_level"].contains(option["id"]?.stringValue ?? "")
+        }
+        let effort = text(info["effort"]) ?? text(effortOption?["currentValue"]) ?? notReported
+        let auth = text(agent["authSource"]) ?? text(info["authSource"]) ?? notReported
+        var routing = text(agent["routeName"]) ?? text(agent["route"]) ?? text(info["route"])
+        if routing == nil, let base = text(agent["baseUrl"]) ?? text(agent["baseURL"]) ?? text(info["baseUrl"]) {
+            if let url = URL(string: base), let scheme = url.scheme, let host = url.host {
+                routing = "\(scheme)://\(host)" + (url.port.map { ":\($0)" } ?? "")
+            } else {
+                routing = String(localized: "Reported endpoint")
+            }
+        }
+        let settings = (agent["settingsSources"] ?? info["settingsSources"])?.arrayValue?.compactMap { text($0) } ?? []
+        var context = notReported
+        if let used = info["usage"]?["used"]?.numberValue, let size = info["usage"]?["size"]?.numberValue, size > 0, used >= 0 {
+            let percent = Int((min(1, max(0, used / size)) * 100).rounded())
+            context = String(localized: "\(percent)% (\(Int(used).formatted()) / \(Int(size).formatted()) tokens)")
+        }
+        let limits = ((agent["usageLimits"] ?? info["usageLimits"])?["windows"]?.arrayValue ?? []).compactMap { window -> String? in
+            guard let id = text(window["id"]), let used = window["usedPercent"]?.numberValue else { return nil }
+            let name = switch id {
+            case "session": String(localized: "Session")
+            case "weekly": String(localized: "Weekly")
+            case "weekly_opus": String(localized: "Weekly (Opus)")
+            case "weekly_sonnet": String(localized: "Weekly (Sonnet)")
+            default: id
+            }
+            return "\(name) \(Int(min(100, max(0, used)).rounded()))%"
+        }
+        let fields: [AgentSessionStatus.Field] = [
+            .init(label: String(localized: "Version"), value: version),
+            .init(label: String(localized: "Session"), value: text(info["sessionId"]) ?? notReported),
+            .init(label: String(localized: "CWD"), value: text(info["cwd"]) ?? notReported),
+            .init(label: String(localized: "Host"), value: text(info["host"]) ?? text(info["peer"]) ?? macName),
+            .init(label: String(localized: "Model"), value: model),
+            .init(label: String(localized: "Effort"), value: effort),
+            .init(label: String(localized: "Auth source"), value: auth),
+            .init(label: String(localized: "Routing"), value: routing ?? notReported),
+            .init(label: String(localized: "Settings"), value: settings.isEmpty ? notReported : settings.joined(separator: ", ")),
+            .init(label: String(localized: "Context"), value: context),
+            .init(label: String(localized: "Usage limits"), value: limits.isEmpty ? notReported : limits.joined(separator: ", ")),
+        ]
+        return AgentSessionStatus(harness: text(info["harness"]) ?? fallbackHarness, fields: fields)
+    }
+
     public func handoffTargets() async throws -> [AgentHandoffTarget] {
         guard let hub else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
-        let reply = try await hub.request("_acpmux/harnesses", .object(["cwd": .string(summary.cwd)]))
-        return Self.handoffTargets(reply, excluding: summary.harness)
+        // A workspace tab's folder is the Mac's as the sidebar spells it (`~/code/app`); acpmux
+        // takes only an absolute one, and lists every harness without it.
+        let params: JSONValue = summary.cwd.hasPrefix("/") ? .object(["cwd": .string(summary.cwd)]) : .object([:])
+        do {
+            let reply = try await hub.request("_acpmux/harnesses", params)
+            return Self.handoffTargets(reply, excluding: summary.harness)
+        } catch let error as AcpmuxConnection.RPCError {
+            throw AgentFeatureUnavailable(error.message)
+        }
     }
 
     /// `_acpmux/harnesses` → targets: every harness but the session's own; unavailable ones keep their reason.
@@ -1064,6 +1207,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         if !modes.isEmpty { events.append(.modesAvailable(modes, current: detail["modes"]?["currentModeId"]?.stringValue)) }
         if !options.isEmpty { events.append(.update(.configOptions(options))) }
+        // Whether a failed turn holds the queue now (its `queue_paused` record may be older
+        // than the history the chat opened on).
+        if case .bool(let paused)? = detail["queuePaused"] { events.append(.queuePaused(paused, reason: nil)) }
         return events
     }
 
