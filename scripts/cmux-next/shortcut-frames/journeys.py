@@ -85,13 +85,12 @@ def load_steps(load: str) -> list[dict]:
     count = {"idle": 0, "hog15g": 0, "busy1": 1, "busy12": 12}[load]
     steps: list[dict] = []
     for i in range(count):
-        program = LOAD_PROGRAMS[i % len(LOAD_PROGRAMS)]
-        extra = " --fps 120" if program == "gradient" else ""
+        # A log flood (the TUI kit, #31507, is not on the kit branch yet): a pane that redraws every refresh.
         steps += [{"do": "rpc", "method": "action.run", "params": {"action": "newColumn" if i % 3 == 0 else "splitDown"},
                    "title": f"set-up: load pane {i + 1}"},
                   {"do": "focused_terminal"},
-                  {"do": "type", "text": f"python3 {TUIKIT} {program} --seed {2000 + i}{extra}", "enter": True,
-                   "title": f"set-up: {program} in load pane {i + 1}"}]
+                  {"do": "type", "text": f"yes 'shortcut frames load pane {i + 1}: a line of busy output'", "enter": True,
+                   "title": f"set-up: a log flood in load pane {i + 1}"}]
     if count:
         steps.append({"do": "key", "key": "1", "modifiers": ["control", "cmd"],
                       "title": "set-up: Focus Pane 1 (the quiet pane p0, first in the layout; the press acts on it)"})

@@ -111,10 +111,10 @@
   },
   {
    "do": "video_start",
-   "name": "sf-warm-idle-dark-anim-on",
+   "name": "sf-selectworkspacebynumber-prevsurface-prevsurface-nextsurface--warm-idle-dark-anim-on",
    "seconds": 101.5,
    "lead": 1.5,
-   "title": "start the recording (sf-warm-idle-dark-anim-on); its first 1.5 s are the judge's frames before the press"
+   "title": "start the recording (sf-selectworkspacebynumber-prevsurface-prevsurface-nextsurface--warm-idle-dark-anim-on); its first 1.5 s are the judge's frames before the press"
   },
   {
    "do": "hid_key",
@@ -282,9 +282,14 @@
    "do": "rpc",
    "method": "action.run",
    "params": {
-    "action": "newColumn"
+    "action": "splitRight"
    },
-   "title": "set-up: newColumn"
+   "title": "set-up: splitRight"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "set-up: the context settles"
   },
   {
    "do": "rpc",
@@ -479,9 +484,14 @@
    "do": "rpc",
    "method": "action.run",
    "params": {
-    "action": "newColumn"
+    "action": "splitRight"
    },
-   "title": "set-up: newColumn"
+   "title": "set-up: splitRight"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "set-up: the context settles"
   },
   {
    "do": "rpc",
@@ -676,9 +686,14 @@
    "do": "rpc",
    "method": "action.run",
    "params": {
-    "action": "newColumn"
+    "action": "splitRight"
    },
-   "title": "set-up: newColumn"
+   "title": "set-up: splitRight"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "set-up: the context settles"
   },
   {
    "do": "rpc",
@@ -854,9 +869,14 @@
    "do": "rpc",
    "method": "action.run",
    "params": {
-    "action": "newColumn"
+    "action": "splitRight"
    },
-   "title": "set-up: newColumn"
+   "title": "set-up: splitRight"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "set-up: the context settles"
   },
   {
    "do": "rpc",
@@ -1036,9 +1056,9 @@
   },
   {
    "do": "video_stop",
-   "name": "sf-warm-idle-dark-anim-on",
+   "name": "sf-selectworkspacebynumber-prevsurface-prevsurface-nextsurface--warm-idle-dark-anim-on",
    "tail": 0.6,
-   "title": "stop the recording (sf-warm-idle-dark-anim-on); its files go to the result"
+   "title": "stop the recording (sf-selectworkspacebynumber-prevsurface-prevsurface-nextsurface--warm-idle-dark-anim-on); its files go to the result"
   },
   {
    "do": "type",

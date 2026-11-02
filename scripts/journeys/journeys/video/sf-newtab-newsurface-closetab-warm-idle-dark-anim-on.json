@@ -87,10 +87,10 @@
   },
   {
    "do": "video_start",
-   "name": "sf-warm-idle-dark-anim-on",
+   "name": "sf-newtab-newsurface-closetab-warm-idle-dark-anim-on",
    "seconds": 63.1,
    "lead": 1.5,
-   "title": "start the recording (sf-warm-idle-dark-anim-on); its first 1.5 s are the judge's frames before the press"
+   "title": "start the recording (sf-newtab-newsurface-closetab-warm-idle-dark-anim-on); its first 1.5 s are the judge's frames before the press"
   },
   {
    "do": "hid_key",
@@ -772,9 +772,9 @@
   },
   {
    "do": "video_stop",
-   "name": "sf-warm-idle-dark-anim-on",
+   "name": "sf-newtab-newsurface-closetab-warm-idle-dark-anim-on",
    "tail": 0.6,
-   "title": "stop the recording (sf-warm-idle-dark-anim-on); its files go to the result"
+   "title": "stop the recording (sf-newtab-newsurface-closetab-warm-idle-dark-anim-on); its files go to the result"
   },
   {
    "do": "type",
