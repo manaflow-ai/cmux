@@ -66,6 +66,9 @@ pub struct Seed {
     credentials: Vec<Credential>,
     /// The path that worked last (the first one until one has).
     chosen: Credential,
+    /// A full seed is reusing an existing checkout. Check it again immediately
+    /// before the forced checkout, after the potentially long network fetch.
+    reseeding_existing: bool,
 }
 
 impl Seed {
@@ -79,7 +82,10 @@ impl Seed {
         credentials: Vec<Credential>,
     ) -> Self {
         let chosen = credentials.first().cloned().unwrap_or(Credential::Anonymous);
-        Self { job, params, folder, bundle, roots, git, credentials, chosen }
+        Self {
+            job, params, folder, bundle, roots, git, credentials, chosen,
+            reseeding_existing: false,
+        }
     }
 
     pub fn run(mut self) -> Result<(), Failed> {
@@ -237,6 +243,10 @@ impl Seed {
         if std::fs::symlink_metadata(folder.join(".git")).is_ok_and(|meta| meta.is_dir()) {
             check_folder(&self.git, &folder, &self.params.url)
                 .map_err(|refusal| failed(refusal.code, refusal.message))?;
+            // Without this fence, a retried full seed can run checkout --force
+            // and git clean -fd over edits made on Cloud after the first send.
+            self.check_existing_seed()?;
+            self.reseeding_existing = true;
             self.job.enter(Phase::Fetch);
             // A fetch that fails is not the end: the base may be here already.
             if let Err(failures) =
@@ -265,6 +275,65 @@ impl Seed {
         let mut clean = || clean_folder(&folder, existed);
         self.net(None, &args, &mut clean)
             .map_err(|failures| classify(&failures, "seed.clone_failed"))
+    }
+
+    /// Fail closed before reusing a checkout whose Git or file state may
+    /// have changed since its last accepted seed. A full seed uses a forced
+    /// checkout and `git clean -fd`, which otherwise discard those changes.
+    /// An ordinary existing clone has no seed record and belongs to its owner.
+    fn check_existing_seed(&self) -> Result<(), Failed> {
+        let changed = |why: &str| failed("seed.machine_changed", why);
+        let recorded = |name: &str| {
+            self.git(&["rev-parse", "--verify", "--quiet", name])
+                .ok()
+                .map(|bytes| String::from_utf8_lossy(&bytes).trim().to_owned())
+        };
+        let Some(head) = recorded("refs/cmux-seed/head^{commit}") else {
+            return Err(failed(
+                "seed.folder_not_empty",
+                "the existing checkout has no completed cmux seed; select a new folder",
+            ));
+        };
+        let (Some(index), Some(work)) = (
+            recorded("refs/cmux-seed/index^{tree}"),
+            recorded("refs/cmux-seed/work^{tree}"),
+        ) else {
+            return Err(changed("the existing checkout has an incomplete seed record"));
+        };
+        if recorded("HEAD^{commit}").as_deref() != Some(head.as_str()) {
+            return Err(changed("HEAD moved on Cloud since its last seed"));
+        }
+        let branch = self.git(&["symbolic-ref", "-q", "HEAD"]).ok().map(|bytes| {
+            String::from_utf8_lossy(&bytes).trim().to_owned()
+        });
+        let requested = self.params.branch.as_ref().map(|name| format!("refs/heads/{name}"));
+        if branch != requested {
+            return Err(changed("the checkout branch differs from this seed's branch"));
+        }
+        if recorded("refs/stash^{commit}") != recorded("refs/cmux-seed/stash^{commit}") {
+            return Err(changed("refs/stash changed on Cloud since its last seed"));
+        }
+        // Git's assume-unchanged bit can hide edited files from status and
+        // from an add -A based snapshot. Refuse such a checkout: checkout
+        // --force could overwrite work Git deliberately skipped observing.
+        let tracked = self.git(&["ls-files", "-v", "-z"])
+            .map_err(|failure| changed(&failure.message()))?;
+        if tracked.split(|byte| *byte == 0).any(|entry| {
+            entry.first().is_some_and(u8::is_ascii_lowercase)
+        }) {
+            return Err(changed("tracked files use assume-unchanged; verify them before reseeding"));
+        }
+        let snapshot = Snapshot::take(&self.git, &self.chosen, &self.folder)
+            .map_err(|failure| changed(&failure.message()))?;
+        if snapshot.index != index || snapshot.work != work {
+            return Err(changed("staged, tracked or untracked files changed on Cloud since the seed"));
+        }
+        // Snapshot leaves untracked secrets and nested Git repositories out
+        // of WORK. Git clean -fd can still delete those untracked files.
+        if !snapshot.left_out.is_empty() {
+            return Err(changed("the checkout has excluded untracked files that reseeding could delete"));
+        }
+        Ok(())
     }
 
     /// A delta seed builds on this folder's last seed or last export
@@ -435,6 +504,9 @@ impl Seed {
 
     fn checkout(&mut self) -> Result<(), Failed> {
         self.recheck()?;
+        if self.reseeding_existing {
+            self.check_existing_seed()?;
+        }
         self.job.enter(Phase::Checkout);
         let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
         worktree::configure(&self.git, &self.chosen, &self.folder, self.params.sparse.as_deref())
