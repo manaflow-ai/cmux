@@ -1,7 +1,7 @@
 # cmux-next sidebar: owner note
 
-- 2026-11-02: add coverage for pinned-section header text sharing its chevron's optical midline, as machine
-  headers already do. The regression measures actual font metrics instead of the positioning helper.
+- 2026-11-02: pinned-section header text uses the shared optical midline (`SidebarStyle.textY`), as machine
+  headers already do. Centering its full line box left the visible capitals off the chevron's center line.
   Regression: `SidebarIconColumnTests.aBandHeaderTitleAndChevronShareTheMidLine`, across sidebar densities and text sizes.
 
 - 2026-11-02: groups with no user-chosen colour draw no dot, line, chip fill or wash.
