@@ -401,7 +401,9 @@ round is then "not run" (never a pass), unless a later step fails. The last step
 (keys into a terminal while it is created). A capture slot's window is never key
 (`CMUX_NEXT_NO_ACTIVATE`), and held keys are replayed through `NSApplication.sendEvent`, which
 reaches only the key window. So the journey first makes its window key without activating the
-app (`smoke_make_key`: `debug.window.focus`, which calls `makeKey()` and reports the key window),
+app (`smoke_make_key`: `debug.window.focus`, which calls `makeKey()` and reports the key window;
+when the journey window is in front, the reply says key null and the key window is a visible `CefNSWindow` child of
+the app's only main window, the window's restored browser page has the keys, and that also counts),
 and each check and each type-at-once step reads that a main window is still key
 (`smoke_key_window`, `debug.window_list`; not key before typing: known gap).
 A step that leaves a Chromium page focused (Cmd-T's New Tab page) says `smoke_key_window {"page": true}`:

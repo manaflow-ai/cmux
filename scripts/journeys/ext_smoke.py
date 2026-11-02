@@ -9,7 +9,10 @@ rounds under memory pressure. Most of it uses the driver's own steps; these add 
 Steps (`do`):
   smoke_make_key     {}               makes the journey's window the app's key window without activating the app
                                       (`debug.window.focus`: orderFrontRegardless + makeKey) and records whether it
-                                      took (`key` == the window). A capture slot's window is never key otherwise
+                                      took (`key` == the window; or, the journey window in front with key null,
+                                      a visible Chromium page window that is the child of the app's only main
+                                      window: a restored browser page's keyboard, held_by_page). A capture slot's
+                                      window is never key otherwise
                                       (CMUX_NEXT_NO_ACTIVATE), and keys the app holds for a terminal still being made
                                       are replayed through NSApplication.sendEvent, which reaches only the key window.
                                       When the window did not become key, every later `smoke_type_now` is "not run:
@@ -113,9 +116,29 @@ def step_smoke_make_key(j, step):
     window = _journey_window(j)
     reply = j.app.rpc("debug.window.focus", {"window": window}) or {}
     took = isinstance(reply, dict) and reply.get("key") == window
-    j.smoke_key_ok = took
+    page = None if took else _page_of_journey_window(j, window, reply)
+    j.smoke_key_ok = took or page is not None
+    j.smoke_key_page = page
     j.smoke_key_reply = reply
-    return {"window": window, "reply": reply, "key_window_now": took, "front_before": list(j.smoke_front_before)}
+    out = {"window": window, "reply": reply, "key_window_now": j.smoke_key_ok, "front_before": list(j.smoke_front_before)}
+    if page:
+        out["held_by_page"] = page
+    return out
+
+
+def _page_of_journey_window(j, window, reply):
+    """{"page": id, "of_main": id} when the journey window is in front (debug.window.focus `front`) but the key window is
+    a visible Chromium page window that is the child of the app's ONLY main window, else None. A window whose restored
+    focus is a browser page gives that page the keyboard (since #31684; reopen-f4, STATUS 5871): its CefNSWindow is key
+    and the cmux window stays main, and debug.window.focus, which names controller windows only, says key null. The
+    controller id (a UUID) and debug.window_list's window numbers are not the same ids, so with two main windows the
+    page's parent cannot be proven the journey's, and the page does not count."""
+    if not isinstance(reply, dict) or reply.get("front") != window or reply.get("key") is not None:
+        return None
+    _key_now, windows = _main_key(j)
+    if sum(1 for w in windows if w["kind"] == "main") != 1:
+        return None
+    return _page_holds_key(windows)
 
 
 def _diagnostic(j):
@@ -1460,6 +1483,10 @@ def step_smoke_burst(j, step):
     the hold paths' counts before and after (debug.input late_keys holds, on builds that have it)."""
     if not getattr(j, "smoke_key_ok", False):
         raise D.NotRun(GAP + " (smoke_burst posts real key events to the key window)")
+    if getattr(j, "smoke_key_page", None):
+        # The sequence goes to the key window: a page window there would take keys meant for the terminals.
+        raise D.NotRun(GAP + f" (smoke_burst needs the journey window itself key; a browser page has the keys: "
+                             f"{json.dumps(j.smoke_key_page)})")
     gap = float(step.get("gap_ms", 0))
     steps = []
     for item in step["burst"]:
