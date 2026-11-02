@@ -273,6 +273,9 @@ class RePin(unittest.TestCase):
         self.assertIn('gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/$manifest"', script)
         self.assertIn("--input", script)
         self.assertNotIn("git commit", script)
+        # A failed write is retried, and one whose answer was lost is found on the branch instead of repeated.
+        self.assertIn("for attempt in 1 2 3 4 5", script)
+        self.assertIn('contents/$manifest?ref=$branch', script)
 
 
 if __name__ == "__main__":

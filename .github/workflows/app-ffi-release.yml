@@ -566,8 +566,24 @@ jobs:
           base64 -w0 "$manifest" > "$RUNNER_TEMP/manifest.b64"
           jq -n --arg branch "$branch" --arg sha "$blob" --arg message "cmux-next: pin CCmuxAppFFI to $TAG" \
             --rawfile content "$RUNNER_TEMP/manifest.b64" '{$branch, $sha, $message, $content}' > "$RUNNER_TEMP/repin.json"
-          GH_TOKEN="$APP_TOKEN" gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/$manifest" \
-            --input "$RUNNER_TEMP/repin.json" --jq '.commit.sha'
+          # The branch now holds the unpinned tip, so the pin commit is retried: a
+          # failed write left the release unpinned until the next FFI push (review
+          # of #32477). A write whose answer was lost is seen on the branch and not
+          # repeated (a second PUT with the old blob sha would answer 409).
+          pinned="$(git hash-object "$manifest")"
+          for attempt in 1 2 3 4 5; do
+            if GH_TOKEN="$APP_TOKEN" gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/$manifest" \
+                --input "$RUNNER_TEMP/repin.json" --jq '.commit.sha'; then
+              break
+            fi
+            on_branch="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/contents/$manifest?ref=$branch" --jq '.sha' || true)"
+            [[ "$on_branch" == "$pinned" ]] && { echo "the pin commit is on $branch"; break; }
+            if [[ "$attempt" -eq 5 ]]; then
+              echo "::error title=Pin the new release::the contents API refused the pin commit 5 times; $branch holds the unpinned tip" >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
           body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG) (checksum \`$CHECKSUM\`), published by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID, which checked it with check-app-ffi-pin.sh --verify-release. A newer publish updates this branch.
 
           ## Changelog
