@@ -1,5 +1,5 @@
 public import CmuxNextActions
-public import CmuxNextDesignTokens
+public import CmuxNextDesign
 
 /// One Debug Settings switch as a palette pair, Show / Hide (Lawrence 2026-11-02 on the host pressure
 /// warning: "can be enabled in cmd shift p"), as Enable / Disable Channels pair one setting. A run sets
