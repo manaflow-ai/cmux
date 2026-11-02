@@ -2,7 +2,7 @@
 """cmux-next-tip-swift-suite-dispatch.yml batches the Swift suite on the feat-cmux-next tip.
 
 A feat-cmux-next push skips the CmuxNext Swift suite, so a base red there stayed invisible for a
-day (2026-10-21). Every 30 minutes the dispatcher may ask cmux-next.yml for one tip_swift_suite run:
+day (2026-10-21). Every 10 minutes the dispatcher may ask cmux-next.yml for one tip_swift_suite run:
 never while one is in flight or started in the last 25 minutes, never again on a tip with a
 swift-test verdict, a retry (three runs per tip at most) when a run gave none, and on a new tip only
 when the diff since the last green (else the newest red) reaches swift-test (the router step), or
@@ -35,7 +35,8 @@ def check(ok, message):
 
 text = WORKFLOW.read_text()
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
-check(schedule == ["11,41 * * * *"], f"the dispatcher must tick every 30 minutes off the hour, got {schedule}")
+check(schedule == ["1,11,21,31,41,51 * * * *"], f"the dispatcher must tick every 10 minutes off the hour, got {schedule}")
+check("if (!rateLimited(error)) throw error;" in text, "a spent rate limit skips the tick; any other plan error stays red")
 check("cancel-in-progress: false" in text, "a tick must never cancel another")
 check("timeout-minutes: 10" in text, "a tick is one short job")
 check("statuses:" not in text, "the dispatcher takes no statuses grant")
@@ -322,6 +323,25 @@ check(p["action"] == "dispatch", f"a deferred run past the grace must be retried
 r = tip_run(TIP, conclusion="success", age_min=30)
 p, calls = run([r], jobs={r["id"]: swift_job("skipped")})
 check(p["action"] == "dispatch", f"a skipped Swift suite job is retried, got {p}")
+
+# A spent token rate limit (the 05:17Z tick of 2026-11-02: "API rate limit exceeded for installation")
+# skips the tick; a 403 that is not a rate limit, or any other error, stays a red tick.
+LIMITS = r"""
+const { rateLimited } = require(process.argv[2]);
+const err = (status, message) => Object.assign(new Error(message), { status });
+console.log(JSON.stringify([
+  rateLimited(err(403, 'API rate limit exceeded for installation.')),
+  rateLimited(err(429, 'You have exceeded a secondary rate limit')),
+  rateLimited(err(403, 'Resource not accessible by integration')),
+  rateLimited(err(500, 'rate limit')),
+  rateLimited(undefined),
+]));
+"""
+with tempfile.TemporaryDirectory() as tmp:
+    (Path(tmp) / "limits.js").write_text(LIMITS)
+    out = subprocess.run(["node", str(Path(tmp) / "limits.js"), str(PLAN)], capture_output=True, text=True)
+    got = json.loads(out.stdout) if out.returncode == 0 else out.stderr
+check(got == [True, True, False, False, False], f"rateLimited must match only a 403/429 rate limit, got {got}")
 
 if failures:
     print("FAIL: cmux NEXT tip Swift suite dispatcher\n  " + "\n  ".join(failures))

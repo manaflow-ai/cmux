@@ -5,7 +5,7 @@
 // live-daemon test red on the base shows: their "cmux-next swift test" and "cmux-next daemon tests"
 // jobs run on the tip, and scripts/ci/base_red_excuse.py reads them (it looks the runs up by name
 // when base pushes crowd them out of its window). Per suite, one run at a time, at most one per
-// 30-minute tick, and only when its tier changed:
+// 10-minute tick, and only when its tier changed:
 //   - skip while a tip suite run is in flight, or when one was created in the last MIN_GAP_MS
 //     (25 min, not 30: a late cron tick must not push the next run back a whole tick);
 //   - the tip already has a verdict for the suite's job (pass or fail): skip;
@@ -180,4 +180,11 @@ async function dispatch({ github, context, suite: requested, core }) {
   return true;
 }
 
-module.exports = { plan, dispatch, verdict, testedSha, SUITES, MIN_GAP_MS, MAX_ATTEMPTS, DEFERRED_GRACE_MS, SWIFT_JOB };
+// A GitHub answer that the token's rate limit is spent (403 or 429 saying so): the tick skips instead
+// of failing, since another workflow on the same token spent it and the next tick comes soon.
+function rateLimited(error) {
+  const status = error && error.status;
+  return (status === 403 || status === 429) && /rate limit/i.test((error && error.message) || '');
+}
+
+module.exports = { plan, dispatch, rateLimited, verdict, testedSha, SUITES, MIN_GAP_MS, MAX_ATTEMPTS, DEFERRED_GRACE_MS, SWIFT_JOB };

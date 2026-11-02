@@ -4,7 +4,7 @@ name: cmux NEXT tip suite dispatcher (Swift, daemon)
 # build only), so a Swift suite red on the base stayed invisible: the
 # CmuxNextAppTests run had ended mid-way with status 0 for over a day
 # (2026-10-21), and newTabMenuListsTheKindsFirst sat red on the base until
-# #25854. Every 30 minutes this may ask cmux-next.yml for one tip_swift_suite
+# #25854. Every 10 minutes this may ask cmux-next.yml for one tip_swift_suite
 # run on the feat-cmux-next tip (only the Swift tier, every target). Its
 # "cmux-next swift test" check run on the tip commit is the visible base
 # signal, and scripts/ci/base_red_excuse.py reads it. The plan
@@ -28,7 +28,11 @@ name: cmux NEXT tip suite dispatcher (Swift, daemon)
 # only from the default branch, hence this file on main.
 on:
   schedule:
-    - cron: "11,41 * * * *"
+    # Every 10 minutes (2026-11-02): ticks at :11 kept failing on the repository token's spent rate
+    # limit, so with a run in flight on the :41 tick the Swift suite ran once in about 2.5 hours. The
+    # plan's in-flight and 25-minute guards keep it to one run at a time; a missed tick now costs 10
+    # minutes, not 30.
+    - cron: "1,11,21,31,41,51 * * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -65,8 +69,16 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const { plan } = require(`${process.env.GITHUB_WORKSPACE}/scripts/ci/tip_swift_suite_plan.js`);
-            const p = await plan({ github, context, suite: process.env.SUITE });
+            const { plan, rateLimited } = require(`${process.env.GITHUB_WORKSPACE}/scripts/ci/tip_swift_suite_plan.js`);
+            let p;
+            try {
+              p = await plan({ github, context, suite: process.env.SUITE });
+            } catch (error) {
+              // The repository's token budget is spent (other workflows share it): skip this tick, the
+              // next one comes in 10 minutes. Any other error stays a red tick.
+              if (!rateLimited(error)) throw error;
+              p = { action: 'skip', reason: `the token's rate limit is spent: ${error.message}`, tip: '', base: '' };
+            }
             core.notice(`${p.action}: ${p.reason} (tip ${p.tip})`);
             core.setOutput('action', p.action);
             core.setOutput('tip', p.tip);
