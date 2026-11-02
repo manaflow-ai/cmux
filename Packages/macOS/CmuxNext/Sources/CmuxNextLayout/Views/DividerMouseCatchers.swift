@@ -83,6 +83,7 @@ public final class DividerMouseCatchers {
     /// A panel whose divider left: no size and no mouse, still a child of the window, ready for the next divider.
     private func park(_ panel: DividerMousePanel) {
         panel.ignoresMouseEvents = true
+        panel.catcher.resetForReuse()
         if panel.frame.size != .zero {
             panel.setFrame(CGRect(origin: panel.frame.origin, size: .zero), display: false)
             panelUpdates += 1
@@ -180,6 +181,14 @@ final class DividerMouseCatcherView: NSView {
     /// Between a press here and its release: the drag's events come here wherever the pointer goes, and this
     /// panel stays where the press found it until the release (`WindowOverlayLayer`, `isInLayoutMotion`).
     private var isPressed = false
+
+    /// Its panel was parked (its divider left): no enter, press or queued cursor carries to the next divider.
+    func resetForReuse() {
+        pendingCursorSet?.cancel()
+        pendingCursorSet = nil
+        isEntered = false
+        isPressed = false
+    }
     /// A press that started a divider drag keeps the resize cursor; one forwarded elsewhere (a panel frozen over a
     /// terminal during a spring) or a drag cancelled with Escape does not.
     var isDividerDragging: () -> Bool = { false }
