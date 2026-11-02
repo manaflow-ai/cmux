@@ -396,7 +396,8 @@ public final class TerminalLaunchFrames {
         for (key, session) in sessions where !session.isRenderingSuspended {
             let surface = session.surfaceView
             guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
-                  let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
+                  // What the pane shows: a terminal still held over its slow attach saves its held frame.
+                  let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
         }
         await save(images: frames)

@@ -1610,7 +1610,8 @@
               "phone.allowConnections",
               "phone.startSessions",
               "phone.keepAwake",
-              "phone.cloudReplica"
+              "phone.cloudReplica",
+              "phone.cloudDesktop"
             ],
             "title" : {
               "key" : "settings.group.phone",
@@ -11412,6 +11413,140 @@
       "title" : {
         "key" : "settings.phone.cloudReplica",
         "text" : "Show This Mac's Workspaces on Your Phone While It's Off"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.cloudDesktop.help",
+        "text" : "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.cloudDesktop",
+      "keywords" : [
+        "iphone",
+        "mobile",
+        "phone",
+        "cloud",
+        "screen",
+        "desktop",
+        "computer",
+        "chief"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "cloudDesktop"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:phone.cloudDesktop"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.phone.cloudDesktop",
+        "text" : "Show Your Cloud Machine's Screen on Your Phone"
       },
       "validation" : "portable"
     },
