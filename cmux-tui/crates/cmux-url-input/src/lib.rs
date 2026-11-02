@@ -2,7 +2,30 @@
 //! detection, query encoding).
 //!
 //! A crate of its own, with no daemon dependency, so the app can link the
-//! same rule (cmux-app-ffi); cmux-tui-core re-exports [`normalize_url`].
+//! same rules (cmux-app-ffi); cmux-tui-core re-exports [`normalize_url`].
+//!
+//! Two policies, on purpose:
+//! - the daemon policy, [`normalize_url`]: every daemon entrypoint (TUI
+//!   omnibar, `browser-navigate`, `new-browser-tab`); explicit schemes pass
+//!   through, so agents and the CLI can load `data:` and other pages;
+//! - the typed policy, [`TypedInput`]: what a person types into the app's
+//!   omnibox and New Tab field; only `http`, `https`, `file` and the cmux and
+//!   Chrome pages load, every other scheme is a search (the app's C ABI,
+//!   `ffi`, behind the `ffi` feature).
+//!
+//! They share no host rule yet: each keeps its current behavior exactly. Where
+//! they differ, see the crate's PR (rust-migration A9) for the case list.
+
+mod chromium;
+#[cfg(any(feature = "ffi", test))]
+pub mod ffi;
+mod typed;
+
+pub use chromium::{ChromiumPageRoute, chromium_internal_url, chromium_page_route};
+pub use typed::{
+    CMUX_APP_PAGE_HOSTS, TypedInput, contains_pairing_link, is_loopback_host, is_non_unique_host,
+    split_host_and_port,
+};
 
 /// Turn user-entered text into a navigable URL, the same way for every
 /// entrypoint (TUI omnibar, `browser-navigate` and `new-browser-tab`
@@ -156,4 +179,10 @@ fn percent_encode_query(input: &str) -> String {
 }
 
 #[cfg(test)]
+mod chromium_corpus;
+#[cfg(test)]
+mod ffi_tests;
+#[cfg(test)]
 mod normalize_url_corpus;
+#[cfg(test)]
+mod typed_corpus;

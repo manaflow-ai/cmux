@@ -54,6 +54,7 @@ FIRST_PARTY_GPL = {
     "cmux-tasks-core",
     "cmux-palette-ranker",
     "cmux-remote-browser",
+    "cmux-url-input",
 }
 
 BANNED = [
