@@ -24,7 +24,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pane: PaneModel // set only by adopt(_:): a resync's new record of the same pane
     /// The machine daemon that owns `pane`.
     let daemon: DaemonService
-    let stripModel = TabStripModel()
+    let stripModel: TabStripModel
     let view: PaneContentView
     unowned let services: AppServices
     /// Weak: daemon round trips (`Task`s in the intents) can outlive the
@@ -87,7 +87,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     /// `workspace` is set before the first apply, so the first frame is the settled one.
     init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState,
-         workspace: WorkspaceContentController? = nil) {
+         workspace: WorkspaceContentController? = nil, spare: (stripModel: TabStripModel, view: PaneContentView)? = nil) {
+        stripModel = spare?.stripModel ?? TabStripModel()
         self.pane = pane
         self.workspace = workspace
         self.daemon = daemon
@@ -96,7 +97,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.services = services
         self.state = state
         isSuspended = workspace?.drawsNothing == true // a pane made in a parked workspace starts suspended
-        view = PaneContentView(stripModel: stripModel)
+        view = spare?.view ?? PaneContentView(stripModel: stripModel) // a split takes the view tree built ahead (F1)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources

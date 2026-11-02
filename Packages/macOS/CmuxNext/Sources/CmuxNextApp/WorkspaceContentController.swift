@@ -39,6 +39,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
+    /// The pane view tree built ahead for the next split (`refillSparePane`); its refill runs when a motion ends.
+    var sparePane: (stripModel: TabStripModel, view: PaneContentView)?
+    private var spareRefill: LayoutOverlaySyncObservation?
+    private var sparePressure: MainActorHandlerRegistration<MemoryPressureLevel>?
     /// Republishes `canvasLayout` when this workspace's active screen goes into or out of a canvas.
     private var canvasObservation: Task<Void, Never>?
     /// True while `apply` mounts panes: it sends the topology once at its end,
@@ -83,6 +87,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     func park(serial: UInt64) {
         parkedSerial = serial
         isParked = true
+        sparePane = nil // only the shown workspace keeps one
         isOffScreen = true
         attentionObservation?.cancel()
         setDrawsNothing(true)
@@ -141,6 +146,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         _ = layoutView  // built here, then the bar and the content view, as before
+        spareRefill = layoutView.observeLayoutMotion { [weak self] moving in if !moving { self?.refillSparePane() } }
+        sparePressure = services.memoryPressure.observe { [weak self] level in if level != .normal { self?.sparePane = nil } }
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
@@ -187,6 +194,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         screenBar.teardown()
         for controller in Array(panes.values) + retiredPanes.values { controller.teardown() }
         (panes, retiredPanes) = ([:], [:])
+        spareRefill?.cancel(); sparePressure = nil; sparePane = nil
         // A Home closed before its page came stops counting toward `.home`'s wait.
         services.launchReveal.release(contentView)
         contentView.removeFromSuperview()
@@ -387,7 +395,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     func makeContentView(for pane: LayoutPaneID) -> NSView {
         guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
-        let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self)
+        let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self,
+                                        spare: takeSparePane())
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
@@ -437,9 +446,21 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 /// and their layout in the turn the key must commit (RESIZE VIDEOS F1 step 1a). Its content view's identifier is
 /// `cmux.sparePane` (tests read it).
 extension WorkspaceContentController {
-    /// Builds the spare pane at rest (no motion, input quiet).
-    func refillSparePane() {}
+    /// Builds the spare pane at rest: one per shown workspace, at half the focused pane's width (a split's new pane),
+    /// out of the window; nothing while parked or in a motion. Memory pressure drops it (`AppServices.memoryPressure`).
+    func refillSparePane() {
+        guard sparePane == nil, !isParked, !layoutView.isLayoutInMotion else { return }
+        let model = TabStripModel(), view = PaneContentView(stripModel: model)
+        view.identifier = NSUserInterfaceItemIdentifier("cmux.sparePane")
+        let size = panes.values.first { $0.isFocusedInWorkspace }?.view.frame.size ?? contentView.bounds.size
+        view.frame = NSRect(x: 0, y: 0, width: max(1, (size.width / 2).rounded()), height: max(1, size.height))
+        view.layoutSubtreeIfNeeded()
+        sparePane = (model, view)
+    }
 
-    /// Takes the spare pane for a new pane's controller; nil when none is ready.
-    func takeSparePane() -> (stripModel: TabStripModel, view: PaneContentView)? { nil }
+    /// Takes the spare pane for a new pane's controller; nil when none is ready (the next one is built at rest).
+    func takeSparePane() -> (stripModel: TabStripModel, view: PaneContentView)? {
+        defer { sparePane = nil }
+        return sparePane
+    }
 }
