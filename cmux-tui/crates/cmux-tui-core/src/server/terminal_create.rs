@@ -445,8 +445,8 @@ impl ConnectionSurfaceScheduler {
 
 /// The end of one create's commit, on return or on a panic: input queued
 /// for the new terminal goes to it now, before any later input, or back to
-/// its senders when the create failed, was dropped or panicked; an unused
-/// prelaunched host is discarded.
+/// its senders when no live terminal has it (the create failed, was dropped
+/// or panicked first); an unused prelaunched host is discarded.
 struct CreateCleanup<'a> {
     mux: &'a Arc<Mux>,
     slot: &'a CreationSlot,
@@ -457,11 +457,9 @@ struct CreateCleanup<'a> {
 impl Drop for CreateCleanup<'_> {
     fn drop(&mut self) {
         if let Some((terminal_id, generation)) = &self.slot.creating_terminal {
-            let failure = if std::thread::panicking() {
-                Some("failed")
-            } else {
-                self.cancelled.then_some("cancelled")
-            };
+            // On a panic too: a terminal that is live takes its input, else
+            // the input goes back as "failed".
+            let failure = self.cancelled.then_some("cancelled");
             self.mux.finish_creating_input(terminal_id, *generation, failure);
         }
         crate::debug_spans::mark("reply.queued");
