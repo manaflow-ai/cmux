@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+public import Foundation
 
 /// What Share with Guest needs from the app (design chat-multiplayer.md 1 and 6): the chat tabs a
 /// run can name, the daemon each lives on, the owner's cmux install token and where a person's run
@@ -19,8 +20,9 @@ public protocol AgentShareHost: AnyObject {
     func shareIsOnThisMac(_ tab: TabModel) -> Bool
     /// This Mac's daemon connection (list, revoke and kick act on this Mac's shares).
     var shareLocalConnection: DaemonConnection? { get }
-    /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256); nil signed out.
-    func shareOwnerToken() async -> String?
+    /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256) from `api`, the API the
+    /// daemon's share room takes tokens from (nil: the daemon did not say, the build's default); nil signed out.
+    func shareOwnerToken(api: URL?) async -> String?
     /// Puts `text` on the general pasteboard.
     func shareCopy(_ text: String)
     /// Shows a person's run `message` as a notice in the active window.
