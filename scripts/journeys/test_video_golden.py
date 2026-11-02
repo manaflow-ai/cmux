@@ -37,5 +37,18 @@ class RoutingVerdictPerCase(unittest.TestCase):
         self.assertEqual(detail["attempts"], 0)
 
 
+class KitState(unittest.TestCase):
+    """results.jsonl rows carry run.py's harness record, not kit/kit_dirty (a pass was never counted before)."""
+
+    def test_the_harness_record_decides_and_no_record_is_never_clean(self):
+        ks = video_golden.kit_state
+        self.assertEqual(ks({"harness": {"commit": "c", "dirty": [], "pinned": True}}), ("c", False))
+        self.assertEqual(ks({"harness": {"commit": "c", "dirty": [" M x"], "pinned": True}}), ("c", True))
+        self.assertEqual(ks({"harness": {"commit": "c", "dirty": [], "pinned": False}}), ("c", True))
+        self.assertEqual(ks({"harness": {"commit": None, "dirty": []}})[1], None)
+        self.assertEqual(ks({}), (None, None))
+        self.assertEqual(ks({"kit": "k", "kit_dirty": False}), ("k", False))
+
+
 if __name__ == "__main__":
     unittest.main()

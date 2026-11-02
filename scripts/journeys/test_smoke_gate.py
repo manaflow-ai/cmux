@@ -27,6 +27,23 @@ R3 = [st["title"] for st in json.load(open(os.environ["SMOKE_JOURNEY"]))["steps"
       if st.get("do") == "expect" and str(st.get("title", "")).startswith("R3")]
 args = sys.argv[1:]
 out = args[args.index("--out") + 1]
+journey = args[args.index("--journey") + 1]
+if journey != "smoke-dogfood":  # a golden video case (VIDEO EXTRA item 9): SMOKE_GOLDEN_PLAN {case: pass|fail|smoke-env}
+    status = json.loads(os.environ.get("SMOKE_GOLDEN_PLAN", "{}")).get(journey, "pass")
+    os.makedirs(os.path.join(out, journey), exist_ok=True)
+    env_rec = {"do": "env_windows", "result": {"smoke_env": status == "smoke-env", "windows": []}}
+    json.dump({"steps": [env_rec, env_rec]}, open(os.path.join(out, journey, "result.json"), "w"))
+    row = {"id": journey, "status": "fail" if status == "fail" else "pass", "host": "cmux99",
+           "reason": "step 9 (expect): Cmd-1 showed window 1's Home in window 2" if status == "fail" else "",
+           "build_job": os.environ.get("SMOKE_BUILD", "job123"),
+           "harness": {"commit": "abc123", "dirty": [], "detached": True,
+                       "pinned": os.environ.get("SMOKE_GOLDEN_PINNED", "yes") == "yes"}}
+    open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
+    open(os.path.join(out, "argv.json"), "w").write(json.dumps(args))
+    open(os.path.join(out, "env.json"), "w").write(json.dumps({k: os.environ.get(k) for k in
+        ("CAPTURE_HOST_POOL", "CAPTURE_HOST_HOSTS", "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS")}))
+    print("leased cmux99")
+    sys.exit(0)
 os.makedirs(os.path.join(out, "smoke-dogfood"), exist_ok=True)
 n = int(os.path.basename(out).split("-")[1])
 plan = json.loads(os.environ["SMOKE_PLAN"])
@@ -701,7 +718,7 @@ class VideoGoldens(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "open-p0.txt"), "w").write("# none open\n")
             open(os.path.join(tmp, "video-goldens.txt"), "w").write("routing-split routing /g/a F1 owner\n")
-            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "skip"))
             self.assertEqual(summary["verdict"], "PASS")
             self.assertEqual(code, 75)
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
@@ -712,12 +729,121 @@ class VideoGoldens(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "open-p0.txt"), "w").write("some-p0 kit@1 owner S\n")
             open(os.path.join(tmp, "video-goldens.txt"), "w").write("routing-split routing /g/a F1 owner\n")
-            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "skip"))
             self.assertEqual(code, 75)
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
             if not summary["gate_dirty"]:
                 self.assertTrue(os.path.exists(os.path.join(tmp, "out", "open-p0.txt")))
                 self.assertTrue(os.path.exists(os.path.join(tmp, "out", "video-goldens.txt")))
+
+
+class GoldenRun(unittest.TestCase):
+    """The gate runs each listed golden case once on the build and writes its row (lead STATUS 6806 and 14:4xZ)."""
+    LIST = "# case [golden folder]\nupdate-restart-nf\nmwv-shortcuts-new-window-nf\nmwv-home-click-each-window-nf /g/none\n"
+
+    def ledger(self, tmp):
+        path = os.path.join(tmp, "golden-ledger", "job123.jsonl")
+        return [json.loads(l) for l in open(path).read().splitlines()] if os.path.exists(path) else []
+
+    def test_goldens_only_runs_each_case_on_a_whole_host_and_names_each_fail_with_its_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
+            plan = {"mwv-shortcuts-new-window-nf": "fail", "mwv-home-click-each-window-nf": "smoke-env"}
+            code, summary = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "only"),
+                                 env_extra={"SMOKE_GOLDEN_PLAN": json.dumps(plan)})
+            self.assertEqual(code, 1)  # a case FAILED on the build
+            self.assertFalse(os.path.exists(os.path.join(tmp, "out", "round-01")))  # no smoke round
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            for case in ("update-restart-nf", "mwv-shortcuts-new-window-nf", "mwv-home-click-each-window-nf"):
+                argv = json.load(open(os.path.join(tmp, "out", f"golden-{case}", "argv.json")))
+                self.assertEqual(argv[argv.index("--journey") + 1], case)
+                self.assertIn("--whole-host", argv)
+                self.assertIn("--exclusive", argv)
+                self.assertEqual(argv[argv.index("--hosts") + 1], "cmux99")
+                self.assertNotIn("--hog-swap-gb", argv)
+                env = json.load(open(os.path.join(tmp, "out", f"golden-{case}", "env.json")))
+                self.assertEqual(env["CAPTURE_HOST_POOL"], "perf-lead")
+            rows = self.ledger(tmp)
+            # SMOKE ENV writes no row; the pass is a pinned kit's (the harness record), so it counts
+            self.assertEqual(sorted((r["case"], r["status"], r["kit_dirty"]) for r in rows),
+                             [("mwv-shortcuts-new-window-nf", "fail", False), ("update-restart-nf", "pass", False)])
+            text = open(os.path.join(tmp, "out", "video-goldens.txt")).read()
+            self.assertIn("mwv-shortcuts-new-window-nf on cmux99: FAIL", text)
+            self.assertIn("Cmd-1 showed window 1's Home", text)
+            self.assertIn("mwv-home-click-each-window-nf on cmux99: NOT RUN", text)
+            self.assertIn("SMOKE ENV", text)
+            self.assertIn("BLOCKS mwv-shortcuts-new-window-nf: FAILED on job123", text)
+            self.assertIn("BLOCKS mwv-home-click-each-window-nf /g/none: has no golden PASS", text)
+            self.assertNotIn("BLOCKS update-restart-nf", text)
+            self.assertEqual([r["status"] for r in summary["video_goldens"]["run"]], ["pass", "fail", "not run"])
+
+    def test_goldens_only_with_every_case_passed_exits_0_and_no_list_runs_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
+            code, _ = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "only"))
+            self.assertEqual(code, 0)
+            self.assertEqual(len(self.ledger(tmp)), 3)
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "only"))
+            self.assertEqual(code, 75)
+            self.assertEqual(summary["video_goldens"]["list"], "missing")
+            self.assertEqual(self.ledger(tmp), [])
+
+    def test_an_unpinned_kit_s_pass_is_written_dirty_and_never_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\n")
+            code, _ = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "only"),
+                           env_extra={"SMOKE_GOLDEN_PINNED": "no"})
+            self.assertEqual(code, 75)
+            self.assertEqual([r["kit_dirty"] for r in self.ledger(tmp)], [True])
+
+    def test_after_the_rounds_the_cases_run_and_decide_the_pass_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            self.assertEqual(summary["verdict"], "PASS")
+            self.assertEqual([r["status"] for r in summary["video_goldens_run"]], ["pass"] * 3)
+            self.assertIn("no golden case blocks this build", open(os.path.join(tmp, "out", "summary.txt")).read())
+            if not summary["gate_dirty"]:
+                self.assertEqual(code, 0)
+                self.assertTrue(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"),
+                                 env_extra={"SMOKE_GOLDEN_PLAN": json.dumps({"mwv-shortcuts-new-window-nf": "fail"})})
+            self.assertEqual(code, 75)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            self.assertIn("mwv-shortcuts-new-window-nf on cmux99: FAIL", open(os.path.join(tmp, "out", "summary.txt")).read())
+
+    def test_a_diagnostic_run_or_goldens_skip_runs_no_case(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
+            gate(["pass"], tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "skip"))
+            self.assertFalse(any(n.startswith("golden-") for n in os.listdir(os.path.join(tmp, "out"))))
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
+            gate(["pass"], tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--diagnostic"))
+            self.assertFalse(any(n.startswith("golden-") for n in os.listdir(os.path.join(tmp, "out"))))
+
+    def test_with_go_spec_each_case_takes_its_own_go_on_the_gos_mini(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\n")
+            rounds_dir = os.path.join(tmp, "rounds")
+            os.makedirs(rounds_dir)
+            now = time.time()
+            stamp = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
+            json.dump({"host": "cmux98", "go": stamp(now - 5), "until": stamp(now + 300)},
+                      open(os.path.join(rounds_dir, "g.go"), "w"))
+            ci = os.path.join(tmp, "fake-ci")
+            open(ci, "w").write("#!/bin/sh\necho '{\"state\": \"done\"}'\n")
+            os.chmod(ci, 0o755)
+            code, _ = gate([], tmp, rounds=1, extra=("--hosts", "cmux98 cmux99", "--go-spec", "g", "--goldens", "only"),
+                           env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci})
+            self.assertEqual(code, 0)
+            argv = json.load(open(os.path.join(tmp, "out", "golden-update-restart-nf", "argv.json")))
+            self.assertEqual(argv[argv.index("--hosts") + 1], "cmux98")
+            self.assertIn("--whole-host", argv)
+            self.assertNotIn("status", json.load(open(os.path.join(rounds_dir, "g.done"))))  # the GO was used
 
 
 class OpenP0(unittest.TestCase):

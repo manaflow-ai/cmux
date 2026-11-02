@@ -28,6 +28,12 @@ Verdict:
   - TRIAL PASS: every round passed, but with fewer than 10 rounds or less than +15 GB asked of the hog: no .pass.
   - A PASS writes no .pass while an open P0 journey (open-p0-journeys.txt) or a golden video case
     (video-goldens.txt, VIDEO EXTRA item 9) has no PASS, or has a FAIL, on the exact build job.
+Golden video cases (--goldens, default after): after the rounds the gate runs each case of video-goldens.txt once
+on the build (its own exclusive whole-host lease, real HID keys, no hog; with --go-spec one GO per case, so the
+spec needs --rounds + the list's cases), and video_golden.py appends its verdict to video-golden-results/<JOB>.jsonl.
+OUT/summary.txt names each case's PASS, FAIL (with the reason) or not run (SMOKE ENV: a host dialog). `--goldens only`
+runs just the cases (no rounds, never a .pass; exit 0 when no golden case blocks, 1 when one FAILED, else 75) and
+writes OUT/video-goldens.txt.
 Each round must write its own results (a new --out folder; results of this build, newer than the round).
   - DIAGNOSTIC (NOT JUDGED), with --diagnostic: where the slot has no key window, the lines are typed after the
     creation hold, not at once; every other step is checked and each check's pass count is reported. Never a .pass
@@ -463,8 +469,7 @@ def golden_blockers(job, listing=None):
     """[(list line, why)] of the golden video cases that block a .pass for JOB: no PASS on JOB in the golden ledger,
     or any FAIL. A missing list blocks nothing (no golden yet); an unreadable one blocks. LISTING: golden_list()'s
     answer, read once by the caller so the .pass names exactly the cases this check read.
-    Rollout: the list stays absent until the per-build golden runs write the ledger (video_golden.py after each
-    listed case's round on the build); a list without those runs blocks every .pass until they ran."""
+    The gate itself runs the listed cases on the build (golden_cases, --goldens after/only) before this check."""
     state, listed = listing if listing is not None else golden_list()
     if state.startswith("unreadable"):
         return [(str(VIDEO_GOLDENS), f"the golden list is {state}: no .pass")]
@@ -492,6 +497,78 @@ def golden_blockers(job, listing=None):
         elif not passes:
             blockers.append((line, f"has no golden PASS on {job} ({len(mine)} result(s))"))
     return blockers
+
+
+GOLDEN_JUDGE = HERE / "video_golden.py"
+
+
+def golden_cases(opts, out, listing, env_base):
+    """Runs each case of the golden list once on opts.build and appends its verdict to the golden ledger (VIDEO EXTRA
+    item 9; lead STATUS 6806: the per-candidate golden run is part of this gate). One run.py per case, each on its own
+    exclusive WHOLE-host lease (the routing and multi-window cases type and click with real HID keys through CuaDriver:
+    the window server must give them the frontmost window), no memory hog (the goldens were judged idle). Then
+    video_golden.py judges the run and writes the row (none for SMOKE ENV: a host dialog was open, or no record of
+    the host). Returns one record per case: case, status (pass, fail, not run), reason, host, out."""
+    records = []
+    for fields in listing[1]:
+        case = fields[0]
+        golden = next((f for f in fields[1:] if f.startswith("/")), None)  # the golden's folder, when the line names one
+        case_out = out / f"golden-{case}"
+        go = None
+        if opts.go_spec:
+            go, why = await_go(opts.go_spec, opts.hosts.split(), opts.go_used, opts.go_deadline)
+            if not go:
+                case_out.mkdir(parents=True, exist_ok=True)
+                records.append({"case": case, "status": "not run", "reason": why, "host": None, "out": str(case_out)})
+                print(f"golden {case}: not run ({why})", flush=True)
+                continue
+            opts.go_used.add(go["go"])
+        host = (go["host"] if go else None) or opts.whole_host or idle_first(opts.hosts).split()[0]
+        env = {**env_base, "CAPTURE_HOST_HOSTS": host, "CAPTURE_HOST_SLOT_HOSTS": host}
+        if go:
+            env.update(window_env(go["until"]))
+        done = subprocess.run([sys.executable, opts.runner, "--build", opts.build, "--journey", case, "--exclusive",
+                               "--whole-host", "--hosts", host, "--out", str(case_out), "--frame-interval", "1.0"],
+                              capture_output=True, text=True, env=env)
+        case_out.mkdir(parents=True, exist_ok=True)
+        (case_out / "run.log").write_text(done.stdout + done.stderr)
+        leases = sorted(set(re.findall(r"\bleased (\S+)", done.stdout + done.stderr)))
+        judged = subprocess.run([sys.executable, opts.golden_judge, "--case", case, "--run", str(case_out),
+                                 "--ledger", str(GOLDEN_LEDGER), *(["--golden", golden] if golden else [])],
+                                capture_output=True, text=True)
+        (case_out / "golden-judge.log").write_text(judged.stdout + judged.stderr)
+        said = (judged.stdout.strip().splitlines() or [judged.stderr.strip()[-300:]])[-1]
+        status = {0: "pass", 1: "fail"}.get(judged.returncode, "not run")
+        reason = ""
+        if status == "fail":
+            try:
+                reason = json.loads(said).get("reason") or ""
+            except (ValueError, AttributeError):
+                reason = said
+        elif status == "not run":
+            reason = said if judged.returncode == 75 else f"video_golden.py exit {judged.returncode}: {said}"
+        try:
+            row = json.loads((case_out / "results.jsonl").read_text().splitlines()[0])
+        except (OSError, ValueError, IndexError):
+            row = {}
+        records.append({"case": case, "status": status, "reason": reason, "host": row.get("host") or host,
+                        "out": str(case_out), "leases": leases, "run_exit": done.returncode})
+        if go:
+            took = bool(leases) or status in ("pass", "fail")
+            go_done(opts.go_spec, go, f"{opts.build[:12]} golden {case}", None if took else "not run")
+        print(f"golden {case} on {host}: {status}" + (f" ({reason[:200]})" if reason else ""), flush=True)
+    return records
+
+
+def golden_report(opts, records, listing, blockers):
+    lines = [f"video goldens for build {opts.build} (list {VIDEO_GOLDENS}: {listing[0]}, {len(listing[1])} cases; "
+             f"ledger {GOLDEN_LEDGER}/{opts.build}.jsonl):"]
+    lines += [f"  {r['case']} on {r['host']}: {r['status'].upper()}" + (f" -- {r['reason'][:300]}" if r["reason"] else "")
+              for r in records]
+    lines += (["the .pass rule (every listed case passed, and never failed, on this build):"]
+              + [f"  BLOCKS {line}: {why}" for line, why in blockers] if blockers
+              else ["the .pass rule: no golden case blocks this build"])
+    return "\n".join(lines)
 
 
 def build_state(job, deadline, poll=30.0):
@@ -541,7 +618,13 @@ def main(argv=None):
                          "run the round on the GO's mini (one of --hosts), take its lease within the GO's window, and "
                          "end the GO with NAME.done; all rounds stay one gate run")
     ap.add_argument("--go-wait-hours", type=float, default=4.0, help="how long the run waits for all its GOs")
+    ap.add_argument("--goldens", choices=("after", "only", "skip"), default="after",
+                    help="after (default): after the rounds, run each case of the golden list (video-goldens.txt) once "
+                         "on --build on a whole-host lease and write its row to the golden ledger; only: run just "
+                         "those cases (no smoke rounds, never a .pass; exit 0 when no golden case blocks the build, 1 "
+                         "when one FAILED, else 75); skip: none (the ledger's rows of earlier runs still decide)")
     ap.add_argument("--handoff", default=str(HANDOFF))
+    ap.add_argument("--golden-judge", default=str(GOLDEN_JUDGE), help=argparse.SUPPRESS)  # tests: video_golden.py
     ap.add_argument("--runner", default=str(HERE / "run.py"), help=argparse.SUPPRESS)  # tests: a stand-in for run.py
     opts = ap.parse_args(argv)
     if opts.whole_host and opts.whole_host not in opts.hosts.split():
@@ -562,11 +645,31 @@ def main(argv=None):
 
     rounds = []
     go_used, go_deadline = set(), time.time() + opts.go_wait_hours * 3600
+    opts.go_used, opts.go_deadline = go_used, go_deadline
     if opts.go_spec:
         state = build_state(opts.build, go_deadline)
         if state != "done":
             ap.error(f"--go-spec needs a finished build: job {opts.build} is {state} (run.py would wait for it inside "
                      "the GO's window and take its lease after the GO ends)")
+    # The lease settings of every run.py this gate starts (smoke rounds and golden cases); see the round loop.
+    env_base = {**os.environ,
+                "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600"),
+                "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS": os.environ.get("CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS", "900"),
+                "CAPTURE_HOST_POOL": os.environ.get("CAPTURE_HOST_POOL", OWNER_POOL)}
+    if opts.goldens == "only":
+        listing = golden_list()
+        records = golden_cases(opts, out, listing, env_base) if listing[0] == "listed" else []
+        blockers = golden_blockers(opts.build, listing)
+        text = golden_report(opts, records, listing, blockers)
+        (out / "video-goldens.txt").write_text(text + "\n")
+        (out / "summary.json").write_text(json.dumps(
+            {"build": opts.build, "goldens": "only", "verdict": "GOLDENS ONLY (never a .pass)", "gate_commit": gate_sha,
+             "gate_dirty": dirty, "go_spec": opts.go_spec, "video_goldens": {"list": listing[0],
+             "checked": [f[0] for f in listing[1]], "run": records, "blockers": [list(b) for b in blockers]},
+             "out": str(out)}, indent=1))
+        print(text)
+        failed = [b for b in blockers if b[1].startswith("FAILED")]
+        return 1 if failed else (0 if not blockers and listing[0] != "missing" else 75)
     slot, n, replaced = 1, 0, 0
     while slot <= opts.rounds:
         n += 1
@@ -591,12 +694,10 @@ def main(argv=None):
         # rules set (capture-host's default acquire timeout, 120 s, ends the drain first on a busy fleet).
         # The drain budget is bounded too (capture-host's default is an hour per acquire), so a round on a fleet
         # whose minis run hours-long steps ends as not run instead of waiting for them.
-        env = {**os.environ, "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600"),
-               "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS": os.environ.get("CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS", "900"),
-               # The perf minis are owner-only for pool perf-lead (hq fleet.json owner_only_hosts): the controller
-               # refuses an exclusive lease there unless it names that owner pool (HTTP 409, trial 4, 2026-10-31).
-               # capture-host passes it as `cmux-ci reserve --owner-pool` (hq #5153; refresh an older install).
-               "CAPTURE_HOST_POOL": os.environ.get("CAPTURE_HOST_POOL", OWNER_POOL)}
+        # The perf minis are owner-only for pool perf-lead (hq fleet.json owner_only_hosts): the controller
+        # refuses an exclusive lease there unless it names that owner pool (HTTP 409, trial 4, 2026-10-31).
+        # capture-host passes it as `cmux-ci reserve --owner-pool` (hq #5153; refresh an older install).
+        env = dict(env_base)
         hosts = (go["host"] if go else None) or opts.whole_host or idle_first(opts.hosts)
         if go:
             env.update(window_env(go["until"]))
@@ -664,6 +765,9 @@ def main(argv=None):
               + (f" step {record['failing_step']['do']}: {record['failing_step']['error'][:160]}" if record["failing_step"] else ""),
               flush=True)
 
+    golden_listing, golden_run = golden_list(), []
+    if opts.goldens == "after" and golden_listing[0] == "listed" and not opts.diagnostic:
+        golden_run = golden_cases(opts, out, golden_listing, env_base)
     passed = sum(1 for r in rounds if r["status"] == "pass")
     failed = [r for r in rounds if r["status"] == "fail"]
     not_run = [r for r in rounds if r["status"] not in ("pass", "fail") and not r.get("replaced")]
@@ -678,7 +782,8 @@ def main(argv=None):
                "whole_host": opts.whole_host, "go_spec": opts.go_spec, "real_key_rounds": real_rounds,
                "real_key_passed": sum(1 for r in rounds if r.get("key_path") == "real_hid" and r["status"] == "pass"),
                "expects": expect_table(rounds), "replaced_rounds": replaced_rounds, "known_gap_rounds": [r["round"] for r in rounds if r["known_gap"]],
-               "rounds_detail": rounds, "out": str(out)}
+               "rounds_detail": rounds, "out": str(out),
+               "video_goldens_run": golden_run}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     ran = ("journeys completed" if opts.diagnostic else "rounds passed")
     lines = [f"dogfood smoke gate for build {opts.build}: {verdict} ({passed} of {opts.rounds} {ran}; "
@@ -725,6 +830,8 @@ def main(argv=None):
                      + ("replaced" if r.get("replaced") else r["status"]) + (f" -- {detail}" if detail else "")
                      + f" [hog held {hog.get('held_gb_max')} GB, swap +{hog.get('swap_growth_gb')} GB, level min {hog.get('level_min')}]"
                      + (f" -- {(r['reason'] or '')[:200]}" if r["status"] != "pass" and not detail else ""))
+    if golden_run:
+        lines.append(golden_report(opts, golden_run, golden_listing, golden_blockers(opts.build, golden_listing)))
     text = "\n".join(lines)
     (out / "summary.txt").write_text(text + "\n")
     print(text)
@@ -738,7 +845,7 @@ def main(argv=None):
             return 75
         waived = []
         blockers = open_p0_blockers(opts.build, waived)
-        listing = golden_list()
+        listing = golden_listing
         goldens = golden_blockers(opts.build, listing)
         if blockers:
             text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but an open P0 journey blocks the "

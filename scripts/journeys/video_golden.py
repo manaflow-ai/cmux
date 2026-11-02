@@ -101,6 +101,18 @@ def end_layout(run, case, golden):
     return not problems, {"problems": problems}
 
 
+def kit_state(row):
+    """(commit, dirty) of the journey kit that ran ROW. run.py's results.jsonl rows carry no "kit"/"kit_dirty" (only
+    its open-P0 ledger rows do): they carry the "harness" record (commit, uncommitted files, pinned). Without a record
+    the kit is unknown: dirty None, which the gate never counts as a clean pass."""
+    if isinstance(row.get("kit_dirty"), bool):
+        return row.get("kit"), row["kit_dirty"]
+    harness = row.get("harness")
+    if not isinstance(harness, dict) or not harness.get("commit"):
+        return row.get("kit"), None
+    return harness["commit"], bool(harness.get("dirty")) or harness.get("pinned") is not True
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--case", required=True)
@@ -133,8 +145,9 @@ def main():
         ok, metrics = True, {}
     lay_ok, lay = end_layout(run, a.case, a.golden)
     status = "pass" if ok and lay_ok else "fail"
+    kit, kit_dirty = kit_state(row)
     out = {"case": a.case, "status": status, "build_job": row.get("build_job"), "commit": row.get("commit"),
-           "kit": row.get("kit"), "kit_dirty": row.get("kit_dirty"), "out": str(run), "golden": a.golden,
+           "kit": kit, "kit_dirty": kit_dirty, "out": str(run), "golden": a.golden,
            "reason": "" if status == "pass" else json.dumps({"case": metrics, "layout": lay})[:400],
            "metrics": metrics, "layout": lay, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     print(json.dumps(out))
