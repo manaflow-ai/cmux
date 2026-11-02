@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::entry::{HistoryEntry, HistoryKind};
+use crate::entry::{ClosedKind, HistoryEntry, HistoryKind};
 use crate::fold::{fold, tokens};
 
 const HOUR_MS: i64 = 3_600_000;
@@ -123,7 +123,7 @@ pub fn matches(haystack: &str, tokens: &[String]) -> bool {
 
 /// The text the search matches: title, detail and machine, then the kind's
 /// own fields (Swift `HistoryEntry.searchText`; a closed chat adds its session
-/// id and harness), joined by spaces.
+/// id and harness, and an untitled one its default title), joined by spaces.
 pub fn search_text(entry: &HistoryEntry) -> String {
     let mut parts: Vec<&str> = vec![entry.title.as_str()];
     parts.extend(entry.detail.as_deref());
@@ -146,8 +146,20 @@ pub fn search_text(entry: &HistoryEntry) -> String {
         }
     };
     parts.extend(own.into_iter().flatten());
+    // An untitled closed chat: the row leaves its title empty and the client shows its localized
+    // default (Swift `AgentPaneModel.tabTitle`), so the search matches that default's English text.
+    if entry.kind == HistoryKind::Closed
+        && entry.title.is_empty()
+        && entry.closed_kind == Some(ClosedKind::ConversationTab)
+    {
+        parts.push(UNTITLED_CHAT_TITLE);
+    }
     parts.join(" ")
 }
+
+/// The default title of a chat tab before its session has a title (English; Swift
+/// `AgentPaneModel.tabTitle` is the localized form).
+const UNTITLED_CHAT_TITLE: &str = "Agent";
 
 /// False for navigation machinery that is not a destination: a page that is
 /// not http, https or file, a directory `file:` URL, a location on a `cmux:`
