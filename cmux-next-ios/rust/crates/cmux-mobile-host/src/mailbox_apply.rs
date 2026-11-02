@@ -59,12 +59,6 @@ pub struct LiveApplier {
 impl Applier for LiveApplier {
     fn apply<'a>(&'a self, reply: &'a Reply) -> BoxFuture<'a, Result<(), Rejection>> {
         Box::pin(async move {
-            if let (Some(session), Some(exposure)) = (&reply.target.session_id, &self.session_exposure) {
-                let state = exposure.borrow().clone();
-                if !state.available || state.blocked.contains(session) {
-                    return Err(refused("this chat is not exposed to iPhone Remote Control"));
-                }
-            }
             match reply.kind.as_str() {
                 "question" | "permission" => self.respond(reply).await,
                 "completed" | "failed" => self.prompt(reply).await,
@@ -82,6 +76,17 @@ fn refused(why: impl Into<String>) -> Rejection {
 
 fn unavailable(why: impl Into<String>) -> Rejection {
     Rejection::Unavailable(why.into())
+}
+
+/// `_acpmux/info` is the authority that resolves a phone-facing alias to the
+/// ACP session id. An absent or malformed result is unknown and therefore
+/// refused before any mutation can be sent.
+fn resolved_session(info: &Value) -> Result<String, Rejection> {
+    info.get("sessionId")
+        .and_then(Value::as_str)
+        .filter(|session| !session.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| refused("acpmux did not identify the session"))
 }
 
 /// `_acpmux/permission_respond` params for a question or permission reply,
@@ -217,6 +222,18 @@ pub async fn reply_to_notification(
     surface: Option<u64>,
     text: &str,
 ) -> Result<(), Rejection> {
+    reply_to_notification_with_exposure(daemon_socket, phone, notification, surface, None, text, None).await
+}
+
+async fn reply_to_notification_with_exposure(
+    daemon_socket: &std::path::Path,
+    phone: &str,
+    notification: u64,
+    surface: Option<u64>,
+    target_session: Option<&str>,
+    text: &str,
+    session_exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Result<(), Rejection> {
     let policy = DaemonPolicy::new(phone);
     let mut lines = Lines::connect(daemon_socket).await?;
     let ledger =
@@ -243,6 +260,7 @@ pub async fn reply_to_notification(
             return Err(refused("an agent runs in that terminal; answer it in the app"));
         }
         AgentOnTerminal::Session(session) => {
+            exposure_allows(session_exposure, Some(&session))?;
             let identify =
                 lines.call_daemon(&policy, &json!({"id": "mailbox-identify", "cmd": "identify"})).await?;
             if !has_capability(&identify, SEND_EXPECT_AGENT) {
@@ -257,10 +275,27 @@ pub async fn reply_to_notification(
             return failed(&answer).map_or(Ok(()), |why| Err(refused(why)));
         }
     }
+    // A terminal without an agent mapping is an unrelated terminal and keeps
+    // its existing reply behavior. If the reply itself names a session, use it
+    // as the final exposure key before the first terminal write.
+    exposure_allows(session_exposure, target_session)?;
     for line in terminal_lines(found, text, &program) {
         let answer = lines.call_daemon(&policy, &line).await?;
         if let Some(why) = failed(&answer) {
             return Err(refused(why));
+        }
+    }
+    Ok(())
+}
+
+fn exposure_allows(
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    session: Option<&str>,
+) -> Result<(), Rejection> {
+    if let (Some(session), Some(exposure)) = (session, exposure) {
+        let state = exposure.borrow().clone();
+        if !state.available || state.blocked.contains(session) {
+            return Err(refused("this chat is not exposed to iPhone Remote Control"));
         }
     }
     Ok(())
@@ -424,6 +459,7 @@ impl LiveApplier {
     async fn respond(&self, reply: &Reply) -> Result<(), Rejection> {
         let mut acpmux = Acpmux::connect(&self.acpmux).await?;
         let info = acpmux.call("_acpmux/info", json!({"sessionId": reply.target.session_id})).await?;
+        let session = resolved_session(&info)?;
         let pending = info
             .get("pending")
             .and_then(Value::as_array)
@@ -434,19 +470,27 @@ impl LiveApplier {
             })
             .cloned()
             .ok_or(Rejection::NotPending)?;
-        let params = permission_params(reply, &pending)?;
-        self.exposure_allows(reply.target.session_id.as_deref())?;
+        let mut params = permission_params(reply, &pending)?;
+        params["sessionId"] = Value::String(session.clone());
+        // This is deliberately the last policy read before the mutation. The
+        // signed alias is never used as the exposure key or wire session id.
+        self.exposure_allows(Some(&session))?;
         acpmux.call("_acpmux/permission_respond", params).await.map(|_| ())
     }
 
     async fn prompt(&self, reply: &Reply) -> Result<(), Rejection> {
         let mut acpmux = Acpmux::connect(&self.acpmux).await?;
-        acpmux
+        let info = acpmux
             .call("_acpmux/info", json!({"sessionId": reply.target.session_id}))
             .await
             .map_err(|_| Rejection::NotPending)?;
-        self.exposure_allows(reply.target.session_id.as_deref())?;
-        acpmux.prompt(prompt_params(reply)).await
+        let session = resolved_session(&info)?;
+        let mut params = prompt_params(reply);
+        params["sessionId"] = Value::String(session.clone());
+        // Keep this check immediately before the prompt send: a revocation
+        // during alias resolution must win over a stale signed reply.
+        self.exposure_allows(Some(&session))?;
+        acpmux.prompt(params).await
     }
 
     async fn chief(&self, reply: &Reply) -> Result<(), Rejection> {
@@ -475,7 +519,16 @@ impl LiveApplier {
             .and_then(|n| n.parse().ok())
             .ok_or_else(|| refused("no notification"))?;
         let text = reply.text.as_deref().unwrap_or_default();
-        reply_to_notification(&self.daemon_socket, &reply.phone, notification, Some(surface), text).await
+        reply_to_notification_with_exposure(
+            &self.daemon_socket,
+            &reply.phone,
+            notification,
+            Some(surface),
+            reply.target.session_id.as_deref(),
+            text,
+            self.session_exposure.as_ref(),
+        )
+        .await
     }
 }
 
