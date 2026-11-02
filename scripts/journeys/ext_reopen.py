@@ -642,13 +642,23 @@ def _end(j, cua, how, record):
                 os.kill(pid, signal.SIGKILL)
             except OSError:
                 pass
+    elif how == "logout-substitute":
+        # The app's own logout path (debug.app.terminate reason=logout: the power-off notice, then terminate), not
+        # a quit Apple event (it needs an Automation consent the fleet never gives; cmux-ad 01:30Z).
+        try:
+            reply = app.rpc("debug.app.terminate", {"reason": "logout"}, timeout=5) or {}
+        except (D.StepError, OSError, ValueError) as error:
+            reply = {"error": str(error)[-200:]}
+        record["logout_substitute"] = reply
+        if isinstance(reply, dict) and reply.get("error") and "unknown" in str(reply.get("error")).lower():
+            raise D.NotRun(f"logout-substitute: this build has no debug.app.terminate: {reply}")
     elif how == "logout":
         sent, status = send_logout_quit(old)
         record["logout_send"] = {"result": sent, "status": status}
         if sent != "sent":
             raise D.NotRun(f"logout: the quit Apple event was not sent: {sent}")
     else:
-        raise D.StepError(f"reopen_video: how is quit-keep-hid, kill-app, kill-daemons or logout, not {how!r}")
+        raise D.StepError(f"reopen_video: how is quit-keep-hid, kill-app, kill-daemons, logout or logout-substitute, not {how!r}")
     gone = D.wait_exit(old, D.QUIT_SECONDS)
     if gone is None:
         while D.now() < started + D.QUIT_SECONDS and app.alive(old):
