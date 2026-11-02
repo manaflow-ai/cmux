@@ -40,8 +40,6 @@ export type BlurHole = {
   radius: number;
   /** The Gaussian's standard deviation, CSS px: CSS `blur(r)` is a deviation of r. */
   blur: number;
-  /** The surface's opacity: the blur fades in and out with it. */
-  opacity: number;
 };
 
 /** The blur radius in a `backdrop-filter` value ("blur(24px) saturate(1.8)" is 24), else `fallback`. */
@@ -60,7 +58,7 @@ export function overlaps(a: DOMRectReadOnly, b: DOMRectReadOnly): boolean {
 export function holeIn(
   surface: DOMRectReadOnly,
   target: DOMRectReadOnly,
-  style: { radius: number; blur: number; opacity: number },
+  style: { radius: number; blur: number },
 ): BlurHole {
   return {
     x: surface.left - target.left,
@@ -69,7 +67,6 @@ export function holeIn(
     height: surface.height,
     radius: Math.min(style.radius, surface.width / 2, surface.height / 2),
     blur: style.blur,
-    opacity: Math.min(1, Math.max(0, style.opacity)),
   };
 }
 
@@ -90,7 +87,10 @@ function primitive(doc: Document, name: string, attributes: Record<string, strin
 }
 
 /** Builds a covered element's filter: the element as it is outside the hole, and inside it its own
- * pixels blurred (mixed with the sharp ones by the surface's opacity), cut to the rounded hole. */
+ * pixels blurred, cut to the rounded hole. The blur is all or nothing: a surface fading in or out
+ * never draws its pixels part sharp, part blurred (Leo, 2026-10-26: "If we're doing blur, we're
+ * doing blur. If we're not doing blur, we're not doing blur. We shouldn't have in-between states
+ * ever. That cause flicker"). */
 export function createHoleFilter(doc: Document, id: string): SVGFilterElement {
   const filter = primitive(doc, "filter", {
     id,
@@ -100,16 +100,8 @@ export function createHoleFilter(doc: Document, id: string): SVGFilterElement {
   }) as SVGFilterElement;
   filter.append(
     primitive(doc, "feGaussianBlur", { in: "SourceGraphic", result: "blurred" }),
-    primitive(doc, "feComposite", {
-      in: "blurred",
-      in2: "SourceGraphic",
-      operator: "arithmetic",
-      k1: "0",
-      k4: "0",
-      result: "mixed",
-    }),
     primitive(doc, "feImage", { preserveAspectRatio: "none", result: "hole" }),
-    primitive(doc, "feComposite", { in: "mixed", in2: "hole", operator: "in", result: "inside" }),
+    primitive(doc, "feComposite", { in: "blurred", in2: "hole", operator: "in", result: "inside" }),
     primitive(doc, "feComposite", { in: "SourceGraphic", in2: "hole", operator: "out", result: "outside" }),
   );
   const merge = primitive(doc, "feMerge", {});
@@ -129,10 +121,9 @@ export function writeHoleFilter(
     for (const [key, value] of Object.entries(attributes)) element?.setAttribute(key, String(value));
   };
   const region = { x: hole.x, y: hole.y, width: hole.width, height: hole.height };
-  const [blur, mixed, image] = [...filter.children];
+  const [blur, image] = [...filter.children];
   set(filter, { x: 0, y: 0, width: Math.max(1, box.width), height: Math.max(1, box.height) });
   set(blur, { ...region, stdDeviation: hole.blur });
-  set(mixed, { ...region, k2: hole.opacity, k3: 1 - hole.opacity });
   set(image, { ...region, href: holeMask(hole.width, hole.height, hole.radius) });
 }
 
@@ -225,7 +216,7 @@ export function attachSeeThroughBlur(
       opacity: Number.parseFloat(style.opacity),
     };
     if (!Number.isFinite(look.opacity)) look.opacity = 1;
-    // A faded-out or empty surface covers nothing. One CSS hides with visibility (the Summary card
+    // A faded-out or empty surface covers nothing; any other covers in full (createHoleFilter). One CSS hides with visibility (the Summary card
     // under Find) keeps its holes, so they are right the moment it shows again with no event to see
     // it; the same CSS switches its blocks' filters off meanwhile (owner, summary.css).
     const shown = look.opacity > 0 && rect.width > 0 && rect.height > 0;
