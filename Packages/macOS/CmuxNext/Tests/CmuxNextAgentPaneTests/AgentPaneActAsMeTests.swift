@@ -177,7 +177,7 @@ struct AgentPaneActAsMeTests {
         gestures.recordPosted(driver: Self.driver)
         #expect(gestures.reserve(connection: 1, intent: send) != nil)
         let mode = try #require(AgentPaneGestureIntent(gestureParams: [
-            "intent": ["method": "session/set_mode", "params": ["sessionId": "s", "modeId": "bypassPermissions"]],
+            "intent": ["method": "session/set_mode", "params": ["modeId": "bypassPermissions"]],
         ]))
         gestures.recordPosted(driver: Self.driver)
         #expect(gestures.reserve(connection: 1, intent: mode) == nil, "a posted gesture reserved a mode")
