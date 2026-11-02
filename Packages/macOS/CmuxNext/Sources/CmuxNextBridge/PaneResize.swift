@@ -10,6 +10,8 @@ public nonisolated enum PaneResize {
     public enum Change: Equatable, Sendable {
         case splitRatio(LayoutSplitID, Double)
         case columnWidth(LayoutColumnID, Double)
+        /// Every row height of a rows-v1 column (permille), one row edge moved.
+        case rowHeights(LayoutColumnID, [RowHeight])
     }
 
     /// Default keyboard step: 5% of the split or of the viewport width.
@@ -53,6 +55,21 @@ public nonisolated enum PaneResize {
         let current = min(max(value, lower), upper)
         let next = min(max(current + delta, lower), upper)
         return abs(next - current) < 1e-9 ? nil : next
+    }
+
+    /// One keyboard resize press on `pane` (`resizePane*`): the change ``change(for:direction:in:shown:step:)`` makes,
+    /// inside what `view` shows, written to `model`. False when nothing can move that way (the caller refuses
+    /// quietly); true for a pane on no screen (nothing to say).
+    @MainActor
+    public static func press(_ pane: LayoutPaneID, _ direction: LayoutDirection, model: LayoutModel, view: LayoutRootView) -> Bool {
+        guard let screen = model.screen(containing: pane) else { return true }
+        switch change(for: pane, direction: direction, in: screen.layout, shown: view.shownResizeRange(ofScreenContaining: pane)) {
+        case .splitRatio(let split, let ratio): model.setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
+        case .columnWidth(let column, let width): model.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
+        case .rowHeights(let column, let heights): model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
+        case nil: return false
+        }
+        return true
     }
 
     /// The column before (`forward == false`) or after the pane's column.
