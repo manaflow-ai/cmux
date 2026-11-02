@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4150109776501",
+  "notes": "notes/4150109776501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32298,
+      "title": "cmux NEXT: a new chat's text left when its tab opens another chat comes back in the window's next New Tab page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32513,
+      "title": "ci(nightly): move two run blocks into nightly-steps scripts to get nightly.yml back under its size cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32509,
+      "title": "Cloud start harness login: read one verdict per step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32507,
+      "title": "ci: platform-prod-secrets reads the Linux runner pool, not one pinned size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32498,
+      "title": "ci(nightly): the Mac signer jobs read the signed app and final DMG in parallel ranges",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32501,
+      "title": "ci(nightly): take the cmux-tui download and the light-job placement wait off build-nightly-app's tail",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
