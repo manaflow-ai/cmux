@@ -395,6 +395,139 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(sent == ["fold:context:0"])
     }
 
+    /// Section headers follow the web panel's SessionInfoSection: a medium-weight title (never the bold
+    /// chrome header) on the rows' title column, a chevron after the title that shows on hover, and the
+    /// six-dot grip at the header's right edge that shows only on hover. At rest neither glyph draws, no
+    /// `line.3.horizontal` grip sits over the icons, and hovering moves no title (Leo, 2026-11-02: "WE
+    /// FUCKING HAD THESE" and, on the always-on grips, "THESE ARE JUST SO INSANELY STUPID LOOKING").
+    @Test func sectionHeadersShowTheirChevronAndRightEdgeGripOnlyOnHover() throws {
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
+        func view(_ line: SessionInfoLine) -> SessionInfoLineView {
+            let view = SessionInfoLineView(line: line, ink: ink)
+            view.frame = CGRect(x: 0, y: 0, width: 320, height: 26)
+            view.layoutSubtreeIfNeeded()
+            return view
+        }
+        func title(_ view: SessionInfoLineView) throws -> NSRect {
+            try #require(view.subviews.compactMap { $0 as? ChromeLabel }.first { $0.stringValue == view.line.title }).frame
+        }
+        func grip(_ view: SessionInfoLineView) -> SessionInfoGripView? {
+            view.subviews.compactMap { $0 as? SessionInfoGripView }.first
+        }
+        func images(_ view: SessionInfoLineView) -> [NSImageView] { view.subviews.compactMap { $0 as? NSImageView } }
+
+        let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "42%",
+                                           unfolded: true, reorderable: true, action: "fold:context:0"))
+        let changes = view(SessionInfoLine(id: "changes", kind: .header, title: "Changes", trailing: "3", unfolded: false,
+                                           reorderable: true, action: "fold:changes:1"))
+        let plain = view(SessionInfoLine(id: "plain", kind: .header, title: "Usage", reorderable: true))
+        let machine = view(SessionInfoLine(id: "environment", kind: .row, symbol: "desktopcomputer", title: "cosmic-gray", reorderable: true))
+        let row = view(SessionInfoLine(id: "row:context:mcp", kind: .row, symbol: "gauge", title: "MCP tools"))
+
+        // Titles are the web's weight (500, medium), not bold, at the rows' size.
+        for header in [context, changes, plain] {
+            let font = header.line.font
+            let weight = (font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any])?[.weight] as? CGFloat
+            #expect(weight.map { $0 < NSFont.Weight.semibold.rawValue } == true)
+            #expect(!font.fontDescriptor.symbolicTraits.contains(.bold))
+            #expect(font.pointSize == row.line.font.pointSize)
+        }
+        // A header with an icon puts its title on the rows' title column; the grip adds no room.
+        #expect(try title(context).minX == title(row).minX)
+        #expect(try title(machine).minX == title(row).minX)
+
+        // At rest: no grip, no chevron, and nothing but the line's own icon as an image.
+        for line in [context, changes, plain, machine] {
+            #expect(!line.showsGrip)
+            #expect(grip(line)?.isHidden == true)
+            #expect(!line.showsChevron)
+            let titleX = try title(line).minX
+            #expect(images(line).allSatisfy { $0.isHidden || $0.frame.maxX <= titleX })
+        }
+        #expect(images(changes).filter { !$0.isHidden }.isEmpty)
+        // Foldable headers carry a chevron; a plain one does not.
+        #expect(images(context).count == 2)
+        #expect(images(changes).count == 1)
+        #expect(images(plain).isEmpty)
+
+        let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        for line in [context, changes, plain, machine] {
+            let before = try title(line)
+            line.mouseEntered(with: enter)
+            line.layoutSubtreeIfNeeded()
+            #expect(line.showsGrip)
+            #expect(try title(line) == before)
+            // The grip sits in the line's right inset, past every trailing value, at the right edge.
+            let handle = try #require(grip(line))
+            #expect(!handle.isHidden)
+            #expect(handle.frame.size == SessionInfoGripView.size)
+            #expect(handle.frame.maxX <= line.bounds.maxX)
+            #expect(line.bounds.maxX - handle.frame.maxX <= 2)
+            for other in line.subviews where other !== handle && !other.isHidden {
+                #expect(other.frame.maxX <= handle.frame.minX)
+            }
+            if line.line.unfolded != nil {
+                // The chevron shows one grid gap after the title, before the meta.
+                #expect(line.showsChevron)
+                let chevron = try #require(images(line).first { !$0.isHidden && $0.frame.minX > before.maxX })
+                #expect(chevron.frame.minX == before.maxX + LayoutGrid.gap)
+                #expect(chevron.frame.width == LayoutGrid.iconBox)
+            }
+            line.mouseExited(with: enter)
+            #expect(!line.showsGrip)
+            #expect(grip(line)?.isHidden == true)
+            #expect(!line.showsChevron)
+        }
+    }
+
+    /// Dragging a header by its grip moves its section above the one it is dropped on; a click on the
+    /// grip alone neither folds nor moves.
+    @Test func dragByTheGripReordersSections() throws {
+        let store = AgentPaneSessionInfoStore()
+        var sent: [String] = []
+        store.send = { sent.append($0) }
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.close() }
+        window.isReleasedWhenClosed = false
+        window.contentView = panel
+        panel.frame = CGRect(x: 0, y: 0, width: 320, height: 600)
+        let sections: [[String: Any]] = ["Context", "Changes"].map { title in
+            ["id": title.lowercased(), "group": "where", "title": title, "meta": "3", "open": false, "foldable": true,
+             "reorderable": true, "reorderLabel": "Move \(title)", "rows": [[String: Any]]()]
+        }
+        let info: [String: Any] = ["open": true, "width": 320, "top": 28, "side": 0, "label": "Session Info", "sections": sections]
+        store.update(try Self.model(info))
+        panel.layoutSubtreeIfNeeded()
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let content = try #require(all(panel).compactMap { $0 as? AgentPaneSessionInfoContent }.first)
+        #expect(content.lines.map(\.line.title) == ["Context", "Changes"])
+        let context = content.lines[0], changes = content.lines[1]
+        let hit = try #require(changes.gripHitRect)
+        func mouse(_ type: NSEvent.EventType, _ point: NSPoint, in view: NSView) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [],
+                                           timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                           clickCount: 1, pressure: 1))
+        }
+        let start = NSPoint(x: hit.midX, y: hit.midY)
+
+        // A click on the grip does nothing.
+        changes.mouseDown(with: try mouse(.leftMouseDown, start, in: changes))
+        changes.mouseUp(with: try mouse(.leftMouseUp, start, in: changes))
+        #expect(sent.isEmpty)
+
+        // A drag from the grip to the top of Context moves Changes before it.
+        let drop = changes.convert(NSPoint(x: context.bounds.midX, y: context.bounds.minY + 2), from: context)
+        changes.mouseDown(with: try mouse(.leftMouseDown, start, in: changes))
+        changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: start.x, y: start.y + (drop.y - start.y) / 2), in: changes))
+        #expect(changes.isDragging)
+        #expect(changes.showsGrip)
+        changes.mouseUp(with: try mouse(.leftMouseUp, drop, in: changes))
+        #expect(sent == ["move:changes:context"])
+        #expect(!changes.isDragging)
+    }
+
     @Test func liveLabelsKeepUnchangedHeaderViews() throws {
         let store = AgentPaneSessionInfoStore()
         let panel = AgentPaneSessionInfoPanel(store: store)
