@@ -28,6 +28,7 @@ final class TabContentCache {
     }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
+    var withdrawnBy: [String: WeakPresenter] = [:] // the pane that last withdrew each tab (`release`)
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
@@ -177,7 +178,6 @@ final class TabContentCache {
     }
 
     var liveTerminalCount: Int { terminals.count }
-
     /// True when `key` has a live surface or page (showing it is cheap).
     func hasContent(for key: String) -> Bool { terminals[key] != nil || browsers[key] != nil }
 
@@ -483,9 +483,10 @@ final class TabContentCache {
     func key(of page: any BrowserTab) -> String? {
         browsers.first { $0.value.tab === page }?.key
     }
-
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
+        if displacing, terminals[key] != nil, browsers[key] == nil, ((withdrawnBy[key]?.value ?? presenter(of: key)) as? PaneController)?.holdsRelease(of: key, { [weak self] in self?.release(key) }) == true { return } // F1: every release of a closing pane's terminal waits for its landing (Cmd-W withdrew it, so the withdrawing pane is asked); a page goes now
+        withdrawnBy[key] = nil
         onRelease?(key)
         // A closed tab is mirrored nowhere any more (`TabMirrors`); a stand-in moving to its daemon tab keeps nothing to drop.
         if displacing { pageRequests.services?.tabMirrors.remove(key) }

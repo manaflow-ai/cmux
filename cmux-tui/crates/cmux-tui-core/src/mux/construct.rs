@@ -370,9 +370,12 @@ impl Mux {
             terminal_exit_waiters: TerminalExitWaiters::default(),
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
-            resource_creation_handoff: Mutex::new(()),
+            resource_creation_handoff: RwLock::new(()),
             initial_bootstrap: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
+            creation_groups: Default::default(),
+            #[cfg(test)]
+            creation_burst_seams: Default::default(),
             #[cfg(unix)]
             agent_cli_job_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
