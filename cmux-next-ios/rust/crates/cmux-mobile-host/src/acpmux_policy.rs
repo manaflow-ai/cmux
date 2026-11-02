@@ -32,6 +32,19 @@ const GLOBAL_METHODS: &[&str] = &[
     "_acpmux/watch",
 ];
 
+/// Catalog queries are global when they do not ask about an existing chat.
+/// Requests that carry a target still pass through canonical session checks.
+pub(crate) fn global_request(request: &Value) -> bool {
+    let Some(method) = request.get("method").and_then(Value::as_str) else { return false };
+    if GLOBAL_METHODS.contains(&method) {
+        return true;
+    }
+    matches!(method, "_acpmux/harnesses" | "_acpmux/models")
+        && !["sessionId", "session", "name"]
+            .iter()
+            .any(|key| request.get("params").and_then(|params| params.get(*key)).is_some())
+}
+
 /// The JSON-RPC error a phone gets for a refused message (code -32602,
 /// `data.reason` `phone.mode_not_asking`), or None to forward it. A batch is
 /// judged as a whole.
@@ -208,7 +221,7 @@ pub fn exposure_refusal_with_replies(
     };
     for request in requests {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
-        let Some(method) = request.get("method").and_then(Value::as_str) else {
+        let Some(_method) = request.get("method").and_then(Value::as_str) else {
             if let Some(session) = replies.get(&id.to_string()) {
                 if !allowed(state, session, bound) {
                     return Some(exposure_error(id, "remote_control.session_not_exposed"));
@@ -217,7 +230,7 @@ pub fn exposure_refusal_with_replies(
             }
             return Some(exposure_error(id, "remote_control.invalid_request"));
         };
-        if GLOBAL_METHODS.contains(&method) {
+        if global_request(request) {
             continue;
         }
         let Some(session) = request_session(request) else {
@@ -254,15 +267,13 @@ pub fn returned_sessions(message: &str) -> Vec<(String, String)> {
 fn contains_blocked_session(value: &Value, state: &SessionExposure, bound: &HashSet<String>) -> bool {
     match value {
         Value::Object(object) => object.iter().any(|(key, value)| {
-            if matches!(key.as_str(), "sessionId" | "session" | "agent_session") {
-                if key == "agent_session" {
-                    return value
-                        .get("session")
-                        .and_then(Value::as_str)
-                        .is_some_and(|id| !allowed(state, id, bound));
-                }
-                return value.as_str().is_some_and(|id| !allowed(state, id, bound));
+            if matches!(key.as_str(), "sessionId" | "session" | "agent_session")
+                && let Some(id) = value.as_str()
+            {
+                return !allowed(state, id, bound);
             }
+            // A recognized key can hold a wrapper object. Its nested sessionId
+            // is still authority-bearing; matching the outer key never stops traversal.
             contains_blocked_session(value, state, bound)
         }),
         Value::Array(values) => values.iter().any(|value| contains_blocked_session(value, state, bound)),
@@ -305,6 +316,18 @@ pub fn filter_response(message: &str, state: &SessionExposure, bound: &HashSet<S
     Some(value.to_string())
 }
 
+fn daemon_chat_blocked(value: &Value, state: &SessionExposure) -> bool {
+    // Request/legacy rows, raw conversation tabs, and projected workspace tabs.
+    ["/agent_session", "/conversation/agent_session", "/extra/conversation/agent_session"].iter().any(
+        |path| {
+            value
+                .pointer(path)
+                .and_then(|agent| agent.as_str().or_else(|| agent.get("session").and_then(Value::as_str)))
+                .is_some_and(|id| !allowed(state, id, &HashSet::new()))
+        },
+    )
+}
+
 /// Daemon protocol rows carry an agent session nested under `agent_session`;
 /// ordinary daemon `session` fields identify the terminal and must remain.
 pub fn filter_daemon_response(message: &str, state: &SessionExposure) -> Option<String> {
@@ -316,17 +339,12 @@ pub fn filter_daemon_response(message: &str, state: &SessionExposure) -> Option<
     }
     let mut value: Value = serde_json::from_str(message).ok()?;
     fn clean(value: &mut Value, state: &SessionExposure) {
+        if daemon_chat_blocked(value, state) {
+            *value = Value::Null;
+            return;
+        }
         match value {
             Value::Object(object) => {
-                if object
-                    .get("agent_session")
-                    .and_then(|v| v.get("session"))
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| !allowed(state, id, &HashSet::new()))
-                {
-                    *value = Value::Null;
-                    return;
-                }
                 for rows in object.values_mut() {
                     clean(rows, state);
                 }
@@ -349,12 +367,7 @@ pub fn daemon_request_blocked(message: &str, state: &SessionExposure) -> bool {
         return true;
     }
     state.configured
-        && serde_json::from_str::<Value>(message).ok().is_some_and(|value| {
-            value
-                .pointer("/agent_session/session")
-                .and_then(Value::as_str)
-                .is_some_and(|id| !allowed(state, id, &HashSet::new()))
-        })
+        && serde_json::from_str::<Value>(message).ok().is_some_and(|value| daemon_chat_blocked(&value, state))
 }
 
 /// The refusal for a control request on a session whose current mode (acpmux
@@ -474,6 +487,42 @@ mod tests {
         }
         let no_id = json!({"jsonrpc": "2.0", "id": 1, "method": "session/set_config_option", "params": {"sessionId": "s", "value": "x"}});
         assert!(refusal(&no_id.to_string()).is_some());
+    }
+
+    #[test]
+    fn wrapped_chat_ids_and_legacy_daemon_rows_cannot_bypass_exposure() {
+        let hidden = "00000000-0000-7000-8000-000000000001";
+        let state = exposure(&[hidden]);
+        for reply in [
+            json!({"session":{"sessionId":hidden,"text":"private"}}),
+            json!({"agent_session":{"sessionId":hidden,"text":"private"}}),
+        ] {
+            assert!(filter_response(&reply.to_string(), &state, &HashSet::new()).is_none());
+        }
+        for row in [
+            json!({"agent_session":hidden,"title":"private"}),
+            json!({"extra":{"conversation":{"agent_session":{"session":hidden}}},"title":"private"}),
+        ] {
+            let reply = json!({"data":{"tabs":[row,{"title":"terminal"}]}}).to_string();
+            let filtered: Value =
+                serde_json::from_str(&filter_daemon_response(&reply, &state).unwrap()).unwrap();
+            assert_eq!(filtered["data"]["tabs"], json!([{"title":"terminal"}]));
+        }
+        assert!(daemon_request_blocked(&json!({"agent_session":hidden}).to_string(), &state));
+    }
+
+    #[test]
+    fn catalog_queries_are_global_but_targeted_queries_are_checked() {
+        for state in [SessionExposure::default(), exposure(&["00000000-0000-7000-8000-000000000001"])] {
+            for method in ["_acpmux/harnesses", "_acpmux/models"] {
+                let global = json!({"id":1,"method":method,"params":{}}).to_string();
+                assert!(exposure_refusal(&global, &state, &HashSet::new()).is_none());
+                if state.configured {
+                    let targeted = json!({"id":2,"method":method,"params":{"sessionId":"00000000-0000-7000-8000-000000000001"}}).to_string();
+                    assert!(exposure_refusal(&targeted, &state, &HashSet::new()).is_some());
+                }
+            }
+        }
     }
 
     #[test]

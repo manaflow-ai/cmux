@@ -78,6 +78,13 @@ async fn fake_acpmux() -> (String, mpsc::UnboundedReceiver<Value>) {
                         let _ = sink.send(Message::Text(answer.to_string().into())).await;
                         continue;
                     }
+                    if request["method"] == "_acpmux/handoff_get" {
+                        let answer = json!({"jsonrpc":"2.0","id":request["id"],"result":{
+                            "source":{"sessionId":OTHER_SESSION},"target":{"sessionId":SESSION}
+                        }});
+                        let _ = sink.send(Message::Text(answer.to_string().into())).await;
+                        continue;
+                    }
                     let _ = tx.send(request.clone());
                     if request["method"] == "session/prompt" {
                         let approval = json!({
@@ -262,5 +269,56 @@ async fn ordinary_client_reply_id_cannot_authorize_an_approval() {
         .unwrap();
     let refusal = recv_json(&mut channel).await;
     assert_eq!(refusal["error"]["data"]["reason"], "remote_control.invalid_request");
+    assert!(timeout(Duration::from_millis(200), fixture.backend.recv()).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn global_catalog_queries_still_reach_backend() {
+    let mut fixture = fixture(state(&[])).await;
+    let connected = connect(&fixture).await;
+    let channel = connected.link.open("acpmux", json!({})).await.unwrap();
+    for method in ["_acpmux/harnesses", "_acpmux/models"] {
+        channel
+            .send(Bytes::from(json!({"jsonrpc":"2.0","id":method,"method":method,"params":{}}).to_string()))
+            .await
+            .unwrap();
+        let forwarded = timeout(Duration::from_secs(10), fixture.backend.recv()).await.unwrap().unwrap();
+        assert_eq!(forwarded["method"], method);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn handoff_ids_resolve_both_sessions_before_forwarding() {
+    let mut fixture = fixture(state(&[])).await;
+    let connected = connect(&fixture).await;
+    let channel = connected.link.open("acpmux", json!({})).await.unwrap();
+    channel
+        .send(Bytes::from(
+            json!({"jsonrpc":"2.0","id":"start","method":"_acpmux/handoff_start",
+        "params":{"handoffId":"handoff-1","revision":1}})
+            .to_string(),
+        ))
+        .await
+        .unwrap();
+    let forwarded = timeout(Duration::from_secs(10), fixture.backend.recv()).await.unwrap().unwrap();
+    assert_eq!(forwarded["method"], "_acpmux/handoff_start");
+    assert_eq!(forwarded["params"]["handoffId"], "handoff-1");
+    assert_eq!(forwarded["params"]["sessionId"], SESSION);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn handoff_cannot_use_a_blocked_source_capsule() {
+    let mut fixture = fixture(state(&[OTHER_SESSION])).await;
+    let connected = connect(&fixture).await;
+    let mut channel = connected.link.open("acpmux", json!({})).await.unwrap();
+    channel
+        .send(Bytes::from(
+            json!({"jsonrpc":"2.0","id":"start","method":"_acpmux/handoff_start",
+        "params":{"handoffId":"handoff-1","revision":1}})
+            .to_string(),
+        ))
+        .await
+        .unwrap();
+    let _ = recv_close(&mut channel).await;
     assert!(timeout(Duration::from_millis(200), fixture.backend.recv()).await.is_err());
 }

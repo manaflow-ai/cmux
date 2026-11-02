@@ -314,6 +314,7 @@ pub async fn answer_notification_reply(
     phone: &str,
     spent: Option<&crate::mailbox::SpentReplies>,
     line: &[u8],
+    session_exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 ) -> String {
     let request: Value = serde_json::from_slice(line).unwrap_or_default();
     let id = request.get("id");
@@ -340,7 +341,16 @@ pub async fn answer_notification_reply(
             }
         }
     }
-    let outcome = reply_to_notification(daemon_socket, phone, notification, None, text).await;
+    let outcome = reply_to_notification_with_exposure(
+        daemon_socket,
+        phone,
+        notification,
+        None,
+        None,
+        text,
+        session_exposure,
+    )
+    .await;
     if let (Some(spent), Some(reply)) = (spent, reply_id) {
         match &outcome {
             Err(Rejection::Unavailable(_)) => spent.release_link_reply(reply),
@@ -731,7 +741,8 @@ mod tests {
         });
         assert!(exposure_allows(Some(&exposure), Some("s-canonical")).is_err());
         assert!(exposure_allows(Some(&exposure), Some("visible-alias")).is_ok());
-        tx.send_replace(crate::control::SessionExposure { available: false, ..exposure.borrow().clone() });
+        let previous = exposure.borrow().clone();
+        tx.send_replace(crate::control::SessionExposure { available: false, ..previous });
         assert!(exposure_allows(Some(&exposure), Some("visible-alias")).is_err());
     }
 
@@ -910,5 +921,71 @@ mod tests {
         assert_eq!(paste["paste"], true);
         assert_eq!(paste["expect_foreground"], "/usr/bin/vim");
         assert_eq!(enter["text"], "\r");
+    }
+}
+
+#[cfg(test)]
+mod live_notification_exposure_tests {
+    use super::*;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    #[tokio::test]
+    async fn live_notification_reply_cannot_type_into_a_blocked_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let backend = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let (read, mut write) = socket.into_split();
+            let mut lines = BufReader::new(read).lines();
+            let mut commands = Vec::new();
+            while let Some(line) = lines.next_line().await.unwrap() {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let cmd = request["cmd"].as_str().unwrap().to_owned();
+                commands.push(cmd.clone());
+                let data = match cmd.as_str() {
+                    "list-notifications" => {
+                        json!({"notifications":[{"notification":12,"surface":7,"reply":true,
+                        "created_at_ms":crate::mailbox::now()*1000,"poster_pid":5000,"poster_executable":"/usr/local/bin/claude"}]})
+                    }
+                    "process-info" => {
+                        json!({"foreground_pid":5000,"foreground_executable":"/usr/local/bin/claude"})
+                    }
+                    "list-agents" => {
+                        json!({"agents":[{"surface":7,"agent":"claude","state":"blocked","agent_session_id":"chat-off"}]})
+                    }
+                    "identify" => json!({"capabilities":[SEND_EXPECT_AGENT]}),
+                    _ => json!({}),
+                };
+                let answer = json!({"id":request["id"],"ok":true,"data":data});
+                write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+            }
+            commands
+        });
+        let (_tx, exposure) = tokio::sync::watch::channel(crate::control::SessionExposure {
+            configured: true,
+            blocked: ["chat-off".to_owned()].into_iter().collect(),
+            ..crate::control::SessionExposure::default()
+        });
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            answer_notification_reply(
+                &path,
+                "phone",
+                None,
+                br#"{"id":"phone-reply","cmd":"notification-reply","notification":12,"text":"do it"}"#,
+                Some(&exposure),
+            ),
+        )
+        .await
+        .unwrap();
+        let result: Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["error_code"], "refused");
+        assert!(result["error"].as_str().unwrap().contains("not exposed"));
+        let commands =
+            tokio::time::timeout(std::time::Duration::from_secs(5), backend).await.unwrap().unwrap();
+        assert!(commands.iter().any(|cmd| cmd == "list-agents"));
+        assert!(!commands.iter().any(|cmd| cmd == "send"));
     }
 }
