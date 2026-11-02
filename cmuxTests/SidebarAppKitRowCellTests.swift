@@ -2816,6 +2816,20 @@ struct SidebarGroupHeaderBandTests {
         }
     }
 
+    @Test(arguments: [CGFloat(1), CGFloat(1.4)])
+    func nilModelFallbackEstimateEqualsAuthoritativeDefaultHeader(scale: CGFloat) {
+        // The model-less fallback recomputes `preferredHeight` by hand (the
+        // model has no cheap default initializer), so pin it to the authoritative
+        // height of a default header — dividers off, no top gap, default
+        // magnification — to catch any future drift between the two formulas.
+        let calculator = SidebarWorkspaceTableRowHeightCalculator()
+        let defaultHeader = Self.makeModel(fontScale: scale)
+        #expect(
+            calculator.estimatedGroupHeaderHeight(fontScale: scale)
+                == SidebarGroupHeaderTableCellView.preferredHeight(model: defaultHeader)
+        )
+    }
+
     @Test
     func nameFontSizeIs12Point5WhenDividersOnAnd11WhenOff() throws {
         let onCell = SidebarGroupHeaderTableCellView()

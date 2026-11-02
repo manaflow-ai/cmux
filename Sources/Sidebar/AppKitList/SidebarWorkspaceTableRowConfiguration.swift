@@ -254,8 +254,26 @@ struct SidebarWorkspaceTableRowConfiguration {
     var estimatedHeight: CGFloat {
         let fontScale = CGFloat(environment.globalFontMagnificationPercent) / 100
         let calculator = SidebarWorkspaceTableRowHeightCalculator()
-        if isGroupHeader, let headerModel = appKitGroupHeaderModel {
-            return calculator.estimatedGroupHeaderHeight(model: headerModel)
+        if isGroupHeader {
+            if let headerModel = appKitGroupHeaderModel {
+                return calculator.estimatedGroupHeaderHeight(model: headerModel)
+            }
+            // A header row must never settle on a workspace-shaped estimate. In
+            // production every header carries its model (built through the
+            // `groupHeaderModel:` init; `presentationSnapshot` copies it
+            // through), so this branch is unreachable outside test fixtures that
+            // build a header through the generic content init — assert it in a
+            // non-test DEBUG build, then still hand back a header-shaped estimate.
+#if DEBUG
+            if !TestProcessDefaults.hostsTestBundles(
+                environment: ProcessInfo.processInfo.environment
+            ) {
+                assertionFailure(
+                    "group-header row configuration built without an AppKit header model"
+                )
+            }
+#endif
+            return calculator.estimatedGroupHeaderHeight(fontScale: fontScale)
         }
         return calculator.estimatedWorkspaceHeight(
             fontScale: fontScale,

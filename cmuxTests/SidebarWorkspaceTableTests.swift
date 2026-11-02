@@ -658,6 +658,54 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func groupHeaderEstimateStaysHeaderShapedWithoutAModel() {
+        // Production headers always carry their AppKit model, but the invariant
+        // "a header row never settles on a workspace-shaped estimate" must hold
+        // even for a header configuration that reaches `estimatedHeight` with a
+        // nil model (cmux-ta4.12 let that path fall through to the workspace
+        // estimate, which diverges from the authoritative header height).
+        let calculator = SidebarWorkspaceTableRowHeightCalculator()
+        for percent in [100, 140] {
+            let fontScale = CGFloat(percent) / 100
+#if DEBUG
+            let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .dark,
+                globalFontMagnificationPercent: percent,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+#else
+            let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .dark,
+                globalFontMagnificationPercent: percent
+            )
+#endif
+            let header = SidebarWorkspaceTableRowConfiguration(
+                id: .group(UUID()),
+                workspaceId: UUID(),
+                groupId: UUID(),
+                isGroupHeader: true,
+                isPinned: false,
+                environment: environment,
+                equivalenceValue: TestRowContent(token: 0, fixedHeight: nil)
+            ) { _, _ in AnyView(EmptyView()) }
+
+            #expect(header.appKitGroupHeaderModel == nil)
+            #expect(
+                header.estimatedHeight
+                    == calculator.estimatedGroupHeaderHeight(fontScale: fontScale)
+            )
+            #expect(
+                header.estimatedHeight != calculator.estimatedWorkspaceHeight(
+                    fontScale: fontScale,
+                    titleLineCount: 1,
+                    auxiliaryLineCount: 0
+                )
+            )
+        }
+    }
+
+    @Test
+    @MainActor
     func rowHeightCacheMeasuresOnceForEquivalentRepeatedQueries() {
         let cache = SidebarWorkspaceTableRowHeightCache()
         let row = makeRowConfiguration()
