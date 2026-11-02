@@ -317,8 +317,8 @@ test("in a wide pane it floats beside the transcript", async () => {
 // Leo, 2026-10-27: "why am i sent to a whole new thing instead of a tab opening on the right?" The
 // project row asks for its Files tab (App.tsx: right of the chat), and a panel floating over the chat
 // steps aside, still open for its toggle, so the chat and the new tab are what show. Where the gutter
-// cannot hold it the panel pushes the chat (#31423), so it floats over the chat only in a short pane,
-// as a popover (POPOVER_BELOW_HEIGHT).
+// cannot hold it the panel pushes the chat (#31423), so it floats over the chat only in a short or too
+// narrow pane, as a popover (sessionInfoPopover), which shows only once the person opens it.
 function FolderPane({ opened }: { opened: string[] }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const sessionInfo = useSessionInfo({
@@ -334,6 +334,7 @@ function FolderPane({ opened }: { opened: string[] }) {
         if (element && element !== shell) setShell(element);
       }}
     >
+      {sessionInfo.button}
       {sessionInfo.panel}
     </section>
   );
@@ -366,8 +367,11 @@ const projectRow = (container: HTMLElement) =>
 
 test("over the chat, a project click opens its Files tab and the panel steps aside, still open", async () => {
   const opened: string[] = [];
-  // A short narrow pane: the panel is a popover over the chat, not a pushed column.
+  // A short narrow pane: the panel is a popover over the chat, not a pushed column, and a saved open
+  // state alone never shows it there (cmuxterm-hq#6137); the toggle does.
   const container = await mountFolderPane(480, opened, 400);
+  expect(panel(container)).toBeNull();
+  await act(async () => toggle(container).click());
   expect(panel(container)).not.toBeNull();
   await act(async () => projectRow(container).click());
   expect(opened).toEqual([snapshot.summary!.cwd!]);
@@ -380,5 +384,29 @@ test("beside the chat, a project click opens its Files tab and the panel stays",
   const container = await mountFolderPane(1600, opened);
   await act(async () => projectRow(container).click());
   expect(opened).toEqual([snapshot.summary!.cwd!]);
+  expect(panel(container)).not.toBeNull();
+});
+
+// cmuxterm-hq#6137 (NEXT nightly 1.0.0-nightly.4150738990701): a new chat in a 370px pane opened with
+// Session Info pushed to its 260px narrowest, the chat squeezed to about 100px and its "Not sent" line
+// and Retry under the panel. A pane too narrow to keep a chat as wide as the panel beside it makes the
+// panel a popover over the chat (Leo, 2026-10-31: "make it a popover that hides when you click away
+// when the viewport is indeed too small"), and a popover waits for the person to open it.
+test("in a pane too narrow to push, a saved open state leaves the chat clear; the toggle opens a popover", async () => {
+  const opened: string[] = [];
+  const container = await mountFolderPane(370, opened, 960);
+  expect(panel(container)).toBeNull();
+  expect(container.querySelector<HTMLElement>(".acpmux-shell")!.dataset.sessionInfoChatPlacement).toBeUndefined();
+  expect(sessionInfoState().open).toBe(true);
+  await act(async () => toggle(container).click());
+  const card = panel(container) as HTMLElement | null;
+  expect(card).not.toBeNull();
+  expect(card!.dataset.placement).toBe("overlay");
+  expect(card!.hasAttribute("data-popover")).toBe(true);
+});
+
+test("a tall pane with room keeps opening Session Info from its saved state", async () => {
+  const opened: string[] = [];
+  const container = await mountFolderPane(1600, opened, 960);
   expect(panel(container)).not.toBeNull();
 });
