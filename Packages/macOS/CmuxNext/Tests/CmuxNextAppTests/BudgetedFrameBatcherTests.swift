@@ -247,6 +247,27 @@ import CmuxNextWakeupsTestSupport
         #expect(shown.panes == ["first", "second"])
     }
 
+    /// REOPEN-F4 (port of #31707): a reopened window's panes all need a surface (one a frame); the focused pane, queued
+    /// last, gets the first frame's surface, and the others follow one a frame in their order.
+    @Test func theFocusedPaneGetsTheFirstFramesSurfaceAtAReopen() {
+        let (work, input, clock) = Self.budgetedScheduler()
+        let presentation = ContentPresentationScheduler(mainWork: work)
+        let shown = ShowLog()
+        let a = PresentedPane("a", alive: false, log: shown), b = PresentedPane("b", alive: false, log: shown)
+        let focused = PresentedPane("focused", alive: false, log: shown, focused: true)
+        work.causes.withCause(.person) {
+            presentation.setNeedsShowSelected(a)
+            presentation.setNeedsShowSelected(b)
+            presentation.setNeedsShowSelected(focused)
+        }
+        input.pending = false
+        Self.fire(work, clock, frame: 1)
+        #expect(shown.panes == ["focused"], "the focused pane waited behind \(shown.panes) for its surface")
+        Self.fire(work, clock, frame: 2)
+        Self.fire(work, clock, frame: 3)
+        #expect(shown.panes == ["focused", "a", "b"], "the other panes are not shown one a frame in their order: \(shown.panes)")
+    }
+
     /// A scheduler on a fake link whose budget reads the test's clock and pending-input flag.
     private static func budgetedScheduler() -> (MainWorkScheduler, PendingKeys, BatcherBudgetClock) {
         let clock = BatcherBudgetClock(), input = PendingKeys()
@@ -273,11 +294,13 @@ private final class PresentedPane: PresentablePane {
     private let name: String
     private let log: ShowLog
     private(set) var selectedContentIsAlive: Bool
+    let isFocusedInWorkspace: Bool
 
-    init(_ name: String, alive: Bool, log: ShowLog) {
+    init(_ name: String, alive: Bool, log: ShowLog, focused: Bool = false) {
         self.name = name
         self.log = log
         selectedContentIsAlive = alive
+        isFocusedInWorkspace = focused
     }
 
     func showSelected() {

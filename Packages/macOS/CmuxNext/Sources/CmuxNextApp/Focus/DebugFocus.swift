@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextInputModel
 import CmuxNextSettings
 import CmuxNextFocus
+import CmuxNextFocusUI
 
 /// `debug.focus`: per window, the coordinator state next to what AppKit, Ghostty and the layout show, whether they
 /// agree (plans/cmux-next/focus.md section 6), and its key holds: the New Tab hold and the creation hold (`creation_hold`

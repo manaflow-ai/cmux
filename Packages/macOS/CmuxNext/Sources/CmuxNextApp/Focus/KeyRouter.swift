@@ -228,6 +228,8 @@ final class KeyRouter: BrowserKeyRouting {
         if modes.isNormal, Self.isTypingKey(event) {
             lastInterception = nil
             trace?("normal mode: a typing key goes to the focused view")
+            // No terminal has the keyboard and the window's focused terminal or page does not show yet (a reopen, cold): the key waits (REOPEN-F4).
+            if !(window?.firstResponder is TerminalSurfaceView), (window?.windowController as? WindowController).flatMap(CreationInputCoordinator.awaitedContent) != nil, creationInputCoordinator.capture(event, in: window) { return held(event, by: .creation) }
             return typesIntoFocusedView(event, in: window)
         }
         if newTabInputCoordinator.capture(event, in: window) { return held(event, by: .newTab) }
