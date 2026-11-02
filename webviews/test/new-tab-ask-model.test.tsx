@@ -212,6 +212,8 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
 async function newTabPage(
   options: {
     auth?: unknown;
+    signedOut?: Record<string, string>;
+    chips?: ComponentProps<typeof NewTabScreen>["chips"];
     onAsk?: (...args: unknown[]) => unknown;
     launch?: Pick<ComponentProps<typeof NewTabScreen>, "runMode" | "onCloud" | "onSandbox">;
   } = {},
@@ -230,9 +232,10 @@ async function newTabPage(
   await act(async () =>
     root.render(
       <QueryClientProvider client={new QueryClient()}>
-        <SignInContext.Provider value={{ signedOut: {}, logIn: noop, readSessionAuth }}>
+        <SignInContext.Provider value={{ signedOut: options.signedOut ?? {}, logIn: noop, readSessionAuth }}>
           <NewTabScreen
             {...options.launch}
+            chips={options.chips}
             snapshot={noChat()}
             lastAgent="codex"
             cwd="/Users/you/src/app"
@@ -379,6 +382,7 @@ test("a chat start that fails says why over the kept draft, and Return tries aga
 
 for (const mode of ["cloud", "sandboxed"] as const) {
   test(`${mode} launch does not query or obey auth on the local machine`, async () => {
+    const { NewTabComposerChips } = await import("../src/agent-session/acpmux/App");
     const launches: unknown[][] = [];
     const launch = (...args: unknown[]) => {
       launches.push(args);
@@ -386,6 +390,8 @@ for (const mode of ["cloud", "sandboxed"] as const) {
     };
     const page = await newTabPage({
       auth: { ...READY, state: "expired" },
+      signedOut: { codex: "codex login" },
+      chips: NewTabComposerChips,
       launch: {
         runMode: { mode, onMode: noop },
         ...(mode === "cloud" ? { onCloud: launch } : { onSandbox: launch }),
@@ -397,6 +403,10 @@ for (const mode of ["cloud", "sandboxed"] as const) {
       expect(launches).toHaveLength(1);
       expect(launches[0]?.slice(0, 2)).toEqual(["codex", "fix the flaky upload test"]);
       expect(page.asks).toEqual([]);
+      const chip = host.querySelector(".acpmux-model-name")?.closest("button");
+      expect(chip).toBeTruthy();
+      await act(async () => chip!.click());
+      expect(window.document.querySelectorAll('.acpmux-quick-list [role="menuitemradio"]').length).toBeGreaterThan(0);
     } finally {
       await act(async () => page.root.unmount());
     }

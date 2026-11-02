@@ -2252,7 +2252,7 @@ export function NewTabScreen(props: Props) {
       value={
         parentSignIn && {
           ...parentSignIn,
-          signedOut: targetHost ? {} : parentSignIn.signedOut,
+          signedOut: offMachine || remoteTarget ? {} : parentSignIn.signedOut,
           sessionAuth: targetAuth,
           recheckSession: recheckTarget,
           loginSession: () => parentSignIn.loginSession?.(targetAuth),
