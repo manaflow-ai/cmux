@@ -97,7 +97,9 @@ CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
 json.dump({"version": 1, "values": {"browserResize.layerHosting": opts.mode == "on"}}, open(TUNABLES, "w"))
-WINDOW = (80, 80, 1400, 900)
+# Left of the top-right corner, where macOS shows notification banners: one there (an iCloud alert on cmux11s) took the
+# clicks meant for the page (step dc19047674621e1ae9bb11aa).
+WINDOW = (40, 40, 1300, 900)
 KEY = "browserResize.layerHosting"
 LAYER_HOSTING_FORK_API = 26
 ROWS, TAB, FACTS = [], {}, {}
@@ -517,8 +519,8 @@ def check_show_again():
 
 
 def app_windows(pid):
-    """PID's on-screen windows, front to back: window, layer, bounds {x, y, width, height} in top-left points
-    (CGWindowList: bounds and layers need no grant)."""
+    """PID's on-screen windows (every process's for None), front to back: window, layer, pid, owner, bounds
+    {x, y, width, height} in top-left points (CGWindowList: bounds, layers and owner names need no grant)."""
     vp = ctypes.c_void_p
     CG.CGWindowListCopyWindowInfo.restype = vp
     CG.CGWindowListCopyWindowInfo.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
@@ -534,10 +536,13 @@ def app_windows(pid):
     CF.CFNumberGetValue.argtypes = [vp, ctypes.c_int, vp]
     keys = {}
 
-    def num(d, name):
+    def key(name):
         if name not in keys:
             keys[name] = CF.CFStringCreateWithCString(None, name.encode(), 0x08000100)
-        value, out = CF.CFDictionaryGetValue(d, keys[name]), ctypes.c_double()
+        return keys[name]
+
+    def num(d, name):
+        value, out = CF.CFDictionaryGetValue(d, key(name)), ctypes.c_double()
         return out.value if value and CF.CFNumberGetValue(value, 13, ctypes.byref(out)) else 0.0  # kCFNumberDoubleType
 
     array = CG.CGWindowListCopyWindowInfo(1 | 16, 0)  # on screen only, no desktop elements
@@ -545,11 +550,15 @@ def app_windows(pid):
     try:
         for i in range(CF.CFArrayGetCount(array) if array else 0):
             d = CF.CFArrayGetValueAtIndex(array, i)
-            if int(num(d, "kCGWindowOwnerPID")) != pid:
+            owner_pid = int(num(d, "kCGWindowOwnerPID"))
+            if pid is not None and owner_pid != pid:
                 continue
-            num(d, "kCGWindowBounds")  # makes the key
-            b = CF.CFDictionaryGetValue(d, keys["kCGWindowBounds"])
+            b = CF.CFDictionaryGetValue(d, key("kCGWindowBounds"))
+            name, text = CF.CFDictionaryGetValue(d, key("kCGWindowOwnerName")), ctypes.create_string_buffer(256)
+            CF.CFStringGetCString.argtypes = [vp, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+            owner = text.value.decode(errors="replace") if name and CF.CFStringGetCString(name, text, 256, 0x08000100) else None
             windows.append({"window": int(num(d, "kCGWindowNumber")), "layer": int(num(d, "kCGWindowLayer")),
+                            "pid": owner_pid, "owner": owner,
                             "bounds": {k: num(b, k[0].upper() + k[1:]) for k in ("x", "y", "width", "height")}})
     finally:
         if array:
@@ -558,6 +567,16 @@ def app_windows(pid):
             if made:
                 CF.CFRelease(made)
     return windows
+
+
+def covering(point, pid):
+    """The frontmost on-screen window of another process over POINT (owner name and layer), or None: a system banner
+    there takes the click."""
+    for window in app_windows(None):
+        b = window["bounds"]
+        if b["x"] <= point[0] < b["x"] + b["width"] and b["y"] <= point[1] < b["y"] + b["height"]:
+            return None if window["pid"] == pid else {k: window[k] for k in ("owner", "layer", "bounds")}
+    return None
 
 
 def appkit_rect(rect):
@@ -575,7 +594,7 @@ def rect_center(rect, dy=0.0):
 def element_point(element_id):
     """The global point at the middle of the page element ELEMENT_ID (its client rect over the page's rect)."""
     where = page(f"(()=>{{const r=document.getElementById('{element_id}').getBoundingClientRect();"
-                 "return JSON.stringify([(r.left+r.width/2)/innerWidth,(r.top+r.height/2)/innerHeight])}})()")
+                 "return JSON.stringify([(r.left+r.width/2)/innerWidth,(r.top+r.height/2)/innerHeight])})()")
     try:
         fx, fy = json.loads(where) if isinstance(where, str) else where
     except (TypeError, ValueError):
@@ -826,7 +845,7 @@ def main():
         page("window.__clicks = 0")
         hid_click(point)
         clicks = wait(lambda: page("window.__clicks || 0"), 3)
-        row("click", clicks == 1, {"clicks": clicks, "at": [round(v) for v in point],
+        row("click", clicks == 1, {"clicks": clicks, "at": [round(v) for v in point], "covered_by": covering(point, app.pid),
                                    "note": None if clicks else "no click reached the page (or this process may not post events)"})
 
         hid_click(screen_point(0.7, 0.5))
