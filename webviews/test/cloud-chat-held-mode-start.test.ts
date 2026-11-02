@@ -1,0 +1,100 @@
+// l10n-allow-file: test fixtures.
+// A chat on a Cloud (or other remote) machine starts with its first send. A permission mode picked
+// before then (Leo 2026-11-01: "i couldn't even pick a mode for this kind aqua sandpaper one") is
+// held by the client and goes to the session that send starts, before the prompt, with the pick's
+// gesture ticket; a start the machine refuses keeps it for the next send.
+import { expect, test } from "bun:test";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+
+async function cloud(options: { failStarts?: number } = {}) {
+  let socket: any;
+  let session: any;
+  let starts = 0;
+  let failures = options.failStarts ?? 0;
+  const wire: string[] = [];
+  const answer = (method: string, params: any) => {
+    switch (method) {
+      case "initialize":
+        return { protocolVersion: 1, _meta: { acpmux: { origin: "remote", extensions: [], operations: [] } } };
+      case "_acpmux/watch":
+        return { sessions: session ? [session] : [] };
+      case "session/new": {
+        starts++;
+        wire.push("session/new");
+        if (failures > 0) {
+          failures--;
+          return { __error: { code: -32001, message: "kind-aqua-sandpiper refused to start the agent chat" } };
+        }
+        session = { sessionId: `cloud-${starts}`, harness: "claude", status: "ready", turnCount: 0 };
+        return { sessionId: session.sessionId };
+      }
+      case "session/set_mode":
+        wire.push(`set_mode ${params.sessionId} ${params.modeId} ${params._meta?.cmuxGesture ?? "-"}`);
+        return {};
+      case "_acpmux/attach":
+        return { session, events: [], lastSeq: 0 };
+      case "_acpmux/events":
+        return { events: [], hasMore: false, lastSeq: 0 };
+      default:
+        return null;
+    }
+  };
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", newSession: true },
+    () => undefined,
+    undefined,
+    () => {
+      socket = {
+        readyState: 1,
+        send(raw: string) {
+          const message = JSON.parse(raw);
+          if (message.id !== undefined)
+            queueMicrotask(() => {
+              const value = answer(message.method, message.params);
+              socket.onmessage?.({
+                data: JSON.stringify(
+                  value?.__error
+                    ? { jsonrpc: "2.0", id: message.id, error: value.__error }
+                    : { jsonrpc: "2.0", id: message.id, result: value },
+                ),
+              });
+            });
+        },
+        close() {},
+      };
+      queueMicrotask(() => socket.onopen?.());
+      return socket as WebSocket;
+    },
+  );
+  return { client, wire };
+}
+
+test("a mode held before a Cloud chat's first send goes to the session that send starts", async () => {
+  const run = await cloud();
+  try {
+    expect(run.client.startsOnSend).toBe(true);
+    run.client.holdStartMode("bypassPermissions", Promise.resolve("gesture-1"));
+    expect(run.wire).toEqual([]);
+    const sessionId = await run.client.ensureSession();
+    expect(sessionId).toBe("cloud-1");
+    expect(run.wire).toEqual(["session/new", "set_mode cloud-1 bypassPermissions gesture-1"]);
+    // Applied once: the chat's later sends set nothing again.
+    await run.client.ensureSession();
+    expect(run.wire).toHaveLength(2);
+  } finally {
+    run.client.close();
+  }
+});
+
+test("a start the Cloud machine refuses keeps the held mode for the next send", async () => {
+  const run = await cloud({ failStarts: 1 });
+  try {
+    run.client.holdStartMode("acceptEdits");
+    await expect(run.client.ensureSession()).rejects.toThrow("refused to start");
+    expect(run.wire).toEqual(["session/new"]);
+    await run.client.ensureSession();
+    expect(run.wire).toEqual(["session/new", "session/new", "set_mode cloud-2 acceptEdits -"]);
+  } finally {
+    run.client.close();
+  }
+});
