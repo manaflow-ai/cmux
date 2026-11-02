@@ -240,6 +240,41 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         }
     }
 
+    /// (Review of #32291, the reads in the other order) The running terminal's question shows before the idle terminal's
+    /// read ends: that close ends while the question asks, and Cancel still types only the question's own keys into the
+    /// terminal it asked about. The keys typed for the focused neighbour go to it.
+    @Test func aCloseThatEndsWhileAnotherTerminalAsksKeepsItsKeysForTheFocusedTerminal() async throws {
+        try await Self.withFocusedTerminal { t in
+            let neighbour = try await Self.newTerminal(t)
+            let running = try await Self.newTerminal(t) // runs cat: its close asks
+            _ = try await t.connection.request(SendInputRequest(surface: running.surface, text: "cat\r"))
+            try await Self.waitRunning("cat", t, surface: running.surface)
+            t.pane.select(TabID(t.tab.id))
+            let window = try #require(t.pane.view.window)
+            let focused = { t.services.keyRouter.focus(for: window).0?.focus.state.terminalTab }
+            try await PinnedPageTests.until({ focused() == t.tab.id }, report: { "the closing terminal never had the focus: \(focused() ?? "none")" })
+            let hold = t.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            try Self.press("w", .command, keyCode: 13, in: window, t) // the idle terminal's Cmd-W: hidden, it reads
+            try await PinnedPageTests.until({ focused() == neighbour.id && hold.held == 1 },
+                                            report: { "focus \(focused() ?? "none"), neighbour \(neighbour.id), reads held \(hold.held)" })
+            let nonce = String(UInt32.random(in: 100_000...999_999)), typed = "rv\(nonce)"
+            for character in typed { try Self.press(String(character), in: window, t) }
+            t.pane.handle(.close(TabID(running.id), source: .mouse)) // its close button: the running terminal hides and reads
+            try await PinnedPageTests.until({ hold.held == 2 }, report: { "the running terminal's close did not read: \(hold.held) held" })
+            hold.releaseNewest() // the running terminal answers first: its question shows while the idle one still reads
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no question for the running terminal" })
+            hold.release() // the idle terminal's close ends while the question asks
+            try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(t.tab.id) }, report: { "the idle close never ended: asking \(TabCloseGuard.asking)" })
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
+            let back = try? await t.connection.request(WaitForTextRequest(surface: neighbour.surface, pattern: typed, timeoutMs: 10_000), timeout: .seconds(15))
+            let screen = (try? await t.connection.request(ReadScreenRequest(surface: running.surface), timeout: .seconds(5)))?.text ?? ""
+            #expect(back?.matched == true, "the keys typed for the focused terminal did not reach it: \(back?.text.suffix(300) ?? "no answer")")
+            #expect(!screen.contains(typed), "Cancel typed another close's keys into the terminal it asked about: \(screen.suffix(300))")
+        }
+    }
+
     /// (Review of #32291) While the question shows, the held keys wait for its answer, but a key typed at the question is
     /// the question's: Escape through the app's key path cancels it, and the line held during the read comes back whole
     /// to the terminal that stays.
