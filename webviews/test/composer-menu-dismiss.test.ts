@@ -318,7 +318,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
         test(`${where}: a second press on a chip closes its menu`, async () => {
           const page = await open(engine, stage, width);
           for (const name of stage.chips) {
-            await pressAt(page, chip(name));
+            await pressFreshChip(page, chip(name));
             expect({ name, open: await settle(page, stage.chips, [name]) }).toEqual({ name, open: [name] });
             await menusAtRest(page);
             await pressAt(page, chip(name));
@@ -364,7 +364,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           const pressed = () => page.evaluate(() => (window as unknown as { pressed: Record<string, number> }).pressed);
           for (const name of stage.chips)
             for (const target of [".acpmux-mic", stage.field]) {
-              await pressAt(page, chip(name));
+              await pressFreshChip(page, chip(name));
               expect({ name, open: await settle(page, stage.chips, [name]) }).toEqual({ name, open: [name] });
               await menusAtRest(page);
               const point = await clearPoint(page, target);
@@ -389,7 +389,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
         test(`${where}: Escape closes a menu and puts the keyboard back on its chip`, async () => {
           for (const name of stage.chips) {
             const page = await open(engine, stage, width);
-            await pressAt(page, chip(name));
+            await pressFreshChip(page, chip(name));
             await settle(page, stage.chips, [name]);
             await page.keyboard.press("Escape");
             await until(
@@ -415,7 +415,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
         test(`${where}: picking a mode or a level hands the keyboard back to the prompt`, async () => {
           for (const name of stage.picks) {
             const page = await open(engine, stage, width);
-            await pressAt(page, chip(name));
+            await pressFreshChip(page, chip(name));
             await settle(page, stage.chips, [name]);
             // Where the caller picks model and effort together (New Tab), the running model's effort
             // is a side dropdown beside its row (#27948): its effort item opens the levels.
