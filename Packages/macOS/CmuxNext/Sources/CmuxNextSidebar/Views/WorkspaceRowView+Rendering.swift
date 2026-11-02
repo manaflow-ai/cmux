@@ -217,10 +217,10 @@ extension WorkspaceRowView {
         let pinStart = layoutPin(rowWidth: b.width, showMore: showMore, control: control, fades: controlFades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
-        if markReplacesStatus, columnMark?.status !== agentMark {
+        if markReplacesStatus, columnMark?.view !== agentMark {
             agentMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
             trailing = columns.trailingEdge(before: agentMark.frame)
-        } else if activity.showsGlyph, columnMark?.status !== activity {
+        } else if activity.showsGlyph, columnMark?.view !== activity {
             activity.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
             trailing = columns.trailingEdge(before: activity.frame)
         }
@@ -234,7 +234,7 @@ extension WorkspaceRowView {
             // "triangle not aligned, not sure if triangle is even centered": it ended at the row's inset, in a smaller
             // box). It never gives way to the hover controls: while they show it sits just left of them, so a person
             // who hovers the row can still point at it and read its tooltip.
-            let onColumn = columnMark?.status === usageWarningMark
+            let onColumn = columnMark?.view === usageWarningMark
             let end = onColumn ? usageWarningMark.frame.maxX : trailing
             let shown = overlayStart.map { min(end, $0 - Metrics.space1) } ?? end
             if !onColumn || shown < end { usageWarningMark.frame = statusGlyphFrame(trailing: shown, centerY: cy) }
@@ -281,7 +281,7 @@ extension WorkspaceRowView {
         updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, chiefMark, agentMark, mutedMark, usageWarningMark, audioButton, presenceDots, timeLabel, tabCount, prBadge] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, usageWarningMark, audioButton, presenceDots, timeLabel, tabCount, prBadge] as [NSView] {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
