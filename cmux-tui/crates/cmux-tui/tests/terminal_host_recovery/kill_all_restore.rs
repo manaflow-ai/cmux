@@ -519,7 +519,6 @@ fn kill_all_right_after_a_host_reconnect_restores_the_output_of_the_gap() {
 /// tail (a restore rebuilds snapshot plus tail per terminal). Prints
 /// `kill-all-restore-time: {...}` (ms per terminal, sorted).
 #[test]
-#[ignore = "measurement: run it with --ignored"]
 fn kill_all_restore_time_of_12_terminals() {
     const TERMINALS: usize = 12;
     let _exclusive = exclusive_process_test();
@@ -557,7 +556,7 @@ fn kill_all_restore_time_of_12_terminals() {
         restored_ms.push(spawned.elapsed().as_millis());
     }
     restored_ms.sort_unstable();
-    eprintln!(
+    panic!(
         "kill-all-restore-time: {}",
         serde_json::json!({"terminals": TERMINALS, "restored_ms": restored_ms})
     );
