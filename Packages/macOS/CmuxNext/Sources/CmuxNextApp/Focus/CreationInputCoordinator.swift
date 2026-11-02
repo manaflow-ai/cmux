@@ -160,6 +160,12 @@ final class CreationInputCoordinator {
         let (controller, kind) = router.focus(for: window)
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
+        // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown
+        // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4).
+        if buffers[shell.windowNumber] == nil, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
+           let lane = Self.awaitedSurface(controller) {
+            buffer(in: shell).awaitSurface(of: lane)
+        }
         guard let buffer = buffers[shell.windowNumber] else { return false }
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
         let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
@@ -306,6 +312,8 @@ final class CreationInputCoordinator {
             let focus = controller.focus.state
             if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
             guard Self.responderTakesKeys(controller, window: window) else { return }
+            // Its focused terminal's surface is still to come (the presentation shows it on a later frame).
+            if let awaited = buffer.awaitedTab, Self.awaitedSurface(controller)?.tab == awaited { return }
         }
         buffers[window.windowNumber] = nil
         let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
@@ -319,6 +327,22 @@ final class CreationInputCoordinator {
 }
 
 extension CreationInputCoordinator {
+    /// The focused terminal when its surface is not shown in its pane yet: the focus names a live terminal tab of the
+    /// shown workspace, and its pane has no view yet or shows something else (a reopened window comes forward before
+    /// its panes' surfaces, which come one per frame). A key typed now would reach no view. Nil otherwise.
+    static func awaitedSurface(_ controller: WindowController) -> CreationInputBuffer.HeldLane? {
+        let state = controller.focus.currentState()
+        guard case .terminal(let pane, let tab) = state.resolved, let content = controller.content, content.workspace.id == state.topology.workspace else { return nil }
+        if let shown = content.paneController(key: pane) {
+            // The common case first (every key-down asks): the terminal shows.
+            if shown.currentTabKey == tab, case .terminal? = shown.currentContent { return nil }
+            guard shown.stripModel.selectedID?.rawValue == tab, shown.showsLiveTerminal else { return nil }
+        } else if !state.topology.panes.contains(where: { $0.id == pane }) {
+            return nil
+        }
+        return CreationInputBuffer.HeldLane(tab: tab, machine: content.daemon.machineID)
+    }
+
     /// False while focus names a terminal whose view does not have the keyboard and the window's
     /// first responder is another terminal or the window itself (a remounted view), or names the
     /// pane's selected terminal before its surface is shown: a key now would land in the wrong

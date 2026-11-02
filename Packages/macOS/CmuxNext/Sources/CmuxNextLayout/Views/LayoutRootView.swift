@@ -573,8 +573,14 @@ public final class LayoutRootView: NSView {
         reportedKeepAlive = keepAlive
         model.reportVisiblePanes(visible, keepAlive: keepAlive)
         // Losses first, so content leaving the band frees room before new
-        // content attaches.
-        for (pane, presence) in changes.sorted(by: { $0.1.rank < $1.1.rank }) {
+        // content attaches. Among the panes of one kind of change, the focused pane goes first, then
+        // layout order: the app makes one new surface per frame in this order, and the pane the
+        // person types into must not wait behind the others (REOPEN-F4: in a Set's hash order, the
+        // first key after a reopen was lost in 10 of 15 cycles).
+        let focused = model.focusedPane
+        let order = Dictionary((model.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        func place(_ pane: PaneID) -> (Int, Int, String) { (pane == focused ? 0 : 1, order[pane] ?? .max, pane.rawValue) }
+        for (pane, presence) in changes.sorted(by: { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }) {
             context.provider?.panePresenceDidChange(pane, presence: presence)
         }
     }

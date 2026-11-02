@@ -5,6 +5,8 @@ import CmuxNextControl
 protocol PresentablePane: AnyObject {
     /// Showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool { get }
+    /// The pane has its workspace's focus: the person types into it, so its surface comes first.
+    var isFocusedInWorkspace: Bool { get }
     func showSelected()
 }
 
@@ -17,7 +19,10 @@ protocol PresentablePane: AnyObject {
 /// 100-180 ms under load (surface creation compiles Metal pipelines
 /// synchronously). Here only the selection a pane has at frame time is
 /// shown, content already alive is shown at once, and at most one new
-/// surface is created per frame; the rest wait for the next frame.
+/// surface is created per frame; the rest wait for the next frame. A
+/// waiting pane that has its workspace's focus gets the next frame's surface
+/// before the others (REOPEN-F4: the first key typed into a reopened
+/// window's focused terminal came before that terminal's surface).
 @MainActor
 final class ContentPresentationScheduler {
     private let frames: any ControlFrameSource
@@ -77,7 +82,9 @@ final class ContentPresentationScheduler {
     private func drain() {
         var created = false
         var remaining: [ObjectIdentifier] = []
-        for key in order {
+        // The focused pane first; the others keep their order.
+        let focused = order.filter { pending[$0]?.isFocusedInWorkspace == true }
+        for key in focused + order.filter({ !focused.contains($0) }) {
             guard let pane = pending[key] else { continue }
             if pane.selectedContentIsAlive || !created {
                 if !pane.selectedContentIsAlive { created = true }
