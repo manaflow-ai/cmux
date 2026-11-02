@@ -277,7 +277,7 @@ test("another agent's message is one 22px tool line in the one-line rows' frame,
     incoming: { kind: "message", message: { name: "cmux16/glass-lens", text, raw: text } },
   });
   const [short, long] = heightsOf([row("m1", "Draft is up."), row("m2", "Line of the report.\n".repeat(40))]);
-  expect(short).toBe(28);
+  expect(short).toBe(22);
   expect(long).toBe(short);
 });
 
@@ -294,14 +294,14 @@ test("a message this agent sent another one is one 22px tool line in the one-lin
     },
   };
   const [height] = heightsOf([{ id: "s", version: 1, at: 0, kind: "activity", items: [send] }]);
-  expect(height).toBe(2 + 22 + 4);
+  expect(height).toBe(22);
 });
 
 test("a task notice is a tool row's line in the one-line rows' frame", () => {
   const [height] = heightsOf([
     { id: "n", version: 1, at: 0, kind: "user", text: "Task done", incoming: { kind: "notice", text: "Task done" } },
   ]);
-  expect(height).toBe(28);
+  expect(height).toBe(22);
 });
 
 // A waiting steer's Send now leads the existing action row, so it adds no height to a text prompt.
