@@ -116,10 +116,14 @@ class LogicLinesTests(Repo):
         self.write(f"{SRC}/CmuxNextDomain/Wire.swift", "struct Wire {\n" + body)  # 5
         self.write(f"{SRC}/CmuxNextDomain/Split.swift", "struct Split {\n" + body)  # 5
         self.write(f"{SRC}/CmuxNextDomain/Host.swift", "final class Host {\n" + body)  # 5
-        self.table(("CmuxNextDomain", "class", "Store", 0, "LOGIC", 100, 0, "p", "rules"),
-                   ("CmuxNextDomain", "struct", "Wire", 0, "MIRROR", 0, 100, "p", "a daemon DTO"),
-                   ("CmuxNextDomain", "struct", "Split", 0, "MIXED", 30, 10, "p", "1.5 and 0.5"),
-                   ("CmuxNextDomain", "class", "Host", 0, "PLATFORM", 0, 0, "p", "a window host"))
+        self.table(("CmuxNextDomain", "class", "Store", 0, "LOGIC", 100, 0, f"{SRC}/CmuxNextDomain/Store.swift",
+                    "rules"),
+                   ("CmuxNextDomain", "struct", "Wire", 0, "MIRROR", 0, 100, f"{SRC}/CmuxNextDomain/Wire.swift",
+                    "a daemon DTO"),
+                   ("CmuxNextDomain", "struct", "Split", 0, "MIXED", 30, 10, f"{SRC}/CmuxNextDomain/Split.swift",
+                    "1.5 and 0.5"),
+                   ("CmuxNextDomain", "class", "Host", 0, "PLATFORM", 0, 0, f"{SRC}/CmuxNextDomain/Host.swift",
+                    "a window host"))
         self.commit()
         data = self.count()
         # Store 4 logic, Wire 5 mirror, Split 5 * 30% = 1.5 -> 2 logic and 5 * 10% = 0.5 -> 1 mirror, Host 0.
@@ -162,7 +166,8 @@ class LogicLinesTests(Repo):
         self.write(f"{SRC}/CmuxNextDomain/Rules+Generated.swift", rules.replace("Rules", "Named"))  # 3
         # A table row wins over the generator rule.
         self.write(f"{schema}/SettingsSchema+Listed.generated.swift", header + rules.replace("Rules", "Listed"))
-        self.table(("CmuxNextSettings", "enum", "Listed", 0, "LOGIC", 100, 0, "p", "the table wins"))
+        self.table(("CmuxNextSettings", "enum", "Listed", 0, "LOGIC", 100, 0,
+                    f"{schema}/SettingsSchema+Listed.generated.swift", "the table wins"))
         self.commit()
         data = self.count()
         self.assertEqual(data["packages"], {"CmuxNextSettings": {"swift_logic_lines": 3 + 3 + 3},
@@ -241,14 +246,15 @@ class LogicLinesTests(Repo):
             logic.main(["--repo", str(self.repo), "--sites", "swift_logic_lines"])
         self.assertIn(f"{SRC}/CmuxNextHelper/main.swift:5: main main.swift #0: 7 of 7 lines (unlisted)", out.getvalue())
 
-    def test_a_listed_declaration_moved_to_another_swift_module_counts_again(self):
+    def test_a_listed_declaration_moved_to_another_file_or_module_counts_again(self):
         self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
-        self.table(("CmuxNextDomain", "class", "Store", 0, "PLATFORM", 0, 0, "p", "a host"))
+        self.table(("CmuxNextDomain", "class", "Store", 0, "PLATFORM", 0, 0, f"{SRC}/CmuxNextDomain/Store.swift",
+                    "a host"))
         base = self.commit()
         (self.repo / SRC / "CmuxNextDomain" / "Hosts").mkdir()  # `git mv` into a missing directory fails
         self.git("mv", f"{SRC}/CmuxNextDomain/Store.swift", f"{SRC}/CmuxNextDomain/Hosts/Host.swift")
         self.commit("the file moves inside its module")
-        self.assertEqual(self.count()["rows"]["swift_logic_lines"], 0)
+        self.assertEqual(self.count()["rows"]["swift_logic_lines"], 3, "a moved file counts until the table follows")
         (self.repo / SRC / "CmuxNextCore").mkdir(parents=True)
         self.git("mv", f"{SRC}/CmuxNextDomain/Hosts/Host.swift", f"{SRC}/CmuxNextCore/Host.swift")
         self.commit("the declaration moves to another Swift module")
@@ -259,7 +265,8 @@ class LogicLinesTests(Repo):
 
     def test_a_renamed_listed_declaration_counts_again(self):
         self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
-        self.table(("CmuxNextDomain", "class", "Store", 0, "PLATFORM", 0, 0, "p", "a host"))
+        self.table(("CmuxNextDomain", "class", "Store", 0, "PLATFORM", 0, 0, f"{SRC}/CmuxNextDomain/Store.swift",
+                    "a host"))
         self.commit()
         self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class StoreHost {\n    var n = 0\n}\n")
         self.commit("renamed")
@@ -268,32 +275,40 @@ class LogicLinesTests(Repo):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             logic.main(["--repo", str(self.repo), "--missing"])
-        self.assertEqual(out.getvalue(), "CmuxNextDomain\tclass\tStore\t0\tPLATFORM\tp\n")
+        self.assertEqual(out.getvalue(),
+                         f"CmuxNextDomain\tclass\tStore\t0\tPLATFORM\t{SRC}/CmuxNextDomain/Store.swift\n")
 
-    def test_the_ordinal_counts_two_extensions_of_one_type_in_one_module_and_shifts_with_a_new_one(self):
-        self.write(f"{SRC}/CmuxNextDomain/B.swift", "extension Store {\n    func b() {}\n    func c() {}\n}\n")  # 4
-        self.write(f"{SRC}/CmuxNextDomain/A.swift", "extension Store {\n    func a() {}\n}\n")  # 3
-        self.write(f"{SRC}/CmuxNextUI/A.swift", "extension Store {\n}\n")  # 2: another module, its own ordinal 0
-        self.table(("CmuxNextDomain", "extension", "Store", 0, "PLATFORM", 0, 0, "A.swift", "ui"),
-                   ("CmuxNextDomain", "extension", "Store", 1, "LOGIC", 100, 0, "B.swift", "rules"),
-                   ("CmuxNextUI", "extension", "Store", 0, "PLATFORM", 0, 0, "A.swift", "ui"))
+    def test_the_key_is_the_file_and_the_ordinal_within_it_so_a_new_file_shifts_nothing(self):
+        # The WindowManager case (tip watcher, d6858a534b4): extensions of one type in many files of a module.
+        d = f"{SRC}/CmuxNextApp"
+        self.write(f"{d}/WindowManager+Membership.swift",
+                   "extension WindowManager {\n    func b() {}\n    func c() {}\n}\n")  # 4
+        self.write(f"{d}/WindowManager+Frames.swift", "extension WindowManager {\n}\nextension WindowManager {\n"
+                                                     "    func a() {}\n}\n")  # 2, 3
+        self.write(f"{SRC}/CmuxNextUI/WindowManager+Frames.swift", "extension WindowManager {\n}\n")  # another module
+        self.table(("CmuxNextApp", "extension", "WindowManager", 0, "PLATFORM", 0, 0, f"{d}/WindowManager+Frames.swift",
+                    "frames"),
+                   ("CmuxNextApp", "extension", "WindowManager", 1, "LOGIC", 100, 0, f"{d}/WindowManager+Frames.swift",
+                    "rules"),
+                   ("CmuxNextApp", "extension", "WindowManager", 0, "PLATFORM", 0, 0,
+                    f"{d}/WindowManager+Membership.swift", "membership"),
+                   ("CmuxNextUI", "extension", "WindowManager", 0, "PLATFORM", 0, 0,
+                    f"{SRC}/CmuxNextUI/WindowManager+Frames.swift", "ui"))
         self.commit()
-        self.assertEqual(self.packages(), {"CmuxNextDomain": {"swift_logic_lines": 4}})
-        # A new first extension (by path) takes ordinal 0: A's becomes 1 (LOGIC, 3) and B's 2 (unlisted, 4).
-        self.write(f"{SRC}/CmuxNextDomain/0First.swift", "extension Store {\n}\n")
+        self.assertEqual(self.packages(), {"CmuxNextApp": {"swift_logic_lines": 3}})
+        # A new file that sorts first adds only its own lines: no listed declaration changes its key.
+        self.write(f"{d}/WindowManager+Activation.swift", "extension WindowManager {\n}\n")
         self.commit()
-        self.assertEqual(self.packages(), {"CmuxNextDomain": {"swift_logic_lines": 7}})
-        # Two extensions in one file: the ordinal follows the line order.
-        self.write(f"{SRC}/CmuxNextDomain/0First.swift", "")
-        self.write(f"{SRC}/CmuxNextDomain/A.swift", "extension Store {\n}\nextension Store {\n    func a() {}\n}\n")
-        self.commit()
-        self.assertEqual(self.packages(), {"CmuxNextDomain": {"swift_logic_lines": 7}})
+        data = self.count()
+        self.assertEqual(data["packages"], {"CmuxNextApp": {"swift_logic_lines": 3 + 2}})
+        self.assertEqual(data["table_rows_missing"], 0)
 
     def test_the_count_reads_the_revision_and_not_the_working_tree(self):
         self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")
         self.commit()
         self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n    var m = 0\n}\n")
-        self.table(("CmuxNextDomain", "class", "Store", 0, "PLATFORM", 0, 0, "p", "uncommitted"))
+        self.table(("CmuxNextDomain", "class", "Store", 0, "PLATFORM", 0, 0, f"{SRC}/CmuxNextDomain/Store.swift",
+                    "uncommitted"))
         self.assertEqual(self.count()["rows"]["swift_logic_lines"], 3)
         self.assertEqual(self.count()["rows"]["swift_logic_lines"], 3, "the second count reads the cache")
 
@@ -307,7 +322,8 @@ class LogicLinesTests(Repo):
         self.write("Packages/Shared/Kit/Sources/Kit/Hub.swift", "struct Hub {\n}\n")
         self.write("Packages/Shared/Kit/Tests/KitTests/HubTests.swift", "struct HubTests {\n}\n")
         self.write("Packages/Shared/Other/Sources/Other/Other.swift", "struct Other {\n}\n")  # not linked
-        self.table(("CmuxNextCore", "struct", "Core", 0, "LOGIC", 100, 0, "p", "a module the table classifies"))
+        self.table(("CmuxNextCore", "struct", "Core", 0, "LOGIC", 100, 0, f"{SRC}/CmuxNextCore/Core.swift",
+                    "a module the table classifies"))
         self.write(f"{SRC}/CmuxNextCore/Core.swift", "struct Core {\n}\nstruct Unclassified {\n    let n = 1\n}\n")
         self.commit()
         data = self.count()
@@ -318,18 +334,22 @@ class LogicLinesTests(Repo):
     def test_invalid_and_duplicate_table_rows_never_lower_the_count(self):
         self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")  # 3
         self.write(f"{SRC}/CmuxNextDomain/Wire.swift", "struct Wire {\n}\n")  # 2
-        self.table(("CmuxNextDomain", "class", "Store", 0, "LOGIC", 50, 0, "p", "LOGIC must be 100/0"),
-                   ("CmuxNextDomain", "struct", "Wire", 0, "PLATFORM", 0, 0, "p", "first"),
-                   ("CmuxNextDomain", "struct", "Wire", 0, "MIXED", 50, 50, "p", "the higher sum counts"),
-                   ("CmuxNextDomain", "struct", "Gone", "x", "LOGIC", 100, 0, "p", "not an ordinal"),
-                   ("CmuxNextDomain", "struct", "Tie", 0, "MIXED", 60, 40, "p", "first, the same sum"),
-                   ("CmuxNextDomain", "struct", "Tie", 0, "LOGIC", 100, 0, "p", "the larger logic share counts"))
+        d = f"{SRC}/CmuxNextDomain"
+        self.table(("CmuxNextDomain", "class", "Store", 0, "LOGIC", 50, 0, f"{d}/Store.swift", "LOGIC must be 100/0"),
+                   ("CmuxNextDomain", "struct", "Wire", 0, "PLATFORM", 0, 0, f"{d}/Wire.swift", "first"),
+                   ("CmuxNextDomain", "struct", "Wire", 0, "MIXED", 50, 50, f"{d}/Wire.swift", "the higher sum counts"),
+                   ("CmuxNextDomain", "struct", "Gone", "x", "LOGIC", 100, 0, f"{d}/Gone.swift", "not an ordinal"),
+                   ("CmuxNextDomain", "struct", "Tie", 0, "MIXED", 60, 40, f"{d}/Tie.swift", "first, the same sum"),
+                   ("CmuxNextDomain", "struct", "Tie", 0, "LOGIC", 100, 0, f"{d}/Tie.swift",
+                    "the larger logic share counts"),
+                   ("CmuxNextDomain", "struct", "Elsewhere", 0, "LOGIC", 100, 0, "Packages/Other/Tie.swift",
+                    "a path outside a Sources/<module>/ folder"))
         self.write(f"{SRC}/CmuxNextDomain/Tie.swift", "struct Tie {\n    let a = 1\n    let b = 2\n    let c = 3\n}\n")
         self.commit()
         data = self.count()
         # Store 3 (unlisted), Wire 50/50 of 2 = 1/1, Tie the larger of each share: 100/40 of 5 = 5/2.
         self.assertEqual(data["rows"], {"swift_logic_lines": 3 + 1 + 5, "mirror_lines": 1 + 2})
-        self.assertEqual(data["table_rows_invalid"], 4)
+        self.assertEqual(data["table_rows_invalid"], 5)
         self.write(TABLE, "module\tkind\tname\tordinal\tclass\tmove_share\tpath\treason\n"
                           "CmuxNextDomain\tclass\tStore\t0\tPLATFORM\t0\tp\tthe old header\n")
         self.commit()
