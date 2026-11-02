@@ -739,3 +739,95 @@ fn a_workspace_selected_during_the_respawn_waves_respawns_without_waiting_a_wave
          one hold is {HOLD_MS} ms, so it waited for a wave"
     );
 }
+
+/// A terminal of the workspace the person sees that dies while hidden
+/// respawns still wait in line takes its ticket while shown: it must still
+/// go first, not after the hidden ones (review of #32288).
+///
+/// 8 shells in 8 workspaces, the target's selected. Every host but the
+/// target's is killed with the daemon; the restart adopts the target and
+/// queues 7 hidden respawns behind 1 slot, each held 1 s. Then the target's
+/// host is killed: its respawn must come within one hold, not after the
+/// hidden queue.
+#[test]
+fn a_shown_terminal_lost_behind_a_respawn_backlog_respawns_without_waiting_for_it() {
+    const TERMINALS: usize = 8;
+    const HOLD_MS: u64 = 1_000;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("respawn-backlog");
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({"id": 100 + index, "cmd": "run", "argv": ["/bin/cat"],
+                "new_workspace": true, "name": format!("backlog-{index}")}),
+        );
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    let target_index = TERMINALS / 2;
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 300, "cmd": "select-workspace", "index": target_index}),
+    );
+    let tree = request(&harness.socket, serde_json::json!({"id": 301, "cmd": "list-workspaces"}));
+    let target_name = tree["workspaces"][target_index]["name"].as_str().unwrap().to_string();
+    let target =
+        terminals[target_name.trim_start_matches("backlog-").parse::<usize>().unwrap()].clone();
+    std::thread::sleep(Duration::from_millis(500));
+
+    harness.signal_daemon(libc::SIGSTOP);
+    let mut target_record = None;
+    for (record_path, record) in &records {
+        if record.terminal_id == target {
+            target_record = Some((record_path.clone(), record.clone()));
+        } else {
+            kill_shell_then_host(record_path, record);
+        }
+    }
+    let (target_path, target_host) = target_record.expect("the target has a host record");
+    harness.sigkill();
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_DELAY_MS".into(), HOLD_MS.to_string()));
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_SLOTS".into(), "1".into()));
+    harness.restart();
+    // The target's surviving host is adopted: it runs again.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"cmd":"resolve-terminal","terminal_id":target}),
+        );
+        if resolved["surface"].as_u64().is_some() && resolved["lifecycle"] == "running" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the target was not adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let killed_ms =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
+    kill_shell_then_host(&target_path, &target_host);
+
+    let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    let respawned_ms = loop {
+        let at = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["event"] == "terminal_respawned")
+            .find(|event| event["terminal_id"] == target.as_str())
+            .and_then(|event| event["at_ms"].as_u64());
+        if let Some(at) = at {
+            break at;
+        }
+        assert!(Instant::now() < deadline, "the shown terminal never respawned");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let waited = respawned_ms.saturating_sub(killed_ms);
+    assert!(
+        waited < HOLD_MS + HOLD_MS / 2,
+        "the shown terminal respawned {waited} ms after its host died; one hold is \
+         {HOLD_MS} ms, so it waited behind the hidden respawns"
+    );
+}
