@@ -239,6 +239,7 @@ final class SidebarRegionView: NSView {
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
                 view.trailingTrim = SidebarRegionLayout.itemTrailingTrim(section, look: content.look, metrics: content.metrics)
+                view.contentLeadingInset = Self.headerContentLeadingInset(section, look: content.look, metrics: content.metrics)
                 view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):
@@ -346,6 +347,14 @@ final class SidebarRegionView: NSView {
         }
         CATransaction.commit()
         needsDisplay = true
+    }
+
+    static func headerContentLeadingInset(_ section: LayoutSection, look: SectionsLookVariant,
+                                          metrics: SidebarRegionMetrics) -> CGFloat {
+        guard SidebarRegionLayout.isCarded(section, look: look) else { return 0 }
+        guard let mode = SectionFlow.mode(section, look: look) else { return 0 }
+        if case .tiles = mode { return metrics.cardPadding }
+        return metrics.inset
     }
 
     private func makeItem(_ id: LayoutItemID) -> SidebarItemRowView {

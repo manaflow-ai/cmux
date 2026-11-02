@@ -1,5 +1,9 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: carded section headers keep their title on the same leading column as their item rows. Card content insets
+  now flow into the header layout, so the title does not sit left of the shared row grid. Non-card sections and all
+  trailing geometry stay unchanged. Regression: `SidebarIconColumnTests.aBandHeaderTitleSharesItsRowsLeadingColumn`.
+
 - 2026-11-02: groups with no user-chosen colour draw no dot, line, chip fill or wash.
   Leo (ask-c88148faefe): "WHY DOES THIS HAVE A LINE AND COLOR?????? WHERE IS ORANGE COMING FROM?????????? AN ORANGE DOT????"
   New groups and missing stored colours use `GroupTint.none`; explicitly chosen palette and custom colours

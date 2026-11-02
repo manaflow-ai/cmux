@@ -174,4 +174,28 @@ import Testing
         let rowColumn = itemRow.frame.minX + SidebarStyle.trailingColumnCenterX(rowWidth: itemRow.frame.width - SidebarStyle.horizontalInset)
         #expect(abs(chevronX - rowColumn) <= Self.tolerance, "\(look): the header chevron centers at \(chevronX), its rows' marks at \(rowColumn)")
     }
+
+    /// A section header's title shares the leading column with its band rows, including card looks whose rows
+    /// have an additional content inset. This is the same grid rule as the workspace and pinned rows.
+    @Test(arguments: [SectionsLookVariant.quiet, .card])
+    func aBandHeaderTitleSharesItsRowsLeadingColumn(_ look: SectionsLookVariant) throws {
+        let item = LayoutItem(id: LayoutItemID("itm_title_column"), ref: .builtIn(.home))
+        let section = LayoutSection(id: LayoutSectionID("sec_title_column"), title: "Band", region: .top, items: [item])
+        var metrics = SidebarRegionMetrics.standard
+        metrics.trailingTrim = SidebarStyle.rowTrailingTrim
+        let layout = SidebarRegionLayout.make(sections: [section], width: 260, look: look, collapsed: [], metrics: metrics)
+        let headerRow = try #require(layout.rows.first { if case .header = $0.kind { true } else { false } }, "\(look): no header row")
+        let itemRow = try #require(layout.rows.first { if case .item = $0.kind { true } else { false } }, "\(look): no item row")
+        let header = SidebarSectionHeaderView(frame: headerRow.frame)
+        header.configure(title: "Band", collapsed: false)
+        header.trailingTrim = SidebarRegionLayout.itemTrailingTrim(section, look: look, metrics: metrics)
+        header.contentLeadingInset = SidebarRegionView.headerContentLeadingInset(section, look: look, metrics: metrics)
+        header.layout()
+        let label = try #require(header.subviews.compactMap { $0 as? ChromeLabel }.first)
+        let headerInk = headerRow.frame.minX + label.alignmentRect(forFrame: label.frame).minX
+        let expectedLead = itemRow.frame.minX + SidebarStyle.columns(rowWidth: itemRow.frame.width - SidebarStyle.horizontalInset,
+                                                                       leadingOffset: SidebarStyle.horizontalInset).lead
+        #expect(abs(headerInk - expectedLead) <= Self.tolerance,
+                "\(look): header title starts at \(headerInk), row lead at \(expectedLead)")
+    }
 }
