@@ -260,7 +260,7 @@ fn serve_remote_connection(
         peer,
         gate,
         native_vm_kind,
-        cloud_token: matches!(check, Some(cmux_link::stamp::StampCheck::LinkToken)),
+        cloud_token: matches!(check, Some(cmux_link::stamp::StampCheck::LinkToken { .. })),
     };
     serve_line_connection(
         mux,
