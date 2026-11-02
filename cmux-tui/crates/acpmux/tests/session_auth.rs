@@ -37,6 +37,7 @@ fn hub(root: &Path) -> Arc<Hub> {
     let defaulted = root.join("claude-defaulted");
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
+            "claude": {"kind": "claude-stdio", "argv": ["claude"], "env": {"CLAUDE_CONFIG_DIR": root.join("canonical")}},
             "fake": {"argv": ["python3", FAKE], "family": "claude"},
             // A harness whose own check passes only in the env its preset `checked-two` or the
             // chat's own env sets.
@@ -70,6 +71,38 @@ fn hub(root: &Path) -> Arc<Hub> {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
+}
+
+/// Saving a key for an alternate-account chat changes that account only. The old failed
+/// turn remains history, but cannot prevent the first prompt using the replacement credential.
+#[tokio::test]
+async fn agent_login_uses_the_chats_account_and_invalidates_only_its_old_evidence() {
+    let root = scratch("login-account");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let other = c.new_session(None).await;
+    let id = c.new_session(Some("two")).await;
+    for session in [&id, &other] {
+        c.prompt(session, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    }
+    let before = hub.resolve(&id).unwrap().meta().last_turn;
+    // Merely refreshing the same failed account must not clear its failure.
+    let unchanged = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(state(&unchanged), ("signedOut", "turn"));
+    let saved = c.call(method::MUX_AGENT_LOGIN_API_KEY,
+        json!({"agent": "claude", "sessionId": id, "key": "sk-ant-test-replacement"})).await;
+    assert!(saved.get("error").is_none(), "{saved}");
+    assert!(root.join("claude-two/settings.json").is_file(), "the chat's account receives the key");
+    assert!(!root.join("canonical/settings.json").exists(), "the default account is untouched");
+    assert_eq!(hub.resolve(&id).unwrap().meta().last_turn, before, "history is preserved");
+    let changed = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(changed["state"], "unknown", "saving a key permits retry, not proof it works: {changed}");
+    let untouched = c.auth(json!({"sessionId": other, "refresh": true})).await;
+    assert_eq!(state(&untouched), ("signedOut", "turn"), "{untouched}");
+    let ok = c.prompt(&id, "hello").await;
+    assert!(ok.get("error").is_none(), "{ok}");
+    let after = c.auth(json!({"sessionId": id})).await;
+    assert_eq!(state(&after), ("ready", "turn"), "{after}");
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
