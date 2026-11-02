@@ -49,7 +49,7 @@ final class HostPressureIndicatorView: NSView {
     /// While in a window: its node's flips, its close and the Debug forced level.
     private var windowWatch: VisibilitySubscription?
     private var closeWatch: EventSubscription?
-    private var forceWatch: ServiceObservation<HostPressureForce>?
+    private var forceWatch: ServiceObservation<(HostPressureForce, Bool?)>?
     /// What the glyph and the banner show, while it samples.
     private typealias LevelFacts = (level: HostPressureLevel, verdict: HostBudgetVerdict?, style: HostPressureIndicatorStyle,
                                     banner: Bool, spell: Int)
@@ -122,13 +122,14 @@ final class HostPressureIndicatorView: NSView {
         applyTint()
     }
 
-    /// The gate's inputs now: the feature and whether the window can be seen (its node is visible). A forced level
+    /// The gate's inputs now: the feature (with the Debug toggle `hostPressure.enabled` as its live local override, which
+    /// the palette's Show / Hide Host Pressure Warning set) and whether the window can be seen (its node is visible). A forced level
     /// (Debug Settings only, for captures) counts as seen while the indicator is in a window: capture minis run
     /// windows the occlusion state calls hidden. The 15 s read then runs while the level stays forced; Off restores
     /// the window gate, and leaving the window still stops it.
     var sampling: HostPressureSampling {
         let forced = HostPressureTunables.force.value(in: store) != .off && window != nil
-        return HostPressureSampling(enabled: services.features.isEnabled(.hostPressure),
+        return HostPressureSampling(enabled: services.features.isEnabled(.hostPressure, localOverride: HostPressureTunables.enabled.override(in: store)),
                                     windowVisible: forced || window.map { nodeOf($0).isVisible } == true)
     }
 
@@ -139,7 +140,7 @@ final class HostPressureIndicatorView: NSView {
 
     /// While in a window: the window's node (occlusion, minimizing, Hide cmux and sleeping displays already reach it
     /// through `WindowVisibilitySource` and `AppVisibilitySource`: no notice of its own), the window's close and the
-    /// Debug forced level. A window change, willClose and the view's release end them.
+    /// Debug toggle and forced level. A window change, willClose and the view's release end them.
     private func observeWindow() {
         stopWatching()
         guard let window else { return }
@@ -149,9 +150,9 @@ final class HostPressureIndicatorView: NSView {
             self?.stopWatching()
         }
         let store = store
-        // A service observation: the forced level starts or stops the app's monitor as well as show the glyph.
+        // A service observation: the toggle and the forced level start or stop the app's monitor as well as show the glyph.
         forceWatch = ServiceObservation(.visible, owner: "HostPressureIndicator.force", on: mainWork) {
-            HostPressureTunables.force.value(in: store)
+            (HostPressureTunables.force.value(in: store), HostPressureTunables.enabled.override(in: store))
         } apply: { [weak self] _ in
             self?.reconcile()
         }
