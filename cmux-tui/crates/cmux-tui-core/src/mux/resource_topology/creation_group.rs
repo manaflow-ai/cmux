@@ -111,17 +111,16 @@ impl CreationGroups {
     /// next group, which waits for the open one's commit.
     pub(super) fn join(&self, groupable: bool, keys: &[&str]) -> GroupSeat<'_> {
         let mut state = self.state.lock().recover_poison();
-        let open = state.open.filter(|id| {
-            groupable
-                && state.groups.get(id).is_some_and(|group| {
-                    group.members < MAX_GROUP_MEMBERS
-                        && keys.iter().all(|key| !group.keys.contains(*key))
-                })
-        });
+        let open_id = state.open.filter(|_| groupable);
+        let open = open_id
+            .and_then(|id| state.groups.get_mut(&id).map(|group| (id, group)))
+            .filter(|(_, group)| {
+                group.members < MAX_GROUP_MEMBERS
+                    && keys.iter().all(|key| !group.keys.contains(*key))
+            });
         let keys = keys.iter().map(|key| (*key).to_owned());
         let (group, index) = match open {
-            Some(id) => {
-                let group = state.groups.get_mut(&id).expect("the open group exists");
+            Some((id, group)) => {
                 group.members += 1;
                 group.waiting += 1;
                 group.keys.extend(keys);

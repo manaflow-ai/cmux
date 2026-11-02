@@ -17,14 +17,21 @@ impl Mux {
     /// Runs `hook` once, in the next creation, right before its effect.
     #[cfg(test)]
     pub(crate) fn set_creation_before_effect_hook_for_test(&self, hook: Box<dyn FnOnce() + Send>) {
-        *self.creation_burst_seams.before_effect.lock().unwrap() = Some(hook);
+        *self.creation_burst_seams.before_effect.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(hook);
     }
 
     /// The hook of [`Self::set_creation_before_effect_hook_for_test`];
     /// nothing outside tests.
     pub(crate) fn run_creation_before_effect_hook(&self) {
         #[cfg(test)]
-        if let Some(hook) = self.creation_burst_seams.before_effect.lock().unwrap().take() {
+        if let Some(hook) = self
+            .creation_burst_seams
+            .before_effect
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
             hook();
         }
     }

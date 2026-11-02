@@ -32,8 +32,8 @@ impl Mux {
         views: &[CreatedViewCommit<'_>],
     ) -> anyhow::Result<Vec<ResourcePatchCommit>> {
         let (first, rest) = views.split_first().context("a group commit has no created view")?;
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         crate::debug_spans::mark("projection.locked");
         let results = views.iter().map(|view| view.result).collect::<Vec<_>>();
         let mut projection = self.created_views_projection_locked(
@@ -55,7 +55,12 @@ impl Mux {
             rest_results.push(result);
         }
         #[cfg(test)]
-        if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
+        if let Some(hook) = self
+            .resource_projection_before_commit
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+        {
             hook();
         }
         let mut intents = Vec::with_capacity(views.len());
