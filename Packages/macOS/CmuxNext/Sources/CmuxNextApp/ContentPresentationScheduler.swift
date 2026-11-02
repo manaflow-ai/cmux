@@ -6,6 +6,8 @@ import CmuxNextWakeups
 protocol PresentablePane: AnyObject {
     /// Showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool { get }
+    /// The pane has its workspace's focus: the person types into it, so its surface comes first (REOPEN-F4).
+    var isFocusedInWorkspace: Bool { get }
     func showSelected()
 }
 
@@ -153,7 +155,9 @@ final class ContentPresentationScheduler {
     /// order they were queued: content already alive at once, a new surface while ``mayCreate(byPerson:)``.
     /// A pane the frame's creation holds waits for the lane's next drain, on the next frame.
     private func drain(persons: Bool) {
-        let queued = order
+        // The focused pane first; the others keep their order (REOPEN-F4).
+        let focused = order.filter { pending[$0]?.pane.isFocusedInWorkspace == true }
+        let queued = focused + order.filter { !focused.contains($0) }
         order.removeAll(keepingCapacity: true)
         var kept: [ObjectIdentifier] = []
         var held = false

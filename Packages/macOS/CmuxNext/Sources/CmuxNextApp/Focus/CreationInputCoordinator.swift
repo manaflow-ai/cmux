@@ -257,6 +257,12 @@ final class CreationInputCoordinator {
         let (controller, kind) = router.focus(for: window)
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
+        // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown cold): the key
+        // waits for it, at most `holdLimit` (REOPEN-F4, port of #31707).
+        if buffers[shell.windowNumber]?.awaitedTab == nil, buffers[shell.windowNumber].map({ !$0.holdsCreation }) ?? true, kind == .content,
+           let controller, ActionRunScope.viewChangeAllowed(), let tab = Self.awaitedSurface(controller) {
+            buffer(in: shell).awaitedTab = tab
+        }
         guard let buffer = buffers[shell.windowNumber] else {
             droppedLastKey = kind == .content && keepsFromWindow(event, in: shell)
             return droppedLastKey
@@ -274,7 +280,11 @@ final class CreationInputCoordinator {
         }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
-        guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
+        // A surface hold keeps a chord no app shortcut takes (Ctrl-C, Ctrl-L), also as its first key.
+        let terminalChord = !closes && buffer.awaitedTab != nil && KeyRouter.isChord(event.modifierFlags) && controller.map { controller in
+            router.resolve(event, context: router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: shell, controller: controller))) == nil
+        } == true
+        guard kind == .content, controller != nil, terminalChord || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
             flush(in: shell, force: true, end: .focusLeft)
             guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
             next.capture(event)
@@ -437,6 +447,8 @@ final class CreationInputCoordinator {
             // A new workspace's keys wait for the window to show it (its terminal then has the keyboard, below).
             if let workspace = buffer.awaitedWorkspace, workspace != shown { return }
             guard Self.responderTakesKeys(controller, window: window) else { return }
+            // Its focused terminal's surface is still to come (the presentation shows it on a later frame).
+            if let awaited = buffer.awaitedTab, Self.awaitedSurface(controller) == awaited { return }
         }
         buffers[window.windowNumber] = nil
         // A forced end (its limit, focus left the content) drops the keys of a new workspace the window does not show.
@@ -462,6 +474,21 @@ final class CreationInputCoordinator {
 }
 
 extension CreationInputCoordinator {
+    /// The focused terminal's tab when its surface is not shown in its pane yet: the focus names a live terminal tab of
+    /// the shown workspace, and its pane has no view yet or shows something else. A key typed now would reach no view.
+    static func awaitedSurface(_ controller: WindowController) -> String? {
+        let state = controller.focus.currentState()
+        guard case .terminal(let pane, let tab) = state.resolved, let content = controller.content, content.workspace.id == state.topology.workspace else { return nil }
+        if let shown = content.paneController(key: pane) {
+            // The common case first (every key-down asks): the terminal shows.
+            if shown.currentTabKey == tab, case .terminal? = shown.currentContent { return nil }
+            guard shown.stripModel.selectedID?.rawValue == tab, shown.showsLiveTerminal else { return nil }
+        } else if !state.topology.panes.contains(where: { $0.id == pane }) {
+            return nil
+        }
+        return tab
+    }
+
     /// False while focus names a terminal whose view does not have the keyboard and the window's
     /// first responder is another terminal or the window itself (a remounted view), or names the
     /// pane's selected terminal before its surface is shown: a key now would land in the wrong

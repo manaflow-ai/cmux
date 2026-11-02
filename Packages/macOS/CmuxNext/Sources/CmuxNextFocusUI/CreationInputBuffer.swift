@@ -31,6 +31,10 @@ public final class CreationInputBuffer {
 
     public init(began: ContinuousClock.Instant) { self.began = began }
 
+    /// The focused terminal tab this hold waits to show (a reopened window, a workspace shown cold): its keys run again
+    /// once that terminal has the keyboard (REOPEN-F4, port of #31707). Nil for a creation's hold.
+    public var awaitedTab: String?
+
     public var isResolved: Bool { pending.isEmpty }
     /// A creation opened in this hold: only its reply (or the request timeout) ends it.
     public var holdsCreation: Bool { nextID > 0 }

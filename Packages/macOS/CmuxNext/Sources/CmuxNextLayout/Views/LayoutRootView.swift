@@ -610,7 +610,13 @@ public final class LayoutRootView: NSView {
     func updateVisibility() {
         guard let changes = presence.pass(visibilityScreen) else { return }
         model.reportVisiblePanes(presence.visible, keepAlive: presence.keepAlive)
-        for (pane, now) in changes { context.provider?.panePresenceDidChange(pane, presence: now) }
+        // Losses first (`pass`); inside one kind of change the focused pane, then layout order: the app makes one new
+        // surface per frame in this order, and the pane the person types into must not wait (REOPEN-F4, port of #31707).
+        let focused = model.focusedPane
+        let order = Dictionary((model.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        func place(_ pane: PaneID) -> (Int, Int, String) { (pane == focused ? 0 : 1, order[pane] ?? .max, pane.rawValue) }
+        let ordered = changes.sorted { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }
+        for (pane, now) in ordered { context.provider?.panePresenceDidChange(pane, presence: now) }
     }
 
     // MARK: Layout and window
