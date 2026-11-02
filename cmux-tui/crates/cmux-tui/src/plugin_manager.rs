@@ -92,12 +92,18 @@ pub(crate) fn start_auto_update() -> Option<JoinHandle<()>> {
 
 fn auto_update_installed_plugins() -> anyhow::Result<()> {
     let root = install_root(PluginKind::Sidebar)?;
-    if !root.is_dir() || !auto_update_due(&root, unix_seconds()) {
+    if !root.is_dir() {
         return Ok(());
     }
-    // Record the attempt before doing network work. A broken remote must not
-    // turn every daemon launch into another potentially slow check.
-    write_auto_update_marker(&root, unix_seconds())?;
+    {
+        let _marker_lock = PluginUpdateLock::acquire(&root)?;
+        if !auto_update_due(&root, unix_seconds()) {
+            return Ok(());
+        }
+        // Record the attempt before doing network work. A broken remote must
+        // not turn every daemon launch into another potentially slow check.
+        write_auto_update_marker(&root, unix_seconds())?;
+    }
 
     for kind in [PluginKind::Sidebar, PluginKind::Agent] {
         let plugins = match installed_plugins(kind) {
@@ -430,6 +436,7 @@ fn install_command(
         .map_err(|error| ManagerError::validation(Some("git_url"), error.to_string()))?;
     let root = install_root(kind)?;
     fs::create_dir_all(&root)?;
+    let _update_lock = PluginUpdateLock::acquire(&root).map_err(ManagerError::Failure)?;
     let temp_dir = root.join(format!(".install-{}-{}", std::process::id(), now_nanos()));
     // Keep the user-supplied source after `--` so a value beginning with `-`
     // cannot become a git option. The destination remains a separate final
@@ -811,6 +818,11 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
             continue;
         }
         let dir = entry.path();
+        if kind == PluginKind::Sidebar
+            && dir.file_name().and_then(|name| name.to_str()) == Some("agent")
+        {
+            continue;
+        }
         if dir.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with('.'))
         {
             continue;
