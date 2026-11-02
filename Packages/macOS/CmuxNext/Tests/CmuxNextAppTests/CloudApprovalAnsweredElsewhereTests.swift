@@ -31,7 +31,8 @@ import Testing
 
     /// The sheet waits for an answer that only the test (as the person) or a cancellation gives.
     private func flow(_ backend: Backend, watch: Bool = true) -> CloudMachineCreateFlow {
-        CloudMachineCreateFlow(
+        let yield: @MainActor @Sendable (Int) async throws -> Void = { _ in await Task.yield() }
+        return CloudMachineCreateFlow(
             run: { _, _, _, _ in try await MainActor.run { try backend.call() } },
             confirm: { _ in
                 await withTaskCancellationHandler {
@@ -50,7 +51,7 @@ import Testing
                 throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: "state")
             },
             pause: { _ in },
-            watchPause: watch ? { _ in await Task.yield() } : nil)
+            watchPause: watch ? yield : nil)
     }
 
     @Test func aHoldAnsweredElsewhereClosesTheSheetAndTheCreateGoesOn() async throws {
