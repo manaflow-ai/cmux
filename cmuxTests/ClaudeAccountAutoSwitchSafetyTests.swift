@@ -304,11 +304,10 @@ struct ClaudeAccountAutoSwitchForegroundCheckTests {
         paneTTY: Int64?? = .none,
         facts: ClaudeAccountAutoSwitchForegroundCheck.ProcessFacts?
     ) -> Bool {
-        ClaudeAccountAutoSwitchForegroundCheck.claudeOwnsTerminal(
+        ClaudeAccountAutoSwitchForegroundCheck(facts: { _ in facts }).claudeOwnsTerminal(
             registered: registered ?? [claude],
             startedAfter: switchStartedAt,
-            paneTTYDevice: paneTTY ?? self.paneTTY,
-            facts: { _ in facts }
+            paneTTYDevice: paneTTY ?? self.paneTTY
         )
     }
 

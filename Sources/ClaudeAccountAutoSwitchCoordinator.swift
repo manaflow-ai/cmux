@@ -24,6 +24,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
     private let homeDirectory: String
     private let policy: ClaudeAccountAutoSwitchPolicy
     private let usageLimitReset = ClaudeUsageLimitReset()
+    private let foregroundCheck: ClaudeAccountAutoSwitchForegroundCheck
     private let exhaustionStore: ClaudeAccountExhaustionStore
     private var ledger = ClaudeAccountAutoSwitchLedger()
     /// Panes whose report is being handled. A report arriving meanwhile is dropped: the pane is
@@ -54,8 +55,15 @@ final class ClaudeAccountAutoSwitchCoordinator {
     ///     exhaustion file.
     ///   - exhaustionStore: Where exhausted accounts are recorded; defaults to the file the CLI
     ///     reads (`~/.cmuxterm/claude-account-exhaustion.json`).
-    init(homeDirectory: String = NSHomeDirectory(), exhaustionStore: ClaudeAccountExhaustionStore? = nil) {
+    ///   - foregroundCheck: Whether the resumed Claude owns its terminal before `continue` is
+    ///     typed; defaults to reading live processes.
+    init(
+        homeDirectory: String = NSHomeDirectory(),
+        exhaustionStore: ClaudeAccountExhaustionStore? = nil,
+        foregroundCheck: ClaudeAccountAutoSwitchForegroundCheck = ClaudeAccountAutoSwitchForegroundCheck()
+    ) {
         self.homeDirectory = homeDirectory
+        self.foregroundCheck = foregroundCheck
         self.policy = ClaudeAccountAutoSwitchPolicy(homeDirectory: homeDirectory)
         self.exhaustionStore = exhaustionStore ?? ClaudeAccountExhaustionStore(
             fileURL: ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: homeDirectory)
@@ -409,11 +417,10 @@ final class ClaudeAccountAutoSwitchCoordinator {
                 return ClaudeAccountAutoSwitchContinueGate.Screen(frame: frame)
             },
             claudeInForeground: {
-                ClaudeAccountAutoSwitchForegroundCheck.claudeOwnsTerminal(
+                self.foregroundCheck.claudeOwnsTerminal(
                     registered: workspace.claudeAgentProcesses(panelId: panelId),
                     startedAfter: switchStartedAt,
-                    paneTTYDevice: terminal.surface.controllingTTYDeviceIdentifier,
-                    facts: ClaudeAccountAutoSwitchForegroundCheck.liveFacts(pid:)
+                    paneTTYDevice: terminal.surface.controllingTTYDeviceIdentifier
                 )
             }
         )

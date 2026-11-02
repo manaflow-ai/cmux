@@ -9,7 +9,10 @@ import Foundation
 /// and a shell prompt then reads as Claude's empty prompt. So the typing needs process evidence:
 /// a Claude process the pane's hooks registered after the switch started, still the same process
 /// generation, on the pane's terminal, and in that terminal's foreground process group.
-struct ClaudeAccountAutoSwitchForegroundCheck {
+///
+/// Built with the reader for those process facts: ``init()`` reads the kernel, tests pass their
+/// own.
+struct ClaudeAccountAutoSwitchForegroundCheck: Sendable {
     /// What the kernel reports about one process.
     struct ProcessFacts: Equatable, Sendable {
         /// The process's current generation.
@@ -22,6 +25,19 @@ struct ClaudeAccountAutoSwitchForegroundCheck {
         let terminalForegroundProcessGroup: pid_t
     }
 
+    /// Reads a pid's facts, `nil` once it is gone.
+    private let facts: @Sendable (pid_t) -> ProcessFacts?
+
+    /// A check that reads live processes from the kernel.
+    init() {
+        self.init(facts: { Self.liveFacts(pid: $0) })
+    }
+
+    /// - Parameter facts: Reads a pid's facts, `nil` once it is gone.
+    init(facts: @escaping @Sendable (pid_t) -> ProcessFacts?) {
+        self.facts = facts
+    }
+
     /// Whether one of `registered` started at or after `startedAfter`, is still that exact
     /// process, runs on `paneTTYDevice`, and is in that terminal's foreground process group.
     /// An unknown pane terminal fails the check.
@@ -30,12 +46,10 @@ struct ClaudeAccountAutoSwitchForegroundCheck {
     ///   - registered: The Claude processes recorded for the pane.
     ///   - startedAfter: When the switch started; an older process is the replaced Claude.
     ///   - paneTTYDevice: The pane terminal's PTY device.
-    ///   - facts: Reads a pid's facts, `nil` once it is gone.
-    static func claudeOwnsTerminal(
+    func claudeOwnsTerminal(
         registered: [AgentPIDProcessIdentity],
         startedAfter: Date,
-        paneTTYDevice: Int64?,
-        facts: (pid_t) -> ProcessFacts?
+        paneTTYDevice: Int64?
     ) -> Bool {
         guard let paneTTYDevice else { return false }
         let since = startedAfter.timeIntervalSince1970
@@ -50,7 +64,7 @@ struct ClaudeAccountAutoSwitchForegroundCheck {
     }
 
     /// Reads a live process's facts from the kernel.
-    nonisolated static func liveFacts(pid: pid_t) -> ProcessFacts? {
+    private nonisolated static func liveFacts(pid: pid_t) -> ProcessFacts? {
         guard pid > 0, let identity = AgentPIDProcessIdentity(pid: pid) else { return nil }
         var info = proc_bsdinfo()
         let expectedSize = Int32(MemoryLayout<proc_bsdinfo>.stride)
