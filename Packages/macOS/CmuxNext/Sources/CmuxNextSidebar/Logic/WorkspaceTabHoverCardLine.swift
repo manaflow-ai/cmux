@@ -109,16 +109,23 @@ struct WorkspaceTabHoverCardLine: Equatable {
         return host + path
     }
 
-    /// Where an agent chat or terminal tab runs; nil for pages and New Tab pages, which run here.
+    /// Where an agent chat or terminal tab runs; nil for pages and New Tab pages, which run here. A Cloud
+    /// or remote workspace's card names its machine once, in its header, so a tab there names a machine
+    /// only when it runs somewhere else (Leo 2026-11-02: "the repeated cloud cloud cloud").
     static func machineText(_ tab: SidebarTab, workspace: SidebarMachine?, namesLocal: Bool) -> String? {
         switch tab.kind {
         case .terminal, .remoteTerminal, .agentChat, .conversation: break
         case .browser, .newTab, .other: return nil
         }
+        if let workspace, workspace.kind != .local {
+            guard let own = nonEmpty(tab.machine) else { return nil }
+            let header = machineWord(workspace)
+            let same = [header, workspace.name].contains { $0.caseInsensitiveCompare(own) == .orderedSame }
+            return same ? nil : own
+        }
         if let own = nonEmpty(tab.machine) { return own }
-        guard let workspace else { return nil }
-        if workspace.kind == .local { return namesLocal ? Strings.hoverCardThisMac : nil }
-        return machineWord(workspace)
+        guard workspace != nil else { return nil }
+        return namesLocal ? Strings.hoverCardThisMac : nil
     }
 
     /// A machine as the card names it: "This Mac", "Cloud", or its name (the card's host row's words).

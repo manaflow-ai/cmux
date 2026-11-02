@@ -23,9 +23,24 @@ import Testing
         let chat = SidebarTab(id: TabID("chat"), title: "Agent", kind: .agentChat, folder: "~/src/cmux", state: .working)
         let shell = SidebarTab(id: TabID("shell"), title: "zsh", kind: .terminal, folder: "~/src")
         let page = SidebarTab(id: TabID("page"), title: "Pull request", kind: .browser, host: "github.com")
-        #expect(line(chat, machine: machine).contains(expected), "\(line(chat, machine: machine))")
-        #expect(line(shell, machine: machine).contains(expected), "\(line(shell, machine: machine))")
+        // A Cloud or remote card names its machine once, in its header, so its rows do not repeat it (Leo
+        // 2026-11-02: "the repeated cloud cloud cloud"); this Mac's rows still say "This Mac".
+        let named = kind == .local
+        #expect(line(chat, machine: machine).contains(expected) == named, "\(line(chat, machine: machine))")
+        #expect(line(shell, machine: machine).contains(expected) == named, "\(line(shell, machine: machine))")
         #expect(!line(page, machine: machine).contains(expected), "a page runs in this app: \(line(page, machine: machine))")
+    }
+
+    /// A tab on a remote workspace names a machine only when it runs somewhere other than the card's header says.
+    @Test func aRemoteWorkspacesTabNamesOnlyAnotherMachine() {
+        let cloud = SidebarMachine(id: MachineID("box"), name: "cmux-vm-1", kind: .cloud)
+        var shell = SidebarTab(id: TabID("remote"), title: "zsh", kind: .remoteTerminal, folder: "~/src")
+        shell.machine = "cmux-vm-1"
+        #expect(line(shell, machine: cloud) == "~/src", "the header already names this machine")
+        shell.machine = "Cloud"
+        #expect(line(shell, machine: cloud) == "~/src", "the header already says Cloud")
+        shell.machine = "lab-mini"
+        #expect(line(shell, machine: cloud) == "~/src · lab-mini")
     }
 
     @Test func aRemoteTerminalNamesItsOwnSessionOverTheWorkspacesMachine() {
@@ -40,7 +55,7 @@ import Testing
         let shell = SidebarTab(id: TabID("shell"), title: "zsh", kind: .terminal, folder: "~/src")
         #expect(line(shell, machine: local, style: style) == "~/src")
         let ssh = SidebarMachine(id: MachineID("box"), name: "build-box", kind: .ssh)
-        #expect(line(shell, machine: ssh, style: style) == "~/src · build-box")
+        #expect(line(shell, machine: ssh, style: style) == "~/src", "the card's header names build-box")
     }
 
     @Test func agentRowsShowModelStateMachineAndTime() {

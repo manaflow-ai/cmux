@@ -85,7 +85,21 @@ public struct WorkspaceHoverCardGallery {
             if expanded { card.detailsToggle.performClick(nil) }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
-        return tabCards + tabRowCards(now: now) + workCards(now: now) + richCards
+        return tabCards + tabRowCards(now: now) + [cloudCard(now: now)] + workCards(now: now) + richCards
+    }
+
+    /// A Cloud workspace with one terminal (Leo 2026-11-02, on a card that said Cloud four times: "isn't this
+    /// extremely stupid looking?" / "the tiny cloud icon the repeated cloud cloud cloud"): the header names the
+    /// machine once beside the title, its dot beside it, and the terminal's row does not repeat it.
+    @MainActor static func cloudCard(now: Date) -> (name: String, view: NSView) {
+        // A made-up machine name: the capture's privacy check refuses a real host's.
+        let cloud = SidebarMachine(id: MachineID("cloud-a"), name: "cloud-a", kind: .cloud, status: .connected)
+        var workspace = SidebarWorkspace(id: WorkspaceID("cloud-ws"), machineID: cloud.id, title: "workspace-2")
+        workspace.tabs = [SidebarTab(id: TabID("terminal"), title: "Terminal", kind: .terminal)]
+        let card = WorkspaceHoverCardView()
+        card.configure(.make(workspace, machine: cloud, now: now), now: now)
+        card.configureTabs(title: workspace.title, tabs: workspace.tabs, now: now, machine: cloud)
+        return ("Cloud workspace · machine named once · chosen", HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
     }
 
     /// The tab rows' line in each style (Leo 2026-11-01: "local or nonlocal is probably useful to see in the
