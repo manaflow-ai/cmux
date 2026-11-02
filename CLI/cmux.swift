@@ -19822,7 +19822,8 @@ struct CMUXCLI {
                 guard let outPathOpt, hasText(outPathOpt) else {
                     throw CLIError(message: String(
                         localized: "cli.browser.screenshot.error.outPathEmpty",
-                        defaultValue: "browser screenshot: --out needs a file path"
+                        defaultValue: "browser screenshot: --out needs a file path",
+                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                     ))
                 }
                 var isDirectory: ObjCBool = false
@@ -19837,7 +19838,8 @@ struct CMUXCLI {
                     throw CLIError(message: String(
                         format: String(
                             localized: "cli.browser.screenshot.error.outPathDirectory",
-                            defaultValue: "browser screenshot: --out needs a file path, not the directory '%@'"
+                            defaultValue: "browser screenshot: --out needs a file path, not the directory '%@'",
+                            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                         ),
                         outPathOpt
                     ))
