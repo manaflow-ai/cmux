@@ -470,8 +470,14 @@ fn flush_tail(
             && state.tail_end == Some(state.pending_start);
         let Some(base) = state.snapshot_end.filter(|_| continues) else {
             // The bytes do not continue the stored snapshot: the next pass
-            // writes one (it covers them).
+            // writes one (it covers them). Bounded while snapshot writes
+            // fail: the snapshot holds the screen, not these bytes.
             state.force_snapshot = true;
+            let excess = state.pending.len().saturating_sub(super::TAIL_MAX_UNWRITTEN_BYTES);
+            if excess > 0 {
+                state.pending.drain(..excess);
+                state.pending_start += excess as u64;
+            }
             drop(state);
             store.mark_log_dirty(log);
             return;
