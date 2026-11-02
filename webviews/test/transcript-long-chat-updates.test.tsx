@@ -126,29 +126,30 @@ function placement() {
   };
   for (let index = 1; index < rows.length; index += 1)
     if (rows[index]!.index === rows[index - 1]!.index + 1)
-      expect({ pair: [rows[index - 1]!.id, rows[index]!.id], oneLine: oneLine(rows[index - 1]!.id) && oneLine(rows[index]!.id) }).toEqual({
+      expect({
+        pair: [rows[index - 1]!.id, rows[index]!.id],
+        oneLine: oneLine(rows[index - 1]!.id) && oneLine(rows[index]!.id),
+      }).toEqual({
         pair: [rows[index - 1]!.id, rows[index]!.id],
         oneLine: false,
       });
-  const pairs = rows
-    .slice(1)
-    .flatMap((next, index) =>
-      next.index === rows[index]!.index + 1
-        ? [
-            {
-              id: next.id,
-              off:
-                Math.round(
-                  (next.top -
-                    rows[index]!.top -
-                    drawnHeight(rows[index]!.id) -
-                    transcriptGap(rowMark(shownById.get(rows[index]!.id)!), rowMark(shownById.get(next.id)!))) *
-                    100,
-                ) / 100,
-            },
-          ]
-        : [],
-    );
+  const pairs = rows.slice(1).flatMap((next, index) =>
+    next.index === rows[index]!.index + 1
+      ? [
+          {
+            id: next.id,
+            off:
+              Math.round(
+                (next.top -
+                  rows[index]!.top -
+                  drawnHeight(rows[index]!.id) -
+                  transcriptGap(rowMark(shownById.get(rows[index]!.id)!), rowMark(shownById.get(next.id)!))) *
+                  100,
+              ) / 100,
+          },
+        ]
+      : [],
+  );
   // The view's rows are always mounted together, so an empty list means nothing was compared.
   expect(pairs.length).toBeGreaterThan(0);
   return pairs;
