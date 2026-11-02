@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextAgentLanes
-import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
