@@ -1160,17 +1160,50 @@ def check_recorder(case, windows):
 # ---------------------------------------------------------------------------------------------------------------
 # Judge, report, Markdown, PNGs
 # ---------------------------------------------------------------------------------------------------------------
+def check_model_grid(base):
+    """F. The model's own geometry on the device-pixel grid, from the trace alone (no movie needed): every shown
+    pane rect edge (x, y, x+w, y+h) and every divider edge times the scale must be a whole device pixel. A model
+    edge off the grid is drawn as a blended column/row of pixels: it can never be pixel perfect. One finding per
+    (kind, id, edge) run of samples; `t` is relative to the first trace sample."""
+    base = base_path(base)
+    trace = _read_json(f"{base}.trace.json", {}) or {}
+    meta = _read_json(f"{base}.meta.json", {}) or {}
+    scale = float((meta.get("start") or {}).get("scale") or 2.0)
+    samples = trace.get("samples") or []
+    runs = {}
+    def off(v):
+        d = float(v) * scale
+        return abs(d - round(d)) > 1e-3
+    for i, s in enumerate(samples):
+        rows = [("pane", p[0], p[1:5]) for p in s.get("panes") or [] if isinstance(p, list) and len(p) >= 5 and p[3] > 0 and p[4] > 0]
+        rows += [("divider", d[0], d[1:5]) for d in s.get("dividers") or [] if isinstance(d, list) and len(d) >= 5]
+        for kind, ident, (x, y, w, h) in rows:
+            for edge, v in (("left", x), ("top", y), ("right", x + w), ("bottom", y + h)):
+                if off(v):
+                    runs.setdefault((kind, ident, edge), []).append((i, float(s.get("t", 0.0)) / 1000.0, v))
+    out = []
+    for (kind, ident, edge), hits in sorted(runs.items(), key=lambda kv: kv[1][0][0]):
+        first, last = hits[0], hits[-1]
+        values = sorted({h[2] for h in hits})
+        out.append({"case": base.name, "check": "model edge off the device-pixel grid", "frames": [first[0], last[0]],
+                    "t": [round(first[1], 4), round(last[1], 4)], "severity": "defect", "source": "trace",
+                    "detail": f"{kind} {ident} {edge} edge at {values[:6]} pt = {[round(v * scale, 2) for v in values[:6]]} device px "
+                              f"(scale {scale:g}) in {len(hits)} of {len(samples)} trace samples"})
+    return out
+
+
 def judge(base, movie=True):
     """Judges one recording. Returns the report dict (see the module docstring and the README of the kit)."""
     case = load_case(base)
+    grid = check_model_grid(base)
     if case.n == 0:
         return {"case": case.name, "build": case.build, "frames": 0, "refresh_ms": round(case.period * 1000, 3),
-                "motion": [], "intervals_ms": interval_stats([], case.period), "dropped": 0, "findings": [],
-                "recorder": {"complete": 0}, "notes": ["no complete frames"]}
+                "motion": [], "intervals_ms": interval_stats([], case.period), "dropped": 0, "findings": grid,
+                "recorder": {"complete": 0}, "notes": ["no complete frames: only the trace was judged"]}
     windows = motion_windows(case)
     pacing, intervals, dropped = check_pacing(case, windows)
     tracks = build_tracks(case, windows)
-    findings = list(pacing)
+    findings = list(pacing) + grid
     findings += check_blends(case, windows, tracks)
     findings += check_gaps(case, tracks)
     findings += check_steps(case, tracks)

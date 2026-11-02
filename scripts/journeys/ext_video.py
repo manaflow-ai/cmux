@@ -368,5 +368,44 @@ def step_layout_note(j, step):
     return note
 
 
-STEPS = {"video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
+def step_video_count(j, step):
+    """The running recording's counts now, kept in its meta notes under `as` (which change made frames come)."""
+    counts = _motion(j, "record_read")
+    if getattr(j, "video", None):
+        j.video["notes"][step["as"]] = {"t": D.now(), "counts": counts}
+    return counts
+
+
+def step_sck_probe(j, step):
+    """Builds sck_probe.swift on the mini (once), runs it as an app in the GUI session (`open`), and returns its
+    JSON line: whether ScreenCaptureKit delivers own-window frames on this host, per kind of change."""
+    import subprocess
+    here = os.path.dirname(os.path.abspath(__file__))
+    work = os.path.join(os.path.dirname(here), "sckprobe")
+    exe_dir = os.path.join(work, "SCKProbe.app", "Contents", "MacOS")
+    os.makedirs(exe_dir, exist_ok=True)
+    built = subprocess.run(["xcrun", "swiftc", "-swift-version", "5", "-O", os.path.join(here, "sck_probe.swift"),
+                            "-o", os.path.join(exe_dir, "SCKProbe")], capture_output=True, text=True, timeout=300)
+    if built.returncode:
+        raise D.StepError(f"sck_probe: build failed: {built.stderr[-600:]}")
+    with open(os.path.join(work, "SCKProbe.app", "Contents", "Info.plist"), "w") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key>'
+                '<string>SCKProbe</string><key>CFBundleIdentifier</key><string>ai.manaflow.resize-videos.sckprobe</string>'
+                '<key>CFBundlePackageType</key><string>APPL</string></dict></plist>')
+    subprocess.run(["codesign", "-s", "-", "--force", os.path.join(work, "SCKProbe.app")], capture_output=True, timeout=60)
+    out = os.path.join(work, "probe.out")
+    if os.path.exists(out):
+        os.remove(out)
+    seconds = str(step.get("seconds", 9))
+    subprocess.run(["open", "-W", "--stdout", out, "--stderr", out + ".err", os.path.join(work, "SCKProbe.app"),
+                    "--args", seconds], capture_output=True, timeout=float(seconds) + 60)
+    text = open(out).read() if os.path.exists(out) else ""
+    line = next((l for l in reversed(text.splitlines()) if l.startswith("{")), None)
+    if not line:
+        err = open(out + ".err").read()[-400:] if os.path.exists(out + ".err") else ""
+        raise D.StepError(f"sck_probe: no result: {text[-300:]} {err}")
+    return json.loads(line)
+
+
+STEPS = {"video_count": step_video_count, "sck_probe": step_sck_probe, "video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
          "hid_click": step_hid_click, "hid_key": step_hid_key, "layout_note": step_layout_note}
