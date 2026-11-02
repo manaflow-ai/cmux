@@ -16,6 +16,8 @@ extension ScreenContentView {
         defer { if resizeGesture == .landing { finishResizeGestureIfLanded() } }
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
+            // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
+            context.releaseRetired(of: screenID)
             return false
         }
         var moving = false

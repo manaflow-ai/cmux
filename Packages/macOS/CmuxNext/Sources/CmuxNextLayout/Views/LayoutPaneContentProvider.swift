@@ -151,10 +151,11 @@ final class LayoutViewContext {
     }
 
     /// Hosts of panes a springing close took out of the layout (`ScreenContentView.reconcile`), by the screen that
-    /// showed them: hidden in the close's own turn, torn down when that screen's motion lands (`releaseRetired`).
-    /// The teardown (the host's layers leaving the tree, a terminal's surface going, a page window ordered out) is
-    /// work no frame shows; done in the close's first frame it made that frame's main turn and Core Animation commit
-    /// miss refreshes (RESIZE VIDEOS F1).
+    /// showed them: hidden in the close's own turn (a page window orders out with the hide, `CEFHostView.viewDidHide`),
+    /// torn down when that screen's motion lands (`releaseRetired`). The teardown (the host's layers leaving the
+    /// tree, the content released to the provider: its pane controller and a terminal's surface going) is work no
+    /// frame shows; done in the close's first frame it added to that frame's main turn and Core Animation commit,
+    /// which missed refreshes (RESIZE VIDEOS F1).
     private(set) var retired: [PaneID: (host: PaneHostView, screen: ScreenID)] = [:]
 
     /// Takes `pane`'s host out of the layout without tearing it down: hidden now (no hit, no focus, no AX, its ring
