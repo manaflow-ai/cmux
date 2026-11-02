@@ -1,0 +1,97 @@
+{
+ "id": "video-reply-cost",
+ "priority": "P1",
+ "title": "Recorder cost: main-thread time of trace_stop inline vs with path, record_start and record_stop (debug.frames)",
+ "why": "#31504 must show the main-thread cost of its calls before and after the off-main reply (lead 04:1xZ).",
+ "source": "handoff/resize-videos (harness owner)",
+ "budget_seconds": 200,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window fills the screen",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rvc"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "key",
+   "title": "set-up: a second pane (Cmd-D)",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "type",
+   "text": "while true; do date +%s.%N; sleep 0.005; done",
+   "enter": true
+  },
+  {
+   "do": "reply_cost",
+   "seconds": 5,
+   "runs": 3
+  },
+  {
+   "do": "key",
+   "title": "stop the printing",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo rvc-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "the app still answers",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "rvc-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "rvc-done-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

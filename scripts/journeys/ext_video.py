@@ -568,5 +568,51 @@ def step_hid_inject_check(j, step):
     return out
 
 
-STEPS = {"hid_inject_check": step_hid_inject_check, "action_try": step_action_try, "video_count": step_video_count, "sck_probe": step_sck_probe, "video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
+def _main_cost(j, call, settle=0.6):
+    """The app's own per-frame main-thread busy time (debug.frames raw) around CALL: the max and total over the
+    frames from just before the call to SETTLE s after it. App clock only; Python times nothing."""
+    j.app.rpc("debug.frames", {"action": "start"})
+    time.sleep(0.25)
+    j.app.rpc("debug.frames", {"action": "reset"})
+    call()
+    time.sleep(settle)
+    stats = j.app.rpc("debug.frames", {"action": "stop", "raw": True}) or {}
+    main = [float(x) for x in stats.get("main_ms") or []]
+    return {"main_max_ms": max(main) if main else None, "main_total_ms": round(sum(main), 2), "frames": len(main),
+            "missed": stats.get("missed"), "max_frame_ms": stats.get("max_ms")}
+
+
+def step_reply_cost(j, step):
+    """Main-thread cost of the recorder's calls on one build: trace_stop inline (the old reply) and with `path`
+    (written off the main thread), record_start and record_stop, each after `seconds` of tracing a moving window
+    (a terminal printing), `runs` times. For #31504's before/after numbers (lead 04:1xZ)."""
+    seconds, runs = float(step.get("seconds", 5)), int(step.get("runs", 3))
+    out = {"inline_trace_stop": [], "path_trace_stop": [], "record_start": [], "record_stop": []}
+    vdir = _vdir(j)
+    for n in range(runs):
+        for mode in ("inline", "path"):
+            _motion(j, "trace_start", window=0)
+            time.sleep(seconds)
+            target = vdir / f".cost-{n}-{mode}.json"
+            out[f"{mode}_trace_stop"].append(_main_cost(j, lambda: _motion(j, "trace_stop", **({"path": str(target)} if mode == "path" else {}))))
+            if mode == "path":
+                end = time.monotonic() + 10  # orchestration wait only
+                while time.monotonic() < end and not target.exists():
+                    time.sleep(0.05)
+                out[f"{mode}_trace_stop"][-1]["samples_written"] = len(json.loads(target.read_text()).get("samples") or []) if target.exists() else 0
+        movie = vdir / f".cost-{n}.mov"
+        out["record_start"].append(_main_cost(j, lambda: _motion(j, "record_start", path=str(movie), window=0, seconds=20), settle=1.0))
+        time.sleep(2)
+        out["record_stop"].append(_main_cost(j, lambda: _motion(j, "record_stop")))
+        end = time.monotonic() + 30  # orchestration wait only
+        while time.monotonic() < end and not _motion(j, "record_read").get("written"):
+            time.sleep(0.1)
+    for key, rows in list(out.items()):
+        vals = [r["main_max_ms"] for r in rows if r.get("main_max_ms") is not None]
+        out[key + "_summary"] = {"main_max_ms_each": vals, "worst": max(vals) if vals else None}
+    (vdir / "reply-cost.json").write_text(json.dumps(out, indent=1))
+    return {k: v for k, v in out.items() if k.endswith("_summary")}
+
+
+STEPS = {"reply_cost": step_reply_cost, "hid_inject_check": step_hid_inject_check, "action_try": step_action_try, "video_count": step_video_count, "sck_probe": step_sck_probe, "video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
          "hid_click": step_hid_click, "hid_key": step_hid_key, "layout_note": step_layout_note}

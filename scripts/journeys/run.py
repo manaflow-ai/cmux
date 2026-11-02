@@ -600,7 +600,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
                                  ident=ident), out, ident.get("harness"), harness)
 
 
-VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/(?:[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json)|crash-[A-Za-z0-9_.-]+\.ips\.txt))")
+VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/(?:[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json)|crash-[A-Za-z0-9_.-]+\.ips\.txt|reply-cost\.json))")
 VIDEO_MAX_BYTES = 4 << 30
 
 
