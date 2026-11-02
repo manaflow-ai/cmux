@@ -15,7 +15,10 @@
 //!
 //! `min` and `max` follow Swift's `Swift.min` and `Swift.max` (see
 //! [`swift_min`]), and rectangle edges follow `CGRect`'s standardized
-//! `minX`/`maxX`/`width`, so every result is bit for bit the Swift one.
+//! `minX`/`maxX`/`width`, so every result for finite frames is bit for bit the
+//! Swift one. A NaN offset sorts by `total_cmp` among the snaps, where Swift's
+//! non-total `<` has no defined order.
+//!
 //! The C ABI is `cmux_scroll_*` in cmux-layout-reducer-ffi (src/scroll.rs).
 
 mod adapters;

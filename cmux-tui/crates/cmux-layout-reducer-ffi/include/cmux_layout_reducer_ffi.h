@@ -417,5 +417,6 @@ CmuxScrollEffects cmux_scroll_gesture_ended(CmuxScroll *scroll, CmuxScrollSpring
 CmuxScrollEffects cmux_scroll_wheel(CmuxScroll *scroll, CmuxScrollSpring *spring, int32_t direction, uint8_t animated);
 CmuxScrollEffects cmux_scroll_page(CmuxScroll *scroll, CmuxScrollSpring *spring, double to, uint8_t animated);
 CmuxScrollStatus cmux_scroll_status(const CmuxScroll *scroll);
+uint8_t cmux_scroll_gesture_active(const CmuxScroll *scroll); /* per frame: no focus lookup */
 
 #endif

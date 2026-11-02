@@ -1,8 +1,9 @@
 //! The column scroll reducer's C ABI (`cmux_scroll_*`,
 //! cmux-layout-reducer `scroll`): one handle per scrolling strip (a columns
 //! screen, a column's rows or a scroll area) owns the reducer state. Per
-//! scroll event and per frame: typed structs in, a typed reply out, no JSON
-//! and no allocation in steady state.
+//! scroll event and per frame: typed structs in, a typed reply out, no JSON.
+//! A call on a handle allocates nothing in steady state (the handle reuses the
+//! replaced strip and its snap buffers); a `cmux_scroll_clone` copies them.
 //!
 //! The spring stays in the caller's memory (the view steps it each display
 //! frame through `cmux_motion_step`): every event call reads it from and
@@ -326,7 +327,9 @@ impl Scroll {
             return CmuxScrollEffects::FAILED;
         };
         let focused = focused.map(|name| self.ids.intern(name));
-        let anchor = anchor.and_then(|name| self.ids.lookup(name));
+        // Interned, not looked up: Swift's `anchor ?? focused` never falls back to the focused
+        // column for a named anchor, even one the strip does not hold (a docked column).
+        let anchor = anchor.map(|name| self.ids.intern(name));
         let strip_info = request.strip;
         let mut strip = self.state_mut().take_spare_strip();
         strip.reset(strip_info.viewport_width, strip_info.content_width, strip_info.gap);
@@ -439,18 +442,28 @@ impl Scroll {
         if count <= 64 || count <= 4 * (strip_ids + state.remembered.len() * 2 + 8) {
             return;
         }
+        // A rows strip's column ids are row slots, not interned ids: its rows come from the
+        // adapter. Pane ids are interned in every kind.
+        let columns_are_ids = !matches!(self.inner, Inner::Rows(_));
         let mut live = HashSet::new();
         if let Some(strip) = &state.strip {
-            live.extend(strip.columns.iter().map(|c| c.id));
+            if columns_are_ids {
+                live.extend(strip.columns.iter().map(|c| c.id));
+            }
             live.extend(strip.panes.iter().map(|p| p.id));
         }
         live.extend(state.focused_pane);
-        live.extend(state.focused_column);
         for (column, pane) in &state.remembered {
-            live.extend([*column, *pane]);
+            if columns_are_ids {
+                live.insert(*column);
+            }
+            live.insert(*pane);
         }
-        if let Some(restore) = state.restore {
-            live.extend([restore.column, restore.opened]);
+        if columns_are_ids {
+            live.extend(state.focused_column);
+            if let Some(restore) = state.restore {
+                live.extend([restore.column, restore.opened]);
+            }
         }
         if let Inner::Rows(rows) = &self.inner {
             live.extend(rows.rows());
@@ -703,6 +716,18 @@ pub unsafe extern "C" fn cmux_scroll_page(
     let event = ColumnScrollEvent::Page { to, animated: animated != 0 };
     // SAFETY: the caller's contract.
     unsafe { with(scroll, spring, |scroll, spring| scroll.event(spring, event)) }
+}
+
+/// 1 while a trackpad gesture is live, 0 otherwise or for null: the per-frame
+/// query, without the status's focus lookup.
+///
+/// # Safety
+///
+/// `scroll` is null or a live handle used by one thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_scroll_gesture_active(scroll: *const Scroll) -> u8 {
+    // SAFETY: the caller's contract.
+    unsafe { scroll.as_ref() }.map_or(0, |scroll| u8::from(scroll.state().gesture.is_some()))
 }
 
 /// The handle's gesture, focus and restore state; `ok == 0` for null.
