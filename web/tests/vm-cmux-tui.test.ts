@@ -12,6 +12,7 @@ import {
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
   cmuxTuiServiceInstallCommand,
+  cmuxTuiDaemonSettleScript,
   cmuxTuiPinnedManifestUrl,
   cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
@@ -122,7 +123,9 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("timeout 5s");
     expect(command).toContain("sh -c");
     expect(command).toContain("kill -0");
-    expect(command).toContain("XDG_RUNTIME_DIR=\"/run/user/$(id -u)\"");
+    expect(command).toContain("status_rc=$?");
+    expect(command).toContain('[ "$status_rc" -eq 0 ] || exit 3');
+    expect(command).toContain('XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")"');
     expect(command).toContain("exit 3");
     const lines = command.split("\n");
     expect(lines).toContain(
@@ -134,6 +137,38 @@ describe("cmux-tui install and daemon commands", () => {
     expect(settle).toBeGreaterThan(shutdown);
     expect(enable).toBeGreaterThan(settle);
     expect(command).not.toContain("systemctl --user restart acpmux.service");
+    expect(command).toContain("stop_lock_holder()");
+    expect(command).toContain('"$HOME/.acpmux/daemon.lock"');
+    expect(command).toContain('flock -n "$lock" true');
+    expect(command).toContain('readlink -f "/proc/$lock_pid/exe"');
+    expect(command).toContain('kill -KILL "$lock_pid"');
+  });
+
+  test("fails closed when the daemon status probe times out or errors", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-tui-settle-"));
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    const timeout = join(bin, "timeout");
+    writeFileSync(timeout, "#!/bin/sh\nexit ${TIMEOUT_RC:-124}\n");
+    chmodSync(timeout, 0o755);
+    try {
+      const script = cmuxTuiDaemonSettleScript();
+      for (const timeoutRc of ["124", "7"]) {
+        const result = await runChild("/bin/sh", ["-c", script], {
+          env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TIMEOUT_RC: timeoutRc },
+        });
+        expect(result.status).toBe(3);
+      }
+      mkdirSync(join(home, ".acpmux"));
+      writeFileSync(join(home, ".acpmux", "daemon.lock"), "999999\n");
+      writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' '{\"running\":false}'\n");
+      const stale = await runChild("/bin/sh", ["-c", script], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(stale.status).toBe(0);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("keeps the baked unit byte-identical to acpmux's canonical unit", () => {

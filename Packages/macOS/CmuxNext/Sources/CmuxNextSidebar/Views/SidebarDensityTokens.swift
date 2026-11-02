@@ -34,11 +34,12 @@ enum SidebarDensityTokens {
     static var isComfortable: Bool { density == .comfortable }
     /// `sidebar.textSize`: the list's text, leading glyphs and rows grow together.
     static var textSize: SidebarTextSize { DesignSettings.shared.sidebarSections.textSize }
-    /// The extra height of a comfortable row or header, plus the text size's.
-    private static var extra: CGFloat { (isComfortable ? Metrics.space2 : 0) + textSize.rowStep }
+    /// The extra height of a comfortable row or header, plus the text size's (``SidebarRowTokens``,
+    /// which the sidebar's cards read too).
+    private static var extra: CGFloat { SidebarRowTokens.current.extraHeight }
 
     /// A one-line workspace row, group header or band row.
-    static var rowHeight: CGFloat { Metrics.sidebarRowHeight + extra }
+    static var rowHeight: CGFloat { SidebarRowTokens.current.rowHeight }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
     /// text keeps the same room above and below with one line or more (Leo 2026-10-20). With
     /// `SidebarTunables.evenRowText` off, the app's fixed step instead.
@@ -48,7 +49,7 @@ enum SidebarDensityTokens {
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
     /// Rows inset from the sidebar edge, and their content from the row edge.
-    static var horizontalInset: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }
+    static var horizontalInset: CGFloat { SidebarRowTokens.current.horizontalInset }
     static var iconBox: CGFloat { isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
     /// Compatibility name used by the existing session-tree layout. The tree's base indent is
     /// independent of the sidebar's group nesting grid and remains the original space4.
