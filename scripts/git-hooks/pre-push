@@ -19,7 +19,37 @@
 # 3. Base-merge warning (always, never refuses): scripts/ci/base_merge_warning.py says when the push
 #    merges the base into a branch whose old head still has CI running, which the push cancels.
 # 4. Namespace autofix (opt-in): only when installed with --namespace-fix.
+# A push whose every ref is a delete (`git push origin :refs/heads/x`) sends no commits: nothing above has
+# anything to check, so it passes before any step, the work-tree lookup included (a clone without a work tree,
+# a bare or core.bare one such as a shared clone root, deletes branches too). Any other ref runs every step.
 set -euo pipefail
+
+# Every check reads git's pushed-refs lines; read them once. $1 is the pushed remote (a name, or the URL of a
+# push to a URL): the checks bound the push's own commits by its refs (cmux-next-checks/push_range.py).
+PUSHED_REFS="$(cat)"
+# Each check reads the refs from a file, never `printf | python`: on a Mac short of pipe memory a write into a
+# pipe blocks for good (git_batch.py), and pushes hung in this hook for up to an hour on 2026-10-28.
+REFS_FILE="$(mktemp "${TMPDIR:-/tmp}/cmux-pre-push-refs.XXXXXX")"
+trap 'rm -f "$REFS_FILE"' EXIT
+printf '%s\n' "$PUSHED_REFS" > "$REFS_FILE"
+
+# A delete-only push passes here (header). Each line is `<local ref> <local sha> <remote ref> <remote sha>`;
+# git sends a delete with an all-zero local sha. On 2026-11-01 `git -C <clone root> push origin :refs/heads/x`
+# from a clone without a work tree died below in `git rev-parse --show-toplevel` 738 times.
+PUSHED_REF_COUNT=0
+DELETED_REF_COUNT=0
+while IFS=' ' read -r _ LOCAL_SHA _ _; do
+    if [[ -z "$LOCAL_SHA" ]]; then
+        continue
+    fi
+    PUSHED_REF_COUNT=$((PUSHED_REF_COUNT + 1))
+    if [[ "$LOCAL_SHA" =~ ^0+$ ]]; then
+        DELETED_REF_COUNT=$((DELETED_REF_COUNT + 1))
+    fi
+done < "$REFS_FILE"
+if (( PUSHED_REF_COUNT > 0 && DELETED_REF_COUNT == PUSHED_REF_COUNT )); then
+    exit 0
+fi
 
 HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
 PYTHON_PATH_FILE="$HOOK_DIR/python3-path"
@@ -32,14 +62,6 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-# Every check reads git's pushed-refs lines; read them once. $1 is the pushed remote (a name, or the URL of a
-# push to a URL): the checks bound the push's own commits by its refs (cmux-next-checks/push_range.py).
-PUSHED_REFS="$(cat)"
-# Each check reads the refs from a file, never `printf | python`: on a Mac short of pipe memory a write into a
-# pipe blocks for good (git_batch.py), and pushes hung in this hook for up to an hour on 2026-10-28.
-REFS_FILE="$(mktemp "${TMPDIR:-/tmp}/cmux-pre-push-refs.XXXXXX")"
-trap 'rm -f "$REFS_FILE"' EXIT
-printf '%s\n' "$PUSHED_REFS" > "$REFS_FILE"
 PUSHED_REMOTE="${1:-origin}"
 CHECKS="$HOOK_DIR/cmux-next-checks"
 

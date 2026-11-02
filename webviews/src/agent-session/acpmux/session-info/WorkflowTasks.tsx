@@ -61,6 +61,7 @@ export function WorkflowTasks({
           key={workflow.id}
           workflow={workflow}
           now={now}
+          finishedHeadingShown={running.length > 0 && finished.length > 0}
           onStop={onStop}
           onOpenSubagent={onOpenSubagent}
           onOpenWorkflowAgent={onOpenWorkflowAgent}
@@ -75,6 +76,7 @@ export function WorkflowTasks({
           key={workflow.id}
           workflow={workflow}
           now={now}
+          finishedHeadingShown={running.length > 0 && finished.length > 0}
           onOpenSubagent={onOpenSubagent}
           onOpenWorkflowAgent={onOpenWorkflowAgent}
           agentRowVariant={agentRowVariant}
@@ -100,6 +102,7 @@ const tokensLabel = (t: Translate, tokens: number) =>
 function WorkflowTask({
   workflow,
   now,
+  finishedHeadingShown,
   onStop,
   onOpenSubagent,
   onOpenWorkflowAgent,
@@ -107,6 +110,7 @@ function WorkflowTask({
 }: {
   workflow: WorkflowSummary;
   now: number;
+  finishedHeadingShown: boolean;
   onStop?: (id: string) => Promise<unknown>;
   onOpenSubagent?: (id: string) => void;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
@@ -118,15 +122,16 @@ function WorkflowTask({
   const elapsed =
     workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : undefined);
   const tokens = workflow.tokens !== undefined ? [tokensLabel(t, workflow.tokens)] : [];
-  // Running: what its agents do now. Finished: that it was a workflow, how it ended and its size.
+  // Running: what its agents do now. Finished: how it ended and its size.
+  const status =
+    workflow.state === "completed"
+      ? finishedHeadingShown
+        ? undefined
+        : t("bgTask.state.completed")
+      : stateWord(t, workflow.state);
   const meta = running
     ? [...countLine(t, counts), ...tokens]
-    : [
-        t("workflow.kind"),
-        workflow.state === "completed" ? t("bgTask.state.completed") : stateWord(t, workflow.state),
-        t("subagents.pill", { n: counts.total }),
-        ...tokens,
-      ];
+    : [...(status ? [status] : []), t("subagents.pill", { n: counts.total }), ...tokens];
   return (
     <section className="acpmux-workflow-task" data-state={workflow.state} aria-label={workflow.title}>
       <div className="acpmux-workflow-task__head">
@@ -268,7 +273,7 @@ export function WorkflowAgentRow({
   const model = agent.model ? modelName(agent.model) : undefined;
   const modelEffort = [model, agent.effort].filter((value): value is string => Boolean(value)).join(" · ");
   const modelLabel = modelEffort ? t("workflow.model", { model: modelEffort }) : undefined;
-  const message = agent.lastMessage ?? agent.doing;
+  const message = (agent.state === "failed" ? agent.error : undefined) ?? agent.lastMessage ?? agent.doing;
   const time = queued ? undefined : elapsed !== undefined ? formatDuration(elapsed) : undefined;
   const accessibleLabel = [agent.name, modelLabel, message, state, time].filter(Boolean).join(", ");
   // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the

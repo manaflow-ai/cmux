@@ -4,9 +4,10 @@
 // that row's drawn height, and turns shaped as a fresh look at the same rows shapes them.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { isLineRow, isStatusRow, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { type TurnView, turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
+import { rowMark, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -100,8 +101,17 @@ const finishedTurn = (index: number) => [
   row(`t${index}-end`, "turnSummary", { status: "completed", durationMs: 1_000 }),
 ];
 
-/// The mounted rows, top to bottom: each must sit right below the row above it, by that one's drawn
-/// height. A fast scroll mounts separate runs of rows, so only rows next to each other are compared.
+/// The rows the transcript was last given, by id, for the gap each pair takes.
+const shownById = new Map<string, AcpmuxRow>();
+
+/// The mounted rows, top to bottom: each must sit below the row above it by that one's drawn height
+/// plus the one stack gap the pair takes (transcriptGrid.ts transcriptGap: turn 32 next to a prompt,
+/// block 24 otherwise). On the layout grid a row keeps no gap of its own; the gap belongs to the
+/// stack (leo-workspace design/grid.md Rule 5, "A gap belongs to its container", and 5.5 Vertical
+/// rhythm; #27580). `off` is how far a row sits from there. Two consecutive one-line rows keep their
+/// own pitch (#29965), not a block gap; this fixture has no such pair, and the check says so rather
+/// than hold one to transcriptGap. A fast scroll mounts separate runs of
+/// rows, so only rows next to each other are compared.
 function placement() {
   const rows = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((node) => ({
     id: node.dataset.rowId!,
@@ -110,13 +120,36 @@ function placement() {
     top: Number.parseFloat(node.style.top) + (Number.parseFloat(node.style.marginTop) || 0) - 16,
   }));
   rows.sort((a, b) => a.index - b.index);
-  const pairs = rows
-    .slice(1)
-    .flatMap((next, index) =>
-      next.index === rows[index]!.index + 1
-        ? [{ id: next.id, gap: Math.round((next.top - rows[index]!.top - drawnHeight(rows[index]!.id)) * 100) / 100 }]
-        : [],
-    );
+  const oneLine = (id: string) => {
+    const shown = shownById.get(id)!;
+    return isLineRow(shown) || isStatusRow(shown);
+  };
+  for (let index = 1; index < rows.length; index += 1)
+    if (rows[index]!.index === rows[index - 1]!.index + 1)
+      expect({
+        pair: [rows[index - 1]!.id, rows[index]!.id],
+        oneLine: oneLine(rows[index - 1]!.id) && oneLine(rows[index]!.id),
+      }).toEqual({
+        pair: [rows[index - 1]!.id, rows[index]!.id],
+        oneLine: false,
+      });
+  const pairs = rows.slice(1).flatMap((next, index) =>
+    next.index === rows[index]!.index + 1
+      ? [
+          {
+            id: next.id,
+            off:
+              Math.round(
+                (next.top -
+                  rows[index]!.top -
+                  drawnHeight(rows[index]!.id) -
+                  transcriptGap(rowMark(shownById.get(rows[index]!.id)!), rowMark(shownById.get(next.id)!))) *
+                  100,
+              ) / 100,
+          },
+        ]
+      : [],
+  );
   // The view's rows are always mounted together, so an empty list means nothing was compared.
   expect(pairs.length).toBeGreaterThan(0);
   return pairs;
@@ -141,6 +174,8 @@ test("a long chat draws each update as a fresh layout would: streaming, redraws,
   const draw = async (rows: AcpmuxRow[], working: boolean) => {
     view = turnViewFrom(rows, expanded, { working, now: at }, view);
     const shown = view.rows;
+    shownById.clear();
+    for (const one of shown) shownById.set(one.id, one);
     // The turns read as a fresh look at the same rows does.
     expect(shown.map((one) => [one.id, one.version])).toEqual(
       turnView(fresh(rows), new Set(), { working, now: at }).map((one) => [one.id, one.version]),
@@ -156,7 +191,7 @@ test("a long chat draws each update as a fresh layout would: streaming, redraws,
   };
   try {
     await draw(raw(), true);
-    expect(placement().filter((entry) => entry.gap !== 0)).toEqual([]);
+    expect(placement().filter((entry) => entry.off !== 0)).toEqual([]);
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
 
     // The reply streams in at the latest message, growing as it is drawn.
@@ -164,7 +199,7 @@ test("a long chat draws each update as a fresh layout would: streaming, redraws,
       reply = { ...reply, version: reply.version + 1, text: `${reply.text} and more words, step ${step}.` };
       await draw(raw(), true);
       await redraw("live-answer", 60 + step * 30);
-      expect(placement().filter((entry) => entry.gap !== 0)).toEqual([]);
+      expect(placement().filter((entry) => entry.off !== 0)).toEqual([]);
     }
 
     // The reader scrolls up into the history while it streams; a row there draws taller.
@@ -175,23 +210,23 @@ test("a long chat draws each update as a fresh layout would: streaming, redraws,
     await redraw(middle, 333);
     reply = { ...reply, version: reply.version + 1, text: `${reply.text} Still streaming.` };
     await draw(raw(), true);
-    expect(placement().filter((entry) => entry.gap !== 0)).toEqual([]);
+    expect(placement().filter((entry) => entry.off !== 0)).toEqual([]);
 
     // A prompt sent while it streams waits in the turn; an answer far up the history is edited.
     const held = row("held-user", "user", { text: "And then?", pending: true });
     await draw([...raw(), held], true);
     history[402] = { ...history[402]!, version: 2, text: "Answer 100, corrected." };
     await draw([...raw(), held], true);
-    expect(placement().filter((entry) => entry.gap !== 0)).toEqual([]);
+    expect(placement().filter((entry) => entry.off !== 0)).toEqual([]);
 
     // The turn ends: its work folds under "Worked for", below a summary.
     reply = { ...reply, version: reply.version + 1, streaming: false };
     history.push(prompt, reply, row("live-end", "turnSummary", { status: "completed", durationMs: 9_000 }));
     await draw(history, false);
-    expect(placement().filter((entry) => entry.gap !== 0)).toEqual([]);
+    expect(placement().filter((entry) => entry.off !== 0)).toEqual([]);
     scroller.scrollTop = 1e9;
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
-    expect(placement().filter((entry) => entry.gap !== 0)).toEqual([]);
+    expect(placement().filter((entry) => entry.off !== 0)).toEqual([]);
   } finally {
     await act(async () => root.unmount());
   }

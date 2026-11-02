@@ -127,7 +127,7 @@ const transcriptWithContext = {
   },
 };
 
-/// The app offers Session Info (Debug Settings `agent.inspector`, on by default).
+/// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default).
 const native = { "pane.tabState": { inspector: true } };
 
 const MODEL_BUTTON = { selector: ".acpmux-model .acpmux-picker-button" };
@@ -233,7 +233,7 @@ export default agentPaneEntry({
       },
     },
     "environment-picker": {
-      note: "Play: in a new chat, click the computer control under the composer; the picker lists this Mac, the person's machines and Cloud.",
+      note: "Play: in a new chat, click the environment control under the composer; the picker lists This Mac and Cloud (the machines are its right-click menu's Machines…).",
       ready: { newSession: true, cwd: CWD },
       snapshot: newChat,
       play: async (ctx) => {

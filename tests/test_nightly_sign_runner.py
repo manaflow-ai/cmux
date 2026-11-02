@@ -38,6 +38,8 @@ SIGNING_JOBS = {
     "build-sign-notarize-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
     "verify-signed-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
     "verify-final-dmg-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
+    # The pool-signed build's fresh-home launch smoke, beside signer-dmg: secret-free, as the final verify.
+    "launch-smoke-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
     "recover-nightly-next-notarization": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "verify-recovered-nightly-next": "needs.find-nightly-next-recovery.outputs.sign_runner",
     # The release-pool path's one Mac job: Apple's checks and the DMG image, no secrets.
@@ -260,6 +262,46 @@ class Unverified(unittest.TestCase):
         self.assertEqual(values, {"runner": LARGE, "alternate": LARGE, "placement": "verified"})
         self.assertNotIn("unverified", summary)
 
+    def test_a_spent_read_token_falls_back_to_the_github_token(self) -> None:
+        # Run 41335987427 (2026-11-01): the routing App's installation answered 403 with
+        # X-RateLimit-Remaining=0 to every read, so the pick was blind. GITHUB_TOKEN has its own budget.
+        calls = []
+
+        def spent(token: str, repo: str) -> dict:
+            calls.append(token)
+            if token == "t":
+                raise OSError("HTTP Error 403: Forbidden")
+            return snapshot({SMALL: 90})
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"CANDIDATE": LARGE, "SNAPSHOT_TOKEN": "t", "SNAPSHOT_FALLBACK_TOKEN": "gh",
+                   "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output)}
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(picker.main(env, read=spent, now=NOW, sleep=lambda s: None), 0)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(calls, ["t", "gh"])
+        self.assertEqual(values, {"runner": LARGE, "alternate": LARGE, "placement": "verified"})
+
+    def test_a_fallback_equal_to_the_read_token_adds_no_read(self) -> None:
+        calls = []
+
+        def broken(token: str, repo: str) -> dict:
+            calls.append(token)
+            raise OSError("rate limit")
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"CANDIDATE": LARGE, "SNAPSHOT_TOKEN": "t", "SNAPSHOT_FALLBACK_TOKEN": "t",
+                   "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(Path(tmp) / "out")}
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(picker.main(env, read=broken, now=NOW, sleep=lambda s: None), 0)
+        self.assertEqual(calls, ["t"] * picker.SNAPSHOT_READS)
+
+    def test_the_sign_pickers_pass_the_github_token_fallback(self) -> None:
+        steps = WORKFLOW["jobs"]["pick-nightly-sign-runner"]["steps"]
+        for step_id in ("sign-runner", "sign-linux-runner"):
+            step = next(step for step in steps if step.get("id") == step_id)
+            with self.subTest(step=step_id):
+                self.assertEqual(step["env"]["SNAPSHOT_FALLBACK_TOKEN"], "${{ github.token }}")
+
     def test_a_full_rerun_without_a_snapshot_tries_the_other_size(self) -> None:
         # Attempt 1 took 6 vCPU unverified; a full re-run picks again, still blind, and moves to 12 vCPU.
         values, *_ = self.run_main(lambda t, r: None, attempt="2")
@@ -315,7 +357,7 @@ class DeadLabel(unittest.TestCase):
         self.assertEqual(picker.place(LARGE, snap, NOW, 1)[:2], (SMALL, LARGE))
 
     def test_an_unverified_pick_skips_a_dead_variable_label(self) -> None:
-        """pick() is the overflow pick of dev_landing_place.py (OVERFLOW_LABEL, 12 vCPU) and nightly_build_runner.py:
+        """pick() is the overflow pick of nightly_build_runner.py:
         a snapshot too old for the stall rule still shows the label dead."""
         label, why = picker.pick(LARGE, observed(age_minutes=38), NOW)
         self.assertEqual(label, SMALL, why)
@@ -478,10 +520,12 @@ class OwnedVerify(unittest.TestCase):
     (Leo, 2026-10-24); the signing jobs, which hold the keys, stay on Blacksmith.
     """
 
-    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image")
+    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image", "launch-smoke-nightly")
     # The cmux NIGHTLY-identity verify, also secret-free, keeps its own picker's Blacksmith labels after
     # the owned pick: on 2026-10-28 it queued 20+ min on blacksmith-6vcpu-macos-26 while 12 vCPU was stalled.
-    LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy",)
+    # The cmux NIGHTLY-identity copy's secret-free Mac jobs: the macOS signer's verify, and the release
+    # signer pool's image job and verify.
+    LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy", "legacy-signer-dmg-image", "verify-nightly-identity-legacy-pool")
     OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
 
     def test_verify_jobs_read_the_owned_pick_only_for_the_attempt_it_was_made_for(self) -> None:
@@ -501,6 +545,10 @@ class OwnedVerify(unittest.TestCase):
                               "|| github.run_attempt > 1 && "
                               "needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner "
                               "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
+                # The launch smoke selects no Xcode: it mounts a DMG and runs the app in it.
+                if name == "launch-smoke-nightly":
+                    self.assertNotIn("CMUX_CI_XCODE_APP", job["env"])
+                    continue
                 xcode = job["env"]["CMUX_CI_XCODE_APP"]
                 self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
                               "|| github.ref_name == 'nightly-next'", xcode)
@@ -540,7 +588,7 @@ class OwnedVerify(unittest.TestCase):
             ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: "glaeda-side-light-xcode-26.6"},
              "glaeda-side-light-xcode-26.6", "fleet"),
         )
-        for name in ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image"):
+        for name in ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image", "launch-smoke-nightly"):
             job = WORKFLOW["jobs"][name]
             for changes, runner, xcode in cases:
                 with self.subTest(job=name, changes=changes):
@@ -548,7 +596,7 @@ class OwnedVerify(unittest.TestCase):
                     def resolve(source):
                         return evaluate(parse_expression(source.removeprefix("${{").removesuffix("}}")), context)
                     self.assertEqual(resolve(job["runs-on"]), runner)
-                    if context["github.repository_owner"] == "manaflow-ai":
+                    if context["github.repository_owner"] == "manaflow-ai" and "CMUX_CI_XCODE_APP" in job["env"]:
                         self.assertEqual(resolve(job["env"]["CMUX_CI_XCODE_APP"]),
                                          f"/Applications/Xcode-{xcode}.app")
 
@@ -581,9 +629,11 @@ class OwnedVerify(unittest.TestCase):
     def test_the_owned_pick_is_bounded_and_never_blocks(self) -> None:
         job = WORKFLOW["jobs"]["pick-nightly-sign-runner"]
         # Outside attempt 1 of a push the pick stands only with the sweeper's marker uploaded.
-        self.assertEqual(job["outputs"]["owned"],
-                         "${{ (github.event_name == 'push' && github.run_attempt == 1 || "
-                         "steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}")
+        owned_output = job["outputs"]["owned"]
+        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", owned_output)
+        self.assertIn("github.repository == 'manaflow-ai/cmux'", owned_output)
+        self.assertIn("github.ref_name == 'nightly-next'", owned_output)
+        self.assertIn("steps.owned.outputs.owned", owned_output)
         self.assertEqual(job["outputs"]["attempt"], "${{ github.run_attempt }}")
         # The routing environment only scopes the routing App key; it has no reviewers, so nothing waits.
         self.assertEqual(job.get("environment"), "ci-routing-agent")

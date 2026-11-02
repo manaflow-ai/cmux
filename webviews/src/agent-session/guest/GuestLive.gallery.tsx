@@ -3,12 +3,13 @@
 // watches the agent work live, "including command output and the agent's reasoning"): the owner's
 // own transcript, read only, fed by a fake room. `asking` is an ask only the owner answers.
 import { componentEntry } from "../../gallery/format";
-import { askingRecords, fakeRoom, joinFrames, workingRecords } from "./fixtures/liveChat";
+import { askingRecords, fakeRoom, joinFrames, memoryStorage, workingRecords } from "./fixtures/liveChat";
 import type { GuestPageProps } from "./GuestPage";
 
 const live = (frames: object[]): GuestPageProps => ({
   shareId: "c2hhcmUtZ2FsbGVyeQ",
   guestId: "g1",
+  storage: memoryStorage(),
   redeem: () => new Promise(() => undefined),
   attempt: () => "0".repeat(32),
   socketUrl: "wss://room.invalid/v1/chat-shares/c2hhcmUtZ2FsbGVyeQ/guest",

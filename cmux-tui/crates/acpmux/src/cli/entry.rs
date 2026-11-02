@@ -214,6 +214,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::DaemonRun {
             listen,
             token,
+            insecure_network_listen,
             memory,
             log,
             ready_fd,
@@ -231,6 +232,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
+                insecure_network_listen,
                 memory,
                 ready_fd,
                 person_key_fd,
@@ -360,6 +362,12 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             Ok(())
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::TriggerChat { protocol, principal_fd }) => {
+            match crate::cli::trigger_chat::run(&protocol, principal_fd).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         Some(Command::Capabilities) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::capabilities::render(cli.json).as_bytes());

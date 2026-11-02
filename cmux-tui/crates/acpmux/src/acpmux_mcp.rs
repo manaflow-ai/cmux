@@ -2,10 +2,11 @@
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
 //! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
 //! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
-//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the Labs-gated
+//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the
 //! team mailbox tools (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
-//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent.
+//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent. With a cmux sign-in it also saves,
+//! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
@@ -41,6 +42,8 @@ keeps running, and bg_list and bg_output read it later by its id.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 
+#[path = "acpmux_mcp_artifacts.rs"]
+pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
 #[path = "acpmux_mcp_send.rs"]
@@ -50,6 +53,16 @@ fn tools() -> Value {
     let mut all = base_tools();
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
+    }
+    all
+}
+
+/// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
+/// sign-in for them (`artifacts::advertised`).
+fn tools_with_artifacts(artifacts: bool) -> Value {
+    let mut all = tools();
+    if artifacts && let Some(list) = all.as_array_mut() {
+        list.extend(artifacts::definitions());
     }
     all
 }
@@ -148,23 +161,69 @@ fn base_tools() -> Value {
     all
 }
 
+/// The tools a session may use here: every one, or under a `CMUX_MCP_TOOLS` allowlist (a
+/// Chief turn's, `agent_tools::scoped`) only those it names as `acpmux_<tool>`, the name the
+/// folding `cmux` server gives each. Folded, `cmux` applies the same list; standalone (cmux
+/// off or missing) this is the only filter, so `bg_*` and `team_*` reach no turn that does not
+/// list them, whatever the harness.
+fn allowed(all: Value, allow: Option<&str>) -> Value {
+    let Some(allow) = allow else { return all };
+    let allow: Vec<String> = allow.split(',').map(|t| t.trim().to_owned()).collect();
+    let keep = |tool: &Value| {
+        tool["name"].as_str().is_some_and(|n| allow.contains(&format!("{SERVER_NAME}_{n}")))
+    };
+    Value::Array(all.as_array().into_iter().flatten().filter(|t| keep(t)).cloned().collect())
+}
+
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
+    // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
+    let artifacts = artifacts::from_config();
+    let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
+    let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
+    // Under an allowlist, a call outside it is refused like an unknown tool.
+    let names: Option<Arc<Vec<String>>> = allow
+        .is_some()
+        .then(|| Arc::new(crate::mcp_hint::names(&tools).map(str::to_owned).collect()));
+    // The background steer only where the background tools are listed.
+    let steer =
+        crate::mcp_hint::names(&tools).any(|n| bg::TOOLS.contains(&n)).then(|| BG_STEER.to_owned());
     crate::secret_mcp::serve(
         SERVER_NAME,
         SESSION_ENV,
-        tools(),
-        Some(BG_STEER.to_owned()),
-        |daemon, session, params| async move {
-            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            if bg::TOOLS.contains(&name) {
-                return bg::call(&daemon, &session, name, &args).await;
+        tools,
+        steer,
+        move |daemon, session, params| {
+            let artifacts = artifacts.clone();
+            let names = names.clone();
+            async move {
+                let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+                if let Some(names) = &names
+                    && !names.iter().any(|n| n == name)
+                {
+                    return error_result(crate::mcp_hint::unknown_tool(
+                        name,
+                        names.iter().map(String::as_str),
+                    ));
+                }
+                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                if artifacts::TOOLS.contains(&name) {
+                    return match (&artifacts, args.is_object()) {
+                        (_, false) => error_result("arguments must be an object".to_owned()),
+                        (Some(client), true) => artifacts::call(client, name, &args).await,
+                        (None, true) => error_result(
+                            "the artifact tools need a cmux sign-in on this daemon (meshRelay), and artifacts.enabled not false".to_owned(),
+                        ),
+                    };
+                }
+                if bg::TOOLS.contains(&name) {
+                    return bg::call(&daemon, &session, name, &args).await;
+                }
+                if matches!(name, "inbox_read" | "inbox_reply") {
+                    return inbox_tool(&daemon, &session, name, &args).await;
+                }
+                call(&daemon, &params).await
             }
-            if matches!(name, "inbox_read" | "inbox_reply") {
-                return inbox_tool(&daemon, &session, name, &args).await;
-            }
-            call(&daemon, &params).await
         },
     )
     .await
@@ -233,7 +292,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
 }
 
 /// Send a team-scoped message through the daemon's hub client. The daemon owns the
-/// caller token and Labs gate, so this MCP surface cannot bypass either one.
+/// caller token and team-messaging gate, so this MCP surface cannot bypass either one.
 async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
     let (Some(to), Some(body)) = (arg(args, "to"), args.get("body").and_then(Value::as_str)) else {
         return error_result("to and body are required".to_owned());

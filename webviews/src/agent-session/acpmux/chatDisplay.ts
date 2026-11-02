@@ -11,6 +11,7 @@
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
 import { useSyncExternalStore } from "react";
+import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
 import { isArm } from "../../experiments/experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
 
@@ -26,6 +27,9 @@ export type ChatFontChoice = ChatFontPreset | "markdown";
 export type EnvironmentPlacement = "left" | "right" | "off";
 
 export interface ChatDisplay {
+  /** Null preserves the existing Debug placement until an ordinary preference is saved. */
+  harnessPlacement: HarnessPlacement | null;
+  managedHarnessPlacement: HarnessPlacement | null;
   /// The column's cap in px (the chat's text width); `fullWidth` fills the pane instead.
   width: number;
   fullWidth: boolean;
@@ -57,8 +61,8 @@ export interface ChatDisplay {
 }
 
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
-/// The saved settings key keeps its old `inspector` name, so a saved Push or Overlay choice survives.
-export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// The host sends a value saved under the row's old key under this one (Swift RenamedSettingKeys).
+export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.sessionInfo.placement";
 export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
@@ -83,6 +87,13 @@ export const TRANSCRIPT_VIEWS: readonly TranscriptView[] = ["normal", "thinking"
 export const isTranscriptView = (value: unknown): value is TranscriptView =>
   value === "normal" || value === "thinking" || value === "verbose";
 
+/// Settings > Agent Chat > Presentation (conversation/presentation.ts): whether a chat shows the
+/// complete transcript or the Messages-style bubble view with tool rows hidden.
+export const PRESENTATION_KEY = "agentPane.display.presentation";
+export type Presentation = "transcript" | "messages";
+export const PRESENTATIONS: readonly Presentation[] = ["transcript", "messages"];
+export const isPresentation = (value: unknown): value is Presentation => value === "transcript" || value === "messages";
+
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
 export const CHAT_DISPLAY = {
@@ -104,6 +115,8 @@ export const MARKDOWN_FOLLOWED = {
 } as const;
 
 export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
+  harnessPlacement: null,
+  managedHarnessPlacement: null,
   width: CHAT_DISPLAY.width.fallback,
   fullWidth: false,
   font: "system",
@@ -165,6 +178,8 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       ? (values[MARKDOWN_FOLLOWED.font] as ChatFontPreset)
       : "system";
   return {
+    harnessPlacement: harnessPlacement(values[HARNESS_PLACEMENT_KEY]),
+    managedHarnessPlacement: harnessPlacement(values[`${HARNESS_PLACEMENT_KEY}.managed`]),
     width: number(values[CHAT_DISPLAY.width.key], CHAT_DISPLAY.width) ?? DEFAULT_CHAT_DISPLAY.width,
     fullWidth: values[CHAT_DISPLAY.fullWidth.key] === true,
     font,
@@ -245,6 +260,7 @@ let raw: Values = {};
 let minimapOn = false;
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
+let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 const listeners = new Set<() => void>();
 
@@ -264,6 +280,8 @@ export function setChatDisplay(value: unknown): void {
   const threadMinimap = resolveThreadMinimapArm(raw);
   const stored = raw[TRANSCRIPT_VIEW_KEY];
   const view = isTranscriptView(stored) ? stored : "normal";
+  const storedPresentation = raw[PRESENTATION_KEY];
+  const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
   if (
@@ -271,12 +289,14 @@ export function setChatDisplay(value: unknown): void {
     minimap === minimapOn &&
     threadMinimap === threadMinimapArm &&
     view === transcriptView &&
+    nextPresentation === presentation &&
     tips === featureTipsOn
   )
     return;
   minimapOn = minimap;
   threadMinimapArm = threadMinimap;
   transcriptView = view;
+  presentation = nextPresentation;
   featureTipsOn = tips;
   if (same) {
     for (const listener of listeners) listener();
@@ -338,10 +358,15 @@ const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;
 const transcriptViewSnapshot = () => transcriptView;
+const presentationSnapshot = () => presentation;
 /// The Transcript View setting: the view of a chat without its own (conversation/transcriptView.ts).
 export const defaultTranscriptView = (): TranscriptView => transcriptView;
 export const useDefaultTranscriptView = (): TranscriptView =>
   useSyncExternalStore(subscribe, transcriptViewSnapshot, transcriptViewSnapshot);
+/// The presentation setting for a chat without its own (conversation/presentation.ts).
+export const defaultPresentation = (): Presentation => presentation;
+export const useDefaultPresentation = (): Presentation =>
+  useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);

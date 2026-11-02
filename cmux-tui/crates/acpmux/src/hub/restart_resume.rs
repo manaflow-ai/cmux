@@ -346,6 +346,11 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, ToolOmissi
     })
 }
 
+/// The opening of a move's continuation when the move did not happen ([`Cut::unmoved`]).
+const STAYED: &str = "This chat did not move: a move to another machine stopped your previous \
+                      turn and then did not happen. You are still on this machine, with the same \
+                      files; processes you started may have ended with the turn.";
+
 /// What cut the turn off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::hub) enum Cut {
@@ -368,6 +373,13 @@ impl Cut {
     /// cut turn and is no waiting retry (`queue.rs`, `auto_resume/restore.rs`).
     pub(in crate::hub) fn queued(reason: Option<&str>) -> bool {
         matches!(reason, Some("daemon_restart" | "moved"))
+    }
+
+    /// A [`Cut::Move`] continuation's text for a move that did not happen (`transfer_out.rs`
+    /// `queue_carried`): the same turn, told it is still on this machine. `None` for any other
+    /// text.
+    pub(in crate::hub) fn unmoved(text: &str) -> Option<String> {
+        text.strip_prefix(Cut::Move.opening()).map(|rest| format!("{STAYED}{rest}"))
     }
 
     fn opening(self) -> &'static str {
@@ -453,15 +465,16 @@ impl Hub {
     ) -> Option<String> {
         // One continuation per configured wait, as a transport cut gets: `[]` configures none,
         // which turns it off. A contended config lock reads as the default waits, never as off.
-        let attempts = self.config.try_read().map_or(DEFAULT_DELAYS_MS.len(), |c| {
-            configured_attempts(c.auto_resume_delays_ms.as_ref())
-        });
+        let configured = self.config.try_read().map(|c| c.auto_resume_delays_ms.clone());
+        let attempts =
+            configured.map_or(DEFAULT_DELAYS_MS.len(), |d| configured_attempts(d.as_ref()));
         if attempts == 0 {
             return None;
         }
         // The cut turn's prompt id, control, trust gate, texts and images: its `turn_started`,
         // the `user_message` that started it and those steered into it.
         let (mut prompt_id, mut control, mut gate) = (None::<String>, None::<String>, None);
+        let mut cloud_mobile = false;
         let mut prompts: Vec<String> = Vec::new();
         let mut images: Vec<Value> = Vec::new();
         // A Web steer made the turn a Web turn (`web_control.rs` `check_steer`).
@@ -470,6 +483,7 @@ impl Hub {
         // no host replay, so carry their terminal control state into this decision too: a Web
         // continuation must not cross a remote-floor cancellation or stale ended control.
         let mut started = false;
+        let mut trigger = false;
         // A carried turn's input is the steers it carried (`carried_turn.rs`), logged in the
         // turns before it: the steers since the last turn that was not carried, by prompt id.
         let mut steered: std::collections::HashMap<String, (Option<String>, Vec<Value>)> =
@@ -504,10 +518,13 @@ impl Hub {
             match e.kind.as_str() {
                 "turn_started" if is_turn => {
                     started = true;
+                    trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
                     tool_start = Some(e.seq);
                     prompt_id = field("promptId");
                     control = field("control");
                     gate = e.msg.get("trustGate").and_then(Value::as_bool);
+                    cloud_mobile =
+                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
                     let ids = e.msg.pointer("/carried/promptIds").and_then(Value::as_array);
                     carried_ids = ids
                         .into_iter()
@@ -552,6 +569,11 @@ impl Hub {
             }
             true
         });
+        // The trigger dispatcher must reauthorize any retry. A generic restart
+        // continuation would drop its principal and execute as the person.
+        if trigger {
+            return None;
+        }
         // The carried steers come first: they started the turn.
         let mut carried_prompts = Vec::new();
         let mut carried_images = Vec::new();
@@ -658,6 +680,7 @@ impl Hub {
             // restart. A Web turn (by its start or a Web steer) is always checked again, as is
             // one from a log from before `turn_started` recorded its gate.
             "trustGate": control == "web" || gate.unwrap_or(false),
+            "cloudMobile": cloud_mobile,
         });
         if !images.is_empty() {
             queued.set("images", Value::Array(images));

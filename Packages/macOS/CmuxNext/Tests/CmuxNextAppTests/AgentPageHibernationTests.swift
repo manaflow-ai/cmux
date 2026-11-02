@@ -232,6 +232,57 @@ struct AgentPageHibernationTests {
         #expect(rig.hibernation.keepsPage("tab_crashed") == .unsupported)
     }
 
+    /// A page holding prompts for a folder trust answer (webviews trustHeld.ts) keeps its page:
+    /// each prompt's gesture ticket lives with it, and letting it go lost them (Leo 2026-10-21 P0).
+    @Test func aChatHoldingPromptsForATrustAnswerKeepsItsPage() async throws {
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        let asked = Asked()
+        rig.hibernation.wakeState = { _ in
+            asked.count += 1
+            return AgentPaneWakeState(holdsPrompts: true)
+        }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let page = try rig.hiddenChat("tab_held", session: "s-held")
+        rig.advance(minutes: 61)
+        await rig.settle { asked.count > 0 }
+        await rig.settle { false }
+        #expect(asked.count > 0, "the page was never asked what it held")
+        #expect(rig.tabs.existingView("tab_held") === page, "a page holding prompts for a trust answer was let go")
+    }
+
+    /// A page kept because it held prompts is asked again later, on its own deadline: with nothing
+    /// else due, no other event would plan again (cmux#32277).
+    @Test func aPageKeptForHeldPromptsIsAskedAgainOnItsOwnDeadline() async throws {
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        let asked = Asked()
+        rig.hibernation.wakeState = { _ in
+            asked.count += 1
+            return AgentPaneWakeState(holdsPrompts: asked.count == 1)
+        }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        _ = try rig.hiddenChat("tab_held_once", session: "s-held-once")
+        rig.advance(minutes: 61)
+        await rig.settle { asked.count > 0 }
+        await rig.settle { rig.hibernation.hasDeadline }
+        #expect(rig.hibernation.hasDeadline, "a page kept for held prompts armed no retry")
+        // The prompts went: the retry, not another hide or turn, lets the page go.
+        rig.elapsed += .seconds(AgentPageHibernation.keptRecheck)
+        let deadline = ContinuousClock.now + .seconds(AgentPageHibernation.keptRecheck + 5)
+        while rig.tabs.existingView("tab_held_once") != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(asked.count >= 2, "the kept page was never asked again")
+        #expect(rig.tabs.existingView("tab_held_once") == nil, "the page stayed after it no longer held prompts")
+    }
+
+    /// A wake state that only says the page holds prompts is not empty: nothing would keep it.
+    @Test func aWakeStateHoldingPromptsIsNotEmpty() {
+        #expect(!AgentPaneWakeState(holdsPrompts: true).isEmpty)
+        #expect(AgentPaneWakeState(holdsPrompts: false).isEmpty)
+    }
+
     /// With the acpmux turn watch down no chat's turn is known: every chat counts as busy and
     /// keeps its page until the watch is back.
     @Test func withTheTurnWatchDownEveryChatKeepsItsPage() async throws {

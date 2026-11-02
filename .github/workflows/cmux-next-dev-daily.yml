@@ -81,6 +81,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ENABLED: ${{ vars.CI_SIGN_OWNED }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           OWNED_LABELS: ${{ vars.CI_SIDE_LANE_RUNNER }}
@@ -365,6 +366,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -398,6 +400,7 @@ jobs:
         id: pool
         if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1'
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GH_REPO: ${{ github.repository }}

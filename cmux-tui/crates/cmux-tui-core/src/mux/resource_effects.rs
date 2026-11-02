@@ -3,12 +3,18 @@
 
 use super::*;
 
+mod created_views;
 mod effect_commit;
 
+pub(crate) use created_views::CreatedViewCommit;
+
 impl Mux {
+    /// The registry's id and generation. Both are fixed when the registry
+    /// opens, so this never waits on its lock: about twenty request paths
+    /// (every mutation's reply, `list-workspaces`, `identify`) read them, and
+    /// waited seconds behind durable commits for two constants.
     pub fn registry_identity(&self) -> (String, String) {
-        let registry = self.workspace_registry.lock().unwrap();
-        (registry.registry_id().to_string(), registry.generation().to_string())
+        self.registry_identity.clone()
     }
 
     pub fn install_resource_machine_service(

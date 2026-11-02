@@ -225,6 +225,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
                 "sidebar.groupHeader.unreadCount", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
             ]),
+            // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under
+            // `maxRowsPerCard`.
+            card("settings.pageGroup.sidebarLayout", "Sidebar Layout", [
+                "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
+            ]),
             card("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces", [
                 "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
                 "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
@@ -288,7 +293,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
             card("settings.pageGroup.chatLayout", "Chat Layout", [
                 "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-                "agentPane.display.vscodeMinimap", "agentPane.display.rail.side", "agentPane.display.inspector.placement",
+                "agentPane.display.vscodeMinimap", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
                 "agentPane.display.environment.placement",
             ]),
             card("settings.pageGroup.chatText", "Chat Text", [
@@ -297,7 +302,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             ]),
             card("settings.pageGroup.messageBox", "Message Box", [
                 "agentPane.showContextUsage", "agentPane.showDictation", "agentPane.spellChecking",
-                "agentPane.attachmentView", "agentPane.scrollToBottomOnSend",
+                "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement",
             ]),
             card("settings.pageGroup.filesLinks", "Files and Links", [
                 "agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show",
@@ -310,6 +315,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.sessions"),
             // Whether agent sessions may start sub-sessions, how many and how deep.
             group("settings.group.subsessions"),
+            // Whether a turn a rate limit or a lost connection ended is tried again, how often.
+            group("settings.group.agentRetry"),
             // Folders that start an agent without the trust question.
             group("settings.group.folderTrust"),
         ],
@@ -339,6 +346,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.chiefEngine"),
             // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
             group("settings.group.chiefReactions"),
+            // Whether the Chief may route each subagent to the harness best at its task (spawn harness).
+            group("settings.group.chiefSubagents"),
         ],
         lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices])
 

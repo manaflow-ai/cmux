@@ -7,10 +7,11 @@ graded them, in about a minute, alongside the rest of CI.
 
 `.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check. The
 classifier is `scripts/ci/risk_tier.py`, and its tests are in `tests/test_risk_tier.py`.
-The check is advisory (cmuxterm-hq#5745, Leo, 2026-11-01: "keep only what catches real breakage"):
-a held pull request gets a warning in the job summary and the check stays green. What holds a merge is
-the review itself: every pull request lands only on an independent review at its exact head, and a
-BLOCK there keeps it out.
+Since cmuxterm-hq#5745 (Leo, 2026-11-01: "keep only what catches real breakage") the check turns red
+for one thing: a takeback no `Takes back #N:` line owns (below). A high pull request with no verdict, or
+with a BLOCK, gets a warning in the job summary and the check stays green. What holds it is the review
+itself: every pull request lands only on an independent review at its exact head, and the lander
+refuses a BLOCK there.
 
 ## Tiers
 
@@ -154,7 +155,8 @@ Adding `risk:human-ok` re-grades on its own.
 
 A high pull request with no verdict on its head passes with a warning in the job summary ("no
 review verdict on the head commit yet"), not a red check. It still lands only after an independent
-review passes. The newest verdict on the head being a BLOCK, FIX or change request is the one hold.
+review passes. A BLOCK, FIX or change request as the newest verdict on the head also only warns here;
+the lander refuses it. An unowned takeback is the one red.
 
 ## Ship risky behavior dark
 

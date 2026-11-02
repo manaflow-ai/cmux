@@ -11,7 +11,12 @@ import { renderId } from "../src/agent-session/acpmux/conversation/renderCall";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { outputArtifacts, outputLinks } from "../src/agent-session/acpmux/session-info/OutputsSection";
+import {
+  OUTPUTS_SHOWN,
+  OutputsSection,
+  outputArtifacts,
+  outputLinks,
+} from "../src/agent-session/acpmux/session-info/OutputsSection";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
 import type { SessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
@@ -199,39 +204,69 @@ test("SummaryBody does not re-add checkpoint files outside the project", async (
   expect(container.textContent).not.toContain("m1076.txt");
 });
 
-// An Outputs link opens where a Sources link or a pull request opens: in the pane beside the chat
-// (onOpenUrl, cmux #28544), not as a bare link the page hands to the host. A modified click (⌘, ⌃, ⇧)
-// keeps the link's own behaviour, as in Sources.
-test("an Outputs link opens beside the chat, as a Sources link does; a modified click is the link's own", async () => {
+// Leo (ask-fd0730a919): show more / show less per thing, Changes, Outputs, subagents, the whole row
+// clickable with no pill, as Claude Code desktop's.
+test("five Outputs show, then a whole-row Show more opens the rest and Show less folds them again", async () => {
   const container = installDom();
-  const beside: string[] = [];
-  const base = chat(rows);
+  const links = Array.from({ length: 8 }, (_, index) => ({
+    url: `https://example.com/${index}`,
+    label: `example.com/${index}`,
+  }));
   await act(async () => {
     root = createRoot(container);
-    root.render(
-      <SessionInfo
-        summary={base.summary}
-        machineName="cosmic-gray"
-        rows={rows}
-        links={outputLinks(rows)}
-        made={{ outputs: [], pullRequests: [], scheduled: [] }}
-        onOpenUrl={(url) => beside.push(url)}
-      />,
-    );
+    root.render(<OutputsSection files={[]} links={links} artifacts={0} />);
   });
-  const link = container.querySelector<HTMLAnchorElement>('ul[data-section="outputs"] a.acpmux-session-info-row')!;
-  const click = (init: MouseEventInit = {}) => {
+  const shown = () => container.querySelectorAll('ul[data-section="outputs"] > li').length;
+  const fold = () => container.querySelector<HTMLButtonElement>("button.acpmux-session-info-fold");
+  expect(shown()).toBe(OUTPUTS_SHOWN);
+  expect(fold()?.textContent).toBe(translate("sessionInfo.outputs.showMore"));
+  expect(fold()?.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => fold()!.click());
+  expect(shown()).toBe(8);
+  expect(fold()?.textContent).toBe(translate("sessionInfo.outputs.showLess"));
+  await act(async () => fold()!.click());
+  expect(shown()).toBe(OUTPUTS_SHOWN);
+
+  // Five or fewer: no fold at all.
+  await act(async () =>
+    root!.render(<OutputsSection files={[]} links={links.slice(0, OUTPUTS_SHOWN)} artifacts={0} />),
+  );
+  expect(shown()).toBe(OUTPUTS_SHOWN);
+  expect(fold()).toBeNull();
+});
+
+// An Outputs link to a local page opens where a Sources link or a pull request opens: in the pane
+// beside the chat (onOpenUrl, cmux #28544). The host's preview opens only loopback pages
+// (URL.isAgentPanePreview), so any other link, and a modified click (⌘, ⌃, ⇧), keeps the link's own
+// behaviour instead of being swallowed.
+test("an Outputs link to a local page opens beside the chat; an external link or a modified click is the link's own", async () => {
+  const container = installDom();
+  const beside: string[] = [];
+  const links = [
+    { url: "http://localhost:3000/", label: "localhost:3000" },
+    { url: "https://cmux.com/docs/session-info", label: "cmux.com/docs/session-info" },
+  ];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<OutputsSection files={[]} links={links} artifacts={0} onOpenBeside={(url) => beside.push(url)} />);
+  });
+  const anchors = container.querySelectorAll<HTMLAnchorElement>('ul[data-section="outputs"] a.acpmux-session-info-row');
+  const click = (link: HTMLAnchorElement, init: MouseEventInit = {}) => {
     const event = new dom!.window.MouseEvent("click", { bubbles: true, cancelable: true, ...init });
     link.dispatchEvent(event);
     return event.defaultPrevented;
   };
   let prevented = false;
   await act(async () => {
-    prevented = click();
+    prevented = click(anchors[0]!);
   });
-  expect({ beside, prevented }).toEqual({ beside: ["https://cmux.com/docs/session-info"], prevented: true });
+  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: true });
   await act(async () => {
-    prevented = click({ metaKey: true });
+    prevented = click(anchors[0]!, { metaKey: true });
   });
-  expect({ beside, prevented }).toEqual({ beside: ["https://cmux.com/docs/session-info"], prevented: false });
+  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: false });
+  await act(async () => {
+    prevented = click(anchors[1]!);
+  });
+  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: false });
 });

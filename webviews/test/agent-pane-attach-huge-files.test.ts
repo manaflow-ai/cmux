@@ -8,7 +8,8 @@
 // Each file below is attached to a chat's composer, one after another, while its upload is still
 // running, and the composer must stay usable:
 // - its tile shows at once, typed keys land within a frame, and the main thread never stalls;
-// - the + menu opens and closes, and another message goes out without waiting for the file;
+// - the + menu opens and closes; a message sent while the file uploads waits for it and goes with it
+//   (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent"), and one with nothing attached goes at once;
 // - the tile's × takes it away, stops its upload (no chunk after it, `chat.upload.cancel` sent),
 //   and the page's memory falls back; nothing ever holds a whole big file in the page's heap;
 // - a screen recording reaches the agent (the prompt's blocks name it).
@@ -31,8 +32,7 @@
 // - a JPEG whose APP segments run past 64 KiB before its frame header (12000 x 9000) is never
 //   decoded (createImageBitmap is spied in the page and in the image worker) and goes as a file.
 // The stand-in host keeps each upload's stage (begin opens it, finish or cancel closes it): no case
-// may end with one open. A file still uploading when another message went finishes, and the next
-// prompt carries its link.
+// may end with one open.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -1226,7 +1226,10 @@ os.replace(path + ".part", path)
       if (row.heap.after - row.heap.base > HEAP_BACK)
         problem(`the heap stayed ${((row.heap.after - row.heap.base) / MB).toFixed(0)} MB up after the ×`);
 
-      // 2. Attach again and send another message at once.
+      // 2. Attach again and press Enter while it uploads: the message waits for the file and goes
+      // with its link once it is in, never without it (Leo, 2026-11-01: "oh i guess mp4 couldnt get
+      // sent"). The composer stays usable meanwhile (step 1's keys and + menu). With nothing
+      // attached, the message goes at once.
       await step("the prompt for the send", prompt.click());
       if (!(await promptText(page)).trim()) await page.keyboard.type(TYPED);
       const beginsBefore = (await probes(page)).begins;
@@ -1240,7 +1243,6 @@ os.replace(path + ".part", path)
             timeout: STEP_MS - 1000,
           }),
         );
-        // A file streaming to the session's machine holds no send (one still being read does: case 5).
         await page
           .waitForFunction(
             ({ begun, pending }) =>
@@ -1254,45 +1256,37 @@ os.replace(path + ".part", path)
       const before = await sentPrompts(page);
       const pressed = Date.now();
       await step("pressing Enter", page.keyboard.press("Enter"));
-      const wentAt = await page
-        .waitForFunction(
-          (count) => {
-            const log = (window as unknown as BigWindow).cmuxGalleryLog;
-            return log.filter((entry) => entry.method === "acpmux session/prompt").length > count;
-          },
-          before,
-          { polling: 20, timeout: SEND_MS },
-        )
-        .then(
-          () => Date.now() - pressed,
-          () => undefined,
-        );
-      if (wentAt !== undefined) row.send = `sent in ${wentAt} ms`;
-      else {
-        problem(`another message waited for the file: nothing went within ${SEND_MS / 1000} s of Enter`);
-        // What its × does to the held message.
-        const loading = page.locator(".acpmux-composer .acpmux-attachment-pending .acpmux-attachment-remove");
-        if (await loading.count()) await step("the held tile's ×", loading.first().click());
-        const late = await page
-          .waitForFunction(
-            (count) => {
-              const log = (window as unknown as BigWindow).cmuxGalleryLog;
-              return log.filter((entry) => entry.method === "acpmux session/prompt").length > count;
-            },
-            before,
-            { polling: 20, timeout: SEND_MS },
-          )
-          .then(
-            () => true,
-            () => false,
-          );
-        row.send = late ? "held; went after the tile's ×" : "held; never went";
+      const stillLoading = attaching && (await page.locator(PENDING).count()) > 0;
+      const early = await promptAfter(page, before, stillLoading ? 1_500 : SEND_MS);
+      if (!stillLoading) {
+        if (early !== undefined) row.send = `sent in ${Date.now() - pressed} ms`;
+        else problem(`a message with nothing loading waited: nothing went within ${SEND_MS / 1000} s of Enter`);
+        if ((await sentPrompts(page)) > before) row.sentBlocks = await promptBlocks(page, before);
+      } else if (early !== undefined) {
+        // It went within the hold: right only when its file was in by then (a fast upload), never without it.
+        row.sentBlocks = await promptBlocks(page, before);
+        const second = (await probes(page)).begun.slice(beginsBefore);
+        if (second.length && uploadedLink(row.sentBlocks, second[0]!.name))
+          row.send = `held ${((Date.now() - pressed) / 1000).toFixed(1)} s; went with the file`;
+        else {
+          row.send = "went while its file still uploaded";
+          problem(`the message went without waiting for its file: ${blocksText(row.sentBlocks)}`);
+        }
+      } else {
+        // Held: the upload finishes (the host answers at once from here), then the message goes with it.
+        await page.evaluate(() => ((window as unknown as BigWindow).__big.chunkMs = 0));
+        const went = await promptAfter(page, before, 300_000);
+        const second = (await probes(page)).begun.slice(beginsBefore);
+        if (went === undefined) {
+          row.send = "held; never went";
+          problem("the held message never went once its file was in");
+        } else {
+          row.sentBlocks = await promptBlocks(page, before);
+          row.send = `held ${((Date.now() - pressed) / 1000).toFixed(1)} s; went with the file`;
+          if (second.length && !uploadedLink(row.sentBlocks, second[0]!.name))
+            problem(`the held message carried no link to its file: ${blocksText(row.sentBlocks)}`);
+        }
       }
-      if ((await sentPrompts(page)) > before) row.sentBlocks = await promptBlocks(page, before);
-      // 2b. The file that was uploading meanwhile finishes, and the next prompt carries its link.
-      const second = (await probes(page)).begun.slice(beginsBefore);
-      if (attaching && second.length && (await page.locator(PENDING).count()))
-        await nextPrompt(page, row, problem, second[0]!.name);
       // Whatever still loads stops here.
       for (const loading of await page
         .locator(".acpmux-composer .acpmux-attachment-pending .acpmux-attachment-remove")

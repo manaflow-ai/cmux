@@ -131,16 +131,16 @@ struct HomeAgentMessages {
     /// Two or more messages behind one fold row; one message shows as itself.
     private static func fold(_ members: [TranscriptItem], group: String, expanded: Set<String>) -> [TranscriptItem] {
         guard members.count > 1, let first = members.first else { return members }
-        var peers: [String] = []
+        var peers: [String] = [], seenPeers: Set<String> = []
         for member in members {
             guard case let .message(from, to, outgoing, _)? = member.agentMessage?.kind else { continue }
             let peer = outgoing ? to : from
-            if !peers.contains(peer) { peers.append(peer) }
+            if seenPeers.insert(peer).inserted { peers.append(peer) }
         }
         let open = expanded.contains(group)
         var fold = TranscriptItem(
             key: IdempotencyKey("agent-messages:\(group)"), seq: nil, author: first.author,
-            parts: [.text("\(open ? "▾" : "▸") \(peers.joined(separator: " · "))")], createdAt: first.createdAt,
+            parts: [.text("\(open ? "▾" : "▸") \(HomeAgentMessageRow.peerPreview(peers, separator: " · "))")], createdAt: first.createdAt,
             delivery: .committed, replyTo: first.replyTo, threadRoot: first.threadRoot)
         fold.isReadOnly = true
         fold.agentMessage = HomeAgentMessageRow(group: group, kind: .fold(count: members.count, peers: peers, expanded: open))
@@ -150,17 +150,17 @@ struct HomeAgentMessages {
     /// Status notes behind one notes row, whose group is ``HomeAgentMessageRow/notesGroup(_:)``.
     private static func foldNotes(_ notes: [TranscriptItem], group: String, expanded: Set<String>) -> [TranscriptItem] {
         guard let first = notes.first else { return [] }
-        var peers: [String] = [], reasons: [HomeAgentMessageRow.StatusNote] = []
+        var peers: [String] = [], seenPeers: Set<String> = [], reasons: [HomeAgentMessageRow.StatusNote] = []
         for note in notes {
             guard case let .note(peer, reason, _)? = note.agentMessage?.kind else { continue }
-            if !peers.contains(peer) { peers.append(peer) }
+            if seenPeers.insert(peer).inserted { peers.append(peer) }
             if !reasons.contains(reason) { reasons.append(reason) }
         }
         let notesGroup = HomeAgentMessageRow.notesGroup(group)
         let open = expanded.contains(notesGroup)
         var row = TranscriptItem(
             key: IdempotencyKey("agent-notes:\(group)"), seq: nil, author: first.author,
-            parts: [.text("\(open ? "▾" : "▸") \(peers.joined(separator: " · "))")], createdAt: first.createdAt,
+            parts: [.text("\(open ? "▾" : "▸") \(HomeAgentMessageRow.peerPreview(peers, separator: " · "))")], createdAt: first.createdAt,
             delivery: .committed, replyTo: first.replyTo, threadRoot: first.threadRoot)
         row.isReadOnly = true
         row.agentMessage = HomeAgentMessageRow(group: notesGroup, kind: .notes(

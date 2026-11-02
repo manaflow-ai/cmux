@@ -60,6 +60,8 @@ proto.getBoundingClientRect = function (this: HTMLElement) {
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UiProvider } = await import("../src/ui/UiProvider");
+const { AgentProgressContext, AgentProgressStore } =
+  await import("../src/agent-session/acpmux/subagents/agentProgressStore");
 const { SubagentsSection } = await import("../src/agent-session/acpmux/session-info/SubagentsSection");
 
 const shown: PopupModel[] = [];
@@ -101,13 +103,18 @@ test("a running subagent's hover card with a long command stays in the page", as
     state: "running",
     startedAt: Date.now() - 21 * 60_000,
     background: true,
+    tokens: 1000,
+    agents: { started: 3, done: 0 },
     action:
       "'for c in 61c13a741f0 e5ece9e0dc7; do echo \"### $c refs\"; git for-each-ref --contains=$c --format='\"'%(refname)' | head -50; done",
   };
+  const progress = new AgentProgressStore([agent]);
   await act(async () =>
     root.render(
       <UiProvider container={container} popupHost={host}>
-        <SubagentsSection agents={[agent]} waiting={new Set()} onOpen={() => {}} />
+        <AgentProgressContext.Provider value={progress}>
+          <SubagentsSection agents={[agent]} waiting={new Set()} onOpen={() => {}} />
+        </AgentProgressContext.Provider>
       </UiProvider>,
     ),
   );
@@ -123,6 +130,14 @@ test("a running subagent's hover card with a long command stays in the page", as
   });
   const card = container.querySelector<HTMLElement>(".acpmux-agent-card__popup");
   expect(card?.textContent).toContain("needs_you_prior_art");
+  // No subagent list says tokens (the Inspector's Context does); the counts are what updates.
+  expect(card?.textContent).toContain("0/3 agents");
+  expect(card?.textContent).not.toContain("tokens");
+  // The parent keeps its structural agent object: both mounted surfaces subscribe to usage.
+  await act(async () => progress.updateProgress(agent.id, { tokens: 42000, agents: { started: 3, done: 1 } }));
+  expect(line.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
+  expect(card?.textContent).toContain("1/3 agents");
+  expect(card?.textContent).not.toContain("0/3 agents");
   // The escape measures a frame after the card is placed.
   await act(async () => {
     await frame();

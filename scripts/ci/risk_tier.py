@@ -13,8 +13,8 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           pull_request_target or workflow_run trigger. Read for
           a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
-          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head holds it; no verdict
-          yet is a warning, not a hold.
+          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
+          is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
 
 Size is not a rule: in the audit, the changes that broke things were as often small as large.
 Separately from the tier, a pull request that takes back what another pull request merged in the
@@ -572,10 +572,11 @@ SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an 
 def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
                      taken_back: list[int] | None = None, blocked: bool = False,
                      unread: bool = False) -> list[str]:
-    """What still holds the merge. Empty means nothing does. A high pull request is held only by a
-    BLOCK (or FIX, or a change request) that is the newest verdict on its head; with no verdict yet
-    it gets a warning (pending_review), not a hold. A takeback holds any tier until the description
-    owns it."""
+    """What the summary lists as held. Empty means nothing is. A high pull request is listed only for a
+    BLOCK (or FIX, or a change request) that is the newest verdict on its head, which risk-tier.yml
+    only warns on (the lander refuses it); with no verdict yet it gets a warning (pending_review). A
+    takeback is listed for any tier until the description owns it, and only that turns the check red
+    (unowned_takebacks)."""
     missing = []
     if tier == "high" and unread and not human_ok:
         missing.append("the review verdicts on the head commit could not be read (a GitHub API error), so a "
@@ -840,7 +841,7 @@ def pr_mode(args: argparse.Namespace) -> int:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
         except (subprocess.CalledProcessError, ValueError, TypeError):
             # An unreadable comment, review or label read (or one past the page cap) could hide a
-            # BLOCK: hold, never warn.
+            # BLOCK: list it as held (risk-tier.yml then warns; the lander reads the verdict itself).
             signed, blocked, unread = None, False, True
     missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone), blocked,
                                unread)

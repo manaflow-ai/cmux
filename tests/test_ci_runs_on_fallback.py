@@ -87,6 +87,12 @@ OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]
 # A placement's role route and the health-checked overflow that must sit beside it (side_lane_placement.py).
 ROLE_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.(?:gui_runner|session_runner)\b")
 RESCUE = WORKFLOWS / "ci-owned-pool-rescue.yml"
+# A session label (glaeda-session-<class>-xcode-<v>, pr_runner_pool.session_label()) and a variable naming one
+# (vars.CI_SESSION_LANE_RUNNER; a switch like vars.CI_SESSION_LABEL names no label). A runs-on takes one only
+# from a placement output that role_room() judged.
+SESSION_LITERAL = re.compile(r"'(glaeda-(?:[a-z]+-)*?session-[a-z0-9.-]+)'")
+SESSION_VARIABLE = re.compile(r"\bvars\.([A-Z0-9_]*SESSION[A-Z0-9_]*RUNNER[A-Z0-9_]*)\b")
+SESSION_LANE_GUARD = re.compile(r"needs\.[\w-]+\.outputs\.session_lane_runner\s*!=\s*''")
 # A job that compiles, or is a fallback route for one.
 COMPILE_OR_FALLBACK = re.compile(r"compile|fallback", re.IGNORECASE)
 # Keys that scope a group to one pull request, commit, run or branch, as whole identifiers
@@ -516,6 +522,49 @@ def overflow_preempted(text: str) -> list[str]:
     return found
 
 
+def leaves(expression: str) -> list[str]:
+    """`expression`'s `||` alternatives, with each parenthesized alternation opened up in place."""
+    found = []
+    for alternative in split_top(unwrap(expression), "||"):
+        inner = unwrap(alternative)
+        if len(split_top(inner, "||")) > 1:
+            found += leaves(inner)
+            continue
+        terms = conjuncts(inner)
+        last = unwrap(terms[-1]) if terms else inner
+        if len(split_top(last, "||")) > 1:
+            # `a && (b || c)`: each of b and c is taken under a's conjuncts.
+            found += [" && ".join([*terms[:-1], leaf]) for leaf in leaves(last)]
+        else:
+            found.append(inner)
+    return found
+
+
+def session_label_problems(text: str) -> list[str]:
+    """Why a runs-on can send a job to a session label without a placement having judged that label's queue.
+
+    The session label's runners are often online and busy on gui jobs while it starts nothing: on 2026-10-29
+    cmux#24295's daemon tests waited 90 minutes on glaeda-session-std-xcode-26.6, twice, with five session
+    runners online (36 offline) and the gui label beside it starting jobs within a minute, and the janitor
+    opened "Runner label starved" issues for it twice that day. The gui-or-session rule above passed those
+    jobs, because it counts ci-owned-pool-rescue.yml's watch as the way off; but the rescue watches a cmux-next
+    run "refusals-only" while Blacksmith has no free slot, as it had none that day, so it never moved them,
+    and GitHub never moves a queued job. So a session label reaches a job only from a placement output
+    (side_lane_placement.py's session_runner, session_lane_runner, free_session_runner), whose role_room()
+    declines a label the janitor found unserved:
+    - no runs-on names a session label literally;
+    - an alternative that reads a session variable (vars.CI_SESSION_LANE_RUNNER) also requires the
+      placement's session_lane_runner to be set, so the variable is taken only while role_room() held for it.
+    """
+    found = [f"names {label} literally" for label in dict.fromkeys(SESSION_LITERAL.findall(text))]
+    for expression in EXPRESSION.findall(text) or [text]:
+        for leaf in leaves(expression):
+            variables = SESSION_VARIABLE.findall(leaf)
+            if variables and not any(SESSION_LANE_GUARD.fullmatch(unwrap(term)) for term in conjuncts(leaf)):
+                found.append(f"reads vars.{variables[0]} without the placement's session_lane_runner")
+    return found
+
+
 # Side-workflow Mac jobs placed through cmux-next's cascade (scripts/ci/side_lane_placement.py and
 # next_macos_cascade.py): (workflow, job) -> (the placing job, the key the placement lists the job under).
 # Such a job takes an idle owned Mac, else a free Blacksmith macOS slot, and never waits on one busy side
@@ -645,6 +694,15 @@ class RunsOnFallbackTests(unittest.TestCase):
                     failures.append(f"{path.name} {job_id}: {match.group(0)}")
         self.assertEqual(failures, [], "a runs-on must name a pool, never one machine")
 
+    def test_the_nightly_only_builder_is_reached_only_through_its_idle_pick(self) -> None:
+        # One runner per dedicated Mac carries it, so a queue on it could wait a whole build. Only
+        # nightly_build_runner.nightly_only_builder_route() names it, and only while one is idle now;
+        # otherwise, and when unread, the build takes the plain ten-runner glaeda-nightly-only-m4pro.
+        failures = [f"{path.name} {job_id}" for path in workflows()
+                    for job_id, job in (load(path).get("jobs") or {}).items()
+                    if re.search(r"nightly-only-m4pro-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
+        self.assertEqual(failures, [], "the warm nightly builder label is a pick, never a runs-on literal")
+
     def test_a_single_host_variable_always_has_a_fallback(self) -> None:
         failures = []
         for path in workflows():
@@ -734,6 +792,37 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertRegex(label, r"'glaeda-dev-std-xcode-[0-9.]+'")
         self.assertIsNone(SINGLE_HOST.search(label))
         self.assertIsNone(SINGLE_HOST_VAR.search(label))
+
+    def test_a_placement_never_hands_a_runs_on_the_busy_reserved_slot_while_blacksmith_moves(self) -> None:
+        """The reserved-slot rule above trusts each placement to name the slot only while it can take the job.
+        dev-daily-place reads the slot's label too (FRESH_LABEL) and its output goes straight into
+        cmux-scheme-compile's runs-on, so a busy slot there is the only route: on 2026-11-02 from 10:12Z 15 DEV
+        Release compiles queued up to 1.5 h on glaeda-dev-std-xcode-26.6 (one runner busy, the other offline) while
+        Blacksmith overflow was never tried. With every owned runner busy and a Blacksmith macOS label moving, no
+        such placement may answer the slot (or any owned label): the routing order's last resort comes first."""
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import datetime as dt
+        import dev_landing_place
+
+        readers = [job_id for path in workflows() for job_id, job in (load(path).get("jobs") or {}).items()
+                   if any("FRESH_LABEL" in (step.get("env") or {}) and "dev_landing_place.py" in str(step.get("run"))
+                          for step in job.get("steps") or [])]
+        self.assertEqual(readers, ["dev-daily-place"], "the placements that hand a runs-on the reserved slot label")
+        now = dt.datetime(2026, 11, 2, 10, 12, tzinfo=dt.timezone.utc)
+        moving = {"generated_at": "2026-11-02T10:10:00Z",
+                  "label_started": {"blacksmith-6vcpu-macos-26": "2026-11-02T10:10:00Z"},
+                  "pools": {"blacksmith-6vcpu-macos-26": {"queued": 0, "oldest_queued_minutes": 0, "running": 2},
+                            "blacksmith-12vcpu-macos-26": {"queued": 0, "oldest_queued_minutes": 0, "running": 1}}}
+        slot, side = "glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6"
+        busy = [{"name": "m1-glaeda-2", "status": "online", "busy": True, "labels": [{"name": slot}]},
+                {"name": "m2-glaeda-2", "status": "offline", "busy": False, "labels": [{"name": slot}]},
+                {"name": "m3-glaeda-1", "status": "online", "busy": True, "labels": [{"name": side}]}]
+        result = dev_landing_place.place(
+            {"SIDE_LABEL": side, "FRESH_LABEL": slot, "SHA": "a" * 40}, lambda: busy, lambda host: [],
+            overflow=lambda: dev_landing_place.blacksmith_overflow("", moving, now))
+        self.assertNotIn(slot, result["runs_on"], result["reason"])
+        self.assertNotIn(side, result["runs_on"], result["reason"])
+        self.assertEqual(json.loads(result["runs_on"]), "blacksmith-6vcpu-macos-26")
 
     def test_an_owned_gui_or_session_label_always_has_a_way_off(self) -> None:
         rescued, failures, seen = rescued_paths(), [], 0
@@ -833,6 +922,40 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(overflow_preempted(f"${{{{ x && 'blacksmith-12vcpu-macos-26' || {overflow} || {small} }}}}"))
         # No gui_overflow read: another rule's business.
         self.assertEqual(overflow_preempted(f"${{{{ a && {small} || 'glaeda-side-std-xcode-26.6' }}}}"), [])
+
+    def test_a_session_label_comes_only_from_a_placement_that_judged_it(self) -> None:
+        failures, placed = [], 0
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                text = runs_on_text(job)
+                placed += "outputs.session_runner" in text
+                failures += [f"{path.name} {job_id}: {why}" for why in session_label_problems(text)]
+        self.assertEqual(failures, [], "a session label starts nothing for hours while its runners look online")
+        self.assertGreaterEqual(placed, 1, "cmux-next's daemon tests read the placement's session_runner")
+
+    def test_the_session_label_rule_catches_what_it_is_for(self) -> None:
+        session = "'glaeda-session-std-xcode-26.6'"
+        gui = "'glaeda-gui-std-xcode-26.6'"
+        # cmux#24295's route: the literal session label behind a variable switch, gated and with a Blacksmith end.
+        self.assertTrue(session_label_problems(
+            f"${{{{ github.run_attempt == 1 && (vars.CI_SESSION_LABEL == '1' && {session} || {gui}) "
+            "|| 'blacksmith-6vcpu-macos-26' }}"))
+        self.assertTrue(session_label_problems(f"${{{{ {session} }}}}"))
+        self.assertTrue(session_label_problems("glaeda-session-light-xcode-26.6".join("''")))
+        # A session variable taken without the placement's verdict, or behind another `||` branch.
+        self.assertTrue(session_label_problems(
+            "${{ vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_SESSION_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}"))
+        self.assertTrue(session_label_problems(
+            "${{ a && (needs.p.outputs.session_lane_runner != '' || b) && vars.CI_SESSION_LANE_RUNNER || 'x' }}"))
+        self.assertEqual(session_label_problems(
+            "${{ needs.p.outputs.session_lane_runner != '' && (b || vars.CI_SESSION_LANE_RUNNER) || 'x' }}"), [])
+        # The placement's outputs, and the variable under the placement's verdict, pass.
+        self.assertEqual(session_label_problems(
+            "${{ needs.p.outputs.free_session_runner || needs.p.outputs.session_runner || needs.p.outputs.gui_runner "
+            f"|| github.run_attempt == 1 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}"), [])
+        self.assertEqual(session_label_problems(
+            "${{ vars.CI_SESSION_LANE_RUNNER != '' && needs.p.outputs.session_lane_runner != '' && "
+            "(github.run_attempt == 1 || x) && vars.CI_SESSION_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}"), [])
 
     def test_separate_pr_cascade_does_not_preempt_push_gui_overflow(self) -> None:
         jobs = load(WORKFLOWS / "cmux-next.yml")["jobs"]

@@ -133,15 +133,24 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
         "selected output is {} bytes",
         selected.stdout.len()
     );
-    assert!(
-        selected_elapsed < Duration::from_millis(300),
-        "selected listing took {selected_elapsed:?}"
-    );
     assert!(selected.stdout.len() < full.stdout.len(), "selection did not reduce output");
-    assert!(
-        selected_elapsed <= full_elapsed,
-        "selection slower than full listing: {selected_elapsed:?} > {full_elapsed:?}"
-    );
+    // Bounded by its work, not by a clock (a 300 ms wall-clock check failed on loaded fleet Macs,
+    // 1 of 5, with the read unchanged): `--limit 20` reads the newest page and stops. Its
+    // `nextCursor` is the row after that page, so rows were left unread; a read of every page
+    // ends with a null one. The cursor then reads the next 20, and those come after the first.
+    let selected_value: Value = serde_json::from_slice(&selected.stdout).unwrap();
+    let next = selected_value["nextCursor"].as_str().unwrap_or_else(|| {
+        panic!("a --limit 20 listing read to the end: nextCursor {}", selected_value["nextCursor"])
+    });
+    let (after, _) =
+        run(&root, &["--json", "ls", "--limit", "20", "--cursor", next, "--fields", "name"]);
+    assert!(after.status.success(), "the next page failed: {after:?}");
+    let after: Value = serde_json::from_slice(&after.stdout).unwrap();
+    let names: Vec<&str> =
+        after["sessions"].as_array().unwrap().iter().filter_map(|r| r["name"].as_str()).collect();
+    assert_eq!(names.first(), Some(&"lane-2979"), "{names:?}");
+    assert_eq!(names.len(), 20, "{names:?}");
+    // Timings are printed for the benchmark log only.
     eprintln!(
         "ls benchmark head: full={} bytes/{full_elapsed:?}; selected={} bytes/{selected_elapsed:?}",
         full.stdout.len(),

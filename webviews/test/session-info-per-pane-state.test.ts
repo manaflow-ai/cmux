@@ -54,11 +54,11 @@ test("a toggle, a drag or a fold in one pane leaves the other pane as it was", a
 
   left.setSessionInfoOpen(false);
   left.setSessionInfoWidth(480);
-  left.setSessionInfoSection("context", true);
+  left.setSessionInfoSection("context", false);
   for (const key of Object.keys(localStorage)) storageEvent(key);
 
-  expect(left.sessionInfoState()).toMatchObject({ open: false, width: 480, sections: { context: true } });
-  expect(right.sessionInfoState()).toMatchObject({ open: true, width: 320, sections: { context: false } });
+  expect(left.sessionInfoState()).toMatchObject({ open: false, width: 480, sections: { context: false } });
+  expect(right.sessionInfoState()).toMatchObject({ open: true, width: 320, sections: { context: true } });
 });
 
 test("after a relaunch each pane shows its own state again", async () => {
@@ -285,3 +285,25 @@ for (const [name, savedByB] of [
     // X is listed again, so a later save still prunes it in turn.
     expect(localStorage.getItem(SESSION_INFO_INDEX_KEY)).toContain('"chat-x"');
   });
+
+test("Context opens by default, even in a chat saved before that, and a fold made since stays", async () => {
+  // Leo, 2026-11-01: "context tho is pretty good i think to keep expanded by default? it seemed like it
+  // was collapsed initially". Every chat saved its whole state, Context folded by default, before
+  // the change; that saved fold gives way, and a fold saved since (version 2) is kept.
+  const folded = { environment: true, context: false, connectors: false, changes: true };
+  localStorage.setItem(
+    `${PREFIX}chat-old`,
+    JSON.stringify({ open: true, width: 320, sections: folded, at: Date.now() }),
+  );
+  localStorage.setItem("cmux.agentPane.inspector.sections", JSON.stringify(folded));
+  const old = await page("chat-old");
+  expect(old.sessionInfoState().sections).toMatchObject({ context: true, connectors: false });
+  const fresh = await page("chat-new");
+  expect(fresh.sessionInfoState().sections.context).toBe(true);
+
+  fresh.setSessionInfoSection("context", false);
+  const again = await page("chat-new");
+  expect(again.sessionInfoState().sections.context).toBe(false);
+  const next = await page("chat-next");
+  expect(next.sessionInfoState().sections.context).toBe(false);
+});

@@ -907,7 +907,7 @@ mark {
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--muted-text);
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 600;
 }
 

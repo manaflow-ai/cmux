@@ -14,13 +14,9 @@ import { drawnThought } from "./thoughts";
 import { callOutput, shellOutput, toolFailure } from "./toolFailure";
 import { toolResult } from "./toolResult";
 import { stripsEnvelopeImages } from "../toolImages";
+import { foldFind } from "../../../find/fold";
 
-/** The text Find compares: case-folded, and as long as it was, so a match's offset in the folded text
- * is its offset in what the page draws. `İ` (U+0130) lowercases to two code units (`i` and a
- * combining dot), which moved every highlight after it one character; it folds to `i` instead.
- * `toLowerCase` and not `toLocaleLowerCase`, whose result follows the host's locale (Lithuanian
- * expands more letters, Turkish folds `I` to `ı`): a query matches the same text on every machine. */
-export const foldFind = (text: string) => text.replace(/\u0130/g, "i").toLowerCase();
+export { foldFind };
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
