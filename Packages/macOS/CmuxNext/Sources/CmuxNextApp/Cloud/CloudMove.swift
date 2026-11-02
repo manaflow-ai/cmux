@@ -275,21 +275,14 @@ struct CloudMove {
         return try await Self.connected(created, invocation)
     }
 
-    /// The Cloud API's answer for this app on the link in use, read now and never kept: the machine
-    /// takes the chat only on `owner`, never on its own record (its agents can write it). The legacy
-    /// link's answer is bound to the link process it came from (`toPID`): the pump sends it only over
-    /// a connection that process serves, so a link replaced meanwhile gets none. The app server link's
-    /// answer is its current connect's (``CloudLinkSession/ownerLink``); its socket is the carrier's,
-    /// which dials the machine per connection, so there is no link process to bind it to.
+    /// The Cloud API's answer on the link in use, read now and never kept: the machine takes the chat only on
+    /// `owner`. The legacy link's is bound to its link process (`toPID`); the app link's carrier has none.
     static func ownerAnswer(_ session: CloudMachineSession) async -> (vmKind: String, toPID: Int32?) {
         if let appLink = session.appLink { return (await appLink.ownerLink == nil ? "none" : "owner", nil) }
-        let pid = await session.link?.ownerPID
-        return (pid == nil ? "none" : "owner", pid)
+        return await session.link?.ownerPID.map { ("owner", $0) } ?? ("none", nil)
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
-        // Either link: the app server link's carrier socket dials the machine once per connection
-        // it accepts, so the CLIs' copy and move get connections of their own beside the app's.
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
         try CloudHandlers.requireAttachableState(session)
