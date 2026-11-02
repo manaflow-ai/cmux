@@ -68,6 +68,29 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
     private let onFallback: (any Error) -> Void
     private var usingLink = false
 
+    public enum Choice: Equatable, Sendable { case native, link }
+
+    /// `CMUX_NEXT_CLOUD_NATIVE_LINK` in the bundle's LSEnvironment or the launch environment
+    /// (CMUX_NEXT_* survives LaunchIdentity's strip).
+    public nonisolated static var setting: String? {
+        let key = "CMUX_NEXT_CLOUD_NATIVE_LINK"
+        let bundled = Bundle.main.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String]
+        return bundled?[key] ?? ProcessInfo.processInfo.environment[key]
+    }
+
+    /// `=1`: Native only, with no `cmux link` fallback.
+    public nonisolated static var forced: Bool { setting == "1" }
+
+    /// Which route the app server link takes: `=1` Native, `=0` `cmux link`, otherwise Native
+    /// on a non-production backend and `cmux link` on production.
+    public nonisolated static func choice(production: Bool, setting: String? = CloudNativeFirstLauncher.setting) -> Choice {
+        switch setting {
+        case "1": .native
+        case "0": .link
+        default: production ? .link : .native
+        }
+    }
+
     public init(native: any CloudLinkLaunching, link: (any CloudLinkLaunching)?,
                 onFallback: @escaping (any Error) -> Void = { _ in }) {
         self.native = native; self.link = link; self.onFallback = onFallback

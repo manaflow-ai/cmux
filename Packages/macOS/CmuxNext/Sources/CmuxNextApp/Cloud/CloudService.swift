@@ -241,12 +241,12 @@ final class CloudService {
         let launcher: (any CloudLinkLaunching)?
         if configuration.linkSource != .appServer {
             launcher = nil
-        } else if Self.nativeLinkChoice(production: configuration.backend == .production) == .link {
+        } else if CloudNativeFirstLauncher.choice(production: configuration.backend == .production) == .link {
             launcher = cmuxLink
         } else if let native = CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths,
                                                              build: build, deviceName: Self.deviceName) {
             let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
-            launcher = Self.nativeLinkForced ? native : CloudNativeFirstLauncher(native: native, link: cmuxLink) { error in
+            launcher = CloudNativeFirstLauncher.forced ? native : CloudNativeFirstLauncher(native: native, link: cmuxLink) { error in
                 logger.error("cloud.link native route failed, using cmux link: \(String(describing: error), privacy: .public)")
             }
         } else {
@@ -272,28 +272,6 @@ final class CloudService {
 
     static var deviceName: String { MacName().linkDeviceName() }
 
-    enum NativeLinkChoice: Equatable { case native, link }
-
-    /// `CMUX_NEXT_CLOUD_NATIVE_LINK` in the bundle's LSEnvironment or the launch environment
-    /// (CMUX_NEXT_* survives LaunchIdentity's strip).
-    private static var nativeLinkSetting: String? {
-        let key = "CMUX_NEXT_CLOUD_NATIVE_LINK"
-        let bundled = Bundle.main.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String]
-        return bundled?[key] ?? ProcessInfo.processInfo.environment[key]
-    }
-
-    /// `=1`: Native only, with no `cmux link` fallback.
-    static var nativeLinkForced: Bool { nativeLinkSetting == "1" }
-
-    /// Which route the app server link takes: `=1` Native, `=0` `cmux link`, otherwise Native
-    /// on a non-production backend and `cmux link` on production.
-    static func nativeLinkChoice(production: Bool, setting: String? = nativeLinkSetting) -> NativeLinkChoice {
-        switch setting {
-        case "1": .native
-        case "0": .link
-        default: production ? .link : .native
-        }
-    }
     /// This Mac's install id for a synchronous caller (``CloudDeviceID/loadNow()``): read once, on the files
     /// lane when Cloud starts; async callers use ``installID()``.
     func localDeviceID() throws -> String { try deviceID.loadNow() }

@@ -1,4 +1,3 @@
-@testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextDaemon
@@ -22,10 +21,10 @@ private final class FakeLauncher: CloudLinkLaunching {
 @MainActor
 struct CloudNativeFirstLauncherTests {
     @Test func nonProductionDefaultsToNativeAndProductionToCmuxLink() {
-        #expect(CloudService.nativeLinkChoice(production: false, setting: nil) == .native)
-        #expect(CloudService.nativeLinkChoice(production: true, setting: nil) == .link)
-        #expect(CloudService.nativeLinkChoice(production: false, setting: "0") == .link)
-        #expect(CloudService.nativeLinkChoice(production: true, setting: "1") == .native)
+        #expect(CloudNativeFirstLauncher.choice(production: false, setting: nil) == .native)
+        #expect(CloudNativeFirstLauncher.choice(production: true, setting: nil) == .link)
+        #expect(CloudNativeFirstLauncher.choice(production: false, setting: "0") == .link)
+        #expect(CloudNativeFirstLauncher.choice(production: true, setting: "1") == .native)
     }
 
     @Test func aWorkingNativeRouteIsUsed() async throws {
