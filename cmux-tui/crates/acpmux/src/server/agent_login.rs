@@ -154,8 +154,17 @@ async fn signed_in(
             "the chat's account changed during sign-in; start again",
         ));
     }
-    if let Err(e) = machine(hub).choose_own(agent) {
-        tracing::warn!(agent = agent.name(), error = %e, "agent login: record the own sign-in choice");
+    // Alternate account homes are scoped to this chat; do not flip the machine-wide
+    // launcher mode away from team routing for the canonical account.
+    let machine = machine(hub);
+    let canonical = machine.home.join(match agent {
+        Agent::Claude => ".claude",
+        Agent::Codex => ".codex",
+    });
+    if current.store(agent) == canonical {
+        if let Err(e) = machine.choose_own(agent) {
+            tracing::warn!(agent = agent.name(), error = %e, "agent login: record the own sign-in choice");
+        }
     }
     hub.login_changed(agent.name(), store, route.as_deref()).await?;
     let Some(key) = text(params, "sessionId") else { return Ok(false) };

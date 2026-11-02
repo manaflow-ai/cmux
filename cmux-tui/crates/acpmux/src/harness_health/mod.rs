@@ -204,6 +204,11 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
     let home_named = |key: &str| !s.unresolved.iter().any(|k| k == key);
     match s.family.as_str() {
         "codex" if program.contains("codex") && home_named("CODEX_HOME") => {
+            // A project config can select a provider/profile the home-level probe cannot see.
+            // Leave that target inconclusive so a stale OpenAI refusal never blocks its chat.
+            if cwd.is_some_and(|dir| dir.join(".codex/config.toml").is_file()) {
+                return None;
+            }
             let env = crate::login_env::effective_for(Some("codex"), &s.env);
             match codex_provider::provider_auth(&env) {
                 codex_provider::ProviderAuth::Configured(detail) => {
