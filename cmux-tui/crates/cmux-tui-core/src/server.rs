@@ -2972,6 +2972,10 @@ mod personal_terminal_tests;
 mod browser_profile_tests;
 
 #[cfg(test)]
+#[path = "server/creation_burst_tests.rs"]
+mod creation_burst_tests;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(unix)]

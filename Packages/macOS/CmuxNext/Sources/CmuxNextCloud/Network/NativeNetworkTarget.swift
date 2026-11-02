@@ -48,7 +48,7 @@ extension MacInstallIdentity {
         guard reply.status == 200, reply.body.count <= 1_048_576 else {
             // validation.invalid here is a tenant with more than one mesh; selector.not_found is none.
             NativeNetworkRefusal.log("host.network.target", status: reply.status, body: reply.body)
-            throw NativeDeviceEnrollmentError.refused(reply.status)
+            throw NativeDeviceEnrollmentError.refused(reply.status, step: "host.network.target")
         }
         let decoded = try JSONDecoder().decode(NativeNetworkTargetReply.self, from: reply.body)
         let target = try NativeNetworkTarget(decoded, team: team, mesh: mesh, context: context)
