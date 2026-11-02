@@ -13379,6 +13379,7 @@ function AcpmuxPane() {
               machineName,
               peerKinds: snapshot.peerKinds,
               repository: githubRepository,
+              cloudRepositoryAvailable,
               onOpenFolder:
                 quick || !sessionInfoLocal
                   ? undefined
