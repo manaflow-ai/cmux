@@ -46,7 +46,7 @@ struct SidebarFirstItemInItsWindowTests {
     enum Opening: String, CaseIterable, CustomTestStringConvertible {
         /// `WindowManager.newWindow()`: on window A's space.
         case sameSpace
-        /// New Window as the person runs it (Cmd-Shift-N, `newWindow`): on a new space.
+        /// On another space: New Window in a space (`space.newWindow`; on feat, Cmd-Shift-N opens a new space).
         case newSpace
         /// Move Workspace to New Window (`moveWorkspaceToNewWindow`, the journey's set-up): a workspace of window A
         /// moves into a new window, on window A's space.
@@ -74,9 +74,13 @@ struct SidebarFirstItemInItsWindowTests {
             let before = Set(services.windows.controllers.map(\.state.id))
             switch opening {
             case .newSpace:
-                // New Window as the person runs it: a new space (its personal state must be loaded for that).
+                // Dogfood line: New Window keeps window A's space (no spaces-overhaul rule 3 here), so a window
+                // on another space comes from New Window in a space (`space.newWindow`) of a space made here.
                 try await PinnedPageTests.until({ services.machines.local.store.personal.isLoaded }, within: .seconds(30))
-                #expect(services.registry.perform("newWindow", invocation: ActionInvocation(origin: .user)))
+                let room = try await connection.createProfile(name: "mw1-other-space").id
+                try await PinnedPageTests.until({ services.machines.local.store.profile(room) != nil }, within: .seconds(30))
+                let inRoom = ActionInvocation(target: ActionTargetRef(kind: .profile, id: room.rawValue), origin: .user)
+                #expect(services.registry.perform("space.newWindow", invocation: inRoom))
             case .sameSpace:
                 _ = services.windows.newWindow()
             case .movedWorkspace:
