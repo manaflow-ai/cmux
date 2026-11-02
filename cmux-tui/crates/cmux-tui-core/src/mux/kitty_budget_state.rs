@@ -147,19 +147,20 @@ impl Drop for KittyImageBudgetReservation {
     }
 }
 
-/// One terminal a respawn wave will add to the Kitty image budget before it
-/// reserves its share (one per respawn that starts at once). While it is
-/// alive the budget is sized for that terminal too, so the first respawn of
-/// a wave does not take a share that the next ones must then wait for it to
-/// give back while its launch is still in flight. Dropped right before its
-/// respawn reserves, or with the respawn when that is given up.
+/// One terminal a respawn wave will add to the Kitty image budget, under the
+/// surface id it will reserve with. Until that reservation (which takes the
+/// expectation over in the same budget lock) the budget is sized for it too,
+/// so the first respawn of a wave does not take a share that the next ones
+/// must wait for while its launch is still in flight. Dropped unused (the
+/// respawn was given up), it gives the share back.
 pub(crate) struct KittyImageSurfaceExpectation {
     pub(super) mux: Weak<Mux>,
+    pub(super) surface: SurfaceId,
 }
 
 impl Drop for KittyImageSurfaceExpectation {
     fn drop(&mut self) {
-        drop(self.mux.upgrade());
+        drop((self.mux.upgrade(), self.surface));
     }
 }
 

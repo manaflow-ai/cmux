@@ -77,27 +77,28 @@ fn granted(reservations: &[KittyImageBudgetReservation]) -> (u64, u64, u64) {
 /// After a kill of everything, 12 terminals respawn at once. The first one
 /// to reserve used to take the whole Kitty budget (it was alone), so every
 /// other reservation waited for that first launch to finish and give its
-/// share back (34-39 ms each on the fleet, cx REOPEN-F3), and here, where
-/// it never finishes, 500 ms each and then graphics off: a respawned
-/// terminal's restored Kitty images would be dropped for good. A wave that
-/// declares its terminals first never waits, and every one starts with the
-/// wave's final share, inside the process budget.
+/// share back (34-39 ms each on the fleet, REOPEN-F3), and here, where it
+/// never finishes, 500 ms each and then graphics off: a respawned terminal's
+/// restored Kitty images would be dropped for good. A wave that declares its
+/// terminals first never waits, and every one starts with the wave's final
+/// share, inside the process budget.
 #[test]
 fn a_respawn_wave_reserves_its_kitty_shares_without_waiting_for_a_launch_in_flight() {
     const WAVE: usize = 12;
     let mux = test_mux();
-    let expectations = (0..WAVE).map(|_| mux.expect_kitty_image_surface()).collect::<Vec<_>>();
+    let slots = (0..WAVE).map(|_| mux.next_id()).collect::<Vec<_>>();
+    let expectations =
+        slots.iter().map(|slot| mux.expect_kitty_image_surface(*slot)).collect::<Vec<_>>();
     let share = kitty_image_limits_for_capacity(WAVE.next_power_of_two());
     let mut reservations = Vec::new();
     let mut waits = Vec::new();
-    // Each respawn drops its expectation right before it reserves. None of
-    // these launches finishes (no commit): each one is still in flight.
-    for expectation in expectations {
-        drop(expectation);
+    // None of these launches finishes (no commit): each one is in flight.
+    for slot in &slots {
         let started = Instant::now();
-        reservations.push(mux.reserve_kitty_image_surface(mux.next_id()).unwrap());
+        reservations.push(mux.reserve_kitty_image_surface(*slot).unwrap());
         waits.push(started.elapsed());
     }
+    drop(expectations);
     let limits =
         reservations.iter().map(KittyImageBudgetReservation::initial_limits).collect::<Vec<_>>();
     assert!(
@@ -128,17 +129,19 @@ fn a_wave_given_up_halfway_gives_back_the_kitty_shares_it_never_used() {
     const WAVE: usize = 12;
     const STARTED: usize = 3;
     let mux = test_mux();
-    let mut expectations = (0..WAVE).map(|_| mux.expect_kitty_image_surface()).collect::<Vec<_>>();
-    let mut reservations = Vec::new();
-    for expectation in expectations.drain(..STARTED) {
-        drop(expectation);
-        reservations.push(mux.reserve_kitty_image_surface(mux.next_id()).unwrap());
-    }
+    let slots = (0..WAVE).map(|_| mux.next_id()).collect::<Vec<_>>();
+    let expectations =
+        slots.iter().map(|slot| mux.expect_kitty_image_surface(*slot)).collect::<Vec<_>>();
+    let mut reservations = slots[..STARTED]
+        .iter()
+        .map(|slot| mux.reserve_kitty_image_surface(*slot).unwrap())
+        .collect::<Vec<_>>();
     assert_eq!(
         reservations[0].initial_limits(),
         kitty_image_limits_for_capacity(WAVE.next_power_of_two()),
         "the wave did not size the budget for all of its terminals"
     );
+    // The rest fail before they reserve: their respawns drop the expectations.
     drop(expectations);
     let started = Instant::now();
     let new_tab = mux.reserve_kitty_image_surface(mux.next_id()).unwrap();
@@ -156,12 +159,13 @@ fn a_wave_given_up_halfway_gives_back_the_kitty_shares_it_never_used() {
     wait_for_kitty_image_budget(&mux);
 }
 
-/// An expectation dropped with no reservation (a respawn given up before it
-/// starts) leaves the budget as it was: a lone terminal keeps its full share.
+/// Expectations dropped with no reservation (respawns given up before they
+/// start) leave the budget as it was: a lone terminal keeps its full share.
 #[test]
 fn a_dropped_kitty_expectation_gives_its_share_back() {
     let mux = test_mux();
-    let expectations = (0..4).map(|_| mux.expect_kitty_image_surface()).collect::<Vec<_>>();
+    let expectations =
+        (0..4).map(|_| mux.expect_kitty_image_surface(mux.next_id())).collect::<Vec<_>>();
     let first = mux.reserve_kitty_image_surface(mux.next_id()).unwrap();
     assert_eq!(
         first.initial_limits(),
