@@ -34,7 +34,7 @@ struct IncognitoSpaceTests {
         let window = services.windows.newIncognitoWindow(space: space)
         services.windows.endIncognitoSpacesIfUnused()
         #expect(services.windows.incognitoSpaces[window] == space, "a window still being created lost its space")
-        services.windows.pendingClaims = services.windows.pendingClaims.filter { $0.value != window }
+        services.windows.claims.pending = services.windows.claims.pending.filter { $0.value != window }
         services.windows.pendingEphemeralWindows.removeAll { $0 == window }
         services.windows.endIncognitoSpacesIfUnused()
         #expect(services.windows.incognitoSpaces[window] == nil)
@@ -45,7 +45,7 @@ struct IncognitoSpaceTests {
     @Test func phonesAreToldToHideIncognitoWorkspaces() throws {
         let services = Self.services()
         let window = services.windows.newIncognitoWindow(space: ProfileID(rawValue: "prof_incognito"))
-        let key = try #require(services.windows.pendingClaims.first { $0.value == window }?.key)
+        let key = try #require(services.windows.claims.pending.first { $0.value == window }?.key)
         services.windows.recordIncognitoWorkspaces()
         #expect(services.mobile.access.hidesWorkspace(key), "a phone could list the incognito window's workspace")
         #expect(!services.mobile.access.hidesWorkspace(UUID().uuidString.lowercased()))
@@ -56,7 +56,7 @@ struct IncognitoSpaceTests {
     @Test func phonesHideANewIncognitoWorkspaceFromItsClaim() throws {
         let services = Self.services()
         let window = services.windows.newIncognitoWindow()
-        let key = try #require(services.windows.pendingClaims.first { $0.value == window }?.key)
+        let key = try #require(services.windows.claims.pending.first { $0.value == window }?.key)
         #expect(services.mobile.access.hidesWorkspace(key), "a phone could list the incognito workspace while it was created")
     }
 

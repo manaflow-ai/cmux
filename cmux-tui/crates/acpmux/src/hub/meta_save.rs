@@ -258,6 +258,10 @@ impl Hub {
 
     /// The commit of the change just made to `session`'s metadata (module text).
     fn commit_meta(&self, session: &Session, wait: Wait) -> Result<()> {
+        // A metadata change can affect another closed row too (for example a child's count in its
+        // parent). Mark every cached projection stale before the writer is scheduled; the next
+        // full build then observes the in-memory change even while this write is queued.
+        self.events.summary_generation.fetch_add(1, Ordering::SeqCst);
         session.meta_writer.commit(wait, &|| self.write_snapshot(session))
     }
 
@@ -270,6 +274,18 @@ impl Hub {
             return Ok(());
         }
         let meta = session.meta();
+        if meta.status == SessionStatus::Closed {
+            let list = self.session_list_summary(session);
+            let full = self.session_summary(session);
+            let generation = self.events.summary_generation.load(Ordering::SeqCst);
+            let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
+            cache.insert(
+                session.id.clone(),
+                (generation, serde_json::to_string(&list)?, serde_json::to_string(&full)?),
+            );
+        } else {
+            self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner()).remove(&session.id);
+        }
         #[cfg(debug_assertions)]
         hold_seam(&session.id);
         #[cfg(test)]

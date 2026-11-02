@@ -154,6 +154,11 @@ const railBox = () => {
 
 const { railPlacement } = await import("../src/agent-session/acpmux/threadMinimap/model");
 const { transcriptColumn } = await import("../src/agent-session/acpmux/model");
+const { gridLength } = await import("../src/agent-session/acpmux/transcriptGrid");
+/// The column's minimum edge: the grid's 16 that conversation.css `--cv-edge` and model.ts
+/// `transcriptColumn` both read (leo-workspace design/grid.md 5.5 Columns: "the minimum edge is 16
+/// (today's 18 moves to it)", #27580).
+const MIN_EDGE = gridLength("icon-box");
 const TIGHT = { min: 4, max: 16, compact: 12, narrowest: 12 };
 
 test("the tight gutter fits the resting rail beside the text at every pane width", () => {
@@ -171,7 +176,8 @@ test("its padding shrinks first, then its hit width, as the pane narrows", () =>
   // The default column is the pane's width up to 800 px (#31510), so the gutter opens past 800 + 2 edges.
   expect(at(880)).toMatchObject({ left: 4, width: 36 });
   expect(at(840)).toMatchObject({ left: 4, width: 16 });
-  expect(at(320)).toMatchObject({ left: 4, width: 14 });
+  // At its minimum edge the rail's hit width is what the edge leaves after its 4 inset (12 on the grid).
+  expect(at(320)).toMatchObject({ left: 4, width: MIN_EDGE - 4 });
 });
 
 for (const width of [320, 520, 760, 800])

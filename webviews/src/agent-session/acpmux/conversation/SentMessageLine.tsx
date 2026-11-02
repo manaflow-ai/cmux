@@ -4,7 +4,8 @@
 // and the message's first line, muted, while the row is shut. The row opens to the whole message as
 // Markdown, its first line then gone from the row (Leo 2026-10-29, on the line and the body under it
 // saying the same thing: "this rendering can be better for sent stuff"), and, behind Raw, the call itself (its command and output, or its MCP request and response); a failed send
-// opens to its output. Both ways of sending draw this one row: a cmux-subsessions `send_message`
+// opens to its output. A send whose words the transcript does not hold opens straight to the call,
+// with no Raw toggle. Both ways of sending draw this one row: a cmux-subsessions `send_message`
 // (SubsessionCallCard.tsx) and a shell `acpmux send` (acpmuxSends.ts, `AcpmuxSendLine` below).
 // Whether a row is open lasts across the virtualized transcript (transcriptDisclosure.tsx). The
 // target opens its chat beside this one when the session list knows it (by id, or by `name`,
@@ -254,14 +255,20 @@ export function SentMessageLine({
       </div>
       {open && (
         <div id={id} className="cv-subsession__under">
-          {text && (
-            <div className="cv-subsession__markdown selectable">
-              <AgentMessageBody text={text} commits="quiet" />
-            </div>
+          {text ? (
+            <>
+              <div className="cv-subsession__markdown selectable">
+                <AgentMessageBody text={text} commits="quiet" />
+              </div>
+              <RawToggle open={rawShown} onOpenChange={setRawShown}>
+                {raw(reveal)}
+              </RawToggle>
+            </>
+          ) : (
+            // No words to render: the call is all there is, so it shows at once, not behind a
+            // second "Raw" click (Leo 2026-10-26: "EITHER SHOW IT DIRECT WITHOUT OR ... RENDER IT").
+            <div className="cv-subsession__raw">{raw(reveal)}</div>
           )}
-          <RawToggle open={rawShown} onOpenChange={setRawShown}>
-            {raw(reveal)}
-          </RawToggle>
         </div>
       )}
     </>

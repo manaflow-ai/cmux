@@ -49,9 +49,6 @@ struct NewWorkspaceDiskFullRefusalTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         // The app's actions, as the app binds them at launch: without them `perform` runs nothing.
         AppActions.bind(services)
-        let savedDocument = SidebarDocStore.current
-        SidebarDocStore.current = nil
-        defer { SidebarDocStore.current = savedDocument }
         let log = FileManager.default.temporaryDirectory.appendingPathComponent("cn-diskfull-create-\(UUID().uuidString.prefix(8)).log")
         defer { try? FileManager.default.removeItem(at: log) }
         let bridge = DaemonBridge.fakePython(["-c", Self.daemonScript, log.path])

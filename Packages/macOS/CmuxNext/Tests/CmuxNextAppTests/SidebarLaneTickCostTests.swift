@@ -31,7 +31,7 @@ import Testing
         var mapped = 0
 
         init(count: Int) {
-            rows = SidebarRows(model: model)
+            rows = SidebarRows(model: model, document: { nil })
             var workspaces: [WorkspaceSnapshot] = []
             for i in 0..<count {
                 let id = UInt64(i + 1)
