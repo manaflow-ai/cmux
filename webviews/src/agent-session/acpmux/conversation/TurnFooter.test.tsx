@@ -30,10 +30,19 @@ test("a turn under a second says no Worked for", () => {
   }
 });
 
-test("a 5 s turn still says Worked for 5s", () => {
-  const row = footer({ durationMs: 5_000 });
+test("a 5 s turn says Worked for 5s in its time's tooltip, never in front of the buttons", () => {
+  // Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
+  // should always just be there left aligned".
+  const row = footer({
+    durationMs: 5_000,
+    text: "Done.",
+    tokens: { output: 359, input: 1_000, cacheRead: 327_800, cacheWrite: 0 },
+  });
   expect(footerLabel(t, row)).toBe("Worked for 5s");
-  expect(renderToStaticMarkup(<TurnFooter row={row} />)).toContain("Worked for 5s");
+  const markup = renderToStaticMarkup(<TurnFooter row={row} />);
+  expect(markup).not.toContain("cv-turn-summary");
+  expect(markup).toMatch(/<span class="cv-message-footer-row cv-turn-footer-row"><span class="cv-turn-action-group">/);
+  expect(markup).toMatch(/<time class="cv-turn-time"[^>]*title="Worked for 5s · ↓ 359 out ↑ 328.8K in"/);
 });
 
 test("a turn stopped within a second still says it stopped", () => {
@@ -44,11 +53,12 @@ test("a turn whose work folds under Worked for says nothing in its footer", () =
   expect(footerLabel(t, footer({ durationMs: 5_000, folded: true }))).toBeUndefined();
 });
 
-test("a footer with only hover controls is empty; one with an answer, a label or a failure is not", () => {
+test("a footer with only hover controls is empty; one with an answer or a failure is not", () => {
   expect(isEmptyFooter(footer({ durationMs: 0 }))).toBe(true);
   expect(isEmptyFooter(footer({ durationMs: 5_000, folded: true }))).toBe(true);
   expect(isEmptyFooter(footer({ durationMs: 0, text: "Done." }))).toBe(false);
-  expect(isEmptyFooter(footer({ durationMs: 5_000 }))).toBe(false);
+  // Its Worked for is the time's tooltip now, so it no longer keeps the line.
+  expect(isEmptyFooter(footer({ durationMs: 5_000 }))).toBe(true);
   expect(isEmptyFooter(footer({ durationMs: 0, status: "failed", error: "boom" }))).toBe(false);
   expect(renderToStaticMarkup(<TurnFooter row={footer({ durationMs: 0 })} />)).toContain("cv-turn-actions--empty");
   expect(renderToStaticMarkup(<TurnFooter row={footer({ durationMs: 0, text: "Done." })} />)).not.toContain(
