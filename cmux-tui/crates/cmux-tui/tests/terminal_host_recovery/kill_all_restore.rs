@@ -127,8 +127,9 @@ fn kill_all_restores_the_exact_screen_and_scrollback_then_the_session_line() {
     let (terminal_id, incarnation, surface) = start_shell_in(&harness, "exact", &home);
     // 400 numbered lines in a 40-row terminal: the screen and 360 rows of
     // scrollback, as in the film.
-    send_line(&harness.socket, surface, "seq -f 'f3-line-%g' 1 400");
-    send_line(&harness.socket, surface, "printf 'f3-%s\\n' done");
+    // One command line: a second line typed ahead is echoed and run at a
+    // shell-dependent place (dash prints its prompt before the output).
+    send_line(&harness.socket, surface, "seq -f 'f3-line-%g' 1 400; printf 'f3-%s\\n' done");
     wait_for_screen(&harness.socket, surface, "f3-done\n");
     // A few seconds, far less than the 30 s snapshot interval: the screen
     // is settled, as it was when the film killed everything.
@@ -226,7 +227,7 @@ fn kill_all_while_output_streams_restores_every_line_but_the_last_moment() {
 
 /// The directory line the probe with `label` printed.
 fn read_cwd(socket: &Path, surface: u64, label: &str) -> String {
-    let prefix = format!("{label}=/");
+    let prefix = format!("{label}=");
     let screen = wait_for_screen(socket, surface, &prefix);
     screen
         .lines()
@@ -238,9 +239,16 @@ fn read_cwd(socket: &Path, surface: u64, label: &str) -> String {
 
 /// A probe that prints `$PWD` after `label=`; the label is split in the
 /// typed command, so only the shell's output matches it.
-fn cwd_probe(label: &str) -> String {
+/// The shell compares its `$PWD` with `expected` itself and prints `same`,
+/// else its `$PWD`: a long path would wrap across screen rows, a short
+/// answer never does.
+fn cwd_probe(label: &str, expected: &Path) -> String {
     let (head, rest) = label.split_at(2);
-    format!("printf '{head}''{rest}=%s\\n' \"$PWD\"")
+    format!(
+        "if [ \"$PWD\" = '{}' ]; then printf '{head}''{rest}=%s\\n' same; \
+         else printf '{head}''{rest}=%s\\n' \"$PWD\"; fi",
+        expected.display()
+    )
 }
 
 /// The respawned shell keeps the directory as the path string it was given:
@@ -251,10 +259,10 @@ fn kill_all_respawned_shell_keeps_its_directory_path_string() {
     let mut harness = production_harness("kill-all-cwd");
     let (real, link) = symlinked_directory(&harness);
     let (terminal_id, incarnation, surface) = start_shell_in(&harness, "cwd", &link);
-    send_line(&harness.socket, surface, &cwd_probe("f3-cwd-before"));
+    send_line(&harness.socket, surface, &cwd_probe("f3-cwd-before", &link));
     assert_eq!(
         read_cwd(&harness.socket, surface, "f3-cwd-before"),
-        format!("f3-cwd-before={}", link.display()),
+        "f3-cwd-before=same",
         "the shell started in {} reports its real path {}",
         link.display(),
         real.display()
@@ -264,10 +272,10 @@ fn kill_all_respawned_shell_keeps_its_directory_path_string() {
     let surface = respawned_surface(&harness, &terminal_id, &incarnation);
     wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
     // Its own label: the restored screen holds the first probe's line.
-    send_line(&harness.socket, surface, &cwd_probe("f3-cwd-after"));
+    send_line(&harness.socket, surface, &cwd_probe("f3-cwd-after", &link));
     assert_eq!(
         read_cwd(&harness.socket, surface, "f3-cwd-after"),
-        format!("f3-cwd-after={}", link.display()),
+        "f3-cwd-after=same",
         "the respawned shell reports the real path {} instead of {}",
         real.display(),
         link.display()
@@ -416,7 +424,10 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
     let harness = production_harness("resize-storm");
     let home = harness.dir.clone();
     let (_terminal_id, _incarnation, surface) = start_shell_in(&harness, "storm", &home);
-    send_line(&harness.socket, surface, "printf 'storm-ready\\n'");
+    // A program that prints nothing on a resize (a shell such as bash
+    // redraws its prompt on SIGWINCH, dash does not): the resize alone must
+    // bring the snapshot at the new size.
+    send_line(&harness.socket, surface, "printf 'storm-ready\\n'; exec cat");
     wait_for_screen(&harness.socket, surface, "storm-ready\n");
     std::thread::sleep(Duration::from_secs(1));
     let snapshot = || {
@@ -464,4 +475,101 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
         );
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+/// A host reconnect inside a running daemon (its admin tap overflowed while
+/// the daemon was stopped) replaces the daemon's screen with the host's:
+/// bytes the host wrote meanwhile never went through the output store. A kill
+/// of everything right after the reconnect must still restore them (the
+/// tail must not continue across that gap; review of #31643: the reconnect
+/// did not tell the output store, so the restore lacked the gap's output
+/// until the next coalesced checkpoint, up to 30 s).
+#[test]
+fn kill_all_right_after_a_host_reconnect_restores_the_output_of_the_gap() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("kill-all-reconnect-gap");
+    let home = harness.dir.clone();
+    let (terminal_id, incarnation, surface) = start_shell_in(&harness, "gap", &home);
+    let trigger = harness.dir.join("flood");
+    send_line(&harness.socket, surface, "printf 'gap-%s\\n' before");
+    wait_for_screen(&harness.socket, surface, "gap-before\n");
+    // Over the host's 8 MiB queued-output budget for the daemon's tap: the
+    // host closes the tap while the daemon is stopped, and the daemon
+    // reconnects from the host's snapshot.
+    send_line(
+        &harness.socket,
+        surface,
+        &format!(
+            "while [ ! -e '{}' ]; do sleep 0.05; done; head -c 12000000 /dev/zero; printf 'gap-%s\\n' during",
+            trigger.display()
+        ),
+    );
+    std::thread::sleep(Duration::from_secs(2));
+    harness.signal_daemon(libc::SIGSTOP);
+    fs::write(&trigger, b"").unwrap();
+    std::thread::sleep(Duration::from_secs(4));
+    harness.signal_daemon(libc::SIGCONT);
+    let shown = wait_for_screen(&harness.socket, surface, "gap-during\n");
+    assert!(shown.contains("gap-during"), "the reconnect never showed the gap's output: {shown}");
+    // Well inside the checkpoint interval, after one writer pass.
+    std::thread::sleep(Duration::from_millis(800));
+
+    kill_everything_and_restart(&mut harness);
+    let surface = respawned_surface(&harness, &terminal_id, &incarnation);
+    let restored = wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+    assert!(
+        restored.contains("gap-during"),
+        "the output written while the daemon had no tap is not restored: {restored}"
+    );
+}
+
+/// Measurement, not a check (ignored: `cargo test --test terminal_host_recovery
+/// kill_all_restore_time_of_12_terminals -- --ignored --nocapture`): the time
+/// from the new daemon's spawn to each respawned terminal's restored text,
+/// for 12 terminals killed at once, each with about 600 KB of output in its
+/// tail (a restore rebuilds snapshot plus tail per terminal). Prints
+/// `kill-all-restore-time: {...}` (ms per terminal, sorted).
+#[test]
+#[ignore = "measurement: run it with --ignored"]
+fn kill_all_restore_time_of_12_terminals() {
+    const TERMINALS: usize = 12;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("kill-all-restore-time");
+    let home = harness.dir.clone();
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let (terminal_id, incarnation, surface) =
+            start_shell_in(&harness, &format!("time{index}"), &home);
+        terminals.push((terminal_id, incarnation, surface));
+    }
+    // The first snapshot of each (a new generation) is written first; the
+    // output after it is in the tail.
+    std::thread::sleep(Duration::from_secs(1));
+    for (index, (_, _, surface)) in terminals.iter().enumerate() {
+        send_line(&harness.socket, *surface, &format!("seq -f 't{index}-%g' 1 90000"));
+    }
+    for (index, (_, _, surface)) in terminals.iter().enumerate() {
+        wait_for_screen(&harness.socket, *surface, &format!("t{index}-90000\n"));
+    }
+    std::thread::sleep(Duration::from_secs(1));
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    harness.signal_daemon(libc::SIGSTOP);
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    harness.sigkill();
+    let spawned = Instant::now();
+    harness.restart();
+    let mut restored_ms = Vec::new();
+    for (index, (terminal_id, incarnation, _)) in terminals.iter().enumerate() {
+        let surface = respawned_surface(&harness, terminal_id, incarnation);
+        let screen = wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+        assert!(screen.contains(&format!("t{index}-90000")), "terminal {index} lost its text");
+        restored_ms.push(spawned.elapsed().as_millis());
+    }
+    restored_ms.sort_unstable();
+    eprintln!(
+        "kill-all-restore-time: {}",
+        serde_json::json!({"terminals": TERMINALS, "restored_ms": restored_ms})
+    );
 }

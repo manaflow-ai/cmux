@@ -814,6 +814,8 @@ final class AppServices {
         }
         return nil
     }
+    func locatePane(_ id: String) -> PaneModel? { machines.daemons.uniquePane(id)?.pane }
+    func locatePane(_ id: String, onMachine machineID: String) -> PaneModel? { machines.daemon(machine: machineID)?.store.pane(idOrResource: id) }
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
         _ = daemon.store.tabListRevision // a tracked wait hears the tab appear
