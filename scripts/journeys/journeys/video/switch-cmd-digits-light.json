@@ -34,6 +34,13 @@
    "seconds": 110
   },
   {
+   "do": "tiers_start",
+   "name": "tiers",
+   "seconds": 45,
+   "interval_ms": 1,
+   "title": "the app main thread's CPU time per core tier (S/P/E) every 1 ms through the keys (lead on 7776)"
+  },
+  {
    "do": "switch_keys",
    "title": "Cmd-1..9 in order, then a fixed seeded order",
    "via": "hid",
@@ -44,6 +51,10 @@
    "do": "video_stop",
    "name": "sw-w1-light",
    "tail": 0.8
+  },
+  {
+   "do": "tiers_stop",
+   "name": "tiers"
   },
   {
    "do": "switch_adopt_shown"
