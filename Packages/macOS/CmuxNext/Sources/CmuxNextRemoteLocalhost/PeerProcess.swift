@@ -134,7 +134,7 @@ final class PeerScan: Sendable {
     private let pending = Mutex(0)
     private let limit: Int
 
-    init(limit: Int = pendingLimit) { self.limit = limit }
+    init(limit: Int = PeerScan.pendingLimit) { self.limit = limit }
 
     /// ``PeerProcess/isTrusted(peerHost:peerPort:localHost:localPort:candidates:)`` through ``run(timeout:_:)``.
     func isTrusted(peerHost: NWEndpoint.Host, peerPort: UInt16, localHost: NWEndpoint.Host, localPort: UInt16) async -> Bool {
@@ -162,7 +162,7 @@ final class PeerScan: Sendable {
             await withCheckedContinuation { continuation in
                 request.arm(continuation)
                 queue.async {
-                    defer { pending.withLock { $0 -= 1 } }
+                    defer { self.pending.withLock { $0 -= 1 } }
                     guard !request.isCancelled else { return }
                     request.finish(scan())
                 }
