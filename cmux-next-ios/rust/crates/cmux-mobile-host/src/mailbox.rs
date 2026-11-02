@@ -19,7 +19,7 @@
 //!    (its ack was lost, or the link delivered it first), never a new one;
 //! 6. `not_pending`: its question or permission still waits, its session or
 //!    Chief conversation exists, its terminal notification is still in the
-//!    ledger ([`Applier`]).
+//!    ledger, its Computer Use question is pending ([`Applier`]).
 //!
 //! A reply that could not be settled yet (the app has not handed hostd its
 //! keys or paired list, a service is not reachable) is `unavailable`: it is
@@ -124,6 +124,8 @@ pub struct Target {
     pub conversation_id: Option<String>,
     pub tab_id: Option<String>,
     pub notification_id: Option<String>,
+    /// A Computer Use question's digest (kind `computer_use`).
+    pub digest: Option<String>,
 }
 
 /// A reply that passed checks 1 to 5.
@@ -395,6 +397,7 @@ fn parse(object: &Map<String, Value>, item: &MailboxItem, expires: u64) -> Resul
         conversation_id: field("conversationId")?,
         tab_id: field("tabId")?,
         notification_id: field("notificationId")?,
+        digest: field("digest")?,
     };
     let action_object = object.get("action").and_then(Value::as_object).ok_or("no action")?;
     let action = match action_object.get("type").and_then(Value::as_str) {
@@ -436,6 +439,12 @@ fn parse(object: &Map<String, Value>, item: &MailboxItem, expires: u64) -> Resul
                 "a notification",
             )?;
             needs(action == ActionKind::Text, "text")?;
+        }
+        // A Computer Use answer (`computer_use.rs`): the digest, Allow with
+        // once/session/always (signed in `approval`) or Deny.
+        "computer_use" => {
+            needs(target.digest.is_some(), "a digest")?;
+            needs(matches!(action, ActionKind::Allow | ActionKind::Deny), "allow or deny")?;
         }
         _ => return Err("unknown kind".into()),
     }
@@ -689,6 +698,55 @@ mod tests {
         far["issuedAt"] = json!(NOW + CLOCK_SKEW + 1);
         far["expiresAt"] = json!(NOW + CLOCK_SKEW + 1 + MAX_LIFETIME);
         assert_eq!(checked(&sealed(far, &phone_signer()), &spent), Err(Rejection::Expired));
+    }
+
+    #[test]
+    fn a_computer_use_answer_names_its_digest_and_counts_once() {
+        let digest = "8b103ea20764ba906dc15f5fc3a90a99de23c979a7d53df845577a268c73e1d5";
+        let answer = |id: &str, target: Value, action: Value| {
+            let mut reply = text_reply(id);
+            reply["kind"] = json!("computer_use");
+            reply["target"] = target;
+            reply["action"] = action;
+            reply
+        };
+        let spent = SpentReplies::memory();
+        let deny = sealed(
+            answer("cu-1", json!({"digest": digest}), json!({"type": "deny", "optionId": "deny"})),
+            &phone_signer(),
+        );
+        let reply = checked(&deny, &spent).unwrap();
+        assert_eq!(reply.kind, "computer_use");
+        assert_eq!(reply.target.digest.as_deref(), Some(digest));
+        assert_eq!((reply.action.clone(), reply.option_id.as_deref()), (ActionKind::Deny, Some("deny")));
+        // Applied through the pending question, then settled: a repeat is not applied again.
+        let questions =
+            crate::computer_use::ComputerUse::new(watch::channel(Some(trust())).1, Arc::new(|_| {}));
+        let request: Value = serde_json::from_slice(
+            &std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../../../schemas/device-hub/test-vectors.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let request = request["approvalRequest"]["request"].clone();
+        let now_ms = 1_793_400_010_000;
+        questions.ask_at(request, false, now_ms).unwrap();
+        let mut at_ask = reply;
+        at_ask.expires_at = now_ms / 1000 + 200;
+        assert_eq!(questions.apply_mailbox_at(&at_ask, now_ms), Ok(()));
+        assert_eq!(questions.apply_mailbox_at(&at_ask, now_ms), Err(Rejection::NotPending));
+        spent.settle("cu-1", None);
+        assert_eq!(checked(&deny, &spent), Err(Rejection::Repeat(None)));
+        // No digest, or a text action: refused before anything is applied.
+        let bare = sealed(answer("cu-2", json!({}), json!({"type": "deny"})), &phone_signer());
+        assert!(matches!(checked(&bare, &spent), Err(Rejection::Refused(_))));
+        let text = sealed(
+            answer("cu-3", json!({"digest": digest}), json!({"type": "text", "text": "yes"})),
+            &phone_signer(),
+        );
+        assert!(matches!(checked(&text, &spent), Err(Rejection::Refused(_))));
     }
 
     #[test]

@@ -372,6 +372,7 @@ impl HostConfig {
             .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
                 default_state_dir().join("mailbox-spent.json"),
             )))
+            .with_computer_use(std::sync::Arc::clone(&supplied.computer_use))
         });
         let max_tabs = env("CMUX_MOBILE_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CMUX_MOBILE_RB_HOST")) {
