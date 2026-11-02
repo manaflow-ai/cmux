@@ -28,6 +28,7 @@ pub enum ErrorCode {
     HostScope,
     NotAnchored,
     NotSelf,
+    DevicePlatformMismatch,
     DigestMismatch,
     ApprovalExists,
     SelfApproval,
@@ -63,6 +64,7 @@ const TABLE: &[(ErrorCode, &str)] = &[
     (ErrorCode::HostScope, "host_scope"),
     (ErrorCode::NotAnchored, "not_anchored"),
     (ErrorCode::NotSelf, "not_self"),
+    (ErrorCode::DevicePlatformMismatch, "device_platform_mismatch"),
     (ErrorCode::DigestMismatch, "digest_mismatch"),
     (ErrorCode::ApprovalExists, "approval_exists"),
     (ErrorCode::SelfApproval, "self_approval"),
@@ -202,5 +204,6 @@ mod tests {
         assert_eq!(error.code(), Some(&ErrorCode::SelfApproval));
         assert_eq!(HubError::from_response(502, b"<html>"), HubError::Http { status: 502 });
         assert_eq!(ErrorCode::parse("future_code").as_str(), "future_code");
+        assert_eq!(ErrorCode::parse("device_platform_mismatch"), ErrorCode::DevicePlatformMismatch);
     }
 }
