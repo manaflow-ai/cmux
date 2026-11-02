@@ -438,9 +438,10 @@ def last_line(text):
     return filled[-1] if filled else ""
 
 
-# Letters text recognition confuses in a monospace terminal font, folded to one form.
+# Letters text recognition confuses in a monospace terminal font, folded to one form. The Won signs: a terminal "w"
+# was read as "\u20a9" on every try of a frame that showed it (STATUS 5811, check-64.png of job 4b39ae9a round 2).
 OCR_FOLD = str.maketrans({"O": "0", "o": "0", "D": "0", "I": "1", "l": "1", "L": "1", "|": "1", "i": "1", "S": "5", "s": "5",
-                          "B": "8", "Z": "2", "z": "2", "—": "-", "–": "-", "_": "-"})
+                          "B": "8", "Z": "2", "z": "2", "—": "-", "–": "-", "_": "-", "\u20a9": "w", "\uffe6": "w"})
 
 
 # -- measurement validity: the daemons must be the build under test (lead 01:2xZ, cmux-ad 01:25Z) --
