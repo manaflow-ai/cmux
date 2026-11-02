@@ -51,7 +51,7 @@ enum AgentPaneHandshakeReply {
             if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTab {
                 handshake.newTab = newTab
                 handshake.newSession = true
-                if handshake.cwd == nil { handshake.cwd = newTab.cwd }
+                if handshake.cwd == nil { handshake.cwd = model.tabsNewTabFolder }
             }
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
             handshake.linkScheme = model.linkScheme
