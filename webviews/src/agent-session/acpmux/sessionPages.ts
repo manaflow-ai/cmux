@@ -141,6 +141,9 @@ export class SessionPager<S extends Summary> {
     const run = first.run;
     let next = first.next;
     const seen = new Set<string>();
+    // Keep an index of rows already held, instead of rescanning every prior page.
+    // A session_changed during paging is covered by changed/purged below.
+    const known = new Set(held().map((session) => session.sessionId));
     while (next !== undefined) {
       if (run !== this.run) return false;
       let page: SessionPage<S>;
@@ -155,11 +158,16 @@ export class SessionPager<S extends Summary> {
         }
       }
       if (run !== this.run) return false;
-      const known = new Set(held().map((session) => session.sessionId));
       const fresh = page.sessions.filter(
-        (session) => !known.has(session.sessionId) && !this.purged.has(session.sessionId),
+        (session) =>
+          !known.has(session.sessionId) && !this.changed.has(session.sessionId) && !this.purged.has(session.sessionId),
       );
-      if (fresh.length > 0) add(fresh);
+      if (fresh.length > 0) {
+        // Only learn IDs after filtering, preserving the previous behavior for duplicate
+        // session IDs inside one page (for example, a local and a peer copy).
+        for (const session of fresh) known.add(session.sessionId);
+        add(fresh);
+      }
       next = page.next;
     }
     return true;

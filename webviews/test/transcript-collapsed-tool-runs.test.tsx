@@ -107,7 +107,8 @@ test("the app routes a folded mixed run to tool rows and estimates one summary l
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   expect(work.foldRun).toBe(true);
   expect(isEditRow(work)).toBe(false);
-  expect(layoutConversation([work], 760).heights[0]).toBe(28);
+  // One 22px line (design/chat-transcript.md "One-line row pitch", #29965).
+  expect(layoutConversation([work], 760).heights[0]).toBe(22);
 });
 
 test("the line's glyph is the run's main kind of work", () => {
