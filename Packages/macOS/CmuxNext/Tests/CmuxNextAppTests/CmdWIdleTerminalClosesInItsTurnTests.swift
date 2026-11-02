@@ -275,6 +275,40 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         }
     }
 
+    /// (Review of #32291, key order) Cmd-W on an idle terminal, keys, a quick second Cmd-W on the neighbour that runs a
+    /// program, more keys. The neighbour's question shows before the first close's read ends; that close ends while the
+    /// question asks. After Cancel, the neighbour gets every key in typing order (before: the second close's keys came
+    /// first, so a typed "ab" arrived "ba").
+    @Test func keysHeldForTwoClosesArriveInTypingOrder() async throws {
+        try await Self.withFocusedTerminal { t in
+            let running = try await Self.newTerminal(t) // the neighbour the first hide shows; runs cat, so its close asks
+            _ = try await Self.newTerminal(t) // the neighbour the second hide shows
+            _ = try await t.connection.request(SendInputRequest(surface: running.surface, text: "cat\r"))
+            try await Self.waitRunning("cat", t, surface: running.surface)
+            t.pane.select(TabID(t.tab.id))
+            let window = try #require(t.pane.view.window)
+            let focused = { t.services.keyRouter.focus(for: window).0?.focus.state.terminalTab }
+            try await PinnedPageTests.until({ focused() == t.tab.id }, report: { "the idle terminal never had the focus: \(focused() ?? "none")" })
+            let hold = t.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            let nonce = String(UInt32.random(in: 100_000...999_999)), first = "o1\(nonce)", second = "o2\(nonce)"
+            try Self.press("w", .command, keyCode: 13, in: window, t) // the idle terminal: hidden, it reads
+            try await PinnedPageTests.until({ focused() == running.id && hold.held == 1 }, report: { "focus \(focused() ?? "none"), reads held \(hold.held)" })
+            for character in first { try Self.press(String(character), in: window, t) }
+            try Self.press("w", .command, keyCode: 13, in: window, t) // the quick second Cmd-W: the running neighbour hides and reads
+            try await PinnedPageTests.until({ hold.held == 2 }, report: { "the second Cmd-W did not read: \(hold.held) held" })
+            for character in second { try Self.press(String(character), in: window, t) }
+            hold.releaseNewest() // the running neighbour answers first: its question shows while the idle close still reads
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no question for the running neighbour" })
+            hold.release() // the idle close ends while the question asks
+            try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(t.tab.id) }, report: { "the idle close never ended: asking \(TabCloseGuard.asking)" })
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
+            let back = try? await t.connection.request(WaitForTextRequest(surface: running.surface, pattern: first + second, timeoutMs: 10_000), timeout: .seconds(15))
+            #expect(back?.matched == true, "the held keys did not reach the terminal that stays in typing order: \(back?.text.suffix(300) ?? "no answer")")
+        }
+    }
+
     /// (Review of #32291) While the question shows, the held keys wait for its answer, but a key typed at the question is
     /// the question's: Escape through the app's key path cancels it, and the line held during the read comes back whole
     /// to the terminal that stays.
