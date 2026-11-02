@@ -349,7 +349,7 @@ import {
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
-import { AgentNamesContext, agentNames } from "./conversation/agentNames";
+import { AgentNamesContext, AgentOpenContext, agentNames, agentViews } from "./conversation/agentNames";
 import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
 import {
@@ -8362,6 +8362,11 @@ function AcpmuxPane() {
   const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
   // A message to a subagent names it by its description, never its agentId (MessageCard.tsx).
   const chatAgentNames = useMemo(() => agentNames(chatAgents), [chatAgents]);
+  // A sent message's "Sent to <subagent>" chip opens that subagent's view (MessageCard.tsx).
+  const chatAgentOpen = useMemo(
+    () => ({ views: agentViews(chatAgents), open: (id: string) => showSubagent(id) }),
+    [chatAgents, showSubagent],
+  );
   const freshWaiting = useMemo(
     () => (chatAgents.some(running) ? waitingSubagents(askedToolCalls, snapshot.subagentViews) : new Set<string>()),
     [chatAgents, askedToolCalls, snapshot.subagentViews],
@@ -14021,9 +14026,11 @@ function AcpmuxPane() {
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
                     <AgentNamesContext.Provider value={chatAgentNames}>
-                      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                        {transcript}
-                      </BackgroundTaskOutputContext.Provider>
+                      <AgentOpenContext.Provider value={chatAgentOpen}>
+                        <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+                          {transcript}
+                        </BackgroundTaskOutputContext.Provider>
+                      </AgentOpenContext.Provider>
                     </AgentNamesContext.Provider>
                   </AgentTonesContext.Provider>
                 )}
