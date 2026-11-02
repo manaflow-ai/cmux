@@ -66,7 +66,7 @@ extension AgentPaneView {
             page: AgentPaneSessionInfoDebugRect(pageFrame),
             top: info.map { $0.top },
             foot: info?.foot,
-            zoom: max(0.25, webView.pageZoom),
+            zoom: max(0.25, uiPointerPageZoom),
             sectionCount: info?.sections.count ?? 0,
             flipped: isFlipped,
         )
