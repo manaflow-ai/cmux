@@ -2110,6 +2110,7 @@ const RowFrame = React.memo(function RowFrame({
   replyActions,
   status,
   lastFooter,
+  finalFooter,
   continuationFooter,
   lastTurn,
   index,
@@ -2147,6 +2148,10 @@ const RowFrame = React.memo(function RowFrame({
   status: StatusEdge | undefined;
   /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
   lastFooter: boolean;
+  /// The footer that ends the chat (nothing drawn after it): its turn has ended, so its Copy row
+  /// shows without a hover (Leo, 2026-11-02: "i should be able to see the copy buttons on your
+  /// responses when your things end").
+  finalFooter: boolean;
   /// The next drawn turn belongs to this same assistant: half the normal turn gap.
   continuationFooter: boolean;
   /// The final row of a latest turn without a footer: preserve the normal turn gap at the composer.
@@ -2256,7 +2261,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -5397,6 +5402,7 @@ export function VirtualTranscript({
                       replyActions={keepsReplyRoom(row, next)}
                       status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
+                      finalFooter={row.kind === "turnSummary" && !next}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
                       index={absoluteIndex}
