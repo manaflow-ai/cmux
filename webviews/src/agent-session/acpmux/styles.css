@@ -361,10 +361,8 @@
 .acpmux-project-button>span:not(.acpmux-project-badge){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
-.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
-.acpmux-project-menu .acpmux-menu-item{padding-inline:var(--acpmux-project-menu-edge)}
+.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:var(--ui-row-padding-inline)}
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
-.acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
 /* Every badge sits on the same quiet neutral tile, so a dark or a white icon reads in either theme
    and the rows line up. A framework's or language's mark (ProjectBadge.tsx) takes its brand color; a
@@ -407,7 +405,7 @@
 /* The pinned actions and the folders are two sections: a hairline with the menu's 4px on either
    side, never a blank gap, and none when no folder follows. */
 .acpmux-project-menu .ui-combobox-pinned{margin-bottom:0;padding-bottom:0}
-.acpmux-project-menu .ui-combobox-pinned-list:has(.ui-combobox-scroll [role="option"])>.ui-combobox-pinned::after{content:"";display:block;height:0;margin:var(--ds-space-1,4px) var(--acpmux-project-menu-edge);border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
+.acpmux-project-menu .ui-combobox-pinned-list:has(.ui-combobox-scroll [role="option"])>.ui-combobox-pinned::after{content:"";display:block;height:0;margin:var(--ds-space-1,4px) calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
 .acpmux-project-browse{display:flex;align-items:center;gap:8px}
 .acpmux-context-worktree{display:flex;align-items:center;gap:8px;margin-left:auto;padding-right:4px;color:var(--agent-muted);white-space:nowrap}
 .acpmux-switch{position:relative;width:26px;height:16px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 18%,transparent)}

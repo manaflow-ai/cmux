@@ -97,12 +97,45 @@ def self_test():
             sys.exit(2)
 
 
+def web_violations(text):
+    """The shared web row contract cannot restate the schema's column values.
+
+    Check declarations, not token mentions: a comment naming a token cannot excuse
+    a literal. Surface files keep their unrelated controls; the migrated row
+    selectors below must delegate geometry to popupSurface.css.
+    """
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    columns = {"padding", "padding-inline", "padding-inline-start", "padding-inline-end",
+               "gap", "column-gap", "grid-template-columns", "inset-inline-start"}
+    migrated = set()
+    found = []
+    for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", text):
+        selector, body = match.group(1).strip(), match.group(2)
+        if selector not in migrated and not selector.startswith(".ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu):is("):
+            continue
+        for declaration in body.split(";"):
+            prop, sep, value = declaration.partition(":")
+            if sep and prop.strip() in columns and re.search(r"(?<![\w-])[1-9]\d*(?:\.\d+)?px\b", value):
+                found.append((text.count("\n", 0, match.start()) + 1,
+                              "%s: %s restates a menu column; use --cmux-menu-*" % (selector, prop.strip())))
+    return found
+
+
 def main():
     self_test()
+    assert web_violations(".ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu):is(.ui-menu) .ui-menu-check { inset-inline-start: 10px; }")
+    assert not web_violations(".ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu):is(.ui-menu) .ui-menu-check { inset-inline-start: var(--cmux-menu-state-x); }")
     args = [arg for arg in sys.argv[1:] if not arg.startswith("--")]
     root = os.path.abspath(args[0] if args else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
     base = os.path.join(root, SOURCES)
     failures, seen = [], set()
+    for relative in ("webviews/src/ui/popupSurface.css",
+                     "webviews/src/agent-session/acpmux/composerLocation.css",
+                     "webviews/src/agent-session/acpmux/composerControls.css",
+                     "webviews/src/agent-session/acpmux/modelPicker.css"):
+        with open(os.path.join(root, relative), encoding="utf-8") as handle:
+            for number, why in web_violations(handle.read()):
+                failures.append("%s:%d: %s" % (relative, number, why))
     for folder, _, files in os.walk(base):
         for name in sorted(files):
             if not name.endswith(".swift") or name.endswith(".generated.swift"):

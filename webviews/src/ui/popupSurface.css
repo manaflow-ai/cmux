@@ -267,6 +267,7 @@
   outline: none;
   letter-spacing: var(--text-control--letter-spacing);
 }
+/* Defaults for a menu row outside the shared menu grid below (the model picker keeps its own). */
 :where(.ui-menu-item) {
   display: flex;
   align-items: center;
@@ -402,3 +403,96 @@
    composer's location menu, which must not open onto the chat) is not held to the room on that
    side: it may cover its own anchor, so it fits the window less the edge margins. */
 .ui-popup[data-popup-shift] { --available-height: calc(100vh - 16px); }
+
+/* AppKit's menu columns, shared by page and agent-pane bundles. The popup owns the
+   highlight inset; when any row has an icon, every row reserves the icon column.
+   A state column belongs to the whole popup, never only to the checked row. The Claude Code
+   pickers keep their own settled columns, where the chosen row's check takes its number's place
+   at the trailing edge: the model picker (.acpmux-quick-menu, #29791, leo-workspace
+   design/model-picker.md), its effort menu (.acpmux-effort-menu) and the mode menu
+   (.acpmux-access-menu, Leo 2026-10-19; composer-claude-split.test.ts). The Changes scope and chat
+   filter lists (.acpmux-scope-list) keep their trailing checks too, as in the base grid above (#28611). */
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) {
+  --ui-menu-lead: var(--cmux-menu-icon-x);
+  --ui-menu-text: var(--cmux-menu-icon-x);
+  --ui-popup-padding: var(--cmux-menu-highlight-inset);
+  --ui-row-radius: var(--cmux-menu-highlight-radius);
+  --ui-row-height: calc(var(--ds-control-row) * var(--cmux-interface-scale, 1));
+  --ui-row-padding-inline: calc(var(--ui-menu-text) - var(--cmux-menu-highlight-inset));
+  padding: var(--ui-popup-padding);
+}
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu):has(.ui-menu-check, .acpmux-project-check) {
+  --ui-menu-lead: var(--cmux-menu-state-icon-x);
+  --ui-menu-text: var(--cmux-menu-state-icon-x);
+}
+/* An icon column only in a menu whose rows carry an icon (schemas/menu-metrics iconX: a title
+   without an icon column starts where the icon would); a select's text sits right after its
+   check at 22 (leo-workspace design/settings.md, #28530). */
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu):has(:is(.ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item) > :is(.ui-menu-icon, .acpmux-icon, .acpmux-project-badge, .acpmux-project-lead, svg)) {
+  --ui-menu-text: var(--cmux-menu-text-x);
+}
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu):has(.ui-menu-check, .acpmux-project-check):has(:is(.ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item) > :is(.ui-menu-icon, .acpmux-icon, .acpmux-project-badge, .acpmux-project-lead, svg)) {
+  --ui-menu-text: var(--cmux-menu-state-text-x);
+}
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item) {
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  gap: var(--cmux-menu-icon-gap);
+  min-height: var(--ui-row-height);
+  padding-block: 0;
+  padding-inline: var(--ui-row-padding-inline) calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  border-radius: var(--cmux-menu-highlight-radius);
+  outline: none;
+}
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-check, .acpmux-project-check) {
+  position: absolute;
+  inset-inline-start: calc(var(--cmux-menu-state-x) - var(--cmux-menu-highlight-inset) - var(--cmux-menu-icon-size) / 2);
+  inset-block-start: calc((var(--ui-row-height) - var(--cmux-menu-icon-size)) / 2);
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
+  min-height: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item) > :is(.ui-menu-icon, .acpmux-icon, .acpmux-project-badge, .acpmux-project-lead, svg) {
+  position: absolute;
+  inset-inline-start: calc(var(--ui-menu-lead) - var(--cmux-menu-highlight-inset));
+  inset-block-start: calc((var(--ui-row-height) - var(--cmux-menu-icon-size)) / 2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
+  margin: 0;
+}
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-icon, .acpmux-project-badge, .acpmux-project-lead) > :is(svg, img) {
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
+}
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-shortcut, .acpmux-chat-menu-key, .acpmux-menu-hint) {
+  flex: none;
+  margin-inline-start: auto;
+  padding-inline-start: var(--cmux-menu-shortcut-gap);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-group-label, .acpmux-menu-header) {
+  padding-block: var(--ds-space-1);
+  padding-inline: var(--ui-row-padding-inline) calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+}
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) .ui-separator {
+  margin: var(--ds-space-1) calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
+}
+/* A description occupies a second text line, never a second column. Keep the
+   first line on the ordinary row mid; marks remain on that line as the row grows. */
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .acpmux-project-menu, .acpmux-palette-menu) .acpmux-menu-text:has(.acpmux-menu-description) {
+  padding-block: calc((var(--ui-row-height) - var(--text-control--line-height)) / 2);
+}
+.ui-popup:not(.acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-scope-list):is(.ui-menu, .acpmux-project-menu) .acpmux-menu-description {
+  line-height: var(--text-detail--line-height);
+}
