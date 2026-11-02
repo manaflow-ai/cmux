@@ -1,0 +1,171 @@
+{
+ "id": "hc-split-r10-xtp",
+ "priority": "P1",
+ "title": "HARNESS CORES: split one pane right (Cmd-D, idle, dark), xctrace Time Profiler ON, run 5",
+ "why": "HARNESS CORES (STATUS 7645, 7690, 7695): does xctrace change where the main thread runs? Same steps in both arms; tiers from PROC_PIDTHREADCOUNTS.",
+ "source": "HARNESS CORES (agent harness-cores)",
+ "budget_seconds": 120,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "settings_file",
+   "title": "set-up: theme Builtin Dark, no close warning, new columns share the strip",
+   "set": {
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "followTerminal"
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "layout": {
+     "newColumnWidth": "fitScreen"
+    }
+   }
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rv-xtpa-split-1pane-idle-dark"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "trace_only_start",
+   "name": "close",
+   "title": "the geometry trace (display-link ticks), no recorder"
+  },
+  {
+   "do": "tiers_start",
+   "name": "tiers",
+   "seconds": 4.5,
+   "interval_ms": 1,
+   "title": "the main thread's per-tier CPU counters (PROC_PIDTHREADCOUNTS), no profiler"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtp",
+   "seconds": 5.2,
+   "wait_first_sample": true,
+   "first_sample_wait": 1.0,
+   "title": "xctrace Time Profiler on the app"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.stall",
+   "params": {
+    "ms": 60
+   },
+   "title": "clock mark: a 60 ms main-thread stall"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5,
+   "title": "the mark's frames pass"
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split",
+   "title": "Cmd-D splits p0 right"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2,
+   "title": "the motion lands"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "close"
+  },
+  {
+   "do": "tiers_stop",
+   "name": "tiers"
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtp"
+  },
+  {
+   "do": "use_pane",
+   "pane": "p0",
+   "click": true,
+   "title": "after: click into p0"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "after: a real HID Ctrl-C (STATUS 6209: debug.key Ctrl-C can reach a menu)"
+  },
+  {
+   "do": "type",
+   "text": "echo rv-done-${nonce}",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "rv-done-${nonce}"
+    },
+    {
+     "app_text_line": "rv-done-${nonce}"
+    },
+    {
+     "frame_text": "rv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}
