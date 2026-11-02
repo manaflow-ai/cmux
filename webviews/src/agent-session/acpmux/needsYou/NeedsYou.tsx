@@ -293,9 +293,7 @@ function NeedsYouRow({
   const age = shortAge(item.at, now, t);
   // An expanded question takes its whole answer in the form; the one-click row is for the card.
   const form = expanded && item.question && item.permissionId && actions.reply ? item.question : undefined;
-  const toggle = () => {
-    if (item.kind !== "tab") setStage((now) => (now === "row" ? "expanded" : "row"));
-  };
+  const toggle = () => setStage((now) => (now === "row" ? "expanded" : "row"));
   return (
     <li
       ref={row}
@@ -314,7 +312,7 @@ function NeedsYouRow({
         <span className="acpmux-needs-you-end">
           {age && <span className="acpmux-needs-you-age">{age}</span>}
           <span className="acpmux-needs-you-tools">
-            {/* A marked tab names no chat to expand, answer or ask about: Go to is its one action. */}
+            {/* A marked tab names no chat to ask about or open elsewhere: Go to is its one action. */}
             {item.kind !== "tab" && (
               <button
                 type="button"
@@ -353,7 +351,13 @@ function NeedsYouRow({
       </div>
       {/* The ask itself expands the row too: the person reads it and wants the rest. */}
       <p className="acpmux-needs-you-ask">
-        <button type="button" className="acpmux-needs-you-ask-toggle" aria-expanded={expanded} onClick={toggle}>
+        {/* A marked tab's reason goes to the tab: it has no chat to expand. */}
+        <button
+          type="button"
+          className="acpmux-needs-you-ask-toggle"
+          aria-expanded={item.kind === "tab" ? undefined : expanded}
+          onClick={item.kind === "tab" ? () => actions.goTo(item) : toggle}
+        >
           {askText(item, t)}
         </button>
       </p>

@@ -158,6 +158,7 @@
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
         "CmuxNextPages",
+        "CmuxNextPalette",
         "CmuxNextRemoteFetch",
         "CmuxNextSettings",
         "CmuxNextWakeups"

@@ -115,7 +115,10 @@ pub(super) fn control_of(
         return Control::Web;
     }
     match origin {
-        super::Origin::Local if params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile") => {
+        super::Origin::Local
+            if params.pointer("/_meta/acpmux/via").and_then(Value::as_str)
+                == Some("cloud-mobile") =>
+        {
             // The cmux-tui native agent-session adapter stamps this marker
             // only for its authenticated Cloud mobile carrier prompt. Keep
             // the prompt under the Web asking policy while retaining the
@@ -164,8 +167,10 @@ pub(super) fn cloud_mobile(params: &Value) -> bool {
 /// A phone's prompt never goes on to a peer: the peer would read the forwarded
 /// `via` as `web` and lose the Cloud mobile floor (`check_dispatch`).
 pub(super) fn refuse_cloud_mobile_forward() -> RpcError {
-    RpcError::invalid_params("remote.cloud_mobile_peer: a Cloud mobile prompt runs only on this machine")
-        .with_data(serde_json::json!({"reason": "remote.cloud_mobile_peer"}))
+    RpcError::invalid_params(
+        "remote.cloud_mobile_peer: a Cloud mobile prompt runs only on this machine",
+    )
+    .with_data(serde_json::json!({"reason": "remote.cloud_mobile_peer"}))
 }
 
 pub(super) fn mark_forwarded(

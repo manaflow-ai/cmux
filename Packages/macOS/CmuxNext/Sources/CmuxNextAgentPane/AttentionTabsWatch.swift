@@ -10,17 +10,85 @@ import Foundation
 /// wakes nothing.
 @MainActor
 public final class AttentionTabsWatch {
-    /// The observation loop. ``AppServices/attentionTabsWatch`` owns this watch; letting it go
-    /// (or the services going) cancels the loop, which ends the stream.
+    /// One machine's observed state, including readiness so an empty initial snapshot still
+    /// wakes the consumer. Tab attention arrives on the session stream, after or before the tree.
+    public nonisolated struct Snapshot: Hashable, Sendable {
+        public var machine: String
+        public var epoch: Int
+        public var stateGeneration: UInt64
+        public var storeID: ObjectIdentifier
+        public var ready: Bool
+        public var items: [AgentPaneAttentionTabs.Item]
+        public var baselineRequests: Set<String>
+
+        @MainActor public init(machine: String, store: DaemonStore) {
+            self.machine = machine
+            epoch = store.connectionEpoch
+            stateGeneration = store.session.snapshotGeneration
+            storeID = ObjectIdentifier(store)
+            // Observe connection state too: connectionEpoch intentionally is not observed.
+            let connected: Bool
+            if case .connected = store.connectionState { connected = true } else { connected = false }
+            ready = connected && store.isLoaded && !store.isProvisional
+                && store.liveTreeEpoch == epoch && store.session.known
+                && (!store.servesStateResources || store.session.hasCurrentSnapshot)
+            items = AttentionTabsWatch.items(in: store.workspaces.map { ($0, machine: machine) })
+            baselineRequests = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
+                guard let resource = tab.resourceID, let requestID = store.session.snapshotAttention[resource] else { return nil }
+                return AttentionTabsWatch.key(machine: machine, tab: resource.rawValue, requestID: requestID)
+            })
+        }
+    }
+
+    /// Each machine establishes its own baseline. An offline remote never suppresses a new
+    /// local request. Store replacement, reconnect and session-stream replay all rebaseline.
+    public nonisolated struct SnapshotBaseline: Sendable {
+        private var previous: [String: Snapshot] = [:]
+        private var reported: [String: Set<String>] = [:]
+
+        public init() {}
+
+        public mutating func eligibleRequests(_ snapshots: [Snapshot]) -> Set<String> {
+            var eligible: Set<String> = []
+            let present = Set(snapshots.map(\.machine))
+            reported = reported.filter { present.contains($0.key) }
+            for snapshot in snapshots {
+                let old = previous[snapshot.machine]
+                if old?.storeID != snapshot.storeID || old?.epoch != snapshot.epoch
+                    || old?.stateGeneration != snapshot.stateGeneration {
+                    reported[snapshot.machine] = []
+                }
+                guard snapshot.ready else { continue }
+                let current = Set(snapshot.items.map(\.tabId))
+                // Eligibility comes from the session snapshot, not the last observation:
+                // a delta may precede tree readiness or coalesce with the initial snapshot.
+                let candidates = current.subtracting(snapshot.baselineRequests)
+                let new = candidates.subtracting(reported[snapshot.machine] ?? [])
+                eligible.formUnion(new)
+                // Only live candidates are retained; clears and machine removal bound memory.
+                reported[snapshot.machine] = candidates
+            }
+            previous = Dictionary(snapshots.map { ($0.machine, $0) }, uniquingKeysWith: { _, last in last })
+            return eligible
+        }
+    }
+
+    /// The observation loop. AppServices owns the watch; releasing it cancels the stream.
     private let task: Task<Void, Never>
 
-    /// Follows the composition root's workspace projection and publishes changed lists.
-    public init(workspaces: @escaping @MainActor () -> [(WorkspaceModel, machine: String)],
-                publish: @escaping @MainActor ([AgentPaneAttentionTabs.Item]) -> Void) {
-        // task-owner: the application retains this watch; deinit cancels the stream
+    /// Nil snapshots means the composition-root owner is gone. Every list reaches the lifecycle
+    /// callback, with posting disabled while loading and for each connection's initial baseline.
+    public init(tabs: AgentPaneAttentionTabs,
+                snapshots: @escaping @MainActor () -> [Snapshot]?,
+                onChange: @escaping @MainActor ([AgentPaneAttentionTabs.Item], Set<String>) -> Void) {
+        // task-owner: AppServices.attentionTabsWatch; cancelled in deinit, or when snapshots returns nil
         task = Task {
-            for await marked in ObservationStream({ Self.items(in: workspaces()) }) {
-                publish(marked)
+            var baseline = SnapshotBaseline()
+            for await snapshots in ObservationStream(snapshots) {
+                guard let snapshots else { return }
+                let marked = snapshots.flatMap(\.items).sorted { $0.atMs > $1.atMs }
+                tabs.items = marked
+                onChange(marked, baseline.eligibleRequests(snapshots))
             }
         }
     }
