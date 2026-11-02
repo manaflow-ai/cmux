@@ -61,6 +61,12 @@ public final class PaneToolbarView: NSView {
     public private(set) var nativeItems: [PaneTabRowTool] = []
     public private(set) var nativeButtons: [TitlebarBandButton] = []
     private var nativeMoreTool: PaneTabRowTool?
+#if DEBUG
+    /// Test-only presenter hook. The production wrapper (the button's onMenuOpenChange HoverReveal hold) remains
+    /// installed; this replaces only the blocking AppKit popup at its center.
+    var nativeMenuPresenterOverride: (@MainActor (NSMenu, TitlebarBandButton) -> Void)?
+    var nativeMenuPresentationObserver: ((NSMenu) -> Void)?
+#endif
     /// The app's one more button (⋮, OverflowButton); its menu opens on press.
     public let moreButton = OverflowButton(label: Strings.paneMore)
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
@@ -182,6 +188,17 @@ public final class PaneToolbarView: NSView {
                 button.target = self
                 button.action = #selector(pressNative(_:))
                 button.pressMenu = { [weak self] in self?.menu(for: item) }
+#if DEBUG
+                let present = button.presentMenu
+                button.presentMenu = { [weak self] menu, source in
+                    self?.nativeMenuPresentationObserver?(menu)
+                    if let override = self?.nativeMenuPresenterOverride {
+                        override(menu, source)
+                    } else {
+                        present(menu, source)
+                    }
+                }
+#endif
             }
             if !item.contextMenu.isEmpty {
                 button.menuProvider = { [weak self] in self?.contextMenu(for: item) }

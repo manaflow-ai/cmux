@@ -261,7 +261,7 @@ public final class LayoutRootView: NSView {
     /// head for; nil for a screen not sized yet. A keyboard resize steps inside them (RESIZE KEYS K1).
     public func shownResizeRange(ofScreenContaining pane: PaneID) -> ShownResizeRange? {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], view.bounds.width > 0 else { return nil }
-        return ShownResizeRange(geometry: view.baseGeometry, style: context.style)
+        return ShownResizeRange(geometry: view.baseGeometry, style: context.style, scale: view.reconciledScale ?? view.scale)
     }
 
     /// A keyboard resize press (`resizePane*`) is about to move `pane`'s screen: until that spring lands, every pane of

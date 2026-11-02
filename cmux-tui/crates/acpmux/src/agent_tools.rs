@@ -1067,11 +1067,21 @@ fn bg_hooks() -> String {
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
+    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
+        "hooks": [{"type": "command", "command": hook_command(&words), "timeout": 10}]}]}})
+    .to_string()
+}
+
+/// The hook's shell command: `words` quoted, then `|| true`. Claude Code blocks the tool call
+/// when a PreToolUse hook exits 2, and the hook only ever turns a call away through the JSON it
+/// prints on success, so a failure (a binary that is gone, or one that does not know
+/// `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
+/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02:
+/// `unknown resource scope "__bg-hook"` on each call).
+pub(crate) fn hook_command(words: &[String]) -> String {
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
-    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
-        "hooks": [{"type": "command", "command": quoted.join(" "), "timeout": 10}]}]}})
-    .to_string()
+    format!("{} || true", quoted.join(" "))
 }
 
 /// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer
