@@ -39,8 +39,12 @@ pub type LocalStream = NamedPipeServer;
 const SYSTEM_SID: &str = "S-1-5-18";
 const ADMINISTRATORS_SID: &str = "S-1-5-32-544";
 const TRUSTED_INSTALLER_SID: &str = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
-/// FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | GENERIC_WRITE
-const WRITE_RIGHTS: u32 = 0x0002 | 0x0004 | 0x0010 | 0x0100 | 0x0001_0000 | 0x0004_0000 | 0x0008_0000 | 0x1000_0000 | 0x4000_0000;
+/// On the file: FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | GENERIC_WRITE
+const FILE_WRITE_RIGHTS: u32 = 0x0002 | 0x0004 | 0x0010 | 0x0100 | 0x0001_0000 | 0x0004_0000 | 0x0008_0000 | 0x1000_0000 | 0x4000_0000;
+/// On its folder, the rights that could replace the file: FILE_DELETE_CHILD | DELETE | WRITE_DAC |
+/// WRITE_OWNER | GENERIC_ALL. Adding files (FILE_ADD_FILE, which every user inherits on
+/// %ProgramData%) cannot replace an existing one.
+const FOLDER_REPLACE_RIGHTS: u32 = 0x0040 | 0x0001_0000 | 0x0004_0000 | 0x0008_0000 | 0x1000_0000;
 const INHERIT_ONLY_ACE: u8 = 0x08;
 
 fn wide(text: &OsStr) -> Vec<u16> {
@@ -181,10 +185,91 @@ pub fn peer_of(stream: &LocalStream) -> Option<(bool, u32)> {
     Some((same, pid))
 }
 
-/// Process ids serving a named pipe are not readable from a client here; the
-/// daemon socket check on Windows uses the daemon's recorded pid instead.
-pub fn listener_pid(_endpoint: &Path) -> Option<u32> {
-    None
+/// The process serving a local endpoint of this user: a named pipe
+/// (`GetNamedPipeServerProcessId`) or an AF_UNIX socket file, which acpmux
+/// serves on Windows (`SIO_AF_UNIX_GETPEERPID`). None for another user's.
+pub fn listener_pid(endpoint: &Path) -> Option<u32> {
+    let pid = if endpoint.as_os_str().to_string_lossy().starts_with(r"\\.\pipe\") {
+        pipe_server_pid(endpoint)?
+    } else {
+        unix_socket_peer_pid(endpoint)?
+    };
+    (process_sid(pid)? == my_sid()?).then_some(pid)
+}
+
+fn pipe_server_pid(endpoint: &Path) -> Option<u32> {
+    use windows_sys::Win32::Storage::FileSystem::{CreateFileW, OPEN_EXISTING, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT};
+    use windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId;
+    let name = wide(endpoint.as_os_str());
+    // SAFETY: a NUL-terminated name; identification only, so the server cannot impersonate us.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            0x8000_0000 | 0x4000_0000,
+            0,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle as isize == -1 {
+        return None;
+    }
+    let handle = Handle(handle);
+    let mut pid = 0_u32;
+    // SAFETY: a connected client handle.
+    (unsafe { GetNamedPipeServerProcessId(handle.0, &mut pid) } != 0).then_some(pid)
+}
+
+fn unix_socket_peer_pid(endpoint: &Path) -> Option<u32> {
+    use windows_sys::Win32::Networking::WinSock::{
+        AF_UNIX, SOCK_STREAM, SOCKADDR, SOCKADDR_UN, WSADATA, WSAIoctl, WSAStartup, closesocket, connect, socket,
+    };
+    /// _WSAIOR(IOC_VENDOR, 256)
+    const SIO_AF_UNIX_GETPEERPID: u32 = 0x5800_0100;
+    let path = endpoint.to_str()?.as_bytes();
+    // SAFETY: plain data.
+    let mut address: SOCKADDR_UN = unsafe { std::mem::zeroed() };
+    if path.len() >= address.sun_path.len() {
+        return None;
+    }
+    address.sun_family = AF_UNIX;
+    for (slot, byte) in address.sun_path.iter_mut().zip(path) {
+        *slot = *byte as _;
+    }
+    // SAFETY: WSAStartup is reference counted; a later call is harmless.
+    let mut data: WSADATA = unsafe { std::mem::zeroed() };
+    unsafe { WSAStartup(0x0202, &mut data) };
+    // SAFETY: a new socket, closed below.
+    let sock = unsafe { socket(i32::from(AF_UNIX), SOCK_STREAM, 0) };
+    if sock == usize::MAX {
+        return None;
+    }
+    // SAFETY: a valid sockaddr_un of its full size.
+    let connected = unsafe {
+        connect(sock, (&raw const address).cast::<SOCKADDR>(), std::mem::size_of::<SOCKADDR_UN>() as i32)
+    } == 0;
+    let mut pid = 0_u32;
+    let mut returned = 0_u32;
+    // SAFETY: a connected socket and a u32 out buffer.
+    let ok = connected
+        && unsafe {
+            WSAIoctl(
+                sock,
+                SIO_AF_UNIX_GETPEERPID,
+                std::ptr::null(),
+                0,
+                (&raw mut pid).cast(),
+                4,
+                &mut returned,
+                std::ptr::null_mut(),
+                None,
+            )
+        } == 0;
+    // SAFETY: the socket from above.
+    unsafe { closesocket(sock) };
+    (ok && pid != 0).then_some(pid)
 }
 
 /// Owner-only DACL: generic all for this user's SID, nothing for anyone else.
@@ -288,7 +373,7 @@ pub fn read_private(path: &Path) -> Result<Vec<u8>, String> {
 }
 
 /// Why `path`'s owner and DACL do not make it the machine owner's, or None.
-fn owner_only_problem(path: &Path) -> Option<String> {
+fn owner_only_problem(path: &Path, rights: u32) -> Option<String> {
     let name = wide(path.as_os_str());
     let mut owner: PSID = std::ptr::null_mut();
     let mut dacl: *mut ACL = std::ptr::null_mut();
@@ -333,7 +418,7 @@ fn owner_only_problem(path: &Path) -> Option<String> {
             }
             // SAFETY: an ACCESS_ALLOWED_ACE (type 0).
             let allowed = unsafe { &*(ace.cast::<ACCESS_ALLOWED_ACE>()) };
-            if allowed.Mask & WRITE_RIGHTS == 0 {
+            if allowed.Mask & rights == 0 {
                 continue;
             }
             let sid = sid_string((&raw const allowed.SidStart).cast_mut().cast())?;
@@ -350,10 +435,11 @@ fn owner_only_problem(path: &Path) -> Option<String> {
 
 /// Reads a file only SYSTEM and Administrators can change (file and folder).
 pub fn read_owner_file(path: &Path) -> Result<String, String> {
-    for checked in [Some(path), path.parent()].into_iter().flatten() {
-        if let Some(problem) = owner_only_problem(checked) {
-            return Err(problem);
-        }
+    if let Some(problem) = owner_only_problem(path, FILE_WRITE_RIGHTS) {
+        return Err(problem);
+    }
+    if let Some(problem) = path.parent().and_then(|folder| owner_only_problem(folder, FOLDER_REPLACE_RIGHTS)) {
+        return Err(problem);
     }
     std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
 }

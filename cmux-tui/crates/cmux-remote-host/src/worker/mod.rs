@@ -83,6 +83,9 @@ struct Labels {
     workspace: String,
 }
 
+/// An upstream session and the (session version, saved generation) it was built for.
+type BuiltSession = ((u64, u64), Arc<dyn DriverSession>);
+
 /// One admitted connection.
 pub(crate) struct Session {
     id: String,
@@ -91,7 +94,7 @@ pub(crate) struct Session {
     grants: Mutex<Vec<Target>>,
     version: AtomicU64,
     /// The upstream session and the (session version, saved generation) it was built for.
-    handle: tokio::sync::Mutex<Option<((u64, u64), Arc<dyn DriverSession>)>>,
+    handle: tokio::sync::Mutex<Option<BuiltSession>>,
 }
 
 impl Session {
@@ -422,9 +425,22 @@ impl Worker {
         }
         let mut asked_for = None;
         let mut once = None;
-        if let Some(target) = self.resolve(session, &arguments).await {
-            once = self.gate(session, &target, tool).await?;
-            asked_for = Some(target.key());
+        match self.resolve(session, &arguments).await {
+            Some(target) => {
+                once = self.gate(session, &target, tool).await?;
+                asked_for = Some(target.key());
+            }
+            // An action with no resolvable target (screen coordinates, the focused window) could
+            // land on a never-allowed app (a terminal): refused in every mode. Ask and bounded
+            // sessions also have upstream's display grant off, so this only adds the check to
+            // standard and unrestricted.
+            None if !self.read_only(tool).await => {
+                return Err(CallError::new(
+                    "target_unresolved",
+                    format!("{tool} needs a pid or window_id of the app it acts on"),
+                ));
+            }
+            None => {}
         }
         let result = self.call_with(session, once.as_ref(), tool, &arguments).await;
         // Upstream resolved a target the arguments did not name: ask about it, then retry once.
@@ -437,6 +453,13 @@ impl Worker {
             return self.call_with(session, once.as_ref(), tool, &arguments).await;
         }
         result
+    }
+
+    /// Whether the driver's own inventory declares `tool` read only (never the caller's word).
+    async fn read_only(&self, tool: &str) -> bool {
+        let Ok(tools) = self.driver.tools().await else { return false };
+        let mut matching = tools.as_array().into_iter().flatten().filter(|entry| entry["name"].as_str() == Some(tool));
+        matching.next().is_some_and(|entry| entry["annotations"]["readOnlyHint"] == true) && matching.next().is_none()
     }
 
     async fn tools_list(&self) -> Result<Value, CallError> {
@@ -497,7 +520,11 @@ pub async fn serve_session<S: AsyncRead + AsyncWrite + Unpin>(worker: Arc<Worker
         let _ = writer.write_all(&refused(refusal)).await;
         return;
     }
-    let id = format!("cu-{}", crate::wire::hex(&crate::wire::make_secret().map(|bytes| bytes[..8].to_vec()).unwrap_or_default()));
+    let Ok(random) = crate::wire::make_secret() else {
+        let _ = writer.write_all(&crate::wire::encode(&json!({"ok": false, "error": "no randomness for a session id"}))).await;
+        return;
+    };
+    let id = format!("cu-{}", crate::wire::hex(&random[..8]));
     let session = Arc::new(Session {
         id: id.clone(),
         labels: Mutex::new(Labels::default()),
@@ -759,7 +786,11 @@ fn serve(worker: &Arc<Worker>, socket: &Path, _layout_dir: &Path) -> Result<(), 
         loop {
             let stream = match crate::platform::accept(&listener).await {
                 Ok(stream) => stream,
-                Err(_) => continue,
+                Err(_) => {
+                    // A persistent accept error must not spin a core.
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    continue;
+                }
             };
             let worker = Arc::clone(&worker);
             tokio::spawn(async move {

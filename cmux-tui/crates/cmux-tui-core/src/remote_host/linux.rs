@@ -192,7 +192,9 @@ fn spawn_unit(systemd_run: &Path, staged: &Staged, paths: &Paths, bootstrap: &Va
     let systemctl = |args: &[&str]| {
         let _ = Command::new("systemctl").arg("--user").args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     };
-    // A unit of a host that already exited (or failed) keeps its name until reset.
+    // A unit of a host this daemon did not adopt (it refused, or another build) is stopped
+    // first: one host per runtime directory. One that already exited keeps its name until reset.
+    systemctl(&["stop", &unit]);
     systemctl(&["reset-failed", &unit]);
     let output = Command::new(systemd_run)
         .args(["--user", "--collect", "--quiet", "--unit", &unit])
@@ -289,7 +291,7 @@ pub(super) fn process_start(pid: u32) -> Option<(u64, u64)> {
 /// The pid of a connected Unix socket's peer, when it runs as this user.
 pub(super) fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
     let mut credentials = libc::ucred { pid: 0, uid: 0, gid: 0 };
-    let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
     // SAFETY: getsockopt into a correctly sized ucred.
     let ok = unsafe {
         libc::getsockopt(

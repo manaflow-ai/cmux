@@ -5,8 +5,8 @@
   The cmux-tui daemon registers it as "cmux Remote <scope>" with
   `schtasks /Create /XML` and starts it with `schtasks /Run` when it runs outside
   that session (an SSH session); from inside the session it starts the host
-  directly. USER_SID, HOST_EXE, LAYOUT_DIR, STATE_DIR, SCOPE and BOOTSTRAP are
-  filled in by the daemon.
+  directly. The daemon fills in the user SID and the paths (XML-escaped) and
+  drops this comment.
 -->
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>

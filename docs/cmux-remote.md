@@ -203,7 +203,7 @@ The mode comes only from configuration the machine's owner controls
 | | Linux | Windows |
 | --- | --- | --- |
 | File | `/etc/cmux/computer-use.toml` | `%ProgramData%\cmux\computer-use.toml` |
-| Trusted when | a regular root-owned file not writable by group or others, in root-owned directories no one else can write | owned by SYSTEM or Administrators, and no ACE grants write to anyone else (file and folder) |
+| Trusted when | a regular root-owned file not writable by group or others, in root-owned directories no one else can write | owned by SYSTEM or Administrators; no ACE grants anyone else write on the file, or delete-child, delete, DAC or owner rights on `%ProgramData%\cmux` (the "create files" every user inherits there cannot replace an existing file) |
 | Unrestricted | `mode = "unrestricted"` plus both `CUA_DRIVER_PERMISSION_MODE = "unrestricted"` and `CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS = "1"` under `[environment]` in that file; the host passes exactly these to the worker and the unit unsets them from everything else | same |
 
 No file means `ask`; a file that is present but untrusted or invalid refuses
@@ -230,6 +230,24 @@ every call. Local collectors:
 never decides by itself. `computer_use.deny`, `computer_use.revoke`,
 `computer_use.pending` and `computer_use.approvals` are open to any local caller
 (they lower trust or read).
+
+### Known limits
+
+- **Same user.** As upstream documents, this protects against agents limited to
+  cmux's tools. The saved approvals (`remote/worker/approvals/<client>.json`,
+  0600) and `endpoint.json` are files of the person's user; a process that
+  already runs arbitrary code as that user can change them or drive the desktop
+  directly. Isolate such agents with a VM, a separate user or a second device.
+- **Targets.** A call is gated on the app its `pid` or `window_id` names; an
+  input call with neither (screen coordinates, the focused window) is refused
+  in every mode (`target_unresolved`) so it cannot land on a never-allowed app.
+  The never-allowed list matches the running executable: a terminal that runs
+  under an interpreter (terminator and guake are `python3`) is matched as
+  `python3`, so do not approve an interpreter app on a machine where agents run.
+- **Windows bridge.** `acpmux cua-mcp` serves Unix sockets only today, so on
+  Windows the worker runs and answers status and approvals, but agents reach it
+  once acpmux's bridge speaks to a named pipe (the worker's endpoint is already
+  `\\.\pipe\cmux-remote-<rh-leaf>-cu`).
 
 ### Distro matrix
 

@@ -99,14 +99,25 @@ impl LocalCollector for Polkit {
             .await;
         guard.proxy = None; // answered: nothing to cancel
         let reply = reply.ok()?;
-        let (authorized, _challenge, _details): (bool, bool, HashMap<String, String>) =
+        let (authorized, _challenge, details): (bool, bool, HashMap<String, String>) =
             reply.body().deserialize().ok()?;
+        let decision = decision_of(authorized, &details, offered)?;
         Some(ApproverDecision {
-            decision: if authorized { offered } else { Decision::Deny },
+            decision,
             digest: request.digest.clone(),
             via: "polkit".into(),
         })
     }
+}
+
+/// Authorized confirms the offered scope; a dialog the person dismissed is a deny;
+/// any other refusal (no agent, not an active session) asks nobody, so the
+/// phone and Mac can still answer.
+pub fn decision_of(authorized: bool, details: &HashMap<String, String>, offered: Decision) -> Option<Decision> {
+    if authorized {
+        return Some(offered);
+    }
+    (details.get("polkit.dismissed").map(String::as_str) == Some("true")).then_some(Decision::Deny)
 }
 
 #[cfg(test)]
@@ -135,5 +146,14 @@ mod tests {
         assert_eq!(details["app"], "Text Editor");
         assert_eq!(details["scope"], "for this agent session");
         assert_eq!(action_for(Decision::Always), ACTION_APPROVE_ALWAYS);
+    }
+
+    #[test]
+    fn only_a_dismissed_dialog_denies() {
+        let none = HashMap::new();
+        let dismissed = HashMap::from([("polkit.dismissed".to_owned(), "true".to_owned())]);
+        assert_eq!(decision_of(true, &none, Decision::Session), Some(Decision::Session));
+        assert_eq!(decision_of(false, &dismissed, Decision::Session), Some(Decision::Deny));
+        assert_eq!(decision_of(false, &none, Decision::Session), None);
     }
 }

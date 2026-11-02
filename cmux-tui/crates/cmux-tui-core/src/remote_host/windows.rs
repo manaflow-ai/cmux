@@ -73,7 +73,24 @@ pub(super) struct PipeStream {
 }
 
 impl PipeStream {
+    /// Opens the pipe, waiting up to 2 s for an instance while the host
+    /// creates the next one (`ERROR_PIPE_BUSY`).
     pub(super) fn connect(path: &Path) -> std::io::Result<Self> {
+        const ERROR_PIPE_BUSY: i32 = 231;
+        for _ in 0..4 {
+            match Self::open(path) {
+                Err(error) if error.raw_os_error() == Some(ERROR_PIPE_BUSY) => {
+                    let name = wide(path.as_os_str());
+                    // SAFETY: a NUL-terminated name; a bounded wait for a free instance.
+                    unsafe { windows_sys::Win32::System::Pipes::WaitNamedPipeW(name.as_ptr(), 500) };
+                }
+                other => return other,
+            }
+        }
+        Self::open(path)
+    }
+
+    fn open(path: &Path) -> std::io::Result<Self> {
         let name = wide(path.as_os_str());
         // SAFETY: a NUL-terminated name; SQOS identification keeps the host from impersonating the daemon.
         let handle = unsafe {
@@ -141,6 +158,10 @@ impl PipeStream {
                 unsafe {
                     CancelIoEx(handle, &overlapped);
                     GetOverlappedResult(handle, &overlapped, &mut done, 1);
+                }
+                // The read may have finished before the cancel: its bytes are off the pipe.
+                if done > 0 {
+                    return Ok(done as usize);
                 }
                 return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "read timed out"));
             }
@@ -289,8 +310,12 @@ pub(super) fn spawn_host(staged: &Staged, paths: &Paths, bootstrap: &Value, read
     let worker_state = paths.state.join("worker");
     // The host sets this event once it serves (Global: a daemon in Session 0 and a host in Session 1+ share it).
     let event_name = wide(OsStr::new(&format!("Global\\cmux-remote-{}-ready", leaf(paths))));
-    // SAFETY: a named manual-reset event, closed by the wrapper.
-    let ready = OwnedHandle(unsafe { CreateEventW(std::ptr::null(), 1, 0, event_name.as_ptr()) });
+    // Only this user may set it (an elevated SSH daemon's default DACL may name Administrators,
+    // which the host's least-privilege token is not).
+    let sid = my_sid().ok_or("cannot read this user's SID")?;
+    let security = UserOnlySecurity::new(&sid)?;
+    // SAFETY: a named manual-reset event with that DACL, closed by the wrapper.
+    let ready = OwnedHandle(unsafe { CreateEventW(&security.attributes, 1, 0, event_name.as_ptr()) });
     if ready.0.is_null() {
         return Err(format!("cannot create the ready event: {}", std::io::Error::last_os_error()));
     }
@@ -326,15 +351,8 @@ pub(super) fn spawn_host(staged: &Staged, paths: &Paths, bootstrap: &Value, read
         return Ok(pid);
     }
     // Outside the interactive session (SSH, a service): an interactive logon task of this user.
-    let sid = my_sid().ok_or("cannot read this user's SID")?;
     let task_name = format!("cmux Remote {}", leaf(paths));
-    let xml = TASK_TEMPLATE
-        .replace("USER_SID", &sid)
-        .replace("HOST_EXE", &staged.executable.display().to_string())
-        .replace("LAYOUT_DIR", &paths.runtime.display().to_string())
-        .replace("STATE_DIR", &worker_state.display().to_string())
-        .replace("SCOPE", &paths.scope)
-        .replace("BOOTSTRAP", &file.display().to_string());
+    let xml = task_xml(&sid, &staged.executable, &paths.runtime, &worker_state, &paths.scope, &file);
     let xml_path = paths.runtime.join("task.xml");
     let mut encoded: Vec<u8> = vec![0xFF, 0xFE];
     encoded.extend(xml.encode_utf16().flat_map(u16::to_le_bytes));
@@ -358,6 +376,57 @@ pub(super) fn spawn_host(staged: &Staged, paths: &Paths, bootstrap: &Value, read
     // The host's pid: the server end of its pipe (this probe connection sends nothing and is dropped).
     let probe = PipeStream::connect(&paths.supervisor_socket()).map_err(|error| format!("{error}"))?;
     peer_pid(&probe).ok_or_else(|| "cannot read the host's pid".into())
+}
+
+/// A user-only DACL for the ready event.
+struct UserOnlySecurity {
+    descriptor: *mut core::ffi::c_void,
+    attributes: windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+}
+
+impl UserOnlySecurity {
+    fn new(sid: &str) -> Result<Self, String> {
+        use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+        let sddl = wide(OsStr::new(&format!("D:P(A;;GA;;;{sid})")));
+        let mut descriptor: *mut core::ffi::c_void = std::ptr::null_mut();
+        // SAFETY: a NUL-terminated SDDL; freed in Drop.
+        if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), 1, &mut descriptor, std::ptr::null_mut()) } == 0 {
+            return Err(format!("cannot build the ready event's DACL: {}", std::io::Error::last_os_error()));
+        }
+        let attributes = windows_sys::Win32::Security::SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<windows_sys::Win32::Security::SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: descriptor,
+            bInheritHandle: 0,
+        };
+        Ok(Self { descriptor, attributes })
+    }
+}
+
+impl Drop for UserOnlySecurity {
+    fn drop(&mut self) {
+        // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+        unsafe { LocalFree(self.descriptor) };
+    }
+}
+
+fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
+}
+
+/// The task's XML with every value escaped; the template's comment is dropped first.
+pub(super) fn task_xml(sid: &str, exe: &Path, layout: &Path, state: &Path, scope: &str, bootstrap: &Path) -> String {
+    let template = match (TASK_TEMPLATE.find("<!--"), TASK_TEMPLATE.find("-->")) {
+        (Some(start), Some(end)) if start < end => format!("{}{}", &TASK_TEMPLATE[..start], &TASK_TEMPLATE[end + 3..]),
+        _ => TASK_TEMPLATE.to_owned(),
+    };
+    let value = |path: &Path| xml_escape(&path.display().to_string());
+    template
+        .replace("USER_SID", &xml_escape(sid))
+        .replace("HOST_EXE", &value(exe))
+        .replace("LAYOUT_DIR", &value(layout))
+        .replace("STATE_DIR", &value(state))
+        .replace("BOOTSTRAP", &value(bootstrap))
+        .replace("SCOPE", &xml_escape(scope))
 }
 
 fn wait_ready(event: &OwnedHandle, timeout: Duration, paths: &Paths) -> Result<(), String> {

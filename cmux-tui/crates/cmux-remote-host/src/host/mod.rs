@@ -546,6 +546,8 @@ impl HostCore {
         let collectors = lock(&self.collectors).clone();
         let core = Arc::downgrade(self);
         let asking = request.clone();
+        // Recorded before the collectors run: an instant "nobody can answer" must find it.
+        lock(&self.questions).insert(id, Question { request: request.clone(), generation, task: None });
         let task = tokio::spawn(async move {
             let deadline = Duration::from_millis(asking.answerable_until_ms.saturating_sub(crate::approval::now_ms()));
             let answer = tokio::time::timeout(deadline, collectors.ask(&asking)).await.ok().flatten();
@@ -553,7 +555,10 @@ impl HostCore {
                 core.deliver(id, answer);
             }
         });
-        lock(&self.questions).insert(id, Question { request: request.clone(), generation, task: Some(task.abort_handle()) });
+        match lock(&self.questions).get_mut(&id) {
+            Some(question) => question.task = Some(task.abort_handle()),
+            None => task.abort(), // already answered
+        }
         let mut fields = Map::new();
         fields.insert("id".into(), json!(id));
         fields.insert("request".into(), request.to_value());
@@ -677,7 +682,11 @@ pub async fn run(core: Arc<HostCore>) -> Result<(), String> {
         let core = Arc::clone(&core);
         tokio::spawn(async move {
             loop {
-                let Ok(stream) = crate::platform::accept(&listener).await else { continue };
+                let Ok(stream) = crate::platform::accept(&listener).await else {
+                    // A persistent accept error (EMFILE, no pipe instance) must not spin a core.
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                };
                 let core = Arc::clone(&core);
                 tokio::spawn(async move {
                     let daemon = crate::platform::peer_of(&stream)
@@ -691,4 +700,47 @@ pub async fn run(core: Arc<HostCore>) -> Result<(), String> {
     accepting.abort();
     core.stop();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::approval::{Question as Ask, Target};
+
+    fn core() -> Arc<HostCore> {
+        let scratch = std::env::temp_dir().join(format!("cmux-rh-core-{}", std::process::id()));
+        let bootstrap = Bootstrap::parse(&json!({"supervisor_secret": "00".repeat(32)})).unwrap();
+        HostCore::new(bootstrap, Layout { dir: scratch.join("rh") }, scratch.join("state"), None)
+    }
+
+    #[tokio::test]
+    async fn with_no_collector_a_question_is_answered_unavailable_and_forgotten() {
+        let core = core();
+        let request = ApprovalRequest::new(
+            Ask {
+                client: "c".into(),
+                machine: "m".into(),
+                session: "s".into(),
+                agent: "a".into(),
+                workspace: "w".into(),
+                target: Target { bundle_id: None, executable: Some("/usr/bin/gedit".into()), name: "gedit".into() },
+                tool: "click".into(),
+                risk: "R1".into(),
+            },
+            crate::approval::now_ms(),
+        )
+        .unwrap();
+        core.worker_asked(1, &json!({"type": "app_approval", "id": 7, "request": request.to_value()}));
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        assert!(lock(&core.questions).is_empty(), "the unanswerable question is delivered, not leaked");
+    }
+
+    #[tokio::test]
+    async fn a_forged_request_is_refused_without_asking() {
+        let core = core();
+        core.worker_asked(1, &json!({"type": "app_approval", "id": 8, "request": {"v": 1, "digest": "00"}}));
+        assert!(lock(&core.questions).is_empty());
+    }
 }

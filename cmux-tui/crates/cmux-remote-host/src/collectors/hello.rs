@@ -38,17 +38,28 @@ impl LocalCollector for WindowsHello {
             return None;
         }
         let text = message(request, offered);
-        let verified = tokio::task::spawn_blocking(move || verify(&text)).await.ok()??;
+        let decision = match tokio::task::spawn_blocking(move || verify(&text)).await.ok()?? {
+            Verdict::Verified => offered,
+            Verdict::Canceled => Decision::Deny,
+            // Busy, retries exhausted, not set up: nobody answered here; the phone still can.
+            Verdict::NoAnswer => return None,
+        };
         Some(ApproverDecision {
-            decision: if verified { offered } else { Decision::Deny },
+            decision,
             digest: request.digest.clone(),
             via: "windows-hello".into(),
         })
     }
 }
 
-/// Some(true) verified, Some(false) declined or cancelled, None when Hello cannot ask.
-fn verify(text: &str) -> Option<bool> {
+enum Verdict {
+    Verified,
+    Canceled,
+    NoAnswer,
+}
+
+/// None when Hello cannot ask at all.
+fn verify(text: &str) -> Option<Verdict> {
     use windows::Security::Credentials::UI::{
         UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
     };
@@ -68,7 +79,11 @@ fn verify(text: &str) -> Option<bool> {
     .ok()?;
     let result = operation.get().ok()?;
     drop(window);
-    Some(result == UserConsentVerificationResult::Verified)
+    Some(match result {
+        UserConsentVerificationResult::Verified => Verdict::Verified,
+        UserConsentVerificationResult::Canceled => Verdict::Canceled,
+        _ => Verdict::NoAnswer,
+    })
 }
 
 /// A small top-level window titled "cmux Remote" that owns the Hello dialog.

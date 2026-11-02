@@ -84,13 +84,10 @@ impl WorkerLink {
 
     /// Starts or stops the worker to match.
     pub fn set_wanted(self: &WorkerLink, wanted: bool) {
-        self.wanted.send_replace(wanted);
-        if !wanted {
-            return;
-        }
         let start = {
             let mut state = lock(&self.state);
-            !std::mem::replace(&mut state.supervising, true)
+            self.wanted.send_replace(wanted);
+            wanted && !std::mem::replace(&mut state.supervising, true)
         };
         if start {
             let Some(core) = self.core.upgrade() else { return };
@@ -100,7 +97,8 @@ impl WorkerLink {
 
     /// Ends the running worker; the next one starts at once.
     pub fn restart(&self) {
-        self.restart_now.notify_one();
+        // Only a running worker listens; no permit is left for the next one.
+        self.restart_now.notify_waiters();
     }
 
     /// A control line to the running worker.
@@ -145,7 +143,16 @@ impl WorkerLink {
             }
             delay = (delay * 2).min(MAX_DELAY);
         }
-        lock(&self.state).supervising = false;
+        // Cleared under the lock that set_wanted takes: a want that arrived after the loop's
+        // last check either sees supervising=false (and starts one) or is seen here.
+        let again = {
+            let mut state = lock(&self.state);
+            state.supervising = false;
+            *self.wanted.borrow()
+        };
+        if again {
+            self.set_wanted(true);
+        }
     }
 
     /// Runs one worker until it exits; true when a restart was asked for.

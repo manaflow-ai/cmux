@@ -120,7 +120,7 @@ where
     std::future::poll_fn(move |context| {
         for index in 0..futures.len() {
             if let std::task::Poll::Ready(output) = std::pin::Pin::new(&mut futures[index]).poll(context) {
-                let _ = futures.swap_remove(index);
+                drop(futures.swap_remove(index));
                 let rest = std::mem::take(&mut futures);
                 return std::task::Poll::Ready((output, index, rest));
             }

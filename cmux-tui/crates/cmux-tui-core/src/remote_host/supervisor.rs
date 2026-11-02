@@ -131,6 +131,7 @@ impl Paths {
     fn config(&self) -> PathBuf {
         self.state.join("config.json")
     }
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     fn log(&self) -> PathBuf {
         self.runtime.join("host.log")
     }
@@ -368,7 +369,7 @@ impl Inner {
                 start_sec,
                 start_usec,
                 secret,
-                bundle_digest: staged.digest.clone(),
+                bundle_digest: staged.digest,
                 socket: paths.supervisor_socket(),
             };
             write_record(&paths.record(), &record);
@@ -652,6 +653,10 @@ impl RemoteHostSupervisor {
             paths.acpmux_socket.clone_from(&socket);
         }
         *lock(&self.inner.acpmux_socket) = socket.clone();
+        // The Swift host has no such method: only Windows and Linux hosts get it.
+        if cfg!(target_os = "macos") {
+            return;
+        }
         if let (Some(socket), State::Running(connection)) = (socket, &*lock(&self.inner.state)) {
             let connection = Arc::clone(connection);
             let _ = std::thread::Builder::new().name("remote-host-acpmux".into()).spawn(move || {
