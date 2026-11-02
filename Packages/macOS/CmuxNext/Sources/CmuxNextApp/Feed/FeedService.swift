@@ -246,14 +246,14 @@ final class FeedService {
             }
         case let .snapshot(snapshot):
             confirmed = Dictionary(snapshot.items.map { ($0.id, $0.state) }, uniquingKeysWith: { a, _ in a })
-            approvalHolds?.recordAnswered(snapshot.items.lazy.filter(\.state.isClosed).compactMap(\.cloudHoldRequest))
+            approvalHolds?.recordAnswered(snapshot.items.lazy.filter(\.state.isClosed).compactMap(\.cloudHold))
             resumeClosed()
             onConfirmedItems?(snapshot.items)
         case let .event(event):
             switch event.change {
             case let .items(items):
                 for item in items { confirmed[item.id] = item.state }
-                approvalHolds?.recordAnswered(items.lazy.filter(\.state.isClosed).compactMap(\.cloudHoldRequest))
+                approvalHolds?.recordAnswered(items.lazy.filter(\.state.isClosed).compactMap(\.cloudHold))
                 onConfirmedItems?(items)
             case let .remove(ids): for id in ids { confirmed[id] = nil }
             }

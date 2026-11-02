@@ -68,7 +68,7 @@ import Testing
     /// The production flow's shape: the real `CloudApprovalAnswer` for team_a over `backend`, told what the feed shows answered.
     private func flow(_ backend: Backend, holds: CloudApprovalHolds? = nil) -> CloudMachineCreateFlow {
         let approvals = CloudApprovalAnswer(call: { _, body in try await MainActor.run { try backend.session(body) } },
-                                            answered: { request in await holds?.isAnswered(request) ?? false })
+                                            answered: { request, team in await holds?.isAnswered(request, team: team) ?? false })
         return CloudMachineCreateFlow(
             run: { _, args, _, _ in try await MainActor.run { try backend.run(args) } },
             confirm: { _ in true },
@@ -99,12 +99,26 @@ import Testing
         #expect(backend.feedAnswers == 0)
     }
 
+    @Test func anotherTeamsHoldTheFeedShowsAnsweredStillFailsAtOnce() async throws {
+        let backend = Backend()
+        backend.itemTeam = "team_b"
+        backend.answeredOnPhone = true
+        let holds = CloudApprovalHolds()
+        // The person answered team_b's hold on the phone; this create is team_a's.
+        holds.recordAnswered([(request: "apr_1", team: "team_b")])
+        await #expect(throws: CloudApprovalAnswer.Failure.mismatch(request: "apr_1", reason: CloudApprovalAnswer.closedItem)) {
+            try await flow(backend, holds: holds).create(name: "cloud-chats", startedByPerson: true)
+        }
+        #expect(backend.sessionCalls > 0, "another team's closed hold skipped the create's own team check")
+        #expect(backend.feedAnswers == 0)
+    }
+
     @Test func aHoldTheFeedShowsAnsweredIsNotAskedAboutAgain() async throws {
         let backend = Backend()
         let holds = CloudApprovalHolds()
         backend.answeredOnPhone = true
         // The feed owner pushed the closed approve item before the create's first call came back.
-        holds.recordAnswered(["apr_1"])
+        holds.recordAnswered([(request: "apr_1", team: "team_a")])
         let made = try await flow(backend, holds: holds).create(name: "cloud-chats", startedByPerson: true)
         #expect(made["id"]?.stringValue == "vm_1")
         #expect(backend.sessionCalls == 0, "a hold the feed showed answered was looked up or answered again")
@@ -117,7 +131,7 @@ import Testing
                 "poster": ["kind": poster, "scope": scope],
                 "prompt": ["action": ["type": "tool", "tool": "cloud.machine.create",
                                       "input": ["approval": ["team": team, "request": "apr_1", "digest": "dg_1"]]]],
-            ])?.cloudHoldRequest
+            ])?.cloudHold?.request
         }
         #expect(hold(scope: "system:cloud:team_a", team: "team_a") == "apr_1")
         #expect(hold(scope: "system:cloud:team_b", team: "team_a") == nil, "another team's owner posted it")

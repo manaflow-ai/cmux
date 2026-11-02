@@ -5,16 +5,16 @@
 /// here, so a create flow knows the hold was answered without asking the server again (cmux#32354).
 @MainActor
 public final class CloudApprovalHolds {
-    /// The requests whose approve item is closed. A closed item never opens again.
-    private var answered: Set<String> = []
+    /// The team of each request whose approve item is closed. A closed item never opens again.
+    private var answered: [String: String] = [:]
 
     public init() {}
 
-    /// The feed owner's closed approve items, by the hold request each carries.
-    public func recordAnswered(_ requests: some Sequence<String>) {
-        let new = Set(requests).subtracting(answered)
-        if !new.isEmpty { answered.formUnion(new) }
+    /// The feed owner's closed approve items: the hold request each carries and the team whose owner posted it.
+    public func recordAnswered(_ holds: some Sequence<(request: String, team: String)>) {
+        for hold in holds where answered[hold.request] != hold.team { answered[hold.request] = hold.team }
     }
 
-    public func isAnswered(_ request: String) -> Bool { answered.contains(request) }
+    /// Whether `team`'s own item for `request` is closed; another team's closed item answers nothing for `team`.
+    public func isAnswered(_ request: String, team: String) -> Bool { answered[request] == team }
 }
