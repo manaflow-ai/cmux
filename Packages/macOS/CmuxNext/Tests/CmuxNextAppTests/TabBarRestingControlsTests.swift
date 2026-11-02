@@ -161,7 +161,9 @@ import Testing
         #expect(view.moreButton.frame == resting, "fading out ⋮ must not move it left")
         #expect(view.moreButton.alphaValue == view.reveal.restAlpha, "the normal fade still hides ⋮")
     }
+    /// The store refuses a key it has no descriptor for; the app registers them at launch (DebugSettingsService).
     private static func setCrowdedControls(_ mode: TabCrowdedControls?) {
+        TunableStore.shared.register(TabTunables.all)
         TunableStore.shared.set(TabTunables.crowdedControls.key, mode.map { .choice($0.rawValue) })
     }
 
