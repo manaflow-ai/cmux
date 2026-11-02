@@ -99,9 +99,10 @@
   --cv-status-gap-plain: 0px;
   --cv-status-gap-plain-over: 0px;
   /* #30865's reply room on the grid: the stack's block gap is the room under a reply. A note in a
-     run of flush lines keeps --cv-note-gap (below) around it. */
+     run of flush lines keeps --cv-note-gap (below) around it: the run gap, as for any prose by a run
+     (design/transcript-spacing.md rule 4). */
   --cv-reply-room: 0px;
-  --cv-note-gap: var(--grid-gap-block);
+  --cv-note-gap: var(--grid-gap-run);
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--grid-gap);
   /* One icon column for every transcript meta row (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN
@@ -172,14 +173,16 @@
 .cv-user__body {
   display: contents;
 }
-/* A prompt's bubble: a small radius, and text inset evenly, 12px from each side (8px of padding
-   plus the line's half-leading above and below). model.ts measures it. Its look is the glass rule
-   below. */
+/* A prompt's bubble, as ChatGPT and Claude draw it (leo-workspace design/transcript-spacing.md
+   "Prompt bubble"; transcriptSpacing.ts BUBBLE): one line is 44 tall (chatgpt.com 44, claude.ai 45),
+   so the block padding is what the line leaves, (44 - line) / 2, at least the 4 base; 16 at the
+   sides (both apps); the cards' 12 radius (claude.ai 12). Was 8 by 12 with a 10 radius (38.75 tall).
+   model.ts measures it. Its look is the glass rule below. */
 .cv-user__bubble {
   box-sizing: border-box;
   max-width: 70%;
-  padding: var(--grid-gap) var(--grid-cards-padding);
-  border-radius: 10px;
+  padding: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2) calc(4 * var(--grid-base));
+  border-radius: var(--grid-cards-radius);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -3350,9 +3353,12 @@ button.cv-video-frames__frame:focus-visible {
   max-width: 100%;
 }
 /* The other machine the sender runs on, after its name: muted, a middle dot before it, and the first
-   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName). */
+   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName).
+   Flex shrinks each item by its factor times its width, so 10 still cut the name beside a whole host
+   (session-chip-browser.test.ts); 1000 leaves the name under a hundredth of the overflow until the
+   host is gone. */
 .cv-received__host {
-  flex: 0 10 auto;
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3777,10 +3783,11 @@ a.cv-sha:focus-visible {
   height: var(--cv-footer-button);
   border-radius: 8px;
 }
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu) {
+/* Continue is a labelled button (its own width, .cv-turn-continue below) and keeps its small arrow. */
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu, .cv-turn-continue) {
   width: var(--cv-footer-button);
 }
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn > svg {
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn:not(.cv-turn-continue) > svg {
   width: var(--cv-footer-glyph);
   height: var(--cv-footer-glyph);
 }

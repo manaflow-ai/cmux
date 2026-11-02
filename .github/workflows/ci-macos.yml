@@ -205,6 +205,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 1
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GITHUB_TOKEN: ${{ github.token }}
           ROOT_RUNNER: ${{ inputs.pr_root_runner }}
@@ -1434,6 +1435,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 1
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GITHUB_TOKEN: ${{ github.token }}
           MACOS: ${{ inputs.macos }}

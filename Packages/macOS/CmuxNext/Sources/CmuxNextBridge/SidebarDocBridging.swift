@@ -109,8 +109,11 @@ public final class SidebarDocSections {
     /// Home row and above every group (``placesNewRowsFirst``), else last. One
     /// placed in another section (Pinned, a custom section) lists only as a
     /// member of its group there. `unplacedOrder` orders those rows (the App's
-    /// personal order, newest first under `top`); it runs only when there are some.
-    public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel],
+    /// personal order, newest first under `top`); it runs only when there are some. `room`: the window's space; a
+    /// group with no workspace at all lists only in its own space (`Group.lists(inRoom:)`), nil lists it everywhere;
+    /// `spaces`: the spaces that exist (one of a gone space is the default space's).
+    public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel], room: String? = nil,
+                         spaces: Set<String>? = nil,
                          unplacedOrder: ([WorkspaceModel]) -> [WorkspaceModel] = { $0 }) -> [CmuxNextDaemon.SidebarSection] {
         let byResource = Dictionary(workspaces.compactMap { w in w.resourceID.map { ($0.rawValue, w) } }, uniquingKeysWith: { first, _ in first })
         var sections: [CmuxNextDaemon.SidebarSection] = []
@@ -120,7 +123,18 @@ public final class SidebarDocSections {
             if !loose.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: loose)) }
             loose = []
         }
-        for node in projection.machines[session] ?? [] {
+        let nodes = projection.machines[session] ?? []
+        // A group lists with a group under it that lists a live workspace here (a parent with none of its own too); an
+        // empty one, only in its own space and only under a parent that lists. A child never lists without its parent.
+        var parentOf: [String: String] = [:]
+        for case .group(let group) in nodes { if let parent = group.parent { parentOf[group.id] = parent } }
+        var holdsLive = Set<String>()
+        for case .group(let group) in nodes where group.members.contains(where: { byResource[$0.workspaceID] != nil }) {
+            var id: String? = group.id
+            while let current = id, holdsLive.insert(current).inserted { id = parentOf[current] }
+        }
+        var listedGroups = Set<String>()
+        for node in nodes {
             switch node {
             case .workspace(let ref, _):
                 guard let workspace = byResource[ref.workspaceID] else { continue }
@@ -128,9 +142,11 @@ public final class SidebarDocSections {
                 listed.insert(workspace.id)
             case .group(let group):
                 let members = group.members.compactMap { byResource[$0.workspaceID] }
-                // A group lists where it lists a live workspace, or everywhere with none at all; its link, tab and app
-                // members follow it (`SidebarDocProjection.arrange`).
-                guard !members.isEmpty || group.members.isEmpty else { continue }
+                // A group lists where it or a group under it lists a live workspace, or in its own space with none at
+                // all, under a parent that lists; its link, tab and app members follow it (`SidebarDocProjection.arrange`).
+                let parentListed = group.parent.map(listedGroups.contains) ?? true
+                guard holdsLive.contains(group.id) || (parentListed && group.members.isEmpty && group.lists(inRoom: room, spaces: spaces)) else { continue }
+                listedGroups.insert(group.id)
                 flush()
                 listed.formUnion(members.map(\.id))
                 sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))

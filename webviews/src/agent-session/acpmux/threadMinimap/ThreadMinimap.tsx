@@ -26,6 +26,7 @@ import {
   stopScroll,
 } from "./scrollMotion";
 import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
+import { wheelPixels } from "../wheelPassThrough";
 import { PreviewCard } from "./PreviewCard";
 import { railEdge, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
@@ -286,6 +287,8 @@ export function ThreadMinimap({
   const [domFocus, setDomFocus] = useState<{ sessionId?: string; key: string } | undefined>(undefined);
   const rail = useRef<HTMLElement>(null);
   const list = useRef<HTMLOListElement>(null);
+  /// The pane-edge strip: the rail's padding toward the pane edge, which is part of its hover area.
+  const strip = useRef<HTMLSpanElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
   /// A press is under way: the focus it brings is not keyboard focus.
@@ -435,6 +438,27 @@ export function ThreadMinimap({
       event.stopPropagation();
     };
     node.addEventListener("wheel", wheel, { capture: true, passive: true });
+    return () => node.removeEventListener("wheel", wheel, { capture: true });
+  }, [overflow, shown]);
+
+  // The padding between the pane edge and the rail is the rail's too (Leo, 2026-10-28: "I said me
+  // scroll on it, cover area, it scroll, plus the padding"): the strip there reveals the rail on
+  // hover, so the wheel over it scrolls the rail's list as the wheel over the list does, and never the
+  // transcript. The strip is no scroll container, so this listener moves the list itself; it is not
+  // passive because the browser would otherwise scroll the transcript under it. A pinch or a mostly
+  // sideways wheel is left alone.
+  useEffect(() => {
+    const node = strip.current;
+    if (!node || !overflow) return;
+    const wheel = (event: WheelEvent) => {
+      const target = list.current;
+      if (!target || event.ctrlKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      railBrowsing.current = { sessionId: live.current.sessionId };
+      target.scrollTop += wheelPixels(event, target.clientHeight);
+    };
+    node.addEventListener("wheel", wheel, { capture: true, passive: false });
     return () => node.removeEventListener("wheel", wheel, { capture: true });
   }, [overflow, shown]);
 
@@ -925,9 +949,12 @@ export function ThreadMinimap({
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
       <ContextMenu items={menu}>
         <span
+          ref={strip}
           className="acpmux-minimap__strip"
           aria-hidden="true"
           data-side={side}
+          // The wheel over the strip scrolls a list that scrolls itself (railWheel.ts), as over the list.
+          {...(overflow ? { [RAIL_SCROLLS_ATTRIBUTE]: "" } : {})}
           style={{
             ...railEdge(side, placement.reserve),
             top: boxTop,

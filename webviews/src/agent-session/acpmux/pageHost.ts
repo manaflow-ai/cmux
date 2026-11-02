@@ -25,6 +25,7 @@ import { setComputerUsePreview } from "./computerUse/computerUsePreview";
 import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
+import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-info/native/host";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -88,6 +89,10 @@ export function applyHostEvent(event: HostEvent): void {
   const bridge = window.cmuxAcpmuxBridge;
   const value = event.value as never;
   switch (event.kind) {
+    case "sessionInfoHost":
+      return setNativeSessionInfoHost(event.value);
+    case "sessionInfoAction":
+      return runNativeSessionInfoAction(event.value);
     case "uploads.state":
       return receivePromptUploadState(event.value);
     case "theme": {

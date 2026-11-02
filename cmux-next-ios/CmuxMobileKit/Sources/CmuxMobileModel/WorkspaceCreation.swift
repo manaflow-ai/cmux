@@ -308,6 +308,10 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func editTabGroup(_ edit: TabGroupEdit, tab: WorkspaceTab, in workspace: Workspace) async throws
     /// The chat menu's Fork: a copy of the chat in a new tab beside it, returned once the Mac lists it.
     func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// Edit and Resend of an earlier prompt: a copy of the chat through the turn whose
+    /// `turn_result` is record `seq` (acpmux `acp.session.fork {throughSeq}`), in a new tab
+    /// beside it, returned once the Mac lists it.
+    func forkAgentChat(_ tab: WorkspaceTab, through seq: Int, in workspace: Workspace) async throws -> WorkspaceTab
     /// The chat menu's Archive: the chat is archived on the Mac and its tab closes.
     func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws
     /// The tab groups saved on `macID` (`list-saved-tab-groups`), each marked open when a live
@@ -337,6 +341,10 @@ public protocol WorkspaceCreationBackend: AnyObject {
 }
 
 extension WorkspaceCreationBackend {
+    public func forkAgentChat(_ tab: WorkspaceTab, through seq: Int, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("This Mac can't copy a chat up to an earlier message.", isForPerson: true)
+    }
+
     public func restartShell(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }

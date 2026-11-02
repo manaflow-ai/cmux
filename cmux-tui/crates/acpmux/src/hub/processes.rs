@@ -324,7 +324,9 @@ impl ProcessTable {
             None => 0,
         };
         let end = start.saturating_add(limit).min(self.processes.len());
-        Ok((self.processes[start..end].to_vec(), end < self.processes.len()))
+        // start <= len (an ID's slot + 1) and start <= end <= len, so the range is always in bounds.
+        let window = self.processes.get(start..end).unwrap_or_default().to_vec();
+        Ok((window, end < self.processes.len()))
     }
 
     /// Every running process ends `lost` for `reason`; returns them.
@@ -380,12 +382,13 @@ fn process_page_values(
         let mut bytes = row.to_string().len();
         if bytes.saturating_add(cursor_bytes).saturating_add(64) > budget {
             let full_bytes = bytes;
+            // `get` serializes a missing field as null, as an index did.
             row = json!({
-                "id": row["id"], "sessionId": row["sessionId"],
-                "toolCallId": row["toolCallId"], "taskId": row["taskId"],
-                "harness": row["harness"], "command": "",
-                "startedAt": row["startedAt"], "endedAt": row["endedAt"],
-                "state": row["state"], "origin": row["origin"],
+                "id": row.get("id"), "sessionId": row.get("sessionId"),
+                "toolCallId": row.get("toolCallId"), "taskId": row.get("taskId"),
+                "harness": row.get("harness"), "command": "",
+                "startedAt": row.get("startedAt"), "endedAt": row.get("endedAt"),
+                "state": row.get("state"), "origin": row.get("origin"),
                 "omitted": {"reason": "too_large", "bytes": full_bytes}
             });
             bytes = row.to_string().len();
