@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts, senders and replies), not shipped UI.
 import { agentPaneEntry } from "../../../gallery/format";
+import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { incomingPrompt } from "../conversation/incomingMessage";
 
@@ -30,6 +31,27 @@ const rows = Array.from({ length: 16 }, (_, index) => [
   summary(299.6 - index * 2, { status: "completed" }),
 ]).flat();
 const INCOMING_TICK = '[data-tick="7"][data-incoming]';
+/// The looks compared for other sessions' ticks, all in one column (one x, one width): none (shipped),
+/// a subtle tint at rest, or a tint only while the pointer is on the rail. Drawn by a style tag so the
+/// shipped CSS keeps one look; each state sets its own and clears the others'.
+const LOOKS = {
+  none: "",
+  tint: ".acpmux-minimap__tick[data-incoming][data-tone='rest'] .acpmux-minimap__bar { opacity: 0.25; }",
+  "hover-only":
+    ".acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-incoming]:not([data-tone='active']) .acpmux-minimap__bar { opacity: 0.2; }",
+} as const;
+const look = (doc: Document, name: keyof typeof LOOKS) => {
+  doc.getElementById("gallery-incoming-look")?.remove();
+  if (!LOOKS[name]) return;
+  const style = doc.createElement("style");
+  style.id = "gallery-incoming-look";
+  style.textContent = LOOKS[name];
+  doc.head.appendChild(style);
+};
+const midThread = async (ctx: PlayContext) => {
+  await ctx.scroll({ selector: ".acpmux-scroll" }, 700);
+  await ctx.waitFor(() => ctx.document.querySelector(INCOMING_TICK));
+};
 
 export default agentPaneEntry({
   id: "agent-pane.thread-minimap-incoming",
@@ -41,21 +63,41 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap"],
   variants: {
     states: {
-      note: "At rest mid-thread: every third prompt is another session's message; every tick shares one column, one x and one width.",
+      note: "Shipped look, at rest mid-thread: every third prompt is another session's message; every tick shares one column, one x and one width, with no tint.",
       snapshot: chat(rows, { title: "Messages from other sessions at rest" }),
       play: async (ctx) => {
+        look(ctx.document, "none");
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
-        await ctx.scroll({ selector: ".acpmux-scroll" }, 700);
+        await midThread(ctx);
       },
     },
     "incoming-hovered": {
-      note: "The pointer on a message from review-router: its card names the sender above the words.",
+      note: "The pointer on a message from review-router: its card names the sender above the words; its tick stays in the column.",
       snapshot: chat(rows, { title: "A hovered message from another session" }),
       play: async (ctx) => {
+        look(ctx.document, "none");
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
-        await ctx.scroll({ selector: ".acpmux-scroll" }, 700);
-        await ctx.waitFor(() => ctx.document.querySelector(INCOMING_TICK));
+        await midThread(ctx);
         await ctx.hover({ selector: INCOMING_TICK });
+      },
+    },
+    "tint-at-rest": {
+      note: "Compared, not shipped: one column, other sessions' ticks a step dimmer at rest (25% against 40%).",
+      snapshot: chat(rows, { title: "Other sessions tinted at rest" }),
+      play: async (ctx) => {
+        look(ctx.document, "tint");
+        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        await midThread(ctx);
+      },
+    },
+    "tint-on-hover": {
+      note: "Compared, not shipped: one column, equal at rest; while the pointer is on the rail, other sessions' ticks dim (here hovering prompt 6).",
+      snapshot: chat(rows, { title: "Other sessions marked while the rail is hovered" }),
+      play: async (ctx) => {
+        look(ctx.document, "hover-only");
+        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        await midThread(ctx);
+        await ctx.hover({ selector: '[data-tick="5"]' });
       },
     },
   },

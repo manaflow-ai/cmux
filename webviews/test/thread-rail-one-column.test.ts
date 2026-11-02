@@ -92,12 +92,34 @@ await requireBrowserLane("thread-rail-one-column.test.ts", async () => {
     await page.close();
   });
 
-  test("the hover preview still names the sender of another session's message", async () => {
+  test("the hover preview still names the sender of another session's message, and only there", async () => {
     const page = await open();
-    const box = await page.evaluate(() => {
-      const rect = document.querySelector<HTMLElement>('[data-tick="7"]')!.getBoundingClientRect();
-      return { x: rect.left + 8, y: rect.top + rect.height / 2 };
-    });
+    const hover = async (index: number, words: string) => {
+      const box = await page.evaluate((at) => {
+        const rect = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
+        return { x: rect.left + 8, y: rect.top + rect.height / 2 };
+      }, index);
+      await page.mouse.move(box.x, box.y);
+      await page.waitForSelector(`[data-tick="${index}"][data-tone="active"]`);
+      await page.waitForFunction(
+        (text) => document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt")?.textContent?.includes(text),
+        words,
+      );
+      // The harness loads no string catalog, so the line reads its key; the name is the model's
+      // (thread-rail-incoming-sender.test.ts).
+      return page.evaluate(() => ({
+        incoming: document.querySelector(".acpmux-minimap__card")?.hasAttribute("data-incoming"),
+        from: document.querySelector(".acpmux-minimap__card .acpmux-minimap__from")?.textContent ?? null,
+      }));
+    };
+    const other = await hover(7, "Step 8 landed");
+    expect(other.incoming).toBe(true);
+    expect(other.from).toBeTruthy();
+    const own = await hover(8, "the number 9.");
+    expect(own.incoming).toBe(false);
+    expect(own.from).toBeNull();
+    await page.close();
+  });
     await page.mouse.move(box.x, box.y);
     await page.waitForSelector('[data-tick="7"][data-tone="active"]');
     await page.waitForSelector(".acpmux-minimap__card[data-incoming] .acpmux-minimap__from");
