@@ -186,8 +186,9 @@ jobs:
       # skipped and the build starts one runner queue earlier.
       owns_key: ${{ steps.inspect.outputs.owns_key }}
       stale: ${{ steps.stale.outputs.stale }}
-      # The live GCP Linux label, only when the routing App saw an online
-      # member; empty sends downstream jobs to their measured overflow.
+      # The live GCP Linux label for the daemon tests alone, only when the
+      # runner census shows an idle Linux member; empty keeps their measured
+      # Blacksmith overflow. The build legs keep their own routes.
       linux_runner: ${{ steps.linux-placement.outputs.linux_runner }}
       linux_jobs: ${{ steps.linux-placement.outputs.linux_jobs }}
     steps:
@@ -1193,7 +1194,6 @@ jobs:
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       darwin_mac_runner: ${{ needs.tree-preflight.outputs.darwin_mac_runner }}
-      linux_runner: ${{ needs.tree-preflight.outputs.linux_runner }}
 
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the
@@ -1244,7 +1244,6 @@ jobs:
       # relay has no Windows PTY backend yet; no misleading Windows relay,
       # machine package or manifest entry).
       include_windows: true
-      linux_runner: ${{ needs.tree-preflight.outputs.linux_runner }}
       # Optional: a failed Windows build publishes the macOS and Linux tree
       # without it (a ::warning names it); the key gets the Windows daemon on
       # a later republication (cmux-tui-pin-* push or dispatch), and

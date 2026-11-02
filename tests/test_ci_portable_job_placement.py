@@ -508,8 +508,9 @@ class Wiring(unittest.TestCase):
         self.assertLess(live, fallback)
         self.assertEqual(workflow["tree-preflight"]["outputs"]["linux_runner"],
                          "${{ steps.linux-placement.outputs.linux_runner }}")
-        self.assertEqual(workflow["build"]["with"]["linux_runner"],
-                         "${{ needs.tree-preflight.outputs.linux_runner }}")
+        # The placement counts room for the daemon job only, so no build leg takes its label.
+        for name in ("build", "build-windows"):
+            self.assertNotIn("linux_runner", workflow[name].get("with", {}))
 
     def test_the_cmux_tui_mini_pick_spends_routing_reads_only_when_the_macos_targets_may_build(self):
         # The pick reads the runners on the routing App (4 requests); a run whose tree is published, that
