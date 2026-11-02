@@ -306,8 +306,16 @@ try {
           const now = performance.now();
           if (!state.firstRow && document.querySelector("[data-row-id]"))
             afterPaint(() => (state.firstRow ||= performance.now()));
-          if (!state.latest && document.body.textContent?.includes(latestText))
+          if (!state.latest && document.body.textContent?.includes(latestText)) {
+            // TRACE=1: how much the first frame with the newest message drew.
+            if (instrument === "trace") {
+              const count = (selector: string) => document.querySelectorAll(selector).length;
+              trace.push(
+                `${now.toFixed(0)} drawn: ${count("[data-row-id]")} rows, ${count(".acpmux-minimap__entry")} rail entries, ${count("*")} elements, ${count(".acpmux-composer *, .acpmux-header *")} in composer and header`,
+              );
+            }
             afterPaint(() => (state.latest ||= performance.now()));
+          }
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
           const top = scroller ? scroller.scrollTop + scroller.scrollHeight : -1;
           if (top !== state.top) {
