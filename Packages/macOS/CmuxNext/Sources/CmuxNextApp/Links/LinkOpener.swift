@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -258,13 +259,13 @@ final class LinkOpener {
         }
     }
 
-    /// A browser tab of `pane` showing `url`'s page (``SidebarBridge/samePage(_:_:)``) at the same
+    /// A browser tab of `pane` showing `url`'s page (``BrowserTabMatch/samePage(_:_:)``) at the same
     /// fragment, so a link to a comment still opens at it: the live page first, else the daemon's record.
     func browserTab(showing url: URL, in pane: PaneController) -> TabModel? {
         pane.pane.tabs.first { tab in
             guard tab.kind == .browser, !ProvisionalTab.isProvisional(tab.id),
                   let shown = services?.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:)) else { return false }
-            return SidebarBridge.samePage(shown, url) && shown.fragment == url.fragment
+            return BrowserTabMatch.samePage(shown, url) && shown.fragment == url.fragment
         }
     }
 

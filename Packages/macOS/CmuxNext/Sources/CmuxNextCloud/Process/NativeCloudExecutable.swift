@@ -56,9 +56,9 @@ package struct NativeCloudExecutable: Sendable {
 
     private static func signing(_ url: URL) throws -> [String: Any] {
         var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { throw POSIXError(.EACCES) }
         // concurrency-allow: only NativeCloudLinkChild.launch builds this, inside its BackgroundWork lane (mayBlock: .system), off the main thread and the actor's executor.
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code,
-              SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures), nil) == errSecSuccess else { throw POSIXError(.EACCES) }
+        guard SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures), nil) == errSecSuccess else { throw POSIXError(.EACCES) }
         var value: CFDictionary?
         guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &value) == errSecSuccess,
               let information = value as? [String: Any] else { throw POSIXError(.EACCES) }
