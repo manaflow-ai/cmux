@@ -73,7 +73,9 @@ extension LayoutFrames where Key == PaneID {
     mutating func place(_ pane: PaneID, at target: CGRect, pass: LayoutFramePass) {
         guard var frame = springs[pane] else {
             var frame = AnimatedFrame(pass.arrivals[pane]?.seed ?? target)
-            if pass.arrivals[pane] != nil { SplitMotion.ride(&frame, panes: pass.shownBefore, skipping: Set(pass.arrivals.keys)) }
+            if let arrival = pass.arrivals[pane] {
+                SplitMotion.ride(&frame, panes: pass.shownBefore, skipping: Set(pass.arrivals.keys), giver: arrival.giver)
+            }
             frame.setTarget(target, alpha: 1)
             springs[pane] = frame
             return
@@ -130,8 +132,17 @@ extension LayoutFrames where Key == DividerHandleView.Kind {
         let edge: CGVector = seeded ? start?.shift ?? pass.arrivals.values.first?.edgeOffset ?? .zero : .zero
         var frame = AnimatedFrame(target.rect.offsetBy(dx: edge.dx, dy: edge.dy), alpha: 1)
         frame.setTarget(target.rect, alpha: 1)
-        if let velocity = start?.velocity {
-            if target.axis == .horizontal { frame.x.velocity = velocity } else { frame.y.velocity = velocity }
+        // It moves with that edge from its first frame (a split landing mid-motion), and across its axis it shows
+        // where the pane the split gave space from shows (a pane still moving sideways).
+        if let start {
+            let follows = pass.arrivals.values.contains { $0.giver == start.pane }
+            if target.axis == .horizontal {
+                frame.x.velocity = start.velocity
+                if follows { SplitMotion.follow(&frame.y, &frame.height, beside: start.beside.y, start.beside.height) }
+            } else {
+                frame.y.velocity = start.velocity
+                if follows { SplitMotion.follow(&frame.x, &frame.width, beside: start.beside.x, start.beside.width) }
+            }
         }
         springs[kind] = frame
     }
