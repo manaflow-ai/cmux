@@ -113,6 +113,27 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
     const box = (await chip.boundingBox())!;
     await pressPoint(page, box.x + box.width / 2, box.y + box.height / 2);
   };
+  /** Press a chip only once its centre is no longer covered by a closing or open popup. */
+  const pressFreshChip = async (page: Page, selector: string) => {
+    const chip = visibleChip(page, selector);
+    await chip.waitFor({ state: "visible" });
+    await page.waitForFunction(
+      (selector) => {
+        const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
+          const box = candidate.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
+        });
+        if (!button) return false;
+        const box = button.getBoundingClientRect();
+        const target = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return target === button || button.contains(target);
+      },
+      selector,
+      { timeout: 5_000 },
+    );
+    const box = (await chip.boundingBox())!;
+    await pressPoint(page, box.x + box.width / 2, box.y + box.height / 2);
+  };
   const pressPoint = async (page: Page, x: number, y: number) => {
     await page.mouse.move(x, y);
     await page.mouse.down();
@@ -284,7 +305,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           for (const from of stage.chips)
             for (const to of stage.chips) {
               if (from === to) continue;
-              await pressAt(page, chip(from));
+              await pressFreshChip(page, chip(from));
               expect({ from, open: await settle(page, stage.chips, [from]) }).toEqual({ from, open: [from] });
               await menusAtRest(page);
               // A menu that covers the other chip takes the press itself.
