@@ -107,6 +107,14 @@ final class BookmarkService {
 
     func isBookmarked(_ url: URL?, profile: String) -> Bool { tree(profile).isBookmarked(url) }
 
+    /// `profile`'s tree as the daemon stored it (after its first read), else ``unavailable``, the gate's refusal.
+    func storedTree(_ profile: String) async throws -> BookmarkTree {
+        if usesDaemon, !isLoaded(profile) { _ = tree(profile); await fetching[profile]?.value }
+        if isLoaded(profile), let stored = trees[profile] { return stored } else { throw unavailable }
+    }
+
+    var unavailable: BookmarkError { .unavailable(message: services.machines.local.missingCapabilityMessage(DaemonCapability.bookmarks.rawValue)) }
+
     /// `profile`'s tree is the stored one, not an empty placeholder: the
     /// daemon's reply arrived (after an older build's file was copied over).
     func isLoaded(_ profile: String) -> Bool {
@@ -125,7 +133,7 @@ final class BookmarkService {
     /// before the home daemon serves bookmarks (the gate's text), throws before anything changes.
     @discardableResult
     func apply(_ operation: BookmarkOperation, profile: String) throws -> BookmarkChange {
-        guard usesDaemon else { throw BookmarkError.unavailable(message: services.machines.local.missingCapabilityMessage(DaemonCapability.bookmarks.rawValue)) }
+        guard usesDaemon else { throw unavailable }
         var tree = tree(profile)
         let change = try tree.apply(operation)
         guard !change.isEmpty || operation.isImport else { return change }

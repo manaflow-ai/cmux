@@ -10,4 +10,9 @@ public nonisolated enum BookmarkError: Error, Equatable, Sendable {
     /// No edit before the home daemon serves `bookmarks-v1`; `message` is the
     /// app's capability gate text (still starting, could not start, out of date).
     case unavailable(message: String)
+
+    /// The gate's text when the edit waited on the home daemon, else nil.
+    public static func unavailableMessage(_ error: any Error) -> String? {
+        if case BookmarkError.unavailable(let message) = error { message } else { nil }
+    }
 }

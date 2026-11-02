@@ -114,6 +114,17 @@ enum OnboardingStrings {
     }
 }
 
+public extension Result where Success == ImportCounts {
+    /// Remove Imported Browser Data's toast: what went, or why not (`refusal`: a reason the person can
+    /// wait out, such as cmux's background service still starting), else that it failed.
+    func removalText(profile: String, refusal: (Failure) -> String?) -> String {
+        switch self {
+        case .success(let counts): Optional(counts).removalText(profile: profile)
+        case .failure(let error): refusal(error) ?? ImportCounts?.none.removalText(profile: profile)
+        }
+    }
+}
+
 public extension Optional where Wrapped == ImportCounts {
     /// Remove Imported Browser Data's toast: what went, by kind ("History 8,311 · Bookmarks 204"), or (nil) that it failed.
     func removalText(profile: String) -> String {

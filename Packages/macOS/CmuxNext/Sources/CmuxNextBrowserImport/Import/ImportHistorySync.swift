@@ -132,13 +132,23 @@ public actor ImportHistorySync {
     /// they are in the profile's own stores.
     public func removeImported(profile: String, bookmarks: (any ImportedBookmarkSink)?, forgetPages: Bool = true) async throws -> ImportCounts {
         // Bookmarks first: a refused one (no home daemon yet) keeps the saved import, so a second Remove still finds them.
-        for batch in await store.batches(profile: profile) where !batch.bookmarks.isEmpty {
+        var emptied = Set<String>()
+        for batch in await store.batches(profile: profile) where !batch.bookmarks.isEmpty && emptied.insert(batch.source.sourceKey).inserted {
             try await bookmarks?.replaceImportedBookmarks([], source: batch.source)
         }
         let removed = try await store.removeImported(profile: profile)
         await reconcile()
+        // A source saved between the two reads still has its bookmarks emptied.
+        for batch in removed where !batch.bookmarks.isEmpty && emptied.insert(batch.source.sourceKey).inserted {
+            try await bookmarks?.replaceImportedBookmarks([], source: batch.source)
+        }
         if forgetPages { await deliver(profile, [], removed.flatMap(\.history).map(\.url)) }
         return removed.reduce(ImportCounts()) { $0 + ImportCounts(bookmarks: $1.bookmarks.count, history: $1.history.count, openTabs: $1.openTabs.count) }
+    }
+
+    /// ``removeImported(profile:bookmarks:forgetPages:)`` as a value, for Remove Imported Browser Data's toast.
+    public func removalOutcome(profile: String, bookmarks: (any ImportedBookmarkSink)?) async -> Result<ImportCounts, any Error> {
+        do { return .success(try await removeImported(profile: profile, bookmarks: bookmarks)) } catch { return .failure(error) }
     }
 
     /// Stops every watch (the app is quitting, or the store went away).

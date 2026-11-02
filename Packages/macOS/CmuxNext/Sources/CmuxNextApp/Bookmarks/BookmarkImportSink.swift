@@ -14,19 +14,17 @@ struct BookmarkImportSink: ImportedBookmarkSink {
 
     func replaceImportedBookmarks(_ bookmarks: [ImportedBookmark], source: ImportSourceRecord) async throws {
         let items = bookmarks.map { BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded) }
-        try await MainActor.run {
-            // The same "Imported from <Browser> (<profile>)" folder the bookmarks import makes.
-            let title = BookmarkBrowserImport.folderTitle(browser: source.browser, profileName: source.profileName)
-            try service?.replaceImport(items, title: title, sourceKey: source.sourceKey, profile: source.targetProfileID)
-        }
+        // The same "Imported from <Browser> (<profile>)" folder the bookmarks import makes.
+        let title = BookmarkBrowserImport.folderTitle(browser: source.browser, profileName: source.profileName)
+        try await service?.replaceImport(items, title: title, sourceKey: source.sourceKey, profile: source.targetProfileID)
     }
 }
 
 extension BookmarkService {
-    /// One source's bookmarks replace its folder; none removes it.
-    func replaceImport(_ items: [BookmarkImportItem], title: String, sourceKey: String, profile: String) throws {
+    /// One source's bookmarks replace its folder; none removes it from the stored tree (never an unread one).
+    func replaceImport(_ items: [BookmarkImportItem], title: String, sourceKey: String, profile: String) async throws {
         guard !items.isEmpty else {
-            guard let folder = tree(profile).folder(sourceKey: sourceKey) else { return }
+            guard let folder = try await storedTree(profile).folder(sourceKey: sourceKey) else { return }
             try apply(.delete(id: folder.id), profile: profile)
             return
         }
@@ -34,12 +32,12 @@ extension BookmarkService {
     }
 
     /// Browser imports saved before bookmarks existed become bookmarks once
-    /// (a marker file, written when all went in, so a deleted folder stays deleted).
+    /// (a marker file, unless the home daemon refused, so a deleted folder stays deleted).
     func migrateLegacyImports() async {
         guard let store = importStore, let directory else { return }
         let marker = directory.appending(path: "bookmarks-imports-migrated")
         guard await !Self.exists(marker) else { return }
-        var failed = false
+        var refused = false
         for record in await store.sources() {
             for batch in await store.batches(profile: record.targetProfileID) where batch.source.sourceKey == record.sourceKey {
                 guard batch.kinds.contains(.bookmarks), !batch.bookmarks.isEmpty else { continue }
@@ -47,14 +45,14 @@ extension BookmarkService {
                     BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded)
                 }
                 do {
-                    try replaceImport(items, title: record.displayName, sourceKey: record.sourceKey, profile: record.targetProfileID)
+                    try await replaceImport(items, title: record.displayName, sourceKey: record.sourceKey, profile: record.targetProfileID)
                 } catch {
-                    failed = true
+                    if case BookmarkError.unavailable = error { refused = true }
                     logger.error("migrate imported bookmarks \(record.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
             }
         }
-        guard !failed else { return }
+        guard !refused else { return }
         await Self.mark(marker, in: directory)
     }
 
