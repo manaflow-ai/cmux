@@ -337,9 +337,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                             tail,
                             digest,
                             size,
-                            &generation,
-                            stream_end,
-                            gaps,
+                            SnapshotEnd { generation: &generation, stream_end, gaps },
                         );
                     }
                     Err(error) => {
@@ -532,18 +530,26 @@ enum Capture {
     },
 }
 
-/// The snapshot at `stream_end` is in place: record it, and in snapshot mode
-/// drop the tail it covers (the file, then the unwritten bytes before it).
+/// Where a written snapshot ends in its terminal's stream: the incarnation,
+/// the stream offset and the log's stream-gap count at the capture.
+#[derive(Clone, Copy)]
+struct SnapshotEnd<'a> {
+    generation: &'a Arc<str>,
+    stream_end: u64,
+    gaps: u64,
+}
+
+/// The snapshot at `end.stream_end` is in place: record it, and in snapshot
+/// mode drop the tail it covers (the file, then the unwritten bytes before it).
 fn snapshot_written(
     directory: &Path,
     log: &TerminalLog,
     tail: bool,
     digest: u64,
     size: (u16, u16),
-    generation: &Arc<str>,
-    stream_end: u64,
-    gaps: u64,
+    end: SnapshotEnd<'_>,
 ) {
+    let SnapshotEnd { generation, stream_end, gaps } = end;
     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
     state.snapshot_digest = Some(digest);
     state.snapshot_at = Some(Instant::now());

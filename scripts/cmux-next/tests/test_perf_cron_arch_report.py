@@ -520,6 +520,18 @@ class ArchReportTests(unittest.TestCase):
         self.assertIn("+1 of the rise (+3 over the total recorded at 000000000000) is allowed by pending entries", body)
         self.assertIn("The rest (+2) needs the fix.", body)
 
+    def test_a_pending_entry_in_an_exception_file_raises_the_limit_like_one_in_the_list(self):
+        self.run_report(self.commit("baseline", counts(5, 2)))
+        self.write(f"{report.EXCEPTIONS_DIR}/31999.json", json.dumps(entry(1)))
+        self.write(f"{report.EXCEPTIONS_DIR}/broken.json", "{")
+        self.write(f"{report.EXCEPTIONS_DIR}/sub/nested.json", json.dumps(entry(4)))
+        out = self.run_report(self.commit("feat: one reviewed singleton, its exception file", counts(6, 3)))
+        self.assertEqual(self.own_issues(), [], out)
+        self.assertIn("run scripts/cmux-next/arch-ratchet.py --update to fold them into the total", out)
+        out = self.run_report(self.commit("feat: two more, no entry", counts(8, 5)))
+        body = self.own_issues()[0]["body"]
+        self.assertIn("| stateful_singletons | CmuxNextBrowser 2→5 | 5 + 1 | 8 |", body, out)
+
     def test_a_measured_sha_rebased_away_still_applies_the_pending_entries(self):
         # The file at measured_sha is never read: a measured_sha that was rebased away and never pushed (the brief
         # rebases before every push) neither fails a fetch nor drops the pending allowance.

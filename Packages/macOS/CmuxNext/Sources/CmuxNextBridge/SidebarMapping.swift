@@ -103,10 +103,11 @@ public struct SidebarMapping {
                 var made = SidebarGroup(
                     id: GroupID(group.id.rawValue),
                     name: group.name,
-                    // No stored color (a group an agent or the CLI made): a stable palette color, not grey.
-                    color: group.color == GroupTint.noneWire ? .grey : color(group.color) ?? .unset(id: group.id.rawValue),
-                    // A custom `#RRGGBB` (cx-25az) or no color (`none`) draws instead of the token.
-                    custom: group.color.flatMap { $0.hasPrefix("#") || $0 == GroupTint.noneWire ? GroupTint(wire: $0)?.wire : nil },
+                    color: color(group.color) ?? .grey,
+                    // A custom `#RRGGBB` (cx-25az) or no color (`none`) draws instead of the token. No stored color, or one
+                    // this Mac cannot read, is no color: a group shows a color only when a person picked one
+                    // (Leo 2026-10-31: "WHERE IS ORANGE COMING FROM").
+                    custom: color(group.color) != nil ? nil : (group.color.flatMap { GroupTint(wire: $0)?.wire } ?? GroupTint.noneWire),
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { groupImage($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
