@@ -798,9 +798,78 @@ def step_switch_warmcost(j, step):
     return {"fit": report.get("fit"), "samples": len(report["samples"]), "window": display.get("window_frame")}
 
 
+def _cpu_wakeups(pid):
+    """(cpu ns, wakeups) of `pid` (proc_pid_rusage RUSAGE_INFO_V4: user+system mach ticks, pkg idle + interrupt
+    wakeups), or None."""
+    import ctypes
+
+    class _TB(ctypes.Structure):
+        _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
+    tb = _TB()
+    ctypes.CDLL("/usr/lib/libSystem.B.dylib").mach_timebase_info(ctypes.byref(tb))
+    buf = (ctypes.c_uint64 * 64)()
+    if ctypes.CDLL("/usr/lib/libproc.dylib").proc_pid_rusage(ctypes.c_int(int(pid)), ctypes.c_int(4), ctypes.byref(buf)) != 0:
+        return None
+    return (int(buf[2]) + int(buf[3])) * tb.numer // tb.denom, int(buf[4]) + int(buf[5])
+
+
+def step_switch_warmbusy(j, step):
+    """SF-2 gate (lead 12:0xZ): the app's CPU and idle wakeups while `counts` hidden terminals print output. Each
+    busy workspace runs a timed print loop (`hz` lines per second); after each count a quiet workspace is shown, so
+    every busy one is hidden, and the app's CPU % and wakeups/s are taken over `window` s (proc_pid_rusage at both
+    ends, no polling between). Also records debug.surfaces (live_terminals, warm capacity) and debug.wakeups (the
+    app's wakeup ledger) for each window, so a hidden-work owner shows by name. Writes video/warmbusy.json."""
+    counts = sorted({int(c) for c in step.get("counts", [0, 4, 8, 16, 24])})
+    window, settle, hz = float(step.get("window", 20)), float(step.get("settle", 8)), float(step.get("hz", 20))
+    prefix = j.sub(step.get("prefix", "wb"))
+    loop = "/bin/sh -c 'i=0; while :; do i=$((i+1)); echo \"busy line $i $(date +%%s)\"; sleep %s; done'" % (1.0 / hz)
+    quiet = "%s-quiet" % prefix
+
+    def show_quiet():
+        if not _ws_named(j, quiet):
+            j.app.rpc("action.run", {"action": "newTab", "args": {"name": quiet, "focus": True}})
+        ws = _wait(lambda: _ws_named(j, quiet), 20, "workspace %s did not appear" % quiet)
+        j.app.rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws.get("id")}, "focus": True})
+        _shows(j, ws, quiet)
+
+    def measure(made):
+        show_quiet()
+        time.sleep(settle)  # journey pacing: the switch settles before the window starts
+        a = _cpu_wakeups(j.app.pid)
+        j.app.rpc("debug.wakeups", {"reset": True})
+        time.sleep(window)  # journey pacing: the measured window, no calls into the app during it
+        b = _cpu_wakeups(j.app.pid)
+        ledger = j.app.rpc("debug.wakeups", {}) or {}
+        info = j.app.rpc("debug.surfaces", {}) or {}
+        row = {"busy_hidden": made, "live_terminals": info.get("live_terminals"),
+               "warm_terminal_capacity": info.get("warm_terminal_capacity"),
+               "app_cpu_pct": round(100.0 * (b[0] - a[0]) / 1e9 / window, 2) if a and b else None,
+               "app_wakeups_per_s": round((b[1] - a[1]) / window, 1) if a and b else None,
+               "wakeup_ledger": json.dumps(ledger, default=str)[:1500]}
+        print("WARMBUSY " + json.dumps({k: v for k, v in row.items() if k != "wakeup_ledger"}), flush=True)
+        return row
+
+    rows, made = [], 0
+    for count in counts:
+        while made < count:
+            made += 1
+            name = "%s-%d" % (prefix, made)
+            j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True, "command": loop}})
+            ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
+            _shows(j, ws, name)
+            time.sleep(0.5)  # journey pacing: the loop prints its first lines while shown
+        rows.append(measure(made))
+    report = {"hz": hz, "window_s": window, "rows": rows}
+    (j.out / "video").mkdir(exist_ok=True)
+    (j.out / "video" / "warmbusy.json").write_text(json.dumps(report, indent=1, default=str))
+    print("WARMBUSY-REPORT " + json.dumps({"hz": hz, "rows": [{k: v for k, v in r.items() if k != "wakeup_ledger"}
+                                                            for r in rows]}), flush=True)
+    return {"rows": len(rows)}
+
+
 STEPS = {"switch_profile": step_switch_profile, "switch_tabs_profile": step_switch_tabs_profile, "switch_record": step_switch_record, "switch_keys": step_switch_keys,
          "switch_adopt_shown": step_switch_adopt_shown,
-         "switch_cua_record": step_switch_cua_record, "switch_warmcost": step_switch_warmcost}
+         "switch_cua_record": step_switch_cua_record, "switch_warmcost": step_switch_warmcost, "switch_warmbusy": step_switch_warmbusy}
 
 
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "beacon":

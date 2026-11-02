@@ -2,9 +2,9 @@
  "id": "switch-warmcost-full",
  "priority": "P2",
  "title": "SWITCH FRAMES SF-2: app footprint per warm hidden terminal, window 100% of the visible frame",
- "why": "Lead 10:4xZ: size WarmSetBudget.terminalCostBytes from a measurement on a 2x display at the person's window size; record the scale and window; check that pressure evicts the warm set at once.",
+ "why": "Lead 10:4xZ: size WarmSetBudget.terminalCostBytes from a measurement on a 2x display at the person's window size; record the scale and window; check that pressure evicts the warm set at once. Gate (lead 12:0xZ): hidden busy terminals must not raise app CPU or wakeups at the new warm-set size.",
  "source": "SWITCH FRAMES SF-2; handoff/resize-videos/SWITCH-FRAMES.md",
- "budget_seconds": 900,
+ "budget_seconds": 1500,
  "steps": [
   {
    "do": "window_place",
@@ -21,6 +21,20 @@
    "title": "open 32 terminal workspaces one by one; footprint and warm set at each count; then pressure",
    "prefix": "wc-${nonce}",
    "settle": 10
+  },
+  {
+   "do": "switch_warmbusy",
+   "title": "busy gate: app CPU and wakeups with 0, 4, 8, 16, 24 hidden terminals printing 20 lines/s",
+   "prefix": "wb-${nonce}",
+   "counts": [
+    0,
+    4,
+    8,
+    16,
+    24
+   ],
+   "hz": 20,
+   "window": 20
   }
  ]
 }
