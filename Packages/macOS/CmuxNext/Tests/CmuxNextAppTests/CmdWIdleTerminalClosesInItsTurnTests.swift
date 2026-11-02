@@ -66,7 +66,9 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         try await Self.withFocusedTerminal { t in
             try await Self.input("sleep 600\r", t)
             try await Self.waitRunning("sleep", t)
-            let view = try #require(t.services.cache.existingTerminal(t.tab.id), "no terminal view before the close")
+            // The selected tab's view is made when the pane shows it (a later turn): wait for it, not for the clock.
+            try await PinnedPageTests.until({ t.services.cache.existingTerminal(t.tab.id) != nil }, report: { "no terminal view before the close" })
+            let view = try #require(t.services.cache.existingTerminal(t.tab.id))
             let viewID = ObjectIdentifier(view)
             // The read is held: the tab stays hidden long enough for every gone-tab watcher to wake for the hide.
             let hold = t.services.daemon.closeReadHold
