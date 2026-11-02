@@ -420,15 +420,33 @@ def control_socket(bundle: str, pid: int, dirs: list[str]) -> str | None:
     return None
 
 
+# Chromium's code-sign clone cleanup helper. CEF clones the app at each launch to
+# $TMPDIR/../X/<bundle id>.code_sign_clone/ (about 1 GB); after the app quits, this
+# helper (`<app>/Contents/MacOS/<exe> --type=code-sign-clone-cleanup`) removes the
+# clone about 1 s later. Ended with the app, it leaves the clone until reboot: 29 GB
+# on cmux18 (2026-11-02). A teardown lets it finish, up to CLONE_CLEANUP_WAIT_S.
+CLONE_CLEANUP = "--type=code-sign-clone-cleanup"
+CLONE_CLEANUP_WAIT_S = 15
+
+
+def is_clone_cleanup(cmd: str) -> bool:
+    return CLONE_CLEANUP in cmd
+
+
 def end_bundle(bundle: str):
     """Ends every process of the bundle, the app first: a live app (it can
     ignore SIGTERM) respawns daemons ended before it. No process of this
-    bundle ran before the launch (`launch`), so every one is this run's."""
+    bundle ran before the launch (`launch`), so every one is this run's.
+    Chromium's clone cleanup helper is ended last, and only when it is still
+    there after CLONE_CLEANUP_WAIT_S."""
     binary_dir = os.path.join(bundle, "Contents/MacOS")
-    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/")}
+    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/") and not is_clone_cleanup(cmd)}
     bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
     end_processes(apps)
-    end_processes(bundle_pids(bundle))
+    cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
+    end_processes(bundle_pids(bundle) - cleanups)
+    deadline = time.monotonic() + CLONE_CLEANUP_WAIT_S
+    end_processes({pid for pid in cleanups if not wait_gone(pid, max(0.0, deadline - time.monotonic()))})
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
