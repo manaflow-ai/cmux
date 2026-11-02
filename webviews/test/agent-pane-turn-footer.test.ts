@@ -170,4 +170,3 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
     await page.close();
   });
 });
-});
