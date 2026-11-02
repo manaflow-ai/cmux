@@ -1297,6 +1297,7 @@ export class MockSettingsProvider {
         : {}),
       value: managed ? managed.value : this.values.has(key) ? this.values.get(key) : row.default,
       default: row.default,
+      stored: this.values.get(key) ?? null,
       customized: this.values.has(key),
       managed: managed ? { source: managed.source, reason: managed.reason, team: managed.team ?? null } : null,
     };

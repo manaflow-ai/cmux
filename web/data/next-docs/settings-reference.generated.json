@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 552,
+  "count": 553,
   "sections": [
     {
       "id": "general",
@@ -1660,6 +1660,20 @@
           "kind": "toggle",
           "default": false,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.harnessPlacement",
+          "title": "Model Picker Harness Placement",
+          "help": "",
+          "kind": "choice",
+          "default": "symbols",
+          "group": "Agent Chat",
+          "values": [
+            "symbols",
+            "left",
+            "top",
+            "compact"
+          ]
         },
         {
           "key": "agentPane.display.inspector.placement",

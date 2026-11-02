@@ -434,6 +434,25 @@ struct CloudStartSessionTests {
         #expect(f.session.daemon.connection == nil, "nothing connected")
     }
 
+    /// The session's machine gets the person's harness login before the session starts, as a composer
+    /// Cloud start's does: without it Claude there answered "The provider rejected Claude Code's
+    /// credentials on this Cloud machine" (cmuxterm-hq cloud-start-session capture, run 41415284694).
+    /// The step always records why it passed a login or not on the machine's row.
+    @Test func theSessionsMachineTakesTheHarnessLoginStep() async throws {
+        let f = Self.fixture()
+        #expect(f.session.harnessLogin == nil)
+        let start = CloudStartSession(services: f.services)
+        try await start.passHarnessLogin(f.session, agent: "claude") {}
+        let decision = try #require(f.session.harnessLogin, "start-session ran no harness login step")
+        #expect(decision.provider == .claude)
+        try await start.passHarnessLogin(f.session, agent: "pi") {}
+        #expect(f.session.harnessLogin?.provider == nil, "pi has no login to pass")
+        // A sign-out or team switch while the login waited (its confirm) stops the run there.
+        await #expect(throws: CloudStartSession.AccountChanged.self) {
+            try await start.passHarnessLogin(f.session, agent: "claude") { try CloudStartSession.check(Self.account, now: ["user-1", "team-2"], Self.asked) }
+        }
+    }
+
     @Test func theAccountCheckRefusesAChangeAndStopsACancelledRun() async throws {
         let asked = Self.asked
         #expect(throws: Never.self) { try CloudStartSession.checked(Self.account, now: Self.account, asked) }
