@@ -1311,6 +1311,22 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     }
 
     func testSettingsFileStoreRejectsNegativeSessionPriorityUrgentCount() throws {
+        try assertSessionPriorityUrgentCount(-1, isStoredAs: nil)
+    }
+
+    /// cmux.json takes the Settings stepper's range, 0 to 20.
+    func testSettingsFileStoreRejectsSessionPriorityUrgentCountAboveTwenty() throws {
+        try assertSessionPriorityUrgentCount(20, isStoredAs: 20)
+        try assertSessionPriorityUrgentCount(21, isStoredAs: nil)
+    }
+
+    /// Loads a cmux.json whose `automation.sessionPriority` sets `enabled: true` and
+    /// `urgentCount: count`: `enabled` always applies, the count only when valid.
+    private func assertSessionPriorityUrgentCount(
+        _ count: Int,
+        isStoredAs expected: Int?,
+        line: UInt = #line
+    ) throws {
         let defaults = UserDefaults.standard
         let keys = [
             AutomationCatalogSection().sessionPriority.userDefaultsKey,
@@ -1346,7 +1362,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
               "automation": {
                 "sessionPriority": {
                   "enabled": true,
-                  "urgentCount": -1
+                  "urgentCount": \(count)
                 }
               }
             }
@@ -1360,9 +1376,9 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(defaults.object(forKey: keys[0]) as? Bool, true)
-        XCTAssertNil(defaults.object(forKey: keys[1]))
-        XCTAssertNil(defaults.object(forKey: keys[2]))
+        XCTAssertEqual(defaults.object(forKey: keys[0]) as? Bool, true, line: line)
+        XCTAssertEqual(defaults.object(forKey: keys[1]) as? Int, expected, "urgentCount \(count)", line: line)
+        XCTAssertNil(defaults.object(forKey: keys[2]), line: line)
     }
 
     func testSettingsFileStoreSkipsNonObjectSessionPriorityMatrix() throws {
