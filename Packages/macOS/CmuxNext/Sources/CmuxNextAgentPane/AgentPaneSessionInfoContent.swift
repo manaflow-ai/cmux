@@ -20,15 +20,28 @@ struct SessionInfoInk {
     }
 }
 
+/// The panel's grid, the web panel's (sessionInfo.css) on the shared layout grid (design/grid.md
+/// section 3): a line's highlight sits `edge` in from the panel; inside it every header and row puts
+/// its icon in one 16 box at `lead`, starts its title on `text` (lead + box + 8) whether or not it has
+/// an icon, and ends its trailing value or control `trail` in from the highlight's right end.
 enum SessionInfoMetrics {
-    static let inset: CGFloat = 10
-    static let rowHeight: CGFloat = 26
+    /// The panel's edge to a line's highlight (the web body's side padding).
+    static let edge: CGFloat = LayoutGrid.sidebarHighlightInset
+    /// The panel's edge to the icon column (`lead`).
+    static let inset: CGFloat = edge + LayoutGrid.gap
+    /// The icon column's box; every leading mark centers in it, whatever its glyph's size.
+    static let iconBox: CGFloat = LayoutGrid.iconBox
+    /// Chevrons, spinners and other small marks draw at this size, centered in the icon box.
+    static let glyph: CGFloat = LayoutGrid.glyph
+    /// A line's highlight to its title column (`text`): lead, the icon box, then one gap.
+    static let text: CGFloat = LayoutGrid.gap + iconBox + LayoutGrid.gap
+    /// A line's highlight's right end to its trailing column's right edge.
+    static let trail: CGFloat = LayoutGrid.gap
+    static let rowHeight: CGFloat = LayoutGrid.row
     static let rowRadius: CGFloat = 6
-    static let indent: CGFloat = 14
-    static let glyph: CGFloat = 14
-    static let groupGap: CGFloat = 8
-    static let edge: CGFloat = 4
-    static let padding: CGFloat = 6
+    static let indent: CGFloat = LayoutGrid.sidebarDepthIndent
+    static let groupGap: CGFloat = LayoutGrid.gapInner
+    static let padding: CGFloat = LayoutGrid.gap
 }
 
 /// One line of the panel, as values: a section's title row, a row, or a section's "View all".
@@ -66,6 +79,10 @@ struct SessionInfoLine: Equatable {
     var help: String?
 
     enum Ink: Equatable { case primary, secondary, danger }
+
+    /// A row that opens a fold under it ("7 done", "N finished", MCP tools): its chevron is its icon,
+    /// drawn at the small glyph size in the icon column.
+    var discloses: Bool { kind == .row && (symbol == "chevron.right" || symbol == "chevron.down") }
 
     var font: NSFont {
         switch kind {
@@ -372,7 +389,7 @@ final class SessionInfoListView: NSView {
                 y += height + 12
             case .separator:
                 y += SessionInfoMetrics.groupGap
-                view.frame = CGRect(x: SessionInfoMetrics.inset, y: y, width: max(0, width - 2 * SessionInfoMetrics.inset), height: 1)
+                view.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: 1)
                 y += 1 + SessionInfoMetrics.groupGap
             case .line:
                 guard let line = view as? SessionInfoLineView else { continue }
@@ -522,6 +539,9 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         if let marks = line.marks, !marks.isEmpty { marksView = SessionInfoMarksView(tones: marks, colors: colors) }
         if let toggle = line.toggle {
             let control = NSSwitch()
+            // The row's size, as the web panel's 36x20 switch: never the regular switch, which
+            // overflows a 28 row.
+            control.controlSize = .small
             control.state = toggle ? .on : .off
             control.target = self
             control.action = #selector(toggleChanged(_:))
@@ -548,6 +568,12 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    /// Where the line's columns land in its own coordinates, for the grid tests: its icon, its
+    /// title, its trailing value and its switch.
+    var columns: (icon: CGRect?, title: CGRect, trailing: CGRect?, toggle: NSSwitch?) {
+        (glyph?.frame, title.frame, trailing?.frame, toggle)
+    }
 
     /// Whether a page refresh changes this row or its theme; handler closures are stable for the
     /// mounted panel and do not participate in equality.
@@ -598,13 +624,15 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             let prompt = ChromeLabel(labelWithString: ">_")
             prompt.font = Typography.caption
             prompt.textColor = colors.secondary
+            prompt.alignment = .center
             glyph = prompt
         } else if line.spins {
             let spinner = StatusIndicatorView.spinner()
             spinner.spin(true)
             glyph = spinner
         } else if let symbol = line.symbol {
-            glyph = Self.image(symbol, font: Typography.body, tint: colors.symbol(line.symbolColor, fallback: line.titleInk == .danger ? colors.danger : colors.secondary))
+            let font = line.discloses ? Typography.caption : Typography.body
+            glyph = Self.image(symbol, font: font, tint: colors.symbol(line.symbolColor, fallback: line.titleInk == .danger ? colors.danger : colors.secondary))
         }
         if let glyph { addSubview(glyph) }
     }
@@ -627,9 +655,10 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     }
 
     private var lead: CGFloat { CGFloat(line.indent) * SessionInfoMetrics.indent + SessionInfoMetrics.inset - SessionInfoMetrics.edge }
-    /// The grip takes no room of its own (it sits at the line's right edge), so a reorderable
-    /// line's title stays on the column every other line uses.
-    private var textX: CGFloat { lead + (glyph != nil ? SessionInfoMetrics.glyph + 6 : 0) }
+    /// The title column: the same for a line with an icon and one without, so headers and rows
+    /// start their titles on one line. The grip takes no room of its own (it sits at the line's
+    /// right edge).
+    private var textX: CGFloat { lead + SessionInfoMetrics.iconBox + LayoutGrid.gap }
     /// The six-dot grip shows on hover and while it drags; at rest the line draws no glyph for it.
     var showsGrip: Bool { grip != nil && (hovered || isDragging) }
     /// A foldable header's chevron, after its title, shows on hover and keyboard focus.
@@ -638,7 +667,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     /// (the web panel's `.acpmux-session-info-section__handle`, in the body's right inset).
     var gripHitRect: CGRect? {
         guard grip != nil else { return nil }
-        let right = SessionInfoMetrics.inset - SessionInfoMetrics.edge
+        let right = SessionInfoMetrics.trail
         return CGRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)
     }
 
@@ -646,7 +675,8 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         var height = title.naturalSize.height
         if let subtitle { height += 1 + subtitle.size(forWidth: max(1, textWidth(width))).height }
         if meter != nil || segmentedMeter != nil { height += 6 }
-        return max(SessionInfoMetrics.rowHeight, height + 10)
+        // A one-line row is the grid's 28; a taller one grows by whole 4 pt steps.
+        return max(SessionInfoMetrics.rowHeight, ((height + 12) / LayoutGrid.base).rounded(.up) * LayoutGrid.base)
     }
 
     private func trailingWidth(_ width: CGFloat) -> CGFloat {
@@ -660,14 +690,13 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     }
 
     private func textWidth(_ width: CGFloat) -> CGFloat {
-        max(0, width - textX - (SessionInfoMetrics.inset - SessionInfoMetrics.edge) - trailingWidth(width))
+        max(0, width - textX - SessionInfoMetrics.trail - trailingWidth(width))
     }
 
     override func layout() {
         super.layout()
         let width = bounds.width, height = bounds.height
-        let right = SessionInfoMetrics.inset - SessionInfoMetrics.edge
-        var x = width - right
+        var x = width - SessionInfoMetrics.trail
         for button in buttons.reversed() {
             let size = CGSize(width: button.naturalWidth, height: 18)
             x -= size.width
@@ -732,8 +761,12 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             detail.frame = CGRect(x: after + 4, y: y, width: w, height: titleSize.height)
         }
         if let glyph {
-            let side: CGFloat = line.working || line.spins ? 10 : SessionInfoMetrics.glyph
-            glyph.frame = CGRect(x: lead + (SessionInfoMetrics.glyph - side) / 2, y: y + (titleSize.height - side) / 2, width: side, height: side)
+            // Every leading mark centers in the one icon box: a spinner or a chevron at the small
+            // glyph size, the wave at its dots' width, any other icon filling the box.
+            let box = SessionInfoMetrics.iconBox
+            let side: CGFloat = line.working || line.spins || line.discloses ? SessionInfoMetrics.glyph : box
+            let inkWidth: CGFloat = line.wave != nil && !line.working ? 14 : side
+            glyph.frame = CGRect(x: lead + (box - inkWidth) / 2, y: y + (titleSize.height - side) / 2, width: inkWidth, height: side)
         }
         if let grip, let hit = gripHitRect {
             // Six dots, 6 by 14, centred in the right inset on the title's line.
@@ -753,8 +786,27 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
+        // A new area sends no Entered for a pointer already inside it, and then no Exited when the
+        // pointer leaves: so the line takes the pointer's place now, and an area made with the pointer
+        // inside assumes it, or a line rebuilt under the pointer stays lit at rest.
+        // Set only on a change: a repaint here would clear a reveal's highlight as its scroll lands.
+        let inside = pointerInside
+        if hovered != inside { hovered = inside }
         guard line.action != nil || line.reorderable || !line.menu.isEmpty else { return }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        var options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways, .inVisibleRect]
+        if inside { options.insert(.assumeInside) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: options, owner: self))
+    }
+
+    private var pointerInside: Bool {
+        guard let window, !isHiddenOrHasHiddenAncestor else { return false }
+        return visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+    }
+
+    // A refresh takes every line out of the list and puts it back: out of the window, a line is never lit.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil, hovered { hovered = false }
     }
 
     override func mouseEntered(with event: NSEvent) { hovered = true }
@@ -854,8 +906,10 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         return true
     }
 
+    /// Only a row lights. A section's header is plain text on the glass, never a fill, hovered or not
+    /// (Leo, 2026-11-02: "we still HAVE AN ASININE FUCKIGN BACKGROUND").
     private func paint() {
-        layer?.backgroundColor = hovered && line.action != nil ? ink.colors.hover.cgColor : nil
+        layer?.backgroundColor = hovered && line.action != nil && line.kind != .header ? ink.colors.hover.cgColor : nil
         grip?.isHidden = !showsGrip
         grip?.lit = isDragging
         chevron?.isHidden = !showsChevron
