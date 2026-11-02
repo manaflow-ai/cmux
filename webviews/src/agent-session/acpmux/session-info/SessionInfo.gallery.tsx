@@ -219,10 +219,11 @@ const waveAgents: Subagent[] = Array.from({ length: RUNNING + 2 }, (_, index) =>
 }));
 
 /// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
-/// delay is never positive, wave.css), so each icon's phase differs only by its index. At 560 ms
-/// the crest (20% of the 1.6 s period) is on the third line: the two before it fall from it, the
-/// two after it rise toward it, so a still reads dim, brighter, crest, brighter, dim.
-const WAVE_HOLD_MS = 560;
+/// delay is never positive, wave.css), so each icon's phase differs only by its index. At 840 ms
+/// the crest (20% of Session Info's 2.4 s period, SubagentsSection.css) is on the third line: the
+/// two before it fall from it, the two after it rise toward it, so a still reads dim, brighter,
+/// crest, brighter, dim.
+const WAVE_HOLD_MS = 840;
 
 /// The page's wave loops (CSS animations of `cmux-wave`).
 const waveLoops = (ctx: PlayContext) =>

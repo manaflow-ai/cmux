@@ -25,18 +25,11 @@ enum CloudNetworkAccessActions {
         let access = try level(invocation)
         // The run's effective origin counts: an action an MCP run nests carries a .user origin of its own.
         let machineID = session.machineID, isAgent = CloudStartSession.isAgent(invocation)
-        // An agent may only choose `none`: the PUT replaces the policy unconditionally, so a level
-        // judged against a read that a person's newer edit (the dashboard, another Mac) made stale
-        // could reopen what they closed. `none` is the narrowest whatever the server holds by then.
-        // Lifting this needs a conditional PUT on the server (#28706).
-        let work: @MainActor () async throws -> [String: ActionResultValue] = { try await context.services.cloud.networkAccess.serialized(machineID) {
-            if isAgent, access != .noInternet { throw ActionFailure(message: CloudStrings.networkAccessAgentWidens) }
-            let current = try await read(machineID)
-            let policy = access.applied(to: current.policy, presets: current.presets.map(\.id))
-            // The same policy is written again unless it is applied: a PUT retries a failed apply.
-            if policy == current.policy, current.applied?.state == "applied" { return fields(machineID, current) }
-            return fields(machineID, try await write(machineID, policy))
-        } }
+        // An agent may only choose `none` (``CloudNetworkAccessQueue/set(_:on:refusal:read:write:)`` says why).
+        let refusal = isAgent ? ActionFailure(message: CloudStrings.networkAccessAgentWidens) : nil
+        let work: @MainActor () async throws -> [String: ActionResultValue] = {
+            fields(machineID, try await context.services.cloud.networkAccess.set(access, on: machineID, refusal: refusal, read: read, write: write))
+        }
         guard CloudHandlers.origin(of: invocation) == .user else {
             let pending: [String: ActionResultValue] = ["machine_id": .string(machineID), "network_access": .string(access.rawValue)]
             return CloudHandlers.result("set network access", context, pendingAfter: pendingAfter, pending: pending, work)

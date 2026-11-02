@@ -28,6 +28,29 @@ public final class CloudNetworkAccessQueue {
         return try await run.value
     }
 
+    /// `cloud set-network-access`'s change of `machineID` to `access`, after every earlier run for it
+    /// (``serialized(_:_:)``). It reads the stored policy, changes only its mode (and, for `trusted`,
+    /// adds the server's presets), and writes it back, so the machine's own ranges and domains stay.
+    /// The same policy is written again unless it is applied: a PUT retries a failed apply. Returns
+    /// the state the server holds after the run.
+    ///
+    /// `refusal` (an agent's run) is thrown for any level but `none`: the PUT replaces the policy
+    /// unconditionally, so a level judged against a read that a person's newer edit (the dashboard,
+    /// another Mac) made stale could reopen what they closed. `none` is the narrowest whatever the
+    /// server holds by then. Lifting this needs a conditional PUT on the server (#28706).
+    public func set(_ access: CloudNetworkAccess, on machineID: String, refusal: (any Error)?,
+                    read: @escaping @MainActor (String) async throws -> CloudNetworkPolicyState,
+                    write: @escaping @MainActor (String, CloudNetworkPolicy) async throws -> CloudNetworkPolicyState)
+        async throws -> CloudNetworkPolicyState {
+        try await serialized(machineID) {
+            if let refusal, access != .noInternet { throw refusal }
+            let current = try await read(machineID)
+            let policy = access.applied(to: current.policy, presets: current.presets.map(\.id))
+            if policy == current.policy, current.applied?.state == "applied" { return current }
+            return try await write(machineID, policy)
+        }
+    }
+
     /// Whether a run for `machineID` is queued or running (tests).
     public func isBusy(_ machineID: String) -> Bool { tails[machineID] != nil }
 }
