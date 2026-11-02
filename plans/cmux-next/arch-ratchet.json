@@ -801,16 +801,6 @@
       "owner": "cloud refresh implementation",
       "receipt": "Review (independent Codex gate-design-review subagent): SHIP at f786167eebcf937d410ce58abac50d81db82b6c2",
       "expiry": "2026-11-30"
-    },
-    {
-      "date": "2026-11-02",
-      "row": "app_lines",
-      "allow": 15,
-      "why": "REOPEN-F1 (every visible terminal shows its last frame in a reopen's first frame; the launch number is the last pane): 15 App lines of wiring only. PaneController.showWhileWaiting and its hand-off/withdraw/teardown calls, the PresentablePane requirement and the scheduler's call, the debug.timings launch_terminals rows, and the prefetch markAt and closeLaunches calls in main/AppDelegate. The logic (showAhead, the hand-off, per-pane records, the max mark, the report) is in CmuxNextTerminal/TerminalLaunchFrames.swift. The hooks need App-only PaneController, ContentPresentationScheduler, AppDelegate and DebugTimings, so they move with the Focus/Windows/top-level controllers and Control rows of the destination map.",
-      "author": "reopen-fix agent",
-      "owner": "reopen-fix agent (PL-launch)",
-      "receipt": "Review (independent subagent): SHIP at 493db884ff01be7619efae92ad400b9c2660d6d1",
-      "expiry": "2026-12-02"
     }
   ],
   "escape_reviews": [
