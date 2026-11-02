@@ -91,6 +91,7 @@ async function mount(id: "a" | "b", sessions: AcpmuxSessionEntry[]) {
   await act(async () =>
     root.render(
       <NewTabScreen
+        template="default"
         snapshot={noChat(sessions)}
         lastAgent="claude"
         loadChatsPage={async () => ({ ready: true, chats: [] })}

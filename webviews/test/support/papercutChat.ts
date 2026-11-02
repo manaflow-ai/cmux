@@ -270,6 +270,6 @@ export async function sessionInfoPushAlways(page: Page, on = true) {
     // so this is the module the page already loaded.
     const url = "/chatDisplay.ts";
     const display = (await import(/* @vite-ignore */ url)) as { setChatDisplay(value: unknown): void };
-    display.setChatDisplay({ "agentPane.display.inspector.placement": on ? "push" : "overlay" });
+    display.setChatDisplay({ "agentPane.display.sessionInfo.placement": on ? "push" : "overlay" });
   }, on);
 }

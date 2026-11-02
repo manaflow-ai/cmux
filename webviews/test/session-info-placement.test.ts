@@ -60,7 +60,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     );
   const meets = (a: Box, b: Box) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 
-  /// The chat with Session Info on (Debug Settings `agent.inspector`, pushed with the header
+  /// The chat with Session Info on (Debug Settings `agent.sessionInfo`, pushed with the header
   /// state), open and done entering.
   const openSessionInfo = async (page: Page, push = false) => {
     if (push) await sessionInfoPushAlways(page);
