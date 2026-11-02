@@ -26,6 +26,9 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import nightly_sign_runner as picker  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "tests"))
+from runs_on_labels import holds_signing_material  # noqa: E402
+
 NOW = dt.datetime(2026, 10, 26, 9, 30, tzinfo=dt.timezone.utc)
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
 LINUX4, LINUX16, LINUX32 = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
@@ -459,7 +462,9 @@ class Workflow(unittest.TestCase):
         for name, picked in SIGNING_JOBS.items():
             with self.subTest(job=name):
                 runs_on = str(jobs[name]["runs-on"])
-                self.assertIn(f"|| {picked} || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", runs_on)
+                # A job holding signing material keeps its literal route (tests/runs_on_labels.py SIGNING_JOB).
+                last = "'blacksmith-6vcpu-macos-26'" if holds_signing_material(jobs[name]) else "fromJSON(vars.RUNNER_POOLS).macos_26"
+                self.assertIn(f"|| {picked} || vars.MACOS_RUNNER_26 || {last}", runs_on)
                 # A re-run (attempt 2 on) takes the other size: GitHub never re-routes a queued job,
                 # so a label that stalls after the pick is left only by a re-run, which must not
                 # queue on it again (run 40489472569, 2026-10-27).
@@ -474,6 +479,7 @@ class Workflow(unittest.TestCase):
                 runs_on = str(jobs[name]["runs-on"])
                 self.assertTrue(runs_on.endswith(OWNED_FALLBACK), runs_on)
                 self.assertNotIn("blacksmith", runs_on)
+                self.assertNotIn("RUNNER_POOLS", runs_on)
                 self.assertNotIn("MACOS_RUNNER", runs_on)
                 self.assertNotIn("sign_runner", runs_on)
                 self.assertNotIn("sign_alternate", runs_on)
@@ -544,7 +550,9 @@ class OwnedVerify(unittest.TestCase):
                               "(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER) "
                               "|| github.run_attempt > 1 && "
                               "needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner "
-                              "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
+                              "|| vars.MACOS_RUNNER_26 || "
+                              + ("'blacksmith-6vcpu-macos-26'" if holds_signing_material(job) else "fromJSON(vars.RUNNER_POOLS).macos_26"),
+                              str(job["runs-on"]))
                 # The launch smoke selects no Xcode: it mounts a DMG and runs the app in it.
                 if name == "launch-smoke-nightly":
                     self.assertNotIn("CMUX_CI_XCODE_APP", job["env"])

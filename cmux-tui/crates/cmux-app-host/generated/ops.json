@@ -107,6 +107,7 @@
     "cloud.rescue.open",
     "cloud.shell.open",
     "cloud.snapshot.list",
+    "cloud.vm.attention.emit",
     "cloud.vm.event.emit",
     "cloud.vm.network_policy",
     "cloud.vm.receiver.lifecycle",
