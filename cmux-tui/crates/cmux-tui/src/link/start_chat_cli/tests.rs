@@ -624,6 +624,68 @@ fn copy_environment_flag_is_validated_before_the_ledger_or_guest_is_touched() {
     assert!(StartCopy::of(&invalid).is_none());
 }
 
+/// A first Git seed carries the *guest's* completed HEAD, not the local
+/// bundle's planned head. The specific repository and commit are reported
+/// independently of dependency installation (which stays unverified).
+#[test]
+fn completed_guest_seed_reports_its_checkout_and_keeps_dependencies_unverified() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(project.join(".git")).unwrap();
+    std::fs::write(
+        project.join(".git/config"),
+        "[remote \"origin\"]\n url = https://github.com/team/project.git\n",
+    ).unwrap();
+    let copy = copy_of(project.to_str().unwrap(), "");
+    let commit = "a".repeat(40);
+    let copied = copy.run(&path, &|_, _, _| {
+        Ok(super::pushed_fields(&json!({
+            "mode": "seed", "head": "b".repeat(40), "guest_head": commit,
+        })))
+    });
+    assert_eq!(copied["ok"], json!(true), "{copied}");
+    assert_eq!(copied["checkout_state"], json!("guest_verified"));
+    assert_eq!(copied["checkout_repository"], json!("team/project"));
+    assert_eq!(copied["checkout_commit"], json!("a".repeat(40)));
+    assert_eq!(copied["dependencies_state"], json!("unverified"));
+    assert!(copied.get("guest_head").is_none(), "{copied}");
+
+    // The cached directory may have been edited since: probe its existence,
+    // but never claim the original commit still describes today's checkout.
+    let cached = copy.run_with_probe(&path, &|_, _, _| panic!("must not repush"), &|_, _| Ok(true));
+    assert_eq!(cached["checkout_state"], json!("directory_present"));
+    assert!(cached.get("checkout_commit").is_none());
+    assert_eq!(cached["dependencies_state"], json!("unverified"));
+}
+
+#[test]
+fn planned_or_unreadable_git_revision_is_never_a_guest_checkout_receipt() {
+    for (mode, guest_head) in [
+        ("seed", None),
+        ("seed", Some("not-a-commit")),
+        ("copy", Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
+    ] {
+        let dir = scratch();
+        let path = ledger_in(dir.path());
+        let project = dir.path().join("project");
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        std::fs::write(
+            project.join(".git/config"),
+            "[remote \"origin\"]\n url = https://github.com/team/project.git\n",
+        ).unwrap();
+        let copy = copy_of(project.to_str().unwrap(), "");
+        let answer = copy.run(&path, &|_, _, _| {
+            Ok(super::pushed_fields(&json!({
+                "mode": mode, "head": "a".repeat(40), "guest_head": guest_head,
+            })))
+        });
+        assert_eq!(answer["checkout_state"], json!("directory_present"), "{answer}");
+        assert!(answer.get("checkout_repository").is_none());
+        assert!(answer.get("checkout_commit").is_none());
+    }
+}
+
 /// A copy cannot report machine boot or harness startup: both are outside its lifetime.
 fn assert_copy_timings(answer: &Value) {
     let started = answer["seed_started_at"].as_f64().expect("copy start timestamp");
