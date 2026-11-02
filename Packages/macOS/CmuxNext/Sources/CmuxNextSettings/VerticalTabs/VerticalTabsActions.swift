@@ -4,6 +4,7 @@ public import CmuxNextActions
 /// Turn On / Turn Off Vertical Tabs (the pane's workspace's own choice, ``WorkspaceVerticalTabs``), Use
 /// Vertical Tabs for All Workspaces (`tabs.verticalTabs`), Collapse / Expand Tabs, and Auto-Expand Tabs
 /// on Hover (`tabs.verticalTabsExpandOnHover`). Panes follow the store and the settings by observation.
+@MainActor
 public final class VerticalTabsActions {
     public static let toggle: ActionID = "tabs.verticalTabs.toggle"
     public static let allWorkspaces: ActionID = "tabs.verticalTabs.allWorkspaces"

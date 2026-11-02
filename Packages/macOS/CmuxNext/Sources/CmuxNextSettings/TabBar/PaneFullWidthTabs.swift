@@ -4,7 +4,7 @@ import Observation
 /// The panes in Full Width Tab mode (`palette.toggleFullWidthTab`, classic #7425): such a pane's
 /// tab strip shows only its selected tab, across the whole strip. A pane's own view choice, kept
 /// per pane key in `defaults` like Hide Tab Bar (``PaneTabBarChoices``), so it survives a relaunch.
-@Observable
+@MainActor @Observable
 public final class PaneFullWidthTabs {
     /// The panes remembered, newest last; older choices are dropped.
     public static let maximumPanes = 512

@@ -6,7 +6,7 @@ import Observation
 /// Hide Tab Bar in the command palette or the pane's menu (Lawrence
 /// 2026-10-15, cx-v4dmy, cx-5425v). The retired `tabs.tabBar.<kind>`
 /// settings are no longer read.
-@Observable
+@MainActor @Observable
 public final class PaneTabBarChoices {
     /// The panes remembered, newest last; older choices are dropped.
     public static let maximumPanes = 512

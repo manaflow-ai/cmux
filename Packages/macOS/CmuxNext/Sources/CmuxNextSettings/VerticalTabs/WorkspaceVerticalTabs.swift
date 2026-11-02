@@ -12,7 +12,7 @@ import Observation
 ///
 /// The app makes one at its composition root (`AppServices.workspaceVerticalTabs`) and passes it on;
 /// tests make their own.
-@Observable
+@MainActor @Observable
 public final class WorkspaceVerticalTabs {
     /// The workspaces remembered, newest last; older choices are dropped.
     public static let maximumWorkspaces = 512
