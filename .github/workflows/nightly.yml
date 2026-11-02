@@ -3528,6 +3528,8 @@ jobs:
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           # In order; only labels ci-owned-pool-rescue.yml watches are offered.
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
+          # The all-nightly reservation first, while two of its runners are idle (nightly_build_runner.py).
+          NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           # As the build pick: unread runners (run 41335987427's 403 rate limit on the routing App) queue the
           # verify jobs on the watched owned pool, not blind on Blacksmith macOS.

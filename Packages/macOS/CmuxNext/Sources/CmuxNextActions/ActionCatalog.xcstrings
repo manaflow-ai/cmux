@@ -99940,6 +99940,32 @@
         }
       }
     },
+    "action.help.setupGuide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit":{"state":"translated","value":"Setup Guide"}},
+        "de": {"stringUnit":{"state":"translated","value":"Einrichtungsanleitung"}},
+        "fr": {"stringUnit":{"state":"translated","value":"Guide de configuration"}},
+        "ar": {"stringUnit":{"state":"translated","value":"دليل الإعداد"}},
+        "es": {"stringUnit":{"state":"translated","value":"Guía de configuración"}},
+        "zh-Hant": {"stringUnit":{"state":"translated","value":"設定指南"}},
+        "zh-Hans": {"stringUnit":{"state":"translated","value":"设置指南"}},
+        "ko": {"stringUnit":{"state":"translated","value":"설정 안내"}},
+        "ja": {"stringUnit":{"state":"translated","value":"セットアップガイド"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Vodič za postavljanje"}},
+        "da": {"stringUnit":{"state":"translated","value":"Installationsvejledning"}},
+        "it": {"stringUnit":{"state":"translated","value":"Guida alla configurazione"}},
+        "km": {"stringUnit":{"state":"translated","value":"មគ្គុទ្ទេសក៍ដំឡើង"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Installasjonsveiledning"}},
+        "pl": {"stringUnit":{"state":"translated","value":"Przewodnik konfiguracji"}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Guia de configuração"}},
+        "ru": {"stringUnit":{"state":"translated","value":"Руководство по настройке"}},
+        "th": {"stringUnit":{"state":"translated","value":"คู่มือการตั้งค่า"}},
+        "tr": {"stringUnit":{"state":"translated","value":"Kurulum Kılavuzu"}},
+        "uk": {"stringUnit":{"state":"translated","value":"Посібник із налаштування"}},
+        "vi": {"stringUnit":{"state":"translated","value":"Hướng dẫn thiết lập"}}
+      }
+    },
   "action.help.troubleshooting": {
       "extractionState": "manual",
       "localizations": {

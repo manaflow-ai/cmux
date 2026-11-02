@@ -8072,14 +8072,22 @@ function AcpmuxPane() {
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
   const trackBackground = background.track;
+  // The calls in the foreground now, read when a move is checked (backgroundNotice.ts "kept").
+  const foregroundNow = useRef<readonly string[]>([]);
   const runInBackground = useCallback(
-    (toolCallId?: string) => trackBackground(directClient.current?.backgroundWork(toolCallId)),
+    (toolCallId?: string) => {
+      const asked = toolCallId ? [toolCallId] : foregroundNow.current;
+      trackBackground(directClient.current?.backgroundWork(toolCallId), () =>
+        asked.some((id) => foregroundNow.current.includes(id)),
+      );
+    },
     [trackBackground],
   );
   const foreground = useMemo(
     () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
+  foregroundNow.current = foreground;
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the

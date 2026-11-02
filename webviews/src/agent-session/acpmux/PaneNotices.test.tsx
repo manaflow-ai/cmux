@@ -50,13 +50,25 @@ test("malformed rows are left out; none is an empty list", () => {
   expect(
     readPaneNotices([
       { id: "otherInstall", title: OTHER },
-      { id: "remoteApprovals", title: "Remote approvals are off", detail: "Restart it", button: "Restart", enabled: false },
+      {
+        id: "remoteApprovals",
+        title: "Remote approvals are off",
+        detail: "Restart it",
+        button: "Restart",
+        enabled: false,
+      },
       { id: "x" },
       null,
     ]),
   ).toEqual([
     { id: "otherInstall", title: OTHER },
-    { id: "remoteApprovals", title: "Remote approvals are off", detail: "Restart it", button: "Restart", enabled: false },
+    {
+      id: "remoteApprovals",
+      title: "Remote approvals are off",
+      detail: "Restart it",
+      button: "Restart",
+      enabled: false,
+    },
   ]);
 });
 
