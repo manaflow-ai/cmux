@@ -176,8 +176,10 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
    * the pointer checks is the live popup and its geometry; closing popups are filtered explicitly.
    */
   const settle = async (page: Page, names: string[], want: string[]) => {
-    await page.waitForFunction(
-      ([pairs, want]) => {
+    const pairs = names.map((name) => [name, chip(name)] as const);
+    try {
+      await page.waitForFunction(
+        ([pairs, want]) => {
         const open = pairs
           .filter(([, selector]) => {
             const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
@@ -232,9 +234,35 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
         })) return false;
         return true;
       },
-      [names.map((name) => [name, chip(name)] as const), want] as const,
-      { timeout: 5_000 },
-    );
+        [pairs, want] as const,
+        { timeout: 5_000 },
+      );
+    } catch (error) {
+      const state = await page.evaluate((pairs) => ({
+        triggers: pairs.map(([name, selector]) => {
+          const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
+            const box = candidate.getBoundingClientRect();
+            return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
+          });
+          return {
+            name,
+            expanded: button?.getAttribute("aria-expanded"),
+            controls: button?.getAttribute("aria-controls"),
+          };
+        }),
+        popups: [...document.querySelectorAll<HTMLElement>(".ui-popup")].map((popup) => ({
+          ending: popup.hasAttribute("data-ending-style"),
+          label: popup.getAttribute("aria-label"),
+          labelledBy: popup.getAttribute("aria-labelledby"),
+          id: popup.id,
+          role: popup.getAttribute("role"),
+          pointerEvents: getComputedStyle(popup).pointerEvents,
+          opacity: getComputedStyle(popup).opacity,
+          height: popup.getBoundingClientRect().height,
+        })),
+      }), pairs);
+      throw new Error(`${String(error)}; settle state: ${JSON.stringify({ want, ...state })}`);
+    }
     return expanded(page, names);
   };
   /** Waits until the open menus have stopped moving, so a press lands where their rows rest. */
