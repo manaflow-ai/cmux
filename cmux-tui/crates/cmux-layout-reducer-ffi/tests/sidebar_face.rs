@@ -96,7 +96,7 @@ fn request(
 
 /// The layout the C header declares.
 #[test]
-fn the_structs_have_the_header_layout() {
+fn sidebar_face_abi_the_structs_have_the_header_layout() {
     assert_eq!(size_of::<CRange>(), 8);
     assert_eq!(size_of::<CTab>(), 72);
     assert_eq!(size_of::<CPane>(), 24);
@@ -112,7 +112,7 @@ fn the_structs_have_the_header_layout() {
 /// Two rows in one call: an idle shell at home beside a chat (the chat names
 /// the row), and a Cloud shell untitled at its home (its tab lists as `~`).
 #[test]
-fn one_call_maps_every_changed_row() {
+fn sidebar_face_abi_one_call_maps_every_changed_row() {
     let mut strings = Strings::default();
     let home = strings.add("/Users/me");
     let mut tabs = vec![
@@ -172,7 +172,7 @@ fn one_call_maps_every_changed_row() {
 }
 
 #[test]
-fn a_request_that_does_not_decode_answers_no_faces() {
+fn sidebar_face_abi_a_request_that_does_not_decode_answers_no_faces() {
     let mut strings = Strings::default();
     let home = strings.add("/Users/me");
     let tabs = [tab(&mut strings, 0, "zsh", None, 0)];
@@ -214,7 +214,7 @@ fn a_request_that_does_not_decode_answers_no_faces() {
 }
 
 #[test]
-fn abbreviate_shortens_this_macs_home() {
+fn sidebar_face_abi_abbreviate_shortens_this_macs_home() {
     let mut strings = Strings::default();
     let home = strings.add("/Users/me");
     let inside = strings.add("/Users/me/src");
@@ -247,7 +247,7 @@ fn abbreviate_shortens_this_macs_home() {
 }
 
 #[test]
-fn the_default_name_counts_listed_and_reserved_names() {
+fn sidebar_face_abi_the_default_name_counts_listed_and_reserved_names() {
     let mut strings = Strings::default();
     let names = [strings.add("workspace-1"), strings.add("shell"), strings.add("workspace-3")];
     let faces = cmux_sidebar_face_new();
