@@ -270,4 +270,31 @@ struct PersonTerminalKeyboardClaimTests {
             #expect(delivered == ["b", "c"], "the keys typed after the click did not reach the clicked pane in order: \(delivered)")
         }
     }
+
+    /// After the click that left the person's new workspace, they ask for another creation that shows no tab before its
+    /// reply (Cmd-T's non-optimistic path) and type: the keys are that creation's, run once it lands, never the left
+    /// workspace's, which dropped them when it never showed (review of #32148).
+    @Test func keysTypedForACreationAfterTheClickNeverGoToTheLeftWorkspace() async throws {
+        var replayed: [String] = []
+        try await Self.withWindow(replay: { event, _, _ in replayed.append(event.characters ?? "") }) { h in
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(100)
+            let workspace = try #require(coordinator.beginWorkspace(in: h.controller), "a person's new workspace opened no key hold")
+            let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 300, y: 300), modifierFlags: [],
+                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: h.window.windowNumber,
+                                                        context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            coordinator.personActed(in: h.window, event: click)
+            let tab = try #require(coordinator.begin(in: h.window, generation: h.controller.focus.beginIntent()), "the second creation opened no hold")
+            var held: [Bool] = []
+            for (characters, code) in [("b", UInt16(11)), ("c", UInt16(8))] {
+                held.append(router.interceptKeyDown(try Self.key(characters, keyCode: code, in: h.window), in: h.window))
+            }
+            #expect(held == [true, true], "the second creation's hold did not take the keys typed for it: \(held)")
+            coordinator.resolve(tab, landed: true, in: h.window)
+            coordinator.resolve(workspace, landed: true, workspace: "never-shown", in: h.window) // the left workspace never shows
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
+            #expect(replayed == ["b", "c"], "the keys typed for the second creation were not run, in order: \(replayed)")
+        }
+    }
 }
