@@ -391,6 +391,22 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// Window notifications reach only a shown terminal: a hidden one (a parked tab or workspace,
     /// still in its window) has no observers, so a key, occlusion or screen change of the window
     /// does no work per hidden terminal. Showing it again catches up (`syncWindowState`).
+    /// Leaving its host (a surface swap mid-drag puts a fresh surface in the host, and this one leaves it with its
+    /// superview already gone by `viewDidMoveToWindow`): the drag hold it set in that host goes now, while the host is
+    /// still its superview, so the fresh surface takes the pane's size.
+    public override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if newSuperview !== superview { stopFollowingResizeGesture(in: superview) }
+        super.viewWillMove(toSuperview: newSuperview)
+    }
+
+    /// Stops following a resize drag that will not end for this view: lets go of the surface hold the drag set in
+    /// `host` (not one a pane spring holds; its landing lets that go).
+    func stopFollowingResizeGesture(in host: NSView?) {
+        guard isFollowingResizeGesture else { return }
+        isFollowingResizeGesture = false
+        if !isInPaneMotion { (host as? TerminalHostView)?.releaseSurfaceHold() }
+    }
+
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         observeWindow(false)
@@ -406,7 +422,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         cursorLayer?.place(in: window)
         // Out of its window, no drag's end may reach it (its layout root can go before it): it stops following, so
         // its next shown size reports as any other, never held for a drag that is gone.
-        if window == nil { isFollowingResizeGesture = false }
+        if window == nil { stopFollowingResizeGesture(in: superview) }
         let before = windowNode.effective
         syncPlacement()
         // A move between windows flips nothing: observe the new window (the old one's observers went above).
