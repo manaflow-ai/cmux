@@ -40,25 +40,13 @@ final class CloudMachineUpdates {
         return Task { @MainActor in
             // The toggles too: a handshake left while they were off is offered once they turn on.
             let stream = ObservationStream({
-                Snapshot(enabled: CloudTunables.updatesCloudMachines,
-                         handshakes: machines.cloud.map { Handshake(machineID: $0.machineID, key: CloudMachineUpdates.handshake($0, machines: machines)) })
+                HandshakeFollower.Snapshot(enabled: CloudTunables.updatesCloudMachines,
+                                           handshakes: machines.cloud.map { HandshakeFollower.Handshake(machineID: $0.machineID, key: CloudMachineUpdates.handshake($0, machines: machines)) })
             })
             for await snapshot in stream {
                 updates.note(snapshot)
             }
         }
-    }
-
-    /// One machine's handshake: its id, and the key of its daemon connection (nil: none yet).
-    nonisolated struct Handshake: Sendable, Equatable {
-        var machineID: String
-        var key: String?
-    }
-
-    /// The Cloud machines' handshakes and the toggles, as the follower sees them at once.
-    nonisolated struct Snapshot: Sendable, Equatable {
-        var enabled: Bool
-        var handshakes: [Handshake]
     }
 
     /// A key that changes with every new daemon connection of `session`: the connection object,
@@ -70,7 +58,7 @@ final class CloudMachineUpdates {
         return machines.compatibility(of: session.daemon)?.level == .incompatible ? "refused" : nil
     }
 
-    private func note(_ snapshot: Snapshot) {
+    private func note(_ snapshot: HandshakeFollower.Snapshot) {
         for handshake in follower.due(snapshot) where offer(handshake.machineID) {
             follower.offered(handshake)
         }
@@ -167,35 +155,5 @@ final class CloudMachineUpdates {
         if let appLink = session.appLink { return await appLink.currentSocket }
         guard session.link != nil, let endpoint = session.daemon.remoteEndpoint else { return nil }
         return try? await endpoint().socketPath
-    }
-}
-
-/// Which Cloud machine handshakes ``CloudMachineUpdates`` still has to offer: each new handshake
-/// once. Only an offer that was made spends it: one left while the toggles are off, or while the
-/// app has no `cmux` client, stays due. The toggles going off forget every offer, since the policy
-/// may drop what it queued meanwhile: turned on again, every live handshake is offered once more
-/// (the policy keeps one entry per machine and skips a machine already on the build). A machine
-/// with no handshake (no connection, not refused) forgets its last, so its next one is new, also a
-/// second refusal, whose key is the same.
-nonisolated struct HandshakeFollower: Sendable {
-    /// Each machine's last handshake offered.
-    private(set) var spent: [String: String] = [:]
-
-    /// The handshakes to offer now: none while the toggles are off (and every offer forgotten);
-    /// else each that differs from its machine's last offered one. Forgets machines that are gone
-    /// or have no handshake.
-    mutating func due(_ snapshot: CloudMachineUpdates.Snapshot) -> [CloudMachineUpdates.Handshake] {
-        guard snapshot.enabled else {
-            spent = [:]
-            return []
-        }
-        let present = Set(snapshot.handshakes.compactMap { $0.key == nil ? nil : $0.machineID })
-        spent = spent.filter { present.contains($0.key) }
-        return snapshot.handshakes.filter { $0.key != nil && spent[$0.machineID] != $0.key }
-    }
-
-    /// `handshake` was offered: not due again until its machine's handshake changes.
-    mutating func offered(_ handshake: CloudMachineUpdates.Handshake) {
-        spent[handshake.machineID] = handshake.key
     }
 }

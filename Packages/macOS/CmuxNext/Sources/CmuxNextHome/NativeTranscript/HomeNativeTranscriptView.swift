@@ -93,6 +93,21 @@ public final class HomeNativeTranscriptView: NSView {
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
     }
+    /// The stop button's Continue action after an accepted Chief stop.
+    public var onContinue: () -> Void = {} {
+        didSet { transcript.onContinue = { [weak self] in self?.onContinue() } }
+    }
+    /// True while the stopped Chief can be continued from the stop button.
+    public var continueAvailable: Bool {
+        get { transcript.continueAvailable }
+        set { transcript.continueAvailable = newValue }
+    }
+    /// A committed person message in a Chief conversation asks its Chief to
+    /// answer again. The host supplies the daemon's `chief.retry` bridge.
+    public var onChiefRetry: ((MessageID) -> Void)? {
+        get { transcript.onChiefRetry }
+        set { transcript.onChiefRetry = newValue }
+    }
     /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
@@ -194,6 +209,8 @@ public final class HomeNativeTranscriptView: NSView {
         // A long draft grows the field with no size change: refit the panel and the notice above it.
         transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true }
         followTextSize()
+        // Zoom grows the text in the column, never the column (https://github.com/manaflow-ai/cmux/issues/28978).
+        transcript.widestColumnZoom = Self.widestColumnZoom
         followZoom()
         followBubbleStyle()
         followHeroTunable()
@@ -388,6 +405,11 @@ public final class HomeNativeTranscriptView: NSView {
         }
         needsLayout = true
     }
+
+    /// The Chief chat's most zoomed-out level (Agent Chat Zoom's lowest, `AgentPaneZoomSetting.range`), where its
+    /// bubble column is widest: every zoom keeps that column's on-screen width
+    /// (https://github.com/manaflow-ai/cmux/issues/28978).
+    static let widestColumnZoom: CGFloat = 0.5
 
     /// Settings > Chief > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
     private func followBubbleStyle() {

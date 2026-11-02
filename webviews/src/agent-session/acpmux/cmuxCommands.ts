@@ -1,6 +1,6 @@
 import { cliOnlyCommand } from "./cliOnlyCommands";
 import type { StringKey } from "./i18n";
-import type { SlashCommand } from "./slashCommands";
+import { goesAsText, type SlashCommand } from "./slashCommands";
 
 /** Commands owned by cmux and available in every harness chat. Their description is a pane string. */
 export type CmuxCommand = SlashCommand & {
@@ -17,7 +17,9 @@ export type CmuxCommand = SlashCommand & {
     | "btw"
     | "side"
     | "status"
-    | "cd";
+    | "cd"
+    | "resume"
+    | "login";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -120,6 +122,22 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     source: "cmux",
     action: "cd",
   },
+  // Claude Code's own /resume and /login need its terminal UI; these are the GUI's (Lawrence:
+  // "in gui, having /resume would be nice, maybe /login as well"). /resume opens the chats search.
+  {
+    name: "resume",
+    description: "",
+    descriptionKey: "composer.slashResume",
+    source: "cmux",
+    action: "resume",
+  },
+  {
+    name: "login",
+    description: "",
+    descriptionKey: "composer.slashLogin",
+    source: "cmux",
+    action: "login",
+  },
 ];
 
 /// Harnesses commonly expose these, but not every adapter advertises them through ACP. Keep a
@@ -142,7 +160,9 @@ const PASS_THROUGH_FALLBACKS: readonly CmuxCommand[] = [
   },
 ];
 
-/** cmux commands come first, while a harness keeps the order it advertised. */
+/** cmux commands come first, while a harness keeps the order it advertised. A command of the
+ *  harness's own with a cmux name gives way to cmux's; a skill or prompt with one stays: mid-prompt
+ *  it is the only meaning (slashCommands.ts goesAsText), and at the start cmux's still runs. */
 export function mergedCommands(
   agent: readonly SlashCommand[] | undefined,
   enabledCmuxActions: ReadonlySet<CmuxCommand["action"]> = new Set(CMUX_COMMANDS.map((command) => command.action)),
@@ -153,13 +173,14 @@ export function mergedCommands(
     ...(agent ?? []),
   ].filter((command) => {
     const name = command.name.trim().toLowerCase();
-    if (!name || seen.has(name)) return false;
-    seen.add(name);
+    const key = `${goesAsText(command) ? "text" : "run"}:${name}`;
+    if (!name || seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
   for (const fallback of PASS_THROUGH_FALLBACKS) {
-    if (!seen.has(fallback.name)) {
-      seen.add(fallback.name);
+    if (!seen.has(`run:${fallback.name}`)) {
+      seen.add(`run:${fallback.name}`);
       merged.push(fallback);
     }
   }
@@ -254,6 +275,8 @@ export function cmuxCommandRefusal(
     case "context":
     case "plan":
     case "passThrough":
+    case "resume":
+    case "login":
       return undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";

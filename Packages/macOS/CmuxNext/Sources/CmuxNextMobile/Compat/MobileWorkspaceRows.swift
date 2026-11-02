@@ -11,11 +11,16 @@ enum MobileWorkspaceRows {
         var tab: TabSnapshot
     }
 
+    /// `hides`: the incognito workspaces (`PhoneAccessGate.hidesWorkspace`), left out of the list.
     static func result(for tree: DaemonTree, selected: WorkspaceKey?,
-                       createdWorkspace: WorkspaceKey? = nil, createdTerminal: TerminalID? = nil) -> JSONValue {
+                       createdWorkspace: WorkspaceKey? = nil, createdTerminal: TerminalID? = nil,
+                       hides: (WorkspaceKey) -> Bool = { _ in false }) -> JSONValue {
+        let shown = tree.workspaces.filter { workspace in workspace.key.map { !hides($0) } ?? true }
+        // A group of only incognito workspaces goes with them: its name could say what they hold.
+        let onlyHidden = Set(tree.workspaces.compactMap(\.group)).subtracting(shown.compactMap(\.group))
         var result: [String: JSONValue] = [
-            "workspaces": .array(tree.workspaces.compactMap { row(for: $0, selected: selected) }),
-            "groups": .array(tree.groups.sorted { $0.index < $1.index }.map(groupRow)),
+            "workspaces": .array(shown.compactMap { row(for: $0, selected: selected) }),
+            "groups": .array(tree.groups.filter { !onlyHidden.contains($0.id) }.sorted { $0.index < $1.index }.map(groupRow)),
         ]
         if let createdWorkspace { result["created_workspace_id"] = .string(MobileCompatIDs.workspaceID(createdWorkspace)) }
         if let createdTerminal, let id = MobileCompatIDs.surfaceID(createdTerminal) {
@@ -38,10 +43,10 @@ enum MobileWorkspaceRows {
         return found
     }
 
-    /// The tab whose terminal maps to the phone's `surface_id`.
-    static func locate(surfaceID: String, in tree: DaemonTree) -> TerminalLocation? {
+    /// The tab whose terminal maps to the phone's `surface_id`; never one of a workspace `hides` names.
+    static func locate(surfaceID: String, in tree: DaemonTree, hides: (WorkspaceKey) -> Bool = { _ in false }) -> TerminalLocation? {
         for workspace in tree.workspaces {
-            guard let key = workspace.key else { continue }
+            guard let key = workspace.key, !hides(key) else { continue }
             for (tab, _) in terminals(of: workspace) {
                 if let terminal = tab.terminalID,
                    MobileCompatIDs.surfaceID(terminal)?.caseInsensitiveCompare(surfaceID) == .orderedSame {
