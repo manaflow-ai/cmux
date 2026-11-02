@@ -951,7 +951,8 @@ def step_reopen_video(j, step):
         (Path(j.out) / f"reopen-{index}.json").write_text(json.dumps(record, indent=1, default=str) + "\n")
         records.append({"cycle": index, "markers": [{k: m.get(k) for k in ("pane", "focused_before", "received", "key_sent_wall")}
                                                     for m in record.get("markers") or []], "main_wall": record.get("main_wall"),
-                        "expected": record.get("markers_expected"), "markers_error": record.get("markers_error")})
+                        "expected": record.get("markers_expected"), "markers_error": record.get("markers_error"),
+                        "launch_terminals": record.get("launch_terminals"), "marks": record.get("app_marks_ms")})
         rows.append({"cycle": index, "movie": record["movie"], "differences": record["differences"],
                      "settled": settled, "app_marks_ms": record["app_marks_ms"],
                      "end_to_gone_ms": record.get("end_to_gone_ms")})
@@ -1150,5 +1151,30 @@ def step_require_visible_terminals(j, step):
     return detail
 
 
+def cond_reopen_frames_in_first_window_frame(j, want, cache):
+    """REOPEN-F1/F6, from the app's own clock: in every cycle of the reopen_video steps before, every visible
+    terminal pane had a frame (its saved last frame, debug.timings launch_terminals frame_shown_ms) by the first
+    window frame (first_window_frame_committed). A pane with no saved frame ("missed": "no_frame", e.g. after a kill:
+    frames are saved only at a quit) or a frame after the first window frame fails. Builds without launch_terminals
+    (no #31621) fail with that reason."""
+    records = getattr(j, "reopen_records", None)
+    if not records:
+        return False, {"why": "no reopen_video step ran before this check"}
+    bad = []
+    for rec in records:
+        panes = rec.get("launch_terminals")
+        window = (rec.get("marks") or {}).get("first_window_frame_committed")
+        if not isinstance(panes, dict) or not panes:
+            bad.append({"cycle": rec["cycle"], "why": "no per-pane launch timeline (a build without #31621)"})
+            continue
+        for key, p in panes.items():
+            shown = p.get("frame_shown_ms") if isinstance(p, dict) else None
+            if shown is None or window is None or shown > window + 0.5:
+                bad.append({"cycle": rec["cycle"], "tab": key[-8:], "frame_shown_ms": shown, "window_ms": window,
+                            "missed": p.get("missed") if isinstance(p, dict) else None})
+    return not bad, {"cycles": len(records), "bad": len(bad), "first": bad[:8]}
+
+
 STEPS = {"require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
-CONDITIONS = {"reopen_keys_received": ("app", cond_reopen_keys_received), "cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}
+CONDITIONS = {"reopen_frames_in_first_window_frame": ("app", cond_reopen_frames_in_first_window_frame),
+              "reopen_keys_received": ("app", cond_reopen_keys_received), "cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}

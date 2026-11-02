@@ -85,6 +85,16 @@
   },
   {
    "do": "expect",
+   "title": "REOPEN-F1/F6: in every cycle, every visible terminal had its saved last frame by the first window frame (app clock)",
+   "timeout": 2,
+   "all": [
+    {
+     "reopen_frames_in_first_window_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "expect",
    "title": "REOPEN-F4: every marker key typed after each reopen (the first as soon as the window is listed) reached its terminal exactly once",
    "timeout": 2,
    "all": [
