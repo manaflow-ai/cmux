@@ -53,12 +53,15 @@ public enum ClaudeUsageLimitReset {
             return date
         }
 
-        var components = today
-        components.hour = hour
-        components.minute = minute
-        guard let date = calendar.date(from: components) else { return nil }
-        if date <= now { return calendar.date(byAdding: .day, value: 1, to: date) }
-        return date
+        // The next such wall-clock time after `now`. In the hour a fall-back repeats, that may be
+        // the repeated occurrence, so both are asked for and the earlier one wins; a time a
+        // spring-forward skips moves to the next one that exists.
+        let wallClock = DateComponents(hour: hour, minute: minute)
+        return [Calendar.RepeatedTimePolicy.first, .last]
+            .compactMap {
+                calendar.nextDate(after: now, matching: wallClock, matchingPolicy: .nextTime, repeatedTimePolicy: $0)
+            }
+            .min()
     }
 
     private static func month(named name: String) -> Int? {
