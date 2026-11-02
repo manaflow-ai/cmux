@@ -228,21 +228,28 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
 
   for (const theme of THEMES) {
     for (const row of TRANSCRIPT_SPACING) {
-      const run = row.pending ? test.failing : test;
-      run(`${row.id}: ${row.between} is ${row.value}px (${theme.file})`, async () => {
-        const got = (await of(theme)).gaps[row.id];
-        expect(got).not.toBeNull();
-        expect(Math.abs(got! - row.value)).toBeLessThanOrEqual(row.tolerance);
+      // Whatever its value, every row must find both marks: a pending row that measured nothing
+      // would otherwise pass as its expected failure forever.
+      test(`${row.id} finds both its marks (${theme.file})`, async () => {
+        expect((await of(theme)).gaps[row.id]).not.toBeNull();
+      });
+      (row.pending ? test.failing : test)(`${row.id}: ${row.between} is ${row.value}px (${theme.file})`, async () => {
+        const got = (await of(theme)).gaps[row.id]!;
+        expect(Math.abs(got - row.value)).toBeLessThanOrEqual(row.tolerance);
       });
     }
+    test(`finds the reply footer's buttons (two or more) and the prompt bubble (${theme.file})`, async () => {
+      const measured = await of(theme);
+      expect(measured.footer?.pitch ?? null).not.toBeNull();
+      expect(measured.bubble).not.toBeNull();
+    });
     (FOOTER.pending ? test.failing : test)(
       `the reply footer's buttons are ${FOOTER.button}px around ${FOOTER.glyph}px glyphs, touching, first glyph on the prose edge (${theme.file})`,
       async () => {
         const footer = (await of(theme)).footer;
-        expect(footer).not.toBeNull();
         expect(footer!.glyph).toBeCloseTo(FOOTER.glyph, 0);
         expect(footer!.button).toBeCloseTo(FOOTER.button, 0);
-        if (footer!.pitch !== null) expect(footer!.pitch).toBeCloseTo(FOOTER.pitch, 0);
+        expect(footer!.pitch!).toBeCloseTo(FOOTER.pitch, 0);
         expect(Math.abs(footer!.inkLeft - footer!.proseLeft)).toBeLessThanOrEqual(1);
       },
     );
