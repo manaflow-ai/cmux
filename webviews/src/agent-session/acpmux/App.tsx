@@ -1077,12 +1077,12 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 /// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
-const postUnsentDraft = (text: string) => {
-  lastUnsentDraft = text;
-  return callNative("chat.unsentDraft", { text }).catch(() => undefined);
-};
-/// The new chat's text the host keeps last, so prompts held for a trust answer join it (`giveBackTrustHeld`).
-let lastUnsentDraft = "";
+const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
+/// The new chat's typed text, and its prompts held for a trust answer: the host keeps both, the held
+/// first, so a held prompt outlives the tab moving to another chat as typed text does.
+const newChatDraft = { typed: "", held: [] as string[] };
+const postNewChatDraft = () =>
+  postUnsentDraft([...newChatDraft.held, newChatDraft.typed].filter((part) => part.trim()).join("\n\n"));
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -9127,6 +9127,16 @@ function AcpmuxPane() {
   });
   const trustHeldNow = useRef(trustHeld);
   trustHeldNow.current = trustHeld;
+  // A new chat's held prompts go to the host with its typed text the moment they are held, so the
+  // tab keeps them when it moves to another chat (the host keeps no new-chat text past that).
+  const newChatHeldText = snapshot.sessionId ? undefined : trustHeld.rows.map((row) => row.prompt).join("\u0000");
+  useEffect(() => {
+    if (newChatHeldText === undefined) return;
+    const held = newChatHeldText ? newChatHeldText.split("\u0000") : [];
+    if (held.join("\u0000") === newChatDraft.held.join("\u0000")) return;
+    newChatDraft.held = held;
+    void postNewChatDraft();
+  }, [newChatHeldText]);
   holdRefused.current = (text, attachments, error, sentFrom) => {
     trustHeld.hold(text, attachments, sentFrom);
     if (error && typeof error === "object") heldRefusals.add(error);
@@ -9147,17 +9157,19 @@ function AcpmuxPane() {
     // behind what is there, the first goes first.
     for (const entry of behind ? where.composer : [...where.composer].reverse())
       composer?.restore(entry.text, entry.attachments, behind);
-    if (where.later.length) {
-      // The next composer gets them only while that new chat shows; with another chat shown they
-      // stay in the host's draft of the new chat's tab alone, out of that chat's composer.
-      const shownHere = where.later.filter((entry) => sentInHeld(entry, snapshot.sessionId, trustHeldCwd));
-      if (shownHere.length)
-        heldBack.current = [
-          ...(heldBack.current ?? []),
-          ...shownHere.map((entry) => ({ text: entry.text, attachments: entry.attachments })),
-        ];
-      const text = where.later.map((entry) => entry.text).filter((part) => part.trim());
-      writes.push(postUnsentDraft([...text, lastUnsentDraft].filter((part) => part.trim()).join("\n\n")));
+    // The next composer gets them only while that new chat shows, and they join its typed text
+    // the host keeps. With another chat shown they stay in the host's draft of the new chat's tab,
+    // where the hold put them (`newChatDraft`), out of that chat's composer.
+    const shownHere = where.later.filter((entry) => sentInHeld(entry, snapshot.sessionId, trustHeldCwd));
+    if (shownHere.length) {
+      heldBack.current = [
+        ...(heldBack.current ?? []),
+        ...shownHere.map((entry) => ({ text: entry.text, attachments: entry.attachments })),
+      ];
+      const text = shownHere.map((entry) => entry.text).filter((part) => part.trim());
+      newChatDraft.typed = [...text, newChatDraft.typed].filter((part) => part.trim()).join("\n\n");
+      newChatDraft.held = newChatDraft.held.filter((part) => !shownHere.some((entry) => entry.text === part));
+      writes.push(postNewChatDraft());
     }
     await Promise.all(
       [...where.drafts].map(async ([chat, list]) => {
@@ -12528,7 +12540,8 @@ function AcpmuxPane() {
   // Stable, so the composer's unsent-draft throttle is not rebuilt on every render.
   const onNewChatDraft = useCallback(
     (text: string) => {
-      const sent = postUnsentDraft(text);
+      newChatDraft.typed = text;
+      const sent = postNewChatDraft();
       const { harness } = freshPick.current;
       const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
       const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
