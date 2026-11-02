@@ -95,8 +95,11 @@ public final class CreationInputBuffer {
     /// Closes that take every key of the window while they read (``openClose(closing:machine:takesEveryKey:)``).
     private var everyKeyCloses: Set<Int> = []
 
-    /// Whether a close of this hold still waits for its answer and closes `tab`.
-    public func isClosing(tab: String) -> Bool { closingTabs.values.contains { $0.contains(tab) } }
+    /// Whether a close of this hold still waits for its answer and closes `tab`, or takes every key of the window
+    /// (a hidden close: the focus moved to a neighbour that `tab` may be).
+    public func isClosing(tab: String?) -> Bool {
+        everyKeyCloses.contains { closingTabs[$0] != nil } || tab.map { tab in closingTabs.values.contains { $0.contains(tab) } } == true
+    }
 
     /// The close behind `ticket` ran or stopped: its keys are tab `tab`'s (the focused terminal's after the close, or the
     /// closing terminal that stays), on `machine`; nil `tab` runs them as typed, in whatever has the focus then.

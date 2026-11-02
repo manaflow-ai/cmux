@@ -44,7 +44,7 @@ enum TabCloseGuard {
             return { restored in pane.apply(pane.snapshot()); if restored, let selected { pane.applySelection(selected) } }
         })
         Task { @MainActor in
-            let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services, confirmed: hidden != nil)
+            let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services, confirmed: true) // no answer asks
             reading.subtract(ids)
             guard let prompt else {
                 asking.subtract(ids)

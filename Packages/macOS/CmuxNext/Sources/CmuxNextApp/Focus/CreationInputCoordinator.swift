@@ -174,9 +174,9 @@ final class CreationInputCoordinator {
             scheduleFlush(in: shell)
             return false
         }
-        // A close key while a close of the focused terminal still reads (two quick Cmd-Ws): it acts now, and the held keys
-        // keep waiting (flushed, they ran into the closing terminal).
-        if closes, let tab = controller?.focus.state.terminalTab, buffer.isClosing(tab: tab) { return false }
+        // A close key while a close of the focused terminal (or a hidden close) still reads: it acts now, and the held keys
+        // keep waiting (flushed, they ran into the closing terminal or the neighbour, #29409).
+        if closes, buffer.isClosing(tab: controller?.focus.state.terminalTab) { return false }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
         guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
