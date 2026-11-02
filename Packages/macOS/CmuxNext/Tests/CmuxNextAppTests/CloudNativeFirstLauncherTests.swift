@@ -42,8 +42,10 @@ struct CloudNativeFirstLauncherTests {
         #expect(try await launcher.ensure(install: "i").status == "link")
         #expect(native.ensures == 1)
         #expect(reasons.count == 1)
+        // The fallback stops the Native route and keeps its enrollment for the retry; it never revokes it.
+        #expect(native.stops == 1 && native.archives == 0)
         await launcher.stop(install: "i")
-        #expect(link.stops == 1 && native.stops == 0)
+        #expect(link.stops == 1 && native.stops == 1)
         // Sign-out clears the fallback: the next sign-in tries Native again.
         await launcher.archive(install: "i")
         native.failure = nil
@@ -65,8 +67,9 @@ struct CloudNativeFirstLauncherTests {
         #expect(try await launcher.ensure(install: "i").status == "native")
         #expect(native.ensures == 3 && link.stops == 1)
         #expect(launcher.route == "native" && launcher.fallbackReason == nil)
+        #expect(native.stops == 2 && native.archives == 0)
         await launcher.stop(install: "i")
-        #expect(native.stops == 1 && link.stops == 1)
+        #expect(native.stops == 3 && link.stops == 1)
     }
 
     /// `cloud.machines`' `link_route` (#32494): the launcher each link source and choice gets, and its route.
