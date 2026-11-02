@@ -217,8 +217,5 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: false) == "cloud_disabled")
-        // The Cloud app server's link (every DEV and tagged build) is not refused (CloudStartChatAppLinkTests).
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true, appServerLink: true) == nil)
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false, appServerLink: true) == "not_signed_in")
     }
 }

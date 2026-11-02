@@ -280,8 +280,8 @@ struct CloudMove {
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
-        // The app server link's socket serves one connection, the app's own: the CLIs need another.
-        guard session.appLink == nil else { throw Failure(message: CloudMoveStrings.linkUnsupported(session.machine.title)) }
+        // Either link: the app server link's carrier socket dials the machine once per connection
+        // it accepts, so the CLIs' copy and move get connections of their own beside the app's.
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
         try CloudHandlers.requireAttachableState(session)

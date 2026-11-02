@@ -45,10 +45,6 @@ enum CloudMoveStrings {
     static func noSuchMachine(_ id: String) -> String {
         String(format: String(localized: "cloud.move.noSuchMachine", defaultValue: "No Cloud machine has the id %@.", table: "Cloud", bundle: .module), id)
     }
-    static func linkUnsupported(_ machine: String) -> String {
-        String(format: String(localized: "cloud.move.linkUnsupported", defaultValue: "%@ can't take a chat over its current connection. Pick another machine.",
-                              table: "Cloud", bundle: .module), machine)
-    }
     static func notConnected(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.notConnected", defaultValue: "%@ didn't connect. Retry once it's online.", table: "Cloud", bundle: .module), machine)
     }
