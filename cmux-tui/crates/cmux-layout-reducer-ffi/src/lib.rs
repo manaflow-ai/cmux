@@ -4,7 +4,9 @@
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), the window focus machine (`cmux_focus_*`,
 //! [`focus`]: a handle per window, typed events and replies, no JSON),
-//! and the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]).
+//! the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]),
+//! and `cmux-updater-core`'s update rules (the `updater_*` operations of
+//! `cmux_layout_reducer_json`, [`cmux_updater_core::wire`]).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::ffi::{CString, c_char};
@@ -149,7 +151,10 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_focus_core::wire::child_window_key(&request))
                     .map_err(|_| ERR_INVALID)?
             }
-            _ => return Err(ERR_INVALID),
+            // `updater_*`: the update rules (cmux-updater-core); any other name is invalid.
+            other => cmux_updater_core::wire::respond(other, request)
+                .ok_or(ERR_INVALID)?
+                .map_err(|_| ERR_INVALID)?,
         };
         Ok(response)
     }));
