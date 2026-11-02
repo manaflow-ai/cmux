@@ -4902,14 +4902,46 @@ class Sweeper(unittest.TestCase):
         # that only waits never fails, so no sweeper ever watched it and the open-head failover never saw it.
         smoke = dict(path=".github/workflows/nightly-next-launch-smoke.yml", status="queued", conclusion=None)
         api = SweepAPI([listed(1, **smoke)], queued=[1])
-        # Listed every SIDE_FAILURE_TICKS ticks, adopted once per attempt.
-        self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(1, 1, False)])
+
+        def forever(sleep):
+            while True:
+                sleep(0.01)
+        # Listed every SIDE_FAILURE_TICKS ticks, adopted once while its watch goes on.
+        self.assertEqual(self.sweep(api, follow=forever, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(1, 1, False)])
         self.assertEqual(api.queued_listings, 2)
+
+    def test_a_queued_side_lane_run_whose_watch_ended_is_watched_again(self):
+        # Runs 41456110862 and 41461805617 (cmux-next pushes, 2026-11-02) stayed queued on glaeda-side-std-xcode-26.6
+        # for hours after a newer push superseded them, each holding a branch job group: a watch ends at its limit,
+        # and the sweeper never looked at the run again. Still queued at the next listing, it is watched anew.
+        push = dict(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                    head_branch="feat-cmux-next", status="queued", conclusion=None)
+        api = SweepAPI([listed(1, **push)], queued=[1])
+        self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(1, 1, False), (1, 1, False)])
+        self.assertEqual(api.queued_listings, 2)
+
+    def test_the_queued_side_lane_listing_looks_back_a_day(self):
+        # A later sweeper still finds a run that has waited past SWEEP_MAX_AGE_SECONDS.
+        api = SweepAPI([], queued=[])
+        seen = []
+        real = api.queued_side_runs
+
+        def listing(count, oldest, pages=1):
+            seen.append(oldest)
+            return real(count, oldest, pages)
+        api.queued_side_runs = listing
+        self.sweep(api, ticks=1)
+        self.assertEqual(seen, [START - dt.timedelta(seconds=rescue.QUEUED_MAX_AGE_SECONDS)])
+        self.assertGreater(rescue.QUEUED_MAX_AGE_SECONDS, rescue.SWEEP_MAX_AGE_SECONDS)
 
     def test_a_queued_side_lane_run_already_watched_through_its_marker_is_not_adopted_again(self):
         next_run = dict(path=".github/workflows/cmux-next.yml", status="queued", conclusion=None)
         api = SweepAPI([listed(4, **next_run)], picker=[4], queued=[4])
-        self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(4, 1, False)])
+
+        def forever(sleep):
+            while True:
+                sleep(0.01)
+        self.assertEqual(self.sweep(api, follow=forever, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(4, 1, False)])
 
     def test_queued_side_runs_lists_queued_side_lane_runs_only(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
