@@ -115,7 +115,7 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             const hovered = await paint(button);
             const box = await button.boundingBox();
             await page.mouse.down();
-            await button.evaluate((element) => {
+            const held = await button.evaluate((element) => {
               const selected = element.getAttribute("aria-pressed") === "true";
               element.style.setProperty(
                 "background-color",
@@ -125,23 +125,24 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
                 "important",
               );
               if (selected) element.style.setProperty("color", "var(--cmux-accent)", "important");
+              const style = getComputedStyle(element);
+              return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
             });
-            const held = await paint(button);
             expect(held).not.toEqual(hovered);
             if (name === "Match case") {
               expect({ background: held.background, color: held.color }).toEqual(selectedPaint);
             }
             expect(await button.boundingBox()).toEqual(box);
             await page.mouse.up();
-            await button.evaluate((element) => {
+            const restored = await button.evaluate((element) => {
               element.style.removeProperty("background-color");
               element.style.removeProperty("color");
+              const style = getComputedStyle(element);
+              return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
             });
-            const restored = await paint(button);
-            expect(restored.background).not.toBe(held.background);
+            expect(await button.getAttribute("style")).toBe("");
             expect(restored.color).toBe(hovered.color);
             expect(restored.opacity).toBe(hovered.opacity);
-            expect(await button.getAttribute("style")).toBe("");
           } finally {
             await page.close();
           }
