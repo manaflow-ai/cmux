@@ -181,10 +181,9 @@ impl Ledger {
             binding.workspace == workspace
                 && binding.account == account
                 && binding.machine_id == machine
-        }) {
-            if binding.platform_create_key.is_none() {
-                binding.platform_create_key = Some(create_key.to_string());
-            }
+        }) && binding.platform_create_key.is_none()
+        {
+            binding.platform_create_key = Some(create_key.to_string());
         }
     }
 
