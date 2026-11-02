@@ -51,7 +51,7 @@ public final class MacScreenSession {
     @ObservationIgnored public var relayOnly = false
     @ObservationIgnored public var reconnectLimit = 0
     /// Relay errors for the failed card (relays are a link carrier, not reported apart).
-    public var relayErrors: [String] { [] }
+    public var relayErrors: [ICECandidateError] { [] }
     /// A transport exists while the session runs.
     public var stream: AnyObject? { transport }
 

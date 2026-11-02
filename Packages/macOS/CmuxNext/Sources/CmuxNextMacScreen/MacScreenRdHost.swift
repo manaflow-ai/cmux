@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import CmuxScreenKit
 import CoreGraphics
 import Foundation
@@ -195,7 +196,7 @@ nonisolated final class MacScreenRdHost: Sendable {
         process.stop()
         output.withLock { $0 }?.cancel()
         // Closing the peer connection waits on WebRTC's threads: never on the caller's (the main actor).
-        if let host = webRTC.withLock({ $0 }) { Task.detached { host.disconnectViewer() } }
+        if let host = webRTC.withLock({ $0 }) { Task.detached(priority: WorkPriority.userVisible.taskPriority) { host.disconnectViewer() } }
     }
 
     private struct Setup: Encodable {

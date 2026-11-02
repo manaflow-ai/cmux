@@ -12,6 +12,10 @@ fn main() {
     // its own dependencies; drop the ones no kept symbol references.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!("cargo:rustc-link-arg-bin=cmux-tui-host=-Wl,-dead_strip_dylibs");
+        // `cmux rd` (cmux-rd-host) captures with the ScreenCaptureKit bindings, which load the
+        // OS's Swift runtime by @rpath. A dependency's link args never reach this crate's
+        // binaries, so the rpath is set here; without it the binary does not launch.
+        println!("cargo:rustc-link-arg-bins=-Wl,-rpath,/usr/lib/swift");
     }
     browser_names();
 }
