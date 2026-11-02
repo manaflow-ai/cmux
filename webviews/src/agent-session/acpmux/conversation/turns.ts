@@ -111,8 +111,23 @@ const footerSays = (row: AcpmuxRow) =>
 /// never a word in the row (TurnRows.tsx TurnFooter), so it no longer keeps the line. It takes no line in the transcript
 /// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
 /// show over the turn gap below, so nothing moves.
+///
+/// The chat's last turn (`retryable`: no prompt after it) that spoke and then ended on work, with no
+/// reply after its last call, is not empty: it ends the chat, so its row with Copy (the whole turn,
+/// turnCopy.ts) shows once it ends, as ChatGPT's does under every finished turn (Leo, 2026-11-02:
+/// "the latest copy buttons auto showing when the turn is done like chatgpt"). Before, that footer
+/// drew nothing, so the chat ended on a blank band with no buttons.
 export const isEmptyFooter = (row: AcpmuxRow) =>
-  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !row.resumable;
+  row.kind === "turnSummary" &&
+  row.status !== "failed" &&
+  row.status !== "error" &&
+  !row.text &&
+  !row.resumable &&
+  !endsChatOnWork(row);
+
+/// The last turn's footer when the turn said something and ended on work (`isEmptyFooter` above).
+/// transcriptGrid.ts rowMark repeats it inline (that module imports nothing).
+export const endsChatOnWork = (row: AcpmuxRow) => row.retryable === true && (row.turnCopy?.length ?? 0) > 0;
 
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
