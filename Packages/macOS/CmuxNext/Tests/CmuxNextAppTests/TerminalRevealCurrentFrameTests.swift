@@ -114,4 +114,52 @@ import Testing
         }
         #expect(later.last == .bottom, "after the reveal the pane showed \(later)")
     }
+
+    /// SF-2 (video sw-w1-light, feat 0d19fe6: 25 of 26 warm Cmd-digit switches showed EMPTY terminal panes for 1-3
+    /// refreshes): a hidden terminal's presented frame is volatile (TerminalFramePurgeability), and a purged one leaves
+    /// the layer empty at the reveal until Ghostty's next frame. The switch frame must never show an empty pane: here
+    /// the system's purge is made explicit (kIOSurfacePurgeableEmpty) while the terminal is hidden.
+    @Test func aTerminalWhoseHiddenFrameWasPurgedIsNotEmptyInTheSwitchFrame() async throws {
+        _ = NSApplication.shared
+        let drew = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drew }
+        let io = ScriptedTerminalIO()
+        let session = TerminalSession(io: io)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer {
+            io.finish()
+            window.close()
+        }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 400))
+        window.contentView = host
+        session.view.frame = host.bounds
+        host.addSubview(session.view)
+        window.orderFrontRegardless()
+        session.view.layoutSubtreeIfNeeded()
+        io.send(.resize(cols: 60, rows: 24))
+        io.send(.output(Self.screen(bottom: false)))
+        let shownBy = ContinuousClock.now.advanced(by: .seconds(10))
+        while ContinuousClock.now < shownBy, Self.onScreen(session) != .top {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try #require(Self.onScreen(session) == .top, "the terminal never drew its first screen")
+
+        // Hidden by a workspace switch (the parked workspace view is hidden in its window).
+        session.view.isHidden = true
+        let held = try #require(session.surfaceView.presentedFrame, "no presented frame while hidden")
+        // The system takes the volatile pages (memory pressure, or the GPU's own eviction).
+        var old: UInt32 = 0
+        IOSurfaceSetPurgeable(held, IOSurface.purgeableEmpty, &old)
+        try await Task.sleep(for: .milliseconds(100))
+
+        // Shown again by the switch, in one turn (WindowRootView.show unhides the workspace view).
+        session.view.isHidden = false
+        session.view.layoutSubtreeIfNeeded()
+        let switchFrame = Self.onScreen(session)
+        #expect(switchFrame == .top, "the switch frame showed \(switchFrame): an empty pane; it must show the terminal's content")
+    }
 }
