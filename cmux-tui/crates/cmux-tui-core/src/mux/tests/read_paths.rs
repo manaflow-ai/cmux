@@ -198,7 +198,7 @@ fn scoped_pane_and_tab_lists_read_only_their_workspace() {
     for _ in 0..2 {
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        mux.split(pane, crate::SplitDir::Right, Some((80, 24))).unwrap();
+        mux.split(pane, SplitDir::Right, Some((80, 24))).unwrap();
         mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
     }
     let snapshot = resource(&mux, "session.snapshot", json!({}));
@@ -234,19 +234,19 @@ fn scoped_pane_and_tab_lists_read_only_their_workspace() {
         )
     };
     let cases = [
-        ("pane.list", json!({"workspace": workspace}), Value::Array(panes.clone())),
+        ("pane.list", json!({"workspace": workspace}), Value::Array(panes)),
         ("tab.list", json!({"pane": pane}), tabs_of(&|id| id == pane)),
         ("tab.list", json!({"workspace": workspace}), tabs_of(&|id| pane_ids.contains(id))),
     ];
     assert!(pane_ids.len() >= 2, "the workspace has two panes: {snapshot}");
     for (operation, scope, expected) in cases {
         assert!(expected.as_array().is_some_and(|rows| !rows.is_empty()), "{operation} {scope}");
-        let reads = crate::workspace_registry::WorkspaceRegistry::full_topology_reads_for_test();
+        let reads = WorkspaceRegistry::full_topology_reads_for_test();
         let mut listed = Value::Null;
         let touched = touched(&mux, || listed = resource(&mux, operation, scope.clone()));
         assert_eq!(listed, expected, "{operation} {scope} equals the snapshot's rows");
         assert_eq!(
-            crate::workspace_registry::WorkspaceRegistry::full_topology_reads_for_test(),
+            WorkspaceRegistry::full_topology_reads_for_test(),
             reads,
             "{operation} {scope} read the whole topology"
         );

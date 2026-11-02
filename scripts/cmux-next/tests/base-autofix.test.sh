@@ -69,6 +69,19 @@ bash "$FIX" --no-fmt --docs-shortcuts --app-host --unverified-exports "$repo" > 
 [[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must wait for verified action exports"
 [[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == current ]] || fail "the app-host files must wait for verified action exports"
 grep -q '^left: web/data/cmux-shortcuts.generated.json' "$tmp/out" || fail "the waiting docs shortcuts must be reported"
+# The base autofix rewrites the app-host files from the committed export
+# anyway (app platform checks them against it): #32097 changed the operation
+# catalog while the Mac exports were deferred, and app platform stayed red.
+# The test runner has no bun: a stand-in runs the generator's one write.
+mkdir -p "$tmp/fakebin"
+printf '#!/bin/sh\necho from-stale-export > cmux-tui/crates/cmux-app-host/generated/scopes.json\n' > "$tmp/fakebin/bun"
+chmod +x "$tmp/fakebin/bun"
+PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --docs-shortcuts --app-host --app-host-committed-exports --unverified-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed with committed app-host exports"
+[[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must still wait for verified action exports"
+[[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == from-stale-export ]] || fail "the base app-host files must not wait for the Mac exports"
+grep -q '^fixed: regenerated cmux-tui/crates/cmux-app-host/generated/scopes.json' "$tmp/out" || fail "the regenerated app-host file must be reported"
+! grep -q '^left: cmux-tui/crates/cmux-app-host/generated' "$tmp/out" || fail "the base app-host files must not be reported as waiting"
+git -C "$repo" checkout -q -- .
 # The read-only webviews job's patch may carry the rebuilt Chief memory
 # inspector page (a stale one fails every webviews bundle build), but no other
 # path outside webviews/.
