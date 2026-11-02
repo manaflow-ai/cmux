@@ -34,6 +34,37 @@
    "how": "quit-keep-hid",
    "type_keys": false,
    "title": "filmed: a real Cmd-Q (Keep) and reopen, 5 cycles"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "as": "after"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo after-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "after the cycles: a new terminal answers (the app is live)",
+   "since": "after",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "after-${nonce}-42"
+    },
+    {
+     "app_text_line": "after-${nonce}-42"
+    },
+    {
+     "frame_text": "after-${nonce}-42"
+    }
+   ]
   }
  ],
  "finally": [
