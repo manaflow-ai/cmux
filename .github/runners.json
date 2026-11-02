@@ -77,6 +77,41 @@
         "blacksmith-16vcpu-ubuntu-2404"
       ]
     },
+    "linux_2": {
+      "why": "One-minute control and comment jobs measured at 2 vCPU. A job that used to end in a literal 2 vCPU label reads this pool, so a stalled 2 vCPU size moves it to 4 vCPU by declaration, not by a YAML edit (Leo, 2026-10-28: \"Where the f***ing are the generalized solution to all these problems that these incessant pins?\")",
+      "members": [
+        "blacksmith-2vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404"
+      ]
+    },
+    "linux_4": {
+      "why": "Jobs measured at 4 vCPU that must stay on an ephemeral machine (secret-bearing and write-token jobs, which the linux pool may one day not be). A stalled 4 vCPU size moves them to 16 vCPU",
+      "members": [
+        "blacksmith-4vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404"
+      ]
+    },
+    "linux_8": {
+      "why": "Jobs measured at 8 vCPU (tooling tests, mid-size compiles). A stalled 8 vCPU size moves them to 16 vCPU",
+      "members": [
+        "blacksmith-8vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404"
+      ]
+    },
+    "linux_16": {
+      "why": "CPU-bound jobs measured at 16 vCPU (compiles, linters, large suites). A stalled 16 vCPU size moves them to 32 vCPU",
+      "members": [
+        "blacksmith-16vcpu-ubuntu-2404",
+        "blacksmith-32vcpu-ubuntu-2404"
+      ]
+    },
+    "linux_32": {
+      "why": "The largest parallel builds and test shards, measured at 32 vCPU (linux_sizes). A stalled 32 vCPU size moves them to 16 vCPU",
+      "members": [
+        "blacksmith-32vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404"
+      ]
+    },
     "linux_arm64": {
       "why": "Native ARM64 Linux package checks",
       "members": [
@@ -113,6 +148,13 @@
       "why": "macOS 26 work that needs the 12 vCPU, 48 GB SKU",
       "members": [
         "blacksmith-12vcpu-macos-26",
+        "blacksmith-6vcpu-macos-26"
+      ]
+    },
+    "macos_latest": {
+      "why": "Jobs that build on Blacksmith's macos-latest image (coderouter release binaries); the pinned macOS 26 image takes them when it stalls",
+      "members": [
+        "blacksmith-6vcpu-macos-latest",
         "blacksmith-6vcpu-macos-26"
       ]
     },
