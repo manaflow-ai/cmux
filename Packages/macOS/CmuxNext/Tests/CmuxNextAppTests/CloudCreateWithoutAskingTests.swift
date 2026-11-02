@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextCloud
 import CmuxNextSettings
 @testable import CmuxNextSidebar
