@@ -60,8 +60,9 @@ struct AgentPaneCaptureTests {
             if gesture { model.transport.gestures.record(click: true) }
             return await AgentPaneCapture.reply(to: "screen", in: model, taken: AgentPaneCaptureTests.taken) { _, file in
                 await MainActor.run { self.captureFile = file }
-                let written = bytes.isEmpty || (try? bytes.write(to: file)) != nil
-                return picked && written
+                // An Esc (not picked) writes nothing and is still `.taken`, as `screencapture` reports it.
+                if picked, !bytes.isEmpty { try? bytes.write(to: file) }
+                return .taken
             }
         }
 
@@ -115,7 +116,8 @@ struct AgentPaneCaptureTests {
                 // reply is suspended inside the picker while the normal native persist handler
                 // changes the chat and its route; no staging has started yet.
                 await source.switchChat(to: destination)
-                return (try? png.write(to: file)) != nil
+                try? png.write(to: file)
+                return .taken
             }
             let answer = try #require(Self.value(reply))
             #expect((answer["original"] as? [String: Any])?["path"] as? String == Self.saved)
@@ -225,12 +227,23 @@ struct AgentPaneCaptureTests {
         #expect(rig.requests.isEmpty)
     }
 
+    /// #20827 on top of the original staging: a pick that fails is `capture.failed`, and nothing is staged.
+    @Test func aFailedPickIsAFailureAndStagesNothing() async {
+        let rig = Rig()
+        rig.model.transport.gestures.record(click: true)
+        let reply = await AgentPaneCapture.reply(to: "screen", in: rig.model, taken: Self.taken) { _, _ in .failed("no grant") }
+        #expect(Self.errorCode(reply) == "capture.failed")
+        #expect(rig.requests.isEmpty)
+    }
+
     /// A chat whose host saves nothing (no stager): the preview still attaches, with no original.
     @Test func aChatThatSavesNothingGetsThePreviewOnly() async throws {
         let rig = Rig(stages: false)
         let answer = try #require(Self.value(await rig.capture(Self.png)))
         #expect(answer["data"] as? String == Self.png.base64EncodedString())
         #expect(answer["original"] == nil)
+        // cmux took it: its chip wears cmux's icon.
+        #expect(answer["source"] as? [String: String] == AttachmentSource.cmux.json)
     }
 
     /// A PNG of `width` x `height` noise, which PNG cannot compress.
@@ -252,5 +265,61 @@ struct AgentPaneCaptureTests {
         CGImageDestinationAddImage(destination, image, nil)
         try #require(CGImageDestinationFinalize(destination))
         return out as Data
+    }
+
+    /// A stub `screencapture` in a fresh folder, the file it would write, and a cleanup.
+    private static func stub(_ script: String) throws -> (tool: String, file: URL, root: URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let tool = root.appendingPathComponent("screencapture-stub.sh")
+        try "#!/bin/sh\n\(script)\n".write(to: tool, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
+        return (tool.path, root.appendingPathComponent("capture.png"), root)
+    }
+
+    /// #20827: `screencapture` that fails (no Screen Recording grant, a crash) is not an Esc.
+    @Test(.timeLimit(.minutes(1))) func aFailedScreencaptureIsAFailureNotACancel() async throws {
+        let stub = try Self.stub(#"echo "could not create image from display" >&2; exit 1"#)
+        defer { try? FileManager.default.removeItem(at: stub.root) }
+        let result = await AgentPaneCapture.capture(window: false, to: stub.file, executable: stub.tool)
+        guard case .failed = result else {
+            Issue.record("a screencapture that exited 1 read as \(result)")
+            return
+        }
+    }
+
+    /// An error that `screencapture` reports with status 0 and no image is not an Esc either.
+    @Test(.timeLimit(.minutes(1))) func anErrorSaidWithStatusZeroAndNoImageIsAFailure() async throws {
+        let stub = try Self.stub(#"echo "could not create image from display" >&2; exit 0"#)
+        defer { try? FileManager.default.removeItem(at: stub.root) }
+        let result = await AgentPaneCapture.capture(window: false, to: stub.file, executable: stub.tool)
+        guard case .failed = result else {
+            Issue.record("an error said with status 0 read as \(result)")
+            return
+        }
+    }
+
+    /// An Esc in the pick exits 0 and writes nothing: still a cancel, not an error.
+    @Test(.timeLimit(.minutes(1))) func anEscapedPickIsTakenWithNoImage() async throws {
+        let stub = try Self.stub("exit 0")
+        defer { try? FileManager.default.removeItem(at: stub.root) }
+        #expect(await AgentPaneCapture.capture(window: false, to: stub.file, executable: stub.tool) == .taken)
+        #expect(!FileManager.default.fileExists(atPath: stub.file.path))
+    }
+
+    /// An Esc that a macOS version reports with a nonzero status, writing and saying nothing, is
+    /// still a cancel.
+    @Test(.timeLimit(.minutes(1))) func aQuietNonzeroExitWithNoImageIsACancel() async throws {
+        let stub = try Self.stub("exit 1")
+        defer { try? FileManager.default.removeItem(at: stub.root) }
+        #expect(await AgentPaneCapture.capture(window: false, to: stub.file, executable: stub.tool) == .taken)
+    }
+
+    /// A failed pick that left a partial file removes it (its bytes are the person's screen).
+    @Test(.timeLimit(.minutes(1))) func aFailedPickLeavesNoFile() async throws {
+        let stub = try Self.stub(#"printf partial > "$5"; exit 1"#)
+        defer { try? FileManager.default.removeItem(at: stub.root) }
+        _ = await AgentPaneCapture.capture(window: false, to: stub.file, executable: stub.tool)
+        #expect(!FileManager.default.fileExists(atPath: stub.file.path), "the failed capture's file was left behind")
     }
 }

@@ -4,6 +4,7 @@
 use super::*;
 
 use crate::config::check_preset_args;
+use cmux_json::JsonSet as _;
 
 fn pi_session_for(root: &Path, agent_id: &str) -> std::io::Result<Option<PathBuf>> {
     let Ok(entries) = std::fs::read_dir(root) else { return Ok(None) };
@@ -149,7 +150,7 @@ impl Hub {
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
         if let Some(id) = session_id {
-            params["sessionId"] = json!(id);
+            params.set("sessionId", json!(id));
         }
         params
     }
@@ -174,9 +175,10 @@ impl Hub {
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
+        let launch_digest = profile.launch_digest();
         let (profile, preset_digest, account_home) =
             self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
-        Ok(Spawn { profile, preset_digest, account_home, opencode })
+        Ok(Spawn { profile, preset_digest, account_home, opencode, launch_digest })
     }
 
     /// `spawn_profile` for a session's meta, also before the session exists
@@ -363,6 +365,7 @@ impl Hub {
             preset_digest: spawn.preset_digest.clone(),
             account_home: spawn.account_home.clone(),
             opencode: spawn.opencode,
+            launch_digest: spawn.launch_digest.clone(),
         })
     }
 }
@@ -376,6 +379,9 @@ pub(super) struct Spawn {
     pub account_home: Option<std::path::PathBuf>,
     /// Whether the harness is OpenCode, from the profile as configured (`policy_mode::is_opencode`).
     pub opencode: bool,
+    /// `HarnessProfile::launch_digest` of the profile as configured, before the preset, the
+    /// route and the session's own env: what `profile_respawn.rs` compares a reload against.
+    pub launch_digest: String,
 }
 
 impl std::ops::Deref for Spawn {

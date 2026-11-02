@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useSyncExternalStore } from "react";
 import type { Root } from "react-dom/client";
+import { effortLevel } from "./support/effortDropdown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -104,12 +105,18 @@ async function mountNewTab({
   model = "claude-sonnet-5-5",
   tiers,
   live,
+  rail = false,
+  remembered = false,
+  startedChat = false,
 }: {
   opened: Option[];
   harness?: string;
   model?: string;
   tiers?: string[];
   live?: boolean;
+  rail?: boolean;
+  remembered?: boolean;
+  startedChat?: boolean;
 }) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -128,8 +135,9 @@ async function mountNewTab({
       ...(tiers && entry.id === harness ? { serviceTiers: tiers } : {}),
     })),
   })) as Snapshot["catalog"];
-  // No session of this harness ran here before: the page knows none of its options.
+  // A fresh page knows no options; a remembered profile uses the previous session's names.
   const profiles = new HarnessProfiles(() => undefined);
+  if (remembered) profiles.observe({ sessionId: "previous", harness, model, turnCount: 1, configOptions: opened });
   const wire: string[] = [];
   let open = live !== undefined;
   let started = harness;
@@ -201,7 +209,7 @@ async function mountNewTab({
             sessionId: "s-1",
             harness: started,
             model: running,
-            turnCount: 0,
+            turnCount: startedChat ? 1 : 0,
             configOptions: options.map((o) => ({ ...o })),
           }
         : { sessionId: "", harness, model, turnCount: 0 },
@@ -228,6 +236,7 @@ async function mountNewTab({
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
         holdsModePick
+        {...(rail ? { fork: { to: () => undefined, ready: true } } : {})}
         onModel={(modelId) => {
           start();
           void store.pickModel(modelId, shownSession());
@@ -306,7 +315,14 @@ async function mountNewTab({
       for (const request of landing) request.land();
       await settle();
     });
-  return { wire, pickCombo, send, answer };
+  const pickInline = async () => {
+    await act(async () => host.querySelector<HTMLElement>("[data-menu=Model]")!.click());
+    expect(Boolean(dom.window.document.querySelector(".acpmux-quick-rail"))).toBe(!startedChat || rail);
+    const high = await effortLevel(dom.window.document, "Sonnet 5.5 · High");
+    expect(high).not.toBeNull();
+    await act(async () => high!.click());
+  };
+  return { wire, pickCombo, pickInline, send, answer, held: () => store.view().intent?.config };
 }
 
 test("a New Tab combo's effort and Fast reach the chat before the prompt sent right after it", async () => {
@@ -441,4 +457,72 @@ test("a combo back to the chat on screen sends its effort and Fast once, with ac
   const sent = wire.filter((line) => !line.startsWith("new "));
   expect(sent[0]).toBe("model claude-opus-5-5");
   expect([...sent].sort()).toEqual(["effort=high", "fast-mode=on", "model claude-opus-5-5", "prompt hello"]);
+});
+
+for (const rail of [false, true]) {
+  test(`a live compact row switches Fable Medium to Sonnet High after model confirmation (rail=${rail})`, async () => {
+    const { wire, pickInline, answer } = await mountNewTab({
+      model: "claude-fable-5-1",
+      opened: [effortOption("reasoning_effort")],
+      live: true,
+      startedChat: true,
+      rail,
+    });
+    await pickInline();
+    expect(wire).toEqual(["model claude-sonnet-5-5"]);
+    await answer("model");
+    expect(wire).toEqual(["model claude-sonnet-5-5", "reasoning_effort=high"]);
+    await answer("config");
+    expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("High");
+  });
+}
+
+for (const remembered of [false, true]) {
+  test(`a New Tab compact row holds Sonnet High on the chip and starts its first turn with it (remembered=${remembered})`, async () => {
+    const { wire, pickInline, send, held } = await mountNewTab({
+      model: "claude-fable-5-1",
+      opened: [effortOption("reasoning_effort")],
+      remembered,
+    });
+    await pickInline();
+    expect(held()).toEqual({ model: "claude-sonnet-5-5", options: { effort: "high" } });
+    const detail = host.querySelector(".acpmux-model-detail")?.textContent;
+    await send("hello");
+    expect(wire).toEqual(["new claude", "model claude-sonnet-5-5", "reasoning_effort=high", "prompt hello"]);
+    expect(detail).toBe("High");
+  });
+}
+
+test("a New Tab replaces held Sonnet High with Medium after switching to Codex and back", async () => {
+  const { wire, pickInline, pickCombo, send, held } = await mountNewTab({
+    model: "claude-fable-5-1",
+    opened: [effortOption("reasoning_effort")],
+  });
+  await pickInline();
+  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("High");
+
+  await pickCombo("astra", "Astra");
+  expect(held()?.model).toBe("gpt-6-astra");
+  await act(async () => host.querySelector<HTMLElement>("[data-menu=Model]")!.click());
+  const claude = dom.window.document.querySelector<HTMLElement>('.acpmux-quick-rail-tab[aria-label^="Claude"]');
+  expect(claude).not.toBeNull();
+  await act(async () => claude!.click());
+  const medium = await effortLevel(dom.window.document, "Sonnet 5.5 · Medium");
+  expect(medium).not.toBeNull();
+  await act(async () => medium!.click());
+
+  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("Medium");
+  expect(held()).toEqual({ model: "claude-sonnet-5-5", options: { effort: "medium" } });
+  expect(wire).toEqual(["new claude", "new codex", "new claude"]);
+  await send("hello");
+  expect(wire).toEqual([
+    "new claude",
+    "new codex",
+    "new claude",
+    "model claude-sonnet-5-5",
+    "reasoning_effort=medium",
+    "prompt hello",
+  ]);
 });

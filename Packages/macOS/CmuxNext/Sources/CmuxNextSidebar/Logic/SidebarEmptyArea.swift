@@ -40,7 +40,7 @@ extension SidebarLayout {
         switch row.key {
         case .workspace, .doneFold, .showMore, .emptyGroup: row.group
         case .group(let group): row.isCollapsed ? nil : group
-        case .tab, .section, .emptySection, .folder, .status, .item, .block: nil
+        case .section, .emptySection, .folder, .status, .item, .block: nil
         }
     }
 }

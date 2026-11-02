@@ -109,7 +109,6 @@ describe("groupVariants", () => {
     expect(providerOf(rows[1]!)).toEqual({
       provider: "OpenRouter",
       key: "deepseek-v4-pro",
-      vendor: "deepseek",
       name: "DeepSeek V4 Pro",
     });
     expect(providerOf(rows[4]!)).toEqual({ key: "claude-opus-5-5", name: "Opus 5.5" });
@@ -385,8 +384,9 @@ test("More models names each model's provider and tag", async () => {
     },
   ];
   await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
+  // The default symbols layout names More models "Legacy models".
   const more = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    item.textContent?.startsWith("More models"),
+    item.textContent?.startsWith("Legacy models"),
   )!;
   expect(more).toBeDefined();
   await act(async () => more.click());

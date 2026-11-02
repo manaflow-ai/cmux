@@ -12,22 +12,33 @@ private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "sock
 /// (getpeereid), then with `AdmissionPolicy`, before the helper reads a
 /// byte; a refused peer gets one
 /// line `{"ok":false,"error":"refused","reason":...}` and the connection closes.
-/// An admitted peer sends `{"secret":"<hex>"}` first, then requests:
+/// An admitted peer sends `{"secret":"<hex>"}` first and gets
+/// `{"ok":true,"protocol":N,"capabilities":["machine-consent-gate-v1"]}`, then requests:
 ///   {"id":N,"method":"tools/list"}
+///   {"id":N,"method":"machine/consent"}
 ///   {"id":N,"method":"tools/call","name":"click","arguments":{...}}
 /// and gets `{"id":N,"ok":true,"result":...}` or `{"id":N,"ok":false,"error":"..."}`.
+/// `machine/consent` answers `{consentRequired, consent: {screen, control}}`
+/// from `consent`, fresh on every request; the request's other fields are
+/// ignored. A call refused for consent also carries
+/// `"code":"consent_required","surface":S` (plus `"reason":"host_unverified"`
+/// when the helper could not verify the cmux app that started it, never for
+/// a person's refusal), and the connection stays open.
 public final class HelperSocketServer: Sendable {
     public let path: String
     private let admission: AdmissionState
     private let inspector: any PeerInspecting
     private let tools: any ToolInvoking
+    private let consent: any MachineConsentAuthority
     private let listener = OSAllocatedUnfairLock<Int32>(initialState: -1)
 
-    public init(path: String, admission: AdmissionState, inspector: any PeerInspecting, tools: any ToolInvoking) {
+    public init(path: String, admission: AdmissionState, inspector: any PeerInspecting, tools: any ToolInvoking,
+                consent: any MachineConsentAuthority = UnavailableConsent()) {
         self.path = path
         self.admission = admission
         self.inspector = inspector
         self.tools = tools
+        self.consent = consent
     }
 
     public enum StartError: Error, Equatable {
@@ -37,6 +48,13 @@ public final class HelperSocketServer: Sendable {
     }
 
     public func start() throws {
+        let descriptor = try Self.listening(at: path)
+        listener.withLockUnchecked { $0 = descriptor }
+        Self.acceptLoop(descriptor, name: "cua-helper-accept") { [self] client in serve(client) }
+    }
+
+    /// A listening socket at `path`, 0600, in a private directory.
+    static func listening(at path: String) throws -> Int32 {
         let directory = (path as NSString).deletingLastPathComponent
         guard PrivateDirectory.prepare(directory) else { throw StartError.directoryNotPrivate(directory) }
         var address = sockaddr_un()
@@ -58,18 +76,18 @@ public final class HelperSocketServer: Sendable {
             }
         }
         umask(previous)
-        guard bound == 0, chmod(path, 0o600) == 0, listen(descriptor, 16) == 0 else {
+        guard bound == 0, chmod(path, 0o600) == 0, Darwin.listen(descriptor, 16) == 0 else {
             let failure = errno
             close(descriptor)
             throw StartError.socket(failure)
         }
-        listener.withLockUnchecked { $0 = descriptor }
-        let thread = Thread { [self] in acceptLoop(descriptor) }
-        thread.name = "cua-helper-accept"
-        thread.start()
+        return descriptor
     }
 
-    public func stop() {
+    public func stop() { Self.stop(listener, path: path) }
+
+    /// Closes a listener once and removes its socket file.
+    static func stop(_ listener: OSAllocatedUnfairLock<Int32>, path: String) {
         let descriptor = listener.withLockUnchecked { value -> Int32 in
             let old = value
             value = -1
@@ -81,7 +99,15 @@ public final class HelperSocketServer: Sendable {
         unlink(path)
     }
 
-    private func acceptLoop(_ descriptor: Int32) {
+    /// Accepts on its own thread until the listener closes; each client is
+    /// served on its own thread.
+    static func acceptLoop(_ descriptor: Int32, name: String, serve: @escaping @Sendable (Int32) -> Void) {
+        let thread = Thread { acceptClients(descriptor, serve: serve) }
+        thread.name = name
+        thread.start()
+    }
+
+    private static func acceptClients(_ descriptor: Int32, serve: @escaping @Sendable (Int32) -> Void) {
         while true {
             let client = accept(descriptor, nil, nil)
             if client < 0 {
@@ -91,7 +117,7 @@ public final class HelperSocketServer: Sendable {
             _ = fcntl(client, F_SETFD, FD_CLOEXEC)
             var noSigPipe: Int32 = 1
             setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-            let thread = Thread { [self] in serve(client) }
+            let thread = Thread { serve(client) }
             thread.name = "cua-helper-connection"
             thread.start()
         }
@@ -134,7 +160,7 @@ public final class HelperSocketServer: Sendable {
                         return connection.refuse(refusal)
                     }
                     admitted = true
-                    connection.write(HelperWire.line(["ok": true, "protocol": HelperWire.protocolVersion]))
+                    connection.write(Self.admittedReply)
                     continue
                 }
                 handle(line, connection: connection)
@@ -142,6 +168,10 @@ public final class HelperSocketServer: Sendable {
         }
         connection.close()
     }
+
+    /// The reply to a peer that presented the secret.
+    static let admittedReply = HelperWire.line(["ok": true, "protocol": HelperWire.protocolVersion,
+                                                "capabilities": [ConsentGate.capability]])
 
     /// The connected peer's effective uid, from the kernel.
     static func peerUID(_ descriptor: Int32) -> uid_t? {
@@ -159,17 +189,24 @@ public final class HelperSocketServer: Sendable {
         let name = request["name"] as? String
         let arguments = HelperWire.json(request["arguments"] ?? [String: Any]())
         let tools = self.tools
+        let consent = self.consent
         Task.detached {
             do {
                 let result: Data
                 switch method {
                 case "tools/list": result = try await tools.listTools()
+                case "machine/consent": result = await consent.current().wire
                 case "tools/call":
                     guard let name, !name.isEmpty else { throw ToolError("tools/call needs a name") }
                     result = try await tools.invoke(name: name, arguments: arguments)
                 default: throw ToolError("unknown method \(method)")
                 }
                 connection.write(HelperWire.line(["ok": true], raw: ["id": id, "result": result]))
+            } catch let refusal as ConsentRefusal {
+                var fields: [String: Any] = ["ok": false, "error": refusal.description,
+                                             "code": ConsentRefusal.code, "surface": refusal.surface.rawValue]
+                if let reason = refusal.reason { fields["reason"] = reason.rawValue }
+                connection.write(HelperWire.line(fields, raw: ["id": id]))
             } catch {
                 connection.write(HelperWire.line(["ok": false, "error": String(describing: error)],
                                                  raw: ["id": id]))

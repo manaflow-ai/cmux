@@ -15,6 +15,7 @@ use crate::config::Config;
 use crate::daemon::connect;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -22,8 +23,16 @@ use std::time::Duration;
 /// SIGKILL (and the SIGKILL until its lock drops).
 const HOST_GRACE: Duration = Duration::from_secs(3);
 
-pub(crate) async fn run(end_agents: bool, json_out: bool) -> Result<()> {
-    run_on(&*TokioClock::new(), end_agents, json_out, false).await
+pub(crate) async fn run(
+    end_agents: bool,
+    keep_agents: bool,
+    restart: bool,
+    json_out: bool,
+) -> Result<()> {
+    // `--keep-agents` is a compatibility no-op; only the explicit restart
+    // command or --restart updater flag requests service-restart signaling.
+    let _ = keep_agents;
+    run_on(&*TokioClock::new(), end_agents, json_out, false, restart).await
 }
 
 /// Stop and start the daemon while keeping hosted agents for handoff.
@@ -35,7 +44,7 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
     let before = client.request(method::MUX_STATUS, json!({})).await?;
     preserve_restart_listener(&before)?;
     drop(client);
-    run_on(&*TokioClock::new(), false, json_out, true).await?;
+    run_on(&*TokioClock::new(), false, json_out, true, true).await?;
     let client = crate::daemon::connect(true).await?;
     let status = client.request(method::MUX_STATUS, json!({})).await?;
     anyhow::ensure!(
@@ -58,12 +67,12 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
     let Some(listen) = status.get("listen").and_then(Value::as_str) else {
         return Ok(());
     };
-    // web_url appends the raw token after this exact prefix; do not decode
-    // it or split on '&', both of which would change a custom credential.
-    let token = status
-        .get("webUrl")
-        .and_then(Value::as_str)
-        .and_then(|url| url.split_once("?token=").map(|(_, token)| token));
+    // web_url appends the raw token after this exact prefix (`#token=`; an
+    // older daemon wrote `?token=`); do not decode it or split on '&', both
+    // of which would change a custom credential.
+    let token = status.get("webUrl").and_then(Value::as_str).and_then(|url| {
+        url.split_once("#token=").or_else(|| url.split_once("?token=")).map(|(_, token)| token)
+    });
     // Tagged/dev homes deliberately cannot claim the shared fixed port. A
     // restart cannot reapply that policy after stopping the explicit daemon,
     // so refuse before shutdown rather than silently moving the listener.
@@ -82,6 +91,13 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
             && websocket.token_rotated >= crate::daemon::TOKEN_ROTATION,
         "cannot restart with an unsaved --token override; the daemon is still running"
     );
+    // A network listen opted in with `--insecure-network-listen` lasts one run: the restarted
+    // daemon reads only config.json and would refuse the address, leaving no daemon. Refuse
+    // before stopping this one unless the saved opt-in covers it.
+    let bound: Vec<std::net::SocketAddr> = listen.parse().into_iter().collect();
+    crate::server::ws_auth::check_listen(listen, &bound, websocket.allow_insecure_network).map_err(
+        |e| e.context("cannot restart: the daemon runs with --insecure-network-listen, which a restart does not keep; the daemon is still running"),
+    )?;
     if websocket.listen == listen {
         return Ok(());
     }
@@ -89,12 +105,21 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
     config.save().map_err(|e| anyhow!("preserve daemon listener settings for restart: {e:#}"))
 }
 
-async fn run_on(clock: &dyn Clock, end_agents: bool, json_out: bool, quiet: bool) -> Result<()> {
+async fn run_on(
+    clock: &dyn Clock,
+    end_agents: bool,
+    json_out: bool,
+    quiet: bool,
+    restart: bool,
+) -> Result<()> {
     let keep_agents = !end_agents;
     let hosts = agent_host::hosts_dir();
     let before = sweep::running_hosts(&hosts).len();
     let client = connect(false).await?;
-    let params = if keep_agents { json!({}) } else { json!({"endAgents": true}) };
+    let mut params = if keep_agents { json!({}) } else { json!({"endAgents": true}) };
+    if restart {
+        params.set("restart", json!(true));
+    }
     // A refusal (a shutdown already under way hands its agents off) or a
     // closed connection still ends with the daemon's exit, and the sweep
     // below ends whatever it left running.

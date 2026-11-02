@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTestSupport
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -11,7 +12,7 @@ import Testing
 /// import cards, then the header, actions and message box at about 4978 ms: Home is made over
 /// several daemon replies (the dock's page tab, then the Chief conversation) and no launch region
 /// held it. A Home with no pane yet stays clear until its conversation's first page is in.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct HomeLaunchRevealTests {
     @Test func aHomeStillBeingMadeStaysClearUntilItsConversationIsIn() throws {
         let (services, reveal, window, content) = try Self.shown(kind: "home")

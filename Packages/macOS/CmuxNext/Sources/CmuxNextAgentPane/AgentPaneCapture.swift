@@ -3,6 +3,7 @@ import CmuxNextWakeups
 import CoreGraphics
 import Foundation
 import ImageIO
+import os
 import UniformTypeIdentifiers
 
 /// The composer's + > Attach Screenshot… and Attach Window… (cx-ncc.71, the Codex app's Attach):
@@ -19,9 +20,11 @@ import UniformTypeIdentifiers
 /// taken was saved, for the agent to read. The page attaches both as one chip and never sends the
 /// bytes back, which would need a second gesture. A chat whose host saves nothing (no stager) gets
 /// the preview alone; `{cancelled: true}` when the person presses Esc. A failed original stage
-/// reports the retained local file's path instead of silently substituting its preview.
+/// reports the retained local file's path instead of silently substituting its preview, and the
+/// `capture.failed` error answers a `screencapture` that could not start or ended with an error.
 enum AgentPaneCapture {
     nonisolated static let tool = "/usr/sbin/screencapture"
+    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.capture")
     /// The preview's budget and longest side, as the page fits an attached image
     /// (composer/imageWork.ts `IMAGE_BUDGET_BYTES`, `MAX_IMAGE_SIDE`).
     nonisolated static let previewMaxBytes = 1536 * 1024
@@ -29,8 +32,8 @@ enum AgentPaneCapture {
     /// The most bytes of the original read and staged at once (the page's staged-upload chunk).
     nonisolated static let chunkBytes = 512 * 1024
 
-    /// Runs the pick into the file; false when it could not start (``capture(window:to:)``).
-    typealias Pick = @Sendable (_ window: Bool, _ file: URL) async -> Bool
+    /// Runs the pick into the file (``capture(window:to:executable:)``; tests pass a stub).
+    typealias Pick = @Sendable (_ window: Bool, _ file: URL) async -> CaptureResult
 
     /// `taken`: when the capture was taken (tests); now, once the pick ends, when nil.
     @MainActor static func reply(to mode: String?, in model: AgentPaneModel, taken: Date? = nil,
@@ -44,8 +47,12 @@ enum AgentPaneCapture {
         let stager = model.onUploadStage?()
         let session = model.sessionId
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
-        var result = AgentPaneReply.success(["cancelled": true])
-        if await pick(mode == "window", file) { result = await Self.answer(file, taken: taken ?? Date(), stager: stager, session: session) }
+        if case .failed(let reason) = await pick(mode == "window", file) {
+            // ``capture(window:to:executable:)`` already removed any partial file.
+            logger.error("composer.capture: screencapture failed: \(reason, privacy: .public)")
+            return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
+        }
+        let result = await Self.answer(file, taken: taken ?? Date(), stager: stager, session: session)
         // A failed attachment leaves its only original at the recovery path in the error.
         // Successful/cancelled captures finish their one off-main cleanup before replying.
         if result["ok"] as? Bool == true {
@@ -73,7 +80,8 @@ enum AgentPaneCapture {
                 details: ["originalPath": file.path], retryable: false, origin: "native"
             )
         }
-        var answer: [String: Any] = ["name": name]
+        // cmux took it: its chip wears cmux's icon (AttachmentSource).
+        var answer: [String: Any] = ["name": name, "source": AttachmentSource.cmux.json]
         if let preview {
             answer["mimeType"] = preview.mimeType
             answer["data"] = preview.data.base64EncodedString()
@@ -132,6 +140,40 @@ enum AgentPaneCapture {
         return path
     }
 
+    /// What one pick produced.
+    nonisolated enum CaptureResult: Equatable, Sendable {
+        /// `screencapture` ran; its file holds the image, or nothing (Esc).
+        case taken
+        /// It could not start or ended with an error, in the system's words.
+        case failed(String)
+    }
+
+    /// Runs the pick with `executable` (``tool``; tests pass a stub); `.failed` when it could not start.
+    /// Its caller is the main actor, so it runs off it (`@concurrent`): the spawn runs on AsyncProcess's own
+    /// queue, the wait holds no thread, and the file check and cleanup never touch the disk on the main thread.
+    @concurrent nonisolated static func capture(window: Bool, to file: URL, executable: String = tool) async -> CaptureResult {
+        // -x: no shutter sound; -o: no window shadow.
+        let arguments = (window ? ["-i", "-W", "-o"] : ["-i"]) + ["-x", "-t", "png", file.path]
+        let result: CaptureResult
+        do {
+            let outcome = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: executable), arguments,
+                                                                      errorOutput: .separate))
+            let said = String(decoding: outcome.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            // With a file, the status decides (0: the image). With none, an Esc says nothing, whatever
+            // status the macOS version gives it, and an end that says why is an error (no Screen
+            // Recording grant). A signal is always an error (a crash).
+            let wrote = FileManager.checked.fileExists(atPath: file.path)
+            let ok = outcome.exited && (wrote ? outcome.status == 0 : said.isEmpty)
+            result = ok ? .taken
+                : .failed("\(said.isEmpty ? "no message" : said) (\(outcome.exited ? "exit" : "signal") \(outcome.status))")
+        } catch {
+            result = .failed(String(describing: error))
+        }
+        // A failed pick's partial file is the person's screen: never left in the temp folder.
+        if result != .taken { try? FileManager.checked.removeItem(at: file) }
+        return result
+    }
+
     /// A reply's value when it succeeded.
     private static func value(_ reply: [String: Any]) -> [String: Any]? {
         reply["ok"] as? Bool == true ? reply["value"] as? [String: Any] : nil
@@ -178,13 +220,5 @@ enum AgentPaneCapture {
         }
         CGImageDestinationAddImage(destination, image, properties)
         return CGImageDestinationFinalize(destination) ? out as Data : nil
-    }
-
-    /// Runs the pick; false when `screencapture` could not start. Its caller is the main actor: the spawn
-    /// runs on AsyncProcess's own queue, and the wait holds no thread.
-    nonisolated static func capture(window: Bool, to file: URL) async -> Bool {
-        // -x: no shutter sound; -o: no window shadow.
-        let arguments = (window ? ["-i", "-W", "-o"] : ["-i"]) + ["-x", "-t", "png", file.path]
-        return (try? await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: tool), arguments))) != nil
     }
 }

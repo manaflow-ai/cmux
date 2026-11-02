@@ -34,6 +34,7 @@ CANONICAL = (
 BRANCH = "feat-cmux-next"
 CHECKS = "cmux-next-checks"
 SOURCE_DIR = "scripts/cmux-next"
+MASKER = "scripts/swift_source_mask.py"
 STAMP = ".source"  # "<commit> <scripts/cmux-next tree>" of the copy, or "worktree" for an install from a dirty tree
 ENTRY_POINTS = {"prepush-gate.py": "cmux_next_prepush_gate.py", "git_batch.py": "git_batch.py"}
 
@@ -164,6 +165,11 @@ def refresh(repo: Path, hook_dir: Path, commit: str) -> str | None:
             return None
         files = files_at(repo, commit)
         contents = blobs(repo, [f"{commit}:{SOURCE_DIR}/{relative}" for _, relative in files])
+        # check-package-dependency-lists.py reads the Swift source masker beside itself (install-git-hooks.sh).
+        masker = git(repo, "cat-file", "blob", f"{commit}:{MASKER}", check=False)
+        if masker:
+            files.append(("100644", Path(MASKER).name))
+            contents.append(masker)
         version = f"{CHECKS}.v{int(time.time())}.{os.getpid()}"
         stage = hook_dir / f"{version}.partial"
         shutil.rmtree(stage, ignore_errors=True)

@@ -99,19 +99,16 @@ async function renderCard(d: UpdateHighlights, s?: ReleaseNotes[]) {
   );
 }
 
-const rows = () => [...host.querySelectorAll(".wn-card-areas li")].map((li) => li.textContent);
+// The card is short now (2026-10-31, "too much text"): it says the update's top change only, the
+// first area's first change; the rest is one click away in What's New.
+const note = () => [...host.querySelectorAll(".wn-card-note")].map((n) => n.textContent);
 
 test("the Updated card summarizes every skipped nightly by area, not the newest commit's subject", async () => {
   await renderCard(data, span);
   // The newest commit is one change among the rest, never the card's headline.
-  expect(host.querySelector(".wn-card-headline")).toBeNull();
-  expect(rows()).toEqual([
-    "Sidebar: groups made by automation take a palette color; a click never drags",
-    "New Tab: a New Tab page opens minimal by default",
-    "Composer: Return steers a running turn",
-  ]);
-  // Seven user-visible changes across the three builds, four listed; CI, tests and autofixes stay out.
-  expect(host.querySelector(".wn-card-more")?.textContent).toBe("+3 more");
+  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color"]);
+  // CI, tests and autofixes stay out; no count of the rest.
+  expect(host.querySelector(".wn-card-more")).toBeNull();
   expect(host.textContent).not.toContain("shard");
   expect(host.textContent).not.toContain("autofix");
 });
@@ -126,18 +123,13 @@ test("without the span's notes the card still groups the host's changes instead 
     ],
     moreCount: 0,
   });
-  expect(host.querySelector(".wn-card-headline")).toBeNull();
-  expect(rows()).toEqual([
-    "Sidebar: sidebar groups take a palette color; a click in the sidebar never drags",
-    "Improved: Enroll Computer Use after peer check",
-  ]);
+  expect(note()).toEqual(["Sidebar: sidebar groups take a palette color"]);
 });
 
 test("an update with only internal work says Maintenance and fixes", async () => {
   await renderCard({ ...data, items: [], moreCount: 0, source: "none" }, [
     notes("3940000000004", [{ title: "ci: shard the gallery capture", pr: 401 }]),
   ]);
-  expect(rows()).toEqual([]);
-  expect(host.querySelector(".wn-card-headline")?.textContent).toBe("Maintenance and fixes");
+  expect(note()).toEqual(["Maintenance and fixes"]);
   expect(host.querySelector(".wn-card-more")).toBeNull();
 });

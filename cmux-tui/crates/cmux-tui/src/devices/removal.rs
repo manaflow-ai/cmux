@@ -42,6 +42,13 @@ pub(crate) fn plan(device: &Device) -> Vec<Step> {
                 &["host", "deny", login],
                 format!("{login} can no longer open this computer's terminals"),
             )),
+            Via::Joined { machine_id } => credentials.push(step(
+                &["machine", "revoke", machine_id, "--yes", "--json"],
+                format!(
+                    "{} leaves your team's machines; its access ends within 30 seconds",
+                    device.name
+                ),
+            )),
             Via::Peer { name } => peers.push(step(
                 &["acp", "host", "rm", name, "--json"],
                 format!("this computer stops running agents on {name}"),

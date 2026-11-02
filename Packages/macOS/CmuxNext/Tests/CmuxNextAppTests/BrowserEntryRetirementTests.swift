@@ -2,11 +2,12 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextTestSupport
 import Testing
 
 /// The entry owns the chrome. Its page must leave that hierarchy before AppKit destroys the
 /// chrome: Chromium's hierarchy probe can otherwise register a weak reference to a dying view.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct BrowserEntryRetirementTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct BrowserEntryRetirementTests {
     @Test func releasingAnEntryRetiresItsPageBeforeItsChrome() {
         let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         weak var released: BrowserEntry?
@@ -35,12 +36,21 @@ import Testing
 
     @Test func releasingAnEntryOffMainRetiresItsPageOnMain() async {
         let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-        let owner = EntryOwner(BrowserEntry(tab: page))
+        // The chrome is read here, on main: returning it out of the Mutex's nonisolated closure is a
+        // main-actor value sent out of its isolation, which strict concurrency refuses. The scope ends
+        // the local `entry`, so the owner holds the only reference the detached task releases.
+        let chrome: NSView
+        let owner: EntryOwner
+        do {
+            let entry = BrowserEntry(tab: page)
+            chrome = entry.chrome
+            owner = EntryOwner(entry)
+        }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close(); page.close() }
-        window.contentView = owner.entry.withLock { $0?.chrome }
+        window.contentView = chrome
         let probe = PageDetachmentProbe()
         page.contentView.addSubview(probe)
         #expect(probe.window === window)

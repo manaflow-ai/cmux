@@ -13,6 +13,7 @@ use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_workspace_group_id, validate_workspace_group_id,
 };
+use cmux_json::JsonSet as _;
 use std::ops::Deref;
 
 mod frontend_browser_history;
@@ -244,6 +245,7 @@ impl Mux {
 
     /// Notifications, presentation, and tab directories for serializing the
     /// whole tree. Git HEAD lookups run after the state lock is released.
+    #[track_caller]
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let (notifications, directories) = {
@@ -261,6 +263,24 @@ impl Mux {
             terminal_ends,
             terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
+    }
+
+    /// [`Self::tree_decorations`] for a create that places `placing` in the
+    /// delta it emits (`pane-added`, `tab-added`). The new terminal has no
+    /// pane yet when the decorations are read, and the directory scan keeps
+    /// only placed surfaces, so its first record would have no `cwd`: the
+    /// client's tab title would fall back to its placeholder and change again
+    /// at the next `tab-changed` (RESIZE VIDEOS T1). Its own directory is
+    /// added here, read like every other tab's.
+    #[track_caller]
+    pub(crate) fn tree_decorations_placing(&self, placing: &Surface) -> TreeDecorations {
+        let mut decorations = self.tree_decorations();
+        if let Some(directory) = placing.presented_directory() {
+            decorations
+                .directories
+                .extend(self.resolve_tab_directories(vec![(placing.id, directory)], true));
+        }
+        decorations
     }
 
     /// The same as [`Self::tree_decorations`] for a caller that already
@@ -710,10 +730,10 @@ impl Mux {
         // Only a pin request carries the key, so a retry first sent to a
         // daemon without workspace-pin-v1 still replays.
         if let Some(pinned) = update.pinned {
-            fingerprint["pinned"] = pinned.into();
+            fingerprint.set("pinned", pinned.into());
         }
         if let Some(marked_unread) = update.marked_unread {
-            fingerprint["marked_unread"] = marked_unread.into();
+            fingerprint.set("marked_unread", marked_unread.into());
         }
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {

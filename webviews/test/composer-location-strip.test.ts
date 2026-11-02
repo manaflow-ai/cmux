@@ -573,7 +573,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       expect(marks.computerIcon!.width).toBeGreaterThan(0);
       // Named for the pointer and VoiceOver either way.
       expect(marks.computerName).toContain("This Mac");
-      expect(label).toBe("Computer: This Mac");
+      expect(label).toBe("Environment: This Mac");
       if (!iconOnly) expect(marks.computerClipped).toBe(false);
       expect(marks.branchClipped).toBe(false);
     });

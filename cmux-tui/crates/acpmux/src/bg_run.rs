@@ -167,9 +167,10 @@ impl Spool {
                 (self.start, self.len) = (start, 0);
             }
             let n = data.len().min((self.segment - self.len) as usize);
-            self.file.write_all(&data[..n])?;
+            let Some((head, rest)) = data.split_at_checked(n) else { break };
+            self.file.write_all(head)?;
             self.len += n as u64;
-            data = &data[n..];
+            data = rest;
         }
         Ok(())
     }
@@ -197,7 +198,9 @@ pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io
     let mut open = None;
     for _ in 0..3 {
         let starts = segments(dir, id)?;
-        let opened: std::io::Result<Vec<_>> = starts[starts.len().saturating_sub(2)..]
+        let opened: std::io::Result<Vec<_>> = starts
+            .get(starts.len().saturating_sub(2)..)
+            .unwrap_or_default()
             .iter()
             .map(|&s| std::fs::File::open(segment_path(dir, id, s)).map(|f| (s, f)))
             .collect();
@@ -218,7 +221,7 @@ pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io
     })?;
     let Some((last, last_file)) = open.last() else { return Ok(Output::default()) };
     let total = last + last_file.metadata()?.len();
-    let kept_from = open[0].0;
+    let kept_from = open.first().map_or(*last, |(s, _)| *s);
     let start = from.map_or(total.saturating_sub(max), |f| f.min(total)).max(kept_from);
     let end = total.min(start.saturating_add(max));
     let starts: Vec<u64> = open.iter().map(|(s, _)| *s).collect();
@@ -459,7 +462,7 @@ pub fn main() -> anyhow::Result<()> {
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
             };
-            for &b in &buf[..n] {
+            for &b in buf.get(..n).unwrap_or_default() {
                 if b != b'\n' {
                     // Bounded: an overlong line is dropped whole.
                     if line.len() <= STOP_LINE_MAX {
@@ -489,7 +492,7 @@ pub fn main() -> anyhow::Result<()> {
                 };
                 // A spool that fails is said in the record; the pipe is still read, so the
                 // task never blocks on it.
-                if !failed && let Err(e) = spool.write(&buf[..n]) {
+                if !failed && let Err(e) = spool.write(buf.get(..n).unwrap_or_default()) {
                     failed = true;
                     let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
                     held.record.output_error = Some(e.to_string());

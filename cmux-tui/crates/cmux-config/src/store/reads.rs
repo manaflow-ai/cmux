@@ -12,6 +12,7 @@ use crate::keypath::dotted;
 use crate::managed::{ManagedSource, Policy};
 use crate::schema::{Row, effective_value};
 use crate::value::value_at;
+use cmux_json::JsonSet as _;
 
 /// Everything a client needs to project the settings.
 #[derive(Debug, Clone, PartialEq)]
@@ -105,7 +106,7 @@ impl GetView<'_> {
             "row": self.row.as_ref().map(RowView::to_json),
             "managed": self.managed.as_ref().map(|(key, source)| {
                 let mut info = source.to_json(key);
-                info["key"] = Value::String(key.clone());
+                info.set("key", Value::String(key.clone()));
                 info
             }),
         })
