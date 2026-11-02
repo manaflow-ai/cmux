@@ -410,10 +410,27 @@ def judge_event(ev: dict, frames: list[tuple[float, np.ndarray, np.ndarray]], hz
         if f.label in ("TARGET", "NONE") and not has_old and has_all and (f.label == "TARGET" or tgt.beacons):
             first_tgt = f
             break
+    # The first complete target frame whose every target beacon is current (age within STALE_REFRESHES): the frame
+    # with the newest output (SF-5 pre-show: a switch to a terminal that printed while hidden).
+    fresh = None
+    if first_tgt is not None:
+        limit = STALE_REFRESHES * period * 1000.0
+        for f in out_frames:
+            if f.t < first_tgt.t:
+                continue
+            ages = [v["age_ms"] for k, v in f.beacons.items() if k.startswith("tgt:")]
+            if ages and all(a is not None and a <= limit for a in ages):
+                fresh = f
+                break
     res["frames"] = len(out_frames)
     if first_change:
         res["first_change_t"] = first_change.t
         res["first_change_refreshes"] = refreshes(first_change.t)
+        res["first_change_ms"] = round((first_change.t - t0) * 1000.0, 2)
+    if fresh is not None:
+        res["fresh_ms"] = round((fresh.t - t0) * 1000.0, 2)
+        res["fresh_refreshes"] = refreshes(fresh.t)
+        res["fresh_after_photon_refreshes"] = refreshes(fresh.t) - refreshes(first_tgt.t)
     if first_tgt:
         res["photon_t"] = first_tgt.t
         res["photon_ms"] = round((first_tgt.t - t0) * 1000.0, 2)
@@ -514,8 +531,17 @@ def summary(results: list[dict]) -> dict:
     for r in results:
         for d in r["defects"]:
             kinds[d["kind"]] = kinds.get(d["kind"], 0) + 1
+    def dist(field):
+        xs = sorted(r[field] for r in results if r.get(field) is not None)
+        if not xs:
+            return None
+        at = lambda p: xs[min(len(xs) - 1, max(0, math.ceil(p / 100 * len(xs)) - 1))]
+        return {"n": len(xs), "p50": at(50), "p95": at(95), "p99": at(99), "max": xs[-1]}
+
     return {"n": len(results), "judged": len(vals), "p50": pct(50), "p95": pct(95), "max": vals[-1] if vals else None,
-            "pass": sum(1 for r in results if r.get("pass")), "defects": kinds}
+            "pass": sum(1 for r in results if r.get("pass")), "defects": kinds,
+            "first_change_ms": dist("first_change_ms"), "photon_ms": dist("photon_ms"), "fresh_ms": dist("fresh_ms"),
+            "fresh_after_photon_refreshes": dist("fresh_after_photon_refreshes")}
 
 
 def beacon_clock_times(video: str, wall_hint: float, latency_ms: float = 8.0) -> tuple[list[float], dict]:
