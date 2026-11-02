@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4144754641401",
+  "notes": "notes/4144754641401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32185,
+      "title": "bench-startup: seed once the daemon's first tree is in; keep only the last-pane mark from the grace",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32240,
+      "title": "base red: gallery health reads a reply footer's 20 px glyph at its own box; geometry baselines match rows by kind",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32209,
+      "title": "perf(next overlay): a zoom or unzoom landing moves no divider catcher panel when no page covers the divider (RESIZE VIDEOS Z1)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32263,
+      "title": "ci(nightly): two Linux picker jobs read the Linux pool through its member guard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32224,
+      "title": "ci(web): cap react app test workers to avoid shard timeouts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32107,
+      "title": "acpmux group ls|move|tidy: sort sessions into sidebar groups without duplicates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32014,
+      "title": "fix(pages): a closed page tab gives up its page while its view lives (CmuxParentViewTracker SIGABRT)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32248,
+      "title": "fix(next): Session Info wave follows visibility through the pane's probe, not its own observer and assumeIsolated deinit",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32246,
+      "title": "DevTools: console and inspect reach their own page; a late close event never removes a new DevTools",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
