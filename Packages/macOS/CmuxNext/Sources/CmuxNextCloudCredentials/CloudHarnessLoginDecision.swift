@@ -16,7 +16,7 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         case signedOut = "signed-out"
         /// The platform does not say the signed-in caller owns the machine.
         case callerNotOwner = "caller-not-owner"
-        /// The guest's `/etc/cmux/vm-kind` is not `owner`: teammates share its Unix user (cmux#29774).
+        /// The guest's `/etc/cmux/vm-kind` is neither `owner` nor `team` (missing or unknown).
         case guestNotOwner = "guest-not-owner"
         /// The guest's kind could not be read (the exec failed).
         case guestUnread = "guest-kind-unread"
@@ -48,7 +48,17 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
 
     /// The start passed no personal login because the machine is a team machine (guest kind `team`):
     /// the chat's sign-in card says so and offers no login transfer (handshake `cloudTeamMachine`).
+    /// The creator's own machine takes the login whatever its guest kind (``guestTakesLogin``), so
+    /// this no longer happens; kept for the handshake.
     public var skippedTeamMachine: Bool { reason == .guestNotOwner && guestKind == "team" }
+
+    /// Whether the guest takes the caller's login: an `owner` guest, or a `team` one, since the
+    /// creator is the machine's owner team or no team (Leo, 2026-11-01: "team or no team the thing
+    /// should just work / you shouldn't be blocked by stuff if you bought the access to a machine /
+    /// it's your machine"). Reached only once ``readsMachine`` (the platform says the caller owns
+    /// it); a teammate who did not create the machine never gets here, so a shared machine keeps
+    /// each guest on their own login.
+    public var guestTakesLogin: Bool { guestKind == "owner" || guestKind == "team" }
 
     /// Whether the start reads the guest and its login: only once the earlier checks let it go on.
     public var readsMachine: Bool { gate && provider == .claude && signedIn && callerOwns == true }
@@ -60,9 +70,9 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         guard d.signedIn else { return (.skip, .signedOut) }
         guard d.callerOwns == true else { return (.skip, .callerNotOwner) }
         guard let kind = d.guestKind else { return (.skip, .guestUnread) }
-        // A team guest, a creator's included, is skipped before any confirm: the transfer's preflight
-        // refuses a guest whose Unix user teammates share (``CloudCredentialInstaller``).
-        guard kind == "owner" else { return (.skip, .guestNotOwner) }
+        // The caller created the machine (``callerOwns``): an owner or team guest takes the login
+        // (the transfer runs its creator allowance on a team guest, ``CloudCredentialInstaller``).
+        guard kind == "owner" || kind == "team" else { return (.skip, .guestNotOwner) }
         guard d.machineLogin?.needsLogin ?? true else { return (.skip, .machineLoginKept) }
         return d.cached ? (.install, .installCached) : (.confirmThenInstall, .confirmFirst)
     }
