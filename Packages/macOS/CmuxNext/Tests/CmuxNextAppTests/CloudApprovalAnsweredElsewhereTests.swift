@@ -8,7 +8,7 @@ import Testing
 /// person answers that hold elsewhere first (the feed on their phone, the dashboard), the sheet
 /// closes and the create goes on with the op's answer; it never waits on a click that is no
 /// longer needed. A person who declines in the sheet still sends nothing more.
-@MainActor @Suite(.serialized) struct CloudApprovalAnsweredElsewhereTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct CloudApprovalAnsweredElsewhereTests {
     @MainActor final class Backend {
         var calls = 0
         /// The hold is answered elsewhere: the next same-key call answers the machine.
@@ -47,8 +47,8 @@ import Testing
             },
             approve: { request, _, _ in
                 backend.approved.append(request)
-                // The hold already ended elsewhere: the answer finds it closed (``alreadyAnswered``).
-                throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: "state")
+                // The hold was answered elsewhere: its feed item is closed while the approved op still reads pending.
+                throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: CloudApprovalAnswer.closedItem)
             },
             pause: { _ in },
             watchPause: watch ? yield : nil)
@@ -62,6 +62,7 @@ import Testing
         let made = try await creating.value
         #expect(made["id"]?.stringValue == "vm_1")
         #expect(backend.sheetCancelled, "the sheet stayed open after the hold was answered elsewhere")
+        #expect(backend.approved.isEmpty, "a hold answered elsewhere was answered again")
     }
 
     @Test(arguments: ["cmux.cloud.approval_denied", "approval.expired"])
