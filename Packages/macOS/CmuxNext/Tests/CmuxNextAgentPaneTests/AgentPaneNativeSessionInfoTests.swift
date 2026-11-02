@@ -22,6 +22,15 @@ struct AgentPaneNativeSessionInfoTests {
         TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, .bool(true))
     }
 
+    @Test func nativeSessionInfoShipsOnByDefault() {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register([AgentPaneTunables.nativeSessionInfo.descriptor])
+        TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, nil)
+        defer { TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, nil) }
+        #expect(AgentPaneTunables.nativeSessionInfo.descriptor.defaultValue == .bool(true))
+        #expect(AgentPaneTunables.nativeSessionInfo.value)
+    }
+
     private static func info(open: Bool = true, width: Double = 320, top: Double = 28, side: Double = 0,
                              foot: Double? = nil) -> [String: Any] {
         var info: [String: Any] = [
@@ -95,6 +104,31 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(decoded.sections[0].rows[0].menu?.first?.action == "copy")
         #expect(decoded.sections[0].segments?.first?.color == "context0")
         #expect(!decoded.items.contains { if case .title = $0 { true } else { false } })
+    }
+
+    @Test func activityRowsKeepWorkingWaveAndProgressFields() throws {
+        var raw = Self.info()
+        raw["sections"] = [[
+            "id": "subagents", "group": "running", "title": "Subagents", "open": true, "foldable": true,
+            "rows": [[
+                "id": "agent-1", "title": "Retrying agent", "working": true,
+                "wave": ["index": 2, "periodMs": 1_200, "stepMs": 120],
+                "progress": "2 queued / 1 failed", "tone": "running",
+            ]],
+        ]]
+        let decoded = try Self.model(raw)
+        let row = try #require(decoded.sections[0].rows.first)
+        #expect(row.working == true)
+        #expect(row.wave == .init(index: 2, periodMs: 1_200, stepMs: 120))
+        #expect(row.progress == "2 queued / 1 failed")
+        guard case .line(let line) = decoded.items.last else {
+            Issue.record("expected an activity row")
+            return
+        }
+        #expect(line.working)
+        #expect(line.wave == row.wave)
+        #expect(line.progress == row.progress)
+        #expect(!line.spins)
     }
 
     @Test func copyRequestsKeepClipboardTextOutOfDescriptions() {

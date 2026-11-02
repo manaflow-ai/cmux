@@ -125,8 +125,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
-    /// This Mac's name, always, even when ``machineName`` names the machine a seeded chat runs on
-    /// (a peer or a Cloud machine): the environment picker's This Mac row. Pages that predate it ignore it.
+    /// The name of the machine whose acpmux the page talks to, where the environment picker's local row
+    /// starts a chat: this Mac, even when ``machineName`` names the machine a seeded chat runs on (a peer
+    /// or a Cloud machine), or the machine a remote route attaches the page to. Pages that predate it ignore it.
     public var localMachineName: String?
     /// The local workspace's GitHub `origin`, used to link bare issue references in prose.
     public var githubRepository: String?
