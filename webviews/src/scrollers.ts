@@ -13,9 +13,9 @@
 // scripts/cmux-next/check-scrollbars.sh enforces that.
 //
 // One exception: a minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) keeps
-// its thin thumb the whole time its content overflows (Leo 2026-10-21), unless the scrollbar fade
-// is on (`SCROLLER_FADE_ATTRIBUTE`; the agent pane turns it on by default since Lawrence
-// 2026-10-23, msg 11494: "auto-fades away").
+// its thin thumb the whole time its content overflows (Leo 2026-10-21), even under the scrollbar
+// fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane by default since Lawrence 2026-10-23, msg
+// 11494: "auto-fades away"), which fades the transcript's thumb only.
 //
 // Every scroller drawn here also widens and darkens its thumb while the pointer is near its
 // trailing edge (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
@@ -674,8 +674,8 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 /**
  * The minimal scroller (Leo 2026-10-21: "IF THERE ARE THINGS TO SCROLL, JUST KEEP THE SCROLLBAR
  * IN THE COMPOSER, LIKE CLAUDE DOES."): a thin thumb in `--cmux-scroller-thumb` on no track, drawn
- * the whole time the content overflows, never faded on input, focus, hover or resize, whatever the
- * macOS setting. Content that fits draws no thumb. The lane is reserved even then, so the content
+ * the whole time the content overflows, never faded on input, focus, hover or resize, and never at
+ * rest under the scrollbar fade, whatever the macOS setting. Content that fits draws no thumb. The lane is reserved even then, so the content
  * never rewraps as it starts or stops overflowing: `overflow-y: scroll`, the one exception to the
  * `auto` rule, since its track is transparent and a box with nothing to scroll draws no thumb.
  * (`scrollbar-gutter: stable` does not do it: WebKit ignores it on a custom scrollbar.) Take
@@ -707,12 +707,6 @@ export const MINIMAL_SCROLLER_CSS = `
   border: 2px solid transparent;
   border-radius: var(--cmux-scroller-size);
   background: color-mix(in srgb, currentColor var(--cmux-shown-scroller-ink, 38%), transparent) padding-box;
-}
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}] {
-  --cmux-shown-scroller-ink: 0%;
-}
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
-  --cmux-shown-scroller-ink: 38%;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {
