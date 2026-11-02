@@ -1,0 +1,98 @@
+[
+  {
+    "request": {
+      "v": 1,
+      "nonce": "0123456789abcdef0123456789abcdef",
+      "client": "com.cmuxterm.app.debug.cu1",
+      "machine": "mac-mini-7",
+      "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
+      "agent": "Claude",
+      "workspace": "api-server",
+      "target": {
+        "bundle_id": "com.apple.Safari",
+        "executable": null,
+        "name": "Safari"
+      },
+      "tool": "click",
+      "risk": "R1",
+      "created_ms": 1793400000000,
+      "wait_until_ms": 1793400120000,
+      "answerable_until_ms": 1793400600000,
+      "digest": "1bebb4c589cc51e742fc461191c9d62a74ba3b2d1ccebcf905b212ddda651de7"
+    },
+    "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"mac-mini-7\",\"nonce\":\"0123456789abcdef0123456789abcdef\",\"risk\":\"R1\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":\"com.apple.Safari\",\"executable\":null,\"name\":\"Safari\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"api-server\"}",
+    "digest": "1bebb4c589cc51e742fc461191c9d62a74ba3b2d1ccebcf905b212ddda651de7"
+  },
+  {
+    "request": {
+      "v": 1,
+      "nonce": "ffffffffffffffffffffffffffffffff",
+      "client": "com.cmuxterm.app",
+      "machine": "build-box.example.internal",
+      "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
+      "agent": "Codex",
+      "workspace": "",
+      "target": {
+        "bundle_id": null,
+        "executable": "/usr/bin/gedit",
+        "name": "Text Editor"
+      },
+      "tool": "type_text",
+      "risk": "R1",
+      "created_ms": 1793400000000,
+      "wait_until_ms": 1793400120000,
+      "answerable_until_ms": 1793400600000,
+      "digest": "346d1fcb7ea67887b4925fdc1a008d710e1e4211a9da09b341c09cad34ee9012"
+    },
+    "canonical": "{\"agent\":\"Codex\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app\",\"created_ms\":1793400000000,\"machine\":\"build-box.example.internal\",\"nonce\":\"ffffffffffffffffffffffffffffffff\",\"risk\":\"R1\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":null,\"executable\":\"/usr/bin/gedit\",\"name\":\"Text Editor\"},\"tool\":\"type_text\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"\"}",
+    "digest": "346d1fcb7ea67887b4925fdc1a008d710e1e4211a9da09b341c09cad34ee9012"
+  },
+  {
+    "request": {
+      "v": 1,
+      "nonce": "0123456789abcdef0123456789abcdef",
+      "client": "com.cmuxterm.app.debug.cu1",
+      "machine": "mac-mini-7",
+      "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
+      "agent": "Claude \"Opus\" \\ agent",
+      "workspace": "line1\nline2\ttab\r\u0001\u001f/slash",
+      "target": {
+        "bundle_id": "com.example.Café",
+        "executable": null,
+        "name": "Café 日本 🚀"
+      },
+      "tool": "get_window_state",
+      "risk": "R3",
+      "created_ms": 1793400000000,
+      "wait_until_ms": 1793400120000,
+      "answerable_until_ms": 1793400600000,
+      "digest": "9f1da366112c8b8373eb9849e834064257b09aea3d5bc262dc640afebae4e1de"
+    },
+    "canonical": "{\"agent\":\"Claude \\\"Opus\\\" \\\\ agent\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"mac-mini-7\",\"nonce\":\"0123456789abcdef0123456789abcdef\",\"risk\":\"R3\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":\"com.example.Café\",\"executable\":null,\"name\":\"Café 日本 🚀\"},\"tool\":\"get_window_state\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"line1\\nline2\\ttab\\r\\u0001\\u001f/slash\"}",
+    "digest": "9f1da366112c8b8373eb9849e834064257b09aea3d5bc262dc640afebae4e1de"
+  },
+  {
+    "request": {
+      "v": 1,
+      "nonce": "0123456789abcdef0123456789abcdef",
+      "client": "com.cmuxterm.app.nightly",
+      "machine": "WIN-DESKTOP-01",
+      "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
+      "agent": "Claude",
+      "workspace": "api-server",
+      "target": {
+        "bundle_id": null,
+        "executable": "C:\\Program Files\\Notepad++\\notepad++.exe",
+        "name": "Notepad++"
+      },
+      "tool": "launch_app",
+      "risk": "R1",
+      "created_ms": 0,
+      "wait_until_ms": 120000,
+      "answerable_until_ms": 600000,
+      "digest": "766bb176797d80c04d6abb7a77d361323138250d13d0c32ccd7f636b03418c12"
+    },
+    "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":600000,\"client\":\"com.cmuxterm.app.nightly\",\"created_ms\":0,\"machine\":\"WIN-DESKTOP-01\",\"nonce\":\"0123456789abcdef0123456789abcdef\",\"risk\":\"R1\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":null,\"executable\":\"C:\\\\Program Files\\\\Notepad++\\\\notepad++.exe\",\"name\":\"Notepad++\"},\"tool\":\"launch_app\",\"v\":1,\"wait_until_ms\":120000,\"workspace\":\"api-server\"}",
+    "digest": "766bb176797d80c04d6abb7a77d361323138250d13d0c32ccd7f636b03418c12"
+  }
+]
