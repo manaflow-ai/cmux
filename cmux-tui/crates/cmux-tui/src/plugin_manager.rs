@@ -130,11 +130,7 @@ fn auto_update_plugin(plugin: &InstalledPlugin, kind: PluginKind) -> anyhow::Res
     else {
         return Ok(());
     };
-    let Some(status) = git_text_allow_empty(&plugin.dir, ["status", "--porcelain=v2", "--branch"])
-    else {
-        return Ok(());
-    };
-    if !auto_update_status_is_safe(&status) {
+    if !auto_update_checkout_is_safe(&plugin.dir) {
         return Ok(());
     }
     if validate_git_source(&source).is_err() {
@@ -153,7 +149,7 @@ fn auto_update_plugin(plugin: &InstalledPlugin, kind: PluginKind) -> anyhow::Res
     }
 
     let positionals = ["update".to_string(), plugin.id.clone()];
-    update_command(&positionals, &CliOptions::default(), kind)
+    update_command_auto(&positionals, &CliOptions::default(), kind)
         .map(|_| ())
         .map_err(|error| anyhow::anyhow!(error.to_string()))
 }
@@ -202,6 +198,42 @@ fn auto_update_status_is_safe(status: &str) -> bool {
         }
     }
     has_origin_upstream && has_ahead_behind
+}
+
+fn auto_update_checkout_is_safe(dir: &Path) -> bool {
+    let Some(status) = git_text_allow_empty(
+        dir,
+        [
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ],
+    ) else {
+        return false;
+    };
+    auto_update_status_is_safe(&status)
+}
+
+struct PluginUpdateLock {
+    file: fs::File,
+}
+
+impl PluginUpdateLock {
+    fn acquire(root: &Path) -> anyhow::Result<Self> {
+        fs::create_dir_all(root)?;
+        let path = root.join(".plugin-update.lock");
+        let file = fs::OpenOptions::new().create(true).read(true).write(true).open(path)?;
+        fs4::FileExt::lock(&file)?;
+        Ok(Self { file })
+    }
+}
+
+impl Drop for PluginUpdateLock {
+    fn drop(&mut self) {
+        let _ = fs4::FileExt::unlock(&self.file);
+    }
 }
 
 fn auto_update_marker_path(root: &Path) -> PathBuf {
@@ -525,6 +557,23 @@ fn update_command(
     options: &CliOptions,
     kind: PluginKind,
 ) -> Result<Value, ManagerError> {
+    update_command_inner(positionals, options, kind, false)
+}
+
+fn update_command_auto(
+    positionals: &[String],
+    options: &CliOptions,
+    kind: PluginKind,
+) -> Result<Value, ManagerError> {
+    update_command_inner(positionals, options, kind, true)
+}
+
+fn update_command_inner(
+    positionals: &[String],
+    options: &CliOptions,
+    kind: PluginKind,
+    require_clean_checkout: bool,
+) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, false)?;
     if positionals.len() != 2 {
         return Err(ManagerError::Usage(format!(
@@ -532,6 +581,8 @@ fn update_command(
             kind.command_prefix()
         )));
     }
+    let root = install_root(kind).map_err(ManagerError::Failure)?;
+    let _update_lock = PluginUpdateLock::acquire(&root).map_err(ManagerError::Failure)?;
     let mut plugin = resolve_installed_plugin(&positionals[1], kind)?;
     let source = git_text(&plugin.dir, ["remote", "get-url", "origin"]).ok_or_else(|| {
         ManagerError::validation(
@@ -545,7 +596,6 @@ fn update_command(
     // Build and validate a fresh clone before touching the active install.
     // Updating in place would let a failed pull or build leave the selected
     // plugin half-updated, which is unsafe for a daemon-owned process.
-    let root = install_root(kind)?;
     let temp_dir = root.join(format!(".update-{}-{}", std::process::id(), now_nanos()));
     let clone_result =
         run_git(["clone", "--depth", "1", "--", source.as_str()], Some(&temp_dir), None);
@@ -567,6 +617,12 @@ fn update_command(
         run_build_if_needed(&manifest, &temp_dir)?;
         let command = resolved_run_command(&manifest, &temp_dir)?;
         verify_executable(&command[0])?;
+        if require_clean_checkout && !auto_update_checkout_is_safe(&plugin.dir) {
+            return Err(ManagerError::validation(
+                Some("plugin"),
+                format!("plugin {} changed while its update was prepared", plugin.name),
+            ));
+        }
         let metadata = PluginRegistryMetadata { id: plugin.id.clone() };
         let transaction =
             replace_plugin_install(&root, &plugin.name, &temp_dir, &plugin.dir, &metadata, kind)?;
