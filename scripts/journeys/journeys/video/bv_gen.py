@@ -40,6 +40,11 @@ def devtools(dock, page, theme, rounds=5, mbps=80):
                   {"do": "video_start", "name": name, "mbps": mbps, "seconds": 20},
                   {"do": "bv_state", "page": page, "note": "before"}, {"do": "wait", "seconds": 0.3}]
         if r == 0:
+            # The dock actions need the page focused (requires webViewFocused): a real click on the page first, before the
+            # recording's reference frame.
+            steps.insert(len(steps) - 4, {"do": "hid_click", "target": {"window_point": [560, 420]},
+                                          "title": "set-up: focus the page (a real click on its text)"})
+            steps.insert(len(steps) - 4, {"do": "wait", "seconds": 0.4})
             steps.append({"do": "bv_action", "action": DOCK_ACTION[dock], "note": "open-action",
                           "fallback_key": {"key": "i", "modifiers": ["cmd", "option"]}})
         else:

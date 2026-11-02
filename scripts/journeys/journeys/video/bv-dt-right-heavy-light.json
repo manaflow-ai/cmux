@@ -75,6 +75,20 @@
    "page": "heavy"
   },
   {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "set-up: focus the page (a real click on its text)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
    "do": "wait",
    "seconds": 0.3
   },
