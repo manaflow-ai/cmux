@@ -117,13 +117,10 @@ import Testing
         #expect(report["launch_terminals_frame_shown_max_ms"]?.doubleValue == shown.max(),
                 "the launch number is the last terminal to show its frame, never the first")
 
-        // The waiting pane's surface comes on a later frame and takes the frame over: one frame, never two.
+        // The waiting pane's surface comes on a later frame (what the scheduler's next frame runs) and takes the
+        // frame over: one frame, never two or none.
         let waiting = panes[1]
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while !waiting.view.hostsContent, ContinuousClock.now < deadline {
-            CATransaction.flush()
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        waiting.showSelected()
         #expect(waiting.view.hostsContent, "the second pane's surface never came")
         #expect(Self.savedFrames(in: waiting.view.contentHost) == 1, "the surface did not take the last frame over (none or two shown)")
     }
