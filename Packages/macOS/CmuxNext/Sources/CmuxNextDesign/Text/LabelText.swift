@@ -117,15 +117,6 @@ enum LabelText {
         // ``WholePointLines`` sets that line, its baseline at the rounded ascender, no width. It
         // needs no layout (REOPEN-F7: a window's sidebar makes about 100 empty labels before its
         // first frame, and laying each out cost 22 to 25 ms profiled).
-        if text.length == 0, width == nil {
-            let line = emptyLine(font: font)
-            if let metrics = WholePointLines.metrics(of: line, in: NSRange(location: 0, length: line.length)) {
-                let scale = max(scale, 1)
-                let height = (metrics.height * scale).rounded(.up) / scale
-                return Metrics(size: NSSize(width: 0, height: height), firstBaseline: metrics.ascent,
-                               lastBaselineFromBottom: height - metrics.ascent)
-            }
-        }
         return layOut(text, font, shape, width, scale)
     }
 
