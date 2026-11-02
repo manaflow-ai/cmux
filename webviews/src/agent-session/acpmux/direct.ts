@@ -6719,7 +6719,7 @@ export class AcpmuxDirectClient {
     this.boundSendTickets.delete(ownPromptId);
     const boundTicket = bound?.sessionId === sessionId && bound.ticket === ticket ? await ticket : undefined;
     const uploads = this.uploadForSend && boundTicket ? uploadsToFit(input, sendAttachments, options) : [];
-    if (uploads.length) {
+    if (uploads.length && boundTicket) {
       const generation = this.selectionGeneration;
       const unclaim = () => {
         if (claim && this.handoffTurnsSent.get(sessionId) === claim.turn) {
