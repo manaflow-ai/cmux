@@ -2,6 +2,10 @@
 
 use super::*;
 
+// What ends a lane's report link, a tag change among them.
+#[path = "lane_detach.rs"]
+mod lane_detach;
+
 impl Hub {
     /// Orchestrator tags with optional expiry.
     pub fn set_tags(

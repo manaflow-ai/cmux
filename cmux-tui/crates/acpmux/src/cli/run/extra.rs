@@ -242,19 +242,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::DetachParent { session } => {
-            let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
-            let v = client.request(method::MUX_DETACH_PARENT, json!({"sessionId": id})).await?;
-            if json_out {
-                print_json(&v)
-            } else if v["detached"] == true {
-                println!("detached")
-            } else {
-                println!("no parent: its turns go to no session's chat")
-            }
-            Ok(())
-        }
         Command::Fork { session, name, cwd, force_admit } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;

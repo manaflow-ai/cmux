@@ -1271,9 +1271,7 @@ async fn dispatch_request(
                 hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
             }
             attach(hub, conn, &s.id);
-            if let Some(parent) = &lane_parent
-                && !adopting
-            {
+            if !adopting && let Some(parent) = &lane_parent {
                 hub.lane_link(parent, &s.id, super::lane_parent::asked_to_report(&params));
             }
             // An adopted id may name a chat that already exists: never tied to this connection.
@@ -1304,9 +1302,7 @@ async fn dispatch_request(
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
             if person_asks(conn) {
-                s.person_wrote();
-                // The person took this lane over: its turns stop showing in its parent's chat.
-                hub.lane_person_prompted(&s);
+                super::lane_parent::person_wrote(hub, &s);
             }
             let mut blocks = params
                 .get("prompt")
@@ -1969,11 +1965,7 @@ async fn dispatch_request(
             )?;
             Ok(hub.session_summary(&s))
         }
-        method::MUX_DETACH_PARENT => {
-            let s = hub.resolve(session_key(&params)?)?;
-            let detached = hub.lane_detach(&s)?;
-            Ok(json!({"sessionId": s.id, "detached": detached}))
-        }
+        method::MUX_DETACH_PARENT => super::lane_parent::detach(hub, &params),
         // One tag with one value, so a page relay can allow it without
         // reading tag names (`_acpmux/tag` may set any tag).
         method::MUX_ARCHIVE => {

@@ -4,7 +4,8 @@
 //! --no-parent`), is no lane and has none.
 
 use super::Conn;
-use crate::hub::Hub;
+use crate::hub::{Hub, Session};
+use crate::rpc::RpcError;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -30,4 +31,19 @@ pub(super) fn asked_to_report(params: &Value) -> bool {
         .and_then(|m| m.get(crate::hub::lineage::successor::REPORT_TO_FIELD))
         .and_then(Value::as_str)
         .is_some_and(|to| !to.is_empty())
+}
+
+/// The person wrote to `s`: a lane is theirs now, and its turns stop showing in its parent's chat
+/// (`hub/lane_detach.rs`).
+pub(super) fn person_wrote(hub: &Hub, s: &Session) {
+    s.person_wrote();
+    hub.lane_person_prompted(s);
+}
+
+/// `_acpmux/detach_parent {sessionId}`: ends the session's link to its parent and removes its
+/// tag `lane.reportsTo`.
+pub(super) fn detach(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(super::session_key(params)?)?;
+    let detached = hub.lane_detach(&s)?;
+    Ok(serde_json::json!({"sessionId": s.id, "detached": detached}))
 }

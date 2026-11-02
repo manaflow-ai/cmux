@@ -2,18 +2,11 @@
 //! Claude subagent's parent hears when it stops: at the end of each of the lane's turns its
 //! parent gets one short report, without the lane having to remember `acpmux send`.
 //!
-//! Who a lane reports to is the link the daemon keeps, set from the session its connection
-//! proved it runs in (its caller token). The lane's tag `lane.reportsTo` (the parent's exact
-//! session id) shows it; removing or changing that tag ends the link, and setting it never
-//! makes one.
+//! Who a lane reports to is the link the daemon keeps, from the session its connection proved
+//! it runs in (its caller token); its tag `lane.reportsTo` shows it. `lane_detach.rs` ends it.
 //!
 //! - `session/new` from inside a session: that session is the new one's parent. A run tied to
-//!   its connection (`--ephemeral`) or one that asks for no parent (`acpmux new --no-parent`,
-//!   `_meta.acpmux.parent: null`) is no lane and gets none.
-//! - A lane the person prompts (the app, or a proven person) is theirs from then on: its link
-//!   ends, so its turns stop showing in the parent's chat. One started with `--report-to`
-//!   (`_meta.acpmux.reportTo`) asked to report, and keeps reporting.
-//! - `_acpmux/detach_parent` (`acpmux session detach`) ends a lane's link and removes its tag.
+//!   its connection (`--ephemeral`) is no lane and gets none.
 //! - A lane keeps the parent that started it; a session that gives it a later task does not
 //!   take it over yet (a follow-up).
 //!
@@ -98,10 +91,9 @@ fn matches(re: &Option<Regex>, text: &str) -> Vec<String> {
 
 /// One lane's link to its parent.
 #[derive(Debug, Clone, Default)]
-struct Link {
+pub(super) struct Link {
     parent: String,
-    /// It was started with `--report-to`: a person's prompt keeps the link.
-    asked: bool,
+    pub(super) asked: bool,
     /// The last report's content, to leave out the same report again.
     last: Option<String>,
     /// Pull requests a report already named.
@@ -338,7 +330,7 @@ impl Hub {
         self.lane_links(|links| links.get(lane).map(|link| link.parent.clone()))
     }
 
-    fn lane_links<R>(&self, f: impl FnOnce(&mut BTreeMap<String, Link>) -> R) -> R {
+    pub(super) fn lane_links<R>(&self, f: impl FnOnce(&mut BTreeMap<String, Link>) -> R) -> R {
         f(&mut self.lane_reports.links.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
@@ -392,8 +384,7 @@ impl Hub {
     }
 
     /// From now on `parent` hears the end of each of `child`'s turns (both exact ids): tags the
-    /// child and keeps the link. Turns done now are not reported. `asked`: it was started with
-    /// `--report-to`, so a person's prompt does not end the link.
+    /// child and keeps the link. Turns done now are not reported.
     pub(crate) fn lane_link(&self, parent: &str, child: &str, asked: bool) {
         // A session never becomes the child of itself or of its own descendant.
         if parent == child || self.lane_below(parent, child) {
@@ -419,45 +410,6 @@ impl Hub {
         }
         let set = serde_json::Map::from_iter([(TAG.to_owned(), json!(parent))]);
         self.set_tags(&s, Some(&set), &[], None);
-    }
-
-    /// Ends `lane`'s link, if it has one: no report of it is queued or sent from now on. Its tag
-    /// is left to the caller. Whether it had one.
-    fn lane_unlink(&self, lane: &str) -> bool {
-        let had = self.lane_links(|links| links.remove(lane).is_some());
-        if had {
-            self.lane_report_unlinked(lane);
-        }
-        had
-    }
-
-    /// Ends `session`'s link and removes its tag (`acpmux session detach`): whether it had a
-    /// link.
-    pub(crate) fn lane_detach(&self, session: &Session) -> Result<bool, RpcError> {
-        let had = self.lane_unlink(&session.id);
-        if session.meta().tags.contains_key(TAG) {
-            self.set_tags_answered(session, None, &[TAG.to_owned()], None)?;
-        }
-        Ok(had)
-    }
-
-    /// The person prompted `session` directly: a lane that did not ask to report (`--report-to`)
-    /// is theirs now and reports to its parent no more.
-    pub(crate) fn lane_person_prompted(&self, session: &Session) {
-        let asked = self.lane_links(|links| links.get(&session.id).map(|l| l.asked));
-        if asked == Some(false) {
-            let _ = self.lane_detach(session);
-        }
-    }
-
-    /// `session`'s tags changed: a removed tag, or one that no longer names its parent, ends its
-    /// link. The tag is shown, never trusted, so setting it never makes a link.
-    pub(super) fn lane_tags_changed(&self, session: &Session) {
-        let Some(parent) = self.lane_report_parent(&session.id) else { return };
-        let tagged = session.meta().tags.get(TAG).map(|t| t.value.clone());
-        if tagged.as_deref() != Some(parent.as_str()) {
-            self.lane_unlink(&session.id);
-        }
     }
 
     /// `session`'s turn started (its turn count counts it), with `provenance` for the whole turn
