@@ -54,9 +54,9 @@ impl HoverSuppression {
 
     const fn bit(self) -> u8 {
         match self {
-            Self::Drag => 1,
-            Self::Scroll => 1 << 1,
-            Self::SidebarHide => 1 << 2,
+            Self::Drag => 0b001,
+            Self::Scroll => 0b010,
+            Self::SidebarHide => 0b100,
         }
     }
 }
