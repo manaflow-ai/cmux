@@ -14,10 +14,12 @@ const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b)))
 const op = (token: string, name: string, params: unknown, key?: string) => post("/v1/ops", token, { op: name, params, ...(key ? { idempotency_key: key } : {}), origin: key ? "user" : "cli" })
 const H = 3600_000
 
-const vmSetup = async (sub: string) => {
+/** `autoPause`: the CloudDO's test override of CLOUD_IDLE_PAUSE (auto-pause.ts); null = none, the Worker var decides (unset: off). */
+const vmSetup = async (sub: string, autoPause: boolean | null = true) => {
   const a = await signedInWithInstall(sub, "mac")
   const machine = (await op(a.session, "cloud.machine.create", { size: SIZE }, crypto.randomUUID())).body.value.machine.id as string
   const stub = cloudStub(a.team)
+  await stub.fakeControl({ auto_pause: autoPause } as never)
   const { json } = await bindFile(stub, machine)
   const key = await vmKey()
   const bound = await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk })
@@ -31,6 +33,7 @@ const vmSetup = async (sub: string) => {
   return { a, machine, stub, report, status }
 }
 
+// With CLOUD_IDLE_PAUSE on (auto-pause.ts): vmSetup turns it on for these; the next describe covers the default (off).
 describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () => {
 
   it("with cloud.idlePause off, a machine idle 24 h by its own reports pauses; 23 h does not", async () => {
@@ -96,7 +99,7 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     const a = await signedInWithInstall("cloud-bind-4", "mac")
     const machine = (await op(a.session, "cloud.machine.create", { size: SIZE }, crypto.randomUUID())).body.value.machine.id as string
     const stub = cloudStub(a.team)
-    await stub.fakeControl({ advance_ms: 25 * H } as never)
+    await stub.fakeControl({ auto_pause: true, advance_ms: 25 * H } as never)
     await fireAlarm(stub)
     const got = (await post("/v1/read", a.session, { op: "cloud.machine.get", params: { machine } })).body.value
     expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
@@ -228,5 +231,83 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     await fireAlarm(s.stub)
     const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
     expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
+  })
+})
+
+// Leo, 2026-10-30: "we're saying no auto pausing of the freestyle vms for now". CLOUD_IDLE_PAUSE is unset in
+// tests (vitest.config.ts), as on every deployment: `auto_pause: null` drops a test override another case set.
+describe("no automatic pause by default (CLOUD_IDLE_PAUSE unset)", { timeout: 60_000 }, () => {
+  it("a machine idle 24 h by its own reports keeps running: no 24 h idle backstop", async () => {
+    const s = await vmSetup("cloud-noauto-2", null)
+    await s.stub.fakeControl({ advance_ms: 25 * H } as never)
+    expect((await s.report({ active_sessions: 0, last_user_input_at: Date.now() + 25 * H - 25 * H })).body.value.applied).toBe(true)
+    await fireAlarm(s.stub)
+    expect(await s.status()).toBe("running")
+    expect(((await s.stub.fakeControl({})) as unknown as { pauses: number }).pauses).toBe(0)
+  })
+
+  it("a machine with no report for 25 h keeps running and raises no stale_running alert: no no_report backstop", async () => {
+    const s = await vmSetup("cloud-noauto-3", null)
+    await s.stub.fakeControl({ advance_ms: 25 * H } as never)
+    const lines: Array<string> = []
+    await runInDurableObject(s.stub as never, async (i: DurableObject, state: DurableObjectState) => {
+      const error = console.error
+      console.error = (...a: Array<unknown>) => void lines.push(String(a[0]))
+      try {
+        await quiesce(i as never, state)
+        await i.alarm?.()
+      } finally {
+        console.error = error
+      }
+    })
+    expect(await s.status()).toBe("running")
+    expect(lines.filter((l) => l.includes("cloud.machine.stale_running") && l.includes(s.machine))).toEqual([])
+  })
+
+  it("a machine that never binds keeps running 25 h after create", async () => {
+    const a = await signedInWithInstall("cloud-noauto-4", "mac")
+    const machine = (await op(a.session, "cloud.machine.create", { size: SIZE }, crypto.randomUUID())).body.value.machine.id as string
+    const stub = cloudStub(a.team)
+    await stub.fakeControl({ auto_pause: null, advance_ms: 25 * H } as never)
+    await fireAlarm(stub)
+    const got = (await post("/v1/read", a.session, { op: "cloud.machine.get", params: { machine } })).body.value
+    expect(got.status).not.toBe("paused")
+    expect(got.pause_reason ?? null).toBeNull()
+  })
+
+  it("a team with cloud.idlePause on and a 60 s idle policy still never pauses an idle machine", async () => {
+    const s = await vmSetup("cloud-noauto-5", null)
+    const version = (await post("/v1/read", s.a.session, { op: "team.policy.get", params: {} })).body.value?.policy?.version ?? 0
+    expect((await op(s.a.session, "team.policy.update", { changes: [{ key: "cloud.idlePause", value: { value: true, mode: "enforced" } }], expected_version: version, reason: "test" }, crypto.randomUUID())).body.ok).toBe(true)
+    expect((await op(s.a.session, "cloud.machine.idle_policy.set", { machine: s.machine, idle_seconds: 60 }, crypto.randomUUID())).body.ok).toBe(true)
+    await s.stub.fakeControl({ advance_ms: 31 * 60_000 } as never)
+    await s.report({ active_sessions: 0, last_user_input_at: Date.now() - 5 * H })
+    expect(await s.status()).toBe("running")
+  })
+
+  it("an automatic pause already in the ledger when the switch goes off never reaches the provider", async () => {
+    const s = await vmSetup("cloud-noauto-1", true)
+    const ctl = async () => (await s.stub.fakeControl({})) as unknown as { pauses: number; power_calls: number }
+    // With the switch on, the backstop asks for a pause whose provider call is cut off (retryable): it stays pending.
+    await s.stub.fakeControl({ advance_ms: 25 * H, fail_next: 1 } as never)
+    await fireAlarm(s.stub)
+    expect(await s.status()).toBe("pausing")
+    const before = await ctl()
+    // The switch goes off (unset): the retry is dropped, the machine runs again with no error and no pause reason.
+    await s.stub.fakeControl({ auto_pause: null, advance_ms: 10 * 60_000 } as never)
+    await fireAlarm(s.stub)
+    const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
+    expect(got).toMatchObject({ status: "running" })
+    expect(got.pause_reason ?? null).toBeNull()
+    expect(got.error ?? null).toBeNull()
+    const after = await ctl()
+    expect([after.pauses, after.power_calls]).toEqual([before.pauses, before.power_calls])
+  })
+
+  it("a manual pause still pauses", async () => {
+    const s = await vmSetup("cloud-noauto-6", null)
+    const paused = (await op(s.a.session, "cloud.machine.pause", { machine: s.machine }, crypto.randomUUID())).body
+    expect(paused, JSON.stringify(paused)).toMatchObject({ ok: true })
+    expect(["pausing", "paused"]).toContain(await s.status())
   })
 })

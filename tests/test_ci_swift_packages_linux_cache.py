@@ -112,6 +112,67 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
         self.assertNotIn("restore the newest entry", text)
 
 
+class SwiftLinuxPackagesListedCacheTests(unittest.TestCase):
+    """swift-linux-packages.yml (the listed packages) keeps the same rolling cache."""
+
+    LISTED = ROOT / ".github/workflows/swift-linux-packages.yml"
+
+    def steps(self):
+        return load_yaml(self.LISTED)["jobs"]["swift-linux-packages"]["steps"]
+
+    def test_restore_and_save_share_one_key_without_the_commit(self):
+        steps = self.steps()
+        restore = next(s for s in steps if s.get("id") == "build_cache")
+        save = next(s for s in steps if s.get("name") == "Save .build")
+        self.assertIn("actions/cache/restore@", restore["uses"])
+        self.assertIn("actions/cache/save@", save["uses"])
+        self.assertEqual(restore["with"]["key"], save["with"]["key"])
+        self.assertEqual(restore["with"]["path"], save["with"]["path"])
+        for part in ("week", "toolchain", "inputs"):
+            self.assertIn("${{ steps.key.outputs.%s }}" % part, restore["with"]["key"])
+        self.assertNotIn("github.sha", restore["with"]["key"])
+        self.assertTrue(restore["with"]["restore-keys"].strip())
+        names = [s.get("name") or s.get("uses") for s in steps]
+        build = next(i for i, s in enumerate(steps) if "package-test-lane.sh" in s.get("run", ""))
+        self.assertLess(steps.index(restore), build, names)
+        self.assertGreater(steps.index(save), build, names)
+
+    def test_key_covers_the_list_and_build_flags(self):
+        command = next(s["run"] for s in self.steps() if s.get("id") == "key")
+        for needed in ("Package.swift", "Package.resolved", "scripts/ci/swift-linux-packages.txt",
+                       "scripts/ci/swift-test-debug-info.sh"):
+            self.assertIn(needed, command)
+
+    def test_only_successful_feat_pushes_save(self):
+        condition = next(s["if"] for s in self.steps() if s.get("name") == "Save .build")
+
+        class WithJobStatus(Expression):
+            def call(self, name, args):
+                if name.lower() == "success":
+                    return self.context["job_succeeded"]
+                return super().call(name, args)
+
+        for event, ref, succeeded, expected in [
+                ("push", "refs/heads/feat-cmux-next", True, True),
+                ("push", "refs/heads/feat-cmux-next", False, False),
+                ("push", "refs/heads/other", True, False),
+                ("pull_request", "refs/pull/1/merge", True, False),
+                ("workflow_dispatch", "refs/heads/feat-cmux-next", True, False)]:
+            for hit in ["true", "false", ""]:
+                with self.subTest(event=event, ref=ref, job_succeeded=succeeded, cache_hit=hit):
+                    context = {"github.event_name": event, "github.ref": ref, "job_succeeded": succeeded,
+                               "steps.build_cache.outputs.cache-hit": hit}
+                    self.assertIs(WithJobStatus(condition, context).evaluate(), expected and hit != "true")
+
+    def test_push_runs_are_not_cancelled_before_they_seed(self):
+        cancel = load_yaml(self.LISTED)["concurrency"]["cancel-in-progress"]
+        self.assertTrue(cancel.startswith("${{") and cancel.endswith("}}"), cancel)
+        cancel = cancel[3:-2]
+        for event, expected in [("push", False), ("pull_request", True)]:
+            with self.subTest(event=event):
+                self.assertIs(Expression(cancel, {"github.event_name": event}).evaluate(), expected)
+
+
 class SwiftPackagesLinuxExecutionTests(unittest.TestCase):
     def run_packages(self, packages, test_filter="", timed_out=""):
         job = load_yaml(WORKFLOW)["jobs"]["packages"]

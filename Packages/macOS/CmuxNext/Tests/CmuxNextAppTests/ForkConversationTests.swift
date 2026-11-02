@@ -17,6 +17,8 @@ struct ForkConversationTests {
     static let destinations: [(ActionID, AgentForkDestination)] = [
         ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
         ("palette.forkAgentConversationTop", .up), ("palette.forkAgentConversationBottom", .down),
+        ("palette.forkAgentConversationNewColumnRight", .columnRight), ("palette.forkAgentConversationNewColumnLeft", .columnLeft),
+        ("palette.forkAgentConversationNewRow", .row),
         ("palette.forkAgentConversationNewTab", .tab), ("palette.forkAgentConversationNewWorkspace", .workspace),
         ("palette.forkAgentConversationNewWindow", .window),
     ]
@@ -30,7 +32,12 @@ struct ForkConversationTests {
     @Test func everyDestinationIsOfferedInAnAgentChatAndATerminal() {
         let services = Self.services()
         AppActions.bind(services)
-        for (id, _) in [("palette.forkAgentConversation", AgentForkDestination.default)] + Self.destinations {
+        for (id, destination) in [("palette.forkAgentConversation", AgentForkDestination.default)] + Self.destinations {
+            // A new row needs rows on and a daemon with rows-v1, as New Row does; it says so.
+            if destination == .row {
+                #expect(services.registry.unavailableReason(for: id) == ColumnHandlers.newRowUnavailableReason(AppActionContext(services: services)), "\(id)")
+                continue
+            }
             #expect(services.registry.unavailableReason(for: id) == nil, "\(id)")
             #expect(services.registry.isAvailable(id, in: [.agentPaneFocused]), "\(id) in an agent chat")
             #expect(services.registry.isAvailable(id, in: [.terminalFocused]), "\(id) in a terminal")
@@ -52,8 +59,8 @@ struct ForkConversationTests {
         let title = try #require(ActionCatalog.all.first { $0.id == "palette.forkAgentConversation" }?.title)
         let primary = try #require(menu.items.first { $0.title == title })
         #expect(primary.submenu == nil)
-        let destinations = try #require(menu.items.first { $0.submenu?.items.count == 7 }?.submenu)
-        #expect(destinations.items.count == Self.destinations.count)
+        let destinations = try #require(menu.items.first { $0.submenu?.items.filter { !$0.isSeparatorItem }.count == Self.destinations.count }?.submenu)
+        #expect(destinations.items.filter { !$0.isSeparatorItem }.count == Self.destinations.count)
     }
 
     @Test func eachActionNamesItsDestination() {
@@ -110,5 +117,30 @@ struct ForkConversationTests {
         #expect(AgentHandlers.terminalFork(Self.hooked("codex", id: "cmux-hook-sequence:4", label: nil)) == .noSession)
         #expect(AgentHandlers.terminalFork(Self.hooked("codex", id: "a; rm -rf ~")) == .noSession)
         #expect(AgentHandlers.terminalFork(Self.hooked("kiro", id: "x")) == .unsupported)
+    }
+
+    /// u18673: every new fork destination is a CLI verb, an MCP tool and a palette row, as the
+    /// other destinations are.
+    @Test(arguments: ["palette.forkAgentConversationNewColumnRight", "palette.forkAgentConversationNewColumnLeft",
+                      "palette.forkAgentConversationNewRow"])
+    func aStripDestinationIsOfferedOnEverySurface(id: String) throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == ActionID(rawValue: id) })
+        #expect(descriptor.cliName.hasPrefix("agent fork-conversation-to-new-"))
+        #expect(descriptor.surfacePlan.cli == .offered)
+        #expect(descriptor.surfacePlan.mcp == .offered)
+        #expect(descriptor.surfacePlan.palette == .offered)
+        #expect(!descriptor.surfacePlan.contextMenus.isEmpty)
+    }
+
+    /// A terminal agent's fork opens its new terminal where the destination says: a strip column
+    /// on either side, or a row below, through the daemon's own new-column and new-row commands.
+    @Test func aTerminalForkPlansColumnsAndRows() {
+        #expect(TerminalForkPlacement(.columnRight) == .column(left: false))
+        #expect(TerminalForkPlacement(.columnLeft) == .column(left: true))
+        #expect(TerminalForkPlacement(.row) == .row)
+        #expect(TerminalForkPlacement(.right) == .split(down: false, swap: false))
+        #expect(TerminalForkPlacement(.up) == .split(down: true, swap: true))
+        #expect(TerminalForkPlacement(.tab) == .tab)
+        #expect(TerminalForkPlacement(.window) == .workspace)
     }
 }

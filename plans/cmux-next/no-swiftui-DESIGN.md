@@ -53,8 +53,8 @@ graph there costs frames. "Cold" means a page or window opened on demand.
 | Module | Files | Lines | View types | Bridges | Path | What it draws | Target |
 |---|---:|---:|---:|---:|---|---|---|
 | `CmuxNextApps/Section` | 1 | 134 | 0 | 1 | **hot** | App sections inside the left sidebar | AppKit (scene renderer, see Apps) |
-| `CmuxNextApp/RightSidebar` | 3 | 150 | 1 | 2 | **hot** | Right sidebar Dock section; hosts Machines section | AppKit rows |
-| `CmuxNextServer/AddMachine` (`MachineSection`) | 1 of 3 | ~150 | 1 | 0 | **hot** | Right sidebar Machines section list | AppKit rows |
+| `CmuxNextApp/RightSidebar` | 2 | 100 | 1 | 1 | **hot** | Right sidebar Dock section (the Machines host is AppKit) | AppKit rows |
+| `CmuxNextServer/AddMachine` (`MachineSection`) | done | | | | | Right sidebar Machines section list: AppKit (`MachineSectionView`) | |
 | `CmuxNextFeed` + `/Views` | 18 | 1,437 | 31 | 1 | **hot** | Feed panel / Inbox page, live updates | AppKit table (or web view) |
 | `CmuxNextApp/Handlers` | 2 | 644 | 4 | 2 | **hot** | Browser downloads popover; Chief memory page | AppKit popover; page follows ChiefMemory |
 | `CmuxNextApp/SleepyMode` | 2 | 162 | 1 | 1 | **hot** | Full-screen sleepy overlay, animated | `CALayer` scene |
@@ -117,7 +117,7 @@ regression never rides along with a view port. `Motion+SwiftUI.swift`
 Wave 0 (landed): this plan, the lint, the allowlist.
 
 Wave 1, hot paths (each its own slice, red test then port):
-1. `CmuxNextApp/RightSidebar` Dock section and the Machines section list.
+1. `CmuxNextApp/RightSidebar` Dock section (the Machines section list is done: `MachineSectionView`).
 2. `CmuxNextAgentActivity` SwiftUI half (value helpers only).
 3. `CmuxNextUpdater` update sheet.
 4. `CmuxNextApp/SleepyMode` overlay as `CALayer`s.

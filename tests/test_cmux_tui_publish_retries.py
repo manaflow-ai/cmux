@@ -11,10 +11,12 @@ tree publishes. On 2026-10-26 promotions stopped from 18:42 to 19:44 UTC:
   with no retry.
 Run 40422130372 (2026-10-27) then failed both tries of a single retry 4 s
 apart: its core budget had calls left, so the refusal was GitHub's secondary
-limit. The attestation is now tried four times, each failed try backing off
-through scripts/ci/gh_budget_wait.sh --backoff (until the reset, else 60, 120,
-240 s) within a 15 minute total, and the last try must pass. The job timeouts
-leave room for that wait.
+limit. The attestation is now tried four times, and the last try must pass.
+Each failed try backs off through scripts/ci/gh_budget_wait.sh --backoff-probe:
+owner run 41017791425 (2026-10-30) spent its fixed 60, 120 and 240 s while the
+limit still held, so the backoff now reads the attestations API with the same
+token and waits for the reset each refusal names until GitHub answers it, within
+50 minutes in all. The job timeouts leave room for that wait.
 publish-tree's reads go straight to R2 (scripts/ci/upload-r2-object.py
 --download-to), which retries a dropped, stalled or 5xx read and exits 22 on a
 404: run 40670486094 lost the tree to one HTTP/2 reset from files.cmux.com
@@ -67,15 +69,20 @@ class PublishRetries(unittest.TestCase):
                 self.assertEqual(len(between), 1, f"{job_name}: exactly one backoff sits between two tries")
                 backoff = between[0]
                 self.assertEqual(backoff.get("if"), gate)
-                self.assertRegex(str(backoff.get("run", "")), rf"gh_budget_wait\.sh --backoff {index}\b")
+                # Each backoff waits until GitHub stops refusing a read of the attestations API (owner run
+                # 41017791425, 2026-10-30: a fixed 60/120/240 s ran out while the limit still held).
+                self.assertRegex(str(backoff.get("run", "")), rf'gh_budget_wait\.sh --backoff-probe {index} "\$ATTEST_PROBE"')
                 env = backoff.get("env", {})
                 # Without a token the backoff cannot read the reset and the next try hits the same limit.
                 self.assertEqual(env.get("GH_TOKEN"), "${{ github.token }}", f"{job_name}: the backoff reads the budget with the job's token")
-                self.assertLessEqual(int(env.get("GH_BUDGET_WAIT_MAX_SECONDS", "3600")), 900, f"{job_name}: the backoffs wait 15 minutes at most in all")
+                self.assertRegex(env.get("ATTEST_PROBE", ""), r"^repos/\$\{\{ github\.repository \}\}/attestations/sha256:[0-9a-f]{64}$",
+                                 f"{job_name}: the probe reads the attestations API, the refused write's own API")
+                cap = int(env.get("GH_BUDGET_WAIT_MAX_SECONDS", "3600"))
+                self.assertGreaterEqual(cap, 30 * 60, f"{job_name}: the backoffs outlast a limit that holds past 15 minutes")
             self.assertFalse(last.get("continue-on-error"), f"{job_name}: the last try must pass; nothing ships without provenance")
             self.assertGreaterEqual(
-                int(self.jobs[job_name]["timeout-minutes"]), 15 + 15 + 5,
-                f"{job_name}: the timeout must leave room for the work plus the 15 minutes the backoffs may take",
+                int(self.jobs[job_name]["timeout-minutes"]) * 60, 15 * 60 + cap + 5 * 60,
+                f"{job_name}: the timeout must leave room for the work plus every second the backoffs may wait",
             )
 
     def step(self, name: str) -> str:

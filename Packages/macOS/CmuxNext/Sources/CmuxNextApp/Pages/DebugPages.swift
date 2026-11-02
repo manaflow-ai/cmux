@@ -101,6 +101,16 @@ enum DebugPages {
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return ["clicked": .bool(await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true,
                                                            contextMenu: params["context_menu"]?.boolValue == true))]
+        case "drag":
+            let numbers = ["x1", "y1", "x2", "y2"].compactMap { params[$0]?.doubleValue }
+            guard numbers.count == 4 else { return ["error": "x1, y1, x2, y2 (CSS pixels) are required"] }
+            let dragged = await page.debugDrag(from: CGPoint(x: numbers[0], y: numbers[1]), to: CGPoint(x: numbers[2], y: numbers[3]),
+                                               steps: params["steps"]?.intValue ?? 16)
+            return ["dragged": .bool(dragged)]
+        case "press":
+            let numbers = ["x", "y"].compactMap { params[$0]?.doubleValue }
+            guard numbers.count == 2 else { return ["error": "x, y (CSS pixels) are required"] }
+            return ["pressed": .bool(await page.debugPress(x: numbers[0], y: numbers[1]))]
         case "hover":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return await page.debugHover(selector)

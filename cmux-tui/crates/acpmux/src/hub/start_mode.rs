@@ -30,9 +30,18 @@
 //! start model it is soft: a refusal is logged (`start_default_skipped`)
 //! and the chat runs the harness's own mode. Not for: a remote-origin
 //! (Web) session (the remote guard settles its mode,
-//! `server/remote_guard.rs`), a preset's chat, a folder profile's chat, an
+//! `server/remote_guard.rs`), a preset's chat (but see below), a folder profile's chat, an
 //! adopted conversation, and a profile that pins its mode in its argv
 //! (`profile_sets_mode`).
+//!
+//! A built-in Chief subagent preset that names no mode (`optchat-sub-<home id>`,
+//! `config/chief_builtins.rs`) is not a preset's chat here: its chat starts as a plain one
+//! (`plain_for_mode`, cmux#27847). The Chief host starts every subagent from it, and as a
+//! preset's chat each ran in its harness's asking mode, which every chat it started then
+//! inherited. It widens nothing a plain `acpmux new` cannot: its env is acpmux's own
+//! definition or the person's (`hub/person.rs`), its args only take capabilities away, and its
+//! policy is one any unix socket client may name. Chief's turn and compactor presets keep their
+//! harness's own mode.
 //!
 //! Only the person widens a mode later (`hub/person.rs`).
 //!
@@ -320,6 +329,15 @@ pub(super) fn mode_eligible(
     profile: &HarnessProfile,
 ) -> bool {
     plain && !remote && !keep_harness_mode && !profile_sets_mode(profile)
+}
+
+/// Whether a chat from `preset` (none: no preset) starts in the start mode as a plain chat does
+/// (module docs): no preset, or a built-in Chief subagent preset that names no mode.
+pub(super) fn plain_for_mode(preset: Option<&str>, cfg: &crate::config::Config) -> bool {
+    preset.is_none_or(|name| {
+        crate::config::chief_builtins::parse(name).is_some_and(|b| b.is_subagent())
+            && cfg.presets.get(name).is_some_and(|p| p.mode.is_none())
+    })
 }
 
 /// The mode ids a session's harness offers, for the policy modes (`policy_mode.rs`).
@@ -738,7 +756,7 @@ impl Hub {
         let (agent, profile, eligible, policy) = {
             let cfg = self.config.read().await;
             let r = self.resolve_new(&cfg, harness, &preset, None, remote, cwd.as_deref())?;
-            let plain = r.preset_name.is_none() && r.folder_root.is_none();
+            let plain = plain_for_mode(r.preset_name.as_deref(), &cfg) && r.folder_root.is_none();
             let terminal = r.profile.kind == crate::config::HarnessKind::Terminal;
             let eligible = !terminal && mode_eligible(plain, remote, false, &r.profile);
             // The policy the new chat would hold (`policy_mode.rs`): its preset's or defaults',

@@ -17,6 +17,7 @@ const MAX_DISPLAY_PARTS: usize = 256;
 const MAX_DISPLAY_NAME: usize = 256;
 const MAX_DISPLAY_MIME: usize = 128;
 const MAX_DISPLAY_RANGE: u64 = 4 * 1024 * 1024;
+const MAX_SOURCE_NAME: usize = 64;
 
 fn dir() -> PathBuf {
     crate::config::home().join("attachments")
@@ -120,44 +121,101 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     Some((bytes, named))
 }
 
+/// The app an attachment came from, as the app said it in the prompt's display metadata (an
+/// `inlineParts` entry's `source`, AttachmentSource.swift): `{name, bundleId?, site?}`, each field
+/// checked the way the app makes it, so the record never keeps anything else under that name.
+/// `None` for one that is not one. It rides the request's `_meta`, never a block's: a block's own
+/// `_meta` never reaches the harness. Leo, 2026-10-29: "Also, I guess it's, like, you know, be
+/// interesting to add, like, attributions for screenshots and attachments and whatnot, right?"
+pub(crate) fn checked_source(raw: &Value) -> Option<Value> {
+    let raw = raw.as_object()?;
+    let name = raw.get("name")?.as_str()?.trim();
+    if name.is_empty() || name.chars().count() > MAX_SOURCE_NAME {
+        return None;
+    }
+    let mut source = json!({"name": name});
+    if let Some(value) = raw.get("bundleId") {
+        let id = value.as_str()?;
+        let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_');
+        if id.is_empty()
+            || id.len() > 255
+            || id.starts_with('.')
+            || !id.contains('.')
+            || !id.chars().all(allowed)
+        {
+            return None;
+        }
+        source.set("bundleId", json!(id));
+    }
+    if let Some(value) = raw.get("site") {
+        let site = value.as_str()?;
+        let allowed =
+            |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-');
+        if site.is_empty() || site.len() > 253 || !site.chars().all(allowed) {
+            return None;
+        }
+        source.set("site", json!(site));
+    }
+    Some(source)
+}
+
 /// The id an `image` block's bytes are kept under; `None` for any other block.
 pub(super) fn id_of(block: &Value) -> Option<String> {
     decode(block).and_then(|(_, named)| named["id"].as_str().map(str::to_owned))
 }
 
-/// What `keep` would record of `blocks`' images, without keeping them (a queued prompt's row,
-/// `views.rs`).
-pub(super) fn named(blocks: &[Value]) -> Vec<Value> {
-    blocks.iter().filter_map(decode).map(|(_, named)| named).collect()
+/// What `keep_sourced` would record of `blocks`' images, without keeping them (a queued
+/// prompt's row, `views.rs`), each with its own block's source from the prompt's display metadata
+/// (`name_image_sources`): a queued prompt's listed images keep their sources.
+pub(super) fn named_sourced(blocks: &[Value], display_parts: Option<&Value>) -> Vec<Value> {
+    let mut named: Vec<(usize, Value)> = blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, block)| decode(block).map(|(_, named)| (index, named)))
+        .collect();
+    name_image_sources(&mut named, blocks, display_parts);
+    named.into_iter().map(|(_, named)| named).collect()
 }
 
 /// Keeps the bytes of each `image` block in `blocks` and returns what `user_message` (and a
-/// queued prompt's `queued` and `queue_updated`) records of them. An image that cannot be read
-/// or kept is left out: the prompt still goes.
-pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
+/// queued prompt's `queued` and `queue_updated`) records of them, each with its source from the
+/// prompt's display metadata (`name_image_sources`), so Edit message and a reload keep it. An image
+/// that cannot be read or kept is left out: the prompt still goes.
+pub(super) fn keep_sourced(blocks: &[Value], display_parts: Option<&Value>) -> Vec<Value> {
+    let mut kept = keep_indexed(blocks);
+    name_image_sources(&mut kept, blocks, display_parts);
+    kept.into_iter().map(|(_, image)| image).collect()
+}
+
+/// The kept image records, each with its block's index in `blocks`.
+fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
     blocks
         .iter()
-        .filter_map(decode)
-        .filter_map(|(bytes, named)| {
+        .enumerate()
+        .filter_map(|(index, block)| decode(block).map(|decoded| (index, decoded)))
+        .filter_map(|(index, (bytes, named))| {
             let id = named["id"].as_str()?;
             let path = dir().join(id);
             if !path.is_file() {
-                let written = std::fs::create_dir_all(dir()).and_then(|()| {
-                    // Written aside and renamed, so a reader never sees half an image.
-                    let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
-                    let written = write_owner_only(&partial, &bytes)
-                        .and_then(|()| std::fs::rename(&partial, &path));
-                    if written.is_err() {
-                        let _ = std::fs::remove_file(&partial);
-                    }
-                    written
-                });
+                let written = crate::config::refuse_lost_home(&path)
+                    .map_err(std::io::Error::other)
+                    .and_then(|()| std::fs::create_dir_all(dir()))
+                    .and_then(|()| {
+                        // Written aside and renamed, so a reader never sees half an image.
+                        let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
+                        let written = write_owner_only(&partial, &bytes)
+                            .and_then(|()| std::fs::rename(&partial, &path));
+                        if written.is_err() {
+                            let _ = std::fs::remove_file(&partial);
+                        }
+                        written
+                    });
                 if let Err(e) = written {
                     tracing::warn!("cannot keep a prompt image: {e}");
                     return None;
                 }
             }
-            Some(named)
+            Some((index, named))
         })
         .collect()
 }
@@ -174,10 +232,10 @@ fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()>
 
 /// The prompt's ACP blocks in their original order, with attachment bytes replaced by durable
 /// metadata. The web transcript uses this field to interleave text and attachments after a reload.
-/// Every image gets its content id here even when `keep` could not write its bytes: this preserves
-/// identity across a later image in the same prompt, while the separate `images` field remains the
-/// authoritative list of ids that `_acpmux/attachment` can actually read. No block's base64 payload
-/// is copied into the event log.
+/// Every image gets its content id here even when `keep_sourced` could not write its bytes: this
+/// preserves identity across a later image in the same prompt, while the separate `images` field
+/// remains the authoritative list of ids that `_acpmux/attachment` can actually read. No block's
+/// base64 payload is copied into the event log.
 pub(super) fn inline_parts(
     blocks: &[Value],
     images: &[Value],
@@ -359,6 +417,12 @@ pub(crate) fn validated_display_parts(
                 out.insert(key.into(), Value::Number(value.into()));
             }
         }
+        // The app's composer put this attachment in the prompt's text: the web transcript draws
+        // a prompt in its recorded order only when it was placed. Only `true` is kept; a prompt
+        // without it (the old unplaced shape, or one from an older app) never gains it.
+        if object.get("placed") == Some(&Value::Bool(true)) {
+            out.insert("placed".into(), Value::Bool(true));
+        }
         let start = object.get("start").and_then(Value::as_u64);
         let end = object.get("end").and_then(Value::as_u64);
         if start.is_some() != end.is_some()
@@ -376,6 +440,9 @@ pub(crate) fn validated_display_parts(
             out.insert("start".into(), Value::Number(start.into()));
             out.insert("end".into(), Value::Number(end.into()));
         }
+        if let Some(source) = object.get("source").and_then(checked_source) {
+            out.insert("source".into(), source);
+        }
         validated.insert(block_index, Value::Object(out));
     }
     validated
@@ -383,7 +450,9 @@ pub(crate) fn validated_display_parts(
 
 fn copy_display_fields(part: &mut Value, display: &Value) {
     let Some(object) = display.as_object() else { return };
-    for key in ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf"] {
+    for key in
+        ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf", "placed", "source"]
+    {
         if let Some(value) = object.get(key) {
             part[key] = value.clone();
         }
@@ -396,10 +465,10 @@ fn block_size(block: &Value) -> Option<u64> {
     let data = block.get("data").and_then(Value::as_str)?;
     u64::try_from(base64::engine::general_purpose::STANDARD.decode(data).ok()?.len()).ok()
 }
-/// The `image` blocks of images a record names (`keep`'s `{id, mimeType, name}`), read back
-/// from where `keep` put them, so a prompt that is sent again (a restart's continuation,
-/// `restart_resume.rs`) carries them. One that is gone or whose id is not one `keep` makes is
-/// left out.
+/// The `image` blocks of images a record names (`keep_sourced`'s `{id, mimeType, name}`), read
+/// back from where `keep_sourced` put them, so a prompt that is sent again (a restart's
+/// continuation, `restart_resume.rs`) carries them. One that is gone or whose id is not one
+/// `keep_sourced` makes is left out.
 pub(super) fn blocks_of(images: &[Value]) -> Vec<Value> {
     use base64::Engine;
     images
@@ -424,6 +493,23 @@ pub(super) fn blocks_of(images: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+/// Puts each image's source from the prompt's display metadata on its record
+/// (`{id, mimeType, name}`, with its block's index), so the transcript's thumbnail has it after a
+/// reload. Each record takes only its own block's source: byte-identical images share an id but
+/// not a source.
+fn name_image_sources(
+    images: &mut [(usize, Value)],
+    blocks: &[Value],
+    display_parts: Option<&Value>,
+) {
+    let display = validated_display_parts(display_parts, blocks);
+    for (block_index, image) in images {
+        if let Some(source) = display.get(block_index).and_then(|part| part.get("source")) {
+            image.set("source", source.clone());
+        }
+    }
+}
+
 impl Hub {
     /// Records prompt `msg` as the session's `user_message`, naming the images of its `blocks`,
     /// preserving their ordered content metadata, and recording pasted text ranges (`session.rs`,
@@ -435,7 +521,7 @@ impl Hub {
         blocks: &[Value],
         display_parts: Option<&Value>,
     ) {
-        let images = keep(blocks);
+        let images = keep_sourced(blocks, display_parts);
         if !images.is_empty() {
             msg.set("images", Value::Array(images));
         }
@@ -452,6 +538,8 @@ impl Hub {
         if blocks.iter().any(crate::prompt_context::is_context) {
             msg.set("hiddenContext", Value::Bool(true));
         }
+        // A turn Claude Code started on its own and still runs: the rest is this prompt's turn.
+        self.end_background_turn(session, "prompt");
         self.append(session, "mux", "user_message", msg);
     }
 
@@ -510,7 +598,10 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, inline_parts, sniffed_type, validated_display_parts};
+    use super::{
+        checked_source, decode, inline_parts, name_image_sources, sniffed_type,
+        validated_display_parts,
+    };
     use serde_json::{Value, json};
 
     #[test]
@@ -588,6 +679,56 @@ mod tests {
         let mut huge = large.clone();
         huge[8..16].copy_from_slice(&u64::MAX.to_be_bytes());
         assert_eq!(sniffed_type(&huge), None);
+    }
+
+    #[test]
+    fn an_attachments_source_is_kept_only_when_it_is_one() {
+        let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});
+        let link = json!({"type": "resource_link", "uri": "file:///tmp/a.png", "name": "a.png"});
+        let blocks = [image.clone(), link];
+        let chrome =
+            json!({"name": "Google Chrome", "bundleId": "com.google.Chrome", "site": "github.com"});
+        let finder = json!({"name": "Finder", "bundleId": "com.apple.finder"});
+        let display = json!([
+            {"kind": "image", "blockIndex": 0, "source": chrome},
+            {"kind": "file", "blockIndex": 1, "name": "a.png", "source": finder},
+        ]);
+        let parts = inline_parts(&blocks, &[], Some(&display));
+        assert_eq!(parts[0]["source"], chrome);
+        assert_eq!(parts[1]["source"], finder);
+        let mut images = vec![(0, decode(&image).unwrap().1)];
+        name_image_sources(&mut images, &blocks, Some(&display));
+        assert_eq!(images[0].1["source"], chrome);
+        // Byte-identical images share an id; each record keeps only its own block's source.
+        let twins = [image.clone(), image.clone(), image.clone()];
+        let display = json!([
+            {"kind": "image", "blockIndex": 1, "source": chrome},
+            {"kind": "image", "blockIndex": 2, "source": finder},
+        ]);
+        let mut images: Vec<_> = (0..3).map(|index| (index, decode(&image).unwrap().1)).collect();
+        name_image_sources(&mut images, &twins, Some(&display));
+        assert!(images[0].1.get("source").is_none());
+        assert_eq!(images[1].1["source"], chrome);
+        assert_eq!(images[2].1["source"], finder);
+        assert_eq!(checked_source(&json!({"name": " cmux "})), Some(json!({"name": "cmux"})));
+        for bad in [
+            json!({"name": ""}),
+            json!({"name": "x".repeat(65)}),
+            json!({"name": "A", "bundleId": "no dots"}),
+            json!({"name": "A", "bundleId": ".com.x"}),
+            json!({"name": "A", "bundleId": 7}),
+            json!({"name": "A", "site": "Example.com"}),
+            json!({"name": "A", "site": "a.com/path"}),
+            json!("cmux"),
+        ] {
+            assert_eq!(checked_source(&bad), None, "{bad}");
+            let display = json!([{"kind": "image", "blockIndex": 0, "source": bad}]);
+            let parts = inline_parts(&blocks[..1], &[], Some(&display));
+            assert!(parts[0].get("source").is_none());
+        }
+        // A block's own `_meta` names no source: it never reaches the record.
+        let meta = json!({"type": "image", "mimeType": "image/png", "data": "AQID", "_meta": {"cmux": {"source": chrome}}});
+        assert!(decode(&meta).unwrap().1.get("source").is_none());
     }
 
     #[test]
@@ -680,6 +821,50 @@ mod tests {
             vec![json!({"type": "resource_link", "uri": "", "name": "archive.zip"})];
         assert!(validated_display_parts(Some(&empty_resource), &resource_block).is_empty());
     }
+    /// The app marks the attachments its composer placed in the text (`placed`); the web
+    /// transcript draws only those prompts in their recorded order. The marker survives
+    /// validation and the copy onto every part kind it can name; a prompt without it (the old
+    /// unplaced shape, or one recorded before the marker) never gains one, and only `true` counts.
+    #[test]
+    fn inline_parts_keep_the_placed_marker_only_when_sent() {
+        let image =
+            json!({"type": "image", "mimeType": "image/png", "name": "one.png", "data": "AQID"});
+        let blocks = vec![
+            json!({"type": "text", "text": "look"}),
+            image,
+            json!({"type": "text", "text": "pasted", "_meta": {"cmux": {"pasted": true}}}),
+            json!({"type": "resource_link", "uri": "file:///tmp/key.pem", "name": "key.pem"}),
+        ];
+        let placed = json!([
+            {"kind": "image", "blockIndex": 1, "name": "one.png", "placed": true},
+            {"kind": "pasted", "blockIndex": 2, "name": "Pasted text", "placed": true},
+            {"kind": "file", "blockIndex": 3, "name": "key.pem", "placed": true}
+        ]);
+        let validated = validated_display_parts(Some(&placed), &blocks);
+        assert!((1..=3).all(|index| validated[&index]["placed"] == true));
+        let parts = inline_parts(&blocks, &[], Some(&placed));
+        assert_eq!(
+            parts.iter().map(|part| part.get("placed").cloned()).collect::<Vec<_>>(),
+            [None, Some(json!(true)), Some(json!(true)), Some(json!(true))]
+        );
+
+        let unplaced = json!([{"kind": "file", "blockIndex": 3, "name": "key.pem"}]);
+        assert!(
+            inline_parts(&blocks, &[], Some(&unplaced))
+                .iter()
+                .all(|part| part.get("placed").is_none())
+        );
+        assert!(inline_parts(&blocks, &[], None).iter().all(|part| part.get("placed").is_none()));
+        for invalid in [json!(false), json!("yes"), json!(1)] {
+            let display = json!([{"kind": "image", "blockIndex": 1, "placed": invalid}]);
+            assert!(
+                inline_parts(&blocks, &[], Some(&display))
+                    .iter()
+                    .all(|part| part.get("placed").is_none())
+            );
+        }
+    }
+
     #[test]
     fn inline_parts_validate_companion_relation() {
         let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});

@@ -27,6 +27,7 @@ import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
 import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
 import { codeRefOf } from "./code-check.ts"
+import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
 import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
 import { signState, verifyState } from "./integrations/state.ts"
@@ -293,6 +294,19 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const refused = impl?.refuseScopes?.(env, scopesToRequest(env, impl, Array.isArray(cp?.scopes) ? (cp.scopes as Array<string>) : []))
           if (refused) {
             return { ok: false, op: payload.op, error: { code: "validation.invalid", message: refused, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
+          }
+        }
+        // A person's Cloud Chief job (cmux automation --target cloud, the Automations page): the free plan's cap first.
+        if (def.owner === "cloud:SchedulerDO" && isChiefJobCreate(payload.op, frame.params, principal)) {
+          const p = yield* principalFor(def.owner, principal)
+          const stub = env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!))
+          // A retried create (decided key) replays from the ledger; it is not a new job.
+          const refusal = yield* Effect.tryPromise({
+            try: async () => ((await rpc<boolean>(stub.isReplay(p.team!, p, { t: "op", ...frame }))) ? undefined : chiefJobGate(env, p, (cursor) => rpc<ReadResult>(stub.readOp(p.team!, p, "automation.list", { limit: 100, ...(cursor ? { cursor } : {}) })))),
+            catch: unreachable
+          })
+          if (refusal) {
+            return { ok: false, op: payload.op, error: { code: refusal.code, message: refusal.message, retryable: false, details: refusal.details }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `scheduler:${p.team}`, sequence: 0 }
           }
         }
         // Ops that pin automation code: the SchedulerDO checks the commit and its bundle in the team's repository first.

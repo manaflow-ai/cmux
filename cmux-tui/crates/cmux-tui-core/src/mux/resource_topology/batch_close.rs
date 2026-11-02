@@ -125,11 +125,12 @@ impl BatchCloseOutcome {
 impl Mux {
     /// Plan, commit, and apply one batch close. Nothing changes unless the
     /// whole set commits; an unknown target changes nothing.
+    #[track_caller]
     pub(crate) fn commit_batch_close(
         &self,
         request: BatchCloseRequest<'_>,
     ) -> anyhow::Result<BatchCloseOutcome> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let _authority = request
             .authorize_workspace

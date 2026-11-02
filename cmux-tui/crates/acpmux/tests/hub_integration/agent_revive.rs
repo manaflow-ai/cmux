@@ -85,7 +85,7 @@ async fn stop_during_the_wait_keeps_a_dead_agent_from_resuming() {
 }
 
 #[tokio::test]
-async fn a_limit_is_never_resumed_even_when_the_agent_dies_of_it() {
+async fn a_limit_is_resumed_even_when_the_agent_dies_of_it() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![20]);
     let id = new_session(&mut c, "limit").await;
@@ -94,23 +94,19 @@ async fn a_limit_is_never_resumed_even_when_the_agent_dies_of_it() {
     let r = c
         .request(
             method::SESSION_PROMPT,
-            prompt(&died, "die: You've hit your limit · resets 3pm", None),
+            // Keep this integration test fast; the real Claude clock hint is covered by
+            // reset_hint unit tests, while this exercises the same usage-limit recovery path.
+            prompt(&died, "die: You've hit your limit · retry after 20ms", None),
         )
         .await;
     assert!(r.unwrap_err().contains("hit your limit"));
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    for id in [&id, &died] {
-        assert!(
-            !kinds(&hub, id).iter().any(|k| k.starts_with("auto_resume")),
-            "{:?}",
-            kinds(&hub, id)
-        );
-        assert_eq!(prompt_ids(&hub, id).len(), 1);
-    }
+    until("the limit continuation completes", || records(&hub, &died, "turn_result").len() >= 2)
+        .await;
+    assert!(kinds(&hub, &died).iter().any(|k| k == "auto_resume_scheduled"));
+    assert!(prompt_ids(&hub, &died).len() >= 2);
     let summary = hub.session_summary(&hub.resolve(&died).unwrap());
-    assert_eq!(summary["status"], "disconnected", "{summary}");
-    assert_eq!(summary["lastTurn"]["status"], "failed", "{summary}");
-    assert!(summary["lastTurn"]["errorText"].as_str().unwrap().contains("hit your limit"));
+    assert_eq!(summary["status"], "ready", "{summary}");
+    assert_eq!(summary["lastTurn"]["status"], "completed", "{summary}");
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {

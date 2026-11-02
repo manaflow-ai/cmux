@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d.
+// cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -745,6 +745,18 @@ pub struct CloudConversationUnsubscribeRequest {
 pub type CloudConversationUnsubscribeResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudEnvironmentRequest {
+    pub access_token: String,
+    pub action: String,
+    pub params: Nullable<T::JsonValue>,
+    pub platform_origin: String,
+}
+
+#[rustfmt::skip]
+pub type CloudEnvironmentResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudHostReplicaClearRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -779,6 +791,8 @@ pub type CloudHostReplicaStatusResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudInboxListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cursor: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub include_archived: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4388,6 +4402,10 @@ impl CmuxClient {
 
     pub fn cloud_conversation_unsubscribe(&mut self, request: CloudConversationUnsubscribeRequest) -> Result<CloudConversationUnsubscribeResult> {
         self.execute(&CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_environment(&mut self, request: CloudEnvironmentRequest) -> Result<CloudEnvironmentResult> {
+        self.execute(&CLOUD_ENVIRONMENT_METADATA, &request)
     }
 
     pub fn cloud_host_replica_clear(&mut self, request: CloudHostReplicaClearRequest) -> Result<CloudHostReplicaClearResult> {

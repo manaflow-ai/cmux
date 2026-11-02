@@ -229,7 +229,15 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
                     phase = .grace(token: grace)
                     return [.hide, .schedule(token: grace, after: reshow)]
                 }
-                // Swaps at once, never held by a pointer heading for the card.
+                if aiming {
+                    // Heading into a card beside its row across another row (the safe
+                    // triangle): that row takes the card only if the pointer stops on it
+                    // (Leo 2026-11-01: "for my mouse to be able to reliably go across them").
+                    let token = takeToken()
+                    phase = .leaving(shown, token: token)
+                    return [.schedule(token: token, after: aimWindow)]
+                }
+                // Otherwise it swaps at once.
                 phase = .shown(target)
                 return [.show(target, sliding: true)]
             }
@@ -261,6 +269,12 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
                     let grace = takeToken()
                     phase = .grace(token: grace)
                     return [.hide, .schedule(token: grace, after: reshow)]
+                }
+                if aiming, target.id != shown.id {
+                    // Still heading into the card: the aim restarts.
+                    let token = takeToken()
+                    phase = .leaving(shown, token: token)
+                    return [.schedule(token: token, after: aimWindow)]
                 }
                 phase = .shown(target)
                 return target.id == shown.id ? [.cancelTimer] : [.cancelTimer, .show(target, sliding: true)]

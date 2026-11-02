@@ -31,7 +31,9 @@ import CmuxNextWakeups
 ///    daemon at this app's own executable path. With one key per daemon such a daemon holds no
 ///    key of this app, so its allows are refused; the app logs why.
 /// The pane's WebSocket listener and accepted end are accepted as another install's only when
-/// their pid passed rules 1 and 2 on the unix socket first.
+/// their pid passed rules 1 and 2 on the unix socket first. A same-user daemon whose executable
+/// path cannot be read (an update deleted the file it runs) counts as another install's under
+/// the same rules, so its chats show here instead of a refusal until it exits.
 ///
 /// Anything else is refused and logged once per path; the app then never sends the key there.
 ///
@@ -74,8 +76,13 @@ nonisolated enum AcpmuxServerPeer {
     /// What a passing peer is: the acpmux at this app's own path, or another install's.
     enum Match: Equatable { case own, foreign }
 
-    /// Pids of another install's daemons that passed rules 1 and 2 (their WebSocket may be used).
-    private static let foreignDaemons = Mutex<Set<pid_t>>([])
+    /// Another install's daemons that passed rules 1 and 2 (their WebSocket may be used), each
+    /// by its pid and the process the pid named then (start time and audit token): a pid the
+    /// kernel gives to another process after the daemon exits is not one of them.
+    private static let foreignDaemons = Mutex<[pid_t: AcpmuxDaemonStop.Daemon]>([:])
+
+    /// `LOCAL_PEERTOKEN` (sys/un.h), as ``UnixSocketPeer`` reads it.
+    private static let localPeerToken: Int32 = 0x006
 
     /// Paths already logged as refused (one line each per launch).
     private static let refusedPaths = Mutex<Set<String>>([])
@@ -85,14 +92,23 @@ nonisolated enum AcpmuxServerPeer {
     /// peer passed ``check(descriptor:executable:)``. Nothing is written before the check.
     /// Throws ``Refusal`` or the daemon's ``AcpmuxRPCError``.
     /// `allowForeign`: another install's daemon may answer (rules 1 to 3); never for an enroll.
+    /// `deadline` nil: waits for the answer, the daemon's close of the connection (it exited) or
+    /// the caller's cancel, and no thread is held while it waits (``AcpmuxSocketWait``).
     @concurrent static func call(socketPath: String, method: String, params: [String: any Sendable],
                                  executable: URL, allowForeign: Bool = false,
-                                 deadline: Duration) async throws -> [String: Any] {
-        let seconds = Double(deadline.components.seconds) + Double(deadline.components.attoseconds) / 1e18
-        let box = try exchange(socketPath: socketPath, method: method, params: params, executable: executable,
-                               allowForeign: allowForeign && method != "_acpmux/person_enroll",
-                               until: Date().addingTimeInterval(seconds))
-        return box.value
+                                 deadline: Duration?) async throws -> [String: Any] {
+        let allowForeign = allowForeign && method != "_acpmux/person_enroll"
+        let exchange: @Sendable () async throws -> ResultBox = {
+            try await Self.exchange(socketPath: socketPath, method: method, params: params, executable: executable,
+                                    allowForeign: allowForeign)
+        }
+        guard let deadline else { return try await exchange().value }
+        // The caller's own bound: past it the exchange is cancelled, which ends its socket wait.
+        do {
+            return try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", exchange).value
+        } catch is AgentPaneDeadlineExceeded {
+            throw Refusal.timedOut
+        }
     }
 
     // No probe-then-connect helper (cx-aocz review P1): a check on one connection says nothing
@@ -133,9 +149,8 @@ nonisolated enum AcpmuxServerPeer {
         guard judge(owners, executable: executable, what: "accepted end on port \(port)") else { return nil }
         let wanted = executable.resolvingSymlinksInPath().path
         let foreign = owners.contains { pid in
-            var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return true }
-            return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path != wanted
+            guard let path = executablePath(pid: pid) else { return true }
+            return URL(fileURLWithPath: path).resolvingSymlinksInPath().path != wanted
         }
         return foreign ? .foreign : .own
     }
@@ -143,21 +158,50 @@ nonisolated enum AcpmuxServerPeer {
     /// Every owner passes the executable rule, or is another install's daemon that passed rules
     /// 1 and 2 on its unix socket; none refuses. The scan lists only this user's processes.
     private static func judge(_ owners: [pid_t], executable: URL, what: String) -> Bool {
-        let wanted = executable.resolvingSymlinksInPath().path
-        let foreign = foreignDaemons.withLock { $0 }
-        var refusal: Refusal?
-        if owners.isEmpty { refusal = .noPeer }
-        for pid in Set(owners) where refusal == nil {
-            var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { refusal = .noPeer; break }
-            let path = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
-            if path != wanted, !foreign.contains(pid) { refusal = .otherExecutable(path); break }
+        let process = AcpmuxDaemonStop.kernelProcess(pid:)
+        let known = foreignDaemons.withLock { $0 }
+        // Forget a daemon whose pid now names another process, or none.
+        let gone = known.filter { process($0.key) != $0.value }
+        if !gone.isEmpty {
+            foreignDaemons.withLock { daemons in
+                for (pid, daemon) in gone where daemons[pid] == daemon { daemons[pid] = nil }
+            }
         }
-        guard let refusal else { return true }
+        let foreign = known.filter { gone[$0.key] == nil }
+        guard let refusal = refusal(owners, executable: executable, foreign: foreign, process: process,
+                                    path: executablePath(pid:)) else {
+            return true
+        }
         if refusedPaths.withLock({ $0.insert(what).inserted }) {
             logger.error("acpmux WebSocket \(what, privacy: .public) refused: \(refusal.description, privacy: .public); the pane does not connect")
         }
         return false
+    }
+
+    /// Why ``judge(_:executable:what:)`` refuses `owners`, nil when it passes them. Another
+    /// install's daemon (`foreign`, it passed rules 1 and 2) passes before its path is read: one an
+    /// update deleted the file of has no path, and it serves the chats it served on the unix socket.
+    /// It passes only while its pid still names that process (`process`, its start time and audit
+    /// token now): a pid reused by another process is checked by its path like any other owner.
+    static func refusal(_ owners: [pid_t], executable: URL, foreign: [pid_t: AcpmuxDaemonStop.Daemon],
+                        process: (pid_t) -> AcpmuxDaemonStop.Daemon?,
+                        path: (pid_t) -> String?) -> Refusal? {
+        guard !owners.isEmpty else { return .noPeer }
+        let wanted = executable.resolvingSymlinksInPath().path
+        for pid in Set(owners) {
+            if let daemon = foreign[pid], let now = process(pid), now == daemon { continue }
+            guard let found = path(pid) else { return .noPeer }
+            let resolved = URL(fileURLWithPath: found).resolvingSymlinksInPath().path
+            if resolved != wanted { return .otherExecutable(resolved) }
+        }
+        return nil
+    }
+
+    /// The executable path of process `pid` (`proc_pidpath`), nil when unknown.
+    private static func executablePath(pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(cString: buffer)
     }
 
     struct TCPSocket {
@@ -236,10 +280,37 @@ nonisolated enum AcpmuxServerPeer {
     static func check(descriptor: Int32, executable: URL, allowForeign: Bool = false,
                       expectedUID: uid_t = getuid()) -> Result<Match, Refusal> {
         // The peer's facts on this very descriptor (UnixSocketPeer, shared with the CUA client).
-        guard let peer = UnixSocketPeer(descriptor: descriptor) else { return .failure(.noPeer) }
-        guard peer.uid == expectedUID else { return .failure(.otherUser(peer.uid)) }
-        if peer.runs(executable) { return .success(.own) }
-        return allowForeign ? .success(.foreign) : .failure(.otherExecutable(peer.executablePath))
+        if let peer = UnixSocketPeer(descriptor: descriptor) {
+            return verdict(uid: peer.uid, executablePath: peer.executablePath, executable: executable,
+                           allowForeign: allowForeign, expectedUID: expectedUID)
+        }
+        return verdict(uid: peerUID(descriptor), executablePath: nil, executable: executable,
+                       allowForeign: allowForeign, expectedUID: expectedUID)
+    }
+
+    /// ``check(descriptor:executable:allowForeign:expectedUID:)`` on the peer's facts: `uid` nil when
+    /// no credential could be read, `executablePath` nil when only the uid could (the process runs a
+    /// file an update deleted, as an earlier bundle's daemon does after Sparkle replaced the app).
+    /// A same-user peer whose path is unknown is another install's where the caller allows one, so
+    /// it still serves its chats here: showing one session in two places is no reason to block
+    /// ("there's frequently nothing wrong with showing the same session but in two different
+    /// places", Leo, 2026-10-29). Rules 2 and 3 still apply to it; it never gets an enroll.
+    static func verdict(uid: uid_t?, executablePath: String?, executable: URL, allowForeign: Bool,
+                        expectedUID: uid_t) -> Result<Match, Refusal> {
+        guard let uid else { return .failure(.noPeer) }
+        guard uid == expectedUID else { return .failure(.otherUser(uid)) }
+        guard let executablePath else { return allowForeign ? .success(.foreign) : .failure(.noPeer) }
+        if executablePath == executable.resolvingSymlinksInPath().path { return .success(.own) }
+        return allowForeign ? .success(.foreign) : .failure(.otherExecutable(executablePath))
+    }
+
+    /// The peer's uid (`LOCAL_PEERCRED`) alone, nil when it cannot be read.
+    private static func peerUID(_ descriptor: Int32) -> uid_t? {
+        var credentials = xucred()
+        var size = socklen_t(MemoryLayout<xucred>.size)
+        guard getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERCRED, &credentials, &size) == 0,
+              credentials.cr_version == XUCRED_VERSION else { return nil }
+        return credentials.cr_uid
     }
 
     /// The cmux app whose bundled acpmux runs at `path` (`cmux DEV nxdog98-v1`), else the path.
@@ -306,6 +377,20 @@ nonisolated enum AcpmuxServerPeer {
         return getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 1 ? pid : nil
     }
 
+    /// The peer process of `descriptor` (``AcpmuxDaemonStop/kernelProcess(pid:)``), nil
+    /// unless its audit token is the socket's own peer token (`LOCAL_PEERTOKEN`): the pid then
+    /// names that very process, not one that took the pid after the peer exited.
+    private static func peerProcess(_ descriptor: Int32) -> AcpmuxDaemonStop.Daemon? {
+        guard let pid = peerPID(descriptor), let process = AcpmuxDaemonStop.kernelProcess(pid: pid) else {
+            return nil
+        }
+        var token = audit_token_t()
+        var size = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(descriptor, SOL_LOCAL, localPeerToken, &token, &size) == 0,
+              token.val.5 == process.token.val.5, token.val.7 == process.token.val.7 else { return nil }
+        return process
+    }
+
     /// A connected unix socket to `socketPath`, unchecked: the caller reads its peer on this
     /// very descriptor (``UnixSocketPeer``) before it writes anything.
     static func connect(_ socketPath: String) throws -> Int32 {
@@ -336,11 +421,13 @@ nonisolated enum AcpmuxServerPeer {
         return descriptor
     }
 
-    private static func exchange(socketPath: String, method: String, params: [String: any Sendable],
-                                 executable: URL, allowForeign: Bool, until: Date) throws -> ResultBox {
+    @concurrent private static func exchange(socketPath: String, method: String, params: [String: any Sendable],
+                                             executable: URL, allowForeign: Bool) async throws -> ResultBox {
         let descriptor = try connect(socketPath)
         defer { Darwin.close(descriptor) }
         let match = try checked(descriptor, socketPath: socketPath, executable: executable, allowForeign: allowForeign)
+        // Every read and write waits for readiness without a thread (``AcpmuxSocketWait``).
+        _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-person", "version": "1"], "clientCapabilities": [:]],
@@ -351,9 +438,11 @@ nonisolated enum AcpmuxServerPeer {
             payload += try JSONSerialization.data(withJSONObject: object)
             payload.append(0x0A)
         }
-        try write(payload, to: descriptor, until: until)
+        try await send(payload, to: descriptor)
         var buffer = Data()
-        while true {  // wakeup-allow: each pass waits in poll(2) for socket data; EOF, error or the deadline ends it
+        // This connection's peer passed rule 2 and is known by its process (``peerProcess(_:)``).
+        var foreignPassed = false
+        while true {  // wakeup-allow: each pass waits for socket data (a dispatch source); EOF, an error or the caller's cancel ends it
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = Data(buffer[buffer.startIndex..<newline])
                 buffer.removeSubrange(buffer.startIndex...newline)
@@ -361,22 +450,51 @@ nonisolated enum AcpmuxServerPeer {
                 if match == .foreign, let initialize = try AcpmuxStatusClient.detailedReply(to: 1, in: line) {
                     let features = ((initialize["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["features"] as? [String]
                     guard features?.contains("personChallenge") == true else { throw Refusal.olderDaemon }
-                    if let pid = peerPID(descriptor) {
-                        foreignDaemons.withLock { $0.insert(pid) }
-                        logger.info("acpmux at \(socketPath, privacy: .public) is another cmux install's (pid \(pid, privacy: .public)); its allows stay refused unless this app keyed it")
+                    if let daemon = peerProcess(descriptor) {
+                        foreignDaemons.withLock { $0[daemon.pid] = daemon }
+                        foreignPassed = true
+                        logger.info("acpmux at \(socketPath, privacy: .public) is another cmux install's (pid \(daemon.pid, privacy: .public)); its allows stay refused unless this app keyed it")
                     }
                     continue
                 }
                 if let result = try AcpmuxStatusClient.detailedReply(to: 2, in: line) {
                     // The reply came before the initialize check (it cannot: replies are in order).
-                    guard match == .own || foreignDaemons.withLock({ set in peerPID(descriptor).map(set.contains) ?? false }) else {
+                    guard match == .own || foreignPassed else {
                         throw Refusal.olderDaemon
                     }
                     return ResultBox(result)
                 }
             }
             guard buffer.count < 1 << 20 else { throw Refusal.closed }
-            buffer += try read(from: descriptor, until: until)
+            buffer += try await receive(from: descriptor)
+        }
+    }
+
+    /// Writes all of `data` to the non-blocking `descriptor`, waiting for room without a thread.
+    @concurrent private static func send(_ data: Data, to descriptor: Int32) async throws {
+        var offset = 0
+        while offset < data.count {  // wakeup-allow: each pass waits for room (a dispatch source); a write error or the cancel ends it
+            try await AcpmuxSocketWait.ready(descriptor, forWrite: true)
+            let sent = data.withUnsafeBytes { bytes -> Int in
+                guard let base = bytes.baseAddress else { return -1 }
+                return Darwin.send(descriptor, base + offset, data.count - offset, 0)
+            }
+            if sent < 0, errno == EAGAIN || errno == EINTR { continue }
+            guard sent > 0 else { throw Refusal.closed }
+            offset += sent
+        }
+    }
+
+    /// The next bytes from the non-blocking `descriptor`, waiting for them without a thread.
+    /// The daemon's close (it exited) is `closed`.
+    @concurrent private static func receive(from descriptor: Int32) async throws -> Data {
+        var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {  // wakeup-allow: each pass waits for data (a dispatch source); data, EOF, an error or the cancel ends it
+            try await AcpmuxSocketWait.ready(descriptor, forWrite: false)
+            let count = Darwin.recv(descriptor, &chunk, chunk.count, 0)
+            if count < 0, errno == EAGAIN || errno == EINTR { continue }
+            guard count > 0 else { throw Refusal.closed }
+            return Data(chunk[0..<count])
         }
     }
 

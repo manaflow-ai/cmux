@@ -64,3 +64,31 @@ async fn a_stored_hibernation_comes_back_and_clearing_it_drops_every_trace() {
     assert_eq!(restored.meta().hibernated_ms, 0);
     hub.shutdown_all().await;
 }
+
+/// A daemon still loading never counts as unused (`in_use`): each load it finishes after its
+/// start keeps it, so a queued prompt or cut turn the last daemon left is resumed first.
+#[tokio::test]
+async fn a_daemon_still_loading_is_in_use() {
+    let (hub, _session) = chat().await;
+    for (gate, name) in [
+        (&hub.startup_ready, "startup"),
+        (&hub.adoption_ready, "adoption"),
+        (&hub.logs_ready, "the chat logs"),
+        (&hub.store_load.ready, "the store"),
+    ] {
+        gate.send_replace(false);
+        assert_eq!(hub.in_use().await, Some("its startup"), "{name} still loading");
+        gate.send_replace(true);
+    }
+}
+
+/// A chat moving to another machine keeps the daemon until the move is committed or aborted: its
+/// watch settles it, and the chat stays frozen here until then. A chat that moved away does not.
+#[tokio::test]
+async fn a_move_under_way_is_in_use() {
+    let (hub, session) = chat().await;
+    *session.moving.lock().unwrap() = Some("t-1".into());
+    assert_eq!(hub.in_use().await, Some("a move under way"));
+    session.meta.lock().unwrap().moved_to = Some(json!({}));
+    assert_ne!(hub.in_use().await, Some("a move under way"), "a committed move");
+}

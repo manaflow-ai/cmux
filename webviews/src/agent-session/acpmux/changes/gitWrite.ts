@@ -143,6 +143,18 @@ export function readWriteFailure(error: unknown): WriteFailure {
   return { kind: "notSent", ...(code ? { reason: code } : {}) };
 }
 
+/// Whether a failed `git.status` read says the folder is simply not in a repository (the session
+/// host's `operation.failed` with `details.extra.code` `not_a_repository`, or a write's reason of the
+/// same): there is no branch to read, so the changes view offers no Commit or Push and shows no error.
+export function isNoRepository(error: unknown): boolean {
+  const extra = record(record(record(error)?.details)?.extra);
+  if (text(extra?.code) === "not_a_repository") return true;
+  const failure = readWriteFailure(error);
+  return (
+    failure.kind === "refused" && (failure.reason === "not_a_repository" || failure.reason === "no_working_directory")
+  );
+}
+
 /// A committed MutationResult's commit, as the success line names it.
 export type CommitDone = { commit: string; summary: string; filesChanged: number; replayed: boolean };
 /// A pushed MutationResult: where it went, and whether the remote already had it.
