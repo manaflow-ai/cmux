@@ -20,7 +20,7 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
 import { formatDuration } from "../conversation/turns";
-import { ChevronRight, Retry, Spinner } from "../conversation/icons";
+import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -137,16 +137,12 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           onClick={() => open?.(agent.id)}
         >
           <span className="cv-tool__icon">
-            {waiting ? (
-              <Spinner size={16} loading />
-            ) : (
-              <AgentIdentity
-                harness={agent.harness ?? chatHarness}
-                tone={agentTone(agent.id)}
-                size={16}
-                fallback={SUBAGENT_FALLBACK}
-              />
-            )}
+            <AgentIdentity
+              harness={agent.harness ?? chatHarness}
+              tone={agentTone(agent.id)}
+              size={16}
+              fallback={SUBAGENT_FALLBACK}
+            />
           </span>
           {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
           <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>

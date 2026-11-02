@@ -22,7 +22,7 @@ import {
 } from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
 import { useFindReveal } from "./chatFind";
-import { Spinner } from "./icons";
+import { ToolGroup } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
@@ -105,7 +105,6 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
       status={
         status ? (
           <>
-            {working && <Spinner size={12} loading />}
             {status}
           </>
         ) : undefined
@@ -118,12 +117,12 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
   );
 }
 
-/// A call still running: one line with the working spinner.
+/// A call still running: one line, its tool glyph at rest (Leo: no spinners on tool calls).
 function RunningLine({ children }: { children: ReactNode }) {
   return (
     <div className="cv-tool cv-subsession is-live">
       <span className="cv-tool__icon">
-        <Spinner size={16} loading />
+        <ToolGroup />
       </span>
       <span className="cv-tool__text">{children}</span>
     </div>
