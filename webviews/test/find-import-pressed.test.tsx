@@ -70,13 +70,12 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
   const installPressMarkers = async (page: Page) => {
     await page.evaluate(() => {
       for (const button of document.querySelectorAll<HTMLButtonElement>(".find-pill__button")) {
-        button.addEventListener("pointerdown", (event) => {
+        button.addEventListener("mousedown", () => {
           button.dataset.pressActive = "true";
-          button.setPointerCapture(event.pointerId);
         });
         const clear = () => delete button.dataset.pressActive;
-        button.addEventListener("pointerup", clear);
-        button.addEventListener("pointercancel", clear);
+        button.addEventListener("mouseup", clear);
+        window.addEventListener("blur", clear);
       }
     });
   };
