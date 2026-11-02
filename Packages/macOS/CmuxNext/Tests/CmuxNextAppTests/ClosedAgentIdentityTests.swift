@@ -70,6 +70,26 @@ struct ClosedAgentIdentityTests {
         #expect(titles.wireFields(served: false) == nil)
     }
 
+    /// An older daemon (no `history-untitled-titles-v1`, until the version handoff replaces it):
+    /// the app sends no `untitled_titles` (the daemon would refuse the unknown field and History
+    /// would come back empty), and every row of its list still shows. Its closed rows carry no chat
+    /// identity, so an untitled closed chat reads as Terminal: only that search is weaker.
+    @Test func olderDaemonGetsNoTitlesAndStillShowsEveryRow() throws {
+        #expect(HistoryService.untitledTitles.wireFields(served: false) == nil)
+        let rows = try JSONDecoder().decode(DaemonHistoryList.self, from: Data("""
+            {"entries":[
+             {"id":"closed:daemon:closed_1","kind":"closed","at_ms":"3","title":"","closed_kind":"conversation_tab","available":true},
+             {"id":"closed:daemon:closed_2","kind":"closed","at_ms":"2","title":"Docs","closed_kind":"browser_tab",
+              "url":"https://docs.example/","available":true},
+             {"id":"page:default:1","kind":"page","at_ms":"1","title":"Docs","url":"https://docs.example/","available":true}]}
+            """.utf8)).entries
+        let entries = rows.compactMap { $0.historyEntry(titles: HistoryService.untitledTitles) }
+        #expect(entries.map(\.id) == rows.map(\.id), "a row of an older daemon was dropped")
+        #expect(entries.first?.title == Strings.untitledTerminal)
+        guard case .closed(let item)? = entries.first?.payload else { Issue.record("not a closed row"); return }
+        #expect(item.agentSession == nil)
+    }
+
     @Test func closedContainersRetainTheirOwnKind() throws {
         var item = try Self.closed()
         #expect(HistoryService.closedAgentSession(item)?.harness == "codex")
