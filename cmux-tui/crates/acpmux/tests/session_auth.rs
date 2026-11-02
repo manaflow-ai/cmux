@@ -55,6 +55,7 @@ fn hub(root: &Path) -> Arc<Hub> {
         "permissionPolicy": "approve-all",
         "presets": {
             "two": {"harness": "fake", "env": {"CLAUDE_CONFIG_DIR": two}},
+            "canonical": {"harness": "fake", "env": {"CLAUDE_CONFIG_DIR": root.join("canonical")}},
             "checked-two": {"harness": "checked", "env": {"WHO": "two"}},
         },
         // No automatic continuation runs behind a failed turn (`auto_resume.rs`).
@@ -124,6 +125,33 @@ async fn agent_login_uses_the_chats_account_and_invalidates_only_its_old_evidenc
         ("expired", "turn"),
         "new auth failures still block: {expired_again}"
     );
+}
+
+#[tokio::test]
+async fn agent_login_without_a_chat_invalidates_only_the_default_accounts_failures() {
+    let root = scratch("login-without-chat");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let same = c.new_session(Some("canonical")).await;
+    let other = c.new_session(Some("two")).await;
+    for id in [&same, &other] {
+        c.prompt(id, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    }
+    let saved = c
+        .call(
+            method::MUX_AGENT_LOGIN_API_KEY,
+            json!({"agent": "claude", "key": "sk-ant-test-default"}),
+        )
+        .await;
+    assert!(saved.get("error").is_none(), "{saved}");
+    let changed = c.auth(json!({"sessionId": same})).await;
+    assert_eq!(
+        state(&changed),
+        ("unknown", "none"),
+        "default account failure is obsolete: {changed}"
+    );
+    let untouched = c.auth(json!({"sessionId": other})).await;
+    assert_eq!(state(&untouched), ("signedOut", "turn"), "{untouched}");
 }
 
 #[tokio::test]

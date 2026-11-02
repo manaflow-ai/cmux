@@ -413,6 +413,9 @@ impl Hub {
             (None, Some(t)) => target_route(dir.as_deref(), &bindings, t, &family, env)?,
             (None, None) => None,
         };
+        let own_login = route
+            .as_ref()
+            .is_none_or(|(r, _)| r.file.kind == routes::RouteKind::DirectSubscription);
         let route_id = route.as_ref().map(|(r, _)| r.id.clone());
         let picked = route.as_ref().map(|(r, scope)| (r, *scope));
         let home = match &meta {
@@ -459,6 +462,7 @@ impl Hub {
             }
         };
         if refresh
+            && own_login
             && let Some((_, previous)) = &facts.turn
             && matches!(previous.state, State::SignedOut | State::Expired)
         {
@@ -513,9 +517,7 @@ impl Hub {
         // evidence answers for it; a local file token expiring cannot block that route.
         if !facts.settled()
             && refresh
-            && route
-                .as_ref()
-                .is_none_or(|(r, _)| r.file.kind == routes::RouteKind::DirectSubscription)
+            && own_login
             && let Some(mut profile) = profile
         {
             // A chat's own env as its spawn builds it (`route_account::spawn_env`); a target's

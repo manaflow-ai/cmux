@@ -157,9 +157,9 @@ async fn signed_in(
     if let Err(e) = machine(hub).choose_own(agent) {
         tracing::warn!(agent = agent.name(), error = %e, "agent login: record the own sign-in choice");
     }
+    hub.login_changed(agent.name(), store, route.as_deref()).await?;
     let Some(key) = text(params, "sessionId") else { return Ok(false) };
     let session = hub.resolve(key)?;
-    hub.login_changed(agent.name(), store, route.as_deref()).await?;
     let ids = std::collections::BTreeSet::from([session.id.clone()]);
     let done = hub.restart_harnesses(None, Some(&ids)).await;
     Ok(done.now > 0)
