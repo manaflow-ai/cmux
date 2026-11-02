@@ -2290,7 +2290,9 @@ const RowFrame = React.memo(function RowFrame({
         className="acpmux-row__gap"
         data-transcript-gap="row"
         aria-hidden="true"
-        style={gapBelow > 0 ? { top: "100%", bottom: "auto", height: gapBelow, paddingBottom: 0 } : undefined}
+        // Under the row's own content (the article is a stacking context, `contain: layout`): a prompt's
+        // or footer's action row laid in the same gap stays on top and keeps its clicks.
+        style={gapBelow > 0 ? { top: "100%", bottom: "auto", height: gapBelow, paddingBottom: 0, zIndex: -1 } : undefined}
       />
     </article>
   );
