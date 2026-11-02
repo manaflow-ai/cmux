@@ -64,11 +64,7 @@ function Probe({ onOpen, onBring }: { onOpen: Open; onBring?: Bring }) {
       <button data-bring type="button" onClick={() => bring(["a", "b"])}>
         Bring
       </button>
-      <output
-        data-opening={opening ?? ""}
-        data-failed={failure?.key ?? ""}
-        role="status"
-      >
+      <output data-opening={opening ?? ""} data-failed={failure?.key ?? ""}>
         {failure?.message ?? ""}
       </output>
     </div>
