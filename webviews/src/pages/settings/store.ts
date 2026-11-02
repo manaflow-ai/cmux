@@ -132,7 +132,8 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     const legacy = cache.host?.harness_placement;
     const managed = placement.managed ?? scope?.managed.get(HARNESS_PLACEMENT_KEY);
     const value = resolveHarnessPlacement(placement.stored, legacy, managed ? placement.value : undefined);
-    const customized = harnessPlacement(placement.stored) !== null && value !== resolveHarnessPlacement(null, legacy);
+    // A saved override is resettable even when it currently matches the inherited choice.
+    const customized = harnessPlacement(placement.stored) !== null;
     if (value !== placement.value || customized !== placement.customized) {
       rows = new Map(rows).set(HARNESS_PLACEMENT_KEY, { ...placement, value, customized });
     }

@@ -56,3 +56,13 @@ test("legacy changes update an inherited row while explicit and managed choices 
   };
   expect(row(managed).value).toBe(resolveHarnessPlacement("top", "left", "symbols"));
 });
+
+test("an explicit choice matching Debug stays resettable and stops following later Debug changes", () => {
+  const explicit = optimistic(initial(), { kind: "set", key, value: "left" });
+  expect(row(explicit, "left").value).toBe("left");
+  expect(row(explicit, "left").customized).toBe(true);
+  expect(row(explicit, "top").value).toBe("left");
+  const reset = optimistic(explicit, { kind: "reset", key });
+  expect(row(reset, "top").value).toBe("top");
+  expect(row(reset, "top").customized).toBe(false);
+});
