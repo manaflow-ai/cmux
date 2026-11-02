@@ -251,7 +251,11 @@ def _target_point(j, target):
         y = {"top": inset, "bottom": h - inset}.get(edge.split("-")[0] if "-" in edge else edge, h / 2)
         return (x, y)
     sample = _latest_sample(j)
-    dividers = [d for d in sample.get("dividers") or [] if isinstance(d, list) and len(d) >= 5]
+    win_w, win_h = (sample.get("window") or [1e9, 1e9])[:2]
+    # Only dividers that show inside the window (a strip wider than the window scrolls: its dividers can sit at
+    # negative x or past the right edge; round 02:45Z on cmux23 dragged at x -362).
+    dividers = [d for d in sample.get("dividers") or [] if isinstance(d, list) and len(d) >= 5
+                and d[1] >= 8 and d[1] + d[3] <= win_w - 8 and d[2] >= 0 and d[2] + d[4] <= win_h + 1]
     if "divider" in target:
         vertical = sorted((d for d in dividers if d[4] > d[3]), key=lambda d: d[1])
         index = int(target["divider"])
@@ -446,5 +450,14 @@ def step_sck_probe(j, step):
     return json.loads(line)
 
 
-STEPS = {"video_count": step_video_count, "sck_probe": step_sck_probe, "video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
+def step_action_try(j, step):
+    """`action.run` of a set-up action that may refuse (a width preset that already holds): the reply is kept, an
+    error is not a failure."""
+    try:
+        return {"reply": j.app.rpc("action.run", {"action": step["action"], "args": step.get("args") or {}, "focus": True})}
+    except D.StepError as error:
+        return {"refused": str(error)[:300]}
+
+
+STEPS = {"action_try": step_action_try, "video_count": step_video_count, "sck_probe": step_sck_probe, "video_start": step_video_start, "video_stop": step_video_stop, "hid_drag": step_hid_drag, "hid_probe": step_hid_probe,
          "hid_click": step_hid_click, "hid_key": step_hid_key, "layout_note": step_layout_note}

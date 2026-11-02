@@ -20,12 +20,29 @@ def load(path):
         return None
 
 
+# cmux-ad 02:55Z (STATUS 4657): before #31671 (spin pacing) the gradient TUI drew in bursts (about 25 Hz of real
+# updates). A film whose round ran it cannot show content cadence: geometry and blank-frame findings stay valid.
+BURST_GRADIENT_NOTE = "burst gradient: content cadence not judged"
+SPIN_PACING_SINCE = 1793588400  # 2026-11-02T03:00:00Z: films before this with the gradient TUI used the burst kit
+
+
+def burst_gradient(folder, case):
+    """True when the round of CASE ran the gradient TUI (its result names it) and was filmed before the spin kit."""
+    meta = load(folder / f"{case}.meta.json") or {}
+    own = folder / f"{case}.result.json"
+    texts = [own.read_text(errors="replace")] if own.exists() else [p.read_text(errors="replace") for p in folder.glob("*.result.json")]
+    uses = any("gradient" in t and ("--pace spin" not in t) for t in texts)
+    filmed = (folder / f"{case}.mov").stat().st_mtime if (folder / f"{case}.mov").exists() else 0
+    return uses and filmed < SPIN_PACING_SINCE and meta.get("smoke_env") is not True
+
+
 def case_facts(folder, case):
     meta = load(folder / f"{case}.meta.json") or {}
     judge = load(folder / f"{case}.judge.json") or {}
     counts = meta.get("counts") or {}
     refresh = meta.get("refresh_ms")
-    facts = [f"refresh {refresh:.2f} ms ({1000 / refresh:.0f} Hz)" if refresh else "refresh unknown",
+    facts = ([BURST_GRADIENT_NOTE] if burst_gradient(folder, case) else []) + [
+             f"refresh {refresh:.2f} ms ({1000 / refresh:.0f} Hz)" if refresh else "refresh unknown",
              f"{counts.get('complete', '?')} frames, {counts.get('idle', '?')} idle, encoder drops {counts.get('encoder_not_ready', '?')}"]
     if judge:
         iv = judge.get("intervals_ms") or {}

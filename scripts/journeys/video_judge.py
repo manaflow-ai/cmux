@@ -56,6 +56,7 @@ JUMP_LOCAL = 5             # steps on each side used for the local median
 LAG_SEARCH = list(range(0, 13)) + [-1, -2, -3]  # model samples searched for the shown position, in order
 MODEL_MATCH_PX = 1.0       # shown divider center within this of a model center = the same geometry
 VISIBLE_ALPHA = 0.99       # model alpha from which a divider or pane must show
+EDGE_MARGIN_PT = 2.0       # a divider not wholly inside the window by this margin is off screen (the strip scrolls)
 MOVIE_SCALE_DIV = 2        # the movie is decoded at 1/2 size for content checks
 PANE_INSET_PT = 4          # content checks skip this border of each pane rect
 MIN_PANE_PT = 20           # panes smaller than this are not judged for content
@@ -67,6 +68,7 @@ FLASH_FLOOR = 40.0         # ... measured against max(baseline, 40) so dark them
 SIZE_TOL_PT = 2.0          # content laid out more than 2 pt off its shown size = not at size
 STALE_SAMPLES = 2          # ... for more than 2 model samples after the motion ends = defect
 STRETCH_REL = 0.15         # text row period off the reference by > 15% = stretched
+HARMONIC_TOL = 0.08        # ... unless the ratio is within 8% of 2, 3, 4 or their inverses (a repeat, not a stretch)
 PERIOD_MIN_CORR = 0.30     # autocorrelation peak needed to trust a text row period
 REFLOW_GRID = (24, 48)     # rows x columns of the binarized layout fingerprint
 REFLOW_CHANGE = 0.04       # > 4% of fingerprint cells changed = a new layout
@@ -87,6 +89,7 @@ class Sample:
     t: float                 # host seconds
     panes: dict              # pane id -> list (see ext_video.py)
     dividers: dict           # divider id -> [id, x, y, w, h, alpha, z]
+    window: tuple = (0.0, 0.0)  # the window's [width, height] in points (0: unknown)
 
 
 @dataclass
@@ -114,6 +117,7 @@ class Case:
     meta: dict
     movie: Path | None
     notes: list = field(default_factory=list)
+    input_t: list = field(default_factory=list)  # host s of each mouse event the app's journal kept
 
     @property
     def n(self):
@@ -155,7 +159,9 @@ def _parse_samples(trace):
     for s in trace.get("samples") or []:
         panes = {p[0]: p for p in s.get("panes") or [] if isinstance(p, list) and len(p) >= 5}
         dividers = {d[0]: d for d in s.get("dividers") or [] if isinstance(d, list) and len(d) >= 5}
-        samples.append(Sample(t0 + float(s.get("t", 0.0)) / 1000.0, panes, dividers))
+        win = s.get("window") or [0, 0]
+        samples.append(Sample(t0 + float(s.get("t", 0.0)) / 1000.0, panes, dividers,
+                              (float(win[0] or 0), float(win[1] or 0)) if len(win) >= 2 else (0.0, 0.0)))
     samples.sort(key=lambda s: s.t)
     return samples
 
@@ -201,9 +207,20 @@ def load_case(base):
                 rows=[], columns=[], row_px=np.zeros((len(complete_t), 0, 0, 4), np.uint8),
                 col_px=np.zeros((len(complete_t), 0, 0, 4), np.uint8), has_scan=np.zeros(len(complete_t), bool),
                 scan_info={}, samples=samples, sample_t=[s.t for s in samples], hid=list(events.get("hid") or []),
-                meta=meta, movie=Path(f"{base}.mov") if Path(f"{base}.mov").is_file() else None)
+                meta=meta, movie=Path(f"{base}.mov") if Path(f"{base}.mov").is_file() else None,
+                input_t=_input_times(events))
     _attach_scan(case, Path(f"{base}.mov.scan"))
     return case
+
+
+def _input_times(events):
+    """Host seconds of each mouse or key event the app's input journal received (`uptimeNanos`, the host clock)."""
+    out = []
+    for e in events.get("journal") or []:
+        kind = e.get("kind") or {}
+        if isinstance(kind, dict) and "mouse" in kind and e.get("uptimeNanos"):
+            out.append(float(e["uptimeNanos"]) / 1e9)
+    return sorted(out)
 
 
 def _attach_scan(case, path):
@@ -400,6 +417,15 @@ def check_pacing(case, windows):
                                         f"no frames.json entry for {gap * 1000:.1f} ms during motion "
                                         f"({missed} refreshes): the recorder, not the app", "recorder"))
                 continue
+            # During a drag the screen can only change when input came: a refresh with no new input before it is
+            # not the app's drop (first real films: CuaDriver sent ~92 moves/s). Only when the journal has input.
+            sparse = _sparse_input(case, t1, t2)
+            if sparse is not None:
+                findings.append(finding(case, "frame gap during slow input", i, i + 1,
+                                        f"{gap * 1000:.1f} ms between frames during a drag whose input reached the app at "
+                                        f"{sparse:.0f} events/s (journal), under the refresh rate: a refresh may have had no "
+                                        "new input, so this is not counted as a drop", "note"))
+                continue
             dropped += missed
             findings.append(finding(case, "dropped frames", i, i + 1,
                                     f"{missed} refresh{'es' if missed > 1 else ''} without a new frame during motion "
@@ -411,6 +437,17 @@ def check_pacing(case, windows):
                 findings.append(finding(case, "idle refresh in motion", i, i + 1,
                                         "the window server composited nothing new for one refresh during motion"))
     return findings, intervals, dropped
+
+
+def _sparse_input(case, t1, t2):
+    """During a pointer drag (the journal's first to last mouse event spans [t1, t2]) whose events reached the app
+    slower than the refresh, the input rate (events/s); else None. Then a missing refresh may have had no new input:
+    the first real slow drag (CuaDriver) came at about 12 journal events/s at 120 Hz."""
+    xs = case.input_t
+    if len(xs) < 2 or not (xs[0] <= t1 and t2 <= xs[-1]):
+        return None
+    rate = (len(xs) - 1) / max(1e-6, xs[-1] - xs[0])
+    return rate if rate < 0.9 / case.period else None
 
 
 def interval_stats(intervals, period):
@@ -525,10 +562,16 @@ def model_center(case, k, div_id, axis, coord_pt):
     """Center (device px) of divider div_id along the axis in sample k, or None when it does not show there."""
     if k is None or not (0 <= k < len(case.samples)):
         return None
-    d = case.samples[k].dividers.get(div_id)
+    sample = case.samples[k]
+    d = sample.dividers.get(div_id)
     if d is None or not _visible(d) or not _crosses(d, axis, coord_pt):
         return None
     start, length = _along(d, axis)
+    # A divider of a strip wider than the window can sit at negative x or past the right edge: it is not on screen.
+    # (First real films, 2026-11-02: such dividers were clamped to the window edge and gave false findings.)
+    extent = sample.window[0] if axis == "row" else sample.window[1]
+    if extent and (start < EDGE_MARGIN_PT or start + length > extent - EDGE_MARGIN_PT):
+        return None
     return (start + length / 2) * case.scale
 
 
@@ -581,6 +624,9 @@ def _follow(case, track, frames):
         k = committed_sample(case, case.complete_t[f])
         exp = model_center(case, k, track.div_id, track.line.axis, coord_pt) if case.samples else None
         track.expect[f] = exp
+        if case.samples and exp is None:
+            track.pos[f] = None  # the model has it off screen or hidden in this frame: nothing to follow or judge
+            continue
         row16 = track.line.px[f].astype(np.int16)
         starts, ends = _runs(np.abs(row16 - track.color).max(-1) <= TRACK_TOL)
         lengths = ends - starts
@@ -1052,7 +1098,8 @@ def judge_content(case, window, stats):
                 blank.setdefault(f, []).append(f"pane {pid} {s['flat'] * 100:.1f}% flat (at rest "
                                                f"{ref['flat'] * 100:.1f}%)")
             if (f in judged and window.a <= f <= window.b and ref["period"] and s["period"]
-                    and abs(s["period"] / ref["period"] - 1) > STRETCH_REL):
+                    and abs(s["period"] / ref["period"] - 1) > STRETCH_REL
+                    and not _harmonic(s["period"] / ref["period"])):
                 stretch.setdefault(f, []).append(f"pane {pid} text rows every {s['period']:.1f} px, at rest "
                                                  f"{ref['period']:.1f} px")
         _find_flashes(series, judged, blank_frames, pid, flash)
@@ -1067,6 +1114,15 @@ def judge_content(case, window, stats):
                            f"pane {r['pane']} shows {r['layouts']} text layouts during motion "
                            f"(changes at frames {r['frames'][:12]})", "note"))
     return out, reflow
+
+
+def _harmonic(ratio):
+    """A text-row period about 2x, 3x, 1/2 or 1/3 of the reference is the autocorrelation locking on a repeat of
+    the text (lines that wrap every other row as a column narrows), not scaled text (first real films, 2026-11-02)."""
+    for n in (2, 3, 4):
+        if abs(ratio - n) <= HARMONIC_TOL * n or abs(ratio - 1 / n) <= HARMONIC_TOL / n:
+            return True
+    return False
 
 
 def _find_flashes(series, judged, skip, pid, hits):

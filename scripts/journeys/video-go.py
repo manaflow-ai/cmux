@@ -67,6 +67,28 @@ def refuse_cua_recording(journey_ids):
                 raise SystemExit(f"video-go: journey {jid} ({path}) calls a CuaDriver recorder: refused (CuaDriver is input only)")
 
 
+PROFILER_STEPS = ("sample_start", "profile_start", "xctrace_start", "trace_cpu_start")
+
+
+def refuse_unpinned_profilers(journey_ids):
+    """cmux-ad 02:55Z: in a profiled case, the key under test waits for the profiler's FIRST SAMPLE, not for its
+    "Starting recording" / "Sampling process" line (xctrace started 280 ms after that line in a RESIZE suite run).
+    A profiler start step must say `"wait_first_sample": true` (the step itself then waits for proof of a first
+    sample: a sample timestamp or the profiler's attach seen in the target), else the round is refused."""
+    for jid in journey_ids:
+        for path in (HERE / "journeys").rglob("*.json"):
+            try:
+                spec = json.loads(path.read_text())
+            except ValueError:
+                continue
+            if not isinstance(spec, dict) or spec.get("id") != jid:
+                continue
+            for step in spec.get("steps") or []:
+                if isinstance(step, dict) and step.get("do") in PROFILER_STEPS and step.get("wait_first_sample") is not True:
+                    raise SystemExit(f"video-go: journey {jid} ({path}) starts a profiler ({step.get('do')}) without "
+                                     "\"wait_first_sample\": true: refused (KIT.md 2b, cmux-ad 02:55Z)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--spec", required=True)
@@ -85,6 +107,7 @@ def main():
     if not os.environ.get("CMUX_AGENT_ID"):
         ap.error("export CMUX_AGENT_ID first (capture leases carry their owner)")
     refuse_cua_recording(opts.journey)
+    refuse_unpinned_profilers(opts.journey)
     # The build first: a GO is a mini held for this round now, never while the build still runs (the scheduler
     # withdraws a GO with no lease after 240 s). A wait timeout leaves the job running: wait again, never resubmit.
     while True:
