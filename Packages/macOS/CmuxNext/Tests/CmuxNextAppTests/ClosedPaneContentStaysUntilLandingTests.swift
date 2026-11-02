@@ -39,86 +39,135 @@ import Testing
         for _ in 0..<40 { await Task.yield() }
     }
 
-    /// Waits until two main run-loop passes have committed, so after-commit work the landing scheduled has run: the
-    /// signal `AfterFrameCommit` uses, a one-shot before-waiting observer after every other observer of the pass.
-    private static func nextCommittedPasses() async {
-        for _ in 0..<2 {
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
-                                                                  false, CFIndex.max) { _, _ in
-                    done.resume()
-                    CFRunLoopWakeUp(CFRunLoopGetMain())
-                }
-                CFRunLoopAddObserver(CFRunLoopGetMain(), observer, CFRunLoopMode.commonModes)
-            }
+    /// The layout's after-commit work, collected: the test runs it where a committed frame would (`LayoutViewContext.afterCommit`).
+    @MainActor final class Committed {
+        var work: [@MainActor () -> Void] = []
+        func run() { let pending = work; work = []; for item in pending { item() } }
+    }
+
+    /// A window of three terminal panes in columns on an offline store, the layout's clock manual (120 Hz), every pane
+    /// showing its terminal, at rest.
+    @MainActor final class Fixture {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let state: WindowState
+        let window: NSWindow
+        let content: WorkspaceContentController
+        let committed = Committed()
+        var root: LayoutRootView { content.layoutView }
+        var store: DaemonStore { services.daemon.store }
+        var cache: TabContentCache { services.cache }
+
+        init() async throws {
+            _ = NSApplication.shared
+            let store = services.daemon.store
+            store.connectionState = .connected(try ClosedPaneContentStaysUntilLandingTests.connected())
+            store.apply(snapshot: ClosedPaneContentStaysUntilLandingTests.tree([1, 2, 3]))
+            let workspace = try #require(store.workspaces.first)
+            let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
+            // The controller holds its window state unowned: the fixture keeps it alive, as its window does.
+            state = WindowState(record: record)
+            window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1200, height: 700), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+            content.contentView.frame = NSRect(x: 0, y: 0, width: 1200, height: 700)
+            window.contentView = content.contentView
+            window.orderFrontRegardless()
+            // Pins the pane springs on without touching the shared settings; from here the test is the clock.
+            root.context.reduceMotionOverride = false
+            root.context.afterCommit = { [committed] in committed.work.append($0) }
+            root.driver.isManual = true
+            root.driver.detach()
+            root.driver.attach(to: root)
+            content.applyCurrent()
+            content.contentView.layoutSubtreeIfNeeded()
+            settle()
+            // Every pane shows its terminal (the display frames the presentation scheduler would run them in).
+            for pane in content.panes.values { pane.showSelected() }
+            await ClosedPaneContentStaysUntilLandingTests.drainMain()
+        }
+
+        /// Steps frames until the layout rests (at most 5 s) and returns how many ran.
+        @discardableResult func settle() -> Int {
+            var frames = 0
+            while frames < 600, root.advanceFrame(ClosedPaneContentStaysUntilLandingTests.dt) { frames += 1 }
+            return frames
+        }
+
+        func close() { withExtendedLifetime((services, state)) { content.teardown(); window.close() } }
+
+        func pane(_ id: UInt64) throws -> PaneController {
+            try #require(content.panes.values.first { $0.pane.handle == CmuxNextDaemon.PaneID(rawValue: id) }, "fixture: pane \(id) is mounted")
+        }
+
+        func tab(_ id: UInt64) throws -> String {
+            try #require(store.tab(surface: CmuxNextDaemon.SurfaceID(rawValue: id))?.id)
         }
     }
 
     @Test(.timeLimit(.minutes(1)))
     func aClosingPanesContentStaysUntilTheMotionLands() async throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let store = services.daemon.store
-        let cache = services.cache
-        store.connectionState = .connected(try Self.connected())
-        store.apply(snapshot: Self.tree([1, 2, 3]))
-        let workspace = try #require(store.workspaces.first)
-        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
-        // The controller holds its window state unowned: the test keeps it alive, as its window does.
-        let state = WindowState(record: record)
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1200, height: 700), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
-        defer { withExtendedLifetime((services, state)) { content.teardown(); window.close() } }
-        content.contentView.frame = NSRect(x: 0, y: 0, width: 1200, height: 700)
-        window.contentView = content.contentView
-        window.orderFrontRegardless()
-        let root = content.layoutView
-        // Pins the pane springs on without touching the shared settings; from here the test is the clock.
-        root.context.reduceMotionOverride = false
-        root.driver.isManual = true
-        root.driver.detach()
-        root.driver.attach(to: root)
-        content.applyCurrent()
-        content.contentView.layoutSubtreeIfNeeded()
-        for _ in 0..<600 where root.advanceFrame(Self.dt) {}
-        // Every pane shows its terminal (the display frames the presentation scheduler would run them in).
-        for pane in content.panes.values { pane.showSelected() }
-        await Self.drainMain()
-
-        let closing = try #require(content.panes.values.first { $0.pane.handle == CmuxNextDaemon.PaneID(rawValue: 2) }, "fixture: pane 2 is mounted")
-        let closedTab = try #require(store.tab(surface: CmuxNextDaemon.SurfaceID(rawValue: 2))?.id)
+        let app = try await Fixture()
+        defer { app.close() }
+        let closing = try app.pane(2), closedTab = try app.tab(2), kept = try app.tab(1)
         try #require(closing.currentTabKey == closedTab, "fixture: pane 2 shows its terminal")
-        try #require(cache.existingTerminal(closedTab) != nil, "fixture: pane 2's terminal exists")
-        let kept = try #require(store.tab(surface: CmuxNextDaemon.SurfaceID(rawValue: 1))?.id)
+        try #require(app.cache.existingTerminal(closedTab) != nil, "fixture: pane 2's terminal exists")
 
         // The close's turn, as Cmd-W on pane 2's last tab runs it (`PaneController.prepareClose`): the tab leaves the
         // strip (the pane withdraws its terminal), the pane leaves its window and its neighbours spring into its place.
         let prepared = try #require(closing.prepareClose(closing.stripModel.orderedTabs.map(\.id)), "fixture: the close has a daemon tab")
-        let screen = try #require(root.screenViews.values.first { !$0.isHidden })
+        let screen = try #require(app.root.screenViews.values.first { !$0.isHidden })
         try #require(screen.hasMotion, "fixture: the close springs")
         // The daemon's tree drops the pane (its gone-tab watch wakes), then the close's reply settles it and releases its tab.
-        store.apply(snapshot: Self.tree([1, 3]))
-        await Self.drainMain()
+        app.store.apply(snapshot: ClosedPaneContentStaysUntilLandingTests.tree([1, 3]))
+        await ClosedPaneContentStaysUntilLandingTests.drainMain()
         await prepared.finish(false, false)
+
         var releasedInFrame: Int?
         var frames = 0
-        if cache.existingTerminal(closedTab) == nil { releasedInFrame = 0 }
+        if app.cache.existingTerminal(closedTab) == nil { releasedInFrame = 0 }
         while frames < 600 {
-            let moving = root.advanceFrame(Self.dt)
+            let moving = app.root.advanceFrame(Self.dt)
             frames += 1
             await Self.drainMain()
             if !moving { break }
-            if releasedInFrame == nil, cache.existingTerminal(closedTab) == nil {
-                releasedInFrame = frames
-            }
+            app.committed.run() // a motion frame's commit: nothing it ran may take the closed terminal
+            if releasedInFrame == nil, app.cache.existingTerminal(closedTab) == nil { releasedInFrame = frames }
         }
-        await Self.nextCommittedPasses()
         #expect(frames > 10, "the close springs over several frames (\(frames))")
         #expect(releasedInFrame == nil,
                 "the closed pane's terminal was torn down in motion frame \(releasedInFrame ?? -1) of \(frames): work no frame shows ran in the motion")
-        #expect(cache.existingTerminal(closedTab) == nil, "the closed pane's terminal stayed after the motion landed")
-        #expect(cache.existingTerminal(kept) != nil, "a pane that stays lost its terminal")
+        #expect(app.cache.existingTerminal(closedTab) != nil, "the landing frame itself tore the terminal down, before its commit")
+        app.committed.run() // the landing frame committed
+        #expect(app.cache.existingTerminal(closedTab) == nil, "the closed pane's terminal stayed after the landing's commit")
+        #expect(app.cache.existingTerminal(kept) != nil, "a pane that stays lost its terminal")
+    }
+
+    /// A close that does not happen (refused, or a reply that missed its deadline and the next tree still lists the
+    /// pane) brings the pane back. A release held for it runs before it shows again, as on a close with no motion, so
+    /// no late release takes the terminal the pane shows after it came back (review of #32197, should-fix 2).
+    @Test(.timeLimit(.minutes(1)))
+    func aPaneThatComesBackKeepsTheTerminalItShows() async throws {
+        let app = try await Fixture()
+        defer { app.close() }
+        let closing = try app.pane(2), tab = try app.tab(2)
+        let prepared = try #require(closing.prepareClose(closing.stripModel.orderedTabs.map(\.id)), "fixture: the close has a daemon tab")
+        try #require(app.root.screenViews.values.contains { !$0.isHidden && $0.hasMotion }, "fixture: the close springs")
+        // A release while it closes (the gone-tab watch or the reply): held for the landing.
+        app.cache.release(tab)
+        try #require(app.cache.existingTerminal(tab) != nil, "fixture: the release is held while the pane closes")
+
+        // The daemon refused: the pane comes back, and shows its tab again.
+        await prepared.finish(true, false)
+        await Self.drainMain()
+        closing.showSelected()
+        await Self.drainMain()
+        for _ in 0..<3 { app.root.advanceFrame(Self.dt); app.committed.run() }
+        app.settle()
+        app.committed.run()
+        await Self.drainMain()
+
+        #expect(closing.currentTabKey == tab, "the pane that came back does not show its tab (\(closing.currentTabKey ?? "nil"))")
+        #expect(app.cache.existingTerminal(tab) != nil, "a held release ran after the pane came back and took its terminal")
     }
 }

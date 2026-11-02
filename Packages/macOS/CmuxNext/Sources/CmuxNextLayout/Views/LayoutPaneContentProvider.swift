@@ -125,7 +125,8 @@ final class LayoutViewContext {
         if let host = hosts[pane] { return host }
         // A close that springs is taken back before it landed (a refused close, a reopen): the same host shows again.
         if let entry = retired.removeValue(forKey: pane) {
-            runClosingWork(of: pane)
+            // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
+            runClosingWork(of: pane, now: true)
             entry.host.isHidden = false
             entry.host.chrome.isHidden = false
             // Its ring is placed again by the next overlay sync, whatever it last showed.
@@ -164,7 +165,7 @@ final class LayoutViewContext {
     private(set) var retired: [PaneID: (host: PaneHostView, screen: ScreenID, until: Retirement)] = [:]
     /// Work that waits for a closing pane to go (``afterClosing(_:id:_:)``), by pane and id.
     private var closingWork: [PaneID: [String: @MainActor () -> Void]] = [:]
-    /// Runs work once the current main run-loop pass committed its frame (`AfterFrameCommit`); tests pass their own.
+    /// Runs work once the current main run-loop pass committed its frame (`AfterFrameCommit`); a test collects it and runs it.
     var afterCommit: (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }
 
     /// Until when a retired host is kept.
@@ -211,9 +212,10 @@ final class LayoutViewContext {
         return true
     }
 
-    private func runClosingWork(of pane: PaneID) {
+    /// `now`: the pane comes back and the work runs before it shows again; else after this frame's commit.
+    private func runClosingWork(of pane: PaneID, now: Bool = false) {
         guard let work = closingWork.removeValue(forKey: pane) else { return }
-        afterCommit { for item in work.values { item() } }
+        if now { for item in work.values { item() } } else { afterCommit { for item in work.values { item() } } }
     }
 
     /// Whether `chrome` is the ring of a retired host: the overlay sync leaves it for the teardown.

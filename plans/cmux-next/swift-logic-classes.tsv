@@ -2918,7 +2918,7 @@ CmuxNextApp	extension	TabContentCache	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sou
 CmuxNextApp	extension	TabContentCache	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache+Deferred.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	TabContentCache	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache+DevTools.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	TabContentCache	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache+FontScale.swift	AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	class	GoneTabWatch	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache+GoneTabs.swift	from class GoneTabWatch:14: AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextDaemon	class	GoneTabWatch	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/GoneTabWatch.swift	from class GoneTabWatch:14: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	IncognitoPageMemory	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache+Incognito.swift	from class PageInstallCounter:9: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	PageInstallCounter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache+Incognito.swift	from class PageInstallCounter:9: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	TabContentCache	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache+Incognito.swift	from class PageInstallCounter:9: AppKit/SwiftUI view, host or thin daemon call site
