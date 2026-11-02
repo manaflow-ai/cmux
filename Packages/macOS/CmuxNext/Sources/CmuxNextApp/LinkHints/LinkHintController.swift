@@ -18,6 +18,7 @@ final class LinkHintController {
         let isFocused: () -> Bool
         let openInSplit: (URL) -> Void
         let notice: (String) -> Void
+        var held = LinkHintHeldKeys<NSEvent>() // taken before the page answered: a text field's when one has the keyboard
     }
 
     private var session: Session?
@@ -32,9 +33,9 @@ final class LinkHintController {
         session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
                           openInSplit: openInSplit, notice: notice)
         work = Task { [weak self] in
-            let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated, gesture: .cmux)
+            let value = try? await tab.evaluate(LinkHintSession.sessionCollectScript, world: .isolated, gesture: .cmux)
             guard !Task.isCancelled else { return }
-            self?.collected(value.map(LinkHintSession.targets(from:)) ?? [], from: tab)
+            self?.collected(value.map(LinkHintSession.targets(from:)) ?? [], editing: value.map(LinkHintSession.editing(from:)) ?? false, from: tab)
         }
     }
 
@@ -63,6 +64,7 @@ final class LinkHintController {
             cancel()
             return false
         }
+        if current.keys.hints == nil { current.held.hold(event) }
         session = current
         apply(outcome, on: tab)
         return true
@@ -71,19 +73,17 @@ final class LinkHintController {
     func cancel() {
         work?.cancel()
         work = nil
-        guard let tab = session?.tab else {
-            session = nil
-            return
-        }
+        guard let tab = session?.tab else { return session = nil }
         session = nil
         // task-owner: fire-and-forget overlay removal; nothing waits on it.
         Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
     }
 
-    private func collected(_ targets: [LinkHintTarget], from tab: CEFTab) {
+    private func collected(_ targets: [LinkHintTarget], editing: Bool, from tab: CEFTab) {
         guard var current = session, current.tab === tab else { return }
-        let outcome = current.keys.show(targets)
+        let outcome = current.keys.show(targets, editing: editing)
         session = current
+        if outcome == .passThrough { session = nil; return current.held.release(after: outcome).forEach { NSApp.sendEvent($0) } }
         if outcome == .cancel {
             current.notice(LinkHintStrings.noLinks)
             session = nil
@@ -100,7 +100,7 @@ final class LinkHintController {
     private func apply(_ outcome: LinkHintSession.Outcome, on tab: CEFTab) {
         guard let current = session else { return }
         switch outcome {
-        case .cancel:
+        case .cancel, .passThrough:
             cancel()
         case .narrow(let prefix):
             guard current.keys.hints != nil else { return }
