@@ -87,8 +87,45 @@ import Testing
         try await rig.clock.waitForSleeper()
         #expect(!tab.documentSettled, "the read is given its limit")
         rig.clock.advance(by: CEFTab.settleReadLimit)
+        for _ in 0..<200 where !tab.documentSettled { await Task.yield() }
+        #expect(tab.documentSettled, "settled by the limit's timer, while the read is still pending (no 5 s timeout)")
+    }
+
+    /// Load end on a settled document reads its background again (a page that turns dark after its first paint).
+    @Test func loadEndAfterTheAnswerReadsTheColorAgain() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.committedTab()
+        CEFFirstPaintBridge(tab: tab).painted()
+        await rig.until { ShimLog.evaluates > 0 }
+        rig.answerEvaluate(#"{"result":{"type":"object","value":[255,255,255]}}"#)
         await rig.until { tab.documentSettled }
-        #expect(tab.documentSettled, "settled at the limit, not after the 5 s evaluate timeout")
+        rig.runtime.handle(.loadEnd(browser: Rig.browser, httpStatus: 200))
+        await rig.until { ShimLog.evaluates == 2 }
+        #expect(ShimLog.evaluates == 2, "load end on a settled document reads again")
+        rig.answerEvaluate(#"{"result":{"type":"object","value":[11,42,74]}}"#)
+        await rig.until { ShimLog.backgrounds.last == Self.navy }
+        #expect(ShimLog.backgrounds.last == Self.navy, "the later color applies")
+    }
+
+    /// Load end during the in-flight paint read: one more read follows the answer, so a background set between the
+    /// paint and the load end is still seen.
+    @Test func loadEndDuringTheReadOwesOneMoreRead() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.committedTab()
+        CEFFirstPaintBridge(tab: tab).painted()
+        await rig.until { ShimLog.evaluates > 0 }
+        rig.runtime.handle(.loadEnd(browser: Rig.browser, httpStatus: 200))
+        for _ in 0..<10 { await Task.yield() }
+        #expect(ShimLog.evaluates == 1, "one read in flight at a time")
+        rig.answerEvaluate(#"{"result":{"type":"object","value":[255,255,255]}}"#)
+        await rig.until { ShimLog.evaluates == 2 }
+        #expect(ShimLog.evaluates == 2, "the owed read follows the answer")
+        rig.answerEvaluate(#"{"result":{"type":"object","value":[11,42,74]}}"#)
+        await rig.until { ShimLog.backgrounds.last == Self.navy }
+        #expect(ShimLog.backgrounds.last == Self.navy)
+        #expect(tab.documentSettled)
     }
 
     /// A page with no background of its own is white, the web default.

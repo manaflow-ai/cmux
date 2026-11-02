@@ -114,6 +114,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The document (`pageBackdropDocument`) whose background read is in flight from its paint or load end
     /// (`documentDidPaint`), so the second of the two events starts no second read.
     @ObservationIgnored var pageBackdropReading: Int?
+    /// A load end or stop came while that read was in flight: one more read follows its answer.
+    @ObservationIgnored var pageBackdropReReadOwed = false
     /// Bumped on each committed document, so a read of the previous one is dropped.
     @ObservationIgnored var pageBackdropDocument = 0
     /// The committed document's load settled, so the page area is its own.

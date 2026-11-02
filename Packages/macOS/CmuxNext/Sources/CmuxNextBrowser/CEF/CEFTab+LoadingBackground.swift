@@ -53,8 +53,14 @@ extension CEFTab {
         guard pastFirstRealPage, !documentSettled else { return }
         guard BrowserResizeTunables.pageBackdrop.value, browserID != nil, !isClosed else { return documentDidSettle() }
         let document = pageBackdropDocument
-        guard pageBackdropReading != document else { return }
+        guard pageBackdropReading != document else {
+            // Load end or stop during the in-flight read: the page may have set its background since that read left,
+            // so one more read follows the answer (one read in flight at a time).
+            pageBackdropReReadOwed = true
+            return
+        }
         pageBackdropReading = document
+        pageBackdropReReadOwed = false
         settleTimer.schedule(after: Self.settleReadLimit) { @MainActor [weak self] in
             guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
             self.documentDidSettle()
@@ -68,6 +74,10 @@ extension CEFTab {
                 if self.documentSettled { self.applyPageBackground() }
             }
             self.documentDidSettle()
+            if self.pageBackdropReReadOwed {
+                self.pageBackdropReReadOwed = false
+                self.samplePageBackdrop()
+            }
         }
     }
 
