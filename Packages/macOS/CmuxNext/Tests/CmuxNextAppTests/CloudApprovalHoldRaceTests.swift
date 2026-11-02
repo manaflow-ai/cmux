@@ -99,6 +99,20 @@ import Testing
         #expect(backend.feedAnswers == 0)
     }
 
+    @Test func anotherTeamsHoldTheFeedShowsAnsweredStillFailsAtOnce() async throws {
+        let backend = Backend()
+        backend.itemTeam = "team_b"
+        backend.answeredOnPhone = true
+        let holds = CloudApprovalHolds()
+        // The person answered team_b's hold on the phone; this create is team_a's (this head keeps no team).
+        holds.recordAnswered(["apr_1"])
+        await #expect(throws: CloudApprovalAnswer.Failure.mismatch(request: "apr_1", reason: CloudApprovalAnswer.closedItem)) {
+            try await flow(backend, holds: holds).create(name: "cloud-chats", startedByPerson: true)
+        }
+        #expect(backend.sessionCalls > 0, "another team's closed hold skipped the create's own team check")
+        #expect(backend.feedAnswers == 0)
+    }
+
     @Test func aHoldTheFeedShowsAnsweredIsNotAskedAboutAgain() async throws {
         let backend = Backend()
         let holds = CloudApprovalHolds()
