@@ -328,10 +328,10 @@ fn event_text(value: &Value) -> Option<String> {
         }
     }
     for key in ["message", "msg", "params", "update"] {
-        if let Some(nested) = value.get(key) {
-            if let Some(text) = event_text(nested) {
-                return Some(text);
-            }
+        if let Some(nested) = value.get(key)
+            && let Some(text) = event_text(nested)
+        {
+            return Some(text);
         }
     }
     if let Some(content) = value.get("content") {
