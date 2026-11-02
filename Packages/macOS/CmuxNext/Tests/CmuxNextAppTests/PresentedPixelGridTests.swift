@@ -108,8 +108,25 @@ struct PresentedPixelGridTests {
         #expect(off.isEmpty, "frames with an edge off the device grid (scale \(strip.scale)): \(off.prefix(4))")
     }
 
-    /// Closing the focused last column of a scrolled strip: the camera rides the close spring while the
-    /// panes move (`scrollRidesFrames`); every pane and divider stays on the grid.
+    /// New Column beside the focused last column of a scrolled strip: the camera reveals the new column on
+    /// its scroll spring while the old columns keep their widths (R3b); every pane and divider stays on the grid.
+    @Test func aNewColumnRevealKeepsEveryPaneOnThePixelGrid() {
+        let strip = Strip(Self.columns(3, width: 0.45), focused: "p3")
+        defer { strip.window.closeAfterTest() }
+        #expect(strip.offGrid().isEmpty, "at rest everything is on the grid: \(strip.offGrid())")
+        let before = strip.screen.scroll.value
+        strip.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.columns(4, width: 0.45))])
+        strip.root.syncWithModel()
+        strip.model.focus("p4", notify: false)
+        strip.root.syncWithModel()
+        #expect(abs(strip.screen.scroll.target - before) > 50, "the new column moves the camera (\(before) -> \(strip.screen.scroll.target))")
+        let off = strip.stepRecordingOffGrid()
+        #expect(off.isEmpty, "frames with an edge off the device grid (scale \(strip.scale)): \(off.prefix(4))")
+    }
+
+    /// Closing the focused last column of a scrolled strip: every pane and divider stays on the grid. (A guard:
+    /// this close clamps the camera at once and carries the panes on their own rounded springs, so it passed
+    /// before the fix too.)
     @Test func aCloseWithACameraShiftKeepsEveryPaneOnThePixelGrid() {
         let strip = Strip(Self.columns(3), focused: "p3")
         defer { strip.window.closeAfterTest() }
