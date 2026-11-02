@@ -318,19 +318,28 @@ impl Seed {
             String::from_utf8_lossy(&bytes).trim().to_owned()
         });
         let requested = self.params.branch.as_ref().map(|name| format!("refs/heads/{name}"));
-        if branch != requested {
-            return Err(changed("the checkout branch differs from this seed's branch"));
-        }
-        if seeded_head.is_none() {
-            // A clean Git status can still hide unpushed commits: resetting
-            // this branch with checkout -B would orphan them. Only a pristine
-            // branch at its known origin-tracking commit may be adopted.
-            let Some(branch) = self.params.branch.as_deref() else {
-                return Err(changed("an existing detached checkout cannot be reseeded"));
+        if seeded_head.is_some() {
+            if branch != requested {
+                return Err(changed("the checkout branch differs from this seed's branch"));
+            }
+        } else {
+            // Git status can be clean while HEAD holds unpublished commits.
+            // Require this clone's current branch to equal its origin-tracking
+            // ref. A different requested branch may be created safely only
+            // when it does not already hold another Cloud commit.
+            let Some(current) = branch.as_deref().and_then(|value| value.strip_prefix("refs/heads/"))
+            else {
+                return Err(changed("the existing clone has no checked-out branch"));
             };
-            let upstream = format!("refs/remotes/origin/{branch}^{{commit}}");
+            let upstream = format!("refs/remotes/origin/{current}^{{commit}}");
             if recorded(&upstream).as_deref() != Some(head.as_str()) {
-                return Err(changed("the existing checkout has unpublished commits or no origin-tracking ref"));
+                return Err(changed("the existing clone has unpublished commits or no origin-tracking ref"));
+            }
+            if let Some(requested) = &requested
+                && branch.as_ref() != Some(requested)
+                && recorded(&format!("{requested}^{{commit}}")).is_some()
+            {
+                return Err(changed("the requested branch already holds Cloud commits"));
             }
         }
         let stash = recorded("refs/stash^{commit}");
