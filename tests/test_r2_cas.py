@@ -226,9 +226,57 @@ class LeaseTests(unittest.TestCase):
             self.assertTrue(self.lock("run-1", ttl=600, wait=60))
         finally:
             r2_cas._store = real_store
-        self.assertEqual(sum(1 for method, *_ in self.r2.requests if method == "PUT"), 1)
+        # The landed PUT, then the conditional rewrite that confirms it: never a second taker.
+        self.assertEqual(sum(1 for method, *_ in self.r2.requests if method == "PUT"), 2)
+        self.assertIn("if-match", self.r2.requests[-1][2])
         # Another attempt of the same owner (a later job of the run) has its own token: it waits.
         self.assertFalse(self.lock("run-1", ttl=600, wait=0))
+
+    def test_expiry_is_judged_by_the_records_own_ttl_not_the_waiters(self):
+        self.assertTrue(self.lock("run-1", ttl=3600))
+        self.r2.now += 901
+        self.assertFalse(self.lock("run-2", ttl=900), "a waiter with a shorter TTL took a live lease")
+        self.r2.now += 3600
+        self.assertTrue(self.lock("run-2", ttl=900))
+
+    def test_an_active_lease_in_the_old_format_is_not_taken_after_the_new_ttl(self):
+        # #32275's record: no token, no ttl, written with a 10800s TTL and never renewed.
+        self.r2.objects["locks/l.json"] = (b'{"owner": "41000000000-1"}', '"old"', self.r2.now)
+        self.r2.now += 901
+        self.assertFalse(self.lock("run-2", ttl=900))
+        self.assertTrue(r2_cas.holds("locks/l.json", "41000000000-1"))
+        self.r2.now += r2_cas.LEGACY_TTL - 901
+        self.assertFalse(self.lock("run-2", ttl=900))
+        self.r2.now += 1
+        self.assertTrue(self.lock("run-2", ttl=900))
+
+    def test_a_recovered_lease_past_its_ttl_is_rewritten_before_it_counts_as_held(self):
+        real_store = r2_cas._store
+        lost = []
+
+        def lossy_store(key, lease, etag):
+            written = real_store(key, lease, etag)
+            if not lost:
+                lost.append(True)
+                raise urllib.error.URLError(ConnectionResetError("response lost"))
+            return written
+
+        r2_cas._store = lossy_store
+        try:
+            # ttl 5 < the 10s poll: by the retry's read the landed lease has expired.
+            self.assertTrue(self.lock("run-1", ttl=5, wait=60))
+        finally:
+            r2_cas._store = real_store
+        self.assertEqual(sum(1 for method, *_ in self.r2.requests if method == "PUT"), 2)
+        self.assertEqual(self.r2.objects["locks/l.json"][2], self.r2.now, "the recovered lease was not rewritten")
+        # Before any heartbeat, a second writer finds it fresh.
+        self.assertFalse(self.lock("run-2", ttl=5))
+        self.assertTrue(r2_cas.holds("locks/l.json", "run-1"))
+
+    def test_renewal_keeps_the_records_ttl(self):
+        self.assertTrue(r2_cas.lock("locks/l.json", "run-1", 900, 0, self.clock, self.sleep, token="t1"))
+        self.assertTrue(r2_cas.renew("locks/l.json", "run-1", "t1"))
+        self.assertEqual(r2_cas._lease(self.r2.objects["locks/l.json"][0])["ttl"], 900)
 
     def test_renewal_keeps_a_short_lease_alive_and_changes_its_etag(self):
         self.assertTrue(r2_cas.lock("locks/l.json", "run-1", 60, 0, self.clock, self.sleep, token="t1"))

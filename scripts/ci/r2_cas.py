@@ -23,7 +23,9 @@ correct with R2's conditional requests instead.
         released or expired lease only while it still holds the bytes read.
         Expiry is judged on R2's clock (the response Date against the lease's
         Last-Modified), never a runner's, so runners' clock skew cannot end a
-        live lease early. A transient R2 error (a dropped connection, a
+        live lease early, and by the TTL stored in the lease record (its
+        writer's), never the waiter's; a record without one is given
+        LEGACY_TTL. A transient R2 error (a dropped connection, a
         timeout, a 429 or 5xx) is retried for the rest of the wait, and a write
         whose response was lost is recognised by the attempt's own token on the
         next read. Exits 3 when the wait runs out.
@@ -72,6 +74,9 @@ _spec.loader.exec_module(r2)
 CONFLICT = 3
 NOTHING_TO_RELEASE = 4
 POLL = 10
+# A lease record without its own "ttl" (#32275's format: no heartbeat) was written
+# with the longest TTL any writer then passed (publish-nightly's 180-minute timeout).
+LEGACY_TTL = 10800
 
 
 def _target(key: str, cache_control: str = "no-cache", content_type: str = "application/octet-stream") -> argparse.Namespace:
@@ -153,6 +158,15 @@ def transient(error: BaseException) -> bool:
     return isinstance(error, (urllib.error.URLError, OSError, http.client.HTTPException))
 
 
+def _ttl(lease: dict) -> float:
+    """The TTL the lease's own writer chose; a waiter never judges it by its own."""
+    try:
+        ttl = float(lease["ttl"])
+    except (KeyError, TypeError, ValueError):
+        return LEGACY_TTL
+    return ttl if ttl > 0 else LEGACY_TTL
+
+
 def _mine(lease: dict, owner: str, token: str | None) -> bool:
     return (lease.get("owner") == owner and not lease.get("released")
             and (token is None or lease.get("token") == token))
@@ -160,19 +174,26 @@ def _mine(lease: dict, owner: str, token: str | None) -> bool:
 
 def lock(key: str, owner: str, ttl: int, wait: int, clock=time.monotonic, sleep=time.sleep,
          token: str | None = None, log=lambda message: print(message, file=sys.stderr)) -> bool:
-    """Takes the lease; False when the wait runs out. Writes {"owner", "token"}: the token
-    is this attempt's own, so a PUT that reached R2 but lost its response reads back as ours."""
+    """Takes the lease; False when the wait runs out. Writes {"owner", "token", "ttl"}: the
+    token is this attempt's own, so a PUT that reached R2 but lost its response reads back as
+    ours, and every waiter judges expiry by the record's ttl, not by its own."""
     token = token or secrets.token_hex(8)
+    record = {"owner": owner, "token": token, "ttl": ttl}
     deadline = clock() + wait
     while True:
         try:
             etag, body, age = read(key)
             lease = _lease(body)
             if etag is not None and _mine(lease, owner, token):
-                return True  # an earlier PUT of this attempt landed; its response was lost
-            free = etag is None or lease.get("released") or age > ttl
-            if free and _store(key, {"owner": owner, "token": token}, etag):
-                return True
+                # An earlier PUT of this attempt landed and its response was lost. It may be
+                # near or past its TTL by now: rewrite it (a fresh Last-Modified and ETag)
+                # while it still holds the bytes read, before reporting it held.
+                if _store(key, record, etag):
+                    return True
+            else:
+                free = etag is None or lease.get("released") or age > _ttl(lease)
+                if free and _store(key, record, etag):
+                    return True
         except Exception as error:  # noqa: BLE001 - only transient errors are retried
             if not transient(error):
                 raise
@@ -195,7 +216,10 @@ def renew(key: str, owner: str, token: str | None) -> bool:
     lease = _lease(body)
     if etag is None or not _mine(lease, owner, token):
         return False
-    if _store(key, {"owner": owner, "token": lease.get("token")}, etag):
+    renewed = {"owner": owner, "token": lease.get("token")}
+    if "ttl" in lease:
+        renewed["ttl"] = lease["ttl"]
+    if _store(key, renewed, etag):
         return True
     return holds(key, owner)  # lost the write to a release or a taker: read again
 
