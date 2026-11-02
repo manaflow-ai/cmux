@@ -465,3 +465,49 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
         std::thread::sleep(Duration::from_millis(200));
     }
 }
+
+/// A host reconnect inside a running daemon (its admin tap overflowed while
+/// the daemon was stopped) replaces the daemon's screen with the host's:
+/// bytes the host wrote meanwhile never went through the output store. A kill
+/// of everything right after the reconnect must still restore them (the
+/// tail must not continue across that gap; review of #31643: the reconnect
+/// did not tell the output store, so the restore lacked the gap's output
+/// until the next coalesced checkpoint, up to 30 s).
+#[test]
+fn kill_all_right_after_a_host_reconnect_restores_the_output_of_the_gap() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("kill-all-reconnect-gap");
+    let home = harness.dir.clone();
+    let (terminal_id, incarnation, surface) = start_shell_in(&harness, "gap", &home);
+    let trigger = harness.dir.join("flood");
+    send_line(&harness.socket, surface, "printf 'gap-%s\\n' before");
+    wait_for_screen(&harness.socket, surface, "gap-before\n");
+    // Over the host's 8 MiB queued-output budget for the daemon's tap: the
+    // host closes the tap while the daemon is stopped, and the daemon
+    // reconnects from the host's snapshot.
+    send_line(
+        &harness.socket,
+        surface,
+        &format!(
+            "while [ ! -e '{}' ]; do sleep 0.05; done; head -c 12000000 /dev/zero; printf 'gap-%s\\n' during",
+            trigger.display()
+        ),
+    );
+    std::thread::sleep(Duration::from_secs(2));
+    harness.signal_daemon(libc::SIGSTOP);
+    fs::write(&trigger, b"").unwrap();
+    std::thread::sleep(Duration::from_secs(4));
+    harness.signal_daemon(libc::SIGCONT);
+    let shown = wait_for_screen(&harness.socket, surface, "gap-during\n");
+    assert!(shown.contains("gap-during"), "the reconnect never showed the gap's output: {shown}");
+    // Well inside the checkpoint interval, after one writer pass.
+    std::thread::sleep(Duration::from_millis(800));
+
+    kill_everything_and_restart(&mut harness);
+    let surface = respawned_surface(&harness, &terminal_id, &incarnation);
+    let restored = wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+    assert!(
+        restored.contains("gap-during"),
+        "the output written while the daemon had no tap is not restored: {restored}"
+    );
+}
