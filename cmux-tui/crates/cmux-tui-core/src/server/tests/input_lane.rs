@@ -266,3 +266,113 @@ fn a_named_key_reaches_its_terminal_without_the_session_lock() {
     drop(removed);
     mux.shutdown();
 }
+
+/// F7 QoS PROBE (never merge; TYPING FIX 2): do the person's key threads wait for a CPU when every core is busy, and
+/// does a user-interactive QoS on the key thread change that? Four arms: idle and saturated (2 x cores spinning
+/// threads at the default QoS, as automation's daemon threads are), each with the key thread at the default QoS (the
+/// daemon today) and at QOS_CLASS_USER_INTERACTIVE. Per key: wake = from the producer's send to the key thread
+/// running (the socket reader's wake-up); wall and off-CPU (wall minus the thread's CPU time) of the key's
+/// handle_command on the kept-terminal path. It always fails, so the fleet log shows the table.
+#[cfg(target_os = "macos")]
+#[test]
+fn f7_qos_probe_key_cpu_wait_under_saturation() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn thread_cpu() -> Duration {
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        // SAFETY: a valid out pointer for clock_gettime.
+        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+        Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+    }
+    fn pct(values: &mut [Duration], p: f64) -> f64 {
+        values.sort_unstable();
+        let index = ((values.len() as f64 - 1.0) * p).round() as usize;
+        values[index].as_secs_f64() * 1000.0
+    }
+    fn row(name: &str, values: &mut [Duration]) -> String {
+        format!(
+            "{name:>8} p50 {:7.3} p95 {:7.3} p99 {:7.3} max {:8.3} ms",
+            pct(values, 0.50),
+            pct(values, 0.95),
+            pct(values, 0.99),
+            pct(values, 1.0)
+        )
+    }
+
+    let mux = test_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    typing.replace_input_writer_for_test(Box::new(std::io::sink()));
+    handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
+    let cores = std::thread::available_parallelism().map_or(8, std::num::NonZero::get);
+    let mut report = format!("F7 QOS PROBE cores={cores}\n");
+    for round in 0..2 {
+        for (arm, spinners, interactive) in [
+            ("idle/default", 0, false),
+            ("idle/user-interactive", 0, true),
+            ("saturated/default", 2 * cores, false),
+            ("saturated/user-interactive", 2 * cores, true),
+        ] {
+            let stop = Arc::new(AtomicBool::new(false));
+            let load = (0..spinners)
+                .map(|_| {
+                    let stop = stop.clone();
+                    std::thread::spawn(move || {
+                        let mut x = 0u64;
+                        while !stop.load(Ordering::Relaxed) {
+                            x = std::hint::black_box(
+                                x.wrapping_mul(6364136223846793005).wrapping_add(1),
+                            );
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+            let (send, recv) = mpsc::channel::<Instant>();
+            let keys = std::thread::spawn({
+                let mux = mux.clone();
+                let writer = writer.clone();
+                let id = typing.id;
+                move || {
+                    if interactive {
+                        // SAFETY: sets this thread's own QoS.
+                        let rc = unsafe {
+                            libc::pthread_set_qos_class_self_np(
+                                libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE,
+                                0,
+                            )
+                        };
+                        assert_eq!(rc, 0, "pthread_set_qos_class_self_np");
+                    }
+                    let (mut wake, mut wall, mut off) = (Vec::new(), Vec::new(), Vec::new());
+                    while let Ok(sent) = recv.recv() {
+                        wake.push(sent.elapsed());
+                        let (started, cpu) = (Instant::now(), thread_cpu());
+                        handle_command(&mux, client, key(id, b'b'), &writer).unwrap();
+                        let (took, used) = (started.elapsed(), thread_cpu() - cpu);
+                        wall.push(took);
+                        off.push(took.saturating_sub(used));
+                    }
+                    (wake, wall, off)
+                }
+            });
+            for _ in 0..400 {
+                std::thread::sleep(Duration::from_millis(2));
+                send.send(Instant::now()).unwrap();
+            }
+            drop(send);
+            let (mut wake, mut wall, mut off) = keys.join().unwrap();
+            stop.store(true, Ordering::Relaxed);
+            for spinner in load {
+                spinner.join().unwrap();
+            }
+            report += &format!(
+                "round {round} {arm} (spinners {spinners}, keys {})\n{}\n{}\n{}\n",
+                wake.len(),
+                row("wake", &mut wake),
+                row("wall", &mut wall),
+                row("off-cpu", &mut off)
+            );
+        }
+    }
+    mux.shutdown();
+    panic!("{report}");
+}
