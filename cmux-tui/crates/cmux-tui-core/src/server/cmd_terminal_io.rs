@@ -123,16 +123,19 @@ pub(super) struct SendParams {
 /// durable mutations of agents, the CLI and MCP hold (TYPING UNDER LOAD F4: a key waited up to 475 ms there). Anyone
 /// else looks it up.
 ///
-/// A key from a client attached to its terminal is the person's: its connection's threads then run at
-/// user-interactive QoS (server/input_qos.rs, TYPING FIX 2 F7).
+/// A key from a client that can type into its terminal (attached, not only through read-only views) is the person's:
+/// its connection's threads then run at user-interactive QoS (server/input_qos.rs, TYPING FIX 2 F7). A read-only
+/// viewer's keys are automation's and keep the default QoS.
 fn input_surface(
     mux: &Arc<Mux>,
     client: u64,
     writer: &MessageWriter,
     id: SurfaceId,
 ) -> anyhow::Result<Arc<crate::Surface>> {
-    if let Some(surface) = mux.control_clients.attached_input_surface(client, id) {
-        writer.input_lane.mark_person_input();
+    if let Some((surface, can_type)) = mux.control_clients.attached_input_surface(client, id) {
+        if can_type {
+            writer.input_lane.mark_person_input();
+        }
         return Ok(surface);
     }
     let generation = crate::route_table::route_generation(id);
