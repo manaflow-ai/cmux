@@ -25,6 +25,22 @@ pub(super) fn calm() -> Sample {
     }
 }
 
+/// A Mac with 12 performance cores (a load limit of 12) at these numbers, as the
+/// app's tracker tests read it: `pressure` is the macOS level (1, 2 or 4).
+pub(crate) fn gray(load: f64, pressure: u32, ram: f64, swap: f64, budget: &Budget) -> Verdict {
+    let sample = Sample {
+        load1: Some(load),
+        performance_cores: Some(12),
+        physical_cores: Some(12),
+        logical_cpus: 12,
+        vm_pressure_level: Some(pressure),
+        psi_some_avg10: None,
+        available_ram_fraction: Some(ram),
+        swapout_bytes: None,
+    };
+    evaluate("gray", &sample, Some(swap), budget)
+}
+
 #[test]
 fn a_calm_host_is_within_budget() {
     let v = evaluate("cosmic-gray", &calm(), Some(0.0), &Budget::default());

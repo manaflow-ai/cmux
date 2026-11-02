@@ -4248,7 +4248,9 @@ class SharedRunnerStateTests(unittest.TestCase):
 
     def test_all_requested_picker_workflows_receive_repository_context(self):
         expected = {
-            "cmux-next.yml": ("side_lane_placement.py", "portable_job_placement.py"),
+            "cmux-next.yml": ("side_lane_placement.py", "portable_job_placement.py", "dev_landing_place.py"),
+            "ci-macos.yml": ("admission_placement.py", "late_placement.py"),
+            "ios-internal-nightly.yml": ("ios_internal_runner.py",),
             "cmux-next-guards.yml": ("portable_job_placement.py",),
             "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
             "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py",
@@ -4276,7 +4278,11 @@ class SharedRunnerStateTests(unittest.TestCase):
                     run = step.get("run")
                     if not isinstance(run, str):
                         continue
-                    hits = [script for script in scripts if script in run]
+                    # The compile report's `gap` subcommand only reads git;
+                    # the default invocation is the runner picker.
+                    hits = [script for script in scripts if f"scripts/ci/{script}" in run and not (
+                        script == "dev_landing_place.py"
+                        and re.search(r"dev_landing_place\.py\s+gap\b", run))]
                     if hits:
                         self.assertEqual(step.get("env", {}).get("CI_RUNNER_STATE"),
                                          "${{ vars.CI_RUNNER_STATE }}", (name, hits))
@@ -4292,7 +4298,8 @@ class SharedRunnerStateTests(unittest.TestCase):
             "simple_pool_picker.py", "portable_job_placement.py", "side_lane_placement.py",
             "e2e_runner_pool.py", "ios_runner_pool.py", "owned_pool_rescue.py",
             "signing_runner.py", "nightly_build_runner.py", "nightly_sign_runner.py",
-            "cmux_next_media_runner.py",
+            "cmux_next_media_runner.py", "admission_placement.py", "late_placement.py",
+            "dev_landing_place.py", "ios_internal_runner.py",
         }
         for workflow in WORKFLOWS.glob("*.yml"):
             doc = yaml.safe_load(workflow.read_text())
@@ -4300,7 +4307,7 @@ class SharedRunnerStateTests(unittest.TestCase):
                 if "CI_RUNNER_STATE" not in (step.get("env") or {}):
                     continue
                 run = step.get("run") or ""
-                self.assertTrue(any(script in run for script in picker_scripts),
+                self.assertTrue(any(f"scripts/ci/{script}" in run for script in picker_scripts),
                                 f"runner state leaked to non-picker step in {workflow.name}: {run[:100]}")
 
 if __name__ == "__main__":
