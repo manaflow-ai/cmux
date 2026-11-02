@@ -7003,7 +7003,7 @@
     "tunable.agentPane.debug.foldLongThoughts": true,
     "tunable.agentPane.debug.liveLineBelow": true,
     "tunable.agentPane.debug.liveThoughtViewport": true,
-    "tunable.agentPane.debug.lostPromptReplay": false,
+    "tunable.agentPane.debug.lostPromptReplay": true,
     "tunable.agentPane.debug.needsYou": "pinned",
     "tunable.agentPane.debug.needsYouPill": false,
     "tunable.agentPane.debug.scrollerFade": true,
