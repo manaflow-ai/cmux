@@ -224,8 +224,21 @@ impl Mux {
                 },
             )
         };
-        let mut projection =
-            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        // A terminal with no view (its tabs closed; the reaper or a client
+        // ends it) changes no screen, pane or tab: its only durable change is
+        // its own tombstone, added below. The full projection walked the whole
+        // topology under the registry and session locks to find it (TUL-F7:
+        // 278 ms session lock hold under the L1 storm).
+        let mut projection = if !has_views && plan.workspace_close.is_none() {
+            ResourceEffectProjection {
+                patch: ResourcePatch { changes: Vec::new() },
+                changes: json!([]),
+                result: json!({}),
+                restates_all: false,
+            }
+        } else {
+            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?
+        };
         if !projection.patch.changes.iter().any(|change| {
             matches!(
                 change,
@@ -270,6 +283,7 @@ impl Mux {
             &projection.result,
             &projection.changes,
             plan.workspace_close.as_ref(),
+            projection.restates_all,
         )?;
         let (terminal, resource, workspace_revision) = match committed {
             TerminalResourceCloseCommit::TerminalReplay(terminal) => {
