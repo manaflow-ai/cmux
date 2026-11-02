@@ -75,7 +75,7 @@ pub(super) async fn handle(
         .ok_or_else(|| RpcError::invalid_params("request.sessionId is required"))?
         .to_owned();
     // Team-scoped addresses are always hub-routed and are never resolved as
-    // local session names. The mesh sender applies the Labs gate and address
+    // local session names. The mesh sender applies the team-messaging gate and address
     // validation before posting them.
     if target.starts_with('@') {
         if let Some(mesh) = hub.mesh.get() {

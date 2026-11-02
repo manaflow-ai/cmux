@@ -355,7 +355,7 @@ export function NewTabScreen(props: Props) {
   const [text, setText] = useState(carried?.text || untouchedText.current);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
-  /// The `/word` the arrows chose a row at: Return picks that row while the word stays the same.
+  /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
   const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
@@ -785,7 +785,15 @@ export function NewTabScreen(props: Props) {
     () => (commandAt ? slashMatches(snapshot.commands ?? [], commandAt) : []),
     [commandAt, snapshot.commands],
   );
+  // An Escape (the person's, or the one the host sends as its list closes, ui/popupHost.ts) hides the
+  // list for the text it was pressed on only: any edit forgets it, a cleared draft too, so the same
+  // word typed again opens the list again, as in the chat composer (Composer `edit`).
+  if (commandDismissed !== undefined && commandDismissed !== text) setCommandDismissed(undefined);
   const commandsOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  // The row the arrows chose holds only while its word and its list stay: a new word, a cleared draft
+  // or the list closing forgets it (adjusted while rendering, before any key reads it).
+  if (commandArrowedAt !== undefined && (!commandsOpen || commandQuery !== commandArrowedAt))
+    setCommandArrowedAt(undefined);
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = commandAt !== undefined && (commandAt.leading || commandMatches.length > 0);
   const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
@@ -810,9 +818,10 @@ export function NewTabScreen(props: Props) {
   };
   // The list loads once the text holds any `/word`, not only while the caret ends one: a pasted
   // `use /emil-color now` reads its skill too (blue, and `/$name` for Codex at send).
+  // Never in shell mode: a shell command's `/word` is a path, and asking for the list starts the chat.
   const wantsCommands = useMemo(
-    () => commandQuery !== undefined || /(^|[\s\uFFFC])\/[^\s\uFFFC]/.test(text),
-    [commandQuery, text],
+    () => !shell && (commandQuery !== undefined || /(^|[\s\uFFFC])\/[^\s\uFFFC]/.test(text)),
+    [shell, commandQuery, text],
   );
   useEffect(() => {
     if (!wantsCommands) {
@@ -1288,7 +1297,7 @@ export function NewTabScreen(props: Props) {
       if (
         plain &&
         (event.key === "Tab" ||
-          (event.key === "Enter" && returnPicks(match, commandQuery ?? "", commandArrowedAt === commandQuery)))
+          (event.key === "Enter" && returnPicks(match, commandQuery ?? "", commandArrowedAt !== undefined)))
       ) {
         event.preventDefault();
         pickCommand(match!.command);
