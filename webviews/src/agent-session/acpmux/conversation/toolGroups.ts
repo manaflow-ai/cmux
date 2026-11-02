@@ -181,6 +181,28 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
           mutationUnsettled = true;
         else mutationEndedAt = Math.max(mutationEndedAt, endedAt);
       };
+      const orderedWriter = () =>
+        !mutationUnsettled &&
+        tool.startedAt !== undefined &&
+        Number.isFinite(tool.startedAt) &&
+        tool.startedAt >= mutationEndedAt &&
+        endedAt !== undefined &&
+        tool.startedAt <= endedAt;
+      // A file tool (Claude Code's Write) that wrote a whole message file: a later
+      // `acpmux send ... < path` renders its words (Leo 2026-10-26: "EITHER SHOW IT DIRECT
+      // WITHOUT OR YOU JUST FUCKING RENDER IT").
+      const written = writtenFile(tool);
+      if (written && endedAt !== undefined && Number.isFinite(endedAt)) {
+        const ordered = orderedWriter();
+        rememberMutation();
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        if (ordered) {
+          messageFiles.set(written.path, written.text);
+          messageFileEndedAt.set(written.path, endedAt);
+        }
+        return;
+      }
       // A failed or still-running writer did not produce a durable body. Clear the bounded
       // producer set so a later send cannot display stale content from an earlier call.
       if (
@@ -204,13 +226,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         return;
       }
       const changes = recordedMessageBodyChangesForTool(tool);
-      const startedAt = tool.startedAt;
-      const orderedWriter =
-        !mutationUnsettled &&
-        startedAt !== undefined &&
-        Number.isFinite(startedAt) &&
-        startedAt >= mutationEndedAt &&
-        startedAt <= endedAt;
+      const ordered = orderedWriter();
       if (changes.length) rememberMutation();
       for (const change of changes) {
         if ("reset" in change) {
@@ -226,7 +242,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
           // aliases without filesystem access, so clear all candidates before recording it.
           messageFiles.clear();
           messageFileEndedAt.clear();
-          if (!orderedWriter) continue;
+          if (!ordered) continue;
           messageFiles.set(change.path, change.text);
           messageFileEndedAt.set(change.path, endedAt);
           while (messageFiles.size > 64) messageFiles.delete(messageFiles.keys().next().value!);
@@ -277,6 +293,22 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   close();
   flushLead();
   return groups;
+}
+
+/// The one whole file a completed file tool wrote, by its absolute path: a single diff with no old
+/// text (Claude Code's Write, a new file) whose new text is the file, not a hunk of it (an input
+/// diff is marked a fragment only because the page never saw the file around it). Nil for edits,
+/// several files, MCP tools (their names, not their kinds, say what they do) and paths whose
+/// spelling depends on the cwd.
+export function writtenFile(tool: Tool): { path: string; text: string } | undefined {
+  if (tool.kind !== "edit" || tool.command || mcpCall(tool) || tool.status !== "completed" || tool.background)
+    return undefined;
+  if (tool.diffs?.length !== 1) return undefined;
+  const diff = tool.diffs[0]!;
+  if (diff.oldText !== undefined || (diff.fragment && !diff.fromInput)) return undefined;
+  const path = diff.path;
+  if (!path.startsWith("/") || path.includes("//") || path.includes("/./") || path.includes("/../")) return undefined;
+  return { path, text: diff.newText };
 }
 
 /// The id a group is known by: its first call's, since thoughts that led into the run may come
