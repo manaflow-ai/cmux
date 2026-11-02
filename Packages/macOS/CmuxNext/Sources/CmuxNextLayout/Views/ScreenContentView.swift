@@ -358,9 +358,16 @@ final class ScreenContentView: NSView {
                 let edge = arrivals.isEmpty || handoff != nil ? .zero : start?.shift ?? arrivals.values.first?.edgeOffset ?? .zero
                 var frame = AnimatedFrame(target.rect.offsetBy(dx: edge.dx, dy: edge.dy), alpha: 1)
                 frame.setTarget(target.rect, alpha: 1)
-                // It moves with that edge from its first frame (a split landing mid-motion).
-                if let velocity = start?.velocity {
-                    if target.axis == .horizontal { frame.x.velocity = velocity } else { frame.y.velocity = velocity }
+                // It moves with that edge from its first frame (a split landing mid-motion), and across its axis it
+                // shows where that pane shows (a pane still moving sideways).
+                if let start {
+                    if target.axis == .horizontal {
+                        frame.x.velocity = start.velocity
+                        SplitMotion.follow(&frame.y, &frame.height, beside: start.beside.y, start.beside.height)
+                    } else {
+                        frame.y.velocity = start.velocity
+                        SplitMotion.follow(&frame.x, &frame.width, beside: start.beside.x, start.beside.width)
+                    }
                 }
                 dividerFrames[kind] = frame
             }
