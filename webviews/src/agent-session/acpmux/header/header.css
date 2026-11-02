@@ -76,6 +76,7 @@
 .acpmux-header-pr[data-state=open]>svg{color:var(--agent-status-success)}
 .acpmux-header-pr[data-state=merged]>svg{color:var(--agent-status-merged)}
 .acpmux-header-pr[data-state=closed]>svg{color:var(--agent-status-failure)}
+.acpmux-header-pr[data-state=draft]>svg{color:var(--agent-muted)}
 .acpmux-header-pr[data-checks]:not([data-checks=none])::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-status-success)}
 .acpmux-header-pr[data-checks=pending]::after{background:var(--agent-status-warning)}
 .acpmux-header-pr[data-checks=failing]::after{background:var(--agent-status-failure)}
