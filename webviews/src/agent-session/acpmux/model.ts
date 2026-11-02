@@ -764,6 +764,14 @@ export type AcpmuxWorkflowWire = {
  * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
 export type MissingSessionReason = "notListedAtOpen" | "leftListWhileShown";
 
+/// Whether the pane's link to acpmux is up. A snapshot's `connection` names why the client emitted
+/// it ("connected", "session changed", a streamed event's kind, "failed" for a refused request on
+/// an open socket), not the link's state: only a lost ("disconnected") or opening ("connecting…")
+/// connection is down. Never compare it with "connected" to ask whether the link is up.
+export function linkUp(connection: string): boolean {
+  return connection !== "disconnected" && !connection.startsWith("connecting");
+}
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */

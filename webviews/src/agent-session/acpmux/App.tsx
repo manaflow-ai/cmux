@@ -65,6 +65,7 @@ import {
   isLineRow,
   isLiveStep,
   restRoom,
+  linkUp,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
@@ -6166,6 +6167,9 @@ function AcpmuxPane() {
   const handoffLabels = useMemo(() => handoffStrings(t), [t]);
   const checkpointLabels = useMemo(() => checkpointStrings(t), [t]);
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
+  // Footer actions and checkpoints show only while acpmux is reachable. The client reports failures
+  // in the transcript; a bridge that cannot route an action has nothing to add.
+  const connected = linkUp(snapshot.connection);
   const checkpoints = useCheckpoints({
     request: callNative,
     target: snapshot.summary?.cwd
@@ -6175,7 +6179,7 @@ function AcpmuxPane() {
           hostKind: snapshot.summary.hostKind,
         }
       : undefined,
-    online: snapshot.connection === "connected",
+    online: connected,
     strings: checkpointLabels,
     variant: checkpointVariant,
   });
@@ -6234,9 +6238,6 @@ function AcpmuxPane() {
   };
   const revealRef = useRef(reveal);
   revealRef.current = reveal;
-  // Footer actions show only while acpmux is reachable. The client reports failures in the
-  // transcript; a bridge that cannot route an action has nothing to add.
-  const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
   const forkAny = forksAnyTurn(snapshot.summary?.family);
@@ -6818,12 +6819,8 @@ function AcpmuxPane() {
     return withoutQuietThoughts(rows, snapshot.isWorking);
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
-  // (withoutAskedCalls); with the panel hidden behind folder trust, it stays in the transcript.
-  const trustBlocked = trustAsk.holdsAsks;
-  const panelAsks = useMemo(
-    () => (trustBlocked ? new Set<string>() : groupAskedCalls(snapshot.permissionGroups)),
-    [trustBlocked, snapshot.permissionGroups],
-  );
+  // (withoutAskedCalls).
+  const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
   // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
   const codexRuns = useCodexToolRuns();
   // The running turn's status line as its last row (Debug toggle, liveLineBelow.ts).
@@ -7019,7 +7016,7 @@ function AcpmuxPane() {
   const trustNow = useRef(trustAsk.trust);
   trustNow.current = trustAsk.trust;
   const canTrustFolder = answersTrust && !trustAsk.trusted && trustAsk.ask?.state !== "remote";
-  const trustBlock = trustAsk.holdsAsks ? trustAsk.blocked?.reason : undefined;
+  const trustBlock = trustAsk.blocked?.reason;
   const failedSends = useMemo<FailedSends>(
     () => ({
       runs,
@@ -8949,7 +8946,9 @@ function AcpmuxPane() {
       !!snapshot.unavailable,
       snapshot.sessionId,
       snapshot.rows.length,
-      snapshot.connection === "connected",
+      // An open that failed on a socket still open (direct.ts emits "failed") read no chat: its
+      // machine may be paused, so recovery reads it as it does a lost link.
+      connected && snapshot.connection !== "failed",
       freshView,
     ),
     recheck: recheckCloudChat,
@@ -12366,8 +12365,6 @@ function AcpmuxPane() {
   // What the chat waits on the person for: the running turn's line says it, never "Thinking".
   const waiting = chatWaitsOn({
     trust: trustAsk.ask,
-    holdsAsks: trustAsk.holdsAsks,
-    trustBlocks: Boolean(trustAsk.blocked),
     isWorking: snapshot.isWorking,
     individualPermission,
     permissionGroups: snapshot.permissionGroups?.supported ? snapshot.permissionGroups.groups : undefined,
@@ -12527,22 +12524,23 @@ function AcpmuxPane() {
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>{transcriptContent}</PresentationContext.Provider>
   );
-  // Folder trust is the first gate in the bottom stack. While its question is open (or after Don't
-  // trust), permission and secret cards stay out of the tree so the user never has two different
-  // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
-  // keep their place (no blink on a chat switch). A trusted receipt can sit above the next ask.
+  // Folder trust's question heads the bottom stack, and the chat's other asks stay under it
+  // (Leo 2026-10-21, P0: a pending trust prompt never blocks answering a question). The question
+  // holds new prompts; a permission, question or secret card asks for a turn already running,
+  // acpmux takes its answer whatever the folder's trust, and hiding it left that turn waiting on an
+  // answer nobody could give. A trusted receipt can sit above the next ask.
   const continueWithoutFolder = useCallback(() => callNative<void>("chat.new", folderContinuationRequest), []);
-  const trustPending = trustAsk.holdsAsks;
-  // A secret is the one ask held while the trust read is in flight: a value typed into it must
-  // never go before the folder is known to need no trust answer first.
-  const secret = trustAsk.blocked ? undefined : snapshot.secret;
+  const secret = snapshot.secret;
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
     (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
   );
   const hasBottomAsk = Boolean(
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
-    (!trustPending && (hasPermissionGroups || individualPermission || secret || toolCards.length > 0)),
+    hasPermissionGroups ||
+    individualPermission ||
+    secret ||
+    toolCards.length > 0,
   );
   // Behind the agent.sessionStatus Debug toggle (`sessionStatus`, read above for the transcript): a
   // turn that ended on a question offers its yes above the composer (RecapCard.tsx).
@@ -12551,7 +12549,7 @@ function AcpmuxPane() {
     sessionId: snapshot.sessionId,
     on: sessionStatus && !snapshot.isWorking,
     // A chat the composer cannot send to (remoteEditing.ts) has no yes to offer.
-    asking: hasBottomAsk || trustPending || Boolean(pendingFolder) || !remoteComposer(snapshot).canSend,
+    asking: hasBottomAsk || Boolean(pendingFolder) || !remoteComposer(snapshot).canSend,
     send: (text) => addressThread(text),
     focusComposer: () => composerHandle.current?.focus(),
   });
@@ -12642,7 +12640,7 @@ function AcpmuxPane() {
         />
       )}
 
-      {!trustPending && hasPermissionGroups && snapshot.permissionGroups && (
+      {hasPermissionGroups && snapshot.permissionGroups && (
         <PermissionPanel
           state={snapshot.permissionGroups}
           working={snapshot.isWorking}
@@ -12660,7 +12658,7 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {!trustPending && (individualPermission || secret || toolCards.length > 0) && (
+      {(individualPermission || secret || toolCards.length > 0) && (
         <>
           <ToolCards
             cards={toolCards}
