@@ -63,6 +63,8 @@ use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
 use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
+pub(crate) use kitty_budget_state::KittyImageSurfaceExpectation;
+pub(crate) use kitty_budget_state::KittyImageWaveExpectation;
 use kitty_budget_state::PendingKittyImageBudgetOperation;
 pub(crate) use kitty_budget_state::RENDER_ATTACHMENT_LIMIT;
 pub(crate) use kitty_budget_state::RenderAttachmentPermit;
@@ -274,6 +276,8 @@ mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
+#[cfg(test)]
+pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
 mod command_history;
 pub(crate) mod keybindings;
 mod new_terminal_cwd;
@@ -388,7 +392,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, RwLock, Weak};
 use std::time::{Duration, Instant};
 use topology_result::persist_public_topology_result;
 
@@ -592,7 +596,14 @@ pub struct Mux {
     #[cfg(test)]
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a state mutation after its apply step (inside its open
+    /// registry transaction) and in a terminal progress publish after its
+    /// session read: a test stands in for a slow write there.
+    #[cfg(test)]
+    state_commit_after_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -638,7 +649,7 @@ pub struct Mux {
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
     agent_hook_children: Mutex<HashMap<TerminalPublicId, agent_hook_children::HookChildren>>,
     agent_roster: Mutex<AgentRosterHost>,
-    agent_roster_fold: Mutex<()>,
+    agent_roster_fold: Mutex<agent_roster_fold::AgentRosterFold>,
     agent_message_pump: agent_message_pump::AgentMessagePump,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
@@ -720,17 +731,32 @@ pub struct Mux {
     terminal_exit_state_queries: AtomicU64,
     /// Keeps a close from removing a just-created surface before legacy
     /// callers have resolved the committed public result back to its runtime.
-    resource_creation_handoff: Mutex<()>,
+    /// Creations share it (read) and closes take it alone (write): it orders
+    /// a close against creations, never one creation against another, so a
+    /// burst of splits does not wait here for each other (SPLIT BURST).
+    resource_creation_handoff: RwLock<()>,
     /// Serializes the check-and-create sequence used when an attached local
     /// frontend bootstraps an otherwise empty session.
     initial_bootstrap: Mutex<()>,
+    /// The creation fence: held from a creation's prepare through its
+    /// projection commit, so a close never sees half a creation. The
+    /// creations that wait for it at the same time share one hold
+    /// ([`resource_topology::CreationGroups`]).
     resource_creation_execution: Mutex<()>,
+    creation_groups: resource_topology::CreationGroups,
+    /// Test seams of a burst of creations (`CreationBurstSeams`).
+    #[cfg(test)]
+    creation_burst_seams: resource_topology::CreationBurstSeams,
     #[cfg(unix)]
     agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Turns of a start's first adoption attempts (mux/startup_adoption_gate.rs).
     startup_adoption_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
+    /// Turns of first respawn attempts (mux/terminal_respawn.rs): after a
+    /// kill of everything the visible workspace's terminals go first, and at
+    /// most `available_parallelism` replay their seeds at once.
+    respawn_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
     /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
     terminal_adoption_ended: Condvar,
     /// Terminals a request waits on (`wait_for_terminal_adoption`): their

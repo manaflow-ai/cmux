@@ -131,4 +131,39 @@ import Testing
         #expect(movedOn.dropKeys(ofWorkspacesOtherThan: "home"))
         #expect(movedOn.take().count == 1, "a key typed after the person moved on was dropped with the new workspace")
     }
+
+    /// Review of #31865 (its merge with #31707): a key typed into a cold terminal opens that terminal's surface hold (an
+    /// adopted lane). The person then asks for a new workspace in the same window. The keys typed after that, before the
+    /// new workspace shows, are its terminal's, never the cold terminal's; the key typed before stays the cold terminal's.
+    @Test func keysForAPersonsNewWorkspaceTypedDuringASurfaceHoldGoToTheNewTerminal() {
+        let buffer = CreationInputBuffer(began: .now)
+        buffer.awaitSurface(of: CreationInputBuffer.HeldLane(tab: "cold", machine: nil))
+        buffer.capture(Self.key("a", code: 0), focusedTab: "cold")
+        let ticket = buffer.open(generation: 9, newWorkspace: true)
+        buffer.capture(Self.key("b", code: 11), focusedTab: "cold", forNewWorkspace: true)
+        buffer.capture(Self.key("c", code: 8), focusedTab: "cold", forNewWorkspace: true)
+        buffer.resolve(ticket, awaitsFocus: true, workspace: "ws-new")
+        #expect(!buffer.dropKeys(ofWorkspacesOtherThan: "ws-new"))
+        buffer.bindNewWorkspaceKeys(to: "new-terminal", machine: nil)
+        let routed = buffer.take(focused: "new-terminal") { _, _ in false }.flatMap(\.keys)
+            .map { "\($0.event.characters ?? "?"):\($0.lane?.tab ?? "-")" }
+        #expect(routed == ["a:cold", "b:new-terminal", "c:new-terminal"],
+                "keys typed for the person's new workspace went to the cold terminal, or a key was lost or reordered: \(routed)")
+    }
+
+    /// Review of #32148, note 2: two new workspaces in one hold, the first one's create failed, then the person acted (a
+    /// click). The failed one is over, so the person left every creation of the hold: a key typed now is no workspace's
+    /// (the focused view's at once, or a cold terminal's surface lane). Before, the failed id still counted, the hold
+    /// never counted as left, and the keys waited without a lane to run as typed at its end, into the second workspace
+    /// if that one showed by then.
+    @Test func aFailedNewWorkspaceCountsAsLeftOnceThePersonActs() {
+        let buffer = CreationInputBuffer(began: .now)
+        let failed = buffer.open(generation: 1, newWorkspace: true)
+        _ = buffer.open(generation: 2, newWorkspace: true)
+        buffer.resolve(failed, awaitsFocus: false)
+        #expect(!buffer.personLeftEveryCreation, "a failed workspace alone ended the person's hold before they acted")
+        buffer.personMovedOn()
+        #expect(buffer.personLeftEveryCreation, "after the click the failed workspace still kept the hold from counting as left")
+        #expect(buffer.passesOn(focusedTab: nil), "a key typed after the click did not go on to the focused view")
+    }
 }

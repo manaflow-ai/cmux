@@ -4199,6 +4199,138 @@
         }
       }
     },
+    "confirm.noAnswer": {
+      "comment": "Close question line for closing terminals that gave no answer to the app's check. %@ is their tab titles, comma separated.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد إجابة من: %@. قد يكون هناك برنامج لا يزال قيد التشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema odgovora od: %@. Možda neki program još radi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet svar fra: %@. Et program kører måske stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Antwort von: %@. Möglicherweise läuft noch ein Programm."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No answer from: %@. A program may still be running."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin respuesta de: %@. Puede que aún haya un programa en ejecución."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune réponse de : %@. Un programme est peut-être encore en cours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna risposta da: %@. Un programma potrebbe essere ancora in esecuzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "応答なし: %@。プログラムがまだ実行中の可能性があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានចម្លើយពី៖ %@។ កម្មវិធីអាចនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "응답 없음: %@. 프로그램이 아직 실행 중일 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke noe svar fra: %@. Et program kjører kanskje fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak odpowiedzi od: %@. Jakiś program może nadal działać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem resposta de: %@. Um programa ainda pode estar em execução."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет ответа от: %@. Возможно, программа ещё работает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีการตอบกลับจาก: %@ อาจมีโปรแกรมที่ยังทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yanıt yok: %@. Bir program hâlâ çalışıyor olabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає відповіді від: %@. Можливо, програма ще працює."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có phản hồi từ: %@. Có thể một chương trình vẫn đang chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未收到回应：%@。可能仍有程序在运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未收到回應：%@。可能仍有程式在執行。"
+          }
+        }
+      }
+    },
     "confirm.agentWorking": {
       "extractionState": "manual",
       "localizations": {

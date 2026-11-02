@@ -122,7 +122,7 @@ final class AppServices {
     private(set) lazy var feed: FeedService = FeedService(
         auth: cloud.auth,
         showcase: environment.showcase,
-        acpmuxEnvironment: QuitAgents.environment(self),
+        acpmuxEnvironment: QuitAgents.environment(self), approvalHolds: cloud.approvalHolds,
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
     var showcase = ShowcaseState()
@@ -356,6 +356,8 @@ final class AppServices {
     let paneTabBars = PaneTabBarChoices()
     /// The panes in Full Width Tab mode (`PaneFullWidthTabs`).
     let paneFullWidthTabs = PaneFullWidthTabs()
+    /// Which workspaces show vertical tabs, and whether the lists are collapsed (`WorkspaceVerticalTabs`).
+    let workspaceVerticalTabs = WorkspaceVerticalTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
@@ -476,6 +478,10 @@ final class AppServices {
     var glassWatch: GlassModeWatch?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
+    /// One marked-tab list for the palette and every agent page.
+    let attentionTabs = AgentPaneAttentionTabs()
+    /// Keeps Needs you's marked tabs and Go to What Needs Me current (`AttentionTabsWatch`).
+    var attentionTabsWatch: AttentionTabsWatch?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
@@ -739,7 +745,7 @@ final class AppServices {
         updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
-            for controller in self?.windows.controllers ?? [] {
+            self?.keyRouter.creationInputCoordinator.holdEnds.pageArrived(key); for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
             }
         }

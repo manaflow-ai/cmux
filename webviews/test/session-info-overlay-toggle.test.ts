@@ -68,7 +68,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     { name: "tab row", tabRow: 38 },
   ];
 
-  /// The chat with Session Info on (Debug Settings `agent.inspector`, pushed with the header
+  /// The chat with Session Info on (Debug Settings `agent.sessionInfo`, pushed with the header
   /// state) and the tab row offered, open in `placement` (floating by default; pushing with Settings
   /// Push always, or by default where the gutter cannot hold it) and done entering.
   const openSessionInfo = async (

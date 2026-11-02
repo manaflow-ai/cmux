@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// QA chrome-parity-v2-1 and journey paste-confirm-keys: the multi-line paste confirm is a tab
@@ -10,7 +11,7 @@ import Testing
 /// terminal under it (awk printed an empty `got-`). A key that is not a chord and missed the
 /// dialog blocking where it landed goes to the dialog keyboard (`CmuxDialogKeys`), never to the view
 /// under it. A key elsewhere, a chord, and a key for the dialog's own controls keep their routes.
-@MainActor @Suite(.serialized) struct BlockingDialogMissedKeyTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BlockingDialogMissedKeyTests {
     private final class TabView: NSView {
         var keys: [String] = []
         override var acceptsFirstResponder: Bool { true }
@@ -23,9 +24,12 @@ import Testing
         let tab: TabView
         let other: TabView
         var router: KeyRouter { services.keyRouter }
+        /// Closes the window and the overlay panel its dialogs were shown on (`.closesItsWindows`).
         func close() {
             CmuxDialogCenter.shared.dismissAll()
-            window.close()
+            let panel = WindowOverlayHost.existingHost(for: window)?.panel
+            window.closeAfterTest()
+            panel?.close()
         }
     }
 

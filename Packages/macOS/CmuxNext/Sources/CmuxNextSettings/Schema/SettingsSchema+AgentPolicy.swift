@@ -73,6 +73,7 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
+        "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover", // how tabs are listed (looks only)
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",
         "palette.scopes.tabs.prefix",
@@ -112,6 +113,7 @@ extension SettingsSchema {
         "appearance.wallpaperTint",
         "appearance.background",
         "appearance.backgroundRotation",
+        "appearance.displayBackgrounds", "appearance.displayBackgroundRotations", // per-display background and cadence (looks only)
         "appearance.paneBackgrounds",
         "ui.reducedBackgrounds",
         "appearance.experimentalControls",

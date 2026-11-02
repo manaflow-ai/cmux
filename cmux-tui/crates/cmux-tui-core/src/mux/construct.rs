@@ -273,7 +273,11 @@ impl Mux {
             #[cfg(test)]
             resource_projection_before_commit: Mutex::new(None),
             #[cfg(test)]
+            resource_close_before_commit: Mutex::new(None),
+            #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
+            #[cfg(test)]
+            state_commit_after_apply: Mutex::new(None),
             #[cfg(test)]
             layout_undo_before_commit: Mutex::new(None),
             #[cfg(test)]
@@ -328,7 +332,7 @@ impl Mux {
             agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
             agent_roster: Mutex::new(agent_roster),
-            agent_roster_fold: Mutex::new(()),
+            agent_roster_fold: Mutex::default(),
             agent_message_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
@@ -366,14 +370,18 @@ impl Mux {
             terminal_exit_waiters: TerminalExitWaiters::default(),
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
-            resource_creation_handoff: Mutex::new(()),
+            resource_creation_handoff: RwLock::new(()),
             initial_bootstrap: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
+            creation_groups: Default::default(),
+            #[cfg(test)]
+            creation_burst_seams: Default::default(),
             #[cfg(unix)]
             agent_cli_job_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
             startup_adoption_gate: Default::default(),
+            respawn_gate: Arc::new(terminal_respawn::respawn_gate()),
             terminal_adoption_ended: Condvar::new(),
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),

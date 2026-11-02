@@ -112,6 +112,7 @@ final class CloudService {
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
     /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
+    @ObservationIgnored let approvalHolds = CloudApprovalHolds()  // the holds the person's feed shows answered
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
     @ObservationIgnored let changes = CloudMachineChanges()
@@ -345,10 +346,12 @@ final class CloudService {
                 if accountScope != nil {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
-                    // Another account's machines and connections end first.
-                    if await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID) { self.dropAllMachines() }
-                    // The install first: the app server path's first list goes
-                    // through the credential relay, which sends the install token.
+                    // Another account's machines, connections and share install end first (its next share binds this one).
+                    if await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID) {
+                        self.dropAllMachines()
+                        if self.shareInstallIdentity !== self.installIdentity { await self.shareInstallIdentity.unbind() }
+                    }
+                    // The install first: the app server path's first list sends its token through the credential relay.
                     await self.installSignedIn()
                     self.hands.start()
                     await self.ensureLink()
@@ -732,7 +735,9 @@ final class CloudService {
     /// idle pause, joining this Mac's list, connecting): its throw (the account that asked is no
     /// longer signed in) leaves it out.
     func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil,
-                       request: CloudMachineRequest = CloudMachineRequest(), proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
+                       request: CloudMachineRequest = CloudMachineRequest(),
+                       onAppServerSent: (@MainActor @Sendable (String) async throws -> Void)? = nil,
+                       proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         var name = name ?? request.name
@@ -768,7 +773,7 @@ final class CloudService {
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let idlePause = request.persistent ? 0 : nil
         var machine = configuration.linkSource == .appServer
-            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent)
+            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
             : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"),
                                                       // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
                                                       gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
@@ -894,9 +899,7 @@ final class CloudService {
         if let stackUser = auth.user?.id {
             let auth = auth
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
-            if shareInstallIdentity !== installIdentity {
-                await shareInstallIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
-            }
+            if shareInstallIdentity !== installIdentity { await shareInstallIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access }) }
         }
         // An ensure that slipped in during the revoke: stop that link too.
         await link.stopLink()

@@ -205,6 +205,23 @@ class Decide(unittest.TestCase):
         sleep.assert_called_once_with(30)
         self.assertEqual(write.call_args.args[0].mini_jobs, ("control",))
 
+    def test_nightly_wait_stops_when_a_re_read_can_no_longer_see_runners(self):
+        """Run 41437704107: the first read came from the runner-state document, then every
+        live re-read hit an exhausted API quota, and the build job waited out all 180 s."""
+        config = env(JOBS="control", NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
+        fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
+        with mock.patch.object(placement, "read", side_effect=[([], fresh), (None, None)]) as read, \
+             mock.patch.object(placement.time, "monotonic", side_effect=[0, 0, 30]), \
+             mock.patch.object(placement.time, "sleep") as sleep, \
+             mock.patch.object(placement, "write") as write, \
+             mock.patch.object(placement.signal, "setitimer"):
+            self.assertEqual(placement.main(config), 0)
+        # One sleep and one re-read, not six: the unread re-read ends the wait. With live capacity
+        # required, nothing goes to a mini without a fresh read, so the job takes the overflow.
+        self.assertEqual(read.call_count, 2)
+        sleep.assert_called_once_with(30)
+        self.assertEqual(write.call_args.args[0].mini_jobs, ())
+
     def test_nightly_overflow_wait_is_bounded_to_three_minutes(self):
         config = env(JOBS="control", NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
         fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
