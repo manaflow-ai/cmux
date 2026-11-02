@@ -454,6 +454,41 @@ def step_switch_record(j, step):
     return {"stop": reply, "read": state}
 
 
+def step_switch_cua_record(j, step):
+    """Fallback film while the app's own recorder gives no frames: CuaDriver's display recording (ScreenCaptureKit,
+    the whole main display, about 30 fps, H.264) through ext_realkey's session. The movie has no host frame times:
+    judge_switch.py --clock beacon maps each frame to the minis' wall clock from the beacons' clocks, and the keys
+    carry their wall time (`wall` in the key log). `action`: start | stop; `name`: the movie's name under video/."""
+    import glob
+    import shutil
+    import ext_realkey
+    name = step.get("name", "switch")
+    vdir = j.out / "video"
+    vdir.mkdir(exist_ok=True)
+    tmp = vdir / ("cua-" + name)
+    if step.get("action", "start") == "start":
+        tmp.mkdir(exist_ok=True)
+        bad, data, raw = ext_realkey._session(j).call("start_recording", {"output_dir": str(tmp), "record_video": True})
+        if bad:
+            raise D.NotRun("switch_cua_record: CuaDriver did not start recording: %s" % json.dumps(raw)[:300])
+        j.cua_film = {"name": name, "wall_start": time.time(), "uptime_start": _uptime()}
+        j.video = j.video if getattr(j, "video", None) else None
+        time.sleep(float(step.get("lead", 0.6)))
+        return {"started": data, "dir": str(tmp)}
+    time.sleep(float(step.get("tail", 0.8)))
+    bad, data, raw = ext_realkey._session(j).call("stop_recording", {})
+    movies = sorted(glob.glob(str(tmp / "**" / "*.mp4"), recursive=True) + glob.glob(str(tmp / "**" / "*.mov"), recursive=True))
+    out = None
+    if movies:
+        out = vdir / (name + "-display.mov")
+        shutil.move(movies[-1], str(out))
+    meta = dict(getattr(j, "cua_film", {}), wall_stop=time.time(), answer=data, movie=out.name if out else None)
+    (vdir / (name + "-display.meta.json")).write_text(json.dumps(meta, indent=1, default=str))
+    if not out:
+        raise D.NotRun("switch_cua_record: CuaDriver wrote no movie in %s: %s" % (tmp, json.dumps(raw)[:300]))
+    return {"movie": out.name, "bytes": out.stat().st_size}
+
+
 def _cua(tool, args, timeout=30):
     if not os.path.exists(CUA):
         raise D.NotRun("switch_keys: no CuaDriver at %s on this mini" % CUA)
@@ -517,6 +552,7 @@ def step_switch_keys(j, step):
         action = entry[3] if len(entry) > 3 else default_action
         mods = [MODIFIERS.get(m, m) for m in mods]
         t_sent = _uptime()
+        wall_sent = time.time()
         if via == "hid":
             import ext_realkey  # the kit's one CuaDriver session (desktop-scope HID keys, ~11 ms a key)
             ext_realkey.press(j, key, mods)
@@ -530,6 +566,7 @@ def step_switch_keys(j, step):
         time.sleep(gap / 2)
         shown = _shown_workspace(j)
         sent.append({"case": case, "keys": mods + [key], "action": action, "sent_host_s": t_sent, "send_returned_host_s": t_done,
+                     "wall_sent": wall_sent, "wall_offset": wall_sent - t_sent,
                      "shown": shown, "shown_tab": list(_shown_tab(j)),
                      "expect": (digits.get(key) or {}).get("workspace") if action == "selectWorkspaceByNumber" and mods == ["cmd"] else None})
         time.sleep(gap / 2)
@@ -553,6 +590,7 @@ def step_switch_keys(j, step):
             ev["outcome"] = run.get("outcome")
             # The HID key-down's host time: the action's start less its event's age (-1: no event age known).
             ev["t"] = start - age / 1000.0 if age >= 0 else start
+            ev["t_wall"] = ev["t"] + s["wall_offset"]  # the same instant on the wall clock (the beacon's clock)
             ev["t_source"] = "keydown" if age >= 0 else "action-start"
         events.append(ev)
     (j.out / "video").mkdir(exist_ok=True)
@@ -579,7 +617,8 @@ def step_switch_adopt_shown(j, step):
 
 
 STEPS = {"switch_profile": step_switch_profile, "switch_tabs_profile": step_switch_tabs_profile, "switch_record": step_switch_record, "switch_keys": step_switch_keys,
-         "switch_adopt_shown": step_switch_adopt_shown}
+         "switch_adopt_shown": step_switch_adopt_shown,
+         "switch_cua_record": step_switch_cua_record}
 
 
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "beacon":

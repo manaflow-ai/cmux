@@ -23,5 +23,14 @@ if [ -n "$mov" ] && [ -s "$mov" ]; then
   /work/tmp/switch-frames/venv/bin/python "$here/strip.py" --judge "$base.switch-judge.json" --video "$mov" \
     --frames "$mov.frames.json" --out "$base.strips" >> "$log" 2>&1
 else
-  echo "no movie (or an empty one) in $d" >> "$log"
+  echo "no app movie (or an empty one) in $d" >> "$log"
+fi
+film=$(ls "$d"/*-display.mov 2>/dev/null | head -1)
+if [ -n "$film" ] && [ -s "$film" ]; then
+  base=${film%-display.mov}
+  /work/tmp/switch-frames/venv/bin/python "$here/judge_switch.py" --video "$film" --clock beacon --hz 60 \
+    --events "$base-keys.events.json" --out "$base-display.switch-judge.json" >> "$log" 2>&1
+  echo "film judge exit $?" >> "$log"
+  /work/tmp/switch-frames/venv/bin/python "$here/strip.py" --judge "$base-display.switch-judge.json" --video "$film" \
+    --out "$base-display.strips" >> "$log" 2>&1
 fi

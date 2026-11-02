@@ -65,10 +65,14 @@ def main() -> int:
     hz = float(j.get("hz", 120))
     events = [e for e in j["events"] if not a.only_defects or e.get("defects")]
     windows = [(e["t"] - (a.before + 0.5) / hz, e["t"] + (a.after + 0.5) / hz) for e in events]
+    off = 0.0
+    if j.get("clock") == "beacon":  # a film with no frame times: the judge's beacon offset (film pts -> wall s)
+        off, times = float(j["clock_note"]["offset_s"]), None
     order = sorted(range(len(events)), key=lambda i: windows[i][0])
     got: dict[int, list] = {i: [] for i in range(len(events))}
-    wins = [windows[i] for i in order]
+    wins = [(windows[i][0] - off, windows[i][1] - off) for i in order]
     for t, rgb in js.read_video(video, wins, times):
+        t += off
         for i in order:
             if windows[i][0] <= t <= windows[i][1]:
                 got[i].append((t, rgb))

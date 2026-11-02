@@ -465,7 +465,7 @@ def judge_event(ev: dict, frames: list[tuple[float, np.ndarray, np.ndarray]], hz
     ts = [f.t for f in out_frames]
     gaps = [b - a for a, b in zip(ts, ts[1:]) if b - a > 1.5 * period]
     res["dropped_refreshes"] = int(sum(round(g / period) - 1 for g in gaps))
-    if live_off is not None and res["dropped_refreshes"]:
+    if live_off is not None and res["dropped_refreshes"] and not ev.get("film_below_refresh"):
         g0 = next(((a, b) for a, b in zip(ts, ts[1:]) if b - a > 1.5 * period))
         defects.append({"kind": "dropped-refresh", "t": round(g0[0], 4), "t_end": g0[1], "frames": res["dropped_refreshes"],
                         "detail": {"gaps_ms": [round(g * 1000, 1) for g in gaps]}})
@@ -518,6 +518,48 @@ def summary(results: list[dict]) -> dict:
             "pass": sum(1 for r in results if r.get("pass")), "defects": kinds}
 
 
+def beacon_clock_times(video: str, wall_hint: float, latency_ms: float = 8.0) -> tuple[list[float], dict]:
+    """Wall-clock display times (s) of every movie frame, from the beacons: a film with no host frame times (the
+    CuaDriver display recording). Each frame's newest beacon clock is the wall time a live pane drew it; the offset
+    film time -> wall time is the 90th percentile of (newest beacon - pts) over all frames (stale panes and render
+    latency only make a beacon older, never newer). `wall_hint` (s) unwraps the 524 s beacon clock."""
+    import av
+
+    m_ms = (1 << bc.CLOCK_BITS) * bc.CLOCK_UNIT_MS
+    hint_ms = wall_hint * 1000.0
+    pts, offs = [], []
+    sites: list[BeaconSite] = []
+    with av.open(video) as box:
+        stream = box.streams.video[0]
+        stream.thread_type = "AUTO"
+        for i, frame in enumerate(box.decode(stream)):
+            t = float(frame.time)
+            pts.append(t)
+            rgb = frame.to_ndarray(format="rgb24")
+            reads = [read_beacon(rgb, s_) for s_ in sites]
+            if not sites or i % 30 == 0 or not any(r and r.clock is not None for r in reads):
+                sites = find_beacons(rgb)
+                reads = [read_beacon(rgb, s_) for s_ in sites]
+            clocks = [r.clock for r in reads if r and r.clock is not None]
+            if not clocks:
+                continue
+            walls = []
+            for c in clocks:
+                ms = c * bc.CLOCK_UNIT_MS
+                base = hint_ms - (hint_ms % m_ms)
+                cand = [base + ms - m_ms, base + ms, base + ms + m_ms]
+                walls.append(min(cand, key=lambda w: abs(w - hint_ms - t * 1000.0)))
+            offs.append(max(walls) / 1000.0 - t)
+    if not offs:
+        raise SystemExit("--clock beacon: no beacon read in any frame")
+    offs.sort()
+    off = offs[min(len(offs) - 1, int(0.9 * len(offs)))]
+    spread = offs[min(len(offs) - 1, int(0.9 * len(offs)))] - offs[len(offs) // 2]
+    off += latency_ms / 1000.0
+    return [t + off for t in pts], {"offset_s": off, "assumed_render_latency_ms": latency_ms, "frames_with_beacon": len(offs), "frames": len(pts),
+                                    "p90_minus_p50_ms": round(spread * 1000, 2)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--video", required=True)
@@ -526,13 +568,29 @@ def main() -> int:
     ap.add_argument("--hz", type=float, default=120.0)
     ap.add_argument("--sidebar-right", type=int, default=None, help="sidebar right edge in video pixels")
     ap.add_argument("--frames", help="the recorder's PATH.frames.json: frame times and event times in host seconds")
+    ap.add_argument("--clock", choices=["host", "beacon"], default="host",
+                    help="beacon: a film with no frame times (CuaDriver display film); frame times from the beacons, "
+                         "event times from each event's t_wall")
+    ap.add_argument("--render-latency-ms", type=float, default=8.0,
+                    help="--clock beacon: assumed time from a beacon's draw to its display (default 8)")
+    ap.add_argument("--wall-hint", type=float, help="--clock beacon: a wall time (s) inside the film, to unwrap the clock")
     args = ap.parse_args()
     ev = json.load(open(args.events))
     if isinstance(ev, dict):
         ev = ev["events"]
     times = movie_times(args.frames) if args.frames else None
+    clock_note = None
+    if args.clock == "beacon":
+        hint = args.wall_hint or next((e["t_wall"] for e in ev if "t_wall" in e), None)
+        if hint is None:
+            raise SystemExit("--clock beacon needs --wall-hint or events with t_wall")
+        times, clock_note = beacon_clock_times(args.video, hint, args.render_latency_ms)
+        for e in ev:
+            e["film_below_refresh"] = True  # a ~30 fps film: no dropped-refresh verdict
+            if "t_wall" in e:
+                e["t"] = e["t_wall"]
     hz = args.hz
-    if times and len(times) > 10:
+    if times and len(times) > 10 and args.clock == "host":
         # The display's real refresh: the most common frame interval (a busy beacon draws every refresh).
         steps = sorted(b - a for a, b in zip(times, times[1:]) if b > a)
         hz = 1.0 / steps[len(steps) // 4]
@@ -544,7 +602,8 @@ def main() -> int:
             e["t"] = e["action_start_host_s"]
     ev = [e for e in ev if "t" in e]
     results = judge(args.video, ev, hz, args.sidebar_right, times)
-    out = {"video": args.video, "hz": round(hz, 2), "summary": summary(results), "events": results}
+    out = {"video": args.video, "hz": round(hz, 2), "clock": args.clock, "clock_note": clock_note,
+           "summary": summary(results), "events": results}
     text = json.dumps(out, indent=1, default=str)
     if args.out:
         Path(args.out).write_text(text)

@@ -1,0 +1,74 @@
+{
+ "id": "switch-cmd-digits-light-film",
+ "priority": "P2",
+ "title": "SWITCH FRAMES W1 light, display film: Cmd-1..9 by real HID keys, filmed by CuaDriver's display recorder (~30 fps; fallback while the app's own recorder gives no frames)",
+ "why": "Lawrence 2026-11-02: changing workspaces must change frame perfect, even with a ton of stuff. Each switch: the target's complete frame in the next refresh, no old frame after it, no blank or half-drawn frame, current terminal content, the sidebar selection in the same frame. The VM judge (scripts/cmux-next/switch-frames/judge_switch.py) reads the movie. Fallback film: content defects (old frame, half-drawn, blank, stale terminal, sidebar late) that last 2+ refreshes; not pacing evidence.",
+ "source": "SWITCH FRAMES (STATUS 4269, 4270); handoff/resize-videos/SWITCH-FRAMES.md",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "switch_profile",
+   "title": "set-up: 9 workspaces, 2 beacon panes each",
+   "workspaces": 9,
+   "panes": 2,
+   "prefix": "sw-${nonce}"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "switch_cua_record",
+   "action": "start",
+   "name": "sw-w1-light"
+  },
+  {
+   "do": "switch_keys",
+   "title": "Cmd-1..9 in order, then a fixed seeded order",
+   "via": "hid",
+   "gap": 1.2,
+   "digits": "23456789172839415263748591",
+   "name": "sw-w1-light"
+  },
+  {
+   "do": "switch_cua_record",
+   "action": "stop",
+   "name": "sw-w1-light"
+  },
+  {
+   "do": "switch_adopt_shown"
+  },
+  {
+   "do": "expect",
+   "title": "the last switch shows a beacon workspace: its beacon runs in the daemon, the app and on screen",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "PANE"
+    },
+    {
+     "app_text_contains": "PANE"
+    },
+    {
+     "frame_text": "PANE"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
