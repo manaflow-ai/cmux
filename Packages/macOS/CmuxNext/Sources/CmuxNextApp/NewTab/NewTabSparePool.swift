@@ -38,6 +38,10 @@ final class NewTabSparePool {
     /// (a live window resize lays the hidden page out once, at the end).
     static let fitSettle: Duration = .milliseconds(120)
     static let maximumOpenings = 64
+    /// Whether a tab opening an existing chat may take the spare (`takeConnectedSpare`). Off until
+    /// the adopted page draws its chat (HQ#5914): with #31033 the adopted page showed an empty
+    /// transcript on a sidebar open and never painted on a reopen, so every such tab opens cold.
+    static let servesExistingChats = false
 
     private unowned let services: AppServices
     private var slot = AgentPaneSpareSlot<AgentPaneView>()
@@ -130,7 +134,7 @@ final class NewTabSparePool {
         // (AgentPaneSpareAdoption): it switches to the chat in place. One still connecting stays here,
         // and the tab opens cold as before: adopted, it would hold the open behind its chat list.
         services.agentTabs.takeConnectedSpare = { [weak self] in
-            guard let self else { return nil }
+            guard let self, Self.servesExistingChats else { return nil }
             guard let spare = slot.peek,
                   let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else {
                 AgentPaneSpareOutcome.empty.trace()
