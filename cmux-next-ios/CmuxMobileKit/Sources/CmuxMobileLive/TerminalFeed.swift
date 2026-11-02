@@ -100,6 +100,8 @@ public final class TerminalFeed {
     /// The pause between the keys of an answer: the agent's screen redraws after each.
     var keyPause: Duration = .milliseconds(300)
     var clock: any Clock<Duration> = ContinuousClock()
+    /// Bounds a silent notification ledger without closing the shared daemon channel.
+    var requestDeadline: Duration = .seconds(20)
 
     /// Pastes `text` into the terminal of `surface` and submits it with Return
     /// in one `send` on the Mac's `daemon` channel of `connection`, only while
@@ -128,7 +130,12 @@ public final class TerminalFeed {
     private(set) var macID = ""
     private var connection: Int?
     private var tree: DaemonTree?
-    private(set) var entries: [Entry] = []
+    private(set) var entries: [Entry] = [] {
+        didSet { echoes = Self.echoes(in: entries) }
+    }
+    /// The ids of `entries` that are echoes (`isEcho`), found once per ledger read: the
+    /// check ran for every entry against every other one on each tree update.
+    private var echoes: Set<String> = []
     private var markers: [Int: DaemonTree.NotificationMarker] = [:]
     /// The agent last seen in each terminal (the Mac drops it when the agent exits).
     private var harnesses: [Int: String] = [:]
@@ -374,7 +381,8 @@ public final class TerminalFeed {
                     if known.kind == item.kind, known.markdown == item.markdown, known.quote == item.quote,
                        known.agentName == item.agentName,
                        known.harness == item.harness, known.workspaceID == item.workspaceID,
-                       known.workspaceTitle == item.workspaceTitle, known.tabID == item.tabID { continue }
+                       known.workspaceTitle == item.workspaceTitle, known.tabTitle == item.tabTitle,
+                       known.tabID == item.tabID { continue }
                 }
                 history.append(item)
             }
@@ -382,34 +390,61 @@ public final class TerminalFeed {
         if !history.isEmpty { store.mergeHistory(history) }
         for item in fresh { store.upsert(item, atTop: true) }
         guard changedWorkspaceIDs == nil else { return }
-        // The Mac's reads.
+        // The Mac's reads, in one write.
+        var reads: [String] = []
         for entry in entries where entry.acknowledged {
             let id = Self.itemID(macID: macID, entry: entry.id)
             guard !macRead.contains(id), let item = store.item(id: id) else { continue }
             macRead.insert(id)
-            if !item.isRead { store.markRead(id) }
+            if !item.isRead { reads.append(id) }
         }
+        if !reads.isEmpty { store.markRead(reads) }
         resolveWaiting()
     }
 
     /// A terminal that asked for input and then posted again was answered there.
     private func resolveWaiting() {
         let prefix = "term-\(macID)-"
-        for entry in entries {
+        // Each surface's newest post (echoes aside), once: comparing every entry with every
+        // other one ran on each tree update.
+        var newest: [Int: Date] = [:]
+        for entry in entries where !isEcho(entry) {
             guard let surface = entry.surface else { continue }
+            if newest[surface].map({ entry.createdAt > $0 }) ?? true { newest[surface] = entry.createdAt }
+        }
+        for entry in entries {
+            guard let surface = entry.surface, let latest = newest[surface], latest > entry.createdAt else { continue }
             let id = Self.itemID(macID: macID, entry: entry.id)
             guard id.hasPrefix(prefix), let item = store.item(id: id), item.waitsInTerminal else { continue }
-            let later = entries.contains { $0.surface == surface && $0.createdAt > entry.createdAt && !isEcho($0) }
-            if later { store.resolveElsewhere(id, text: "Answered in the terminal") }
+            store.resolveElsewhere(id, text: "Answered in the terminal")
         }
     }
 
     /// A terminal's own (OSC) notification next to an agent hook's on the same tab.
-    private func isEcho(_ entry: Entry) -> Bool {
-        guard entry.source == "terminal", let surface = entry.surface else { return false }
-        return entries.contains { other in
-            other.source == "agent" && other.surface == surface && abs(other.createdAt.timeIntervalSince(entry.createdAt)) <= Self.echoWindow
+    private func isEcho(_ entry: Entry) -> Bool { echoes.contains(entry.id) }
+
+    /// A terminal row is an echo of an agent row on its surface within `echoWindow`.
+    /// `entries` is oldest first, so each surface's agent times are sorted and one binary
+    /// search per terminal row finds the nearest.
+    static func echoes(in entries: [Entry]) -> Set<String> {
+        var agentTimes: [Int: [Date]] = [:]
+        for entry in entries where entry.source == "agent" {
+            guard let surface = entry.surface else { continue }
+            agentTimes[surface, default: []].append(entry.createdAt)
         }
+        var out: Set<String> = []
+        for entry in entries where entry.source == "terminal" {
+            guard let surface = entry.surface, let times = agentTimes[surface] else { continue }
+            var low = 0
+            var high = times.count
+            while low < high {
+                let mid = (low + high) / 2
+                if times[mid] < entry.createdAt { low = mid + 1 } else { high = mid }
+            }
+            let near = [low - 1, low].filter { times.indices.contains($0) }
+            if near.contains(where: { abs(times[$0].timeIntervalSince(entry.createdAt)) <= echoWindow }) { out.insert(entry.id) }
+        }
+        return out
     }
 
     struct Place {
@@ -449,6 +484,7 @@ public final class TerminalFeed {
         )
         item.opensTerminal = true
         item.macID = workspace.macID.isEmpty ? nil : workspace.macID
+        item.tabTitle = tab.title
         return item
     }
 
@@ -539,7 +575,7 @@ public final class TerminalFeed {
             }
             if error.message.contains("foreground changed") { return "The agent left that terminal, so the reply was not sent." }
             if error.message.contains("agent not waiting") {
-                return "The agent is busy, asking something, or restarted. The reply was not sent. Open the terminal to reply."
+                return "Open the terminal to answer the agent."
             }
             return "The Mac refused the reply: \(error.message)"
         } catch {

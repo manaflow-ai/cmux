@@ -13,10 +13,27 @@ extension ActionWorkFailure {
             self.init(failure)
             return
         }
+        // A pane verb on a pane still opening was refused before it was sent (rule a): a typed refusal, so the control
+        // socket answers `unavailable` and the HUD shows the text alone, once. `DaemonService.workFailure` puts it in the
+        // person's language; here the English text.
+        if let notReady = error as? PaneNotReady {
+            self.init(refusal: .unavailable, reason: notReady.reason)
+            shown = notReady.shown
+            return
+        }
+        // A close past its bound with no answer: its result is unknown (`CloseUnanswered`). A caller reads that it may
+        // still apply (a timeout, not a refusal); the person reads why.
+        if let unanswered = error as? CloseUnanswered {
+            self.init("\(label): \(unanswered)", mayHaveApplied: true)
+            shownReason = unanswered.description
+            return
+        }
         let daemonError = error as? DaemonError
         var timedOut = false
         if case .timedOut = daemonError { timedOut = true }
         self.init("\(label): \(error)", mayHaveApplied: timedOut, terminalMayAppear: daemonError?.isTerminalStartTimeout == true)
+        // The person reads why in their language; a caller keeps the daemon's error (restore fuzz h3).
+        if daemonError?.isDiskFull == true { shownReason = RefusalStrings.diskFull }
     }
 }
 
@@ -32,4 +49,11 @@ extension DaemonError {
         if case .terminalStartTimedOut = self { return true }
         return false
     }
+}
+
+/// A workspace close whose machine did not answer within its bound (`DaemonService.closeReplyBound`), and whose
+/// workspace its store still lists: the result is unknown, since a paused daemon may still close it later.
+public struct CloseUnanswered: Error, Sendable, CustomStringConvertible {
+    public init() {}
+    public var description: String { RefusalStrings.closeUnanswered }
 }

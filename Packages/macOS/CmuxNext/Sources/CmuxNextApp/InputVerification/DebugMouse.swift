@@ -13,7 +13,8 @@ import CmuxNextSettings
 ///
 /// Params: `window` (id; default the first window); a point as `x`,`y`
 /// (window-local points from the top-left, as the journal records them) or
-/// `pane` (the center of that pane's content) or `row` (a sidebar workspace row, `DebugMouse+Rows`); `action`: `click` (default),
+/// `pane` (the center of that pane's content) or `row` (a sidebar workspace row, `DebugMouse+Rows`) or `divider` (a pane
+/// divider's center, `DebugMouse+Rows`); `action`: `click` (default),
 /// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y`
 /// or `to_edge` of the shown workspace, in `steps`), `move` (pointer motion with no button, for hover: tab and workspace
 /// hover cards), `hover` (tracking-area owners get entered, moved and
@@ -37,6 +38,7 @@ enum DebugMouse {
         if params["target"]?.stringValue == "page" {
             return params["action"]?.stringValue == "scroll" ? scrollPage(params, services: services) : clickPage(params, services: services)
         }
+        if params["target"]?.stringValue == "hover-card" { return hoverCard(params, services: services) }
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let window = controller.window else { return .object(["error": .string("no window")]) }
@@ -140,10 +142,37 @@ enum DebugMouse {
         ])
     }
 
+    /// A click/move on the actual non-activating card window, through the app's
+    /// event queue and local monitors. x/y start at the card's top-left, without
+    /// the transparent shadow band. This proves its hit test, rather than
+    /// invoking a tab-selection callback directly.
+    private static func hoverCard(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        guard let card = services.hoverCards.debugInteractiveCard,
+              let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue else {
+            return .object(["error": .string("no interactive hover card, or missing x/y")])
+        }
+        let screen = CGPoint(x: card.frame.minX + x, y: card.frame.maxY - y)
+        let base = card.window.convertPoint(fromScreen: screen)
+        let topLeft = InputJournal.topLeftPoint(base, in: card.window, relativeTo: card.window)
+        let action = params["action"]?.stringValue ?? "click"
+        guard ["move", "click"].contains(action) else { return .object(["error": .string("pass action move or click")]) }
+        let types: [NSEvent.EventType] = action == "move" ? [.mouseMoved] : [.leftMouseDown, .leftMouseUp]
+        let events = types.compactMap { mouse($0, at: topLeft, in: card.window, flags: [], clicks: action == "move" ? 0 : 1) }
+        guard events.count == types.count else { return .object(["error": .string("could not synthesize card events")]) }
+        // Keep the coordinator's synthetic screen point authoritative. Walking
+        // tracking areas here would send a row exit before the non-activating
+        // card receives the move, which is unlike the real panel crossing.
+        services.hoverCards.pointerMoved(to: screen)
+        SyntheticInput.register(events)
+        for event in events { NSApp.postEvent(event, atStart: false) }
+        return .object(["posted": .number(Double(events.count)), "target": .string("hover-card")])
+    }
+
     /// Top-left window-local point from `x`,`y` or the center of `pane`.
     private static func point(_ params: [String: JSONValue], controller: WindowController, window: NSWindow) -> NSPoint? {
         if let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue { return NSPoint(x: x, y: y) }
         if let row = params["row"]?.stringValue { return rowPoint(row, controller: controller, window: window) }
+        if let divider = params["divider"]?.stringValue { return dividerPoint(divider, controller: controller, window: window) }
         guard let key = params["pane"]?.stringValue, let pane = controller.content?.paneController(key: key) else { return nil }
         let view: NSView = pane.view.content ?? pane.view
         let center = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)

@@ -30,6 +30,8 @@ async fn claude_hub() -> (Arc<Hub>, TestClient, String) {
         ..Default::default()
     };
     cfg.store.mode = StoreMode::Memory;
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     cfg.permission_policy = PermissionPolicy::ApproveAll;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);

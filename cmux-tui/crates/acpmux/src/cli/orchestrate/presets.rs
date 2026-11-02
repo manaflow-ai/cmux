@@ -1,7 +1,6 @@
 //! `acpmux defaults` and `acpmux preset`.
 
 use super::*;
-use cmux_json::JsonSet as _;
 
 /// `acpmux defaults [FAMILY [key=value…]] [--clear]`.
 pub(crate) async fn defaults(

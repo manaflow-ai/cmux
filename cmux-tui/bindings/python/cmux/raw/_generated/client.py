@@ -153,6 +153,9 @@ class GeneratedClientMixin:
     def cloud_conversation_unsubscribe(self, conversation: str) -> JsonValue:
         return self._invoke_command('cloud-conversation-unsubscribe', CloudConversationUnsubscribeRequest(conversation=conversation))
 
+    def cloud_environment(self, access_token: str, action: str, params: Union[JsonValue, None], platform_origin: str) -> JsonValue:
+        return self._invoke_command('cloud-environment', CloudEnvironmentRequest(access_token=access_token, action=action, params=params, platform_origin=platform_origin))
+
     def cloud_host_replica_clear(self, *, purge: Union[bool, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-host-replica-clear', CloudHostReplicaClearRequest(purge=purge))
 
@@ -162,8 +165,8 @@ class GeneratedClientMixin:
     def cloud_host_replica_status(self) -> JsonValue:
         return self._invoke_command('cloud-host-replica-status', CloudHostReplicaStatusRequest())
 
-    def cloud_inbox_list(self, *, include_archived: Union[bool, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('cloud-inbox-list', CloudInboxListRequest(include_archived=include_archived, limit=limit))
+    def cloud_inbox_list(self, *, cursor: Union[str, None, MissingType] = MISSING, include_archived: Union[bool, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-inbox-list', CloudInboxListRequest(cursor=cursor, include_archived=include_archived, limit=limit))
 
     def cloud_inbox_op(self, conversation: str, idempotency_key: str, op: Union[JsonValue, None]) -> JsonValue:
         return self._invoke_command('cloud-inbox-op', CloudInboxOpRequest(conversation=conversation, idempotency_key=idempotency_key, op=op))
@@ -678,6 +681,9 @@ class GeneratedClientMixin:
     def server_stats(self, *, include: Union[List[str], None, MissingType] = MISSING) -> ServerStatsResult:
         return self._invoke_command('server-stats', ServerStatsRequest(include=include))
 
+    def set_attach_visibility(self, surface: Id, visible: bool) -> SetAttachVisibilityResult:
+        return self._invoke_command('set-attach-visibility', SetAttachVisibilityRequest(surface=surface, visible=visible))
+
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))
 
@@ -918,6 +924,7 @@ GeneratedClientMixin.cloud_conversation_subscribe.__cmux_command__ = COMMANDS['c
 GeneratedClientMixin.cloud_conversation_thread.__cmux_command__ = COMMANDS['cloud-conversation-thread']
 GeneratedClientMixin.cloud_conversation_typing.__cmux_command__ = COMMANDS['cloud-conversation-typing']
 GeneratedClientMixin.cloud_conversation_unsubscribe.__cmux_command__ = COMMANDS['cloud-conversation-unsubscribe']
+GeneratedClientMixin.cloud_environment.__cmux_command__ = COMMANDS['cloud-environment']
 GeneratedClientMixin.cloud_host_replica_clear.__cmux_command__ = COMMANDS['cloud-host-replica-clear']
 GeneratedClientMixin.cloud_host_replica_set.__cmux_command__ = COMMANDS['cloud-host-replica-set']
 GeneratedClientMixin.cloud_host_replica_status.__cmux_command__ = COMMANDS['cloud-host-replica-status']
@@ -1093,6 +1100,7 @@ GeneratedClientMixin.select_workspace.__cmux_command__ = COMMANDS['select-worksp
 GeneratedClientMixin.send.__cmux_command__ = COMMANDS['send']
 GeneratedClientMixin.send_key.__cmux_command__ = COMMANDS['send-key']
 GeneratedClientMixin.server_stats.__cmux_command__ = COMMANDS['server-stats']
+GeneratedClientMixin.set_attach_visibility.__cmux_command__ = COMMANDS['set-attach-visibility']
 GeneratedClientMixin.set_cell_pixels.__cmux_command__ = COMMANDS['set-cell-pixels']
 GeneratedClientMixin.set_client_info.__cmux_command__ = COMMANDS['set-client-info']
 GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-sizing']

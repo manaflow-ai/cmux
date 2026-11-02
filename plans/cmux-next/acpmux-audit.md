@@ -28,7 +28,7 @@ missed, and prints `ACPMUX-PERF` lines plus `.build/acpmux-perf/perf_ops.json`.
   workspaces) streaming 40 tokens at 40/s each at once.
 - **idle**: after STRESS, every agent alive, both clients attached: daemon context switches and
   CPU per 5 s window (median of 3), and the same for its agent hosts and agents.
-- Run: `cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA
+- Run: `cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --os macos
   --arg test --arg acpmux_ops_and_streaming --artifact .build/acpmux-perf/perf_ops.json`
   (AWS M4 Pro minis, macOS 27; the step's worker is named in the numbers below).
 
@@ -147,3 +147,21 @@ Landed 04bb1db58d91..5a5ea9f488f2 (a837, red Rust tests on base; test (windows) 
   `repeated_transcript_construction_has_bounded_peak_memory` saw "daemon closed the socket").
   Those starts, `back_from_fallback` and `route_refusal` are now `Box::pin`ned, like
   `reach_or_start` in `lifecycle.rs`. Keep new awaits on that path boxed.
+
+## Notice to PL-acpmux: test (linux) reds on base fixed (2026-10-29)
+
+a839, test (linux) green on run 40985398560. Product fixes in acpmux:
+- `hub/turns.rs`: since #27170 a Stop before a retry's or continuation's turn starts gave the
+  generic "stopped before this prompt reached the agent"; a prompt with `after_turn` now gets the
+  `auto_resume.stopped` refusal (`retry.stopped`) again.
+- `hub/own_host.rs`: #27018's early refusal for a key under a peer's name said
+  `no local session with the id …`, which told a peer this host's peer names and broke the
+  `no session matches` withdraw check in cmux-tui-core. It says `no session matches …` again;
+  routing is unchanged (old text still matched in `cli/run/launch.rs` for skewed daemons).
+- `cli/run/standard.rs`: #27255 sent a bare `@` (the caller's own session) to team messaging;
+  only `@name` goes there now.
+- `hub/turn_cap.rs` tests are `cfg(unix)` (mkfifo); 12 new `v["k"] = x` / index / slice hits from
+  #26447, #27512, #26108 use `set`/`get` (indexing_slicing back to 697).
+Test-only: fake agent sends `totalTokens` (#27132), session_pool expects a crashed daemon's
+pooled host to end itself (c7e99bd), remote_guard_modes expects the VM-boundary ambiguity
+refusal (#26276), agent_tools and tailnet_embedded_logout use the hermetic helper.

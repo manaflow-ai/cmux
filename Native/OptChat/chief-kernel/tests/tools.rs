@@ -55,11 +55,10 @@ fn pi_durable_gets_every_tool_its_host_can_do_with_a_replay_flag() {
     ] {
         assert!(n.contains(&want.to_owned()), "{want} missing: {n:?}");
     }
-    // Host-only: the Mac's app and moving a Mac home.
-    assert!(
-        !n.contains(&"version".to_owned()) && !n.contains(&"move".to_owned()),
-        "{n:?}"
-    );
+    // Host-only: the Mac's app, moving a Mac home and a command off the turn.
+    for host_only in ["version", "move", "watch"] {
+        assert!(!n.contains(&host_only.to_owned()), "{host_only}: {n:?}");
+    }
     for t in s.as_array().unwrap() {
         assert!(
             t["description"].as_str().is_some_and(|d| !d.is_empty()),
@@ -143,4 +142,22 @@ fn call_pure_answers_zoom_and_date_from_the_memory_and_the_context() {
         call_pure("send", r#"{"text": "x"}"#, &ctx, &memory, &store, &dates).is_err(),
         "send is no pure tool"
     );
+}
+
+#[test]
+fn a_mac_engine_gets_watch_and_never_replays_it() {
+    for engine in ["native", "claude", "codex"] {
+        let s = specs(engine, "{}").unwrap();
+        let watch = s
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "watch")
+            .unwrap_or_else(|| panic!("{engine} has no watch"));
+        assert_eq!(watch["replay"], "once", "{engine}");
+        let props = &watch["json_schema"]["properties"];
+        for key in ["command", "until", "timeout_seconds", "note", "cancel"] {
+            assert!(props.get(key).is_some(), "{engine}: {key}");
+        }
+    }
 }

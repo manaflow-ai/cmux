@@ -187,6 +187,7 @@ impl Brain {
     /// - `profile` reads (`history`, or no field), never a write or undo;
     /// - `control` `status`, `interrupt` with no message, and `answer` with
     ///   `deny`;
+    /// - `watch` with no command (the list, a cancel);
     /// - any other `tell` or `control` only to a subagent that asks for its
     ///   own effects (policy `ask`), so an untrusted turn cannot launder a
     ///   command through an approve-all subagent.
@@ -228,7 +229,10 @@ impl Brain {
                 let action = field("action").unwrap_or("status");
                 let no_message = field("message").is_none_or(|m| m.trim().is_empty());
                 let deny = field("option").is_none_or(|o| o.eq_ignore_ascii_case("deny"));
+                // `sessions` shows other chats' last lines: only to a turn
+                // that answers an agent, never to another person's.
                 if action == "status"
+                    || (action == "sessions" && !self.turn_agents.is_empty())
                     || (action == "interrupt" && no_message)
                     || (action == "answer" && deny && no_message)
                 {
@@ -240,11 +244,18 @@ impl Brain {
             "mcp__optchat__remember" => return false,
             // Nor spend the owner's money on a Cloud machine.
             "mcp__optchat__cloud_workspace" => return false,
+            // Nor run a command on the owner's machine: only list and cancel.
+            "mcp__optchat__watch" => return field("command").is_none_or(|c| c.trim().is_empty()),
             _ => return true,
         }
         let Some(id) = field("id") else {
             return false;
         };
+        // An agent's ask turn may answer the sessions whose words it carries,
+        // never start a talk with another one (session_tell.rs).
+        if let Some(name) = super::session_tell::session_name(id) {
+            return self.turn_agents.contains(name);
+        }
         self.state
             .sub(id)
             .is_some_and(|(_, s)| s.policy.as_deref() == Some(crate::approval::ASK))

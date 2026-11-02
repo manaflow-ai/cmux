@@ -410,7 +410,7 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     let _ = std::fs::remove_dir_all(&home);
     let run_command = |session: &str, background: bool, command: &str| -> String {
         use std::io::Write;
-        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        let mut child = daemon_env::acpmux(&home.join("scratch"))
             .arg("__bg-hook")
             .arg(&home)
             // As a harness runs it: no ACPMUX_HOME (`agent::harness_command`), so the argument

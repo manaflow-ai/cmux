@@ -108,7 +108,8 @@ nonisolated enum FeedWireDecode {
             let a = p["action"] as? Object ?? [:]
             let action = FeedPrompt.Approve.Action(
                 type: FeedPrompt.Approve.ActionType(rawValue: a["type"] as? String ?? "") ?? .custom, summary: a["summary"] as? String ?? "",
-                command: a["command"] as? String, cwd: a["cwd"] as? String, tool: a["tool"] as? String, diff: a["diff"] as? String, risk: a["risk"] as? String)
+                command: a["command"] as? String, cwd: a["cwd"] as? String, tool: a["tool"] as? String, diff: a["diff"] as? String, risk: a["risk"] as? String,
+                hold: hold((a["input"] as? Object)?["approval"] as? Object))
             return .approve(.init(action: action, scopes: strings(p["scopes"]).compactMap(FeedApproveScope.init(rawValue:))))
         case "confirm":
             return .confirm(.init(statement: s("statement") ?? "", confirmLabel: s("confirm_label"), cancelLabel: s("cancel_label"),
@@ -130,6 +131,12 @@ nonisolated enum FeedWireDecode {
         default:
             return .custom(kind: kind, prompt: json(p), answerSchema: answerSchema.map { json($0) })
         }
+    }
+
+    /// An integration approval's `{request, team}`; nil unless both are non-empty strings.
+    static func hold(_ o: Object?) -> FeedPrompt.Approve.Hold? {
+        guard let request = o?["request"] as? String, let team = o?["team"] as? String, !request.isEmpty, !team.isEmpty else { return nil }
+        return .init(request: request, team: team)
     }
 
     static func inputFields(_ schema: Object) -> [FeedPrompt.InputField] {

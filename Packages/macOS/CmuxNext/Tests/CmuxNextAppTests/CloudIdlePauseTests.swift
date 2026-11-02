@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 @testable import CmuxNextApp
 import CmuxNextCloud
@@ -123,7 +124,7 @@ struct CloudIdlePauseTests {
 
     @Test func theSidebarHeaderSaysPausedIdleAndNeedsNoAttention() {
         let f = Self.pausedMachine(reason: .idle)
-        let header = CloudCreationRows.machine(f.session, compatibility: nil)
+        let header = CloudCreationRows.machine(f.session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .pausedIdle)
         #expect(header.status != .failed)
         #expect(!header.status.needsAttention)
@@ -131,7 +132,7 @@ struct CloudIdlePauseTests {
         #expect(Strings.attentionStatus(.pausedIdle) == "Paused (idle)")
 
         f.session.machine.pauseReason = .user
-        #expect(CloudCreationRows.machine(f.session, compatibility: nil).status == .paused)
+        #expect(CloudCreationRows.machine(f.session, compatibility: nil, updates: DaemonUpdateBoard()).status == .paused)
         #expect(SectionHeaderRowView.statusWords(.paused) == "Paused")
     }
 
@@ -259,6 +260,305 @@ struct CloudIdlePauseTests {
         }
         #expect(reads == 0, "a record that already reads paused is not read again")
         f.session.disconnect()
+    }
+
+    // MARK: One record (Machine Status)
+
+    /// Machine Status reads the machine's record by itself. A record that went from live to not
+    /// live suspends the session like a list refresh does: before, it only replaced the record, so
+    /// the next refresh found "was not live", nothing suspended, and the header never read
+    /// "Paused (idle)" while the link kept trying.
+    @Test(.timeLimit(.minutes(1)))
+    func oneRecordThatTurnedPausedSuspendsTheSession() async throws {
+        let f = Self.pausedMachine(reason: nil)
+        f.session.machine.status = .running
+        f.session.connect()
+        let session = f.session
+        try await Self.waitUntil { session.linkPhase != .idle }
+        #expect(session.stage != .paused(idle: true), "a live link is not a pause")
+
+        var record = session.machine
+        record.status = .paused
+        record.pauseReason = .idle
+        f.services.cloud.apply(record, to: session, read: f.services.cloud.beginRecordRead())
+
+        #expect(session.machine.status == .paused)
+        #expect(session.linkPhase == .idle, "suspended: the link stopped")
+        #expect(!session.daemon.isStarting, "suspended: the daemon connection is down")
+        #expect(session.stage == .paused(idle: true))
+        session.disconnect()
+    }
+
+    /// The other direction: a record that turned live (the machine was resumed elsewhere)
+    /// connects the session. Before, Machine Status left it disconnected.
+    @Test(.timeLimit(.minutes(1)))
+    func oneRecordThatTurnedLiveConnectsTheSession() async throws {
+        let f = Self.pausedMachine(reason: .idle)
+        let session = f.session
+        #expect(!session.daemon.isStarting)
+
+        var record = session.machine
+        record.status = .running
+        record.pauseReason = nil
+        f.services.cloud.apply(record, to: session, read: f.services.cloud.beginRecordRead())
+
+        #expect(session.machine.status == .running)
+        try await Self.waitUntil { session.daemon.isStarting }
+        session.disconnect()
+    }
+
+    /// Reads land out of order: a newer read found the machine paused and suspended it; an older
+    /// read (a second Machine Status, or a list asked before it) that still says running lands
+    /// after. It changes nothing: no record overwrite and no connect.
+    @Test(.timeLimit(.minutes(1)))
+    func anOlderRecordLandingAfterANewerOneChangesNothing() async throws {
+        let f = Self.pausedMachine(reason: nil)
+        f.session.machine.status = .running
+        f.session.connect()
+        let session = f.session, cloud = f.services.cloud
+        try await Self.waitUntil { session.linkPhase != .idle }
+
+        let olderStatus = cloud.beginRecordRead(), olderList = cloud.beginRecordRead(), newer = cloud.beginRecordRead()
+        var paused = session.machine
+        paused.status = .paused
+        paused.pauseReason = .idle
+        cloud.apply(paused, to: session, read: newer)
+        #expect(session.stage == .paused(idle: true))
+
+        var running = session.machine
+        running.status = .running
+        running.pauseReason = nil
+        cloud.apply(running, to: session, read: olderStatus)
+        cloud.reconcile([running], read: olderList)
+
+        #expect(session.machine.status == .paused, "the newest read's record stays")
+        #expect(session.linkPhase == .idle, "no connect from an older read")
+        #expect(!session.daemon.isStarting)
+        #expect(session.stage == .paused(idle: true))
+
+        // A read asked after the newest one applies as before.
+        cloud.apply(running, to: session, read: cloud.beginRecordRead())
+        #expect(session.machine.status == .running)
+        session.disconnect()
+    }
+
+    /// A list asked before a Machine Status read that found the machine lands after it without
+    /// that machine (the list was read before the machine showed in it). It does not remove or
+    /// disconnect the machine: the newer read saw it. A list asked later still removes it.
+    @Test(.timeLimit(.minutes(1)))
+    func anOlderListWithoutTheMachineDoesNotRemoveANewerRecord() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let session = f.session, cloud = f.services.cloud
+        let olderList = cloud.beginRecordRead(), status = cloud.beginRecordRead(machineID: f.session.machineID)
+        var running = session.machine
+        running.status = .running
+        cloud.apply(running, to: session, read: status)
+
+        cloud.reconcile([], read: olderList)
+        #expect(f.services.machines.session(session.machineID) === session, "the newer read's machine stays")
+
+        cloud.reconcile([], read: cloud.beginRecordRead())
+        #expect(f.services.machines.session(session.machineID) == nil, "a newer list removes it")
+    }
+
+    /// A list must not remove a session while a newer Machine Status read is still outstanding:
+    /// that response can be the only answer that reintroduces the machine after the list snapshot.
+    @Test(.timeLimit(.minutes(1)))
+    func anOlderListDefersRemovalUntilANewerRecordReadLands() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let session = f.session, cloud = f.services.cloud
+        let olderList = cloud.beginRecordRead()
+        let newerStatus = cloud.beginRecordRead(machineID: session.machineID)
+        var running = session.machine
+        running.status = .running
+
+        cloud.reconcile([], read: olderList)
+        #expect(f.services.machines.session(session.machineID) === session,
+                "the list cannot remove a machine while a newer record read is outstanding")
+
+        cloud.apply(running, to: session, read: newerStatus)
+        #expect(f.services.machines.session(session.machineID) === session)
+        #expect(session.machine.status == .running)
+        session.disconnect()
+    }
+
+    @Test func aDestroyedDetailCompletesADeferredListRemoval() {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud, session = f.session
+        let list = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead(machineID: session.machineID)
+        cloud.reconcile([], read: list)
+        #expect(f.services.machines.session(session.machineID) === session)
+        var destroyed = session.machine
+        destroyed.status = .destroyed
+        cloud.apply(destroyed, to: session, read: status)
+        #expect(f.services.machines.session(session.machineID) == nil)
+        #expect(cloud.recordReadsOutstanding.isEmpty)
+        #expect(!session.daemon.isStarting)
+        // The older list cannot bring back a machine the newer detail declared destroyed.
+        var stale = destroyed
+        stale.status = .paused
+        cloud.reconcile([stale], read: list)
+        #expect(f.services.machines.session(session.machineID) == nil)
+    }
+
+    @Test func aDestroyedDetailRemovesWithoutWaitingForAList() {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud, session = f.session
+        let older = cloud.beginRecordRead(machineID: session.machineID)
+        let detail = cloud.beginRecordRead(machineID: session.machineID)
+        var destroyed = session.machine
+        destroyed.status = .destroyed
+        cloud.apply(destroyed, to: session, read: detail)
+        #expect(f.services.machines.session(session.machineID) == nil)
+        var stale = destroyed
+        stale.status = .running
+        cloud.apply(stale, to: session, read: older)
+        #expect(session.machine.status == .destroyed)
+        #expect(cloud.recordReadsOutstanding.isEmpty)
+        #expect(!session.daemon.isStarting)
+    }
+
+    @Test func anOlderDestroyedDetailDoesNotRemoveANewerLiveRecord() {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud, session = f.session
+        let detail = cloud.beginRecordRead(machineID: session.machineID)
+        cloud.reconcile([session.machine], read: cloud.beginRecordRead())
+        var destroyed = session.machine
+        destroyed.status = .destroyed
+        cloud.apply(destroyed, to: session, read: detail)
+        #expect(f.services.machines.session(session.machineID) === session)
+        #expect(session.machine.status == .paused)
+        session.disconnect()
+    }
+
+    /// A failed or cancelled Machine Status read has no future record to preserve.
+    @Test(.timeLimit(.minutes(1)))
+    func aFailedRecordReadDoesNotKeepAnOmittedMachine() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud
+        let list = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead(machineID: f.session.machineID)
+        cloud.finishRecordRead(status)
+        cloud.reconcile([], read: list)
+        #expect(f.services.machines.session(f.session.machineID) == nil)
+    }
+
+    /// A failed read must release a removal already deferred by an earlier list.
+    @Test(.timeLimit(.minutes(1)))
+    func aFailedRecordReadFinishesAnAlreadyDeferredRemoval() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud
+        let list = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead(machineID: f.session.machineID)
+        cloud.reconcile([], read: list)
+        #expect(f.services.machines.session(f.session.machineID) === f.session)
+        cloud.finishRecordRead(status)
+        #expect(f.services.machines.session(f.session.machineID) == nil,
+                "failure retries the removal without waiting for another refresh")
+        #expect(f.session.linkPhase == .idle)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aStatusReadForAnotherMachineDoesNotDelayRemoval() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud
+        let other = MachineIconTests.cloudMachine(f.services, id: "vm-other")
+        other.machine.status = .paused
+        defer { other.disconnect() }
+        let list = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead(machineID: other.machineID)
+
+        cloud.reconcile([other.machine], read: list)
+        #expect(f.services.machines.session(f.session.machineID) == nil,
+                "B's pending status must not keep omitted A registered")
+        #expect(f.services.machines.session(other.machineID) === other)
+        cloud.finishRecordRead(status)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func removalWaitsUntilEveryNewerReadForThatMachineFinishes() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud
+        let list = cloud.beginRecordRead()
+        let first = cloud.beginRecordRead(machineID: f.session.machineID)
+        let second = cloud.beginRecordRead(machineID: f.session.machineID)
+        cloud.reconcile([], read: list)
+        cloud.finishRecordRead(first)
+        #expect(f.services.machines.session(f.session.machineID) === f.session)
+        cloud.finishRecordRead(second)
+        #expect(f.services.machines.session(f.session.machineID) == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aNewerListSupersedesADeferredRemoval() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud
+        let list = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead(machineID: f.session.machineID)
+        cloud.reconcile([], read: list)
+        cloud.reconcile([f.session.machine], read: cloud.beginRecordRead())
+        cloud.finishRecordRead(status)
+        #expect(f.services.machines.session(f.session.machineID) === f.session)
+        f.session.disconnect()
+    }
+
+    @Test func listTicketsNeverAccumulateOrRetireAnotherMachinesStatusRead() {
+        let cases: [(list: [CloudMachine], disabled: Bool)] = [
+            ([], false),
+            ([CloudMachine(id: "new-machine", status: .paused)], false),
+            ([CloudMachine(id: "destroyed-machine", status: .destroyed)], false),
+            ([], true),
+        ]
+        for item in cases {
+            let services = MachineIconTests.services()
+            let cloud = services.cloud
+            cloud.applyPolicy(disabled: item.disabled)
+            let status = cloud.beginRecordRead(machineID: "status-machine")
+            for _ in 0..<10 {
+                let list = cloud.beginRecordRead()
+                #expect(cloud.recordReadsOutstanding == [status: "status-machine"], "lists only need an ordering ticket")
+                cloud.reconcile(item.list, read: list)
+                cloud.finishRecordRead(list)
+                #expect(cloud.recordReadsOutstanding == [status: "status-machine"], "every list path preserves only the pending status read")
+            }
+            cloud.finishRecordRead(status)
+            #expect(cloud.recordReadsOutstanding.isEmpty)
+            for session in services.machines.cloud { session.disconnect() }
+        }
+    }
+
+    /// A newer list that first shows a machine (and creates its session) holds that machine's
+    /// ticket: an older list landing after it without the machine does not remove it, and an
+    /// older Machine Status record does not overwrite it.
+    @Test(.timeLimit(.minutes(1)))
+    func aMachineANewerListAddedKeepsThatListsTicket() throws {
+        let services = MachineIconTests.services()
+        let cloud = services.cloud, id = "vm-listed-\(UUID().uuidString.prefix(8))"
+        let olderStatus = cloud.beginRecordRead(), olderList = cloud.beginRecordRead(), newerList = cloud.beginRecordRead()
+        let listed = CloudMachine(id: id, status: .paused, displayName: "Listed VM")
+        cloud.reconcile([listed], read: newerList)
+        // A test process has no cmux-tui for a legacy link, so the list's create may make no
+        // session: stand one in, as that create would have.
+        let session = services.machines.session(id) ?? MachineIconTests.cloudMachine(services, id: id)
+        session.machine = listed
+
+        var running = listed
+        running.status = .running
+        cloud.apply(running, to: session, read: olderStatus)
+        #expect(session.machine.status == .paused, "an older record does not overwrite the newer list's")
+        cloud.reconcile([], read: olderList)
+        #expect(services.machines.session(id) === session, "an older list does not remove it")
+        session.disconnect()
+    }
+
+    /// Waits up to 20 seconds for `condition`, which the session's connect makes true.
+    static func waitUntil(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(20)
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try #require(condition())
     }
 
     // MARK: The setting
