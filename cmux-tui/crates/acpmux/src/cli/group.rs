@@ -173,7 +173,8 @@ pub(crate) fn list(groups: &Value, placements: &[Value]) -> Vec<Value> {
     let groups = by_index(groups);
     let mut names: BTreeMap<(String, String), usize> = BTreeMap::new();
     for group in &groups {
-        *names.entry(key(group)).or_default() += 1;
+        let count = names.entry(key(group)).or_default();
+        *count = count.saturating_add(1);
     }
     groups
         .iter()
@@ -186,7 +187,7 @@ pub(crate) fn list(groups: &Value, placements: &[Value]) -> Vec<Value> {
                 "pinned": group["pinned"],
                 "members": members_of(placements, id).iter()
                     .map(|placement| placement["workspace"]["workspace_id"].clone()).collect::<Vec<_>>(),
-                "duplicate": names[&key(group)] > 1,
+                "duplicate": names.get(&key(group)).is_some_and(|count| *count > 1),
             })
         })
         .collect()
@@ -213,11 +214,13 @@ pub(crate) fn tidy_plan(groups: &Value, placements: &[Value]) -> Vec<Merge> {
     }
     let mut plan = Vec::new();
     for key in order {
-        let same = &named[&key];
-        if same.len() < 2 {
+        let Some(same) = named.get(&key).filter(|same| same.len() > 1) else {
             continue;
-        }
-        let kept = same.iter().find(|group| group["pinned"] == true).unwrap_or(&same[0]);
+        };
+        let Some(kept) = same.iter().find(|group| group["pinned"] == true).or(same.first())
+        else {
+            continue;
+        };
         let into = kept["id"].as_str().unwrap_or_default();
         for group in same.iter().filter(|group| group["id"] != into) {
             let from = group["id"].as_str().unwrap_or_default();
@@ -232,7 +235,7 @@ pub(crate) fn tidy_plan(groups: &Value, placements: &[Value]) -> Vec<Merge> {
                 room: key.0.clone(),
                 from: from.to_owned(),
                 into: into.to_owned(),
-                unmovable: members.len() - movable.len(),
+                unmovable: members.len().saturating_sub(movable.len()),
                 members: movable,
             });
         }
@@ -244,8 +247,8 @@ pub(crate) fn tidy_plan(groups: &Value, placements: &[Value]) -> Vec<Merge> {
 pub(crate) fn workspace_of(placements: &[Value], key: &str) -> Option<String> {
     placements
         .iter()
-        .find(|placement| placement["workspace"]["workspace_ref"] == key)
-        .and_then(|placement| placement["workspace"]["workspace_id"].as_str())
+        .filter(|placement| placement["workspace"]["workspace_ref"] == key)
+        .find_map(|placement| placement["workspace"]["workspace_id"].as_str())
         .map(str::to_owned)
 }
 
