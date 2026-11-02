@@ -757,6 +757,60 @@
   color: var(--accent-text);
 }
 
+/* A group's first row carries its heading (Starred, All Themes) in the space above it, outside the
+ * row's highlight; the pointer passes through it. */
+.theme-option:has(> [data-group-start]) {
+  position: relative;
+  margin-top: 20px;
+}
+
+.theme-group-heading {
+  position: absolute;
+  top: -18px;
+  left: 6px;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  color: var(--muted-text);
+  pointer-events: none;
+}
+
+/* The star: shown on the highlighted or hovered row and always once starred. Its slot is always
+ * there, so the name never moves; only the star itself takes the hover fill. */
+.theme-option-star {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin: -2px -3px -2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-text);
+  visibility: hidden;
+}
+
+.theme-option[data-highlighted] .theme-option-star,
+.theme-option:hover .theme-option-star,
+.theme-option:has([data-popup-open]) .theme-option-star,
+.theme-option-star[data-starred] {
+  visibility: visible;
+}
+
+.theme-option-star:hover {
+  background: var(--input-bg);
+  transition: background var(--motion-hover);
+}
+
+.theme-option-star[data-starred] {
+  color: var(--accent-text);
+}
+
+.theme-option-star[data-starred] .icon {
+  fill: currentColor;
+}
+
 .theme-empty {
   padding: 6px;
   font-size: var(--text-detail);
