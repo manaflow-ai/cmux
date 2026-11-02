@@ -155,7 +155,7 @@ fn agent_cursor_visibility_non_finite_numbers_cross_the_wire() {
 
     // A null overlay: the window edge at the overlay's infinite origin, 4 wide, 0 high.
     let mut case = raw_case("target_pane_missing_points_at_window_edge");
-    case["snapshot"]["windows"][0]["overlay"] = null.clone();
+    case["snapshot"]["windows"][0]["overlay"] = null;
     assert_eq!(
         resolve_raw(&case),
         Visibility::Hidden {
