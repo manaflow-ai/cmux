@@ -1104,6 +1104,33 @@ class NewTerminals(unittest.TestCase):
         self.assertTrue(result["key_window_now"])
         self.assertNotIn("held_by_page", result)
 
+    def test_make_key_records_the_window_list_when_the_window_itself_did_not_take_the_key(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.key_window = self.REOPEN_WINDOW
+        main, panel, page = self.REOPEN_PAGE
+        for windows in (self.REOPEN_PAGE, [main, panel, dict(page, key=False)]):
+            result = self.make_key_on(j, self.REOPEN_REPLY, windows)
+            self.assertEqual([w["id"] for w in result["windows"]], [w["id"] for w in windows])
+        result = self.make_key_on(j, {"front": self.REOPEN_WINDOW, "key": self.REOPEN_WINDOW}, self.REOPEN_PAGE)
+        self.assertNotIn("windows", result)
+
+    def test_no_key_at_typing_after_a_page_held_make_key_says_so(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.key_window = self.REOPEN_WINDOW
+        self.make_key_on(j, self.REOPEN_REPLY, self.REOPEN_PAGE)
+        main, panel, page = self.REOPEN_PAGE
+        j.app.rpc = lambda method, params=None: {"windows": [main, panel, dict(page, key=False)]}
+        j.key = lambda *a: None
+        front = self.ext._front_app
+        self.ext._front_app = lambda: (None, None)
+        try:
+            with self.assertRaises(self.NotRun) as caught:
+                self.ext.step_smoke_type_now(j, {"text": "echo w4"})
+        finally:
+            self.ext._front_app = front
+        self.assertIn("browser page key", str(caught.exception))
+        self.assertNotIn("lost key status", str(caught.exception))
+
     def test_a_burst_needs_the_journey_window_itself_key_not_a_page(self):
         j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
         j.key_window = self.REOPEN_WINDOW
