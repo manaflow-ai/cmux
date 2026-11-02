@@ -92,8 +92,13 @@ extension AgentPaneWakeState {
     }
 
     /// The tab closes: the page puts prompts it holds for a folder trust answer into their chats'
-    /// drafts while its bridge still answers. Done when it answered or `limit` passed.
-    @MainActor public static func releaseHeldPrompts(in view: AgentPaneView, limit: Duration = .milliseconds(400)) async {
+    /// drafts while its bridge still answers. Done when it answered or `limit` passed. The page
+    /// writes them within `draftSettleMs` of schemas/agent-pane/wake-state.json, so this waits as
+    /// long as a quit's ask (``AgentPaneRelaunchWake/askLimit``), which outlasts it.
+    @MainActor public static func releaseHeldPrompts(
+        in view: AgentPaneView,
+        limit: Duration = AgentPaneRelaunchWake.askLimit
+    ) async {
         _ = await read(view, limit: limit, ask: "{closing: true}")
     }
 

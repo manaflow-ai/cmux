@@ -340,7 +340,11 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
     await trustAsk(page).waitFor({ timeout: 10_000 });
     await send(page, "kept when the tab closes");
     await heldRow(page, "kept when the tab closes").waitFor({ timeout: 10_000 });
-    // Meanwhile the chat's draft is saved from another client (the CLI): this page never had it.
+    // A draft typed here reaches acpmux (and this page's remount cache)...
+    await field(page).click();
+    await page.keyboard.type("typed here");
+    await until(() => drafts.get(CLOSED) === "typed here", "the typed draft");
+    // ...then another client (the CLI) saves a newer one: this page's cached copy is stale.
     drafts.set(CLOSED, "saved from the CLI");
     // The tab closes: the web page hides before anything unmounts (AgentPaneView.close).
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));

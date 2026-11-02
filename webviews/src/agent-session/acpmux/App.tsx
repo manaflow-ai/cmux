@@ -156,7 +156,8 @@ import {
   composerDraft,
   DRAFT_SETTLE_MS,
   notifyDraftActionsChanged,
-  readDurableDraft,
+  hasPendingDraftWrite,
+  readDurableDraftState,
   readPersistedDraft,
   settleDraftWithin,
   settlePendingDraftWrites,
@@ -9157,10 +9158,18 @@ function AcpmuxPane() {
     await Promise.all(
       [...where.drafts].map(async ([chat, list]) => {
         const text = list.map((entry) => entry.text).filter((part) => part.trim());
-        // The chat's draft as this page has it (the remount cache), else as acpmux keeps it: one
-        // saved from another client or the CLI is kept beside the held prompts, never replaced.
-        const draft =
-          readPersistedDraft(chat) ?? (await settledBy(readDurableDraft(chat).catch(() => undefined), until)) ?? "";
+        // The chat's draft as acpmux keeps it, so one saved from another client or the CLI is kept
+        // beside the held prompts, never replaced; this page's remount cache only while a write of
+        // its own is newer than acpmux's (hasPendingDraftWrite) or acpmux does not answer. The read
+        // gets half the deadline, so the writes still land within it.
+        const local = readPersistedDraft(chat);
+        const read = hasPendingDraftWrite(chat)
+          ? undefined
+          : await settledBy(
+              readDurableDraftState(chat).catch(() => undefined),
+              Math.min(until, Date.now() + DRAFT_SETTLE_MS / 2),
+            );
+        const draft = (read ? read.draft : local) ?? "";
         writePersistedDraft(chat, (behind ? [draft, ...text] : [...text, draft]).filter(Boolean).join("\n\n"));
         const chips = keptChips(list.flatMap((entry) => entry.attachments));
         if (!chips.length) return;
