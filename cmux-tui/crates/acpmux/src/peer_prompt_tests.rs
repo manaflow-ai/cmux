@@ -107,11 +107,11 @@ fn hidden_attach_uses_its_snapshot_without_overwriting_newer_live_events() {
     let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, notices);
     peer.mark_attached("s");
     peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": 40, "lastSeq": 50}));
-    assert_eq!(peer.attached.lock_or_recover()["s"], 40, "use the snapshot, not later history");
+    assert_eq!(peer.cursors.lock_or_recover()["s"], 40, "use the snapshot, not later history");
     peer.note_live(&json!({"sessionId": "s", "_meta": {"acpmux": {"seq": 42}}}));
     peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": 40}));
     assert_eq!(
-        peer.attached.lock_or_recover()["s"],
+        peer.cursors.lock_or_recover()["s"],
         42,
         "a delayed response cannot rewind live events"
     );
@@ -119,7 +119,7 @@ fn hidden_attach_uses_its_snapshot_without_overwriting_newer_live_events() {
     peer.mark_attached("old-peer");
     peer.note_hidden_attach_page("old-peer", &json!({"events": [], "lastSeq": 9}));
     assert_eq!(
-        peer.attached.lock_or_recover()["old-peer"],
+        peer.cursors.lock_or_recover()["old-peer"],
         0,
         "an unbounded lastSeq is not a safe snapshot"
     );
@@ -131,7 +131,11 @@ fn failed_first_attach_can_establish_a_new_baseline() {
     let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, notices);
     assert!(peer.mark_attached("s"));
     peer.clear_attached("s");
-    assert!(peer.mark_attached("s"));
+    // The mark stays, so the next link attaches it again; only its baseline is gone.
+    assert!(!peer.cursors.lock_or_recover().contains_key("s"));
+    assert!(peer.attached.lock_or_recover().contains_key("s"));
+    peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": 7}));
+    assert_eq!(peer.cursors.lock_or_recover()["s"], 7);
 }
 
 #[test]
@@ -140,7 +144,7 @@ fn first_attach_preserves_an_explicit_after_cursor_when_empty() {
     let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, notices);
     assert!(peer.mark_attached("s"));
     peer.note_attached_page_after("s", 42, &json!({"events": []}));
-    assert_eq!(peer.attached.lock_or_recover()["s"], 42);
+    assert_eq!(peer.cursors.lock_or_recover()["s"], 42);
 }
 
 #[tokio::test]

@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import Foundation
 
 /// Move to Cloud's text (``CloudMove``). Keys live in Resources/Cloud.xcstrings.
@@ -23,6 +24,18 @@ enum CloudMoveStrings {
     }
     static var homeFolder: String {
         String(localized: "cloud.move.homeFolder", defaultValue: "Move to Cloud copies a project folder, never your home folder. Start the chat in a project folder first.",
+               table: "Cloud", bundle: .module)
+    }
+    /// `cloud.startChat`: the account or team changed while the send started (``CloudStartChat/checkAccount(_:now:listCurrent:)``).
+    static var startChatAccountChanged: String {
+        String(localized: "cloud.startChat.accountChanged",
+               defaultValue: "Your Cloud account or team changed while this chat was starting, so nothing was copied. Send it again in the account you want it in.",
+               table: "Cloud", bundle: .module)
+    }
+    /// `cloud.startChat`: the machine list of the account signed in now could not be read.
+    static var startChatListUnread: String {
+        String(localized: "cloud.startChat.listUnread",
+               defaultValue: "Couldn't read the Cloud machines of the account signed in now, so this chat stays on this Mac. Try again in a moment.",
                table: "Cloud", bundle: .module)
     }
     static func relativePath(_ path: String) -> String {
@@ -69,7 +82,7 @@ enum CloudMoveStrings {
                               table: "Cloud", bundle: .module), machine)
     }
     /// What a link CLI answers when the machine's cmux-tui is too old for it (cmux-tui `link/machine_gate.rs`).
-    static let outdatedCode = "machine_outdated"
+    static let outdatedCode = CloudOutdatedMachine.code
     static func unknownMachine(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.unknownMachine", defaultValue: "cmux can't confirm who owns %@, so the chat stays on this Mac.",
                               table: "Cloud", bundle: .module), machine)

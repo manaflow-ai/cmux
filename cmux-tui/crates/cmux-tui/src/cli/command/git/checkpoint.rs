@@ -78,6 +78,7 @@ pub(super) fn parse(
                 let field = "context_lines";
                 insert_bounded_u32(&mut params, field, "--context-lines", value, 0, 1_000_000)?;
             }
+            super::diff_pages(flags, &mut params)?;
             if let Some(only) = flags.take("only") {
                 let paths = comma_separated("--only", &only)?.into_iter().map(Value::String);
                 params.insert("paths".into(), Value::Array(paths.collect()));

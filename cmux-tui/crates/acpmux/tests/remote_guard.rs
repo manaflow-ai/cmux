@@ -205,6 +205,12 @@ async fn an_unhandled_session_method_reaches_the_harness_only_from_the_unix_sock
     assert!(err(&r).contains("transcriptRead.remote"), "{r}");
     let r = Client::new(&hub, Origin::LocalApp).call("_acpmux/subagent_transcript", read).await;
     assert!(!err(&r).contains("transcriptRead.remote"), "{r}");
+    // So is a chat's older native history, read from its Claude Code transcript.
+    let older = json!({"sessionId": id, "before": 4096});
+    let r = Client::new(&hub, Origin::Web).call("_acpmux/native_history", older.clone()).await;
+    assert!(err(&r).contains("transcriptRead.remote"), "{r}");
+    let r = Client::new(&hub, Origin::LocalApp).call("_acpmux/native_history", older).await;
+    assert!(!err(&r).contains("transcriptRead.remote"), "{r}");
     // The daemon's workflows (they name its chats and their workflows' args): never for the Web.
     let r = Client::new(&hub, Origin::Web).call("_acpmux/workflows", json!({})).await;
     assert!(err(&r).contains("workflows.remote"), "{r}");
@@ -539,7 +545,9 @@ async fn assert_no_turn_end(c: &mut Client) {
 
 #[tokio::test]
 async fn remote_request_and_notification_cancels_cannot_stop_local_sessions() {
-    for (n, origin) in [("web", Origin::Web), ("peer", Origin::Peer)] {
+    // A peer link that proved the peer token is the owner's own daemon and may
+    // (`tests/cancel_owner.rs`, with every peer that is not).
+    for (n, origin) in [("web", Origin::Web)] {
         // Request form: a local-origin turn remains active after the remote
         // caller is refused, then the Unix socket can still stop it.
         let hub = hub();

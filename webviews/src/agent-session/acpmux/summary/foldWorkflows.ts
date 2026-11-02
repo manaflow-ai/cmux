@@ -39,9 +39,11 @@ function agentOf(node: Subagent, agent: FoldAgent): WorkflowAgent {
     state: node.paused && agent.state === "running" ? "paused" : stateOf(agent.state),
     agentId: agent.agentId,
     doing: agent.action,
-    lastMessage: agent.result,
+    lastMessage: agent.lastMessage ?? agent.result,
+    error: agent.error,
     tokens: agent.tokens,
     lastProgressAt: agent.lastProgressAt,
+    progressVersion: node.progressVersion,
     retryReason: agent.retryReason,
     cached: agent.cached,
     model: agent.model,
@@ -80,13 +82,6 @@ export function phaseState(agents: readonly WorkflowAgent[]): WorkflowPhase["sta
 export function phaseAgents(workflow: WorkflowSummary, phase: WorkflowPhase): WorkflowAgent[] {
   const ids = new Set(phase.agentIds);
   return workflow.agents.filter((agent) => ids.has(agent.id));
-}
-
-/// The phases after the last one any agent started in, none of whose agents started: what runs next.
-export function upNext(workflow: WorkflowSummary): WorkflowPhase[] {
-  const started = workflow.phases.map((phase) => phaseState(phaseAgents(workflow, phase)) !== "pending");
-  const last = started.lastIndexOf(true);
-  return workflow.phases.filter((phase, i) => i > last && phase.id !== "unassigned");
 }
 
 /// A model id as people say it: `claude-opus-5-5` -> "Opus 5.5", `sonnet` -> "Sonnet"; else as is.
@@ -190,6 +185,7 @@ export function createWorkflowAdapter() {
         node.action,
         node.startedAt,
         node.endedAt,
+        node.progressVersion,
       ];
       let entry = cache.get(node.id);
       if (!entry || key.some((part, i) => part !== entry!.key[i])) entry = { key, summary: summarize(node, sessionId) };

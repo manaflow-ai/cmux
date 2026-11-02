@@ -254,6 +254,21 @@ def find_dispatched_run(branch: str, since: str) -> int | None:
     return None
 
 
+def job_log(job_id: int) -> str:
+    """A job's own log; ANSI is normalized by the Python red classifiers."""
+    import importlib.util  # noqa: PLC0415
+    spec = importlib.util.spec_from_file_location("base_red_excuse", Path(__file__).with_name("base_red_excuse.py"))
+    excuse = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(excuse)
+    route = f"repos/{REPO}/actions/jobs/{job_id}/logs"
+    result = subprocess.run(["gh", "api", excuse.ESCAPE_FLAG, route], text=True, capture_output=True)
+    if result.returncode != 0 and excuse.escape_flag_unknown(result.stderr):
+        result = subprocess.run(["gh", "api", route], text=True, capture_output=True)
+    if result.returncode != 0:
+        raise SystemExit(f"gh api {excuse.ESCAPE_FLAG} {route} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
 def log_cache(run_id: int, attempt: int) -> Path:
     common = Path(git("rev-parse", "--git-common-dir").strip()).resolve()
     return common / "package-bisect" / "logs" / f"{run_id}-{attempt}.log"
@@ -276,7 +291,7 @@ def package_job_log(run_id: int) -> tuple[str, str]:
     cached = log_cache(run_id, jobs.get("attempt", 1))
     if cached.exists():
         return "completed", cached.read_text()
-    log = run("gh", "api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job['databaseId']}/logs")
+    log = job_log(job["databaseId"])
     cached.parent.mkdir(parents=True, exist_ok=True)
     cached.write_text(log)
     return "completed", log

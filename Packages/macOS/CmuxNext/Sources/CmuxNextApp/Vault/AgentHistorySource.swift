@@ -22,6 +22,6 @@ final class AgentHistorySource: VaultSessionSource {
     /// Not ended, and its tab is still on a connected machine.
     func isLive(_ session: AgentSession) -> Bool {
         guard session.endedAt == nil, let tab = session.tab else { return false }
-        return services?.locateTab(tab) != nil
+        return services?.locateTabOnAnyMachine(tab) != nil
     }
 }

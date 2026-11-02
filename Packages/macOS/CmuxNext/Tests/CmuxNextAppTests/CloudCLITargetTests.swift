@@ -217,17 +217,21 @@ struct CloudCLITargetTests {
             machinePlatform: MachineCatalogPlatform(os: "linux", arch: "arm64"), machineCapabilities: ["mcap-one"],
             machineName: "vm-host-name", generation: "gen-7", workspaceRevision: 31, lifecycleReady: false)
         identity.launchSnapshotPath = "/private/tmp/cn-launch-snapshot.json"
+        identity.buildID = "3412812eae76aaaabbbb-dirty.12345678"
+        identity.cliPath = "/Applications/cmux NEXT.app/Contents/Resources/bin/cmux-tui"
         return identity
     }
 
     /// Each `identify` field under its wire name, as `JSONSerialization` reads the copied details.
     static var fullIdentityWire: [String: Any] { [
         "app": "cmux-tui", "version": "0.9.1", "build_commit": "3412812eae76aaaabbbb", "ghostty_commit": "9c1d2e3f4a5b",
+        "build_id": "3412812eae76aaaabbbb-dirty.12345678",
         "protocol": 12, "capabilities": ["cap-alpha", "cap-beta"], "session": "vm-session-name", "pid": 4242,
         "registry_id": "6f1c0b8e-reg-0001", "machine_id": "res-machine-1", "session_resource_id": "res-session-1",
         "machine_platform": ["os": "linux", "arch": "arm64"], "machine_capabilities": ["mcap-one"],
         "machine_name": "vm-host-name", "generation": "gen-7", "workspace_revision": 31, "lifecycle_ready": false,
         "launch_snapshot_path": "/private/tmp/cn-launch-snapshot.json",
+        "cli_path": "/Applications/cmux NEXT.app/Contents/Resources/bin/cmux-tui",
     ] }
 
     static func json(_ text: String) throws -> [String: Any] {
@@ -254,6 +258,37 @@ struct CloudCLITargetTests {
             #expect(row[key] != nil, "the details dropped \(key)")
         }
         #expect(report.details.contains("9c1d2e3f4a5b"), "the ghostty commit is in the copied text")
+    }
+
+    /// A Cloud machine daemon's handshake with every required capability and `extra`.
+    static func cloudHandshake(_ store: DaemonStore, extra: [String]) throws {
+        let list = (DaemonCapability.required + extra).map { "\"\($0)\"" }.joined(separator: ",")
+        let json = #"{"app":"cmux-tui","protocol":12,"session":"cloud","generation":"g1","capabilities":["# + list + "]}"
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+    }
+
+    /// A Cloud machine whose daemon does not serve `fs-v1` (no model plane identity on a fresh
+    /// VM) cannot take Move to Cloud's or a Cloud chat's first sync: its row says so, and its
+    /// compatibility is not `current`, before any sync fails on `fs.unavailable`.
+    @Test func aCloudMachineWithoutFileOpsIsReportedBeforeTheSync() throws {
+        let unknown = Self.fixture()
+        #expect(AppControl.cloudMachineRow(unknown.session, unknown.services.machines)["file_ops"] == .null,
+                "unknown before the daemon answers")
+
+        let without = Self.fixture()
+        try Self.cloudHandshake(without.session.daemon.store, extra: DaemonCapability.optional.filter { $0 != "fs-v1" })
+        let row = AppControl.cloudMachineRow(without.session, without.services.machines)
+        #expect(row["file_ops"] == .bool(false))
+        #expect(row["compatibility"] == .string("limited"))
+        #expect(row["missing_features"]?.arrayValue?.contains(.string("fs-v1")) == true)
+
+        let with = Self.fixture()
+        try Self.cloudHandshake(with.session.daemon.store, extra: DaemonCapability.optional + ["fs-v1"])
+        let served = AppControl.cloudMachineRow(with.session, with.services.machines)
+        #expect(served["file_ops"] == .bool(true))
+        #expect(served["missing_features"]?.arrayValue?.contains(.string("fs-v1")) != true)
     }
 
     /// A field added to `identify` must reach the details too: every stored property of

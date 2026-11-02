@@ -26,6 +26,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = NSView()
     private(set) weak var content: NSView?
+    /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
+    let nativeToolOwner = PaneNativeToolOwner()
     /// A view in the window that this pane, in no window yet, shows: it moves here when the pane enters one.
     private var windowEntry = WindowEntryHandoff()
     private var tokenObservation: Task<Void, Never>?
@@ -83,6 +85,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
+    var launchImageSizes: [CGSize] = [] // its pixels fit: the host's size when shown, and the image's own
+    /// Move covers clear without invoking their one-frame reveal callback on resize.
+    var launchImageInvokesResizeCallback = true
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
     /// Asked when the launch image's limit is up, before it goes: `false` keeps the frame, because
@@ -115,7 +120,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value) }) {
+            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value, ChromeTunables.nativeRowTools.value) }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
@@ -170,6 +175,12 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
+        if launchImageView != nil, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
+            // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
+            // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
+            clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
+            launchImageInvokesResizeCallback = true
+        }
         // After the host frame: a strip pinned to a browser's band reads its
         // frame from constraints that depend on the host frame.
         super.layout()
@@ -206,6 +217,20 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     private var visibleContent: NSView? {
         paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil } ?? (hostsContent ? content : nil)
+    }
+
+    /// The selected agent page, for native controls owned by the page: the incoming one while a
+    /// paint hold still shows the outgoing view.
+    var displayedAgentPaneView: AgentPaneView? { hostsContent ? content as? AgentPaneView : nil }
+
+    /// The controls and their callback follow the selected page, including an outgoing first-paint hold.
+    func refreshNativeToolOwner() {
+        if let agent = content as? AgentPaneView, !hostsContent, agent.superview == nil {
+            // Reparenting invokes this refresh on the old pane before the new pane binds its callback.
+            agent.onNativeToolOwnerChange = nil
+        }
+        nativeToolOwner.model = displayedAgentPaneView?.model
+        toolbar?.refresh()
     }
 
     var paneFramesContent: Bool { !(visibleContent is AgentPaneView) }
@@ -263,6 +288,8 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     func paneFrameInWindowDidChange() {
         stripView.updateWindowControlsAvoidance()
+        // Content with no strip of its own over it (Home's header) keeps clear of the traffic lights too.
+        WindowControlsAvoiders.refresh(in: window)
         // The pane moved under a possibly still pointer (column scroll, split resize).
         stripView.paneMovedInWindow()
     }
@@ -317,8 +344,15 @@ final class PaneContentView: NSView, PaneContentChrome {
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.
-        if let previous, previous !== view, previous.superview == nil { (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil }
+        if let previous, previous !== view, previous.superview == nil {
+            (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+            (previous as? AgentPaneView)?.onNativeToolOwnerChange = nil
+        }
+        if let agent = view as? AgentPaneView {
+            agent.onNativeToolOwnerChange = { [weak self] in self?.refreshNativeToolOwner() }
+        }
         content = view
+        refreshNativeToolOwner()
         // After the incoming view is in: a browser that leaves stays parked
         // here, and the keyboard it held goes to what shows now.
         if let leaving { retire(leaving) }
@@ -358,7 +392,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         endPaintHold()
         let shown = hostsContent ? content : nil
         (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+        (shown as? AgentPaneView)?.onNativeToolOwnerChange = nil
         content = nil
+        refreshNativeToolOwner()
         if let shown { if parks { retire(shown) } else { shown.removeFromSuperview() } }
         applyCornerRadius()
         updateBand()
@@ -399,9 +435,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// root paints the one sheet (`WindowBackdrop`).
     func themeDidChange() {
         needsLayout = true
-        let tokens = themeTokens
-        let paints = WindowBackdrop.current(tokens).panesPaintBackground
+        // In scope: its workspace's picture decides, not the app's (#28867: a black pane behind the chat).
         performWithTheme {
+            let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
         }
         // The strip: clear, or the user's tab bar background (R55).

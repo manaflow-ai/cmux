@@ -67,9 +67,31 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
     },
   };
   const calls: { method: string; params: Record<string, any> }[] = [];
+  const sockets = new Set<{ send(text: string): void }>();
+  /// When set, the stand-in acpmux takes `session/set_mode` and tells the pane the new mode.
+  let followModes = false;
+
+  /// Resolves once `ready()` holds after a call; checked on every call the stand-in takes.
+  const waiters = new Set<() => void>();
+  const until = (ready: () => boolean) =>
+    new Promise<void>((resolve, reject) => {
+      if (ready()) return resolve();
+      const timer = setTimeout(() => {
+        waiters.delete(check);
+        reject(new Error(`timed out: ${JSON.stringify(calls.map((call) => call.method))}`));
+      }, 10_000);
+      const check = () => {
+        if (!ready()) return;
+        clearTimeout(timer);
+        waiters.delete(check);
+        resolve();
+      };
+      waiters.add(check);
+    });
 
   function answer(method: string, params: Record<string, any>): unknown {
     calls.push({ method, params });
+    queueMicrotask(() => waiters.forEach((check) => check()));
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
@@ -79,6 +101,17 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
         return { session, lastSeq: events.length, events };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: events.length };
+      case "session/set_mode":
+        if (followModes) {
+          session.modes = { ...session.modes, currentModeId: String(params.modeId) };
+          const text = JSON.stringify({
+            jsonrpc: "2.0",
+            method: "_acpmux/session_changed",
+            params: { sessionId: CHAT, session, kind: "mode" },
+          });
+          setTimeout(() => sockets.forEach((socket) => socket.send(text)), 0);
+        }
+        return {};
       default:
         return null;
     }
@@ -99,6 +132,12 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
         return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
+        open(ws) {
+          sockets.add(ws);
+        },
+        close(ws) {
+          sockets.delete(ws);
+        },
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id !== undefined)
@@ -249,5 +288,42 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
     expect(look.shieldColor).toBe(look.buttonColor);
     expect(look.shieldWidth).toBeGreaterThan(look.chevronWidth);
     await page.close();
+  });
+  test("/plan toggles Plan and, leaving it, returns to the mode the chat had before", async () => {
+    const before = session.modes.currentModeId;
+    session.modes = { ...session.modes, currentModeId: "acceptEdits" };
+    followModes = true;
+    calls.length = 0;
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    try {
+      await page.goto(url(CHAT));
+      await page.getByText("Retry added.").waitFor();
+      const modesSent = () =>
+        calls.filter((call) => call.method === "session/set_mode").map((call) => call.params.modeId);
+      const slashPlan = async () => {
+        await page.locator(".acpmux-composer-prompt").click();
+        await page.keyboard.type("/plan");
+        await page.keyboard.press("Enter");
+      };
+      await slashPlan();
+      await until(() => modesSent().length >= 1);
+      expect(modesSent()).toEqual(["plan"]);
+      // The pane has heard the chat is in Plan before the second /plan.
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-access")?.getAttribute("data-fit-title") === "Plan",
+        undefined,
+        { timeout: 5_000 },
+      );
+      await slashPlan();
+      await until(() => modesSent().length >= 2);
+      // Not the first non-plan mode (Auto): the Accept edits it left.
+      expect(modesSent()).toEqual(["plan", "acceptEdits"]);
+      // Neither /plan went to the agent as a prompt.
+      expect(calls.filter((call) => call.method === "session/prompt")).toHaveLength(0);
+    } finally {
+      await page.close();
+      followModes = false;
+      session.modes = { ...session.modes, currentModeId: before };
+    }
   });
 });

@@ -314,14 +314,15 @@ public final class ChiefSession {
     /// turn answered again, as a new message: Chief answers it once its
     /// model is back. Does nothing without a failed newest turn.
     public func retryFailedTurn() {
-        guard let id = lastTurnFailureID, id != retriedFailureID,
-              let failed = store.messages.first(where: { $0.id == id }) else { return }
-        let asked = store.messages.last { message in
-            message.senderID != identity.chiefID && !message.isUnsent && (message.seq ?? 0) < (failed.seq ?? .max)
-        }
-        let text = asked?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard isConnected, let id = lastTurnFailureID, id != retriedFailureID,
+              let failed = store.messages.first(where: { $0.id == id }),
+              let asked = store.messages.last(where: { message in
+                  message.senderID == store.meID && !message.isUnsent && !message.isScheduled
+                      && message.seq != nil && (message.seq ?? 0) < (failed.seq ?? .max)
+              }), let retry = ChiefRetryMessage(asked) else { return }
+        // Set this before send: the store notifies observers synchronously.
         retriedFailureID = id
-        send(ConversationComposeMessage(text: text.isEmpty ? String(localized: "Please try that again.") : text))
+        if !retry.send(to: store) { retriedFailureID = nil }
     }
 
     /// The question waiting for an answer from this phone: the newest
@@ -599,6 +600,11 @@ public final class ChiefSession {
     /// `asksForAlerts`: the composer's first send asks for notification
     /// permission (Chief's replies alert); a live call's send doesn't, so no
     /// system prompt lands over the call screen.
+    /// A text message (Send Message… on a workspace or a tab, with its link at the start).
+    public func send(text: String) {
+        send(ConversationComposeMessage(text: text))
+    }
+
     public func send(_ message: ConversationComposeMessage, asksForAlerts: Bool = true) {
         guard !message.isEmpty else { return }
         if asksForAlerts { ChiefAlerts.shared.requestPermissionIfUndetermined() }

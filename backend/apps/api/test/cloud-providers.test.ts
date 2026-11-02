@@ -102,6 +102,7 @@ const mockFreestyle = () => {
   const vms = new Map<string, Vm>()
   const snaps = new Map<string, { id: string; sourceVmId: string }>()
   const files = new Map<string, { content: string; mode: number }>()
+  const creates: Array<Record<string, unknown>> = []
   let n = 0
   const vmBy = (x: string) => vms.get(x) ?? [...vms.values()].find((v) => v.slug === x)
   const fetchFn: typeof fetch = async (input, init) => {
@@ -119,6 +120,7 @@ const mockFreestyle = () => {
     })()
     const json = (b: unknown, status = 200) => Response.json(b, { status })
     if (parts[0] === "vms" && parts.length === 1 && req.method === "POST") {
+      creates.push(body)
       if (vmBy(String(body.slug))) return json({ code: "CONFLICT" }, 409)
       const id = `fsvm-${++n}`
       const rules = ((body.tls as { rules?: Array<EdgeTlsRule> } | undefined)?.rules ?? []).map((r) => ({ id: `tls-${++n}`, domain: r.domain, rule: r }))
@@ -178,7 +180,7 @@ const mockFreestyle = () => {
     file: (vmId, path) => files.get(`${vmId}:${path}`) ?? null,
     rule: (vmId, domain) => vms.get(vmId)?.rules.find((r) => r.domain === domain)?.rule ?? null
   }
-  return { fetchFn, seen }
+  return { fetchFn, seen, creates }
 }
 
 describe("CloudProvider contract", () => {
@@ -196,7 +198,42 @@ describe("CloudProvider contract", () => {
   })
 
   it("the Freestyle provider keeps the contract over a mocked transport", async () => {
-    const { fetchFn, seen } = mockFreestyle()
+    const { fetchFn, seen, creates } = mockFreestyle()
     await scenario(new FreestyleCloudProvider("test-only-key", "https://freestyle.test", "cmuxnp-test-vmimg-contract", fetchFn), seen)
+    // Every create names the VM's own team as its Freestyle customer.
+    expect(creates.map((body) => body.customer)).toContainEqual({ customerId: TAG.team })
+    for (const body of creates) expect(body.customer).toEqual({ customerId: (body.metadata as Record<string, unknown>).cmux_next_team })
+  })
+})
+
+describe("Freestyle provider: a 404 from a VM call", () => {
+  // cmux-platform#176: a deleted VM is final (vm_missing), never a retryable unavailable that keeps it looking live.
+  it("is a final vm_missing for pause, start, resize, writeFile and createSnapshot", async () => {
+    const { fetchFn } = mockFreestyle()
+    const p = new FreestyleCloudProvider("test-only-key", "https://freestyle.test", "cmuxnp-test-vmimg-contract", fetchFn)
+    const gone = "fsvm-deleted"
+    const missing = { code: "cloud.provider.vm_missing", final: true }
+    await expect(p.pause(gone)).rejects.toMatchObject(missing)
+    await expect(p.start(gone)).rejects.toMatchObject(missing)
+    await expect(p.resize(gone, { cpu: 4, memory: 8192, storage: 16384 })).rejects.toMatchObject(missing)
+    await expect(p.writeFile(gone, "/var/lib/cmux/bind.json", "{}", 0o600)).rejects.toMatchObject(missing)
+    await expect(p.createSnapshot(gone, SLUG)).rejects.toMatchObject(missing)
+  })
+
+  it("keeps a 5xx retryable and a 404 from a non-VM call off vm_missing", async () => {
+    const down: typeof fetch = async () => Response.json({ code: "DOWN" }, { status: 503 })
+    await expect(new FreestyleCloudProvider("test-only-key", "https://freestyle.test", "img", down).pause("fsvm-1")).rejects.toMatchObject({ code: "cloud.provider.unavailable", final: false })
+    const noRule: typeof fetch = async (input) =>
+      new URL(new Request(input).url).pathname === "/v5/tls" ? Response.json({ rules: [{ id: "tls-1", domain: RULE.domain }] }) : Response.json({ code: "NOT_FOUND" }, { status: 404 })
+    await expect(new FreestyleCloudProvider("test-only-key", "https://freestyle.test", "img", noRule).replaceTlsRule("fsvm-1", RULE)).rejects.toMatchObject({ code: "cloud.provider.unavailable", final: false })
+  })
+
+  it("settles GuardedCloudDriver.power as final when the VM is deleted between its find and its pause", async () => {
+    const { fetchFn } = mockFreestyle()
+    const raw = new FreestyleCloudProvider("test-only-key", "https://freestyle.test", "cmuxnp-test-vmimg-contract", fetchFn)
+    const d = new GuardedCloudDriver(raw, PREFIX)
+    const { id } = await d.ensure(NAME, TAG, { idleSeconds: 0 })
+    const { provider } = counted(raw, { state: async () => { await raw.delete(id); return "running" } })
+    await expect(new GuardedCloudDriver(provider, PREFIX).power(NAME, TAG, "pause")).rejects.toMatchObject({ code: "cloud.provider.vm_missing", final: true })
   })
 })

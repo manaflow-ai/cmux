@@ -9,14 +9,18 @@ final class SectionHeaderRowView: SidebarRowView {
     private let machineIcon = SidebarIconView()
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let status = CALayer()
+    /// A machine on its way (connecting, reconnecting, installing) draws this spinner where the
+    /// dot goes: working state is a spinner, never a pulsing dot. Its animation runs only while it
+    /// shows (``StatusIndicatorView/spin(_:)``), and stops as the tone changes or the row is reused.
+    private let spinner = StatusIndicatorView.spinner()
     /// "Update needed" after the status dot, for a machine whose cmux-tui
     /// is too old (the tooltip says why).
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
     private(set) var badgeText: String?
     private let chevron = DecorativeImageView()
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
-    /// The machine status dot's color, resolved in `updateLayer`.
-    enum StatusTone { case success, attention, quiet, danger }
+    /// The machine status dot's color, resolved in `updateLayer`; `working` draws the spinner.
+    enum StatusTone { case success, attention, quiet, danger, working }
     private(set) var statusTone: StatusTone?
     private var collapsed = false
     /// No workspaces: nothing to fold, so hover shows no chevron (cx-odqn).
@@ -30,7 +34,8 @@ final class SectionHeaderRowView: SidebarRowView {
     required init(key: SidebarRowKey) {
         super.init(key: key)
         layer?.addSublayer(status)
-        [glyph, machineIcon, name, badge, chevron, addButton].forEach(addSubview)
+        [glyph, machineIcon, name, spinner, badge, chevron, addButton].forEach(addSubview)
+        spinner.isHidden = true
         // The header's label and AXExpanded say what the glyph and chevron draw.
         addButton.onPress = { [weak self] in self?.onAdd?() }
     }
@@ -49,6 +54,26 @@ final class SectionHeaderRowView: SidebarRowView {
         var iconSize: CGFloat
     }
 
+    /// The header's mark for `machine` (``MachineLinkState``, the composer strip's same word):
+    /// green once its daemon finished the handshake, a spinner on its way, red when down, grey
+    /// when paused. This Mac draws nothing while connected.
+    static func tone(_ machine: SidebarMachine, hostGroup: Bool) -> StatusTone? {
+        switch (machine.kind, machine.status) {
+        case (.local, .connected), (.local, .updateAvailable): return nil
+        // An optional update is not the sidebar's to say (Lawrence 2026-10-21: "wtf is chief
+        // update available"): the header reads as connected, its green dot as the composer
+        // strip's, and the tooltip says it.
+        default: break
+        }
+        return switch machine.status.linkState {
+        case .connected: .success
+        case .connecting: .working
+        case .offline: .danger
+        case .paused: .quiet
+        case .attention: .attention
+        }
+    }
+
     /// A machine's state in words, for the header's label and the dot's tooltip.
     static func statusWords(_ status: SidebarMachine.Status) -> String {
         switch status {
@@ -63,8 +88,12 @@ final class SectionHeaderRowView: SidebarRowView {
         case .authFailed: Strings.statusAuthFailed
         case .unreachable: Strings.statusUnreachable
         case .failed: Strings.statusFailed
+        case .disconnected: Strings.statusDisconnected
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
+        case .pausing: Strings.statusPausing
+        case .resuming: Strings.statusResuming
+        case .deleting: Strings.statusDeleting
         }
     }
 
@@ -93,8 +122,12 @@ final class SectionHeaderRowView: SidebarRowView {
         case .authFailed: Strings.statusAuthFailed
         case .unreachable: Strings.statusUnreachable
         case .failed: Strings.statusFailed
+        case .disconnected: Strings.statusDisconnected
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
+        case .pausing: Strings.statusPausing
+        case .resuming: Strings.statusResuming
+        case .deleting: Strings.statusDeleting
         }
     }
 
@@ -108,7 +141,7 @@ final class SectionHeaderRowView: SidebarRowView {
     func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
             kind: section.kind, isHostGroup: section.isHostGroup, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed, isEmpty: section.nodes.isEmpty,
-            fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
+            fontSize: SidebarStyle.headerFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide
         )
         guard needsConfigure(content) else { return }
         statusTip = nil
@@ -140,16 +173,7 @@ final class SectionHeaderRowView: SidebarRowView {
             }
             title = machine.name
             ownIcon = machine.icon
-            switch (machine.kind, machine.status) {
-            case (.local, .connected): statusTone = nil
-            // An optional update is not the sidebar's to say (Lawrence 2026-10-21: "wtf is chief
-            // update available"): the header reads as connected, and the tooltip says it.
-            case (_, .updateAvailable): statusTone = section.isHostGroup ? .success : nil
-            case (_, .connected): statusTone = .success
-            case (_, .connecting), (_, .reconnecting), (_, .installing), (_, .installRequired): statusTone = .attention
-            case (_, .offline), (_, .paused), (_, .pausedIdle): statusTone = .quiet
-            case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
-            }
+            statusTone = Self.tone(machine, hostGroup: section.isHostGroup)
             let words = Self.statusWords(machine.status)
             badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
             statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil && (statusTone != nil || machine.status == .updateAvailable))
@@ -203,21 +227,25 @@ final class SectionHeaderRowView: SidebarRowView {
             badge.setColor(Palette.textTertiary)
             glyph.setTint(Palette.textSecondary)
             chevron.setTint(Palette.textTertiary)
-            status.backgroundColor = statusTone.map(Self.color)?.cgColor
+            status.backgroundColor = statusTone.flatMap(Self.color)?.cgColor
         }
-        status.isHidden = statusTone == nil
+        status.isHidden = statusTone == nil || statusTone == .working
+        let working = statusTone == .working
+        spinner.isHidden = !working
+        spinner.spin(working)
         CATransaction.commit()
         // A click folds the section: hover shows the row's hover fill, like a workspace row (cx-qno.17).
         performWithTheme { paintFill(isHovered ? Palette.hoverFill : nil) }
     }
 
     // theme-scoped: called only inside performWithTheme
-    private static func color(_ tone: StatusTone) -> NSColor {
+    private static func color(_ tone: StatusTone) -> NSColor? {
         switch tone {
         case .success: Palette.success
         case .attention: Palette.attention
         case .quiet: Palette.textTertiary
         case .danger: Palette.danger
+        case .working: nil
         }
     }
 
@@ -231,45 +259,50 @@ final class SectionHeaderRowView: SidebarRowView {
         glyph.isHidden = true
         name.isHidden = false
         // A machine's own icon leads the name; without one the header stays text only.
-        var nameX = SidebarStyle.horizontalInset
+        let columns = SidebarStyle.columns(rowWidth: b.width)
+        var nameX = columns.lead
         if !machineIcon.isHidden {
-            let side = Metrics.smallIconSize
+            let side = SidebarStyle.leadingGlyphSide
             machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
-            nameX += side + Metrics.space2
+            nameX = columns.text
         }
-        var trailing = b.width - SidebarStyle.horizontalInset
         // The add button keeps its slot, so the name never re-truncates on hover.
         // Section actions stay available at rest. Hiding them until hover made
         // the bottom of the sidebar flash as the pointer crossed a header.
         addButton.isHidden = !allowsAdd
         let control = SidebarStyle.controlSize
         if allowsAdd {
-            addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
-            trailing -= control + Metrics.space1
+            addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control)
         }
-        // The disclosure is a section control too; keep it stable instead of
-        // making the header reflow when the pointer arrives.
         chevron.isHidden = isEmpty
-        let chevronSide = Metrics.smallIconSize
-        // Without the add button the chevron takes the trailing column, as a group header's does.
-        chevron.frame = allowsAdd ? NSRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
-            : SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: chevronSide)
-        if !allowsAdd { trailing = SidebarStyle.trailingColumnStart(rowWidth: b.width) }
-        trailing -= chevronSide + Metrics.space2
-        let nw = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nameX - Metrics.space5))
-        let nh = ceil(name.intrinsicContentSize.height)
-        // The label cell draws inside its frame: the text starts where row titles do.
-        name.frame = NSRect(x: nameX - SidebarStyle.labelCellPadding, y: (b.height - nh) / 2, width: nw, height: nh)
+        let chevronSide = SidebarStyle.controlSize
+        // Without the add button the chevron takes the trailing column, as a group header's does; with it, the
+        // chevron steps one shared pitch left of the add button.
+        chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY,
+                                                         side: chevronSide, slot: allowsAdd ? 1 : 0)
+        var trailing = columns.trailingEdge(before: chevron.frame)
         let dot = SidebarStyle.dotSize
-        status.frame = CGRect(x: name.frame.maxX + Metrics.space2, y: (b.height - dot) / 2, width: dot, height: dot)
+        status.isHidden = statusTone == nil
+        if !status.isHidden {
+            status.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: dot, height: dot))
+            trailing = columns.trailingEdge(before: status.frame)
+        }
         status.cornerRadius = dot / 2
+        // The spinner takes the dot's place, a little larger so its arc reads at the header's size.
+        let spin = Metrics.smallIconSize - Metrics.space1
+        spinner.frame = NSRect(x: status.frame.midX - spin / 2, y: (b.height - spin) / 2, width: spin, height: spin)
         badge.isHidden = badgeText == nil
         if !badge.isHidden {
-            let bx = status.frame.maxX + Metrics.space2
-            let bw = min(ceil(badge.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - bx))
             let bh = ceil(badge.intrinsicContentSize.height)
-            badge.frame = NSRect(x: bx, y: (b.height - bh) / 2, width: bw, height: bh)
+            let bw = min(ceil(badge.naturalSize.width), max(0, (trailing - nameX) / 2))
+            badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: bw, height: bh))
+            badge.frame.origin.y = SidebarStyle.textY(badge, centerY: b.midY)
+            trailing = badge.frame.minX - LayoutGrid.base
         }
+        let nw = min(ceil(name.naturalSize.width), max(0, trailing - nameX))
+        let nh = ceil(name.intrinsicContentSize.height)
+        name.frame = NSRect(x: nameX - SidebarStyle.labelCellPadding,
+                             y: SidebarStyle.textY(name, centerY: b.midY), width: nw, height: nh)
         needsDisplay = true
     }
 

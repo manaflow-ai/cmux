@@ -5,9 +5,9 @@ extension HoverCardSettings {
     /// `sidebar.hoverCards.enabled`: On by default. Off: no card opens on hover; Show Resource Usage still opens one.
     public nonisolated static let enabledPath = ["sidebar", "hoverCards", "enabled"]
     public nonisolated static let enabledDefault = true
-    /// `sidebar.hoverCards.delay`: Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). Chrome's tab hover card delay at standard tab width (800 ms plus 500 ms, Lawrence 2026-10-28 msg 15729). While a card shows, or within 300 ms after it went, the next one opens at once.
+    /// `sidebar.hoverCards.delay`: Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). 400 ms (Leo 2026-11-01: hover previews must appear a lot faster); it was Chrome's 1300 ms at standard tab width (Lawrence 2026-10-28 msg 15729). While a card shows, or within 300 ms after it went, the next one opens at once.
     public nonisolated static let delayPath = ["sidebar", "hoverCards", "delay"]
-    public nonisolated static let delayDefault: Double = 1300
+    public nonisolated static let delayDefault: Double = 400
     public nonisolated static let delayRange: ClosedRange<Double> = 0...5000
     /// `sidebar.hoverCards.layout`: u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). timeline (default): stats and a scrollable history of prompts, waits and finished turns; compact: the facts and the last three moments; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.
     public nonisolated static let layoutPath = ["sidebar", "hoverCards", "layout"]

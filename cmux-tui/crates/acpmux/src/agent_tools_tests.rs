@@ -170,3 +170,56 @@ fn own_servers_run_under_the_daemon_prefix() {
     assert!(names.iter().any(|n| n == crate::subsession_mcp::SERVER_NAME), "{names:?}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A launch without servers removes the last launch's MCP config, so the background-shell hook
+/// (`bg_hook.rs`) never points the agent at a `bg_start` it no longer has, and every launch drops
+/// the calls the hook turned away under the last one.
+#[test]
+fn a_launch_without_servers_removes_the_last_mcp_config() {
+    let root = std::env::temp_dir().join(format!("acpmux-stale-mcp-{}", uuid::Uuid::now_v7()));
+    let file = root.join("s.json");
+    let mut with = super::AgentTools::default();
+    with.servers.push(super::McpServer {
+        name: crate::acpmux_mcp::SERVER_NAME.to_owned(),
+        command: "acpmux".into(),
+        args: vec![],
+        env: vec![],
+    });
+    assert!(with.claude_args(&file).contains(&"--mcp-config".to_owned()));
+    assert!(file.is_file());
+    // A call the hook turned away under the last launch is no retry under the next.
+    let denied = crate::bg_hook::denied_path(&file);
+    std::fs::write(&denied, "a-hash\n").unwrap();
+    with.claude_args(&file);
+    assert!(!denied.exists(), "a launch kept the last launch's turned-away calls");
+    let args = super::AgentTools::default().claude_args(&file);
+    assert!(!args.contains(&"--mcp-config".to_owned()), "{args:?}");
+    assert!(!file.exists(), "the last launch's config stayed for the hook to read");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn cloud_repo_tools_receive_complete_protected_caller_identity() {
+    let tools = super::AgentTools {
+        servers: vec![super::McpServer {
+            name: crate::cloud_repo_mcp::SERVER_NAME.to_owned(),
+            command: "/bin/acpmux".into(),
+            args: vec!["repo-mcp".into()],
+            env: vec![
+                ("ACPMUX_SESSION_ID".into(), "foreign".into()),
+                ("CMUX_BIN".into(), "/bin/cmux".into()),
+            ],
+        }],
+        ..Default::default()
+    }
+    .for_session("own-chat");
+    let env: std::collections::HashMap<_, _> = tools.servers[0].env.iter().cloned().collect();
+    assert_eq!(env["ACPMUX_SESSION_ID"], "own-chat");
+    assert_eq!(env[crate::cloud_repo_mcp::SESSION_ENV], "own-chat");
+    assert_eq!(
+        env[crate::hub::person::CALLER_TOKEN_ENV],
+        crate::hub::person::caller_token("own-chat")
+    );
+    assert_eq!(env[crate::hub::person::CALLER_SOCKET_ENV], env["ACPMUX_SOCKET"]);
+    assert_eq!(env["CMUX_BIN"], "/bin/cmux");
+}

@@ -3,6 +3,7 @@ import CmuxMobileAgentChat
 import CmuxMobileModel
 import CmuxMobileTransport
 import Foundation
+import Observation
 import Testing
 @testable import CmuxMobileChief
 
@@ -314,7 +315,11 @@ final class FakeDaemon: @unchecked Sendable {
         let sent = try await backend.send(ConversationOutgoingDraft(clientMessageID: "c-1", text: "run the tests", replyToID: nil, attachmentIDs: []))
         #expect(sent.seq == 1)
         #expect(sent.clientMessageID == "c-1")
-        #expect(sent.delivery == .delivered)
+        // Chief's read cursor follows the reply at once and can be applied first: read then.
+        switch sent.delivery {
+        case .delivered, .read: break
+        default: Issue.record("expected delivered or read, got \(sent.delivery)")
+        }
 
         var sawTyping = false
         var sawRead = false
@@ -354,18 +359,76 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
     }
 }
 
-/// Waits on the main actor until `condition` holds; past `limit` it records
-/// an issue and throws instead of spinning forever.
-@MainActor func waitUntil(_ what: String, within limit: Duration = .seconds(20),
+/// Waits on the main actor until `condition` holds; past the watchdog, or when the
+/// test is cancelled, it records an issue and throws instead of spinning forever.
+@MainActor func waitUntil(_ what: String, within watchdog: Duration = waitWatchdog,
                           sourceLocation: SourceLocation = #_sourceLocation,
                           _ condition: @MainActor () -> Bool) async throws {
-    let deadline = ContinuousClock.now.advanced(by: limit)
-    while !condition() {
-        if ContinuousClock.now >= deadline {
-            Issue.record("timed out waiting for \(what)", sourceLocation: sourceLocation)
-            throw CancellationError()
+    guard await eventually(watchdog: watchdog, condition) else {
+        Issue.record("timed out waiting for \(what)", sourceLocation: sourceLocation)
+        throw CancellationError()
+    }
+}
+
+/// How long a wait may run before it gives up: a watchdog against a hang, not a
+/// time the work is expected to take. It counts only time the wait could run: in
+/// the full kit the main thread was held over a minute, every main-actor Chief test
+/// ran about 85 s instead of 7, and waits that woke past a wall-clock deadline gave up on
+/// their first look, before the work they waited on (held just as long) got its turn.
+let waitWatchdog: Duration = .seconds(60)
+
+/// A wall-clock stop for a wait whose main thread stays busy but keeps coming back to
+/// it, whatever watchdog the wait asked for: only a backstop. A main thread blocked
+/// for good stops the wait too; the suite's time limit ends that.
+let waitBackstop: Duration = .seconds(600)
+
+/// Whether `condition` came to hold within `watchdog` of the wait's own running time,
+/// before the task was cancelled. It waits on the condition's own state rather than on
+/// time: it wakes when observable state the condition read changes (Observation), and
+/// checks again every `tick` for state that isn't observable, such as a test double's
+/// log of requests. A wake that comes late because the main thread was held counts only
+/// the time it asked for, so a hold never uses up the wait.
+@MainActor func eventually(watchdog: Duration = waitWatchdog, tick: Duration = .milliseconds(20),
+                           _ condition: @MainActor () -> Bool) async -> Bool {
+    let backstop = ContinuousClock.now.advanced(by: waitBackstop)
+    var left = watchdog
+    while true {
+        let wake = Wake()
+        let met = withObservationTracking { condition() } onChange: {
+            Task { @MainActor in wake.fire() }
         }
-        await Task.yield()
+        if met { return true }
+        if Task.isCancelled || left <= .zero || ContinuousClock.now >= backstop { return false }
+        // Never past what is left, however long the tick.
+        let nap = min(max(tick, .milliseconds(1)), left)
+        let start = ContinuousClock.now
+        let ticker = Task { @MainActor in
+            try? await Task.sleep(for: nap)
+            wake.fire()
+        }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { wake.wait($0) }
+        } onCancel: {
+            Task { @MainActor in wake.fire() }
+        }
+        ticker.cancel()
+        left -= min(ContinuousClock.now - start, nap)
+    }
+}
+
+/// One wake-up of ``eventually``: the first of a change, a tick or a cancel resumes it.
+@MainActor private final class Wake {
+    private var fired = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait(_ continuation: CheckedContinuation<Void, Never>) {
+        if fired { continuation.resume() } else { self.continuation = continuation }
+    }
+
+    func fire() {
+        fired = true
+        continuation?.resume()
+        continuation = nil
     }
 }
 
@@ -609,6 +672,8 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
 }
 
 #if os(iOS)
+import UIKit
+
 @Suite @MainActor struct ChiefDirectoryTests {
     func directory() -> ChiefDirectory {
         let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard, place: .mac)
@@ -636,6 +701,143 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         let both = try await directory.createConversation([.participant("agent_mux"), .participant("tab:t1")])
         #expect(both.info.id == ChiefDirectory.chiefContactID)
         await #expect(throws: ConversationBackendError.self) { try await directory.createConversation([.handle("nobody")]) }
+    }
+}
+/// New Message (or Forward) addressed to one agent sends the whole message as
+/// that agent's prompt: its text and every image, bytes and order kept. Images
+/// were dropped (an image-only message sent nothing).
+@Suite @MainActor struct ChiefComposeAgentRouteTests {
+    final class Recorder: AgentSessionSource {
+        let summary: AgentSessionSummary
+        var sent: [AgentClientIntent] = []
+        init(summary: AgentSessionSummary) { self.summary = summary }
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) { sent.append(intent) }
+    }
+
+    static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 1])
+    static let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, 0x4A, 0x46, 0x49, 0x46, 0, 1, 2])
+
+    /// Routes `message` to a one-agent conversation; returns the prompts the agent's source got.
+    func route(_ message: ConversationComposeMessage) -> [(text: String, attachments: [AgentAttachment])] {
+        let suffix = UUID().uuidString
+        let tabID = "t-\(suffix)", workspaceID = "ws-\(suffix)", macID = "m-\(suffix)"
+        let tab = WorkspaceTab(id: tabID, kind: .agent, title: "Claude", harness: "claude")
+        let workspace = Workspace(id: workspaceID, macID: macID, title: "cmux", directory: "~", tabs: [tab], lastActivityAt: Date())
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [workspace], feed: [])
+        let agents = AgentSessionDirectory.shared
+        let previous = agents.makeSource
+        var recorder: Recorder?
+        agents.makeSource = { summary in
+            let made = Recorder(summary: summary)
+            recorder = made
+            return made
+        }
+        defer {
+            agents.makeSource = previous
+            agents.invalidate(id: tabID, macID: macID)
+        }
+        let agent = ChiefRecipient(
+            contact: ConversationContact(id: "tab:\(tabID)", name: "Claude · cmux", initials: "CL", colorHex: "#636366", handles: []),
+            route: .agent(AgentChatDestination(workspaceID: workspaceID, tabID: tabID))
+        )
+        let directory = ChiefDirectory(recipients: [agent])
+        var opened: [HomeConversationRoute] = []
+        let composer = ChiefComposer(store: store) { opened.append($0) }
+        let creation = ConversationCreation(
+            info: ConversationInfo(id: "tab:\(tabID)", title: "Claude · cmux", kind: .direct,
+                                   participants: [ConversationParticipant(id: "tab:\(tabID)", name: "Claude · cmux", initials: "CL", colorHex: "#636366", isMe: false)]),
+            created: false, service: .iMessage
+        )
+        composer.route(creation, message: message, directory: directory)
+        #expect(opened == [.agent(AgentChatDestination(workspaceID: workspaceID, tabID: tabID))])
+        return (recorder?.sent ?? []).compactMap { intent in
+            guard case let .prompt(text, attachments, _, _, _) = intent else { return nil }
+            return (text, attachments)
+        }
+    }
+
+    @Test func textAndImagesReachTheAgentInOrder() throws {
+        let prompts = route(ConversationComposeMessage(text: "look at these", images: [
+            ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/png"),
+            ConversationComposeImage(data: Self.jpeg, width: 2, height: 2, mimeType: "image/jpeg"),
+        ]))
+        let prompt = try #require(prompts.first)
+        #expect(prompts.count == 1)
+        #expect(prompt.text == "look at these")
+        #expect(prompt.attachments.map(\.kind) == [.image, .image])
+        #expect(prompt.attachments.map(\.data) == [Self.png, Self.jpeg])
+        #expect(prompt.attachments.map(\.imageMIMEType) == ["image/png", "image/jpeg"])
+        try #require(prompt.attachments.count == 2)
+        #expect(prompt.attachments[0].name.hasSuffix(".png"))
+        #expect(prompt.attachments[1].name.hasSuffix(".jpg"))
+        #expect(Set(prompt.attachments.map(\.id)).count == 2)
+    }
+
+    @Test func encodedImageBytesOverrideDeclaredMimeType() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
+        let validPNG = renderer.pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        let image = ConversationComposeImage(data: validPNG, width: 2, height: 2, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+        #expect(attachment.data == validPNG)
+    }
+
+    @Test func imageBytesWinOverTheDeclaredMimeType() throws {
+        let image = ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+    }
+
+    @Test func unsupportedDecodedImageIsConvertedToJpeg() throws {
+        // A complete 1x1, 24-bit BMP (red pixel, padded four-byte row).
+        let bmp = try #require(Data(base64Encoded: "Qk06AAAAAAAAADYAAAAoAAAAAQAAAAEAAAABABgAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAD/AA=="))
+        try #require(UIImage(data: bmp) != nil)
+        #expect(AgentAttachment(kind: .image, name: "source", data: bmp).imageMIMEType == nil)
+        let attachment = try #require(ChiefComposer.attachments([
+            ConversationComposeImage(data: bmp, width: 1, height: 1, mimeType: "image/jpeg")
+        ]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".jpg"))
+        #expect(attachment.imageMIMEType == "image/jpeg")
+        #expect(attachment.data != bmp)
+        let jpeg = try #require(attachment.data)
+        #expect(UIImage(data: jpeg) != nil)
+    }
+
+    @Test func undecodableImageIsSentAsAFile() throws {
+        let image = ConversationComposeImage(data: Data([0x01, 0x02, 0x03]), width: 1, height: 1, mimeType: "image/png")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.kind == .file)
+        #expect(attachment.imageMIMEType == nil)
+    }
+
+    @Test func anImageOnlyMessageStillSends() throws {
+        let prompts = route(ConversationComposeMessage(text: "", images: [
+            ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/png"),
+        ]))
+        let prompt = try #require(prompts.first)
+        #expect(prompts.count == 1)
+        #expect(prompt.text == "")
+        #expect(prompt.attachments.map(\.data) == [Self.png])
+    }
+
+    @Test func aTextOnlyMessageSendsNoAttachments() throws {
+        let prompts = route(ConversationComposeMessage(text: "run the tests"))
+        let prompt = try #require(prompts.first)
+        #expect(prompts.count == 1)
+        #expect(prompt.text == "run the tests")
+        #expect(prompt.attachments.isEmpty)
+    }
+
+    @Test func anEmptyMessageSendsNothing() {
+        #expect(route(ConversationComposeMessage(text: "  ")).isEmpty)
     }
 }
 #endif

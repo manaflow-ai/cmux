@@ -62,19 +62,22 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
       () => document.querySelector('[data-row-id="continuation-b"]')!.getBoundingClientRect().top > 0,
     );
     const actual = await measure(page);
-    expect(actual.same).toBeCloseTo(8, 1);
-    expect(actual.peer).toBeCloseTo(16, 1);
-    expect(actual.user).toBeCloseTo(16, 1);
-    expect(actual.paddings).toEqual([8, 16, 16, 16]);
+    // A footer's line moves down inside its row (--cv-footer-drop: 2px over the same agent, else
+    // 4px) to sit centred between the reply and the next row; the drop comes off the bottom padding.
+    // The footer that ends the chat (footer-d) has no next row and keeps the full turn gap.
+    expect(actual.same).toBeCloseTo(6, 1);
+    expect(actual.peer).toBeCloseTo(12, 1);
+    expect(actual.user).toBeCloseTo(12, 1);
+    expect(actual.paddings).toEqual([6, 12, 12, 16]);
     await page.evaluate(() => {
       const root = document.documentElement;
       root.style.setProperty("--ds-space-2", "10px");
       root.style.setProperty("--ds-space-4", "20px");
     });
     await page.waitForFunction(
-      () => getComputedStyle(document.querySelector('[data-row-id="continuation-footer-a"]')!).paddingBottom === "10px",
+      () => getComputedStyle(document.querySelector('[data-row-id="continuation-footer-a"]')!).paddingBottom === "8px",
     );
-    expect((await measure(page)).paddings).toEqual([10, 20, 20, 20]);
+    expect((await measure(page)).paddings).toEqual([8, 16, 16, 20]);
     await page.close();
   });
   test("public gallery before/after capture", async () => {

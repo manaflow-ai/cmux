@@ -9,6 +9,23 @@ import UserNotifications
 public struct ServicePush: Sendable {
     public init() {}
 
+    /// A stale push arrived after sign-out or for a different signed-in
+    /// account. Retained pairing keys may still open it, so strip both the
+    /// content and its actionable routing payload before showing anything.
+    /// This also covers old Macs that sent an unsealed v2 push.
+    public func withheld(_ content: UNNotificationContent, keys: PushKeys?) -> UNNotificationContent? {
+        guard SealedPush(userInfo: content.userInfo) != nil || PushPayload(userInfo: content.userInfo) != nil else { return nil }
+        // No shared keychain: no marker can exist and nothing sealed opens.
+        guard let keys else { return nil }
+        if PushActiveAccount(store: keys.store).permits(keys.trust()) { return nil }
+        let out = UNMutableNotificationContent()
+        let banner = PushBanner.generic(macName: nil)
+        out.title = banner.title
+        out.body = banner.body
+        out.categoryIdentifier = PushCategory.sealed.rawValue
+        return out
+    }
+
     /// An unsealed push claiming to come from a Mac that seals to this phone
     /// (PR B security review H1): not its own, so the generic banner and no
     /// buttons. Nil for anything else.
@@ -27,7 +44,8 @@ public struct ServicePush: Sendable {
     /// The opened notification, or nil to keep `content` as it came.
     public func opened(_ content: UNNotificationContent, keys: PushKeys?) -> UNNotificationContent? {
         guard let sealed = SealedPush(userInfo: content.userInfo), let keys,
-              let payload = try? sealed.open(trust: keys.trust(), keys: keys) else { return nil }
+              let trust = keys.trust(), PushActiveAccount(store: keys.store).permits(trust),
+              let payload = try? sealed.open(trust: trust, keys: keys) else { return nil }
         let stale = !PushTrustGate(trust: nil, keys: nil).isFresh(payload)
         let out = (content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
         let banner = PushBanner(payload: payload)

@@ -15,6 +15,7 @@ const NAMES: Record<GlyphKind, string> = {
   open: "link.open.newtab",
   search: "search",
   ask: "agent.chat",
+  action: "composer.command",
   // A tab's or closed item's kind.
   terminal: "terminal",
   browser: "browser",

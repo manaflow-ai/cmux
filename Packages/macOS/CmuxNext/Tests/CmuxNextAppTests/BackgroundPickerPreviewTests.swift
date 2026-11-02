@@ -5,12 +5,13 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextTabs
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Change Background… (cx-t2x.4): the picker previews a work in the window as the pointer rests on
 /// it, writes nothing until a click, and leaving the picker restores the plain glass default.
-@MainActor @Suite(.serialized) struct BackgroundPickerPreviewTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BackgroundPickerPreviewTests {
     static let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
     static let backgroundKey = "appearance.background"
     static let work = "van-gogh-starry-night"
@@ -80,7 +81,7 @@ import Testing
 
 /// The entry point: a right-click on the window's background (the gaps between panes, an empty
 /// workspace) offers Change Background…; one a pane or tab strip passed up without a menu does not.
-@MainActor @Suite struct ChangeBackgroundMenuTests {
+@MainActor @Suite(.closesItsWindows) struct ChangeBackgroundMenuTests {
     static func titles(_ menu: NSMenu?) -> [String] { menu?.items.map(\.title) ?? [] }
 
     static func rightClick(at x: CGFloat) throws -> NSEvent {

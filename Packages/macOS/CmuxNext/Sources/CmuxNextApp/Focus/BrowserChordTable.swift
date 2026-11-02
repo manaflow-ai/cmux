@@ -6,7 +6,7 @@ import CmuxNextFocus
 /// the keyboard (plans/cmux-next/focus.md section 5, "Browser context").
 ///
 /// The key router resolves a chord in this order: the binding table
-/// (catalog defaults, the tab-switch defaults of `KeyBindingDefaults`,
+/// (catalog defaults, the aliases and scoped defaults of `KeyBindingDefaults`,
 /// `cmux.json`), then, only when no entry applies, the user's Ghostty
 /// keybinds for window, tab and split actions. In a
 /// browser context that fallback is refused for every chord listed here,
@@ -59,6 +59,25 @@ enum BrowserChordTable {
         return set
     }()
 
+    /// The text-editing chords of rich-text pages (Google Docs, Gmail, Notion, Slack): Bold,
+    /// Italic, Underline, Insert Link, Strikethrough, bulleted and numbered lists, and paragraph
+    /// alignment. Chrome gives a page these keys before its own menus; cmux does the same in a
+    /// Chromium tab, and runs the cmux action bound to the chord (Cmd-B Toggle Sidebar, Cmd-I New
+    /// Agent Chat, Shift-Cmd-L Open Browser) only when the page leaves the key unhandled. The
+    /// match is on the chord typed, not the action: Shift-Cmd-L is Left Align in Google Docs, so
+    /// Open Browser waits for the page on purpose, and so does any action rebound onto one of these.
+    nonisolated static let pageEditingChords: Set<Shortcut> = [
+        Shortcut("b"), Shortcut("i"), Shortcut("u"), Shortcut("k"),
+        Shortcut("x", modifiers: [.command, .shift]), Shortcut("7", modifiers: [.command, .shift]),
+        Shortcut("8", modifiers: [.command, .shift]), Shortcut("e", modifiers: [.command, .shift]),
+        Shortcut("l", modifiers: [.command, .shift]), Shortcut("j", modifiers: [.command, .shift]),
+    ]
+
+    /// Whether `event` is one of ``pageEditingChords``.
+    nonisolated static func isPageEditingChord(_ event: NSEvent) -> Bool {
+        shortcuts(of: event).contains { pageEditingChords.contains($0) }
+    }
+
     /// Whether `event` is a chord in `chromeReserved`.
     static func isChromeChord(_ event: NSEvent) -> Bool {
         shortcuts(of: event).contains { chromeReserved.contains($0) }
@@ -88,7 +107,7 @@ enum BrowserChordTable {
     /// Like `ActionRegistry.resolveShortcut`: the key as typed and its
     /// unshifted base (Cmd-Shift-[ arrives as "{", Ctrl-Shift-Tab as
     /// back-tab U+0019).
-    private static func shortcuts(of event: NSEvent) -> [Shortcut] {
+    private nonisolated static func shortcuts(of event: NSEvent) -> [Shortcut] {
         guard event.type == .keyDown else { return [] }
         let keys = [event.charactersIgnoringModifiers, event.characters(byApplyingModifiers: [])].compactMap { $0 }
         return keys.map { Shortcut($0, modifiers: event.modifierFlags) }

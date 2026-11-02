@@ -16,7 +16,8 @@ enum TerminalChatRoute: Equatable {
     /// Routes `status` (the terminal's `TabModel.agent`). `openTab` names the tab that already
     /// resumes an outside chat (``AgentTabStore``'s `tab(resuming:)`).
     static func route(_ status: AgentStatus?, openTab: (AgentPaneAdopt) -> String?) -> TerminalChatRoute {
-        guard let session = status?.session?.trimmingCharacters(in: .whitespacesAndNewlines), !session.isEmpty else {
+        // The harness's own id: a hook report's `agent_session_id` (its `session` is a label).
+        guard let session = status?.harnessSessionID?.trimmingCharacters(in: .whitespacesAndNewlines), !session.isEmpty else {
             return .noSession
         }
         guard let harness = harness(of: status?.agent) else { return .unsupportedHarness }

@@ -313,6 +313,33 @@ CMUX_NIGHTLY_NEXT_MAX_REFUSED=1 request --tree-ready "$head"
 [[ "$status" == 0 ]] && ! dispatched "$fresh" && ! dispatched "$stale" \
   || fail "the search must stop after CMUX_NIGHTLY_NEXT_MAX_REFUSED refusals (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 rm -f "$TMP/bin/node"
+# A runner with no node cannot check the strings, which is no proof they are
+# fresh: the promoting run (NIGHTLY_NEXT_PROMOTE=1) fails red and requests
+# nothing. A run that only reports still reports, with a warning.
+nonode="$TMP/nonode"; mkdir -p "$nonode"
+IFS=: read -r -a path_dirs <<<"$TMP/bin:$PATH"
+for dir in "${path_dirs[@]}"; do
+  for tool in "$dir"/*; do
+    name="${tool##*/}"
+    [[ "$name" != node && -x "$tool" && ! -e "$nonode/$name" ]] || continue
+    ln -s "$tool" "$nonode/$name"
+  done
+done
+git_q -C "$src" checkout -q --detach "$strings"
+status=0; : > "$TMP/gh.log"
+out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$nonode" \
+  RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID=1 NIGHTLY_NEXT_PROMOTE=1 \
+  bash scripts/cmux-next/request-nightly-next.sh --repo o/r --sha "$strings" --release-compile-green 2>&1) || status=$?
+[[ "$status" == 1 ]] && ! dispatched "$strings" \
+  || fail "a promoting run without node must fail and request nothing (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "no node" <<<"$out" || fail "the failure must name the missing node:" "$out"
+status=0; : > "$TMP/gh.log"
+out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$nonode" \
+  RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID=1 NIGHTLY_NEXT_PROMOTE= \
+  bash scripts/cmux-next/request-nightly-next.sh --repo o/r --sha "$strings" --release-compile-green 2>&1) || status=$?
+[[ "$status" == 0 ]] && ! grep -q "workflow run nightly.yml" "$TMP/gh.log" \
+  || fail "a reporting run without node must not fail (exit $status):" "$out"
+grep -q "not checked" <<<"$out" || fail "the report must say the strings were not checked:" "$out"
 git_q -C "$src" checkout -q --detach "$head"
 
 # A tree published before its daemon tests ended (source.json daemonTests
@@ -587,6 +614,39 @@ rm -f "$cdn/tree-commits/$other.json"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?
 [[ "$rc" == 1 ]] || fail "a missing marker is exit 1, got $rc"
 rm -f "$cdn/NOAUTO" "$src/scripts/ci/upload-r2-object.py"
+git_q -C "$src" checkout -q --detach "$head"
+
+# NIGHTLY_NEXT_TREE_AT_INSTALL: the feat-cmux-next tip whose tree is still building
+# is requested at once when its own nightly.yml waits for the tree at install
+# and an artifacts run builds that tree; main's promote guard (G5) accepts it on
+# the same line. Without the line, or with no active run, it waits as before.
+git_q -C "$src" checkout -q -b pending "$app"
+echo four > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui four, no line"
+noline=$(git -C "$src" rev-parse HEAD)
+branch "$noline"
+echo 1 > "$TMP/gh-runs"
+request --tree-ready "$noline"
+[[ "$status" == 0 ]] && ! dispatched "$noline" || fail "a building tree without the nightly.yml line must not be requested:" "$out"
+{ echo "env:"; echo "  NIGHTLY_NEXT_TREE_AT_INSTALL: v1"; cat "$src/.github/workflows/nightly.yml"; } > "$TMP/nightly.yml"
+mv "$TMP/nightly.yml" "$src/.github/workflows/nightly.yml"
+echo five > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui five, with the line"
+pending=$(git -C "$src" rev-parse HEAD)
+branch "$pending"
+echo 0 > "$TMP/gh-runs"
+request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! dispatched "$pending" || fail "with no active artifacts run the building tip must wait:" "$out"
+grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wait must say why:" "$out"
+echo 1 > "$TMP/gh-runs"
+request --tree-ready "$pending"
+[[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "its cmux-tui tree is building" <<<"$out" || fail "the request must say the tree is building:" "$out"
+# A commit behind the tip is never requested this way.
+git_q -C "$src" commit --allow-empty -m "app on top"
+branch "$(git -C "$src" rev-parse HEAD)"
+git_q -C "$src" checkout -q --detach "$pending"
+request --tree-ready "$pending"
+! dispatched "$pending" || fail "only the feat-cmux-next tip is requested before its tree:" "$out"
+rm -f "$TMP/gh-runs"
 git_q -C "$src" checkout -q --detach "$head"
 
 # The checkout must be the commit it asks for; bad input is a usage error.

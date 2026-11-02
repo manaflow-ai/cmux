@@ -82,6 +82,7 @@ async function render(
   draft?: string,
   plusExtensions?: import("../src/agent-session/acpmux/composerPlusRegistry").ComposerPlusExtension[],
   onPlusCommand?: (id: string) => void,
+  extra: Record<string, unknown> = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
@@ -106,6 +107,7 @@ async function render(
         onNewChat={() => {}}
         localName="studio"
         projectChoices={[{ cwd: APP, label: "app" }]}
+        {...extra}
       />,
     ),
   );
@@ -215,6 +217,20 @@ test("a chat with turns gets no suggestion", async () => {
       summary: { sessionId: "chat", cwd: APP, turnCount: 1 } as never,
       rows: [user("Hi", 1)],
     }),
+  );
+  expect(shown()).toBe(IDLE);
+});
+
+// The suggestion is a new chat's, as the location strip is (locationRow.ts): an existing chat that
+// opens, or whose summary arrived before its rows, never offers one (Leo 2026-10-30, on an existing
+// tab's composer showing a new chat's controls).
+test("an existing chat opening or loading its rows gets no suggestion", async () => {
+  // The host has not said which chat this is yet.
+  await render(fresh([prChat()]), undefined, undefined, undefined, undefined, undefined, { chatKnown: false });
+  expect(shown()).toBe(IDLE);
+  // Its summary (four turns) arrived, its history rows not yet.
+  await render(
+    noChat([prChat()], { sessionId: "chat", summary: { sessionId: "chat", cwd: APP, turnCount: 4 } as never }),
   );
   expect(shown()).toBe(IDLE);
 });
@@ -351,16 +367,13 @@ test("the + menu runs the advertised plan mode and opens the existing project ch
   expect(host.querySelector(".acpmux-location-button[aria-expanded=true]")).toBeTruthy();
 });
 
-test("the + menu keeps the full draft as a selected skill or goal's arguments", async () => {
+test("the + menu keeps the full draft as a selected goal's arguments", async () => {
   const commands = [
     { name: "review", description: "Review the change", source: "skill" as const },
     { name: "goal", description: "Set a goal", source: "agent" as const },
   ];
   const snapshot = noChat([], { summary: { sessionId: "", cwd: APP } as never, commands });
-  for (const [row, command] of [
-    ["add.skill.review", "review"],
-    ["add.goal", "goal"],
-  ] as const) {
+  for (const [row, command] of [["add.goal", "goal"]] as const) {
     await render(snapshot, undefined, undefined, "Keep these words before the caret");
     const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
     await act(async () => plus.click());
@@ -454,45 +467,68 @@ test("the + menu keeps host sections separate and stays open for an unsupported 
   ]);
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
-  expect([...host.querySelectorAll(".acpmux-menu-header")].map((node) => node.textContent)).toEqual([
-    "Add",
-    "Search tools",
-    "Sessions",
-    "Open Tabs",
-  ]);
+  // Untitled groups, as ChatGPT's + menu: attach, the composer's actions, then each host group.
+  expect(host.querySelectorAll(".acpmux-composer-plus .acpmux-menu-header")).toHaveLength(0);
+  expect(
+    [...host.querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].map((group) =>
+      [...group.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map((row) => row.dataset.value),
+    ),
+  ).toEqual([["add.files"], ["add.project", "add.mention"], ["browser"], ["chat"], ["tab"]]);
   const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
   await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
   expect(host.querySelector('[data-value="browser"]')).toBeTruthy();
 });
 
-test("the + menu scrolls keyboard-selected skills into view before Enter picks one", async () => {
-  const commands = Array.from({ length: 24 }, (_, index) => ({
+test("the + menu lists no skill: its one Commands and skills… row opens the slash list with the draft", async () => {
+  const commands = Array.from({ length: 30 }, (_, index) => ({
     name: `skill${index}`,
     description: `Skill ${index}`,
     source: "skill" as const,
   }));
   await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
-  const scrolled: string[] = [];
-  const original = dom.window.HTMLElement.prototype.scrollIntoView;
-  dom.window.HTMLElement.prototype.scrollIntoView = function (options?: ScrollIntoViewOptions) {
-    if (options?.block === "nearest") scrolled.push(this.id);
-  };
+  await act(async () => plus.click());
+  const rows = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
+  expect(rows.some((row) => row.dataset.value?.startsWith("add.skill."))).toBe(false);
+  expect(rows.some((row) => row.querySelector(".acpmux-menu-label")?.textContent?.startsWith("/"))).toBe(false);
+  const skills = rows.filter((row) => row.dataset.value === "add.commands");
+  expect(skills.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Commands and skills…"]);
+  await act(async () => skills[0]!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(field().textContent).toBe("/");
+  expect(host.querySelector("#acpmux-slash-menu, .acpmux-slash-menu")).toBeTruthy();
+});
+
+test("the + menu lists at most three recent commands, then Commands and skills…; a recent row writes its command", async () => {
+  // Leo, 2026-11-01: "our + button results are still really bad" (every skill was a + row).
+  const commands = Array.from({ length: 30 }, (_, index) => ({
+    name: `skill${index}`,
+    description: `Skill ${index}`,
+    source: "skill" as const,
+  }));
+  localStorage.setItem(
+    "cmux.acpmux.recentSlashCommands",
+    JSON.stringify(["skill3", "not-advertised", "skill1", "skill9", "skill4"]),
+  );
   try {
+    await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
+    const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
     await act(async () => plus.click());
-    await act(async () => plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
-    const last = plus.getAttribute("aria-activedescendant")!;
-    expect(scrolled).toContain(last);
-    for (let index = 0; index < 2; index++)
-      await act(async () =>
-        plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })),
-      );
-    const skill = plus.getAttribute("aria-activedescendant")!;
-    expect(host.ownerDocument.getElementById(skill)?.getAttribute("data-value")).toBe("add.skill.skill23");
-    expect(scrolled).toContain(skill);
-    await act(async () => plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-    expect(field().textContent).toContain("/skill23 ");
+    const group = [...host.querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].find((section) =>
+      section.querySelector('[data-value="add.commands"]'),
+    )!;
+    const labels = [...group.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent,
+    );
+    expect(labels).toEqual(["/skill3", "/skill1", "/skill9", "Commands and skills…"]);
+    const every = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
+    expect(every.filter((row) => row.querySelector(".acpmux-menu-label")?.textContent?.startsWith("/"))).toHaveLength(
+      3,
+    );
+    const recent = group.querySelector<HTMLElement>('[data-value="commands.recent.skill9"]')!;
+    await act(async () => recent.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+    expect(field().textContent?.trim()).toBe("/skill9");
+    expect(JSON.parse(localStorage.getItem("cmux.acpmux.recentSlashCommands")!)[0]).toBe("skill9");
   } finally {
-    dom.window.HTMLElement.prototype.scrollIntoView = original;
+    localStorage.removeItem("cmux.acpmux.recentSlashCommands");
   }
 });

@@ -46,9 +46,13 @@ pub(super) fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: P
     };
     let column = &mut layout.layout_columns[index];
     column.creation_order_auto_layout = None;
+    let chat_left = is_agent_chat_top(column, pane);
     let root = std::mem::replace(&mut column.root, Node::Leaf(0));
     if let Some(root) = root.remove_leaf(pane) {
         column.root = root;
+        if chat_left {
+            release_agent_chat_role(column);
+        }
     } else {
         layout.layout_columns.remove(index);
     }

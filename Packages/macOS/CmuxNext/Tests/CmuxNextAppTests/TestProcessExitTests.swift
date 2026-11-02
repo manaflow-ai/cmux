@@ -23,6 +23,23 @@ struct TestProcessExitTests {
         #expect(cmux_next_test_exit_trace_installed() == 1)
     }
 
+    /// The swift test wrapper exports SWIFT_BACKTRACE for this process's own crashes. A child
+    /// that inherited it hung an exit test in the backtracer and put a privileged tool's
+    /// "backtrace-on-crash is not supported" line ahead of the answer a test read from it.
+    @Test func aChildOfTheTestProcessGetsNoSwiftBacktrace() throws {
+        #expect(cmux_next_test_backtrace_kept_from_children() == 1)
+        #expect(ProcessInfo.processInfo.environment["SWIFT_BACKTRACE"] == nil)
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        let out = Pipe()
+        child.standardOutput = out
+        try child.run()
+        let environment = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        child.waitUntilExit()
+        #expect(child.terminationStatus == 0)
+        #expect(!environment.split(separator: "\n").contains { $0.hasPrefix("SWIFT_BACKTRACE=") })
+    }
+
     /// The other way a test run ends in the middle with status 0: something stops the main run
     /// loop while its outermost run is the current one. `swift_task_asyncMainDrainQueue` calls
     /// `exit(0)` the moment that run returns, so the tests in flight never report and there is no

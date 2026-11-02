@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import CmuxMobileNotifications
 import Foundation
 import UserNotifications
 #if canImport(UIKit)
@@ -80,8 +81,10 @@ public struct ChiefPreferences: @unchecked Sendable {
 
 /// Local notifications for Chief's messages: one per new message from Chief
 /// while the Chief conversation is not on screen, unless Hide Alerts is on.
-/// Chief reaches the phone only over the live link, so these come while the
-/// app runs (in the foreground, or in the background before iOS suspends it).
+/// They come over the live link while the app runs (in the foreground, or in
+/// the background before iOS suspends it), so they are only for a phone the
+/// Mac does not push Chief's replies to (``macPushesReplies``); otherwise a
+/// reply would alert twice, once from the link and once from the Mac.
 @MainActor
 public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
     public static let shared = ChiefAlerts()
@@ -129,15 +132,31 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
     /// The notification center exists only for an app bundle (not a test runner).
     static var canNotify: Bool { Bundle.main.bundleURL.pathExtension == "app" }
 
+    /// Whether the service pushes this phone Chief's replies (APNs kind
+    /// `chief`, sent by the Mac's notifier at the end of each Chief turn).
+    /// The app shell sets it from the phone's accepted push registration.
+    /// While it is true, the Mac's push is the one notification for a reply:
+    /// a local alert as well would show the same reply twice.
+    public var macPushesReplies: @MainActor () -> Bool = { false }
+
+    /// Whether this app posts its own alert for a Chief message: never while
+    /// the conversation is on screen in the foreground, never with Hide
+    /// Alerts on, and never when the Mac already pushes the reply.
+    nonisolated static func postsLocalAlert(visible: Bool, appActive: Bool, muted: Bool, macPushes: Bool) -> Bool {
+        !(visible && appActive) && !muted && !macPushes
+    }
+
     /// Posts an alert for `message` from Chief in `conversationID`.
     /// `visible`: that Chief's conversation is on screen (it shows the message itself).
     func notify(_ message: ConversationMessage, title: String, conversationID: String, macID: String? = nil,
                 preferences: ChiefPreferences, visible: Bool) {
-        guard Self.canNotify, !(visible && appActive), !preferences.muted(conversationID) else { return }
+        guard Self.canNotify,
+              Self.postsLocalAlert(visible: visible, appActive: appActive, muted: preferences.muted(conversationID),
+                                   macPushes: macPushesReplies()) else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = message.isUnsent ? String(localized: "Message unsent")
-            : message.text.isEmpty && !message.attachments.isEmpty ? String(localized: "Attachment") : message.text
+            : message.text.isEmpty && !message.attachments.isEmpty ? String(localized: "Attachment") : PushPlainText(markdown: message.text).text
         content.sound = .default
         content.threadIdentifier = "chief.\(conversationID)"
         var userInfo: [String: String] = [Self.conversationKey: conversationID]

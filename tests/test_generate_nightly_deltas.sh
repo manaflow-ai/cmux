@@ -16,9 +16,10 @@
 # fake Sparkle tools (SPARKLE_TOOLS_DIR). The fake generate_appcast writes one
 # delta per base up to --maximum-deltas, the way the real tool does, so the
 # test checks the job's own choices: which builds it fetches, how many deltas
-# it asks for, the release asset names and the revised feed. The fixture DMGs
-# never mount, so hdiutil, prebuild_sparkle_deltas.sh and the key filter leave
-# every decision to generate_appcast on macOS and Linux alike.
+# it asks for, the release asset names and the revised feed. Only this build's
+# fixture DMG mounts (for the signing-key check), so prebuild_sparkle_deltas.sh
+# and the key filter leave every decision to generate_appcast on macOS and
+# Linux alike.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -82,6 +83,18 @@ cat > "$TMP_DIR/bin/swift" <<'EOF'
 cat >/dev/null
 echo "fixture-public-key"
 EOF
+# hdiutil: sparkle_generate_appcast.sh mounts this build's DMG to check the
+# signing key against the app's SUPublicEDKey (the fake swift's key). Earlier
+# builds still never mount, so prebuilding deltas and the key filter skip them.
+cat > "$TMP_DIR/bin/hdiutil" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+[ "\$1" = attach ] || exit 0
+case "\$2" in *-arm64-$NEW.dmg) ;; *) exit 1 ;; esac
+while [ "\$1" != -mountpoint ]; do shift; done
+mkdir -p "\$2/cmux NEXT.app/Contents"
+python3 -c 'import plistlib, sys; plistlib.dump({"SUPublicEDKey": "fixture-public-key"}, open(sys.argv[1], "wb"))' "\$2/cmux NEXT.app/Contents/Info.plist"
+EOF
 # generate_appcast <options> <archives>: one item per archive; the newest item
 # lists a delta from each of the --maximum-deltas newest older archives, named
 # and linked as the real tool does ("<app name><new>-<old>.delta").
@@ -107,7 +120,7 @@ for build, name in reversed(builds):
     stamp = email.utils.formatdate((archives / name).stat().st_mtime)
     items.append(f"<item><title>{build}</title><pubDate>{stamp}</pubDate><sparkle:version>{build}</sparkle:version>"
                  f"<sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>"
-                 f'<enclosure url="{prefix}{name}" length="3" type="application/octet-stream" sparkle:edSignature="sig-{build}"/>'
+                 f'<enclosure url="{prefix}{name}" length="{(archives / name).stat().st_size}" type="application/octet-stream" sparkle:edSignature="sig-{build}"/>'
                  f"{extra}</item>")
 (archives / "appcast.xml").write_text(
     '<?xml version="1.0" encoding="utf-8"?><rss version="2.0" '

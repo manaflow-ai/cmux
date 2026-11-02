@@ -514,6 +514,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         last_applied_refresh_sequence: 0,
         applied_destination_generation: 0,
         pending_session_completions: VecDeque::new(),
+        pending_completed_selection: None,
         mux_titles,
         pty_failures,
         mux_recovery_generation,

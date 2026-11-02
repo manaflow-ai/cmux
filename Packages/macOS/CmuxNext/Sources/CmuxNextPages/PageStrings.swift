@@ -20,6 +20,8 @@ nonisolated enum PageStrings {
     static var cancel: String { t("pages.confirm.cancel", "Cancel") }
     static var asksFor: String { t("pages.confirm.asksFor", "It asks for:") }
     static var opensWeb: String { t("pages.confirm.opensWeb", "It opens these web addresses:") }
+    /// Install = deploy + pin: the machine the app's server will run on (`%@` is the target).
+    static var deploysTo: String { t("pages.confirm.deploysTo", "It runs its server on %@ and opens it as a pane.") }
 
     static var sandboxOff: String { t("pages.confirm.apps.sandboxOff", "Turn off the sandbox for “%@”?") }
     static var sandboxOn: String { t("pages.confirm.apps.sandboxOn", "Turn on the sandbox for “%@”?") }

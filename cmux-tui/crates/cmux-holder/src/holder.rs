@@ -247,7 +247,7 @@ impl Retiring {
         let mut bytes = link
             .current
             .filter(|frame| frame.written > 0)
-            .map(|frame| frame.bytes[frame.written..].to_vec())
+            .map(|frame| frame.bytes.get(frame.written..).unwrap_or_default().to_vec())
             .unwrap_or_default();
         let payload = Out::default().u16(request_kind).u16(code).bytes(message.as_bytes()).0;
         bytes.extend_from_slice(&wire::encode(Kind::Error, 0, &payload));
@@ -259,7 +259,8 @@ impl Retiring {
     /// daemon is gone.
     fn write(&mut self) -> bool {
         while self.written < self.bytes.len() {
-            match wire::send_with_fds(self.stream.as_raw_fd(), &self.bytes[self.written..], &[]) {
+            let rest = self.bytes.get(self.written..).unwrap_or_default();
+            match wire::send_with_fds(self.stream.as_raw_fd(), rest, &[]) {
                 Ok(0) => return false,
                 Ok(n) => self.written += n,
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => return false,
@@ -560,13 +561,16 @@ impl Holder {
             let error = io::Error::last_os_error();
             return if error.kind() == io::ErrorKind::Interrupted { Ok(()) } else { Err(error) };
         }
-        if fds[1].revents != 0 {
+        let revents = |index: usize| fds.get(index).map_or(0, |fd| fd.revents);
+        if revents(1) != 0 {
             self.reap();
         }
         // From the back, before anything adds to `retiring`: swap_remove
         // moves only entries already handled.
         for index in (0..retiring_count).rev() {
-            if fds[first_retiring + index].revents != 0 && self.retiring[index].write() {
+            if revents(first_retiring + index) != 0
+                && self.retiring.get_mut(index).is_some_and(Retiring::write)
+            {
                 self.retiring.swap_remove(index);
             }
         }
@@ -574,24 +578,24 @@ impl Holder {
         // ended: its pipe has the answer even if `poll` saw the exit first.
         for (index, chan) in starts.iter().enumerate() {
             let reaped = self.terminals.get(chan).is_some_and(|terminal| terminal.status.is_some());
-            if fds[first_start + index].revents != 0 || reaped {
+            if revents(first_start + index) != 0 || reaped {
                 self.finish_start(*chan);
             }
         }
         for (index, chan) in chans.iter().enumerate() {
-            let revents = fds[first_terminal + index].revents;
-            if revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
+            let events = revents(first_terminal + index);
+            if events & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
                 && self.terminals.get(chan).is_some_and(|terminal| terminal.room() > 0)
             {
                 self.read_terminal(*chan);
             }
-            if revents & (libc::POLLOUT | libc::POLLHUP | libc::POLLERR) != 0 {
+            if events & (libc::POLLOUT | libc::POLLHUP | libc::POLLERR) != 0 {
                 self.write_terminal(*chan);
             }
         }
         self.finish_ending();
         if let Some(index) = link_at
-            && fds[index].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
+            && revents(index) & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
             && let Err(why) = self.read_link()
         {
             self.break_link(why);
@@ -599,13 +603,13 @@ impl Holder {
         // From the back: a handled connection leaves with swap_remove,
         // which moves only connections already handled.
         for index in (0..pending_count).rev() {
-            if fds[first_pending + index].revents != 0 {
+            if revents(first_pending + index) != 0 {
                 self.read_pending(index);
             }
         }
         let now = Instant::now();
         self.pending.retain(|pending| pending.deadline > now);
-        if fds[0].revents & libc::POLLIN != 0 {
+        if revents(0) & libc::POLLIN != 0 {
             self.accept();
         }
         self.kill_overdue();
@@ -714,7 +718,7 @@ impl Holder {
     /// (replacing the old one), else it is dropped. Anything else keeps
     /// the attached daemon's link as it was.
     fn read_pending(&mut self, index: usize) {
-        let pending = &mut self.pending[index];
+        let Some(pending) = self.pending.get_mut(index) else { return };
         match pending.reader.fill(pending.stream.as_raw_fd()) {
             Ok(true) => {}
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => return,
@@ -1425,8 +1429,11 @@ impl Holder {
             let mut budget = LINK_QUEUE_BYTES.saturating_sub(link.out_bytes);
             let share = (budget / ready.len()).max(MIN_SHARE);
             let first = ready.iter().position(|chan| *chan >= self.pump_cursor).unwrap_or(0);
-            self.pump_cursor = ready[first].wrapping_add(1);
-            for chan in ready[first..].iter().chain(&ready[..first]) {
+            let (before, after) = ready.split_at_checked(first).unwrap_or((&[], ready.as_slice()));
+            if let Some(chan) = after.first() {
+                self.pump_cursor = chan.wrapping_add(1);
+            }
+            for chan in after.iter().chain(before) {
                 let Some(terminal) = self.terminals.get_mut(chan) else { continue };
                 let Some(mut sent) = terminal.sent else { continue };
                 // Never splice output silently: bytes the ring dropped
@@ -1502,8 +1509,8 @@ impl Holder {
             } else {
                 Vec::new()
             };
-            match wire::send_with_fds(link.stream.as_raw_fd(), &frame.bytes[frame.written..], &fds)
-            {
+            let rest = frame.bytes.get(frame.written..).unwrap_or_default();
+            match wire::send_with_fds(link.stream.as_raw_fd(), rest, &fds) {
                 Ok(n) => {
                     if n > 0 {
                         frame.fds.clear();

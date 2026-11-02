@@ -358,3 +358,25 @@ test("the time under a prompt names its exact time, shown above it", async () =>
   expect(time.getAttribute("title")?.replace(/\s/g, " ")).toBe("Oct 20, 2026, 10:16 PM");
   expect(time.getAttribute("data-tooltip-side")).toBe("top");
 });
+
+test("Option-click Fork offers destinations without starting a fork", async () => {
+  const { installMessageMenuReporter } = await import("../src/agent-session/acpmux/conversation/messageMenu");
+  const reports: unknown[] = [];
+  const remove = installMessageMenuReporter(document, () => ({ postMessage: (report) => reports.push(report) }));
+  const forked: number[] = [];
+  try {
+    const row: AcpmuxRow = { id: "option-fork", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Fork this" };
+    await draw(row, { fork: (seq: number) => forked.push(seq), forkAny: true, promptTurns: new Map([[row.id, 5]]) });
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
+    act(() => {
+      button.dispatchEvent(new window.MouseEvent("click", { bubbles: true, altKey: true }));
+    });
+    expect(reports).toEqual([expect.objectContaining({ forkDestinations: 5 })]);
+    expect(forked).toEqual([]);
+    expect(button.dataset.forkState).toBe("idle");
+    act(() => button.click());
+    expect(forked).toEqual([5]);
+  } finally {
+    remove();
+  }
+});

@@ -32,6 +32,42 @@ class NewReds(unittest.TestCase):
                 paths.append(str(path))
             return subprocess.run([sys.executable, str(SCRIPT), *paths], capture_output=True, text=True)
 
+    def run_flaky(self, head, base, flaky):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for name, results in (("head", head), ("base", base)):
+                path = Path(tmp) / f"{name}.json"
+                path.write_text(json.dumps(results))
+                paths.append(str(path))
+            listed = Path(tmp) / "flaky"
+            if flaky is not None:
+                listed.write_text("".join(f"{name}\n" for name in flaky))
+            return subprocess.run([sys.executable, str(SCRIPT), "--label", "Webview test", "--flaky", str(listed), *paths],
+                                  capture_output=True, text=True)
+
+    def test_a_new_red_that_flips_on_the_base_is_a_warning(self):
+        # agent-pane-suggested-tasks' sent image failed now and then on the base and passed its one
+        # replay there by chance: 9 of 40 sampled red pull request runs were charged with it (2026-10-30).
+        flake = "test/agent-pane-suggested-tasks.test.ts > sends the image"
+        done = self.run_flaky({flake: False}, {flake: True}, [flake])
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"::warning title=Webview test flaky on the base::{flake}", done.stdout)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn("0 webview test steps red on this change, 0 red on the base too, 1 flaky on the base", done.stdout)
+
+    def test_a_flaky_list_excuses_only_the_names_it_lists(self):
+        done = self.run_flaky({"test/a.test.ts > flake": False, "test/a.test.ts > broken": False, "test/b.test.ts": False},
+                              {}, ["test/a.test.ts > flake", "test/a.test.ts"])
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::warning title=Webview test flaky on the base::test/a.test.ts > flake", done.stdout)
+        self.assertIn("::error title=Webview test red on this change::test/a.test.ts > broken", done.stdout)
+        self.assertIn("::error title=Webview test red on this change::test/b.test.ts", done.stdout)
+
+    def test_a_missing_flaky_list_lists_nothing(self):
+        done = self.run_flaky({"lint": False}, {"lint": True}, None)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Webview test red on this change::lint", done.stdout)
+
     def test_a_step_red_only_on_the_head_fails(self):
         done = self.run_it({"lint": False, "wired": True}, {"lint": True, "wired": True})
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
@@ -59,6 +95,39 @@ class NewReds(unittest.TestCase):
     def test_no_head_results_fails(self):
         done = self.run_it(None, {"lint": True})
         self.assertEqual(done.returncode, 1)
+
+
+class TipAndRedStepLines(unittest.TestCase):
+    """A feat-cmux-next push that touches what the guards read is judged at its tip (--tip): every red step fails.
+    Judged against the previous tip, a red that persists stayed green, and 18 guard steps sat red on the branch
+    unseen until #31366. Each red step is also printed as a plain `guard red step (KIND): STEP` line, the one
+    scripts/ci/base_red_excuse.py compares a pull request's red steps with (GitHub drops annotation titles)."""
+
+    def run_tip(self, head):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "head.json"
+            path.write_text(json.dumps(head))
+            return subprocess.run([sys.executable, str(SCRIPT), "--tip", str(path)], capture_output=True, text=True)
+
+    def test_every_red_step_at_the_tip_fails(self):
+        done = self.run_tip({"lint": False, "wired": True, "fleet": False})
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Guard red at the tip::lint", done.stdout)
+        self.assertIn("guard red step (tip): fleet", done.stdout)
+        self.assertNotIn("wired", done.stdout)
+        self.assertIn("2 guard steps red at the tip", done.stdout)
+
+    def test_a_green_tip_passes(self):
+        done = self.run_tip({"lint": True})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red at the tip", done.stdout)
+
+    def test_a_comparison_names_each_red_step_with_its_kind(self):
+        done = NewReds.run_it(self, {"new": False, "old": False, "ok": True}, {"new": True, "old": False, "ok": True})
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (new): new", done.stdout)
+        self.assertIn("guard red step (base): old", done.stdout)
+        self.assertNotIn("step (new): old", done.stdout)
 
 
 class OneCheckCannotMaskAnother(unittest.TestCase):

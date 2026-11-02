@@ -14,13 +14,17 @@ public struct TerminalTabContext {
     /// Finger travel on the page (positive = finger down); collapses and
     /// expands the tab toolbar.
     public var reportScroll: @MainActor (CGFloat) -> Void
+    /// A web link tapped in the terminal: a cmux browser tab beside it, in the same
+    /// workspace (the Mac's Cmd-click). Nil where no workspace can open one.
+    public var openLink: (@MainActor (URL) -> Void)?
 
     public init(safeAreaInsets: EdgeInsets, isInteractive: Bool, isZoomGestureActive: Bool,
-                reportScroll: @escaping @MainActor (CGFloat) -> Void) {
+                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil) {
         self.safeAreaInsets = safeAreaInsets
         self.isInteractive = isInteractive
         self.isZoomGestureActive = isZoomGestureActive
         self.reportScroll = reportScroll
+        self.openLink = openLink
     }
 }
 
@@ -31,7 +35,12 @@ public struct TerminalTabContext {
 @MainActor
 public protocol TerminalTabContent: AnyObject {
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView
+    /// The tab's grid card. Read in a card's body: no host, session or
+    /// request is made here once `prepareCard` ran for the tab.
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView
+    /// Makes what the tab's card shows (its host, its first screen read),
+    /// outside any view update: when the tab is listed and when the grid opens.
+    func prepareCard(for tab: WorkspaceTab, in workspace: Workspace)
     func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView?
     /// The terminal's own actions, shown first in the tab's page menu
     /// (TabsKit owns the toolbar, so this is where the keyboard toggle,
@@ -64,6 +73,7 @@ public protocol TerminalTabContent: AnyObject {
 extension TerminalTabContent {
     public func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView? { nil }
     public func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] { [] }
+    public func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func overviewWillAppear(active tab: WorkspaceTab) {}
     public func overviewWillAppear(inactive tabs: [WorkspaceTab]) {}
     public func showsStaticCard(for tab: WorkspaceTab) -> Bool { false }
@@ -95,10 +105,21 @@ public struct TerminalTabAction {
 /// shell passes the Ghostty content). It says so instead of drawing a fake
 /// shell.
 public final class PlaceholderTerminalTabContent: TerminalTabContent {
-    public init() {}
+    let reload: (@MainActor (Workspace) async -> Void)?
+
+    public init(reload: (@MainActor (Workspace) async -> Void)? = nil) { self.reload = reload }
+
+    func retry(_ workspace: Workspace) async { await reload?(workspace) }
 
     public func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
-        AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets))
+        var retryAction: (@MainActor () async -> Void)?
+        if reload != nil {
+            retryAction = { [weak self] in
+                guard let self else { return }
+                await self.retry(workspace)
+            }
+        }
+        return AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets, retry: retryAction))
     }
 
     public func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
@@ -109,12 +130,15 @@ public final class PlaceholderTerminalTabContent: TerminalTabContent {
 struct PlaceholderTerminalPage: View {
     let tab: WorkspaceTab
     let insets: EdgeInsets
+    var retry: (@MainActor () async -> Void)? = nil
 
     var body: some View {
         ContentUnavailableView {
             Label(tab.title, systemImage: "apple.terminal")
         } description: {
             Text("This terminal isn't available.")
+        } actions: {
+            if let retry { RetryButton(action: retry).accessibilityIdentifier("terminal.placeholder.retry") }
         }
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)

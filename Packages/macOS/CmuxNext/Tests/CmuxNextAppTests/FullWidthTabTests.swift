@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// another tab (keyboard, palette) shows that one full width; toggling again shows every tab.
 /// The palette row, the tab context menu, `cmux tab toggle-full-width` and MCP `action run` all
 /// run the one action.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct FullWidthTabTests {
     private struct Harness {
         let window: NSWindow
@@ -48,7 +49,7 @@ struct FullWidthTabTests {
 
     @Test func theSelectedTabFillsTheStripAndTheOthersHide() throws {
         let harness = Harness()
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         #expect(harness.shown.count == 4)
 
         harness.model.showsSelectedFullWidth = true
@@ -70,7 +71,7 @@ struct FullWidthTabTests {
 
     @Test func aPinnedSelectedTabFillsTheStripToo() {
         let harness = Harness(count: 3, pinned: 2)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.model.selectedID = TabID("tab0")
         harness.model.showsSelectedFullWidth = true
         harness.settle()

@@ -41,6 +41,7 @@ mod effect_store;
 pub(crate) mod feed_local_store;
 pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
 mod browser_profile_proxy;
+pub(crate) mod history_check;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
@@ -51,6 +52,10 @@ mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 mod personal_session_icon;
 pub(crate) mod personal_store;
+mod projection_size;
+use projection_size::{
+    MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
+};
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
@@ -58,6 +63,7 @@ mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
 mod root_identity;
+pub(crate) mod terminal_end_prefetch;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
@@ -82,6 +88,7 @@ mod terminal_keep_store;
 mod terminal_resource_close_store;
 pub(crate) mod terminal_respawn_store;
 pub(crate) mod terminal_resume_store;
+mod terminal_unplaced_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
@@ -186,7 +193,6 @@ const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=OFF;";
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
-const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
 const MAX_LAUNCH_SPEC_BYTES: usize = 1024 * 1024;
 #[cfg(not(test))]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 100_000;
@@ -2862,7 +2868,10 @@ impl WorkspaceRegistry {
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_resources_at_open(&tx)?;
+            public_projection_store::prune_stale_notification_reads_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
+            // Additive: also on a registry a build before the table wrote.
+            terminal_unplaced_store::create_terminal_unplaced_schema(&tx)?;
             tx.commit()?;
         }
         if scrubbed {
@@ -3491,7 +3500,10 @@ impl WorkspaceRegistry {
         validate_identifier("projection subject", subject_key)?;
         let payload = canonical_json(projection)?;
         if payload.len() > MAX_PROJECTION_BYTES {
-            anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
+            anyhow::bail!(
+                "frontend projection {frontend}/{scope}/{subject_key} is {} bytes, over {MAX_PROJECTION_BYTES}",
+                payload.len()
+            );
         }
         let fingerprint = canonical_json(&serde_json::json!({
             "frontend": frontend,
@@ -3502,6 +3514,10 @@ impl WorkspaceRegistry {
         }))?;
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
+        // The ledger keeps a digest of the request and its result without the body: a replay is
+        // proven to carry the same body (the digest matches), so the body is not stored twice more
+        // per save (`projection_size`). Rows written before hold the full text and body.
+        let fingerprint_digest = projection_size::fingerprint_digest(&fingerprint);
         if let Some((stored_fingerprint, result_json)) = tx
             .query_row(
                 "SELECT fingerprint, result_json FROM projection_mutations
@@ -3511,25 +3527,27 @@ impl WorkspaceRegistry {
             )
             .optional()?
         {
-            if stored_fingerprint != fingerprint {
+            if stored_fingerprint != fingerprint_digest && stored_fingerprint != fingerprint {
                 anyhow::bail!(
                     "mutation {} from {} was retried with a different payload",
                     mutation.id,
                     mutation.origin
                 );
             }
-            let stored: FrontendProjection = serde_json::from_str(&result_json)?;
+            let mut stored: FrontendProjection = serde_json::from_str(&result_json)?;
+            stored.projection = projection.clone();
             return Ok(ProjectionCommit { projection: stored, replayed: true });
         }
-        let current = tx
+        let stored_now = tx
             .query_row(
-                "SELECT projection_revision FROM frontend_projections
+                "SELECT projection_revision, octet_length(payload) FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
                 params![frontend, scope, subject_key],
-                |row| row.get::<_, i64>(0),
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
             )
-            .optional()?
-            .map(u64::try_from)
+            .optional()?;
+        let current = stored_now
+            .map(|(revision, _)| u64::try_from(revision))
             .transpose()
             .context("projection revision is negative")?
             .unwrap_or(0);
@@ -3538,6 +3556,8 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("projection revision conflict: expected {expected}, current {current}");
         }
+        let previous_bytes = stored_now.and_then(|(_, bytes)| usize::try_from(bytes).ok());
+        note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
         let projection_revision = current
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
@@ -3573,8 +3593,11 @@ impl WorkspaceRegistry {
             params![
                 mutation.origin,
                 mutation.id,
-                fingerprint,
-                canonical_json(&serde_json::to_value(&stored)?)?,
+                fingerprint_digest,
+                canonical_json(&serde_json::to_value(FrontendProjection {
+                    projection: Value::Null,
+                    ..stored.clone()
+                })?)?,
                 mutation.actor.wire(),
             ],
         )?;
@@ -3782,8 +3805,8 @@ fn migrate_resource_api_frontend_projection_envelopes(
         });
         let payload = canonical_json(&envelope)?;
         anyhow::ensure!(
-            payload.len() <= MAX_PROJECTION_BYTES,
-            "migrated resource API frontend projection exceeds {MAX_PROJECTION_BYTES} bytes"
+            payload.len() <= MAX_RESOURCE_API_PROJECTION_BYTES,
+            "migrated resource API frontend projection exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes"
         );
         transaction.execute(
             "UPDATE frontend_projections
@@ -3890,12 +3913,27 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         )?;
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
-    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
+    // The tables that grow with use are checked in full by the maintenance
+    // worker after the daemon serves, unless it found one damaged
+    // (`history_check`).
+    let full = history_check::full_open_check_required(connection)?;
+    for table in tables.iter().filter(|table| {
+        !skipped_by_open_check(table.as_str())
+            && (full || !history_check::is_background_checked(table.as_str()))
+    }) {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
             anyhow::bail!("workspace registry integrity check failed: {result}");
         }
+    }
+    if full {
+        connection.execute(
+            "DELETE FROM meta WHERE key = ?1",
+            [history_check::FULL_OPEN_CHECK_META_KEY],
+        )?;
+    } else {
+        history_check::touch_background_checked_tails(connection, &tables)?;
     }
     // History is validated incrementally when replayed. Touch only each
     // table's newest indexed row during open so a corrupt tail page is caught
@@ -3906,7 +3944,10 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         ("journal_event_index", "sequence"),
         ("journal_segments", "end_sequence"),
         ("journal_checkpoints", "source_sequence"),
-        ("journal_content_blobs", "created_at_ms"),
+        // created_at_ms has no index: ordering by it scanned and sorted every
+        // blob through its overflow pages (0.67 s cold on a 41.6 GB registry).
+        // Blobs are append-only, so the newest rowid is the newest blob.
+        ("journal_content_blobs", "rowid"),
     ] {
         let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
         let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
@@ -4062,6 +4103,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     terminal_keep_store::create_terminal_keep_schema(transaction)?;
+    terminal_unplaced_store::create_terminal_unplaced_schema(transaction)?;
     terminal_resume_store::create_terminal_resume_schema(transaction)?;
     relaunch_store::create_schema(transaction)?;
     Ok(())
@@ -4923,7 +4965,7 @@ fn transaction_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
     value.parse().context("workspace registry revision is invalid")
 }
 
-fn current_terminal_revision(connection: &Connection) -> anyhow::Result<u64> {
+pub(crate) fn current_terminal_revision(connection: &Connection) -> anyhow::Result<u64> {
     required_meta(connection, "terminal_revision")?
         .parse()
         .context("terminal registry revision is invalid")
@@ -5903,6 +5945,9 @@ mod tests;
 mod receipt_env_tests;
 
 #[cfg(test)]
+mod open_cost_tests;
+
+#[cfg(test)]
 mod personal_tests;
 
 #[cfg(test)]
@@ -5910,3 +5955,6 @@ mod actor_migration_tests;
 
 #[cfg(test)]
 mod workspace_name_tests;
+
+#[cfg(test)]
+mod projection_size_tests;

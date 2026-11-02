@@ -37,6 +37,8 @@ final class FocusCoordinator {
     private var isRunning = false
     /// Tabs left while their address bar had the keyboard (Chrome restores it on return).
     private var omnibarMemory = OmnibarFocusMemory()
+    /// The applier runs the address-bar focus of a return to the tab (``OmnibarFocusMemory/takeReturn(_:)``).
+    private(set) var isReturningToOmnibar = false
     private(set) var isApplying = false
     /// The last events, newest last (for `debug.focus`).
     private(set) var recent: [String] = []
@@ -93,6 +95,7 @@ final class FocusCoordinator {
         while !queue.isEmpty {
             while !queue.isEmpty {
                 let event = queue.removeFirst()
+                let returnsToOmnibar = omnibarMemory.takeReturn(event)
                 // A topology equal to the one the machine holds is not an event:
                 // nothing is sent, recorded or applied (the window re-reports
                 // its panes after every daemon delta and selection echo).
@@ -116,12 +119,14 @@ final class FocusCoordinator {
                 record(event)
                 if omnibarMemory.note(event, before: previous.resolved, after: reduced.resolved) {
                     // Runs after this event's effects moved the responder to the page.
-                    queue.append(.focusTarget(.addressBar, source: .programmatic))
+                    queue.append(OmnibarFocusMemory.returnEvent)
                 }
                 observer?(.reduced(event, before: previous, after: reduced, changed: result.changed || !effects.isEmpty))
                 guard !effects.isEmpty, let applier else { continue }
                 isApplying = true
+                isReturningToOmnibar = returnsToOmnibar
                 applier.apply(effects, state: reduced)
+                isReturningToOmnibar = false
                 isApplying = false
                 DebugPaneFocus.mark(self, "applied")
             }

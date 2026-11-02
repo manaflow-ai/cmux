@@ -20,6 +20,9 @@ pub(crate) struct Sources {
     /// The concrete `Host` names of the person's `~/.ssh/config` (and its
     /// includes), each with the `HostName` its blocks give it.
     pub ssh_hosts: Vec<crate::machine_runtime::SshConfigHost>,
+    /// The team's joined machines as `machine list` rows (`kind: "joined"`):
+    /// `[{"id","name","state","platform","createdAt",…}]`.
+    pub joined: Value,
 }
 
 /// What a device is to a person.
@@ -66,6 +69,8 @@ pub(crate) enum Via {
     Grant { login: String },
     /// A remote-hosting full-access login (`cmux host allow`).
     Allow { login: String },
+    /// A machine that joined the team with a pasted line (`cmux machine add`).
+    Joined { machine_id: String },
 }
 
 /// Where the network reaches a device.
@@ -81,7 +86,8 @@ pub(crate) struct Reach {
 /// One row of `cmux device list`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Device {
-    /// Stable for one device across runs: `peer:NAME`, `paired:ID`, `grant:LOGIN`, `allow:LOGIN`.
+    /// Stable for one device across runs: `peer:NAME`, `paired:ID`, `grant:LOGIN`, `allow:LOGIN`,
+    /// `joined:MACHINE_ID`.
     pub id: String,
     pub name: String,
     pub kind: Kind,
@@ -248,6 +254,27 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             detail: None,
             full_access: matches!(role.as_str(), "client" | "phone")
                 .then(|| paired["full_access"] == true),
+        });
+    }
+    for row in sources.joined.as_array().map(Vec::as_slice).unwrap_or_default() {
+        let Some(id) = text(row, "id") else { continue };
+        let state = text(row, "state").unwrap_or_default();
+        // A revoked machine lets nothing in any more.
+        if state == "revoked" {
+            continue;
+        }
+        devices.push(Device {
+            id: format!("joined:{id}"),
+            name: text(row, "name").unwrap_or_else(|| id.clone()),
+            kind: Kind::Computer,
+            roles: vec![Role::RunsAgents],
+            state: if state == "online" { State::Connected } else { State::Offline },
+            os: text(row, "platform"),
+            reach: None,
+            via: vec![Via::Joined { machine_id: id }],
+            added_at: text(row, "createdAt"),
+            detail: None,
+            full_access: None,
         });
     }
     if sources.remote["enabled"].as_bool() == Some(true) {

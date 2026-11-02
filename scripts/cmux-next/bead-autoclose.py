@@ -14,11 +14,10 @@ and the bead is not an epic and has no open children. It closes with
 comment with the pull request link: a partial close is worse than none. A closed
 or unknown bead is skipped. Open
 pull requests on feat-cmux-next that name no bead get a task created from
-their title, with the pull request as its external reference, and the bead
-line of the PR's status comment links it back (a dispatch of pr-status.yml,
-so the line posts as github-actions and not under this token's account; with
-CMUX_CI_GITHUB_APP_ID_FILE and CMUX_CI_GITHUB_APP_KEY_FILE the dispatch itself
-runs as the org App, see scripts/ci/pr_status.py). The board is reached through BEADS_SSH_HOST
+their title, with the pull request as its external reference. That reference
+is the whole link: nothing is written on the pull request (no comment, no status
+line, no workflow dispatch), and a pull request a bead already names by its
+external reference gets no second one. The board is reached through BEADS_SSH_HOST
 (the host whose ~/agent-tasks holds the board) or, for tests, BEADS_BD_COMMAND
 (an executable run with bd's arguments); with neither set it refuses to run.
 State lives in BEAD_AUTOCLOSE_STATE: the latest merge handled, the pull
@@ -41,9 +40,6 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
-import pr_status  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
 BASES = ("feat-cmux-next", "main")
@@ -147,12 +143,12 @@ def beads_named(pull: dict, *, include_comments: bool = False) -> list[str]:
     return list(dict.fromkeys(match.lower() for text in texts for match in BEAD_ID.findall(text)))
 
 
-def link_bead_on_pull_request(pull: dict, bead_id: str) -> None:
-    """The bead line of the PR's status comment, through pr-status.yml (scripts/ci/pr_status.py)."""
-    try:
-        pr_status.dispatch(REPO, int(pull["number"]), bead=bead_id)
-    except (RuntimeError, ValueError) as error:
-        raise BoardUnreachable(str(error)) from error
+def board_pull_request_refs() -> set[str]:
+    """The pull request links the board's beads (closed ones too) hold as external references."""
+    beads = bd_json("list", "--all", "--limit", "0", "--external-contains", f"github.com/{REPO}/pull/")
+    if beads is None:
+        raise BoardUnreachable("bd list failed")
+    return {str(bead.get("external_ref") or "").strip() for bead in beads}
 
 
 def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
@@ -190,7 +186,7 @@ def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
 
 
 def create_for_pull(pull: dict, dry_run: bool) -> tuple[str, str]:
-    """Create and link the bead for a new bead-less pull request."""
+    """Create the bead for a new bead-less pull request; its external reference is the link."""
     title = (pull.get("title") or "").strip()
     url = pull.get("url") or f"https://github.com/{REPO}/pull/{pull['number']}"
     description = (
@@ -212,13 +208,7 @@ def create_for_pull(pull: dict, dry_run: bool) -> tuple[str, str]:
     bead_id = str(created.get("id") or "").strip()
     if not bead_id:
         return "", f"failed create for #{pull['number']}: bd returned no id"
-    try:
-        link_bead_on_pull_request(pull, bead_id)
-    except BoardUnreachable as error:
-        # The bead exists and names the PR as its external reference: record the PR, so the
-        # next run does not create a second bead, and report the missing link.
-        return bead_id, f"create {bead_id} for #{pull['number']}; linking it on the PR failed: {error}"
-    return bead_id, f"create {bead_id} for #{pull['number']} and link it on the PR"
+    return bead_id, f"create {bead_id} for #{pull['number']}"
 
 
 def parse_time(text: str) -> datetime:
@@ -292,16 +282,20 @@ def main() -> int:
             if not any(outcome.startswith("failed ") for outcome in outcomes):
                 handled[number] = pull["mergedAt"]  # a failed close retries while in the window
                 last = max(last, pull["mergedAt"]) if last else pull["mergedAt"]
+        board_refs = None
         for pull in open_pull_requests():
             number = str(pull["number"])
             if number in open_handled:
                 continue
-            if beads_named(pull, include_comments=True):
+            if board_refs is None:
+                board_refs = board_pull_request_refs()
+            url = pull.get("url") or f"https://github.com/{REPO}/pull/{number}"
+            if beads_named(pull, include_comments=True) or url in board_refs:
                 open_handled[number] = pull.get("createdAt") or format_time(datetime.now(timezone.utc))
                 continue
             _, outcome = create_for_pull(pull, args.dry_run)
             print(f"#{pull['number']} {outcome}")
-            open_failed = open_failed or outcome.startswith("failed ") or "linking it on the PR failed" in outcome
+            open_failed = open_failed or outcome.startswith("failed ")
             if not outcome.startswith("failed "):
                 open_handled[number] = pull.get("createdAt") or format_time(datetime.now(timezone.utc))
     except BoardUnreachable as error:

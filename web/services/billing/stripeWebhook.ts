@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-import { and, desc, eq, gte, isNull, like, lt, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { after, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { env } from "../../app/env";
 import { cloudDb } from "../../db/client";
-import { stripeWebhookEvents } from "../../db/schema";
+import { stripeSubscriptions } from "../../db/schema";
 import { captureBillingError } from "../errors";
 import {
   captureStripeBillingEvent as captureStripeBillingEventDefault,
@@ -30,7 +30,16 @@ import { personalProWelcomeOwnsDelivery } from "./personalProWelcome";
 import { isPersonalPlanId } from "./pro";
 import { databaseTeamSeatQueue } from "./teamSeatQueue";
 import { AccountDeletionUserMutationInProgressError } from "../account/deletionLock";
-import { STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX } from "./stripeWebhookErrors";
+import {
+  STRIPE_WEBHOOK_REPLAY_MAX_AGE_MS,
+  STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX,
+} from "./stripeWebhookErrors";
+import {
+  createDrizzleStripeWebhookInbox,
+  type StripeWebhookClaim,
+  type StripeWebhookInbox,
+  type StripeWebhookInboxEntry,
+} from "./stripeWebhookInbox";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -38,11 +47,39 @@ import {
 } from "../telemetry";
 
 
+/**
+ * Every event type the billing webhook acts on. The live endpoint's
+ * subscriptions (`scripts/stripe/provision-catalog.sh`) and the local
+ * `stripe listen` (`scripts/stripe/dev-stack.sh`) must list exactly these;
+ * tests/stripe-webhook-event-types.test.ts holds them together.
+ */
+export const STRIPE_WEBHOOK_EVENT_TYPES = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "checkout.session.expired",
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "customer.subscription.paused",
+  "customer.subscription.resumed",
+  "customer.subscription.pending_update_applied",
+  "customer.subscription.pending_update_expired",
+  "invoice.paid",
+  "invoice.payment_failed",
+  "invoice.payment_action_required",
+  "invoice.marked_uncollectible",
+  "charge.refunded",
+] as const satisfies readonly Stripe.Event.Type[];
+
 type StripeWebhookDependencies = {
   webhookSecret: () => string | undefined;
   isConfigured: () => boolean;
   stripe: typeof stripe;
-  db: typeof cloudDb;
+  inbox: StripeWebhookInbox;
+  /** The current principal and status of a stored subscription, for a superseded event's analytics. */
+  storedSubscriptionSubject?: (subscriptionId: string) => Promise<StripeBillingAnalyticsSubject | null>;
+  now?: () => Date;
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
   recordFoundersCheckoutCompletion?: typeof recordFoundersCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
@@ -59,7 +96,8 @@ const defaultDependencies: StripeWebhookDependencies = {
   webhookSecret: () => env.STRIPE_WEBHOOK_SECRET,
   isConfigured: isStripeBillingConfigured,
   stripe,
-  db: cloudDb,
+  inbox: createDrizzleStripeWebhookInbox(),
+  storedSubscriptionSubject: storedSubscriptionSubjectDefault,
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
@@ -72,6 +110,12 @@ const defaultDependencies: StripeWebhookDependencies = {
   defer: (task) => after(task),
 };
 
+/**
+ * Stores a verified event in the inbox and answers 2xx before any side
+ * effect runs; processing follows the response, and the alerts cron drains
+ * whatever it did not finish (`makeStripeWebhookReplayer`). A store failure
+ * answers 500, so Stripe delivers the event again.
+ */
 export function makeStripeWebhookHandler(
   dependencies: StripeWebhookDependencies = defaultDependencies,
 ) {
@@ -99,36 +143,21 @@ export function makeStripeWebhookHandler(
       }
 
       setSpanAttributes(span, { "cmux.stripe.event_type": event.type });
-      const db = dependencies.db();
-      const [inserted] = await db
-        .insert(stripeWebhookEvents)
-        .values({
-          id: event.id,
-          type: event.type,
-          payloadHash: payloadHash(rawBody),
-        })
-        .onConflictDoNothing({ target: stripeWebhookEvents.id })
-        .returning({ id: stripeWebhookEvents.id });
+      const { processed } = await dependencies.inbox.record(inboxEntry(event, payloadHash(rawBody)));
+      if (processed) return NextResponse.json({ ok: true, skipped: "duplicate" });
 
-      if (!inserted) {
-        const [existing] = await db
-          .select({
-            processedAt: stripeWebhookEvents.processedAt,
-            error: stripeWebhookEvents.error,
-          })
-          .from(stripeWebhookEvents)
-          .where(eq(stripeWebhookEvents.id, event.id))
-          .limit(1);
-        if (existing?.processedAt && !existing.error) {
-          return NextResponse.json({ ok: true, skipped: "duplicate" });
+      dependencies.defer(async () => {
+        try {
+          await claimAndProcessStripeEvent(event, dependencies);
+        } catch (error) {
+          captureBillingError(error, {
+            route: "/api/stripe/webhook",
+            eventType: event.type,
+            eventId: event.id,
+          });
         }
-      }
-
-      const outcome = await processAndRecordStripeEvent(event, dependencies, span);
-      if (outcome.ok) return NextResponse.json({ ok: true, ...outcome.result });
-      return outcome.retryable
-        ? jsonError("Stripe webhook processing deferred", 503)
-        : jsonError("Stripe webhook processing failed", 500);
+      });
+      return NextResponse.json({ ok: true, queued: true });
     },
   );
   };
@@ -138,19 +167,80 @@ type RecordedStripeEventOutcome =
   | { readonly ok: true; readonly result: Omit<StripeEventOutcome, "analytics"> }
   | { readonly ok: false; readonly retryable: boolean };
 
-async function processAndRecordStripeEvent(
+/**
+ * How long one attempt holds an event, and its object, before another worker
+ * may take it over. It outlives the longest a Vercel function can run (800 s),
+ * so a worker is always gone before its lease lapses and can never apply a
+ * stale subscription read after a newer event of the object has applied.
+ */
+const STRIPE_WEBHOOK_LEASE_MS = 15 * 60 * 1_000;
+/** Wait before the next attempt after the Nth failure; the last step repeats. */
+const STRIPE_WEBHOOK_RETRY_DELAYS_MS = [1, 5, 15, 60, 180].map((minutes) => minutes * 60 * 1_000);
+
+/** Null when the event is processed or leased, or another event of its object is running. */
+async function claimAndProcessStripeEvent(
   event: Stripe.Event,
+  dependencies: StripeWebhookDependencies,
+): Promise<RecordedStripeEventOutcome | null> {
+  // The handler stored every other event's key; a refund's needs a Stripe read.
+  if (event.type === "charge.refunded") await recordObjectKey(event, dependencies);
+  const claim = await claimStripeEvent(event.id, dependencies);
+  if (!claim) return null;
+  return processClaimedStripeEvent(event, claim, dependencies);
+}
+
+function claimStripeEvent(
+  id: string,
+  dependencies: StripeWebhookDependencies,
+): Promise<StripeWebhookClaim | null> {
+  const now = currentTime(dependencies);
+  return dependencies.inbox.claim(id, now, new Date(now.getTime() + STRIPE_WEBHOOK_LEASE_MS));
+}
+
+/**
+ * Every claim is serialized on the event's object, so its key must be stored
+ * before the claim: a refund's subscription is only known from its invoice,
+ * and a row stored before the inbox existed has no key at all.
+ */
+async function recordObjectKey(
+  event: Stripe.Event,
+  dependencies: StripeWebhookDependencies,
+): Promise<void> {
+  const entry = inboxEntry(event, "");
+  if (event.type === "charge.refunded") {
+    const objectKey = await refundObjectKey(event.data.object, dependencies);
+    if (!objectKey) return;
+    await dependencies.inbox.record({ ...entry, objectKey });
+    return;
+  }
+  if (entry.objectKey) await dependencies.inbox.record(entry);
+}
+
+async function refundObjectKey(
+  charge: Stripe.Charge & { invoice?: string | Stripe.Invoice | null },
+  dependencies: StripeWebhookDependencies,
+): Promise<string | null> {
+  const invoiceId = stringId(charge.invoice);
+  if (!invoiceId) return null;
+  const invoice = await dependencies.stripe().invoices.retrieve(invoiceId);
+  return invoiceSubscriptionId(invoice) ?? invoice.id;
+}
+
+async function processClaimedStripeEvent(
+  event: Stripe.Event,
+  claim: StripeWebhookClaim,
   dependencies: StripeWebhookDependencies,
   span?: Parameters<typeof recordSpanError>[0],
 ): Promise<RecordedStripeEventOutcome> {
-  const db = dependencies.db();
   try {
-    const { analytics, ...result } = await processStripeEvent(event, dependencies);
-    await db
-      .update(stripeWebhookEvents)
-      .set({ processedAt: sql`now()`, error: null })
-      .where(eq(stripeWebhookEvents.id, event.id));
-    if (analytics) dependencies.defer(analytics);
+    const { analytics, ...result } =
+      await skipSupersededStripeEvent(event, dependencies) ?? await processStripeEvent(event, dependencies);
+    const recorded = await dependencies.inbox.complete(claim, result.skipped ?? null);
+    if (recorded && analytics) {
+      await analytics().catch((error: unknown) => {
+        captureBillingError(error, { operation: "stripe_webhook_analytics", eventId: event.id });
+      });
+    }
     return { ok: true, result };
   } catch (error) {
     const retryable = isRetryableStripeEventError(error);
@@ -159,9 +249,9 @@ async function processAndRecordStripeEvent(
       setSpanAttributes(span, { "cmux.stripe.retryable": retryable });
       recordSpanError(span, error);
     }
-    // Lease contention resolves once the sibling event finishes. Stripe
-    // redelivery and the replay cron retry it, and the billing alert pages
-    // only if the row is still failing after the replay grace period.
+    // Lease contention resolves once the sibling event finishes. The inbox
+    // retries it, and the billing alert pages only if the row is still
+    // failing after the retry grace period.
     if (!retryable) {
       captureBillingError(error, {
         route: "/api/stripe/webhook",
@@ -169,14 +259,19 @@ async function processAndRecordStripeEvent(
         eventId: event.id,
       });
     }
-    await db
-      .update(stripeWebhookEvents)
-      .set({
-        error: retryable ? `${STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX}${message}` : message,
-      })
-      .where(eq(stripeWebhookEvents.id, event.id));
+    await dependencies.inbox.fail(
+      claim,
+      retryable ? `${STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX}${message}` : message,
+      nextAttemptAt(claim.attempts, currentTime(dependencies)),
+    );
     return { ok: false, retryable };
   }
+}
+
+function nextAttemptAt(attempts: number, now: Date): Date {
+  const delays = STRIPE_WEBHOOK_RETRY_DELAYS_MS;
+  const delay = delays[Math.min(Math.max(attempts, 1), delays.length) - 1];
+  return new Date(now.getTime() + delay);
 }
 
 function isRetryableStripeEventError(error: unknown): boolean {
@@ -193,58 +288,161 @@ export type StripeWebhookReplaySummary = {
   readonly failed: number;
 };
 
-/** Stripe only serves events through the API for 30 days; stop well before. */
-const STRIPE_WEBHOOK_REPLAY_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1_000;
-/** Leave the first redelivery and any in-flight sibling event time to finish. */
-const STRIPE_WEBHOOK_REPLAY_MIN_AGE_MS = 2 * 60 * 1_000;
-const STRIPE_WEBHOOK_REPLAY_BATCH = 3;
+/** Events per cron run; the webhook's own `after()` processes nearly all of them first. */
+const STRIPE_WEBHOOK_REPLAY_BATCH = 10;
 
 /**
- * Re-runs webhook events that lost a transient race, newest first, from
- * Stripe's authoritative event record.
- * Processing is already idempotent because Stripe redelivers events, so a
- * replay racing a Stripe retry produces the same entitlement state.
+ * Drains the inbox: every unprocessed event that is due, longest-waiting
+ * first, re-read from Stripe's authoritative event record. Processing is
+ * idempotent, so an attempt racing the webhook's own produces the same
+ * entitlement state, and the inbox lease keeps them from running at once.
  */
 export function makeStripeWebhookReplayer(
   dependencies: StripeWebhookDependencies = defaultDependencies,
 ) {
   return async function replayFailedStripeWebhookEvents(
-    now: Date = new Date(),
+    now: Date = currentTime(dependencies),
   ): Promise<StripeWebhookReplaySummary> {
     if (!dependencies.isConfigured()) return { attempted: 0, succeeded: 0, failed: 0 };
-    const rows = await dependencies.db()
-      .select({ id: stripeWebhookEvents.id })
-      .from(stripeWebhookEvents)
-      .where(and(
-        // Only lease contention is known to clear on its own. Other failures
-        // keep Stripe's redelivery schedule and page, so a permanently
-        // failing row never occupies the replay batch.
-        like(stripeWebhookEvents.error, `${STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX}%`),
-        isNull(stripeWebhookEvents.processedAt),
-        gte(stripeWebhookEvents.createdAt, new Date(now.getTime() - STRIPE_WEBHOOK_REPLAY_MAX_AGE_MS)),
-        lt(stripeWebhookEvents.createdAt, new Date(now.getTime() - STRIPE_WEBHOOK_REPLAY_MIN_AGE_MS)),
-      ))
-      .orderBy(desc(stripeWebhookEvents.createdAt))
-      .limit(STRIPE_WEBHOOK_REPLAY_BATCH);
+    const ids = await dependencies.inbox.due(
+      now,
+      new Date(now.getTime() - STRIPE_WEBHOOK_REPLAY_MAX_AGE_MS),
+      STRIPE_WEBHOOK_REPLAY_BATCH,
+    );
 
+    let attempted = 0;
     let succeeded = 0;
     let failed = 0;
-    for (const row of rows) {
+    for (const id of ids) {
+      let event: Stripe.Event;
       try {
-        const event = await dependencies.stripe().events.retrieve(row.id);
-        const outcome = await processAndRecordStripeEvent(event, dependencies);
-        if (outcome.ok) succeeded += 1;
-        else failed += 1;
+        event = await dependencies.stripe().events.retrieve(id);
+        await recordObjectKey(event, dependencies);
       } catch (error) {
+        // Nothing was applied; count the attempt and back off.
+        const claim = await claimStripeEvent(id, dependencies);
+        if (!claim) continue;
+        attempted += 1;
         failed += 1;
-        captureBillingError(error, {
-          operation: "stripe_webhook_replay",
-          eventId: row.id,
-        });
+        captureBillingError(error, { operation: "stripe_webhook_replay", eventId: id });
+        const message = error instanceof Error ? error.message : String(error);
+        await dependencies.inbox.fail(claim, message, nextAttemptAt(claim.attempts, currentTime(dependencies)));
+        continue;
       }
+      const claim = await claimStripeEvent(id, dependencies);
+      if (!claim) continue;
+      attempted += 1;
+      const outcome = await processClaimedStripeEvent(event, claim, dependencies);
+      if (outcome.ok) succeeded += 1;
+      else failed += 1;
     }
-    return { attempted: rows.length, succeeded, failed };
+    return { attempted, succeeded, failed };
   };
+}
+
+function currentTime(dependencies: StripeWebhookDependencies): Date {
+  return dependencies.now?.() ?? new Date();
+}
+
+function inboxEntry(event: Stripe.Event, hash: string): StripeWebhookInboxEntry {
+  return {
+    id: event.id,
+    type: event.type,
+    payloadHash: hash,
+    objectKey: stripeEventObjectKey(event),
+    createdAt: typeof event.created === "number" ? new Date(event.created * 1_000) : null,
+  };
+}
+
+/**
+ * The Stripe object whose state the event changes. Events of one subscription
+ * share its id, whether they arrive as checkout, subscription or invoice
+ * events, so they run one at a time.
+ */
+function stripeEventObjectKey(event: Stripe.Event): string | null {
+  const type: string = event.type;
+  if (type.startsWith("customer.subscription.")) {
+    return (event.data.object as Stripe.Subscription).id;
+  }
+  if (type.startsWith("checkout.session.")) {
+    const session = event.data.object as Stripe.Checkout.Session;
+    return stringId(session.subscription) ?? session.id;
+  }
+  if (type.startsWith("invoice.")) {
+    const invoice = event.data.object as Stripe.Invoice;
+    return invoiceSubscriptionId(invoice) ?? invoice.id;
+  }
+  return null;
+}
+
+/**
+ * Events whose processing re-applies Stripe's current subscription state and
+ * nothing else. One that Stripe created before an already-applied event of
+ * the same subscription has nothing newer to apply.
+ */
+const SUBSCRIPTION_STATE_EVENT_TYPES: ReadonlySet<string> = new Set<Stripe.Event.Type>([
+  "checkout.session.async_payment_failed",
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "customer.subscription.paused",
+  "customer.subscription.resumed",
+  "customer.subscription.pending_update_applied",
+  "customer.subscription.pending_update_expired",
+  "invoice.paid",
+  "invoice.payment_failed",
+  "invoice.payment_action_required",
+  "invoice.marked_uncollectible",
+]);
+
+/**
+ * Object-level dedupe: skip re-reading and re-applying a subscription that a
+ * later event already applied, and still report this event's analytics under
+ * the subscription's stored principal. Null when the event must be processed.
+ */
+async function skipSupersededStripeEvent(
+  event: Stripe.Event,
+  dependencies: StripeWebhookDependencies,
+): Promise<StripeEventOutcome | null> {
+  if (!SUBSCRIPTION_STATE_EVENT_TYPES.has(event.type)) return null;
+  const entry = inboxEntry(event, "");
+  if (!entry.objectKey || !entry.createdAt || !dependencies.storedSubscriptionSubject) return null;
+  // A seat-changing event is only covered by a later event that also
+  // reconciled the Team's seats.
+  const coveringTypes = TEAM_SEAT_EVENT_TYPES.has(event.type)
+    ? [...TEAM_SEAT_EVENT_TYPES]
+    : [...SUBSCRIPTION_STATE_EVENT_TYPES];
+  const supersededBy = await dependencies.inbox.supersededBy(entry, coveringTypes);
+  if (!supersededBy) return null;
+  const subject = await dependencies.storedSubscriptionSubject(entry.objectKey);
+  if (!subject) return null;
+  return {
+    skipped: "superseded",
+    analytics: () => dependencies.captureStripeBillingEvent(event, subject),
+  };
+}
+
+async function storedSubscriptionSubjectDefault(
+  subscriptionId: string,
+): Promise<StripeBillingAnalyticsSubject | null> {
+  const [row] = await cloudDb()
+    .select({
+      scope: stripeSubscriptions.scope,
+      stackUserId: stripeSubscriptions.stackUserId,
+      stackTeamId: stripeSubscriptions.stackTeamId,
+      status: stripeSubscriptions.status,
+    })
+    .from(stripeSubscriptions)
+    .where(eq(stripeSubscriptions.id, subscriptionId))
+    .limit(1);
+  if (!row) return null;
+  const isActive = isActiveStripeSubscriptionStatus(row.status);
+  if (row.scope === "team") {
+    return row.stackTeamId
+      ? { scope: "team", stackTeamId: row.stackTeamId, isActive, status: row.status }
+      : null;
+  }
+  return { scope: "user", stackUserId: row.stackUserId, isActive, status: row.status };
 }
 
 type StripeEventOutcome = {
@@ -263,15 +461,23 @@ async function processStripeEvent(
       return processCheckoutCompleted(event, event.data.object, dependencies);
     case "checkout.session.expired":
       return processExpiredCheckout(event, event.data.object, dependencies);
+    case "checkout.session.async_payment_failed":
+      return processFailedAsyncCheckout(event, event.data.object, dependencies);
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted":
+    case "customer.subscription.paused":
+    case "customer.subscription.resumed":
+    case "customer.subscription.pending_update_applied":
+    case "customer.subscription.pending_update_expired":
       // Stripe can deliver events late or out of order. Always reconcile the
       // provider's current object rather than allowing an older event payload
       // to overwrite a newer entitlement state.
       return reconcileSubscriptionEvent(event, event.data.object.id, "subscription_unmapped", dependencies);
     case "invoice.paid":
-    case "invoice.payment_failed": {
+    case "invoice.payment_failed":
+    case "invoice.payment_action_required":
+    case "invoice.marked_uncollectible": {
       const subscriptionId = invoiceSubscriptionId(event.data.object);
       if (!subscriptionId) return { skipped: "invoice_without_subscription" };
       return reconcileSubscriptionEvent(event, subscriptionId, "invoice_subscription_unmapped", dependencies);
@@ -366,8 +572,7 @@ async function reconcileSubscriptionEvent(
   dependencies: StripeWebhookDependencies,
 ): Promise<StripeEventOutcome> {
   const subscription = await dependencies.stripe().subscriptions.retrieve(subscriptionId);
-  const marksTeamSeats = event.type === "customer.subscription.created" ||
-    event.type === "customer.subscription.updated";
+  const marksTeamSeats = TEAM_SEAT_EVENT_TYPES.has(event.type);
   const result = await applySubscriptionEntitlementUpdate(subscription, dependencies, marksTeamSeats);
   return "skipped" in result
     ? { skipped: unmappedSkip }
@@ -378,6 +583,27 @@ async function reconcileSubscriptionEvent(
           analyticsSubject(result, result.isActive, subscription.status),
         ),
       };
+}
+
+// Events whose subscription may have changed its quantity, so a Team's seats
+// are reconciled after the entitlement update.
+const TEAM_SEAT_EVENT_TYPES: ReadonlySet<Stripe.Event.Type> = new Set([
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.pending_update_applied",
+]);
+
+// A delayed payment method (ACH, SEPA, Boleto) failed after the checkout
+// completed unpaid. Nothing was fulfilled, but the subscription Checkout
+// created is now incomplete or canceled, so its current state is applied.
+async function processFailedAsyncCheckout(
+  event: Stripe.Event,
+  session: Stripe.Checkout.Session,
+  dependencies: StripeWebhookDependencies,
+): Promise<StripeEventOutcome> {
+  const subscriptionId = stringId(session.subscription);
+  if (!subscriptionId) return { skipped: "checkout_without_subscription" };
+  return reconcileSubscriptionEvent(event, subscriptionId, "checkout_subscription_unmapped", dependencies);
 }
 
 async function processRefund(

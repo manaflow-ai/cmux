@@ -38,6 +38,10 @@ pub struct PoolKey {
     pub auth: String,
     /// Fingerprint of the logged-in account, where a login file names one.
     pub account: Option<String>,
+    /// The delivered machine files' metadata stamp (`login_env::machine_stamp`,
+    /// never a value) when the key was made: a claim checks it again, so a
+    /// host from before a delivery or revocation never reaches a chat.
+    pub machine: Option<String>,
 }
 
 impl PoolKey {
@@ -238,7 +242,9 @@ impl<T> Pool<T> {
         // Newest first; `key` itself holds one of the harness's places.
         others.sort_by_key(|e| std::cmp::Reverse(e.0));
         for (_, i) in others.into_iter().skip(self.hinted_per_harness - 1) {
-            self.entries[i].hinted = false;
+            if let Some(entry) = self.entries.get_mut(i) {
+                entry.hinted = false;
+            }
         }
     }
 

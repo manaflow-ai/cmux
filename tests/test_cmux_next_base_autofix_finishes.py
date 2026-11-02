@@ -67,6 +67,8 @@ class BaseAutofixFinishes(unittest.TestCase):
             self.assertNotIn("mac_busy", str(step.get("if", "")))
         job = DOC["jobs"]["mac-exports-deferred"]
         self.assertEqual(job["name"], "Mac exports deferred")
+        # A deferred run looks for no pack (pushed-exports is skipped while another run carries the exports).
+        self.assertEqual(job["needs"], "action-areas")
         self.assertEqual(job["if"], "needs.action-areas.outputs.mac_busy == 'true'")
         self.assertNotIn("continue-on-error", job)
         run = "\n".join(s.get("run", "") for s in job["steps"])
@@ -90,7 +92,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         # and the next push replaced it: half an hour of Mac exports lost. That autofix has a group of
         # its own; the others still queue only the latest, one group per branch.
         group = DOC["jobs"]["autofix"]["concurrency"]["group"]
-        self.assertIn("needs.action-exports.outputs.exports == 'true'", group)
+        self.assertIn("(needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true'", group)
         self.assertIn("github.run_id", group)
         self.assertIn("github.ref_name", group)
 
@@ -280,7 +282,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("timeout-minutes", step)
         self.assertEqual(job["outputs"]["actions_made_at"], "${{ steps.actions.outputs.made_at }}")
         push = next(s for s in DOC["jobs"]["autofix"]["steps"] if "base-autofix-land.sh" in s.get("run", ""))
-        self.assertEqual(push["env"]["ACTIONS_MADE_AT"], "${{ needs.action-exports.outputs.actions_made_at }}")
+        self.assertEqual(push["env"]["ACTIONS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports.outputs.actions_made_at }}")
         self.assertIn('"$SETTINGS_MADE_AT" "$ACTIONS_MADE_AT"', push["run"])
         self.assertIn("scripts/cmux-next/base-autofix-action-exports.sh", DOC[True]["push"]["paths"])
         self.assertGreaterEqual(job["timeout-minutes"], step["timeout-minutes"] + 40)
@@ -303,7 +305,7 @@ class BaseAutofixFinishes(unittest.TestCase):
 
     def test_the_push_judges_the_settings_exports_from_where_they_were_made(self):
         step = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")
-        self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.action-exports.outputs.settings_made_at }}")
+        self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports.outputs.settings_made_at }}")
         self.assertIn('"$HEAD_SHA" "$SETTINGS_MADE_AT"', step["run"])
 
     def test_the_push_script_knows_every_settings_export(self):
@@ -372,19 +374,19 @@ class BaseAutofixFinishes(unittest.TestCase):
         data = work / "runs.json"
         data.write_text(json.dumps({str(k): v for k, v in runs.items()}))
         gh = work / "bin/gh"
+        # The script's own --jq filter runs on the API's JSON, so the job names it counts are its own.
         gh.write_text(f"""#!/usr/bin/env python3
-import json, re, sys
+import json, re, subprocess, sys
 if {fail!r}:
     sys.exit(1)
 runs = json.load(open({str(data)!r}))
-path = sys.argv[2]
+path, jq = sys.argv[2], sys.argv[sys.argv.index("--jq") + 1]
 m = re.search(r"/runs/(\\d+)/jobs", path)
 if m:
-    jobs = runs[m.group(1)]
-    print(sum(1 for name, status in jobs if name == "action exports (Mac)" and status != "completed"))
+    body = {{"jobs": [{{"name": name, "status": status}} for name, status in runs[m.group(1)]]}}
 else:
-    for run in runs:
-        print(run)
+    body = {{"workflow_runs": [{{"id": int(run), "status": "in_progress"}} for run in runs]}}
+sys.exit(subprocess.run(["jq", "-r", jq], input=json.dumps(body), text=True).returncode)
 """)
         gh.chmod(0o755)
         done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-mac-busy.sh"), str(self_run)],
@@ -393,13 +395,17 @@ else:
         return done.stdout
 
     def test_mac_busy_sees_another_runs_queued_or_running_mac_job(self):
-        for status in ("queued", "in_progress", "waiting"):
-            with self.subTest(status=status):
-                out = self.mac_busy({1: [], 7: [("action exports (Mac)", status)]})
-                self.assertEqual(out, "mac_busy=true\nmac_busy_run=7\n")
+        # Another run's pushed-exports wait carries the exports too (2026-11-01: with only the Mac job
+        # counted, every run waited up to 45 minutes there and its formatting repairs with it).
+        for job in ("action exports (Mac)", "exports from the push's generated files"):
+            for status in ("queued", "in_progress", "waiting"):
+                with self.subTest(job=job, status=status):
+                    out = self.mac_busy({1: [], 7: [(job, status)]})
+                    self.assertEqual(out, "mac_busy=true\nmac_busy_run=7\n")
 
     def test_mac_busy_is_false_without_another_unfinished_mac_job(self):
         self.assertEqual(self.mac_busy({1: [("action exports (Mac)", "queued")]}), "mac_busy=false\n")  # its own
+        self.assertEqual(self.mac_busy({1: [("exports from the push's generated files", "in_progress")]}), "mac_busy=false\n")
         self.assertEqual(self.mac_busy({1: [], 7: [("action exports (Mac)", "completed"), ("autofix feat-cmux-next",
                                                                                           "in_progress")]}),
                          "mac_busy=false\n")

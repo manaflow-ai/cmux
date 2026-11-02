@@ -10,6 +10,7 @@ export function DiffKeyHints({ hunkKey }: { hunkKey?: "s" | "u" }) {
   const hints: [keys: string[], label: string][] = [
     [["j", "k"], t("diff.keys.files")],
     [["n", "p"], t("diff.keys.changes")],
+    [["v"], t("diff.keys.viewed")],
     ...(hunkKey
       ? [[[hunkKey], t(hunkKey === "s" ? "diff.keys.stageHunk" : "diff.keys.unstageHunk")] as [string[], string]]
       : []),

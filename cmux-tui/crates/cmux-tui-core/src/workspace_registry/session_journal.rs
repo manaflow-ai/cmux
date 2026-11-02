@@ -1,3 +1,5 @@
+use cmux_json::JsonSet as _;
+
 mod plugin_generation;
 use super::*;
 use base64::Engine;
@@ -2099,7 +2101,7 @@ fn normalize_terminal_output(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .context("decode archived terminal output")?;
-        record.payload["encoding"] = Value::String("raw".into());
+        record.payload.set("encoding", Value::String("raw".into()));
         bytes
     };
     anyhow::ensure!(!bytes.is_empty(), "terminal output record is empty");

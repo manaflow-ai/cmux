@@ -13,6 +13,9 @@ extension SidebarViewComponents {
     /// footer's update pill stays visible (the only update notice). The top
     /// band's hairline fades with its band (Lawrence 2026-10-05).
     func setChromeRevealed(_ revealed: Bool) {
+        // A menu the + or its chevron opened holds them revealed (and lit) until it closes, even
+        // after the pointer leaves for the menu (Leo, 2026-10-26).
+        let revealed = revealed || chromeMenuHolds > 0
         let changed = revealed != isChromeRevealed
         isChromeRevealed = revealed
         for region in bandRegions { region.chromeRevealed = revealed }
@@ -30,6 +33,7 @@ extension SidebarViewComponents {
         // A fade only, under Reduce Motion at once (the gate snaps): every piece keeps its frame.
         Motion.feedback.animate(.hover, in: self) {
             newButton.animator().alphaValue = target.newButton
+            newWorkspaceOptionsButton.animator().alphaValue = target.newButton
             profileBar.animator().alphaValue = target.spaces
             aboveFade.animator().alphaValue = target.topBand
             belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: target.bottomBand == 0)
@@ -37,6 +41,19 @@ extension SidebarViewComponents {
             searchButton.animator().alphaValue = target.footer
         }
         fadeLine(aboveLine, to: target.topBand)
+    }
+
+    /// A menu from a hover-revealed titlebar control opened (`true`) or closed (`false`). On the
+    /// last close the reveal goes back to the pointer, which may have left meanwhile.
+    func chromeMenuOpenChanged(_ open: Bool) {
+        if open {
+            chromeMenuHolds += 1
+            setChromeRevealed(true)
+        } else {
+            chromeMenuHolds = max(0, chromeMenuHolds - 1)
+            chromeHover?.refresh()
+            setChromeRevealed(chromeHover?.isHovering ?? false)
+        }
     }
 
     /// What each piece of the hover chrome shows with the pointer over the sidebar (`revealed`) or

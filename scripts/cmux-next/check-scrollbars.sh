@@ -50,6 +50,11 @@ ALLOWED = {
 
 # path suffix -> {rule id -> reason}: one rule off in one file.
 ALLOWED_RULES = {
+    # The compact session rail's list scrolls itself once its ticks outgrow its height, and its
+    # scrollbar never draws (design/session-rail.md "Height and overflow": never a second visible
+    # scrollbar beside the transcript's). `scrollbar-width: none` and `::-webkit-scrollbar
+    # { display: none }` hide it in both engines; no thumb, track or colour is styled.
+    "webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css": {"custom": "rail list scrollbar hidden"},
     # `overflow: "scroll"` here is the @pierre/diffs option for unwrapped code rows, not CSS; the
     # rows' scroller follows the host through PIERRE_DIFFS_SCROLLER_CSS.
     # EditDiffHunks and HighlightedCode load after the first frame (#19974); EditDiff and CodeBlock

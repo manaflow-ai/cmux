@@ -76,7 +76,16 @@ public nonisolated struct DriverParams: Sendable {
     public func timeout(default fallback: Duration = .seconds(30)) throws(DriverError) -> Duration? {
         guard let ms = try optionalNumber("timeoutMs") else { return fallback }
         guard ms > 0 else { return nil }
-        return .milliseconds(Int64(ms.rounded()))
+        return Self.duration(milliseconds: ms)
+    }
+
+    /// The longest deadline a call takes: a year, which no browser call outlives. `ms` is any finite
+    /// number the caller sent, and `Int64(_:)` traps on 1e30.
+    private static let longestDeadlineMilliseconds = 31_622_400_000.0
+
+    /// `ms` as a deadline, capped at ``longestDeadlineMilliseconds``.
+    static func duration(milliseconds ms: Double) -> Duration {
+        .milliseconds(Int64(min(ms.rounded(), longestDeadlineMilliseconds)))
     }
 
     private func missing(_ key: String, _ type: String) -> DriverError {

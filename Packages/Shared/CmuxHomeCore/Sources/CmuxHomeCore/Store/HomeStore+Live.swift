@@ -4,6 +4,7 @@ import Foundation
 // `live`, the one value every Home view draws.
 extension HomeStore {
     func applyLive(_ event: HomeLiveEvent) {
+        if case .run(let update) = event, let run = update.agentRun { applyAgentRun(run) }
         let conversation = event.conversation
         let outcome = liveBook.apply(event) { author in author ?? self.chief(of: conversation) }
         switch outcome {

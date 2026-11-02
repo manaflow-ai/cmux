@@ -17,10 +17,27 @@ page must then hold the whole text (`debug.new_tab` `field`).
 Needs the logged-in GUI session and the right to post events (nx-remote --needs input). The
 helper brings the tagged app to the front itself. It never touches another app's windows.
 
-Usage: new-workspace-real-typing-e2e.py --tag <tag> [--cold N] [--warm N] [--others N] [--rate 30] [--delay-ms 40]
+Three arms of Cmd-N (bench_arms.py), each reported with p50/p95/p99/max of the keys the new page's field lost
+(`lost_keys`: a run whose keys reached no new page is a missed run) and of the helper's first key after Cmd-N:
+
+  warm   the warm Cmd-N runs: 1 s after the previous run, so the New Tab page spare is ready
+  quick  two quick presses (`--quick N`, default 5): Cmd-N, at once Cmd-N again, then the text into the second
+         workspace's page, with no wait for the spare to refill
+  cold   cold, no wait (`--cold-nowait N`, default 3): a relaunch, then Cmd-N and the text as soon as the app answers
+         with a window, with no launch-settle wait (the `--cold` runs keep their 2 s settle and are reported apart)
+
+The HEADLINE is the WORST arm (a missed run first, else the highest p95, then the highest max), printed as
+`HEADLINE new-workspace-typing/cmdn lost_keys = <arm> arm ...`; the warm arm alone never stands for the bench.
+Every run of every arm counts in the exit status.
+
+Usage: new-workspace-real-typing-e2e.py --tag <tag> [--cold N] [--warm N] [--others N] [--quick N] [--cold-nowait N]
+       [--rate 30] [--delay-ms 40]
 Exit status 0 when every run kept every key.
 """
 import argparse, json, os, re, socket, subprocess, sys, tempfile, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # bench_arms, also under `python3 -I`
+import bench_arms  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -29,6 +46,8 @@ parser.add_argument("--warm", type=int, default=10)
 parser.add_argument("--flow", choices=["workspace", "window"], default="workspace",
                     help="workspace: Cmd-N, Cmd-T, split and palette runs; window: Cmd-Shift-N (New Window) runs")
 parser.add_argument("--others", type=int, default=10, help="warm runs of each other flow (Cmd-T, split, palette)")
+parser.add_argument("--quick", type=int, default=5, help="quick arm: Cmd-N twice at once, the text into the second page")
+parser.add_argument("--cold-nowait", type=int, default=3, help="cold arm: a relaunch, then Cmd-N with no launch-settle wait")
 parser.add_argument("--rate", type=float, default=30.0)
 parser.add_argument("--delay-ms", type=int, default=40)
 parser.add_argument("--text", default="hello world 123")
@@ -154,14 +173,24 @@ def app_pid():
     return int(out) if out else None
 
 
-def launch():
+def launch(settle=True):
+    """`settle` False (the cold arm): back as soon as the app answers with a window, no first-workspace or settle wait."""
     subprocess.run([os.path.join(ROOT, "scripts/launch-tagged-automation.sh"), opts.tag, "--wait-socket", "60"], check=True,
                    stdout=subprocess.DEVNULL)
-    if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
+    if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60, step=0.1 if settle else 0.02):
         sys.exit("the app does not answer on " + SOCK)
+    if not settle:
+        return
     # The first window shows its first workspace before the first Cmd-N.
     wait(lambda: (rpc("debug.focus") or {}).get("windows"), 20)
     time.sleep(2)  # test harness: launch work settles (a cold run still has no spare page used yet)
+
+
+def lost_keys(row):
+    """The keys of the text the new page's field lost; None (a missed run) when the keys reached no new page."""
+    if row.get("tab_after") in (None, row.get("tab_before")) or row.get("field") is None:
+        return None
+    return max(0, len(opts.text) - len(row["field"]))
 
 
 def field_text():
@@ -312,6 +341,21 @@ def main():
             # Cmd-D on a fresh New Tab page: the new pane opens its own New Tab page.
             rows.append(run(f"warm-split-{index + 1}", helper, CMD_D, setup=fresh_page_workspace, new_pane=True))
             rows.append(run(f"warm-palette-{index + 1}", helper, PALETTE, setup=focus_terminal_tab))
+    if opts.flow == "workspace":
+        if opts.quick and not (opts.cold or opts.warm or opts.others):
+            launch()
+        for index in range(opts.quick):
+            time.sleep(1)  # test harness: the previous workspace settles; the FIRST Cmd-N finds a ready spare
+            rows.append(run(f"quick-cmdn-{index + 1}", helper, CMD_N + CMD_N))
+        for index in range(opts.cold_nowait):
+            launch(settle=False)
+            rows.append(run(f"coldnowait-cmdn-{index + 1}", helper, CMD_N))
+        arms = {"warm": "warm-cmdn-", "quick": "quick-cmdn-", "cold": "coldnowait-cmdn-"}
+        print("", flush=True)
+        for metric, value in (("lost_keys", lost_keys), ("first_key_ms", lambda r: r.get("first_key_ms"))):
+            bench_arms.report("new-workspace-typing/cmdn", metric, "keys" if metric == "lost_keys" else "ms",
+                              {arm: [value(r) for r in rows if r["run"].startswith(prefix)] for arm, prefix in arms.items()},
+                              out=lambda line: print(line, flush=True))
     rpc("debug.quit", {"press": "end-everything"})
     with open(os.path.join(opts.out, "new-workspace-real-typing.json"), "w") as handle:
         json.dump(rows, handle, indent=1)

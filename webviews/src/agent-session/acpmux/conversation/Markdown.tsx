@@ -1,3 +1,4 @@
+import { BlockTail, InlineTail } from "./InlineTail";
 // Ported from the agent-pane reference prototype (src/conversation/Markdown.tsx).
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape for every transcript: headings, paragraphs (single newlines are line
@@ -5,11 +6,13 @@
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
 import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
 import { CodeBlock } from "./CodeBlock";
+import { InlinePreview } from "./InlinePreview";
+import { inlinePreviewKind } from "./previewDocument";
 import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
@@ -19,12 +22,14 @@ import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
+import { fenceStep } from "./fenceRule";
+import { closesFence, codeSpans, fenceOpening } from "../slashCommands";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { SoftBroken, softBreakNodes } from "./softBreaks";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
-import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
+import { codePath, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
@@ -38,8 +43,12 @@ import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
+import { splitSkillText } from "./skillWords";
+import { SkillWord } from "./SkillWord";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { isAgentMotionOff } from "../../shared/motion";
+import { animateScroll } from "../threadMinimap/scrollMotion";
+import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
 import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
 
 export type Align = "left" | "center" | "right" | null;
@@ -60,6 +69,32 @@ export type MdBlock =
 export type MdListItem = { text: string; task?: boolean; checked?: boolean; children: MdBlock[] };
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+
+/// A paragraph's lines, each break kept, except one inside a reference: a line that ends with
+/// `repo#` and one that starts with its number are one `repo#N`, so it links and wraps whole.
+function joinParagraph(lines: string[]): string {
+  return lines.reduce((text, line) =>
+    /(?:^|[^\s#])#$/.test(text) && /^\d/.test(line) ? text + line : `${text}\n${line}`,
+  );
+}
+
+/// A long list number (`1000.`) widens its items' indent so it never draws over their text; a
+/// number of one or two digits keeps the list's usual indent.
+function listNumberStyle(block: { ordered: boolean; start: number; items: unknown[] }): CSSProperties | undefined {
+  if (!block.ordered) return undefined;
+  const digits = String(block.start + block.items.length - 1).length;
+  return digits > 2 ? ({ "--cv-ol-digits": digits } as CSSProperties) : undefined;
+}
+
+/// Whether a line starts a list inside a paragraph. A numbered line does so only from 1, as
+/// CommonMark and GitHub read it: a reply wrapped as "the cards (cmux#\n29613) and the fix" kept
+/// its text, where reading "29613)" as a list's number drew it bold over "and" (Leo 2026-10-31:
+/// "WTF HAPPENED WITH THIS" / "F***ING TEXT????").
+function interruptsParagraph(line: string): boolean {
+  const m = LIST_RE.exec(line);
+  return Boolean(m && (!/\d/.test(m[2]!) || parseInt(m[2]!, 10) === 1));
+}
+
 /// The deepest nesting of quotes and lists the parser builds. A reply is untrusted, and each level
 /// costs stack while it draws (800 list levels overflowed it), so content below this depth draws
 /// as the plain text of one paragraph.
@@ -67,9 +102,12 @@ export const MAX_NESTING = 32;
 const FOOTNOTE_DEF = /^\[\^([\w-]+)\]:\s*(.*)$/;
 
 /** Parse the supported Markdown subset into blocks. */
-export function parseMarkdown(src: string, options: { messageAt?: number } = {}): MdBlock[] {
+/// `commonmark`: fences read as CommonMark reads them (slashCommands.ts fenceOpening and closesFence:
+/// tildes too, at most three spaces of indent, no backtick in a backtick fence's info string), as a
+/// sent prompt's are, so its code is what send reads as code.
+export function parseMarkdown(src: string, options: { messageAt?: number; commonmark?: boolean } = {}): MdBlock[] {
   const lines = normalizeMath(src.replace(/\r\n?/g, "\n").split("\n"));
-  const blocks = parseLines(lines);
+  const blocks = parseLines(lines, 0, options.commonmark === true);
   return options.messageAt === undefined ? blocks : decorateBlocks(blocks, options.messageAt);
 }
 
@@ -107,7 +145,7 @@ function decorateBlocks(blocks: MdBlock[], messageAt?: number): MdBlock[] {
 }
 
 /// `depth`: how many quotes and lists hold these lines (MAX_NESTING).
-function parseLines(lines: string[], depth = 0): MdBlock[] {
+function parseLines(lines: string[], depth = 0, commonmark = false): MdBlock[] {
   const out: MdBlock[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -116,16 +154,34 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       i++;
       continue;
     }
-    const fence = line.match(/^\s*```([^\s`]*)[^`]*$/);
-    if (fence) {
+    const opening = commonmark ? fenceOpening(line) : undefined;
+    if (opening) {
       const body: string[] = [];
       i++;
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i++]);
+      while (i < lines.length && !closesFence(lines[i], opening.mark)) body.push(lines[i++]);
       const open = i >= lines.length;
       i++;
       out.push({
         type: "code",
-        lang: fence[1] || "text",
+        lang: opening.info.trim().split(/\s/)[0] || "text",
+        code: body.join("\n"),
+        ...(open ? { open: true as const } : {}),
+      });
+      continue;
+    }
+    // A fence is three or more backticks and closes on a line of at least as many (a reply that
+    // quotes Markdown opens with four to show its own three).
+    const fence = commonmark ? null : line.match(/^\s*(`{3,})([^\s`]*)[^`]*$/);
+    if (fence) {
+      const body: string[] = [];
+      const closer = new RegExp(`^\\s*\`{${fence[1]!.length},}\\s*$`);
+      i++;
+      while (i < lines.length && !closer.test(lines[i])) body.push(lines[i++]);
+      const open = i >= lines.length;
+      i++;
+      out.push({
+        type: "code",
+        lang: fence[2] || "text",
         code: body.join("\n"),
         ...(open ? { open: true as const } : {}),
       });
@@ -160,7 +216,7 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
     if (/^\s*>/.test(line)) {
       const body: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) body.push(lines[i++].replace(/^\s*>\s?/, ""));
-      out.push({ type: "blockquote", children: nested(body, depth + 1) });
+      out.push({ type: "blockquote", children: nested(body, depth + 1, commonmark) });
       continue;
     }
     if (
@@ -168,13 +224,14 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       i + 1 < lines.length &&
       /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])
     ) {
+      // An escaped pipe (`\|`) is a literal one inside its cell, not a column break.
       const cells = (l: string) =>
         l
           .trim()
           .replace(/^\|/, "")
-          .replace(/\|$/, "")
-          .split("|")
-          .map((c) => c.trim());
+          .replace(/(?<!\\)\|$/, "")
+          .split(/(?<!\\)\|/)
+          .map((c) => c.replace(/\\\|/g, "|").trim());
       const header = cells(line);
       const align = cells(lines[i + 1]).map<Align>((c) =>
         c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : c.startsWith(":") ? "left" : null,
@@ -186,7 +243,7 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       continue;
     }
     if (LIST_RE.test(line)) {
-      const [block, next] = parseList(lines, i, depth);
+      const [block, next] = parseList(lines, i, depth, commonmark);
       out.push(block);
       i = next;
       continue;
@@ -199,13 +256,13 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       lines[i].trim() &&
       !/^(#{1,6})\s/.test(lines[i]) &&
       !FOOTNOTE_DEF.test(lines[i]) &&
-      !/^\s*```/.test(lines[i]) &&
+      (commonmark ? !fenceOpening(lines[i]) : fenceStep(0, lines[i]) === 0) &&
       !/^\s*\$\$/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
-      !LIST_RE.test(lines[i])
+      !interruptsParagraph(lines[i])
     )
       para.push(lines[i++].trim());
-    out.push({ type: "paragraph", text: para.join("\n") });
+    out.push({ type: "paragraph", text: joinParagraph(para) });
   }
   return out;
 }
@@ -244,8 +301,8 @@ function indentOf(l: string) {
 }
 
 /// The blocks of lines nested `depth` levels down, or their text as one paragraph at the cap.
-function nested(lines: string[], depth: number): MdBlock[] {
-  if (depth < MAX_NESTING) return parseLines(lines, depth);
+function nested(lines: string[], depth: number, commonmark = false): MdBlock[] {
+  if (depth < MAX_NESTING) return parseLines(lines, depth, commonmark);
   const text = lines
     .map((line) => line.trim())
     .filter(Boolean)
@@ -253,7 +310,7 @@ function nested(lines: string[], depth: number): MdBlock[] {
   return text ? [{ type: "paragraph", text }] : [];
 }
 
-function parseList(lines: string[], start: number, depth: number): [MdBlock, number] {
+function parseList(lines: string[], start: number, depth: number, commonmark = false): [MdBlock, number] {
   const first = lines[start].match(LIST_RE)!;
   const base = indentOf(lines[start]);
   const ordered = /\d/.test(first[2]);
@@ -287,6 +344,7 @@ function parseList(lines: string[], start: number, depth: number): [MdBlock, num
         item.children = nested(
           inner.map((n) => n.slice(strip)),
           depth + 1,
+          commonmark,
         );
       }
       items.push(item);
@@ -319,6 +377,15 @@ export type InlineOptions = {
   linkBareReferences?: boolean;
   /** The chats the open chat started, whose names draw as chips (started/startedSessions.ts). */
   started?: StartedMentions;
+  /** A sent prompt's skills by shown name, with their descriptions: each `/name` in the renderer's
+   *  plain text draws as a skill word (SkillWord.tsx), never in code. */
+  skills?: ReadonlyMap<string, string>;
+  /** Inline code read as CommonMark reads it (slashCommands.ts codeSpans: a span closes on a run of
+   *  as many backticks, so ``a ` b`` is one span), as a sent prompt's is. */
+  commonmark?: boolean;
+  /** The code spans `renderInline` set aside in this text (`commonmark`), by the index their stand-in
+   *  names; set by the outermost call, read by the calls inside it. */
+  codes?: string[];
   /** How a commit SHA draws: a GitHub chip (replies), or quiet monospace text that links to its
    *  commit when its repository is known (another agent's message, IncomingMessageCard.tsx). */
   commits?: "chip" | "quiet";
@@ -416,7 +483,7 @@ export function linkKind(href: string): "github" | "citation" | "file" | "web" {
 
 export const linkIcon = (href: string) => {
   const kind = linkKind(href);
-  if (kind === "github") return <GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />;
+  if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
   if (kind === "file") return <FileDoc size={16} className="cv-link__icon" />;
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
@@ -474,7 +541,7 @@ function linkedGithubText(
         <UrlChip
           key={`${key}-${index}`}
           href={reference.href}
-          icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+          icon={<GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />}
         >
           {reference.text}
         </UrlChip>
@@ -522,6 +589,25 @@ function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] 
     out.push(
       ...pieces.flatMap((piece): ReactNode[] => {
         const current = `${key}-${index++}`;
+        if (typeof piece === "string" && opts.skills?.size) {
+          const words = splitSkillText(piece, opts.skills);
+          if (words.length > 1 || typeof words[0] !== "string")
+            return words.flatMap((word, at): ReactNode[] =>
+              typeof word === "string"
+                ? softBreakNodes(
+                    linkedGithubText(
+                      word,
+                      `${current}-${at}`,
+                      opts.githubRepository,
+                      opts.linkGithubReferences !== false,
+                      opts.commits === "quiet",
+                      opts.linkBareReferences !== false,
+                    ),
+                    `${current}-${at}`,
+                  )
+                : [<SkillWord key={`${current}-${at}`} {...word} />],
+            );
+        }
         return typeof piece === "string"
           ? softBreakNodes(
               linkedGithubText(
@@ -558,27 +644,58 @@ function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] 
 const INLINE_RE =
   /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$(?!\s[A-Za-z\s'’,.;:!?"()-]*\$\$|[A-Za-z\s'’,.;:!?"()-]*\s\$\$)[^$\n]+?\$\$)|(?<![\\$])(\$(?![({])(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`$]\$(?![A-Za-z0-9])|\\\(.+?\\\))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
+/// Each code span of `source` (CommonMark, slashCommands.ts codeSpans) set aside for the inline
+/// pass: a stand-in the pass reads as one plain span (a backtick, U+E000, its index, U+E001, a
+/// backtick) takes its place, and `keptCode` gives its content back when the span draws. The
+/// stand-in never reaches the page. A span of several backticks drops one space from each end of
+/// its content when both have one, as CommonMark does.
+function keepCodeSpans(source: string): { text: string; codes: string[] } | undefined {
+  const spans = codeSpans(source);
+  if (!spans.length) return undefined;
+  const codes: string[] = [];
+  let text = "";
+  let last = 0;
+  for (const span of spans) {
+    let code = source.slice(span.inner[0], span.inner[1]);
+    if (span.run > 1 && code.length > 2 && code.startsWith(" ") && code.endsWith(" ") && code.trim())
+      code = code.slice(1, -1);
+    text += `${source.slice(last, span.start)}\`\uE000${codes.length}\uE001\``;
+    codes.push(code);
+    last = span.end;
+  }
+  return { text: text + source.slice(last), codes };
+}
+
+/// A code span's content: the span `keepCodeSpans` set aside when `raw` is its stand-in.
+function keptCode(raw: string, opts: InlineOptions): string {
+  const kept = opts.codes && /^\uE000(\d+)\uE001$/.exec(raw);
+  return kept ? (opts.codes![Number(kept[1])] ?? raw) : raw;
+}
+
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {
   const refs: string[] = [];
-  const text = capDataUrls(source, refs);
-  const opts = refs.length ? { ...outer, dataRefs: refs } : outer;
+  const kept = outer.commonmark && !outer.codes ? keepCodeSpans(source) : undefined;
+  const text = capDataUrls(kept ? kept.text : source, refs);
+  const withCodes = kept ? { ...outer, codes: kept.codes } : outer;
+  const opts = refs.length ? { ...withCodes, dataRefs: refs } : withCodes;
   const out: ReactNode[] = [];
   let last = 0;
   let k = 0;
   for (const m of text.matchAll(INLINE_RE)) {
     if (m.index! > last) out.push(...proseText(text.slice(last, m.index), `t${k++}`, opts));
     const t = m[0];
-    const named = m[1] ? opts.started?.mentions.find((mention) => mention.text === t.slice(1, -1)) : undefined;
+    const inner = m[1] ? keptCode(t.slice(1, -1), opts) : "";
+    const named = m[1] ? opts.started?.mentions.find((mention) => mention.text === inner) : undefined;
     if (named) out.push(<StartedSessionChip key={k++} mention={named} text={named.text} onOpen={opts.started!.open} />);
     else if (m[1]) {
-      const path = codePath(t.slice(1, -1));
+      const path = codePath(inner);
       out.push(
         path ? (
-          <PathChip key={k++} path={path} written={t.slice(1, -1)} label={lineLabel(path, t.slice(1, -1))} />
+          <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
         ) : (
           <code key={k++} className="cv-code">
-            <SoftBroken text={t.slice(1, -1)} />
+            <SoftBroken text={inner} />
           </code>
         ),
       );
@@ -619,6 +736,9 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             {renderInline(lm[1], labelOpts)}
           </a>,
         );
+      // A template (`${variant}.png`) names no file: its text.
+      else if (!href && isTemplatePath(lm[2]))
+        out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
       else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file">
@@ -650,13 +770,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         const anchor = opts.notes.anchor(id);
         out.push(
           <sup key={k++} className="cv-fnref">
-            <button
-              type="button"
-              aria-describedby={anchor}
-              onClick={() =>
-                document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: noteScroll() })
-              }
-            >
+            <button type="button" aria-describedby={anchor} onClick={() => scrollNote(document.getElementById(anchor))}>
               {number}
             </button>
           </sup>,
@@ -667,6 +781,54 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   }
   if (last < text.length) out.push(...proseText(text.slice(last), `t${k++}`, opts));
   return out;
+}
+
+// Native smooth scroll can paint one queued compositor step after cancellation. Transcript
+// footnotes use the shared runner so manual input stops them before the next painted frame.
+// A note inside its own scrolling panel (a capped tool result) is first brought into view
+// there, at once, as scrollIntoView would; then the transcript rides to it.
+function scrollNote(note: HTMLElement | null) {
+  if (!note) return;
+  const node = note.closest<HTMLElement>(".acpmux-scroll");
+  if (!node) return note.scrollIntoView({ block: "nearest", behavior: noteScroll() });
+  for (let inner = note.parentElement; inner && inner !== node; inner = inner.parentElement) {
+    if (inner.scrollHeight <= inner.clientHeight) continue;
+    const overflow = inner.ownerDocument.defaultView?.getComputedStyle(inner).overflowY;
+    if (overflow !== "auto" && overflow !== "scroll") continue;
+    inner.scrollTop = revealedTop(note, inner);
+  }
+  const target = () => revealedTop(note, node);
+  animateScroll(
+    node,
+    target,
+    noteScroll() === "auto" ? 0 : jumpDuration(target() - node.scrollTop),
+    JUMP_CURVE,
+    undefined,
+    undefined,
+    { explicit: true },
+  );
+}
+
+/// Where `scroller` shows `note` by scrollIntoView's "nearest" rule, inside its scroll range.
+function revealedTop(note: HTMLElement, scroller: HTMLElement): number {
+  const end = scroller.scrollHeight - scroller.clientHeight;
+  return Math.max(0, Math.min(end, scroller.scrollTop + nearest(note, scroller)));
+}
+
+/// How far `scroller` must move to show `note`, by scrollIntoView's "nearest" rule.
+function nearest(note: HTMLElement, scroller: HTMLElement): number {
+  const box = note.getBoundingClientRect();
+  const top = scroller.getBoundingClientRect().top + scroller.clientTop;
+  const paddingBottom =
+    Number.parseFloat(scroller.ownerDocument.defaultView?.getComputedStyle(scroller).scrollPaddingBottom ?? "0") || 0;
+  const bottom = top + scroller.clientHeight - paddingBottom;
+  const visibleHeight = Math.max(0, bottom - top);
+  const above = box.top < top;
+  const below = box.bottom > bottom;
+  if (above && below) return 0;
+  if (above) return box.height <= visibleHeight ? box.top - top : box.bottom - bottom;
+  if (below) return box.height <= visibleHeight ? box.bottom - bottom : box.top - top;
+  return 0;
 }
 
 /// How a footnote reference scrolls to its note: a glide, or with cmux's animations off
@@ -775,6 +937,7 @@ function Block({
   enter = false,
   code = "final",
   tail,
+  trailing,
 }: {
   block: MdBlock;
   opts: InlineOptions;
@@ -786,9 +949,12 @@ function Block({
   code?: "open" | "handoff" | "final" | "plain";
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
+  trailing?: ReactNode;
 }): ReactNode {
   const motion = enter ? " cv-enter" : "";
-  const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
+  const inline = (text: string) => (
+    <InlineTail trailing={trailing}>{tail ? renderFresh(text, tail, opts) : renderInline(text, opts)}</InlineTail>
+  );
   switch (block.type) {
     case "heading": {
       // h5 and h6 draw as h4, the smallest heading the column has.
@@ -801,7 +967,9 @@ function Block({
       if (!tail && !/\s/.test(link) && isRemoteMedia(link))
         return (
           <p className={`cv-p${motion}`}>
-            <RemoteMedia url={link} alt="" fallback={inline(block.text)} />
+            <InlineTail trailing={trailing}>
+              <RemoteMedia url={link} alt="" fallback={renderInline(block.text, opts)} />
+            </InlineTail>
           </p>
         );
       // Only images (a before/after pair, a screenshot alone on its line): a row of thumbnails, once
@@ -810,7 +978,9 @@ function Block({
       if (images)
         return (
           <p className={`cv-p cv-p--images${motion}`}>
-            <Thumbs items={images} opts={opts} />
+            <InlineTail trailing={trailing}>
+              <Thumbs items={images} opts={opts} />
+            </InlineTail>
           </p>
         );
       // An image path in a sentence stays its chip there; its thumbnail draws under the paragraph,
@@ -828,11 +998,21 @@ function Block({
       );
     }
     case "hr":
-      return <hr className={`cv-hr${motion}`} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <hr className={`cv-hr${motion}`} />
+        </BlockTail>
+      );
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={quoted(opts)} depth={depth} plain={code === "plain"} />
+          <Blocks
+            blocks={block.children}
+            opts={quoted(opts)}
+            depth={depth}
+            plain={code === "plain"}
+            trailing={trailing}
+          />
         </blockquote>
       );
     case "list": {
@@ -843,6 +1023,7 @@ function Block({
           className={`cv-list ${block.ordered ? "cv-ol" : "cv-ul"}${tasks ? " cv-tasks" : ""}${motion}`}
           data-depth={depth}
           start={block.ordered && block.start !== 1 ? block.start : undefined}
+          style={listNumberStyle(block)}
         >
           {block.items.map((it, i) => (
             <li key={i} className={it.task ? "cv-task" : undefined}>
@@ -854,7 +1035,13 @@ function Block({
               </span>
               <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
               {it.children.length > 0 && (
-                <Blocks blocks={it.children} opts={opts} depth={depth + 1} plain={code === "plain"} />
+                <Blocks
+                  blocks={it.children}
+                  opts={opts}
+                  depth={depth + 1}
+                  plain={code === "plain"}
+                  trailing={i === block.items.length - 1 ? trailing : undefined}
+                />
               )}
             </li>
           ))}
@@ -862,21 +1049,34 @@ function Block({
       );
     }
     case "table":
-      return <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />
+        </BlockTail>
+      );
     case "code": {
-      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
-      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
+      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open actions={trailing} />;
+      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} actions={trailing} />;
       // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
       if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
-        return <DiagramBlock lang={block.lang} code={block.code} />;
+        return <DiagramBlock lang={block.lang} code={block.code} actions={trailing} />;
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
-      if (render) return <RenderCard call={render} />;
-      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
-      return <CodeBlock code={block.code} lang={block.lang} />;
+      if (render) return <RenderCard call={render} actions={trailing} />;
+      // A closed ```html or ```svg fence draws as its document in a sandboxed frame (InlinePreview.tsx);
+      // an open one stayed plain code above, so nothing renders mid-stream.
+      const preview = block.open ? undefined : inlinePreviewKind(block.lang, block.code);
+      if (preview)
+        return <InlinePreview key={block.code} kind={preview} code={block.code} lang={block.lang} actions={trailing} />;
+      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} actions={trailing} />;
+      return <CodeBlock code={block.code} lang={block.lang} actions={trailing} />;
     }
     case "math":
-      return <MathDisplay tex={block.tex} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <MathDisplay tex={block.tex} />
+        </BlockTail>
+      );
     case "footnote": {
       const number = opts.notes?.numbers.get(block.id);
       return (
@@ -914,17 +1114,25 @@ function Blocks({
   opts,
   depth,
   plain = false,
+  trailing,
 }: {
   blocks: MdBlock[];
   opts: InlineOptions;
   depth: number;
   plain?: boolean;
+  trailing?: ReactNode;
 }) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} code={plain ? "plain" : undefined} />
+          <Block
+            block={b}
+            opts={opts}
+            depth={depth}
+            code={plain ? "plain" : undefined}
+            trailing={i === blocks.length - 1 ? trailing : undefined}
+          />
         </Fragment>
       ))}
     </>
@@ -965,6 +1173,7 @@ export type MarkdownProps = InlineOptions & {
   /** Markdown source. */
   children: string;
   className?: string;
+  trailing?: ReactNode;
   /** The reply is streaming: blocks that appear from now on enter with the shared motion. */
   streaming?: boolean;
   /** The newest revealed steps (RevealedMarkdown), which fade in at the end of the last block. */
@@ -993,10 +1202,26 @@ export function Markdown({
   commits,
   thumbnails,
   messageAt,
+  trailing,
+  skills,
+  commonmark = false,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
-  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
+  // A sent prompt (`commonmark`) is whole, never streamed: it parses at once, its code read as send
+  // reads it (parseMarkdown `commonmark`), which the streaming boundaries do not follow.
+  const whole = useMemo(
+    () =>
+      commonmark
+        ? parseMarkdown(children, { messageAt, commonmark: true }).map((block, index) => ({
+            key: String(index),
+            block,
+          }))
+        : undefined,
+    [commonmark, children, messageAt],
+  );
+  const blocks =
+    whole ?? acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
@@ -1024,8 +1249,10 @@ export function Markdown({
       ...(started ? { started } : {}),
       ...(commits ? { commits } : {}),
       ...(thumbnails === false ? { thumbnails } : {}),
+      ...(skills?.size ? { skills } : {}),
+      ...(commonmark ? { commonmark } : {}),
     };
-  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails]);
+  }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails, skills, commonmark]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
@@ -1056,6 +1283,7 @@ export function Markdown({
         enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
+        trailing={index === trailingIndex ? trailing : undefined}
       />
     );
   };
@@ -1065,6 +1293,8 @@ export function Markdown({
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry }) => entry.block.type === "footnote")
     .sort((a, b) => noteRank(a.entry.block, opts) - noteRank(b.entry.block, opts));
+  // Notes are displayed in reference order, which may differ from their source order.
+  const trailingIndex = notes.at(-1)?.index ?? blocks.length - 1;
   return (
     <div className={`cv-md selectable ${className}`}>
       {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}

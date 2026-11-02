@@ -17,6 +17,8 @@ export function answerParams(
   item: NeedsYouItem,
   choice: NeedsYouAnswer,
 ): { method: string; params: Record<string, unknown> } | undefined {
+  // A guest's held prompt is answered on its card only (Review goes there): nothing to send.
+  if (item.kind === "held" && item.promptId) return undefined;
   if (item.kind === "held")
     return item.peer ? { method: "chat.agentPair.resume", params: { peer: item.peer } } : undefined;
   if (!item.permissionId) return undefined;
@@ -37,7 +39,8 @@ export function useNeedsYou({
   callNative,
   sideSession,
 }: {
-  snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows">;
+  snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows"> &
+    Partial<Pick<AcpmuxSnapshot, "queue" | "queueApproval">>;
   callNative: CallNative;
   /// Opens a side session about chat `sessionId` with `question` (direct.ts `btw`, then the host's
   /// `chat.sideChat`); rejects when acpmux or the relay refused it.
@@ -45,23 +48,38 @@ export function useNeedsYou({
 }): { mode: NeedsYouMode; items: NeedsYouItem[]; actions: NeedsYouActions; pill?: TranscriptNeedsYou } {
   const mode = needsYouMode();
   const pillOn = needsYouPillOn();
-  const { sessions, asks, sessionId, rows } = snapshot;
+  const { sessions, asks, sessionId, rows, queue, queueApproval } = snapshot;
   const items = useMemo(
     () =>
       mode === "off" && !pillOn
         ? []
-        : needsYouItems({ sessions, asks: asks ?? [], open: { ...(sessionId ? { sessionId } : {}), rows } }),
-    [mode, pillOn, sessions, asks, sessionId, rows],
+        : needsYouItems({
+            sessions,
+            asks: asks ?? [],
+            open: { ...(sessionId ? { sessionId } : {}), rows, queue, queueApproval },
+          }),
+    [mode, pillOn, sessions, asks, sessionId, rows, queue, queueApproval],
   );
   /// Another chat's ask: the app shows that chat's tab or opens it in this chat's side pane on the
   /// right (`chat.asks.open`, AgentPaneAskOpen). Never `chat.select`, which replaced the chat on
   /// screen in its own tab (Leo 2026-10-21). A host that opens none leaves this chat as it is.
-  const openElsewhere = (item: NeedsYouItem) =>
-    callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
+  const openElsewhere = (item: NeedsYouItem) => {
+    // Peer sessions stay in the header list; they are not local chats that this pane can open.
+    const target = sessions.find((session) => session.sessionId === item.sessionId);
+    if (target?.peer) return Promise.resolve();
+    return callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
+  };
   const goTo = (item: NeedsYouItem) => {
     const reveal = () => {
       if (item.turnId) void revealTurnWhenShown(item.turnId);
-      else
+      else if (item.promptId) {
+        // The held card itself, focused, so Return approves it once the owner has read it.
+        const card = [...document.querySelectorAll<HTMLElement>(".cv-held[data-held]")].find(
+          (each) => each.getAttribute("data-queued-message") === item.promptId,
+        );
+        card?.scrollIntoView({ block: "center" });
+        card?.focus({ preventScroll: true });
+      } else
         document
           .querySelector(item.kind === "held" ? ".cv-agent-pair" : ".acpmux-permission")
           ?.scrollIntoView({ block: "nearest" });
@@ -96,9 +114,14 @@ export function useNeedsYou({
   // The last ask the pill went to, so the next press goes to the one after it.
   const last = useRef<string | undefined>(undefined);
   // The pill speaks for this chat and the chats it started only (JumpPill.tsx `pillAsks`); the
-  // header's list keeps every ask.
+  // header's list keeps every ask. Peer and missing sessions remain header-only.
   const ours = useMemo(
-    () => (pillOn ? pillAsks(items, sessions, sessionId) : []),
+    () =>
+      (pillOn ? pillAsks(items, sessions, sessionId) : []).filter((item) => {
+        const target = sessions.find((session) => session.sessionId === item.sessionId);
+        if (target?.peer) return false;
+        return item.sessionId === sessionId || target !== undefined;
+      }),
     [pillOn, items, sessions, sessionId],
   );
   const elsewhere = ours.filter((item) => item.sessionId !== sessionId).length;

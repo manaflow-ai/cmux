@@ -91,7 +91,10 @@ public final class SettingsApplier {
         if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
         if design.sidebarBorder != snapshot.sidebarBorder { design.sidebarBorder = snapshot.sidebarBorder }
         if design.attention != snapshot.attention { design.attention = snapshot.attention }
-        if design.statusIndicator != snapshot.statusIndicator { design.statusIndicator = snapshot.statusIndicator }
+        if design.statusIndicator != snapshot.statusIndicator {
+            design.statusIndicator = snapshot.statusIndicator
+            if design === DesignSettings.shared { StatusIndicatorAppearance.shared.refresh() }
+        }
         if design.statusBehavior != snapshot.statusBehavior { design.statusBehavior = snapshot.statusBehavior }
         let titlebar = ChromePlacementSetting.effectiveTitlebar(snapshot)
         if design.titlebar != titlebar { design.titlebar = titlebar }

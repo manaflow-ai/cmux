@@ -25,12 +25,20 @@
 # outside the CMUX_WEB_TEST_RETRIES count: one slow file must not eat the failed files' retries, nor
 # they its (#27130's shard 4: two files timed out at 120 s beside 15 others, never retried, and
 # both passed alone in 61 s and 22 s on the base replay). Timeout retries have their own budget,
-# CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET seconds (default 240); one starts only when its whole limit
-# fits in what is left, so the shard's worst case stays bounded. A retry that times out again
+# CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET seconds when set; one starts only when its whole limit fits in
+# what is left. Unset (the default), every timed-out file gets its retry: a fixed 240 s fit two
+# retries of 21 s and 42 s and a third of 63 s, then kept 7 of 12 timed-out files red on a
+# 32-wide shard (job 123436110075), and each of those passed alone on the base replay. A retry that times out again
 # stays a TIMEOUT (never a pass, and never a named failure a base could share); one that passes
 # is listed as passing alone. CMUX_WEB_TEST_RETRIES=0 turns these retries off too.
+# CMUX_WEB_TEST_RETRY_DEADLINE: optional seconds after the runner starts by which every retry must
+# be done. A timeout retry starts only when its whole limit fits before it, and a failed file's
+# retry is cut at it, so the step stays inside its job's timeout-minutes however many files
+# timed out.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
+# CMUX_WEB_TEST_BROWSER_JOBS: plain files that drive a real browser at once (default a quarter of the
+# jobs); they run beside the other plain files, which take the rest of the jobs.
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
 # of every file, for focused runs (scripts/ci/car_guards.py). A name the file list does not hold
 # is an error, so a stale selection never passes by running nothing.
@@ -325,11 +333,51 @@ fi
 # 8-core runner was CPU bound (no faster per file) and frame-budget plays (instructions-notice)
 # and attach timing (agent-pane-seen) failed.
 dev_jobs="${CMUX_WEB_TEST_DEV_JOBS:-$((jobs > 3 ? jobs / 4 : 1))}"
+# The plain files that drive a real browser (they import playwright or wait on requireBrowserLane)
+# run in a pool of their own, CMUX_WEB_TEST_BROWSER_JOBS wide (default a quarter of the jobs, as
+# for the dev server files, which run a browser too), beside the other plain files on the rest of
+# the jobs. Started 32 at once with the jsdom files, the longest-first order put 29 browser files
+# (each launching Chromium and WebKit) on one 32 vCPU shard together: eight timed out at 120 s and
+# frame-timing plays read 71 ms frames and one painted frame of three (agent-pane-wheel-glide), and
+# every one of them passed when the base replay ran it alone (react-apps-check 1/4, job
+# 123385326827, against react-apps-base-check job 123394574731). The first-run failures then ate
+# the retry budget, so a later failed file's retry got 3 s. At one job (the base replay) the two
+# pools run one after the other, so nothing runs beside anything.
+browser_files='from "playwright"|import\("playwright"\)|requireBrowserLane\('
+browser_jobs="${CMUX_WEB_TEST_BROWSER_JOBS:-$((jobs > 3 ? jobs / 4 : 1))}"
+[[ "$browser_jobs" =~ ^[1-9][0-9]*$ ]] || browser_jobs=1
+if [ "$browser_jobs" -gt "$jobs" ]; then browser_jobs="$jobs"; fi
+plain_jobs=$((jobs - browser_jobs))
+# Both lists keep the parallel list's order (longest first with durations): grep prints in input order.
+: > "$results/browser"
+: > "$results/plain"
+if [ -s "$results/parallel" ]; then
+  xargs -0 grep -lE --null -- "$browser_files" < "$results/parallel" > "$results/browser" || true
+  xargs -0 grep -LE --null -- "$browser_files" < "$results/parallel" > "$results/plain" || true
+fi
+browser="$(tr -cd '\0' < "$results/browser" | wc -c | tr -d ' ')"
 shard_note=""
 if [ -n "$shard" ]; then shard_note=", shard $shard/$shard_count"; fi
-echo "running $count webviews test files${shard_note}, $jobs at a time ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
+if [ "$plain_jobs" -ge 1 ]; then pool_note="$plain_jobs at a time, beside $browser browser files $browser_jobs at a time"
+else pool_note="$jobs at a time, then $browser browser files $browser_jobs at a time"; fi
+echo "running $count webviews test files${shard_note}, $pool_note ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
-xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/parallel"
+if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
+  xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser" &
+  browser_pool=$!
+  # A failed plain pool still waits for the browser pool, so no worker outlives the results directory.
+  plain_status=0
+  xargs -0 -P "$plain_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain" || plain_status=$?
+  wait "$browser_pool"
+  [ "$plain_status" -eq 0 ] || exit "$plain_status"
+else
+  if [ -s "$results/plain" ]; then
+    xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain"
+  fi
+  if [ -s "$results/browser" ]; then
+    xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
+  fi
+fi
 
 # vite_config FILE: the Vite config whose dependency cache FILE's dev server fills.
 vite_config() {
@@ -411,8 +459,18 @@ retried=0
 retry_budget="${CMUX_WEB_TEST_RETRY_BUDGET:-120}"
 [[ "$retry_budget" =~ ^[0-9]+$ ]] || retry_budget=120
 retry_started=$SECONDS
-timeout_retry_budget="${CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET:-240}"
-[[ "$timeout_retry_budget" =~ ^[0-9]+$ ]] || timeout_retry_budget=240
+# Unset (the default), every timed-out file gets its retry: there are finitely many, each retry is
+# bounded by its own limit, and CMUX_WEB_TEST_RETRY_DEADLINE bounds them all. A budget summed from
+# their limits would not do: a retry's kill grace and cache upkeep run past its limit and would
+# cost the last file its retry.
+timeout_retry_budget="${CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET:-}"
+[[ "$timeout_retry_budget" =~ ^[0-9]+$ ]] || timeout_retry_budget=""
+retry_deadline="${CMUX_WEB_TEST_RETRY_DEADLINE:-}"
+[[ "$retry_deadline" =~ ^[0-9]+$ ]] || retry_deadline=""
+# deadline_left: seconds until CMUX_WEB_TEST_RETRY_DEADLINE (a large number when none is set).
+deadline_left() {
+  if [ -n "$retry_deadline" ]; then echo $((retry_deadline - SECONDS)); else echo 999999; fi
+}
 timeout_retried=0
 timeout_retry_spent=0
 : > "$results/retry-passed"
@@ -425,8 +483,15 @@ while read -r result file log; do
   normal_limit="$(file_limit "$file" "$timeout_seconds")"
   if [ "$result" = TIMEOUT ]; then
     # The timed-out file's own retry: its own budget, its full limit, never cut short.
-    timeout_remaining=$((timeout_retry_budget - timeout_retry_spent - (SECONDS - iteration_started)))
-    if [ "$timeout_remaining" -lt "$normal_limit" ]; then
+    timeout_remaining=999999
+    if [ -n "$timeout_retry_budget" ]; then
+      timeout_remaining=$((timeout_retry_budget - timeout_retry_spent - (SECONDS - iteration_started)))
+    fi
+    left="$(deadline_left)"
+    if [ "$left" -lt "$normal_limit" ]; then
+      echo "retry deadline (${left}s left) cannot fit $file's ${normal_limit}s limit: keeping TIMEOUT"
+      printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    elif [ "$timeout_remaining" -lt "$normal_limit" ]; then
       echo "timeout retry budget (${timeout_remaining}s left) cannot fit $file's ${normal_limit}s limit: keeping TIMEOUT"
       printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     else
@@ -450,6 +515,8 @@ while read -r result file log; do
   fi
   # The failed files' shared budget is wall time since the retries began, less the timeout retries'.
   remaining=$((retry_budget - (SECONDS - retry_started - timeout_retry_spent)))
+  left="$(deadline_left)"
+  if [ "$left" -lt "$remaining" ]; then remaining="$left"; fi
   if [ "$remaining" -le 0 ]; then
     echo "retry budget exhausted: keeping $result $file"
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"

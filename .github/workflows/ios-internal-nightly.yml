@@ -84,6 +84,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 8
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           DEDICATED_LABEL: ${{ vars.CI_IOS_INTERNAL_RUNNER }}
         run: python3 scripts/ci/ios_internal_runner.py
@@ -404,6 +405,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-mobile-internal-${{ github.run_id }}
+          retention-days: 3
           path: |
             ${{ runner.temp }}/cmux-mobile-builds/*-testflight/MANIFEST.md
             ${{ runner.temp }}/cmux-mobile-builds/*-testflight/ExportOptions.plist

@@ -38,7 +38,12 @@ export type AgentChatTextKey =
   | "diffUnavailable"
   | "retryDiff"
   | "previousMessages"
-  | "hideOlderMessages";
+  | "hideOlderMessages"
+  | "questionHeading"
+  | "questionAnswer"
+  | "questionDecline"
+  | "questionOther"
+  | "questionTypeAnswer";
 
 const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
   en: {
@@ -58,6 +63,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Retry",
     previousMessages: "{count} previous messages",
     hideOlderMessages: "Hide older messages",
+    questionHeading: "The agent is asking",
+    questionAnswer: "Answer",
+    questionDecline: "Decline",
+    questionOther: "Other…",
+    questionTypeAnswer: "Type your answer…",
   },
   ja: {
     continuedNewChat: "新しいチャットで続行しました。以前のコンテキストはリンクされています。",
@@ -76,6 +86,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "再試行",
     previousMessages: "以前のメッセージ {count} 件",
     hideOlderMessages: "以前のメッセージを隠す",
+    questionHeading: "エージェントからの質問",
+    questionAnswer: "回答",
+    questionDecline: "辞退",
+    questionOther: "その他…",
+    questionTypeAnswer: "回答を入力…",
   },
   "zh-CN": {
     continuedNewChat: "已在新聊天中继续。之前的上下文已关联。",
@@ -94,6 +109,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "重试",
     previousMessages: "{count} 条之前的消息",
     hideOlderMessages: "隐藏较早的消息",
+    questionHeading: "代理正在提问",
+    questionAnswer: "回答",
+    questionDecline: "拒绝",
+    questionOther: "其他…",
+    questionTypeAnswer: "输入你的回答…",
   },
   "zh-TW": {
     continuedNewChat: "已在新聊天中繼續。先前的內容已連結。",
@@ -112,6 +132,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "重試",
     previousMessages: "{count} 則先前訊息",
     hideOlderMessages: "隱藏較早的訊息",
+    questionHeading: "代理正在提問",
+    questionAnswer: "回答",
+    questionDecline: "拒絕",
+    questionOther: "其他…",
+    questionTypeAnswer: "輸入你的回答…",
   },
   ko: {
     continuedNewChat: "새 채팅에서 계속합니다. 이전 컨텍스트가 연결되어 있습니다.",
@@ -130,6 +155,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "다시 시도",
     previousMessages: "이전 메시지 {count}개",
     hideOlderMessages: "이전 메시지 숨기기",
+    questionHeading: "에이전트의 질문",
+    questionAnswer: "답변",
+    questionDecline: "거절",
+    questionOther: "기타…",
+    questionTypeAnswer: "답변을 입력하세요…",
   },
   de: {
     continuedNewChat: "In einem neuen Chat fortgesetzt. Der vorherige Kontext ist verknüpft.",
@@ -148,6 +178,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Erneut versuchen",
     previousMessages: "{count} vorherige Nachrichten",
     hideOlderMessages: "Ältere Nachrichten ausblenden",
+    questionHeading: "Der Agent fragt",
+    questionAnswer: "Antworten",
+    questionDecline: "Ablehnen",
+    questionOther: "Andere…",
+    questionTypeAnswer: "Antwort eingeben…",
   },
   es: {
     continuedNewChat: "Se continuó en un chat nuevo. El contexto anterior está vinculado.",
@@ -166,6 +201,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Reintentar",
     previousMessages: "{count} mensajes anteriores",
     hideOlderMessages: "Ocultar mensajes anteriores",
+    questionHeading: "El agente pregunta",
+    questionAnswer: "Responder",
+    questionDecline: "Rechazar",
+    questionOther: "Otra…",
+    questionTypeAnswer: "Escribe tu respuesta…",
   },
   fr: {
     continuedNewChat: "La conversation continue dans un nouveau chat. Le contexte précédent est lié.",
@@ -184,6 +224,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Réessayer",
     previousMessages: "{count} messages précédents",
     hideOlderMessages: "Masquer les messages précédents",
+    questionHeading: "L'agent pose une question",
+    questionAnswer: "Répondre",
+    questionDecline: "Refuser",
+    questionOther: "Autre…",
+    questionTypeAnswer: "Saisissez votre réponse…",
   },
   it: {
     continuedNewChat: "Continuazione in una nuova chat. Il contesto precedente è collegato.",
@@ -202,6 +247,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Riprova",
     previousMessages: "{count} messaggi precedenti",
     hideOlderMessages: "Nascondi i messaggi precedenti",
+    questionHeading: "L'agente chiede",
+    questionAnswer: "Rispondi",
+    questionDecline: "Rifiuta",
+    questionOther: "Altro…",
+    questionTypeAnswer: "Scrivi la tua risposta…",
   },
   da: {
     continuedNewChat: "Fortsat i en ny chat. Den tidligere kontekst er knyttet til.",
@@ -220,6 +270,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Prøv igen",
     previousMessages: "{count} tidligere meddelelser",
     hideOlderMessages: "Skjul ældre meddelelser",
+    questionHeading: "Agenten spørger",
+    questionAnswer: "Svar",
+    questionDecline: "Afvis",
+    questionOther: "Andet…",
+    questionTypeAnswer: "Skriv dit svar…",
   },
   pl: {
     continuedNewChat: "Kontynuowano w nowym czacie. Poprzedni kontekst jest połączony.",
@@ -238,6 +293,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Spróbuj ponownie",
     previousMessages: "{count} poprzednich wiadomości",
     hideOlderMessages: "Ukryj starsze wiadomości",
+    questionHeading: "Agent pyta",
+    questionAnswer: "Odpowiedz",
+    questionDecline: "Odrzuć",
+    questionOther: "Inne…",
+    questionTypeAnswer: "Wpisz odpowiedź…",
   },
   ru: {
     continuedNewChat: "Продолжено в новом чате. Предыдущий контекст связан.",
@@ -256,6 +316,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Повторить",
     previousMessages: "Предыдущих сообщений: {count}",
     hideOlderMessages: "Скрыть старые сообщения",
+    questionHeading: "Агент спрашивает",
+    questionAnswer: "Ответить",
+    questionDecline: "Отклонить",
+    questionOther: "Другое…",
+    questionTypeAnswer: "Введите ответ…",
   },
   bs: {
     continuedNewChat: "Nastavljeno u novom chatu. Prethodni kontekst je povezan.",
@@ -274,6 +339,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Pokušaj ponovo",
     previousMessages: "{count} prethodnih poruka",
     hideOlderMessages: "Sakrij starije poruke",
+    questionHeading: "Agent pita",
+    questionAnswer: "Odgovori",
+    questionDecline: "Odbij",
+    questionOther: "Drugo…",
+    questionTypeAnswer: "Upišite odgovor…",
   },
   ar: {
     continuedNewChat: "تمت المتابعة في محادثة جديدة. السياق السابق مرتبط.",
@@ -292,6 +362,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "إعادة المحاولة",
     previousMessages: "{count} رسالة سابقة",
     hideOlderMessages: "إخفاء الرسائل الأقدم",
+    questionHeading: "الوكيل يسأل",
+    questionAnswer: "أجب",
+    questionDecline: "رفض",
+    questionOther: "أخرى…",
+    questionTypeAnswer: "اكتب إجابتك…",
   },
   no: {
     continuedNewChat: "Fortsatt i en ny chat. Tidligere kontekst er koblet til.",
@@ -310,6 +385,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Prøv igjen",
     previousMessages: "{count} tidligere meldinger",
     hideOlderMessages: "Skjul eldre meldinger",
+    questionHeading: "Agenten spør",
+    questionAnswer: "Svar",
+    questionDecline: "Avslå",
+    questionOther: "Annet…",
+    questionTypeAnswer: "Skriv svaret ditt…",
   },
   "pt-BR": {
     continuedNewChat: "Continuado em um novo chat. O contexto anterior está vinculado.",
@@ -328,6 +408,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Tentar novamente",
     previousMessages: "{count} mensagens anteriores",
     hideOlderMessages: "Ocultar mensagens anteriores",
+    questionHeading: "O agente está perguntando",
+    questionAnswer: "Responder",
+    questionDecline: "Recusar",
+    questionOther: "Outra…",
+    questionTypeAnswer: "Digite sua resposta…",
   },
   th: {
     continuedNewChat: "ดำเนินการต่อในแชทใหม่แล้ว โดยเชื่อมโยงบริบทก่อนหน้าไว้",
@@ -346,6 +431,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "ลองอีกครั้ง",
     previousMessages: "{count} ข้อความก่อนหน้า",
     hideOlderMessages: "ซ่อนข้อความเก่า",
+    questionHeading: "เอเจนต์กำลังถาม",
+    questionAnswer: "ตอบ",
+    questionDecline: "ปฏิเสธ",
+    questionOther: "อื่น ๆ…",
+    questionTypeAnswer: "พิมพ์คำตอบของคุณ…",
   },
   tr: {
     continuedNewChat: "Yeni bir sohbette devam edildi. Önceki bağlam bağlantılı.",
@@ -364,6 +454,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Yeniden dene",
     previousMessages: "{count} önceki mesaj",
     hideOlderMessages: "Eski mesajları gizle",
+    questionHeading: "Ajan soruyor",
+    questionAnswer: "Yanıtla",
+    questionDecline: "Reddet",
+    questionOther: "Diğer…",
+    questionTypeAnswer: "Yanıtınızı yazın…",
   },
   km: {
     continuedNewChat: "បានបន្តនៅក្នុងការជជែកថ្មី។ បរិបទមុនត្រូវបានភ្ជាប់។",
@@ -382,6 +477,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "ព្យាយាមម្តងទៀត",
     previousMessages: "សារមុន {count}",
     hideOlderMessages: "លាក់សារចាស់ៗ",
+    questionHeading: "ភ្នាក់ងារកំពុងសួរ",
+    questionAnswer: "ឆ្លើយ",
+    questionDecline: "បដិសេធ",
+    questionOther: "ផ្សេងទៀត…",
+    questionTypeAnswer: "វាយចម្លើយរបស់អ្នក…",
   },
   uk: {
     continuedNewChat: "Продовжено в новому чаті. Попередній контекст пов’язано.",
@@ -400,6 +500,11 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     retryDiff: "Повторити",
     previousMessages: "Попередніх повідомлень: {count}",
     hideOlderMessages: "Сховати старі повідомлення",
+    questionHeading: "Агент запитує",
+    questionAnswer: "Відповісти",
+    questionDecline: "Відхилити",
+    questionOther: "Інше…",
+    questionTypeAnswer: "Введіть відповідь…",
   },
 };
 

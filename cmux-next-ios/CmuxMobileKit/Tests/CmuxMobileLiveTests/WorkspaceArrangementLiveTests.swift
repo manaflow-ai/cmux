@@ -62,10 +62,13 @@ import Testing
     /// The trust question stays on the Mac: the phone says what to do, step by step.
     @Test func trustStepsSayWhatToDo() {
         let text = LiveWorkspaceCreationBackend.trustSteps(folder: "proj")
-        #expect(text.hasPrefix("Claude hasn't been trusted in proj yet."))
+        #expect(text.hasPrefix("Claude isn't trusted in proj."))
         #expect(text.contains("1. On the Mac, open this workspace in cmux and choose Trust when it asks."))
         #expect(text.contains("2. Here, open this workspace's terminal, type claude, press Return"))
         #expect(text.hasSuffix("Then start the chat again."))
+        // Another agent's chat names that agent, and has no claude step.
+        let codex = LiveWorkspaceCreationBackend.trustSteps(folder: "proj", agent: "Codex", family: "codex")
+        #expect(codex == "Codex isn't trusted in proj. On the Mac, open this workspace in cmux and choose Trust when it asks, then start the chat again.")
     }
 
     /// The cmux model service down on the Mac (`route.unavailable`): a plain sentence, never

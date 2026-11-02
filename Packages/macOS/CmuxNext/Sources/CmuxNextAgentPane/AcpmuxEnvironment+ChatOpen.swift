@@ -14,4 +14,18 @@ extension AcpmuxEnvironment {
     public nonisolated func chatTranscript(key: String) async throws -> [AgentPanePastTurn] {
         try await AcpmuxStatusClient.chatTranscript(socketPath: socketPath, key: key)
     }
+
+    /// Forks a terminal agent's session `agentSessionId` of `harness` through the harness's ACP
+    /// agent (`_acpmux/chat_fork`): Fork Conversation of an agent whose CLI has no fork (Muse).
+    /// Returns the fork's own session id, which the agent's CLI then resumes.
+    ///
+    /// - Throws: acpmux's reason when the harness has no ACP agent here or its agent cannot fork.
+    public nonisolated func forkChat(harness: String, agentSessionId: String, cwd: String?) async throws -> String {
+        do {
+            return try await AcpmuxStatusClient.chatFork(socketPath: socketPath, harness: harness, agentSessionId: agentSessionId, cwd: cwd)
+        } catch AcpmuxStatusClient.Failure.rpc(let reason) {
+            // acpmux's own reason ("muse cannot fork a chat: …") is what the person reads.
+            throw NSError(domain: "acpmux.chat_fork", code: 1, userInfo: [NSLocalizedDescriptionKey: reason])
+        }
+    }
 }

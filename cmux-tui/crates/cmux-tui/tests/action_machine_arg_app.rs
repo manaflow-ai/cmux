@@ -36,9 +36,13 @@ fn created_reply(args: &Value) -> Value {
 /// every `action.run` with [`created_reply`]; returns the CLI's output and
 /// the recorded `action.run` params.
 fn run(args: &[&str]) -> (Output, Value) {
+    // Parallel tests in this process can read the same clock tick (seen on Linux CI:
+    // bind "Address already in use"), so a per-process counter keeps each socket distinct.
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let serial = NEXT.fetch_add(1, Ordering::Relaxed);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir: PathBuf =
-        Path::new("/tmp").join(format!("cmux-actmach-{}-{stamp}", std::process::id()));
+        Path::new("/tmp").join(format!("cmux-actmach-{}-{serial}-{stamp}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("app.sock");
     let listener = UnixListener::bind(&socket).unwrap();

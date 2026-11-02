@@ -99,6 +99,31 @@
             "server",
             "tailnet"
           ]
+        },
+        {
+          "key": "labs.machineJoin",
+          "note": "Any machine joins with one pasted line (contract: cmux machine join, J6-J8): Add Device's \"Any machine: one line\" way, joined rows in the Machines sidebar with Check, Rotate and Revoke, and This Mac's Screen sharing and Control consent switches in Settings > Devices. Off by default while the join routes answer only on the development platform. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).",
+          "title": {
+            "key": "settings.labs.machineJoin",
+            "text": "Join Any Machine with One Line"
+          },
+          "help": {
+            "key": "settings.labs.machineJoin.help",
+            "text": "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "machine",
+            "join",
+            "add",
+            "device",
+            "line",
+            "curl",
+            "remote",
+            "mesh"
+          ]
         }
       ]
     }

@@ -89,6 +89,21 @@ test("a turn the agent started on its own and the reader stopped offers Continue
   }
 });
 
+// Review at c3ec4170 (P2): with daemon turn ids, the agent's own turn in the tail names a turn other
+// than the prompt's; that is what makes it the agent's, and the reader's Stop of it still offers Continue.
+test("an agent-started turn with its own turn id, stopped by the reader, offers Continue", () => {
+  const rows = [
+    prompt("p1", 1_000, { turnId: "turn-a" }),
+    answer("a1", 30_000),
+    summary("s1", 41_000, { turnId: "turn-a" }),
+    answer("a2", 50_000),
+    summary("s2", 51_000, { status: "cancelled", turnId: "turn-b" }),
+  ];
+  const [first, second] = footers(rows);
+  expect(first!.resumable).toBeUndefined();
+  expect(second!.resumable).toBe(true);
+});
+
 test("a turn a prompt sent now ended is not a stop, so it offers no Continue", () => {
   const rows = [prompt("p1", 1_000), summary("s1", 41_000, { status: "cancelled", continued: true })];
   expect(footers(rows).every((row) => !row.resumable)).toBe(true);

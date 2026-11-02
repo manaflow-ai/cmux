@@ -8,26 +8,14 @@
   --acpmux-permission-pill-height: 28px;
   --acpmux-permission-pill-inset: 8px;
   --acpmux-permission-pill-radius: 999px;
-  --acpmux-permission-pill-gap: 16px;
 }
 
 /* Codex's composer-permission-mode-picker.png: the capsule keeps its own inset in either look,
-   independent of the quiet footer's or the in-box row's chip spacing. */
+   independent of the quiet footer's chip spacing. */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips .acpmux-access .acpmux-picker-button {
   height: var(--acpmux-permission-pill-height);
   padding-inline: var(--acpmux-permission-pill-inset);
   border-radius: var(--acpmux-permission-pill-radius);
-}
-
-/* The gap is measured from the + glyph to the capsule's edge where the capsule stands beside +, in
-   the box's own row. The row already contributes its group gap and the + button's inset; the mode
-   wrapper must not add another group inset. In the quiet row under the box, which both looks share
-   since #26551, the mode keeps that row's column instead (its shield under the + glyph,
-   composerLocation.css). */
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"]
-  :is(.acpmux-composer-bar:not(.acpmux-composer-foot), .nt-pickers) .acpmux-chips > .acpmux-access {
-  padding-inline-start: 0;
-  margin-inline-start: calc(var(--acpmux-permission-pill-gap) - var(--acpmux-row-group-gap, 10px) - var(--acpmux-row-inset, 6px));
 }
 
 .acpmux-context-ring {

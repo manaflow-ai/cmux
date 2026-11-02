@@ -48,6 +48,10 @@
 # CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
 # (default 60, below 1 KiB/s) and CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS
 # (default 600) bound each download attempt and its total retry budget.
+# The attestation is first verified offline from the Sigstore bundle the publisher
+# uploads beside the manifest (CMUX_TUI_ATTEST_BUNDLE_BASE, default
+# <manifest origin>/cmux-tui-attestations, holds sha256-<manifest digest>.sigstore.json);
+# with no bundle, or one that does not verify, it asks GitHub's attestations API.
 # CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES (default 9) retries rate-limited `gh attestation verify`
 # before failing with a rate-limit error; CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS (default 60)
 # is the first wait, doubling to a 600 s cap: 65 minutes in total, past GitHub's hourly reset.
@@ -120,7 +124,36 @@ verify_manifest_attestation() {
     echo "error: verifying the cmux-tui manifest attestation needs the GitHub CLI (gh); pass --allow-unattested only for local development" >&2
     exit 1
   }
+  local output status
   [[ -n "$EXPECTED_COMMIT" ]] && args+=(--source-digest "$EXPECTED_COMMIT")
+  # Offline first: the publisher (cmux-tui-artifacts.yml, "Publish the manifest's
+  # Sigstore bundle") uploads the attestation bundle for the manifest's digest to
+  # <origin>/cmux-tui-attestations/sha256-<digest>.sigstore.json. Verifying that
+  # bundle checks the same signer, repository and source commit against the
+  # Sigstore trust root and makes no GitHub API call, so a spent installation
+  # budget cannot hold the install. Run 41150090913 (2026-10-31) sat 37 minutes in
+  # "Bundle the cmux-tui client" waiting out that budget with its compile done.
+  # A missing or rejected bundle falls through to the API lookup below, so a
+  # bundle never admits anything the lookup would refuse.
+  local digest origin bundle bundle_url
+  digest="$(sha256_of "$MANIFEST")"
+  origin="${CMUX_TUI_ATTEST_BUNDLE_BASE:-$(printf '%s' "$MANIFEST_URL" | sed -E 's#^(https?://[^/]+)/.*#\1#')/cmux-tui-attestations}"
+  bundle_url="$origin/sha256-$digest.sigstore.json"
+  bundle="$MANIFEST.sigstore.json"
+  rm -f "$bundle"
+  if DOWNLOAD_ATTEMPTS=1 DOWNLOAD_MAX_SECONDS=60 download "$bundle_url" "$bundle" 0 2>/dev/null && [[ -s "$bundle" ]]; then
+    status=0
+    output="$(gh attestation verify "$MANIFEST" --bundle "$bundle" "${args[@]}" 2>&1)" || status=$?
+    rm -f "$bundle"
+    if [[ $status -eq 0 ]]; then
+      echo "cmux-tui manifest attestation verified offline from $bundle_url" >&2
+      return 0
+    fi
+    printf '%s\n' "$output" >&2
+    echo "warning: the published Sigstore bundle at $bundle_url did not verify; asking the GitHub attestations API instead" >&2
+  else
+    rm -f "$bundle"
+  fi
   # An exhausted GitHub API quota says nothing about the attestation, and
   # failing on it discards a signed nightly leg (run 37526635018). Retry only
   # that answer, with backoff (1, 2, 4, 8, then 10 minutes five times by
@@ -130,7 +163,6 @@ verify_manifest_attestation() {
   local max_delay=600
   local retries="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-9}"
   local retries_left="$retries"
-  local output status
   while :; do
     status=0
     output="$(gh attestation verify "$MANIFEST" "${args[@]}" 2>&1)" || status=$?

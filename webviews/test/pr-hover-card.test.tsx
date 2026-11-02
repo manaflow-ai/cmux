@@ -70,11 +70,6 @@ const answer = {
   },
 };
 
-const tool = (id: string, command: string, output = "") => ({
-  id,
-  tool: { id, kind: "execute", title: command, status: "completed", exitCode: 0, command, output },
-});
-
 async function rig() {
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
   const { resetPullRequestStore } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
@@ -109,37 +104,6 @@ function shownText(element: Element): string {
   for (const hidden of copy.querySelectorAll("title, .acpmux-pr-card__sr")) hidden.remove();
   return copy.textContent ?? "";
 }
-
-test("a pull request bar opens the pull request card", async () => {
-  const { act } = await import("react");
-  const { createRoot } = await import("react-dom/client");
-  const { UiProvider } = await import("../src/ui/UiProvider");
-  const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
-  const host = await rig();
-  const element = dom.window.document.getElementById("root")!;
-  const root = createRoot(element);
-  const rows = [
-    { kind: "activity", id: "a1", version: 1, items: [tool("t1", `gh pr create --title "${TITLE}"`, URL)] },
-  ];
-  await act(async () =>
-    root.render(
-      <UiProvider container={element}>
-        <PullRequestDock rows={rows as never} sessionId="card" />
-      </UiProvider>,
-    ),
-  );
-  const bar = element.querySelector<HTMLElement>(".acpmux-pr-dock__bar")!;
-  await act(async () => bar.focus());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expectFullCard(element.querySelector<HTMLElement>(".acpmux-pr-card"));
-  expect(host.calls.filter((call) => call.method === "pr.inspect")).toEqual([
-    { method: "pr.inspect", params: { url: URL } },
-  ]);
-  // The bar itself carries no tooltip: the card is the hover.
-  expect(bar.hasAttribute("title")).toBe(false);
-  await act(async () => root.unmount());
-  host.done();
-});
 
 test("a pull request chip in a reply opens the same card", async () => {
   const { act } = await import("react");

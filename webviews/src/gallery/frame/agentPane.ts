@@ -39,8 +39,18 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     cmuxAcpmuxMockHarnessHealth: state.mockHarnessHealth,
     cmuxAcpmuxMockNative: state.native,
     cmuxAcpmuxMockSessionAuth: state.mockSessionAuth,
+    cmuxAcpmuxMockCapabilities: state.mockCapabilities,
+    cmuxAcpmuxMockTrustPending: state.mockTrustPending,
+    cmuxAcpmuxMockStart: state.mockStart,
   });
   const snapshot = structuredClone(state.snapshot);
+  if (state.recording) {
+    const { rowsFromRecording } = await import("../fixtures/recording");
+    const { harness } = state.recording;
+    snapshot.rows = await rowsFromRecording(await state.recording.events(), harness);
+    if (snapshot.summary) snapshot.summary = { ...snapshot.summary, harness, family: harness };
+    snapshot.sessions = snapshot.sessions.map((entry) => ({ ...entry, harness }));
+  }
   const answer = (value: unknown) => ({ ok: true, value });
   // The app's staged upload (cloudUploads.ts: begin, base64 chunks, finish, cancel), so a pasted
   // file goes through the path the app runs. A variant that answers or delays a step in `native` /
@@ -106,7 +116,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     bridge.applySessionStatus?.(state.sessionStatus === true);
     // The chat's look as the app's `display` push sends it (none: the default look).
     setChatDisplay(state.display ?? {});
-    bridge.applyWorkflowLabs?.(state.workflowLabs === true);
+    bridge.applyWorkflowLabs?.(state.workflowLabs !== false);
     bridge.receive(structuredClone(snapshot));
   };
   const next = (method: string | undefined) => {

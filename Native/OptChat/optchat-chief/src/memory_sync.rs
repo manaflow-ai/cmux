@@ -448,7 +448,7 @@ pub fn cloud_append(
 
 // ---------------------------------------------------------------- command
 
-pub const USAGE: &str = "optchat-chief memory import-from detect [--json]   what this Mac holds (Claude Code, Claude memory, Codex, claude.ai / ChatGPT export zips)
+pub const USAGE: &str = "optchat-chief memory import-from detect [--exports] [--json]   what this Mac holds (Claude Code, Claude memory, Codex; --exports also claude.ai / ChatGPT export zips in ~/Downloads and ~/Desktop, which macOS guards)
 optchat-chief memory import-from undo [--to local|cloud[:staging|:URL]] [--chief agent_ID] [--batch ID]   take the last write back
 optchat-chief memory import-from SOURCE dry-run|write [--to local|cloud[:staging|:URL]] [--chief agent_ID]
     [--stop-host] [--max-cost USD] [--max-items N] [--price-in USD --price-out USD] [--session-token-file F] [--mux-home DIR] [--json]
@@ -463,10 +463,14 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
             let user_home = std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .unwrap_or_default();
-            let found = crate::memory_sync_state::detect(
-                &user_home,
-                std::env::var("CLAUDE_CONFIG_DIR").ok(),
-            );
+            let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
+            // `--exports`: the person opened the import dialog, so ~/Downloads and ~/Desktop
+            // may be listed (and macOS may ask); never without it (LAUNCH-NO-TCC-PROMPTS).
+            let found = if flags.value("exports").is_some() {
+                crate::memory_sync_state::detect_with_exports(&user_home, claude_config_dir)
+            } else {
+                crate::memory_sync_state::detect(&user_home, claude_config_dir)
+            };
             return Ok(if json_out {
                 crate::memory_sync_state::detect_json(&found).to_string()
             } else if found.is_empty() {

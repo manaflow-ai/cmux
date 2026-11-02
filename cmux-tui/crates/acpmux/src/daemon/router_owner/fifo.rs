@@ -73,7 +73,7 @@ fn start_or_adopt() -> Option<FifoOwner> {
     use std::os::unix::process::CommandExt;
     let fifo = router_owner_fifo();
     if let Ok(status) = ask_router(b"{\"op\":\"status\"}\n") {
-        let same_build = status.get("build").and_then(Value::as_str) == Some(crate::hub::BUILD);
+        let same_build = status.get("build").and_then(Value::as_str) == Some(crate::hub::build());
         let kept_hosts = crate::agent_host::sweep::running_hosts(&crate::agent_host::hosts_dir())
             .iter()
             .any(|host| !host.pooled);
@@ -196,7 +196,7 @@ fn router_command(
     fifo: &std::path::Path,
 ) -> std::process::Command {
     let mut command = this.command(&["router", "serve"]);
-    command.env("CMUX_ROUTER_BUILD", crate::hub::BUILD).env("CMUX_ROUTER_OWNER_FIFO", fifo);
+    command.env("CMUX_ROUTER_BUILD", crate::hub::build()).env("CMUX_ROUTER_OWNER_FIFO", fifo);
     command
 }
 

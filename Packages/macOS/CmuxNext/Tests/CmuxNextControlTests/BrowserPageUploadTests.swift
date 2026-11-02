@@ -77,7 +77,7 @@ import Testing
     /// A button that opens the chooser takes the files, and a file past the page-script cap still goes:
     /// nothing is read, the chooser gets the path.
     @Test func aChooserTakesTheFilesWithNoSizeCapAndNoPageScript() async throws {
-        let (folder, paths) = try scratch(["big.bin"], bytes: BrowserPageService.uploadLimit + 1)
+        let (folder, paths) = try scratch(["big.bin"], bytes: 25 * 1024 * 1024 + 1)
         defer { try? FileManager.default.removeItem(at: folder) }
         let engine = ChooserEngine(chooser: "chosen")
         let router = install(engine)
@@ -94,7 +94,7 @@ import Testing
     }
 
     @Test func aFileInputWhosePageOpenedNoChooserGetsTheFilesThroughThePage() async throws {
-        let (folder, paths) = try scratch(["a.txt"])
+        let (folder, paths) = try scratch(["a.txt"], bytes: 25 * 1024 * 1024 + 1)
         defer { try? FileManager.default.removeItem(at: folder) }
         let engine = ChooserEngine(chooser: "withdrawn", fileInput: true)
         let router = install(engine)
@@ -102,7 +102,83 @@ import Testing
         _ = try await call(router, "browser.page.upload", ["selector": "#f", "files": .array(paths.map(JSONValue.string)), "timeout_ms": 500]).get()
 
         #expect(engine.uploads.first?.within == .milliseconds(500))
-        #expect(engine.scripts.count == 1 && engine.scripts[0].contains("new W.DataTransfer()"))
+        #expect(engine.scripts.count > 2, "the file is streamed in chunks instead of one capped script")
+        #expect(engine.scripts.first?.contains("__cmuxUploads") == true)
+        #expect(engine.scripts.last?.contains("new W.DataTransfer()") == true)
+    }
+
+    /// Deliberately ignores task cancellation, like a WebKit callback already in flight.
+    actor EvaluationGate {
+        private var started = false
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+        private var release: CheckedContinuation<Void, Never>?
+
+        func suspend() async {
+            guard !started else { return }
+            await withCheckedContinuation { continuation in
+                release = continuation
+                started = true
+                for waiter in waiting { waiter.resume() }
+                waiting.removeAll()
+            }
+        }
+
+        func waitUntilStarted() async {
+            if started { return }
+            await withCheckedContinuation { waiting.append($0) }
+        }
+
+        func resume() {
+            release?.resume()
+            release = nil
+        }
+    }
+
+    final class SuspendedChunkEngine: BrowserPageEngine {
+        let gate = EvaluationGate()
+        let scripts = Mutex<[String]>([])
+
+        func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
+            guard case let .evaluate(script) = operation else { return .null }
+            scripts.withLock { $0.append(script) }
+            if script.contains("const bytes =") { await gate.suspend() }
+            return ["value": ["value": true]]
+        }
+    }
+
+    @Test func cancelledStreamStopsAfterInFlightChunkAndCleansUp() async throws {
+        let (folder, paths) = try scratch(["a.txt"], bytes: BrowserPageService.uploadChunkBytes + 1)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let engine = SuspendedChunkEngine()
+        var snapshot = ControlSnapshot.sample()
+        let tab = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Form", url: "https://example.com/")
+        snapshot.topology.workspaces[0].screens[0].panes[0].tabs.append(tab)
+        let call = ControlCall(
+            request: ControlRequest(method: "browser.page.upload", params: ["tab": "tab_0123abcd", "selector": "#f", "files": .array([.string(paths[0])])]),
+            snapshot: snapshot,
+            connection: .inProcess,
+            deadline: .now + .seconds(10)
+        )
+        let task = Task {
+            do {
+                _ = try await BrowserPageService.streamUpload(engine, call, selector: "#f")
+                return false
+            } catch is CancellationError {
+                return true
+            } catch {
+                Issue.record("Unexpected upload error: \(error)")
+                return false
+            }
+        }
+        await engine.gate.waitUntilStarted()
+        task.cancel()
+        await engine.gate.resume()
+        #expect(await task.value, "the cancelled task must report cancellation")
+
+        let scripts = engine.scripts.withLock { $0 }
+        #expect(scripts.count == 3, "only start, the in-flight chunk and cleanup may execute")
+        #expect(!scripts.contains { $0.contains("new W.DataTransfer()") }, "cancelled upload must not commit files")
+        #expect(scripts.last?.contains("el.__cmuxUploads.delete(") == true)
     }
 
     @Test func aClickThatOpensNoChooserOnAnythingElseIsAnError() async throws {
@@ -134,6 +210,26 @@ import Testing
 
         #expect(answer.controlError?.code == "not_found")
         #expect(engine.operations.withLock { $0.isEmpty })
+    }
+
+    /// A pipe or a device is not a file to stream: a FIFO can block the open beyond cancellation's
+    /// reach, and /dev/zero never reaches the end. Both are refused before any page script runs.
+    @Test func aPipeOrDeviceIsRefusedBeforeTheStreamStarts() async throws {
+        let (folder, _) = try scratch([])
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let fifo = folder.appendingPathComponent("pipe").path
+        #expect(mkfifo(fifo, 0o600) == 0)
+        let link = folder.appendingPathComponent("link-to-pipe").path
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: fifo)
+        for path in [fifo, link, "/dev/zero"] {
+            let engine = ChooserEngine(chooser: "withdrawn", fileInput: true)
+            let router = install(engine)
+
+            let answer = await call(router, "browser.page.upload", ["selector": "#f", "files": [.string(path)]])
+
+            #expect(answer.controlError?.code == "not_regular_file", "\(path) was not refused: \(answer)")
+            #expect(engine.scripts.isEmpty, "\(path) started a page upload stream")
+        }
     }
 
     @Test func downloadsListAndWaitReachTheEngineForTheTab() async throws {

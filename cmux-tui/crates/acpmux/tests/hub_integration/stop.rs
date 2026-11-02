@@ -40,6 +40,257 @@ async fn a_cancel_the_agent_never_answers_still_ends_the_turn() {
     assert_eq!(result["msg"]["cancelForced"], true, "{result}");
 }
 
+/// Another agent's message (`acpmux send --from`), queued as `prompt_id`.
+fn from_agent(id: &str, prompt_id: &str, text: &str) -> Value {
+    json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id, "fromAgent": "coordinator"}}})
+}
+
+/// Sends `params` and waits until it is queued.
+async fn queued(c: &mut TestClient, params: Value) {
+    let prompt_id = params["_meta"]["acpmux"]["promptId"].as_str().unwrap().to_owned();
+    c.send(method::SESSION_PROMPT, params).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == *prompt_id && p["queued"] == true)
+        .await;
+}
+
+fn summary(hub: &Arc<Hub>, id: &str) -> Value {
+    hub.session_summary(&hub.resolve(id).unwrap())
+}
+
+/// The queued prompts' ids and whether each is held.
+fn held(row: &Value) -> Vec<(String, bool)> {
+    let queue = row["queue"].as_array().cloned().unwrap_or_default();
+    queue.iter().map(|q| (q["promptId"].as_str().unwrap().to_owned(), q["held"] == true)).collect()
+}
+
+/// An agent that goes on working after Stop (2026-10-29: a coordinator kept making tool calls
+/// after Stop, the chat read as running, and its queued agent messages started the next turn
+/// behind it). acpmux cancels it once more, then ends its process and starts it again on the
+/// same conversation. The turn reads `stopping` until it really ended, nothing of the old
+/// process lands after it, and the other agents' messages stay queued, held.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "works-through-stop").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "works-through-cancel", Some("p-work"))).await;
+    let first =
+        c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
+    let title = first["update"]["title"].as_str().unwrap().to_owned();
+    let old_pid = format!("pid {}", title.rsplit(' ').next().unwrap());
+    let conversation = summary(&hub, &id)["agentSessionId"].clone();
+    assert!(conversation.is_string(), "{conversation}");
+    queued(&mut c, from_agent(&id, "p-agent", "from the coordinator")).await;
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    let mut state = Value::Null;
+    for _ in 0..200 {
+        state = summary(&hub, &id)["state"].clone();
+        if state == "stopping" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(state, "stopping", "a Stop's turn reads stopping until it ends");
+    let ended = tokio::time::timeout(
+        Duration::from_secs(40),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result"),
+    )
+    .await
+    .expect("the stopped turn never ended");
+    assert_eq!(ended["msg"]["status"], "cancelled", "{ended}");
+    assert_eq!(ended["msg"]["cancelForced"], true, "{ended}");
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "stop_restarted"),
+    )
+    .await
+    .expect("the agent was not started again");
+    // Another agent's message after the Stop waits too.
+    queued(&mut c, from_agent(&id, "p-agent-2", "the coordinator again")).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    let events = hub.events(&id, 0, 100_000).unwrap();
+    let result = events.iter().find(|e| e.kind == "turn_result").unwrap();
+    let steps: Vec<&str> = events
+        .iter()
+        .filter(|e| e.kind == "stop_escalated" && e.seq < result.seq)
+        .filter_map(|e| e.msg["step"].as_str())
+        .collect();
+    assert_eq!(steps, ["interrupt", "restart"], "cancelled again, then restarted, then ended");
+    assert!(
+        events.iter().any(|e| e.kind == "resumed" && e.seq > result.seq),
+        "the new process did not resume the conversation"
+    );
+    let late: Vec<&str> = events
+        .iter()
+        .filter(|e| e.kind == "tool_call" && e.at > result.at + 500)
+        .filter_map(|e| e.msg["params"]["update"]["title"].as_str())
+        .filter(|t| t.ends_with(&old_pid))
+        .collect();
+    assert!(late.is_empty(), "the stopped process worked on after its turn ended: {late:?}");
+    let row = summary(&hub, &id);
+    assert_eq!(row["agentSessionId"], conversation, "{row}");
+    assert!(row["turn"].is_null(), "a turn runs after the Stop: {row}");
+    assert!(!["running", "stopping"].contains(&row["state"].as_str().unwrap()), "{row}");
+    assert_eq!(
+        held(&row),
+        [("p-agent".to_owned(), true), ("p-agent-2".to_owned(), true)],
+        "the agents' messages stay queued, held: {row}"
+    );
+}
+
+/// Stop never ends a process that runs background work (Leo, 2026-10-31: "WELL THAT STOP BUTTON
+/// STOPPED LITERALLY EVERYTHING"). The agent works on through both cancels beside a background
+/// subagent; acpmux ends only the turn (`stop_escalated` `interrupt`, then `spared`): its process
+/// is neither ended nor started again, and the background subagent still runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_beside_background_work_ends_only_the_turn_and_keeps_the_process() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-beside-background").await;
+    c.send(
+        method::SESSION_PROMPT,
+        prompt(&id, "works-through-cancel-beside-background", Some("p-work")),
+    )
+    .await;
+    let first =
+        c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
+    let title = first["update"]["title"].as_str().unwrap().to_owned();
+    let pid = format!("pid {}", title.rsplit(' ').next().unwrap());
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    let ended = tokio::time::timeout(
+        Duration::from_secs(40),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result"),
+    )
+    .await
+    .expect("the stopped turn never ended");
+    assert_eq!(ended["msg"]["status"], "cancelled", "{ended}");
+    assert_eq!(ended["msg"]["cancelForced"], true, "{ended}");
+    assert_ne!(ended["msg"]["restarted"], true, "{ended}");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    let events = hub.events(&id, 0, 100_000).unwrap();
+    let steps: Vec<&str> = events
+        .iter()
+        .filter(|e| e.kind == "stop_escalated")
+        .filter_map(|e| e.msg["step"].as_str())
+        .collect();
+    assert_eq!(steps, ["interrupt", "spared"], "the process was ended beside background work");
+    assert!(!events.iter().any(|e| e.kind == "stop_restarted"), "the agent was started again");
+    assert!(
+        !events.iter().any(|e| matches!(e.kind.as_str(), "stopped" | "exited")),
+        "the agent's process ended"
+    );
+    let result = events.iter().find(|e| e.kind == "turn_result").unwrap();
+    assert!(
+        !events.iter().any(|e| e.kind == "resumed" && e.seq > result.seq),
+        "a new process resumed the conversation"
+    );
+    // The same process still runs: it goes on calling tools after the turn ended.
+    let after: Vec<&str> = events
+        .iter()
+        .filter(|e| e.kind == "tool_call" && e.seq > result.seq)
+        .filter_map(|e| e.msg["params"]["update"]["title"].as_str())
+        .collect();
+    assert!(
+        after.iter().any(|t| t.ends_with(&pid)),
+        "the agent's process did not run on: {after:?}"
+    );
+    let row = summary(&hub, &id);
+    assert!(row["turn"].is_null(), "the stopped turn is still open: {row}");
+}
+
+/// The person's Stop keeps their own queued prompt as it was: it runs next. The other agents'
+/// messages wait held until it completed, then go in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_the_persons_stop_their_prompt_runs_next_and_agents_wait_for_it() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-keeps-person").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    queued(&mut c, from_agent(&id, "p-agent", "agent words")).await;
+    queued(&mut c, json!({"sessionId": id, "prompt": [{"type": "text", "text": "person words"}], "_meta": {"acpmux": {"promptId": "p-next"}}})).await;
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    c.wait_for(method::MUX_EVENT, |p| {
+        p["kind"] == "turn_started" && p["msg"]["promptId"] == "p-next"
+    })
+    .await;
+    let row = summary(&hub, &id);
+    assert_eq!(held(&row), [("p-agent".to_owned(), true)]);
+    // The list says the Stop holds it, so a client that attaches now says so too.
+    assert_eq!(row["queue"][0]["heldByStop"], true, "{row}");
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        c.wait_for(method::SESSION_UPDATE, |p| {
+            p["update"]["content"]["text"].as_str().is_some_and(|t| t.contains("agent words"))
+        }),
+    )
+    .await
+    .expect("the agent's message never went in after the person's turn");
+}
+
+/// After the person's Stop, an inbox digest of the agent messages it holds waits held too: it
+/// neither steers nor starts a turn (`inbox_digest.rs`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_the_persons_stop_an_inbox_digest_of_the_held_messages_waits_held() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-holds-digest").await;
+    let run = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    queued(&mut c, from_agent(&id, "p-a", "first words")).await;
+    queued(&mut c, from_agent(&id, "p-b", "second words")).await;
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    assert_eq!(c.response(run).await.0.unwrap()["stopReason"], "cancelled");
+    let made = c.request("_acpmux/inbox_digest", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(made["digested"], 2, "{made}");
+    assert_eq!(made["delivery"], "queued", "a digest under the hold steers into nothing: {made}");
+    let digest = made["promptId"].as_str().unwrap().to_owned();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(held(&summary(&hub, &id)), [(digest, true)]);
+    let started = hub.events(&id, 0, 10_000).unwrap();
+    let turns = started.iter().filter(|e| e.kind == "turn_started").count();
+    assert_eq!(turns, 1, "a turn started after the person's Stop");
+}
+
+/// The person's Stop while a failed turn's agent messages wait for their retry: the retry
+/// leaves them held, since only the person's next turn or a resume ends a Stop's hold.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_the_persons_stop_a_failed_turns_retry_leaves_agent_messages_held() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![1_500]);
+    let id = new_session(&mut c, "stop-outlasts-retry").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    queued(&mut c, json!({"sessionId": id, "prompt": [{"type": "text", "text": "fail-streamed: boom"}], "_meta": {"acpmux": {"promptId": "p-f"}}})).await;
+    queued(&mut c, from_agent(&id, "p-a", "agent words")).await;
+    // An agent's Stop: the failing prompt runs and its failure holds the agent message.
+    hub.cancel(&hub.resolve(&id).unwrap()).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !(summary(&hub, &id)["turn"].is_null()
+        && held(&summary(&hub, &id)) == [("p-a".to_owned(), true)])
+    {
+        assert!(tokio::time::Instant::now() < deadline, "the failure never held p-a");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // The person's Stop, before the retry wait ends.
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(3_000)).await;
+    assert_eq!(held(&summary(&hub, &id)), [("p-a".to_owned(), true)]);
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert!(
+        !events.iter().any(|e| e.kind == "turn_started" && e.msg["promptId"] == "p-a"),
+        "the retry ran an agent message after the person's Stop"
+    );
+}
+
 #[tokio::test]
 async fn session_cancel_as_a_request_is_answered() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
@@ -453,4 +704,16 @@ async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message(
     c.request(method::SESSION_PROMPT, prompt(&id, "second", None)).await.unwrap();
     let summary = hub.session_summary(&hub.resolve(&id).unwrap());
     assert_eq!(summary["lastMessage"], json!({"role": "agent", "text": "echo: second"}));
+}
+
+/// A test's stand-in harness runs at normal CPU class once its start is over, not at the
+/// product's background default (`cpu_class.rs`). The stand-ins time their turns with short
+/// sleeps (a Codex-steer turn polls 300 x 10 ms for a joined prompt), and on a loaded fleet Mac
+/// (load 13 to 21 on 10 performance cores) a background-class stand-in did not end that turn in
+/// 18 to 30 s: this test, the forum's steered rule and the steer race failed only on macOS.
+/// `tests/cpu_class.rs` asks for background itself and checks the product's class.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_stand_in_harness_runs_at_normal_class_in_tests() {
+    assert_eq!(acpmux::cpu_class::CpuClass::for_session([]), acpmux::cpu_class::CpuClass::Normal);
 }

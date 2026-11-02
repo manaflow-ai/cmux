@@ -60,6 +60,12 @@ public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
 public final class ScrollEdgeFadeView: NSView {
     public let scrollView: NSScrollView
     public private(set) var edges: ScrollEdges = []
+    /// Points at the top hidden outright while content is hidden above, with the top band's
+    /// fade starting below them: the part of a list that sits under the window's traffic
+    /// lights. At rest (nothing hidden above) the mask is opaque there, as with none. 0 by default.
+    public var topClip: CGFloat = 0 {
+        didSet { if oldValue != topClip { updateFade(animated: false) } }
+    }
     /// Whether hidden content fades at the edges. Off, the mask stays opaque at every edge, so the
     /// whole list shows (`sidebar.noFade`). Setting it re-reads the edges at once.
     public var fades = true {
@@ -164,7 +170,7 @@ public final class ScrollEdgeFadeView: NSView {
             let top: CGFloat = Self.rendersTopDown(layer) ? 0 : 1
             fadeMask.startPoint = CGPoint(x: 0.5, y: top)
             fadeMask.endPoint = CGPoint(x: 0.5, y: 1 - top)
-            fadeMask.locations = [0, fade, 1 - fade, 1].map { NSNumber(value: Double($0)) }
+            fadeMask.locations = Self.locations(height: layer.bounds.height, fade: fade, topClip: topClip).map { NSNumber(value: Double($0)) }
         }
         setEdges(next, animated: animated)
     }
@@ -181,6 +187,14 @@ public final class ScrollEdgeFadeView: NSView {
     /// The band's share of the list height (the fade length, capped by the tunable).
     private static func fadeFraction(height: CGFloat) -> CGFloat {
         min(Metrics.scrollEdgeFade / max(height, 1), CGFloat(ChromeTunables.scrollFadeMaxFraction.value))
+    }
+
+    /// Gradient stops top to bottom, as fractions of `height`: the top band holds its color down
+    /// to `topClip` (the gradient's first color extends above its first stop), then fades over
+    /// `fade`; the bottom band fades over `fade`. The clip gives way to keep the stops in order.
+    static func locations(height: CGFloat, fade: CGFloat, topClip: CGFloat) -> [CGFloat] {
+        let clip = min(max(0, topClip) / max(height, 1), max(0, 1 - 2 * fade))
+        return [clip, clip + fade, 1 - fade, 1]
     }
 
     private func setEdges(_ next: ScrollEdges, animated: Bool) {

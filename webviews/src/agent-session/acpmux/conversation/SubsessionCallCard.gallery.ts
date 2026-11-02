@@ -155,7 +155,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/SubsessionCallCard.tsx"],
   variants: {
     recorded: {
-      note: "A recorded start_session through the cmux server (mcp__cmux__subsessions_start_session): the sub-session's card with its harness, model, live state (the working spinner) and what it does now, Open chat, and its prompt as Markdown cut to three lines with Show prompt. The call's JSON is behind Raw.",
+      note: "Variant A (selected): a Claude-Code-style one-line disclosure with a working spinner, muted model and Open chat on hover. Expanding opens the full prompt as Markdown; Raw stays at the panel end.",
       snapshot: withChildren(
         [
           user("Start a lane for the retry banner.", 3),
@@ -193,6 +193,54 @@ export default agentPaneEntry({
         { isWorking: true },
         [IOS_CHILD],
       ),
+    },
+    "result-reopened": {
+      note: "Expand a long result, close its card, then reopen it. The reader's Show more choice should still reveal the full report, including its final checkpoint.",
+      snapshot: withChildren([
+        user("Read the review report, then return to it.", 2),
+        activity(
+          [
+            viaCmux(
+              "wait_for_sessions",
+              { sessionIds: ["sub-review"] },
+              {
+                sessions: [
+                  {
+                    sessionId: "sub-review",
+                    shortName: "review",
+                    harness: "codex",
+                    state: "idle",
+                    lastReply: [
+                      "## Review report",
+                      "The network retry change is ready for review.",
+                      "- Verified reconnect after a dropped connection.",
+                      "- Verified the retry button stays available after a refusal.",
+                      "- Verified the message queue preserves its order.",
+                      "- Verified keyboard focus stays on the retry control.",
+                      "**Final checkpoint:** all four scenarios passed.",
+                    ].join("\n\n"),
+                  },
+                ],
+              },
+            ),
+          ],
+          1.8,
+        ),
+        assistant("The report is ready above.", 1.5),
+      ]),
+      play: async (ctx) => {
+        const toggle = ".cv-disclosure__toggle";
+        await ctx.click({ selector: toggle });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__cut button"));
+        await ctx.click({ selector: ".cv-subsession__cut button" });
+        await ctx.click({ selector: toggle });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-subsession__cut"));
+        await ctx.click({ selector: toggle });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__cut"));
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".cv-subsession__cut button")?.getAttribute("aria-expanded") === "true",
+        );
+      },
     },
     "recorded-wait": {
       note: "A recorded wait_for_sessions through the cmux server: review done with its last reply as Markdown (cut to three lines, Show more), net-retries still working.",
@@ -235,7 +283,7 @@ export default agentPaneEntry({
       ),
     },
     started: {
-      note: "Five sub-sessions started, each with its state now: tests working (what it does under it, 2 queued), docs waiting on a question (its prompt after), deps waiting for permission, bench failed, lint done. A name opens that chat beside this one.",
+      note: "Variant B: five adjacent starts use the same one-line disclosure family, keeping Working, Waiting on you, Failed and Done visible without prompt text. A single start opens its chat on hover.",
       snapshot: withChildren(
         [
           user(prompt, 6),
@@ -255,7 +303,7 @@ export default agentPaneEntry({
       ),
     },
     avatars: {
-      note: "Sub-sessions whose person uploaded an avatar (the chat menu's Set Avatar…): each card draws it in place of the harness mark (a synthetic picture).",
+      note: "Variant C: grouped starts keep the family row compact while each child disclosure retains its uploaded avatar. This is the selected grouped treatment for three adjacent sessions.",
       snapshot: withChildren(
         [
           user(prompt, 6),
@@ -266,8 +314,12 @@ export default agentPaneEntry({
       ),
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
+        await ctx.click({ selector: ".cv-disclosure__toggle" });
         avatarsChanged(ctx.document, ["sub-tests", "sub-docs", "sub-lint"]);
-        await ctx.waitFor(() => ctx.document.querySelectorAll("img.cv-agent-avatar").length >= 3);
+        await ctx.waitFor(() => {
+          const avatars = ctx.document.querySelectorAll<HTMLImageElement>(".cv-disclosure__panel img.cv-agent-avatar");
+          return avatars.length === 3 && [...avatars].every((avatar) => avatar.complete && avatar.naturalWidth > 0);
+        });
       },
     },
     messages: {

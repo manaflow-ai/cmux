@@ -4,7 +4,7 @@
 // Settings > Appearance > Agent Chat and cmux.json). A change shows at once and is written through
 // the host. The font, code font and code size read "Same as Markdown Viewer" until set; Reset
 // removes every key.
-import { useId } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Popover, type UiAnchor } from "../../ui/Popover";
 import { useT } from "./i18n";
 import {
@@ -53,8 +53,19 @@ export function ChatDisplayRows() {
   const fontChoice = (own[CHAT_DISPLAY.font.key] as ChatFontChoice | undefined) ?? "markdown";
   const codeFamily =
     typeof own[CHAT_DISPLAY.codeFamily.key] === "string" ? (own[CHAT_DISPLAY.codeFamily.key] as string) : "";
+  const [codeFamilyDraft, setCodeFamilyDraft] = useState(codeFamily);
+  const editingCodeFamily = useRef(false);
+  useEffect(() => {
+    if (!editingCodeFamily.current) setCodeFamilyDraft(codeFamily);
+  }, [codeFamily]);
   const listId = useId();
   const c = CHAT_DISPLAY;
+  const commitCodeFamily = () => {
+    editingCodeFamily.current = false;
+    const value = codeFamilyDraft.trim();
+    setCodeFamilyDraft(value);
+    changeChatDisplay(c.codeFamily.key, value || null);
+  };
   return (
     <div className="acpmux-display-body">
       <Slider
@@ -109,10 +120,23 @@ export function ChatDisplayRows() {
           type="text"
           aria-label={t("chatDisplay.codeFont")}
           list={listId}
-          value={codeFamily}
+          value={codeFamilyDraft}
           placeholder={display.codeFamily ?? t("chatDisplay.sameAsMarkdown")}
           spellCheck={false}
-          onChange={(event) => changeChatDisplay(c.codeFamily.key, event.currentTarget.value.trim() || null)}
+          onChange={(event) => {
+            editingCodeFamily.current = true;
+            const value = event.currentTarget.value;
+            setCodeFamilyDraft(value);
+            // Preview valid input immediately, while keeping the raw draft so a trailing space
+            // can be typed before the next word in a multi-word family name.
+            changeChatDisplay(c.codeFamily.key, value.trim() || null);
+          }}
+          onBlur={commitCodeFamily}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            commitCodeFamily();
+          }}
         />
         <datalist id={listId}>
           {CODE_FONT_SUGGESTIONS.map((name) => (

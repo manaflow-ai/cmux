@@ -32,20 +32,24 @@ env:
   CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
   CI_CACHE_R2_NAMESPACE: any
 
+# One publish at a time, and only the newest pending push. This covers both
+# the cheap due probe and the expensive publish so two probes cannot both
+# dispatch a full 2.36 GB bundle during the same publication.
+concurrency:
+  group: git-mirror-bundle-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  bundle:
+  probe:
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
-    name: Publish the git mirror bundle
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 30
-    # A running publish finishes; a newer push replaces only a pending one, which the
-    # running one makes unnecessary anyway (one bundle per interval).
-    concurrency:
-      group: git-mirror-bundle-${{ github.ref }}
-      cancel-in-progress: false
-    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
-    permissions:
-      contents: read
+    name: Is a git mirror bundle due
+    # Every push gets a cheap HEAD check; only the rare due=true run may take
+    # the shared 32-vCPU Linux build pool. Keep fork-safe hosted routing.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 3
+    permissions: {}
+    outputs:
+      due: ${{ steps.due.outputs.due }}
     steps:
       - name: Is a bundle due
         id: due
@@ -65,8 +69,17 @@ jobs:
           fi
           echo "due=$due" >> "$GITHUB_OUTPUT"
 
+  bundle:
+    needs: probe
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.probe.outputs.due == 'true' }}
+    name: Publish the git mirror bundle
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
       - name: Fetch the mirrored branches
-        if: steps.due.outputs.due == 'true'
         id: fetch
         run: |
           set -euo pipefail
@@ -89,7 +102,6 @@ jobs:
 
       # The local cache-save action and the r2-cache.sh it runs.
       - name: Checkout the cache tooling
-        if: steps.due.outputs.due == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -98,7 +110,6 @@ jobs:
             scripts/ci
 
       - name: Publish the bundle
-        if: steps.due.outputs.due == 'true'
         uses: ./.github/actions/cache-save
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}

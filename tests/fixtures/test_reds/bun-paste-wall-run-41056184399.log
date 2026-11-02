@@ -1,0 +1,49 @@
+2026-10-30T12:34:24.3423182Z bun test v1.4.4 (38afee6c8)
+2026-10-30T12:34:24.3452676Z 
+2026-10-30T12:34:24.3453212Z ##[group]test/reopened-chat-history.test.ts:
+2026-10-30T12:34:26.3356530Z [BABEL] Note: The code generator has deoptimised the styling of /home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/src/agent-session/acpmux/App.tsx as it exceeds the max of 500KB.
+2026-10-30T12:34:38.1802197Z reopened-chat-history queuedPaste: settled {"rows":36,"lastLine":0.25,"atBottom":0,"scrollable":1330,"height":792,"firstRowText":"Lane report 3: the gallery render landed. last week","lastRowText":"Worked for 3s last week"}, read through true
+2026-10-30T12:34:38.1802939Z (pass) a reopened queuedPaste chat shows its history under the composer, with no blank band [1191.08ms]
+2026-10-30T12:34:38.1803354Z reopened-chat-history queuedPaste: top {"rows":38,"firstRowText":"Wed, Oct 21, 9:00 AM","reachedFirstTurn":true}, older reads 1
+2026-10-30T12:34:39.3966575Z (pass) a reopened manyPastes chat shows its history under the composer, with no blank band [1216.44ms]
+2026-10-30T12:34:39.3967794Z reopened-chat-history manyPastes: settled {"rows":36,"lastLine":0.25,"atBottom":0,"scrollable":1330,"height":792,"firstRowText":"Lane report 3: the gallery render landed. last week","lastRowText":"Worked for 3s last week"}, read through true
+2026-10-30T12:34:39.3968908Z reopened-chat-history manyPastes: top {"rows":38,"firstRowText":"Wed, Oct 21, 9:00 AM","reachedFirstTurn":true}, older reads 3
+2026-10-30T12:35:00.5981992Z reopened-chat-history pasteWall: settled {"rows":7,"lastLine":368.25,"atBottom":0,"scrollable":0,"height":792,"firstRowText":"Wed, Oct 21, 9:02 AM","lastRowText":"Worked for 3s last week"}, read through false
+2026-10-30T12:35:00.5982831Z reopened-chat-history pasteWall: top {"rows":7,"firstRowText":"Wed, Oct 21, 9:02 AM","reachedFirstTurn":false}, older reads 8
+2026-10-30T12:35:00.5983297Z 500 |       // The transcript holds rows of its own, not an empty frame. This counts the rows mounted in
+2026-10-30T12:35:00.5983878Z 501 |       // the virtualized list, so it cannot tell a whole chat from its last messages — Leo's "only
+2026-10-30T12:35:00.5984182Z 502 |       // the last messages" is what `reachedFirstTurn` below answers.
+2026-10-30T12:35:00.5984416Z 503 |       expect(state.rows).toBeGreaterThan(0);
+2026-10-30T12:35:00.5984663Z 504 |       // Leo: "a big blank gap between the transcript and the composer".
+2026-10-30T12:35:00.5984914Z 505 |       expect(state.lastLine).toBeLessThan(LAST_LINE_MAX);
+2026-10-30T12:35:00.5985118Z                                    ^
+2026-10-30T12:35:00.5985308Z error: expect(received).toBeLessThan(expected)
+2026-10-30T12:35:00.5985421Z 
+2026-10-30T12:35:00.5985482Z Expected: < 96
+2026-10-30T12:35:00.5985593Z Received: 368.25
+2026-10-30T12:35:00.5985662Z 
+2026-10-30T12:35:00.5985895Z       at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/reopened-chat-history.test.ts:505:30)
+2026-10-30T12:35:00.5986131Z 
+2026-10-30T12:35:00.5997437Z ##[error]Expected: < 96
+Received: 368.25
+
+      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/reopened-chat-history.test.ts:505:30)
+2026-10-30T12:35:00.5998601Z (fail) a reopened pasteWall chat shows its history under the composer, with no blank band [21201.67ms]
+2026-10-30T12:35:01.8950154Z (pass) a reopened longText chat shows its history under the composer, with no blank band [1296.66ms]
+2026-10-30T12:35:01.8951398Z reopened-chat-history longText: settled {"rows":6,"lastLine":-0.25,"atBottom":0,"scrollable":21032,"height":792,"firstRowText":"Lane report 39: detail detail detail detail detail detail de","lastRowText":"Worked for 3s last week"}, read through true
+2026-10-30T12:35:01.8952383Z reopened-chat-history longText: top {"rows":7,"firstRowText":"Wed, Oct 21, 9:00 AM","reachedFirstTurn":true}, older reads 2
+2026-10-30T12:35:01.9398971Z 
+2026-10-30T12:35:01.9399494Z ##[endgroup]
+2026-10-30T12:35:01.9399583Z 
+2026-10-30T12:35:01.9399762Z ##[group]src/agent-session/acpmux/mockPaging.test.ts:
+2026-10-30T12:35:02.4525329Z (pass) a long mock chat opens on its newest page and pages back to its first message [505.33ms]
+2026-10-30T12:35:02.4587652Z (pass) disconnect cancels an older-page backoff while the mounted session waits to reconnect [6.28ms]
+2026-10-30T12:35:02.4589500Z 
+2026-10-30T12:35:02.4589843Z ##[endgroup]
+2026-10-30T12:35:02.4589941Z 
+2026-10-30T12:35:02.4590039Z  5 pass
+2026-10-30T12:35:02.4590229Z  1 fail
+2026-10-30T12:35:02.4590435Z  1238 expect() calls
+2026-10-30T12:35:02.4590707Z Ran 6 tests across 2 files. [38.12s]
+2026-10-30T12:35:02.4978462Z FAST_CHECKS_RECEIPT={"source_sha": "34d24fd33a83129925f383e82e99576d9bb95b33", "source_tree": "4c712a7801da2839d93a787972d250faf31522fc", "head_after": "34d24fd33a83129925f383e82e99576d9bb95b33", "command_started_at": 1793363664.1684885, "command_seconds": 38.329, "exit_code": 1, "command_pgid": 11552, "run_id": "41056184399", "cpu_count": 32}
+2026-10-30T12:35:02.5012968Z ##[error]Process completed with exit code 1.

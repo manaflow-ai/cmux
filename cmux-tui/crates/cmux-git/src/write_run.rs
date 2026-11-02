@@ -137,7 +137,7 @@ impl WriteGit<'_> {
         if !status.success() {
             return Err(GitFailure::Exit(String::from_utf8_lossy(&stderr).trim().to_string()));
         }
-        Ok(GitOutput { stdout, truncated })
+        Ok(GitOutput { stdout, truncated, window: None })
     }
 }
 
