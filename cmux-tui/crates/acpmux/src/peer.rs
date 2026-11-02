@@ -927,7 +927,9 @@ impl Peer {
     /// clients still need the replay gap, so a chat being replayed keeps its cursor.
     fn note_baseline(&self, session_id: &str, seq: u64) {
         let replay = self.replay_highwater.lock_or_recover();
-        if replay.contains_key(session_id) || !self.attached.lock_or_recover().contains_key(session_id) {
+        if replay.contains_key(session_id)
+            || !self.attached.lock_or_recover().contains_key(session_id)
+        {
             return;
         }
         self.cursors

@@ -51,38 +51,43 @@ pub(in crate::mux) struct RespawnLaunch {
 
 impl Mux {
     /// The lost incarnation's screen: its exit replay, else the output
-    /// store's snapshot, else the latest journal checkpoint of the terminal
-    /// (registries written before the output store).
-    pub(in crate::mux) fn previous_screen(
-        &self,
-        registry: &WorkspaceRegistry,
-        plan: &RespawnPlan,
-    ) -> Option<TerminalReplay> {
-        // terminal.persistence.mode memory, or an incognito terminal: no
-        // earlier screen comes from disk.
-        if self.output_store.memory_only()
-            || self.output_store.is_private_in(registry, &plan.public_id)
-        {
-            return None;
-        }
+    /// store's snapshot (with its tail), else the latest journal checkpoint
+    /// of the terminal (registries written before the output store).
+    ///
+    /// The store's read and rebuild (file reads, a scratch terminal fed the
+    /// snapshot and its tail) run with no registry lock held: the respawns
+    /// of many terminals after a kill of everything run on their own threads
+    /// and must not take turns on that lock for their rebuilds.
+    pub(in crate::mux) fn previous_screen(&self, plan: &RespawnPlan) -> Option<TerminalReplay> {
         let public_id = plan.public_id.as_str();
-        match registry.terminal_exit_snapshot(public_id) {
-            Ok(Some(snapshot)) if snapshot.generation == plan.old_incarnation => {
-                return Some(TerminalReplay {
-                    cols: snapshot.cols,
-                    rows: snapshot.rows,
-                    bytes: snapshot.replay_bytes,
-                });
+        {
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            // terminal.persistence.mode memory, or an incognito terminal: no
+            // earlier screen comes from disk.
+            if self.output_store.memory_only()
+                || self.output_store.is_private_in(&registry, &plan.public_id)
+            {
+                return None;
             }
-            Ok(_) => {}
-            Err(error) => eprintln!(
-                "cmux-tui: terminal {} exit replay is unreadable: {error:#}",
-                plan.terminal_id
-            ),
+            match registry.terminal_exit_snapshot(public_id) {
+                Ok(Some(snapshot)) if snapshot.generation == plan.old_incarnation => {
+                    return Some(TerminalReplay {
+                        cols: snapshot.cols,
+                        rows: snapshot.rows,
+                        bytes: snapshot.replay_bytes,
+                    });
+                }
+                Ok(_) => {}
+                Err(error) => eprintln!(
+                    "cmux-tui: terminal {} exit replay is unreadable: {error:#}",
+                    plan.terminal_id
+                ),
+            }
         }
         if let Some(screen) = self.output_store.previous_screen(&plan.public_id) {
             return Some(screen);
         }
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         registry.latest_checkpoint_terminal_replay(public_id).unwrap_or_else(|error| {
             eprintln!(
                 "cmux-tui: terminal {} checkpoint replay is unreadable: {error:#}",

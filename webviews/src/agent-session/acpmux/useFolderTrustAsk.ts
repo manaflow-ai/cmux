@@ -621,10 +621,6 @@ export function useFolderTrustAsk(
   return {
     ask,
     revision,
-    /// The trust question or Don't trust holds the chat's other asks (permission, secret, tool
-    /// cards): one question at a time. A read in flight asks nothing, so it holds nothing; the asks
-    /// keep their place while it reads (a chat switch). The daemon authorizes any prompt sent meanwhile.
-    holdsAsks: Boolean(blocked?.reason),
     trusted,
     /// Where the folder's answer lives (its repository, a parent folder), for the trusted grant.
     scope,
