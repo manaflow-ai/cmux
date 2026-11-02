@@ -121,7 +121,7 @@ impl Hub {
         }
         // Where moved chats went: those rows only, from the list the matches came from.
         let targets: Vec<&str> =
-            found.iter().filter_map(|s| s["movedTo"]["sessionId"].as_str()).collect();
+            found.iter().filter_map(|s| s.pointer("/movedTo/sessionId")?.as_str()).collect();
         let moved = if targets.is_empty() {
             Vec::new()
         } else {
@@ -152,7 +152,8 @@ impl Hub {
         } else {
             self.indexed_live_sessions().iter().map(|s| self.session_summary(s)).collect()
         };
-        let open = |r: &RemoteSession| r.summary["status"].as_str() != Some("closed");
+        let open =
+            |r: &RemoteSession| r.summary.get("status").and_then(Value::as_str) != Some("closed");
         self.visit_remote_sessions(|r| (closed || open(r)) && keep(r), |row| v.push(row));
         super::session_pages::sort_session_summaries(&mut v);
         v
@@ -164,7 +165,9 @@ impl Hub {
         let mut names: Vec<String> = self
             .sessions()
             .iter()
-            .filter_map(|s| self.cached_closed_summary(s, true)["name"].as_str().map(str::to_owned))
+            .filter_map(|s| {
+                self.cached_closed_summary(s, true).get("name")?.as_str().map(str::to_owned)
+            })
             .filter(|n| crate::session_name::contains_ignore_case(n, lower))
             .collect();
         names.extend(self.remote_names_containing(lower));
