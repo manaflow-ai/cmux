@@ -32,7 +32,8 @@ struct ThreadStackSamplerFirstSampleTests {
 private struct VictimSeed {}
 
 /// The exit-test body: a victim that keeps the runtime's metadata locks busy, one sample of it, and the exit code
-/// (0: the sample came back with frames; 1: it never came back; 2: it came back empty; 3: the victim never started).
+/// (0: the sample came back with the victim's frames; 1: it never came back; 2: it came back short, so the walk
+/// lost the frame chain; 3: the victim never started).
 final class FirstSampleProbe: @unchecked Sendable {
     private let port = Atomic<UInt32>(0)
     private let stop = Atomic<Bool>(false)
@@ -59,7 +60,8 @@ final class FirstSampleProbe: @unchecked Sendable {
         // _exit, not exit: atexit work could need a lock the still-suspended victim holds.
         guard sampled.wait(timeout: deadline) == .success else { _exit(1) }
         stop.store(true, ordering: .releasing)
-        _exit(frames.load(ordering: .acquiring) > 0 ? 0 : 2)
+        // The victim is at least 256 frames deep: a walk that follows its frame chain fills the buffer.
+        _exit(frames.load(ordering: .acquiring) >= 32 ? 0 : 2)
     }
 
     /// Each level asks the runtime for a new tuple type `(T, T)`: its metadata lock and an allocation.

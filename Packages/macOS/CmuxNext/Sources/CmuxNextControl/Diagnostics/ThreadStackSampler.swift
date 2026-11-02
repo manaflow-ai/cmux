@@ -59,6 +59,8 @@ final class ThreadStackSampler: @unchecked Sendable {
         pcIndex = MemoryLayout<x86_thread_state64_t>.offset(of: \.__rip).map { $0 / word } ?? 16
         fpIndex = MemoryLayout<x86_thread_state64_t>.offset(of: \.__rbp).map { $0 / word } ?? 6
         lrIndex = -1
+        #else
+        #error("ThreadStackSampler reads arm64 or x86_64 registers only")
         #endif
         let words = (size + word - 1) / word
         registers = .allocate(capacity: words)
