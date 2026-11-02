@@ -766,6 +766,8 @@ public final class UnavailableWorkspaceCreationBackend: WorkspaceCreationBackend
 @MainActor
 public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     public var failNext: String?
+    /// What Jump to Latest Unread and Jump to Last Prompt find (`TabAttentionBackend`).
+    public var attention: (unread: TabAttentionPlace?, prompt: TabAttentionPlace?) = (nil, nil)
     private let clock: any Clock<Duration>
     private let latency: Duration
 

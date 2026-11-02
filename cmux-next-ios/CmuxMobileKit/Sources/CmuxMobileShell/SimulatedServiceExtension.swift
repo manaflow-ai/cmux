@@ -52,7 +52,9 @@ struct SimulatedServiceExtension {
         if let category = aps?["category"] as? String { content.categoryIdentifier = category }
         content.userInfo = body.filter { $0.key != "aps" }
         let keys = PushKeys.current()
-        let opened = ServicePush().opened(content, keys: keys) ?? ServicePush().inert(content, trust: keys?.trust()) ?? content
+        let served = ServicePush().opened(content, keys: keys) ?? ServicePush().inert(content, trust: keys?.trust()) ?? content
+        // The extension's last step too: a chat muted on this phone arrives quietly.
+        let opened = PushChatMutes.live().quieted(served) ?? served
         let request = UNNotificationRequest(identifier: "dev-service-push-\(UUID().uuidString)", content: opened, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             if let error { Logger(subsystem: "dev.cmux.mobile", category: "push").error("simulated service push: \(String(describing: error), privacy: .public)") }
