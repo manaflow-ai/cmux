@@ -356,6 +356,7 @@
     "nightly.yml#sign-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#signer-dmg-image": "apple-signing-release",
     "nightly.yml#verify-final-dmg-nightly": "apple-signing-release",
+    "nightly.yml#launch-smoke-nightly": "apple-signing-release",
     "nightly.yml#verify-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#legacy-signer-dmg-image": "apple-signing-release",
     "nightly.yml#verify-nightly-identity-legacy-pool": "apple-signing-release",
