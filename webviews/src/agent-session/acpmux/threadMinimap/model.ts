@@ -242,6 +242,19 @@ export function jumpDuration(distance: number): number {
   return Math.round(200 + 200 * share);
 }
 
+/// How many viewports of a long Jump to latest are glided; the rest is skipped at once.
+export const JUMP_GLIDE_VIEWPORTS = 1;
+
+/// Where Jump to latest's glide starts: from `from` when the end is within JUMP_GLIDE_VIEWPORTS,
+/// else that far above `target`. Gliding the whole way through a long chat mounted every row in
+/// between for a frame or two, drawn blank while they measured (Leo, 2026-10-28: "when I click the
+/// jump to bottom button, it should be, like, on the in-between. It shouldn't need to be doing that
+/// thing"). Skipping the middle draws only rows near the end.
+export function jumpGlideStart(from: number, target: number, viewport: number): number {
+  const span = Math.max(0, viewport) * JUMP_GLIDE_VIEWPORTS;
+  return target - from > span ? target - span : from;
+}
+
 /// Each prompt's turn and the reply it previews, by row object: rows are immutable, so a long
 /// chat's snapshot hashes and previews only the turns that changed.
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();

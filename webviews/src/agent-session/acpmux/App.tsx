@@ -134,7 +134,7 @@ import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type Acpmu
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
 import { animateScroll, stopScroll } from "./threadMinimap/scrollMotion";
-import { JUMP_CURVE, jumpDuration } from "./threadMinimap/model";
+import { JUMP_CURVE, jumpDuration, jumpGlideStart } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
@@ -4920,10 +4920,14 @@ export function VirtualTranscript({
     const move = cssTimeMs(
       node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "",
     );
+    jumpTarget.current = target;
+    // A long way from the end: skip the middle at once and glide only the last viewport, so the rows
+    // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
+    const glideFrom = jumpGlideStart(node.scrollTop, target, node.clientHeight);
+    if (!reduce && glideFrom !== node.scrollTop) node.scrollTop = glideFrom;
     const duration = reduce
       ? 0
       : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
-    jumpTarget.current = target;
     animateScroll(
       node,
       () =>
