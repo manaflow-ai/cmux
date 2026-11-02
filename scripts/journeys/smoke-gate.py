@@ -215,20 +215,16 @@ def known_gap_steps(out):
 
 
 def ocr_unread(out):
-    """The notes of frame checks the driver excused as "OCR could not read it (daemon check passed)" in a round
-    (results.jsonl evidence), so a misread that comes back often stays in sight."""
-    path = out / "results.jsonl"
-    notes = []
+    """The notes of frame checks the driver excused as "OCR could not read it (daemon check passed)" in a round, from
+    the driver's own result.json (its full evidence; run.py's results.jsonl keeps only some detail keys), so a misread
+    that comes back often stays in sight."""
+    path = out / JOURNEY / "result.json"
     try:
-        rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
+        evidence = json.loads(path.read_text()).get("evidence", []) if path.is_file() else []
     except ValueError:
         return []
-    for row in rows:
-        for ev in row.get("evidence") or []:
-            note = (ev.get("detail") or {}).get("ocr_unread") if isinstance(ev, dict) and isinstance(ev.get("detail"), dict) else None
-            if note:
-                notes.append(note)
-    return notes
+    return [ev["detail"]["ocr_unread"] for ev in evidence
+            if isinstance(ev, dict) and isinstance(ev.get("detail"), dict) and ev["detail"].get("ocr_unread")]
 
 
 def required_checks(out):

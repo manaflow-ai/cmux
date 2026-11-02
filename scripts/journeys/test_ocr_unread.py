@@ -132,6 +132,18 @@ class OcrUnread(unittest.TestCase):
             self.assertFalse(frame["pass"], name)
             self.assertNotIn("ocr_unread", frame["detail"], name)
 
+    def test_another_line_misread_exactly_where_it_differs_is_not_excused(self):
+        # Review N1 of 69bf2eb66b4: tab t1 drawn, its "1" read as "+": one non-alphanumeric glyph off t2. Its own
+        # command ("echo t1-...") is the line above, not t2's, so it stays red. Same for d2 drawn with "d" read as "+".
+        live = {"smoke_new_terminals": True, "smoke_app_lines": True, "smoke_key_window": True}
+        for ocr in (["$ echo t1-445843-$((6*7))", "t+-445843-42"],
+                    ["$ echo d2-445843-$((6*7))", "+2-445843-42"],
+                    ["+2-445843-42"],                                   # no command line above it at all
+                    ["$ echo t2-445843-$((6*7))", "Did you know?", "+2-445843-42"]):   # not the line just before
+            error, frame = self.expect(PLUS, live, ocr=ocr)
+            self.assertIn("frame_screen", error or "", ocr)
+            self.assertNotIn("ocr_unread", frame["detail"], ocr)
+
     def test_a_lacks_text_on_screen_is_never_excused(self):
         step = {"do": "expect", "title": "x", "all": [
             {"smoke_daemon_lines": {"lines": ["t2-${nonce}-42"]}},
@@ -141,21 +153,31 @@ class OcrUnread(unittest.TestCase):
 
 
 class GateNote(unittest.TestCase):
-    def test_the_gate_names_excused_frames_of_a_round(self):
+    def test_the_gate_names_excused_frames_from_the_driver_s_own_record(self):
+        # Review B2 of 69bf2eb66b4: run.py's results.jsonl drops the note (compact), so the gate reads result.json,
+        # written here the way the driver writes it (step_expect's evidence rows).
         import importlib.util
         spec = importlib.util.spec_from_file_location("smoke_gate_ocr", HERE / "smoke-gate.py")
         gate = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(gate)
-        with tempfile.TemporaryDirectory() as tmp:
-            note = "OCR could not read it (daemon check passed): 't2-445843-42' read as '+2-445843-42', smoke_new_terminals passed"
-            row = {"id": "smoke-dogfood", "status": "pass", "evidence": [
-                {"check": "smoke_new_terminals", "pass": True, "detail": {}},
-                {"check": "frame_screen", "pass": True, "detail": {"ocr_unread": note}},
-                {"check": "frame_screen", "pass": True, "detail": "not a dict"}]}
-            (Path(tmp) / "results.jsonl").write_text(json.dumps(row) + "\n")
-            self.assertEqual(gate.ocr_unread(Path(tmp)), [note])
-            (Path(tmp) / "results.jsonl").write_text("not json\n")
-            self.assertEqual(gate.ocr_unread(Path(tmp)), [])
+        saved = (D.OCR_FOLD, D.FRAME_GRACE)
+        D.OCR_FOLD, D.FRAME_GRACE = OLD_FOLD, 0.0
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                round_out = Path(tmp)
+                j = Fake(round_out / gate.JOURNEY, PLUS["nonce"], PLUS["ocr"],
+                         {"smoke_new_terminals": True, "smoke_app_lines": True, "smoke_key_window": True})
+                (round_out / gate.JOURNEY).mkdir()
+                j.step_expect(dict(STEP[55], timeout=0, since=None))
+                (round_out / gate.JOURNEY / "result.json").write_text(json.dumps({"evidence": j.evidence}, default=str))
+                notes = gate.ocr_unread(round_out)
+                self.assertEqual(len(notes), 1, notes)
+                self.assertIn("'t2-445843-42' read as '+2-445843-42'", notes[0])
+                # run.py's results.jsonl alone (compacted) has no note: the gate does not depend on it.
+                (round_out / gate.JOURNEY / "result.json").write_text("not json")
+                self.assertEqual(gate.ocr_unread(round_out), [])
+        finally:
+            D.OCR_FOLD, D.FRAME_GRACE = saved
         self.assertEqual(gate.ocr_unread(Path("/nonexistent-rv")), [])
 
 

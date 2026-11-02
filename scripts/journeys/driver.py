@@ -533,14 +533,20 @@ OCR_NEAR_MIN_LEN = 8    # a misread is excused only in a text this long (a nonce
 
 def ocr_near(lines, wanted):
     """The OCR line that shows `wanted` but for ONE glyph read as a character that is no ASCII letter or digit (after
-    the fold), at the same place, with nothing added or dropped; else None. The journey's own lines differ from each
-    other in one letter or digit (t1/t2, d1/d2, w2/w3/w4: same nonce, same -42), so a frame that shows ANOTHER of them
-    (a wrong tab, workspace or pane) is never taken for a misread (review BLOCK of fe97166ee14); a blank frame or the
-    echoed command has no such line either. The two real misreads: "w" read as "\u20a9", "t" read as "+"."""
+    the fold), at the same place, with nothing added or dropped, and whose line just before shows the command that
+    printed it (the text up to its last "-", e.g. "t2-445843-" of "echo t2-445843-$((6*7))") read exactly; else None.
+    The journey's own lines differ from each other in one letter or digit (t1/t2, d1/d2, w2/w3/w4: same nonce, same
+    -42), so a frame that shows ANOTHER of them (a wrong tab, workspace or pane) is never taken for a misread (review
+    BLOCK of fe97166ee14), not even when the glyph where they differ is the one misread (review of 69bf2eb66b4): that
+    line's own command is above it. A blank frame or the echoed command alone has no such line either. The two real
+    misreads: "w" read as "\u20a9", "t" read as "+"."""
     target = _ocr_fold(wanted)
-    if len(target) < OCR_NEAR_MIN_LEN:
+    stem = _ocr_fold(wanted.rsplit("-", 1)[0] + "-") if "-" in wanted else ""
+    if len(target) < OCR_NEAR_MIN_LEN or len(stem) < OCR_NEAR_MIN_LEN - 2 or stem == target:
         return None
-    for line in lines:
+    for n, line in enumerate(lines):
+        if n == 0 or stem not in _ocr_fold(lines[n - 1]):
+            continue
         text = _ocr_fold(line)
         for at in range(len(text) - len(target) + 1):
             part = text[at:at + len(target)]
