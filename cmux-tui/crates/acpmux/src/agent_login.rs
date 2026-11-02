@@ -151,7 +151,12 @@ pub struct Cli {
 impl Cli {
     /// A variable as the CLI sees it: the profile's, else this daemon's.
     fn var(&self, key: &str) -> Option<String> {
-        self.env.get(key).cloned().or_else(|| std::env::var(key).ok()).filter(|v| !v.is_empty())
+        self.env
+            .get(key)
+            .cloned()
+            .or_else(|| crate::login_env::var(key))
+            .or_else(|| std::env::var(key).ok())
+            .filter(|v| !v.is_empty())
     }
 
     fn home(&self) -> PathBuf {

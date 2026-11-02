@@ -82,6 +82,54 @@ fn session_evidence(meta: &SessionMeta) -> Option<TurnEvidence> {
     last.and_then(turn_evidence)
 }
 
+/// Terminal logins do not call agent_login/finish. A dedicated credential file written after
+/// the failed turn is evidence of a replacement, never evidence that the replacement works.
+/// Read metadata only; settings files and the keychain are deliberately not probed here.
+fn credential_file_changed(
+    family: &str,
+    env: &BTreeMap<String, String>,
+    home: Option<&Path>,
+    after: u64,
+) -> Option<u64> {
+    let file = match family {
+        "claude" => ".credentials.json",
+        "codex" => "auth.json",
+        _ => return None,
+    };
+    let home = home.map(PathBuf::from).or_else(|| account_home(family, env))?;
+    let modified = std::fs::metadata(home.join(file))
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis();
+    let modified = u64::try_from(modified).ok()?;
+    // A future timestamp is not evidence of a login since this turn.
+    (modified > after && modified <= now_ms()).then_some(modified)
+}
+
+fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf> {
+    let var = route_account::home_var(family)?;
+    let effective = crate::login_env::effective_for(Some(family), env);
+    effective.get(var).filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| {
+        effective
+            .get("HOME")
+            .map(PathBuf::from)
+            .or_else(dirs::home_dir)
+            .map(|p| p.join(format!(".{family}")))
+    })
+}
+
+fn mark_credentials_changed(meta: &mut SessionMeta, at: u64) {
+    let last = meta.last_turn.as_ref();
+    meta.auth_change = Some(crate::store::AuthChange {
+        at,
+        turn_id: last.and_then(|v| v.get("turnId")).and_then(Value::as_str).map(str::to_owned),
+        ended_at: last.and_then(|v| v.get("endedAt")).and_then(Value::as_u64),
+    });
+}
+
 /// The evidence one answer is decided from, in the module's order.
 #[derive(Debug, Default)]
 pub(crate) struct Facts {
@@ -100,7 +148,8 @@ pub(crate) struct Facts {
 impl Facts {
     /// Whether the evidence before the harness check already answers.
     fn settled(&self) -> bool {
-        self.route_state().is_some() || self.turn.is_some()
+        self.route_state().is_some()
+            || self.turn.as_ref().is_some_and(|(_, t)| t.state != State::Ready)
     }
 
     fn route_state(&self) -> Option<State> {
@@ -154,7 +203,15 @@ impl Facts {
             }
             return out;
         }
-        if let Some((from, turn)) = self.turn {
+        // A fresh conclusive refusal can supersede an old successful turn. Mere local
+        // credential presence never supersedes a failed turn, and network errors prove neither.
+        let newer_refusal = self.turn.as_ref().is_some_and(|(_, turn)| {
+            turn.state == State::Ready
+                && self.check.as_ref().is_some_and(|(at, check)| {
+                    *at >= turn.at && matches!(check, Ok((Auth::SignedOut | Auth::Expired, _)))
+                })
+        });
+        if let Some((from, turn)) = self.turn.filter(|_| !newer_refusal) {
             out.state = turn.state;
             out.source = if turn.state == State::Unknown { Source::None } else { Source::Turn };
             out.evidence_at = Some(turn.at);
@@ -257,17 +314,8 @@ impl Hub {
             &meta,
             with_defaults(&defaults, self.harness_env(&meta).await.1),
         );
-        if let Some(var) = route_account::home_var(family) {
-            let effective = crate::login_env::effective_for(Some(family), &profile.env);
-            let home =
-                home.or_else(|| effective.get(var).map(PathBuf::from)).unwrap_or_else(|| {
-                    effective
-                        .get("HOME")
-                        .map(PathBuf::from)
-                        .or_else(dirs::home_dir)
-                        .unwrap_or_default()
-                        .join(format!(".{family}"))
-                });
+        if let (Some(var), Some(home)) = (route_account::home_var(family), home) {
+            // Pinning the default Claude home would move its .claude.json, so leave it unset.
             profile.env.insert(var.into(), home.display().to_string());
         }
         Ok((profile, route.map(|(r, _)| r.id)))
@@ -281,12 +329,14 @@ impl Hub {
         home: &Path,
         route: Option<&str>,
     ) -> Result<(), RpcError> {
-        let Some(var) = route_account::home_var(family) else { return Ok(()) };
+        if route_account::home_var(family).is_none() {
+            return Ok(());
+        }
         for session in self.sessions() {
             let Ok((profile, current_route)) = self.login_profile(&session, family).await else {
                 continue;
             };
-            if profile.env.get(var).map(Path::new) != Some(home)
+            if account_home(family, &profile.env).as_deref() != Some(home)
                 || current_route.as_deref() != route
             {
                 continue;
@@ -294,16 +344,7 @@ impl Hub {
             self.session_log(&session).await;
             {
                 let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-                let last = meta.last_turn.as_ref();
-                let change = crate::store::AuthChange {
-                    at: now_ms(),
-                    turn_id: last
-                        .and_then(|v| v.get("turnId"))
-                        .and_then(Value::as_str)
-                        .map(str::to_owned),
-                    ended_at: last.and_then(|v| v.get("endedAt")).and_then(Value::as_u64),
-                };
-                meta.auth_change = Some(change);
+                mark_credentials_changed(&mut meta, now_ms());
             }
             self.save_meta_answered(&session)?;
         }
@@ -400,6 +441,50 @@ impl Hub {
                 self.sibling_turn(&harness, &siblings, &home).await
             }
         };
+        if refresh
+            && let Some((_, previous)) = &facts.turn
+            && matches!(previous.state, State::SignedOut | State::Expired)
+        {
+            let after = previous.at;
+            let family = family.clone();
+            let env = match &meta {
+                Some(meta) => route_account::spawn_env(
+                    meta,
+                    with_defaults(&defaults, self.harness_env(meta).await.1),
+                ),
+                None => with_defaults(&defaults, env.clone()),
+            };
+            let home = home.clone();
+            let changed = tokio::task::spawn_blocking(move || {
+                credential_file_changed(&family, &env, home.as_deref(), after)
+            })
+            .await
+            .unwrap_or(None);
+            if let (Some(at), Some((id, evidence))) = (changed, facts.turn.as_mut()) {
+                if let Ok(changed_session) = self.resolve(id) {
+                    {
+                        let mut meta =
+                            changed_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                        // The file probe awaited off-thread: do not invalidate a newer turn.
+                        if meta
+                            .last_turn
+                            .as_ref()
+                            .and_then(turn_evidence)
+                            .is_some_and(|t| t.at == after)
+                        {
+                            mark_credentials_changed(&mut meta, at);
+                        }
+                    }
+                    self.save_meta_answered(&changed_session)?;
+                }
+                *evidence = TurnEvidence {
+                    state: State::Unknown,
+                    at,
+                    detail: "the credential file changed; the next turn will check the new sign-in"
+                        .into(),
+                };
+            }
+        }
         if !facts.settled()
             && refresh
             && let Some(mut profile) = profile
@@ -652,6 +737,45 @@ mod tests {
                 matches!(state, State::SignedOut | State::Expired | State::RouteAuthNeeded);
             assert_eq!(out.login.is_some(), blocks, "{out:?}");
         }
+    }
+
+    #[test]
+    fn a_new_refusal_supersedes_an_old_success_but_presence_does_not_clear_a_failure() {
+        for auth in [Auth::Expired, Auth::SignedOut] {
+            let f = facts(None, Some(turn("completed", None, "", 7)), Some(Ok(auth)));
+            assert!(!f.settled(), "an old success permits an explicit fresh check");
+            let out = f.decide();
+            assert_eq!(out.source, Source::AuthCheck);
+            assert!(matches!(out.state, State::Expired | State::SignedOut));
+        }
+        for check in [Ok(Auth::SignedIn), Ok(Auth::Unknown), Err("network error")] {
+            let out =
+                facts(None, Some(turn("failed", Some("auth.expired"), "expired", 7)), Some(check))
+                    .decide();
+            assert_eq!((out.state, out.source), (State::Expired, Source::Turn));
+        }
+        let out =
+            facts(None, Some(turn("completed", None, "", 7)), Some(Err("network error"))).decide();
+        assert_eq!((out.state, out.source), (State::Ready, Source::Turn));
+    }
+
+    #[test]
+    fn credential_change_survives_metadata_reload_without_changing_turn_history() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "chat", "name": "chat", "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        assert!(meta.auth_change.is_none(), "older metadata remains readable");
+        let history = turn("failed", Some("auth.expired"), "expired", 7);
+        meta.last_turn = Some(history.clone());
+        mark_credentials_changed(&mut meta, 9);
+        let encoded = serde_json::to_value(&meta).unwrap();
+        let mut restored: SessionMeta = serde_json::from_value(encoded).unwrap();
+        assert_eq!(restored.last_turn, Some(history));
+        assert_eq!(session_evidence(&restored).unwrap().state, State::Unknown);
+        restored.last_turn = Some(turn("failed", Some("auth.expired"), "still expired", 10));
+        assert_eq!(session_evidence(&restored).unwrap().state, State::Expired);
     }
 
     /// No evidence, a check that could not answer, a connection error or a cancel: unknown,

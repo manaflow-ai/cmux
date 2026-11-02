@@ -158,6 +158,34 @@ async fn agent_login_respects_default_and_route_account_homes() {
     assert!(!root.join("canonical/settings.json").exists());
 }
 
+#[tokio::test]
+async fn session_auth_refresh_recognizes_a_terminal_login_in_only_its_account() {
+    let root = scratch("terminal-login");
+    std::fs::create_dir_all(root.join("claude-two")).unwrap();
+    let credential = root.join("claude-two/.credentials.json");
+    std::fs::write(&credential, "old credential").unwrap();
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let id = c.new_session(Some("two")).await;
+    let other = c.new_session(None).await;
+    for session in [&id, &other] {
+        c.prompt(session, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    }
+    let before = hub.resolve(&id).unwrap().meta().last_turn;
+    let unchanged = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(state(&unchanged), ("signedOut", "turn"), "an unchanged file proves nothing");
+    // The credential-file timestamp must be strictly newer than the failed turn's millisecond.
+    tokio::time::sleep(Duration::from_millis(2)).await;
+    std::fs::write(&credential, "replacement credential").unwrap();
+    let changed = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(changed["state"], "unknown", "a changed file permits retry: {changed}");
+    let cached = c.auth(json!({"sessionId": id})).await;
+    assert_eq!(cached["state"], "unknown", "a non-refresh must not revive the failure");
+    let untouched = c.auth(json!({"sessionId": other, "refresh": true})).await;
+    assert_eq!(state(&untouched), ("signedOut", "turn"), "{untouched}");
+    assert_eq!(hub.resolve(&id).unwrap().meta().last_turn, before);
+}
+
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 fn client(hub: &Arc<Hub>) -> Client {
