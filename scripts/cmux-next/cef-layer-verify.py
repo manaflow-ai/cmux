@@ -64,10 +64,8 @@ accessibility, extension popups and full screen are not covered here (see the de
 Run on a GUI fleet host, never a laptop:
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/cef-layer-verify.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS" --mode on
-On a capture mini (CuaDriver granted), through the measure suite:
-  cmux-ci run --class exclusive --measurement --label measure --display --target-worker cmux11s-Mac-mini.local \\
-    --script scripts/measure/split-spring.sh --arg=--suite=cef-api30 --arg=--parts=verify-on-cua,verify-off-cua \\
-    --ref SHA --artifact artifacts/split-spring/bundle.tar.gz
+On a capture mini, where the CuaDriver daemon holds Accessibility and Screen Recording (the python step needs neither):
+    python3 scripts/cmux-next/cef-layer-verify.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS" --mode on --input cua
 """
 import argparse, ctypes, glob, json, os, pathlib, signal, socket, struct, subprocess, sys, tempfile, time
 
@@ -97,7 +95,7 @@ CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
 json.dump({"version": 1, "values": {"browserResize.layerHosting": opts.mode == "on"}}, open(TUNABLES, "w"))
-# Left of the top-right corner, where macOS shows notification banners: one there (an iCloud alert on cmux11s) took the
+# Left of the top-right corner, where macOS shows notification banners: one there took the
 # clicks meant for the page (step dc19047674621e1ae9bb11aa).
 WINDOW = (40, 40, 1300, 900)
 KEY = "browserResize.layerHosting"
