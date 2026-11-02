@@ -448,8 +448,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
-        // quit (`TerminalLaunchFrames`, which takes over one shown ahead); other content (a page, an agent) is ready once shown.
-        if case .terminal(let terminal) = content, let key { launchFrames.show(key, on: terminal.session, in: view.contentHost) } else { launchFrames.withdrawAhead(in: view.contentHost) }
+        // quit or kill (`TerminalLaunchFrames`, which takes over one shown ahead and keeps it on disk); other content is ready once shown.
+        if case .terminal(let terminal) = content, let key { launchFrames.show(key, on: terminal.session, in: view.contentHost); launchFrames.keep(key, session: terminal.session, work: services.work) } else { launchFrames.withdrawAhead(in: view.contentHost) }
         if let content, !content.isTerminal {
             LaunchReveal.shared.markReady(.pane)
             // The page may have attached while the pane was alpha-held for launch. AppKit's
