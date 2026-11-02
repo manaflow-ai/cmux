@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextLayout
 import Testing
 
@@ -10,6 +11,10 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct RestoredWindowOpensInPlaceTests {
     @Test func theLaunchWindowOpensWithNoAnimation() {
         _ = NSApplication.shared
+        // Motion on: the window opens in place because the launch restores it, not because animations are off.
+        let previous = Motion.reduceMotionOverride
+        defer { Motion.reduceMotionOverride = previous }
+        Motion.reduceMotionOverride = false
         let services = AppServices(environment: AppEnvironment.current([:]))
         // The launch, before its restore ended (the launch snapshot's window, `restoreWhenLoaded`).
         services.windows.registry.isLaunching = true
