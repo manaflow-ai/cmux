@@ -623,6 +623,23 @@
   font-weight: 600;
   letter-spacing: var(--text-body--letter-spacing);
 }
+/* A pinned document keeps the originating chat visible while browsing other conversations. */
+.acpmux-artifact-source {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  color: var(--agent-muted);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+@media (max-width: 720px) {
+  .acpmux-artifact-source {
+    display: none;
+  }
+}
 .acpmux-artifact-versions {
   display: inline-flex;
   align-items: center;
@@ -742,7 +759,8 @@
   .cv-received-actions,
   .cv-received__hover,
   .cv-reply-actions,
-  .acpmux-turnSummary .cv-turn-actions {
+  .acpmux-turnSummary .cv-turn-actions,
+  .cv-turn-actions .cv-turn-time {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-user:hover .cv-user__actions,
@@ -754,7 +772,10 @@
   .acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
   .acpmux-turnSummary:hover .cv-turn-actions,
-  .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions {
+  .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
+  .acpmux-turnSummary[data-turn-revealed] .cv-turn-time,
+  .acpmux-turnSummary:hover .cv-turn-time,
+  .acpmux-assistant:hover .cv-reply-actions .cv-turn-time {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
 }
@@ -2092,14 +2113,15 @@ pre.cv-math-source {
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
    WORKING-LOOK: agent work draws the look the app picks, `data-working-look` on the root (Debug
    Settings `status.working`):
-   - spinner (the default, also with no attribute or an unknown value): the turning arc;
+   - spinner (the default, also with no attribute or an unknown value): the faint ring with its
+     turning sweep;
    - breathe (explicit choice only): the accent dot breathing on the shared clock;
    - shimmer: a still dot in the theme accent, and a light band crosses the row's words.
    A loading mark (no `data-working`) is always the ring. Every loop runs on the shared clock
    (ui/spinnerClock.ts), so many rows move as one, and holds still under Reduce Motion and the
    static look (the mark stopped). The mark's own default (dot hidden, the mark turning) lives in
    spinner.css, which `Spinner` imports, so it holds on every page that draws one. */
-:root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] .cv-spinner__arc {
+:root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] :is(.cv-spinner__track, .cv-spinner__sweep) {
   display: none;
 }
 :root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] .cv-spinner__dot {
@@ -3645,7 +3667,7 @@ a.cv-sha:focus-visible {
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
-/* An empty footer (turns.ts isEmptyFooter: no label, no answer to copy, only Pin, Fork and the age,
+/* An empty footer (turns.ts isEmptyFooter: no answer to copy, only Pin, Fork and the time,
    all hover-only) takes no line: the row is its turn gap alone, and pointed at, the controls show
    over that gap (at least the meta line's height), so nothing moves (Leo, 2026-10-21: a "Worked for 0s" row
    took a full line). The chat's last footer keeps that same gap, so its hidden controls never add a
@@ -3658,7 +3680,7 @@ a.cv-sha:focus-visible {
   display: none;
 }
 /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
-   right edge, the actions after the time. */
+   right edge. */
 :root[data-turn-actions-placement="right"] .cv-turn-actions {
   justify-content: flex-end;
   padding-inline: 0 2px;
@@ -3673,8 +3695,9 @@ a.cv-sha:focus-visible {
 }
 /* The row's first glyph starts where the reply's text does, as Codex's and Claude's copy glyph does
    (Leo, 2026-10-30: "WE NEED TO LINE OUR SHIT UP LIKE THEIRS"; design/grid.md 5.5, the action row's
-   first glyph on col-left): its 24px button overhangs the column by the glyph's inset, 4px. A
-   footer that says its time first ("Worked for 5s") starts that label on the column instead. */
+   first glyph on col-left): its button overhangs the column by the glyph's inset, and the row itself
+   starts on the column (inset-inline below), so the ink lands on it exactly. Nothing comes before the
+   buttons (Leo, 2026-11-02: "those buttons should always just be there left aligned"). */
 .cv-reply-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
 .cv-turn-actions .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
   margin-inline-start: calc((var(--cv-glyph-slot) - var(--cv-meta-row)) / 2);
@@ -3776,14 +3799,14 @@ a.cv-sha:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
 }
-.cv-turn-summary,
 .cv-turn-note,
 .cv-turn-time {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
 /* Hidden, its space kept, but for a failed turn, the turn the reader points at (data-turn-revealed,
-   VirtualTranscript) or keyboard focus. */
+   VirtualTranscript), keyboard focus, or the turn that ends the chat (App.tsx `acpmux-row--final-footer`):
+   once the agent is done its Copy shows without a hover, as Claude's and ChatGPT's (Leo, 2026-11-02). */
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
@@ -3793,7 +3816,23 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
-.acpmux-turnSummary .cv-turn-actions--resumable {
+.acpmux-turnSummary .cv-turn-actions--resumable,
+.acpmux-row--final-footer .cv-turn-actions {
+  opacity: 1;
+}
+/* A reply's time comes after its buttons, hidden at rest, and shows while the reader points at the
+   reply, as ChatGPT's exact time does (MessageActions.tsx ReplyTime; Leo, 2026-11-02: "notice how on
+   hover it reveals the exact timestamp"). Its space is kept, so the buttons never move. */
+.cv-turn-actions .cv-turn-time {
+  opacity: 0;
+}
+.acpmux-turnSummary[data-turn-revealed] .cv-turn-time,
+.acpmux-turnSummary:hover .cv-turn-time,
+.acpmux-turnSummary:focus-visible .cv-turn-time,
+.acpmux-turnSummary .cv-turn-actions:focus-within .cv-turn-time,
+.acpmux-assistant:hover .cv-reply-actions .cv-turn-time,
+.acpmux-assistant:focus-visible .cv-reply-actions .cv-turn-time,
+.cv-reply-actions:focus-within .cv-turn-time {
   opacity: 1;
 }
 /* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
@@ -3801,7 +3840,9 @@ a.cv-sha:focus-visible {
    the reader points at the reply or a button in it has keyboard focus. */
 .cv-reply-actions {
   position: absolute;
-  inset-inline: calc(-1 * var(--cv-action-overhang));
+  /* Its left edge on the prose's: the first button's own margin (above) puts that glyph's ink on
+     col-left. Only the end overhangs, so the last control's box can end past the column. */
+  inset-inline: 0 calc(-1 * var(--cv-action-overhang));
   top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
   margin: 0;
   opacity: 0;
@@ -3822,7 +3863,6 @@ a.cv-sha:focus-visible {
   color: var(--agent-accent, var(--cv-text));
   background: color-mix(in srgb, var(--agent-accent, currentColor) 14%, transparent);
 }
-.cv-turn-summary,
 .cv-turn-time {
   flex: none;
   white-space: nowrap;
@@ -5190,7 +5230,9 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 .acpmux-turnSummary:not(:has(.cv-turn-actions--failed, .cv-turn-actions--resumable)) .cv-turn-actions {
   position: absolute;
-  inset-inline: calc(-1 * var(--cv-action-overhang));
+  /* Starts on the prose's left edge, as .cv-reply-actions: the first button's margin alone moves its
+     glyph's ink onto col-left (the row's overhang as well put it 6px left of the prose). */
+  inset-inline: 0 calc(-1 * var(--cv-action-overhang));
   top: calc((var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
 /* The last footer's gap to the composer is the block gap too (transcriptGrid.ts tailGap), so its
@@ -5408,6 +5450,17 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
   margin: 0;
   padding: 0;
+}
+/* A waiting steer keeps its action row in flow (model.ts userMetaHeight reserves it), but draws it
+   where the sent prompt's row sits: half the turn gap's spare under the bubble, overhanging
+   col-right by the control's inset. Sending it then moves nothing (design/grid.md 5.5: the row's
+   glyphs sit 4 under the message "in every case"; queued-user-footer.test.ts). */
+.cv-user:has(.cv-user__pending) > .cv-user__actions,
+.cv-user:has(.cv-user__pending) > .cv-user__body > .cv-user__actions {
+  position: relative;
+  top: calc((var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
+  right: calc(-1 * var(--cv-action-overhang));
+  padding-right: 0;
 }
 
 

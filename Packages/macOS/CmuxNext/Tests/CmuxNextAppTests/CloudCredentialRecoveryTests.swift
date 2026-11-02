@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 @testable import CmuxNextApp
 import Foundation
 import Testing
@@ -24,6 +25,12 @@ struct CloudCredentialRecoveryTests {
         }
     }
 
+    /// The transfer the restart follows; `creator` is the DEV creator allowance.
+    static func transfer(creator: Bool = false) -> CloudCredentialTransfer {
+        CloudCredentialTransfer(provider: .claude, machineID: "vm", teamID: "t", userID: "u", allowsCreatorTeamGuest: creator,
+                                openTerminal: { _ in false })
+    }
+
     @Test func restartMustFinishBeforeRetryAndNeverExposesProviderErrors() async throws {
         for (reply, accepted) in [
             (#"{"restarted":1,"after_turn":0,"failed":0,"errors":[]}"#, true),
@@ -32,15 +39,30 @@ struct CloudCredentialRecoveryTests {
             (#"{"restarted":0,"after_turn":0,"failed":1,"errors":[{"error":"private diagnostic"}]}"#, false),
             (#"{"restarted":1}"#, false), ("invalid", false),
         ] {
-            let recovered = try await CloudPresenter.restartCredentialSession("chat-1", exec: { command in
+            let recovered = try await CloudPresenter.restartCredentialSession("chat-1", guestCheck: Self.transfer().restartGuestCheck, exec: { command in
                 #expect(command.contains("acp --json session restart chat-1"))
                 return CloudExecResult(exitCode: 0, stdout: reply, stderr: "private diagnostic")
             })
             #expect(recovered == accepted)
         }
-        #expect(try await !CloudPresenter.restartCredentialSession("chat-1", exec: { _ in
+        #expect(try await !CloudPresenter.restartCredentialSession("chat-1", guestCheck: Self.transfer().restartGuestCheck, exec: { _ in
             CloudExecResult(exitCode: 1, stdout: #"{"restarted":1,"after_turn":0,"failed":0}"#, stderr: "")
         }))
+    }
+
+    /// The restart checks the guest kind the transfer installed on: an owner guest, or with the DEV
+    /// creator allowance a team guest as well.
+    @Test func restartAcceptsTheCreatorsTeamGuestOnlyWithTheAllowance() async throws {
+        var commands: [String] = []
+        let ok = #"{"restarted":1,"after_turn":0,"failed":0,"errors":[]}"#
+        _ = try await CloudPresenter.restartCredentialSession("chat-1", guestCheck: Self.transfer().restartGuestCheck, exec: { command in
+            commands.append(command); return CloudExecResult(exitCode: 0, stdout: ok, stderr: "")
+        })
+        _ = try await CloudPresenter.restartCredentialSession("chat-1", guestCheck: Self.transfer(creator: true).restartGuestCheck, exec: { command in
+            commands.append(command); return CloudExecResult(exitCode: 0, stdout: ok, stderr: "")
+        })
+        #expect(commands[0].contains("in owner)") && !commands[0].contains("team"))
+        #expect(commands[1].contains("in owner|team)"))
     }
 
     @Test func credentialRecoveryConfirmationIsAlwaysUserOnly() {

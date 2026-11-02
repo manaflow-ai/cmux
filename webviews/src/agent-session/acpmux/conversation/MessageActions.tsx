@@ -12,7 +12,7 @@ import type { AcpmuxRow } from "../model";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopReading, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, relativeTime } from "./relativeTime";
+import { exactTime, relativeTime, replyTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
@@ -37,6 +37,27 @@ export function MessageTime({ at, className }: { at: number; className: string }
       data-tooltip-side="top"
     >
       {relativeTime(at, now, language)}
+    </time>
+  );
+}
+
+/// A reply's time at the end of its action row, after the buttons, as ChatGPT's: the exact date and
+/// time ("Oct 18, 5:41 AM"), hidden at rest and shown while the reader points at the reply
+/// (conversation.css `.cv-turn-time`; Leo, 2026-11-02: "notice how on hover it reveals the exact
+/// timestamp. let's follow those."). `detail`, when given, is its tooltip (the turn's time and tokens).
+export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
+  const now = useMinuteClock();
+  const language = usePaneLanguage();
+  return (
+    <time
+      className="cv-turn-time"
+      dateTime={new Date(at).toISOString()}
+      /* tooltip-allow: the turn's time and tokens, which the row no longer spells out (Leo, 2026-11-02) */ title={
+        detail
+      }
+      data-tooltip-side="top"
+    >
+      {replyTime(at, now, language)}
     </time>
   );
 }
@@ -332,7 +353,7 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
 
 /// The row under a reply that its turn's footer does not serve (model.ts `hasReplyActions`: a
 /// steer, another agent's message, a sent message or a tool row follows it): the footer's look and
-/// buttons for this reply, Copy, Pin, Read aloud and More, then its age, as Claude desktop draws
+/// buttons for this reply, Copy, Pin, Read aloud and More, then its time (shown on hover), as Claude desktop draws
 /// under every reply. Its line is reserved; it shows on hover or keyboard focus (conversation.css).
 export function ReplyActions({ row }: { row: AcpmuxRow }) {
   const text = row.text ?? "";
@@ -347,7 +368,7 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <ReadAloudButton id={row.id} text={text} />
         <MessageMore rowId={row.id} />
       </span>
-      <MessageTime at={row.at} className="cv-turn-time" />
+      <ReplyTime at={row.at} />
     </div>
   );
 }

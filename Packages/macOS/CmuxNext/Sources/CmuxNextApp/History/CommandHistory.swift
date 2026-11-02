@@ -16,7 +16,9 @@ import os
 final class CommandHistory {
     private unowned let services: AppServices
     private var mirrors: [String: TerminalCommandMirror] = [:]
-    private var suggestionStore = TerminalCommandSuggestionStore()
+    /// Repeated successful commands for one exact machine and directory, rebuilt from the mirrors
+    /// (``TerminalCommandSuggestionStore``). The projection is opt-in with command history and never runs a command.
+    var suggestions = TerminalCommandSuggestionStore()
     private var refreshing: Task<Void, Never>?
     private var observation: Task<Void, Never>?
     /// What each connected daemon was last sent, by machine; a restarted
@@ -134,25 +136,7 @@ final class CommandHistory {
                 mirrors[machine] = nil
             }
         }
-        suggestionStore.replace(mirrors.values.flatMap(\.commands))
-    }
-
-    /// Repeated successful commands for one exact machine and directory. The
-    /// projection is opt-in with command history and never runs a command.
-    func suggestions(machine: String, cwd: String) -> [TerminalCommandSuggestion] {
-        suggestionStore.suggestions(machine: machine, cwd: cwd)
-    }
-
-    func dismissSuggestion(_ suggestion: TerminalCommandSuggestion) {
-        suggestionStore.dismiss(suggestion)
-    }
-
-    func clearSuggestions() {
-        suggestionStore.clear()
-    }
-
-    func exportSuggestion(_ suggestion: TerminalCommandSuggestion, name: String? = nil) -> String {
-        suggestionStore.exportAction(suggestion, name: name)
+        suggestions.replace(mirrors.values.flatMap(\.commands))
     }
 
     static func command(_ row: TerminalCommandRow, machine: String) -> TerminalCommand? {
@@ -179,7 +163,7 @@ final class CommandHistory {
     /// after `since` (nil: all).
     func delete(since: Date?) {
         for machine in mirrors.keys { mirrors[machine]?.remove(startedSince: since) }
-        suggestionStore.replace(mirrors.values.flatMap(\.commands))
+        suggestions.replace(mirrors.values.flatMap(\.commands))
         let selection: DeleteTerminalCommandsRequest.Selection = since.map { .startedSince($0) } ?? .all
         for daemon in daemons() {
             let machine = daemon.machineID
@@ -192,7 +176,7 @@ final class CommandHistory {
     /// Deletes one command in its daemon.
     func delete(_ command: TerminalCommand) {
         mirrors[command.machine]?.remove(ids: [command.id])
-        suggestionStore.replace(mirrors.values.flatMap(\.commands))
+        suggestions.replace(mirrors.values.flatMap(\.commands))
         guard let daemon = daemons().first(where: { $0.machineID == command.machine }) else { return }
         let id = String(command.id)
         let machine = command.machine

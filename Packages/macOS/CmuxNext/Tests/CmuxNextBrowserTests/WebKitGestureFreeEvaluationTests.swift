@@ -65,8 +65,12 @@ import WebKit
         let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         view.loadHTMLString("<!doctype html><title>spi</title><p>spi</p>", baseURL: nil)
         let any = WebKitGestureFreeEvaluation(webView: view)
+        // The title too: the empty initial document is already `complete` before the HTML load commits, and a
+        // test that reads `document.title` there gets "".
         for _ in 0..<600 {
-            if (try? await any.evaluate("document.readyState", in: .page)) == .string("complete") { return view }
+            if (try? await any.evaluate("document.readyState === 'complete' && document.title === 'spi'", in: .page)) == .bool(true) {
+                return view
+            }
             try await Task.sleep(for: .milliseconds(25))
         }
         throw BrowserTabError.timedOut("load")
