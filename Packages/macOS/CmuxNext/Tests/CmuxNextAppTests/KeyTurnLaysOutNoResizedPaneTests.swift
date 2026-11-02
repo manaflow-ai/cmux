@@ -8,9 +8,9 @@ import Testing
 /// `layoutSubtreeIfNeeded` on each, then that layout through the Core Animation commit. In the suite's xctrace
 /// profiles that synchronous layout and its commit are most of the 20-40 ms key turn, which misses a refresh at
 /// 120 Hz. Chrome's model: the input turn changes the model and the compositor moves layers; layout runs once per
-/// frame, at the frame's tick. So in the key turn a resized pane's host takes its first-frame rect and its content
-/// keeps the size it has (pinned and clipped); its first layout at a new size runs at the first display tick, and
-/// from there it lays out live every frame as before. A new pane (no content size yet) still lays out to show.
+/// frame, at the frame's tick. So in a close's key turn a resized pane's host takes its first-frame rect and its
+/// content keeps the size it has (pinned and clipped); its first layout at a new size runs at the first display tick,
+/// and from there it lays out live every frame as before.
 /// The test is the layout's clock (120 Hz); the display link never ticks.
 @MainActor
 @Suite(.closesItsWindows)
@@ -67,10 +67,6 @@ struct KeyTurnLaysOutNoResizedPaneTests {
         }
     }
 
-    static func columns(_ panes: [PaneID]) -> ScreenLayout {
-        .columns(panes.map { LayoutColumn(id: ColumnID("c-\($0.rawValue)"), width: 1.0 / 3, root: .leaf($0)) })
-    }
-
     /// Checks the key turn moved the hosts and resized no content, and the first tick lays the content out.
     static func expectNoLayoutInKeyTurn(_ app: Window, panes: [PaneID], before: [PaneID: CGSize], hostsBefore: [PaneID: CGSize],
                                         sourceLocation: SourceLocation = #_sourceLocation) {
@@ -100,33 +96,36 @@ struct KeyTurnLaysOutNoResizedPaneTests {
         }
     }
 
-    /// Cmd-W on the middle column: the two neighbours grow in the close's first frame without a layout in the key turn.
-    @Test func aClosesKeyTurnLaysOutNoGrowingPane() {
-        let app = Window(Self.columns(["p1", "p2", "p3"]), focus: "p2")
+    static let row: SplitNode = .split("r1", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p1"),
+                                       b: .split("r2", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))
+
+    /// Cmd-W on the middle of three splits in a row (the suite's close-in-row case): the two neighbours grow in the
+    /// close's first frame (the lead frame) without a layout in the key turn.
+    @Test func aClosesKeyTurnLaysOutNoGrowingPane() throws {
+        let app = Window(.splits(Self.row), focus: "p2")
         defer { app.window.closeAfterTest() }
         let panes: [PaneID] = ["p1", "p3"]
         let before = app.sizes(panes)
         let hostsBefore = Dictionary(uniqueKeysWithValues: panes.map { ($0, app.root.context.hosts[$0]!.frame.size) })
-        app.model.focus("p1", notify: false)
-        app.show(Self.columns(["p1", "p3"]))
+        _ = try #require(app.model.showPaneClose("p2"), "fixture: the layout shows the close")
+        app.root.syncWithModel()
         Self.expectNoLayoutInKeyTurn(app, panes: panes, before: before, hostsBefore: hostsBefore)
     }
 
-    /// Cmd-D on p2 of a pair: p1 and p2 shrink in the split's first frame without a layout in the key turn; the new
-    /// pane (no content yet) lays out to show.
-    @Test func aSplitsKeyTurnLaysOutNoShrinkingPane() {
+    /// Guard: Cmd-D's key turn resizes no existing pane on the base either (a split has no lead frame; its new pane
+    /// grows from the edge from the first tick), and stays so.
+    @Test func aSplitsKeyTurnResizesNoExistingPanesContent() {
         let pair: SplitNode = .split("r", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
         let split: SplitNode = .split("r", axis: .horizontal, ratio: 0.5, a: .leaf("p1"),
                                       b: .split("n", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))
         let app = Window(.splits(pair), focus: "p2")
         defer { app.window.closeAfterTest() }
-        let panes: [PaneID] = ["p2"]
-        let before = app.sizes(panes)
-        let hostsBefore = Dictionary(uniqueKeysWithValues: panes.map { ($0, app.root.context.hosts[$0]!.frame.size) })
+        let before = app.sizes(["p1", "p2"])
         _ = app.model.showSplitSizing(app.model.splitSizingChanges(splitting: "p2", axis: .horizontal))
         app.show(.splits(split))
-        let created = app.provider.contents["p3"]
-        #expect(created.map { $0.frame.width >= 1 } == true, "the new pane did not lay out to show in the key turn")
-        Self.expectNoLayoutInKeyTurn(app, panes: panes, before: before, hostsBefore: hostsBefore)
+        #expect(app.screen.hasMotion, "fixture: the split springs")
+        for pane: PaneID in ["p1", "p2"] {
+            #expect(app.provider.contents[pane]!.frame.size == before[pane], "\(pane): the split's key turn laid its content out")
+        }
     }
 }
