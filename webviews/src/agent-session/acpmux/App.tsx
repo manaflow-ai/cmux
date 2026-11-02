@@ -571,6 +571,7 @@ import { useTranscriptView, type TranscriptView } from "./conversation/transcrip
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
+import { AutoResumeNotice } from "./AutoResumeNotice";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
@@ -12723,6 +12724,7 @@ function AcpmuxPane() {
             {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
           </output>
         </Notice>
+        {!showNewTab && <AutoResumeNotice state={snapshot.autoResume} />}
         <Notice
           id="worktree-creating"
           tier="status"

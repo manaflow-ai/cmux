@@ -64,7 +64,7 @@ enum WorkspaceVerbHandlers {
                 let workspace = try context.workspace(invocation).model, ref = invocation["anchor"]?.targetValue
                 guard let anchor = ref.flatMap({ context.services.workspace(id: $0.id) }) else { throw ActionFailure.notFound(RefusalStrings.noWorkspace(ref?.id ?? "")) }
                 let bridge = try sidebar(showing: anchor, context)
-                switch WorkspaceSlot.beside(anchor.id, below: below, moving: workspace.id, in: bridge.model.sections, onDocument: SidebarDocWiring.isActive) {
+                switch WorkspaceSlot.beside(anchor.id, below: below, moving: workspace.id, in: bridge.model.sections, onDocument: context.services.sidebarDoc.isActive) {
                 case .success(let position): bridge.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position)); return .done
                 case .failure(.needsDocument): throw ActionFailure.invalidTarget(context.services.sidebarLayout.unavailableReason ?? RefusalStrings.workspaceNotInSidebar)
                 case .failure(.elsewhere): throw ActionFailure.invalidTarget(WorkspaceVerbStrings.anchorElsewhere)
@@ -218,7 +218,7 @@ enum WorkspaceVerbHandlers {
     static func place(_ ids: [String], anchor workspace: WorkspaceModel, _ slot: WorkspaceSlot, in bridge: SidebarBridge,
                       services: AppServices) -> Bool {
         guard services.machines.daemon(forWorkspace: workspace.id) != nil,
-              let (moving, position) = slot.reorder(ids, anchor: workspace.id, in: bridge.model.sections, onDocument: SidebarDocWiring.isActive)
+              let (moving, position) = slot.reorder(ids, anchor: workspace.id, in: bridge.model.sections, onDocument: services.sidebarDoc.isActive)
         else { return false }
         bridge.handle(.reorder(moving, to: position))
         return true
