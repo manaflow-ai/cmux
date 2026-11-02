@@ -120,4 +120,22 @@ struct SessionPriorityContextMenuSnapshotTests {
     func sidebarRowRefreshesWhenManualFlagChanges() {
         #expect(rowRefreshCount { $0.setSessionPriorityManual(true) } >= 1)
     }
+
+    /// A restore (a reopened session) brings back the override and the manual flag the row
+    /// freezes into its menu, so the row rebuilds then too.
+    @Test
+    func sidebarRowRefreshesWhenARestoreBringsBackTheMenuValues() {
+        let saved = Workspace()
+        saved.sessionPriorityState.difficultyOverride = .hard
+        saved.sessionPriorityState.isManual = true
+        let snapshot = saved.sessionSnapshot(includeScrollback: false)
+
+        #expect(rowRefreshCount { $0.restoreSessionPriorityState(from: snapshot) } >= 1)
+    }
+
+    @Test
+    func sidebarRowStaysWhenNothingChanges() {
+        #expect(rowRefreshCount { $0.setClaudeDifficultyOverride(nil) } == 0)
+        #expect(rowRefreshCount { $0.setSessionPriorityManual(false) } == 0)
+    }
 }
