@@ -855,6 +855,42 @@ def _daemon_event_counts(j, seconds):
     return dict(counts.most_common(20))
 
 
+def _sample_threads(pid, seconds):
+    """`/usr/bin/sample PID SECONDS` (1 ms interval): per thread, its name and the samples where it was not blocked in a
+    wait, plus its top non-wait frames. Names the threads hidden output keeps busy."""
+    import re
+    import subprocess as sp
+    import tempfile
+    out = tempfile.mktemp(suffix=".sample.txt")
+    try:
+        sp.run(["/usr/bin/sample", str(int(pid)), str(int(seconds)), "1", "-mayDie", "-file", out],
+               capture_output=True, text=True, timeout=seconds + 60)
+        text = open(out).read()
+    except Exception as error:  # noqa: BLE001 - a diagnostic: report and go on
+        return {"error": str(error)[:200]}
+    threads = []
+    blocks = re.split(r"\n    (?=\d+ Thread_)", text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0])
+    for block in blocks:
+        head = block.strip().splitlines()[0] if block.strip() else ""
+        m = re.match(r"(\d+) (Thread_\S+)(.*)", head)
+        if not m:
+            continue
+        waits = sum(int(x) for x in re.findall(r"^\s*[+!:| ]*(\d+) (?:__psynch_cvwait|mach_msg2_trap|__semwait_signal|kevent|__workq_kernreturn|__ulock_wait|__select|read|__recvfrom)", block, re.M))
+        frames = re.findall(r"^\s*[+!:| ]*\d+ ([A-Za-z_][\w:.<>~ ]{3,80}?)  \(in ([^)]+)\)", block, re.M)
+        top = []
+        for name, lib in frames:
+            if lib in ("libsystem_kernel.dylib", "libsystem_pthread.dylib", "libdispatch.dylib", "libsystem_c.dylib"):
+                continue
+            label = name.strip() + " (" + lib + ")"
+            if label not in top:
+                top.append(label)
+            if len(top) >= 6:
+                break
+        threads.append({"thread": (m.group(2) + m.group(3)).strip()[:120], "samples": int(m.group(1)), "wait_samples": waits, "top": top})
+    threads.sort(key=lambda t: -(t["samples"] - t["wait_samples"]))
+    return {"threads": threads[:14], "file_bytes": len(text)}
+
+
 def step_switch_warmbusy(j, step):
     """SF-2 gate (lead 12:0xZ): the app's CPU and idle wakeups while `counts` hidden terminals print output. Each
     busy workspace runs a timed print loop (`hz` lines per second); after each count a quiet workspace is shown, so
@@ -892,6 +928,8 @@ def step_switch_warmbusy(j, step):
                "wakeup_ledger": json.dumps(ledger, default=str)[:6000]}
         print("WARMBUSY " + json.dumps({k: v for k, v in row.items() if k != "wakeup_ledger"}), flush=True)
         print("WARMBUSY-LEDGER %d %s" % (made, row["wakeup_ledger"]), flush=True)  # the owners by name (video/ is not pulled back on a fail)
+        if step.get("sample") and made in step.get("sample_at", [8]):
+            print("WARMBUSY-SAMPLE %d %s" % (made, json.dumps(_sample_threads(j.app.pid, float(step["sample"])))), flush=True)
         if step.get("daemon_events"):
             print("WARMBUSY-EVENTS %d %s" % (made, json.dumps(_daemon_event_counts(j, float(step["daemon_events"])))), flush=True)
         return row
