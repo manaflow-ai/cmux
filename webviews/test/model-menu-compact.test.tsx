@@ -1037,19 +1037,21 @@ test.each([
 test("Add account submits a local native request and refreshes the picker without switching routes", async () => {
   const { postNative, setNativeHost } = await import("../src/agent-session/acpmux/native");
   const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const listed = {
+    routes: [{ id: "personal", name: "Personal", kind: "direct-subscription", serves: true }],
+    active: { routeId: "personal", scope: "chat" },
+  };
   setNativeHost(async (method, params) => {
     calls.push({ method, params });
+    listed.routes.push({ id: String(params.id), name: String(params.name), kind: String(params.kind), serves: true });
     return { id: params.id };
   });
   try {
-    const state = await mount(
-      { routes: [], kinds: ["direct-subscription", "direct-api-key"] },
-      {
-        addAccount: async (params) => {
-          await postNative("account.add", params);
-        },
+    const state = await mount(listed, {
+      addAccount: async (params) => {
+        await postNative("account.add", params);
       },
-    );
+    });
     await open();
     const account = await openSub("Account");
     const add = Array.from(account.querySelectorAll<HTMLElement>("[role=menuitem]")).find((item) =>
@@ -1087,6 +1089,15 @@ test("Add account submits a local native request and refreshes the picker withou
     ]);
     expect(state.sent.filter((item) => item.method === "route")).toEqual([]);
     expect(dom.window.document.querySelector('[role="dialog"]')).toBeNull();
+    const reopened = await openSub("Account");
+    const choices = [...reopened.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+    const work = choices.find((item) => item.textContent?.includes("Work login"));
+    expect(work).toBeDefined();
+    expect(work!.hasAttribute("disabled")).toBe(false);
+    expect(work!.getAttribute("aria-disabled")).not.toBe("true");
+    expect(work!.getAttribute("aria-checked")).toBe("false");
+    expect(choices.find((item) => item.textContent?.includes("Personal"))?.getAttribute("aria-checked")).toBe("true");
+    expect(state.asked.length).toBeGreaterThanOrEqual(2);
   } finally {
     setNativeHost(undefined);
   }
