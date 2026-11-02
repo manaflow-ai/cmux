@@ -4,8 +4,8 @@
 //!             [--pace rt|spin|hybrid|sleep] [--duration S] [--log FILE] [--summary]
 //!
 //! Each frame is one DEC 2026 synchronized update with the three beacon rows (beacon.rs) and the label row
-//! "WS n  PANE m  frame k". It never draws catch-up frames: after a late wake it draws the frame of the
-//! current time and logs a `gap` event (frames missed, gap ms). The log has a `start`, a `size` per resize,
+//! "WS n  PANE m  frame k". It never draws catch-up frames: each frame takes the slot nearest the current
+//! time, so a wake late by half a refresh or more skips slots and logs a `gap` event (frames missed, gap ms). The log has a `start`, a `size` per resize,
 //! `frame` lines with --log-frames, and an `end` with frames, missed_frames, stalls, longest_gap_ms,
 //! achieved_hz, target_hz and verdict ("NOT RUN" below 95 %, cmux-ad 03:40Z).
 
@@ -44,9 +44,10 @@ fn wait_until(due: f64, mode: Mode, spin: f64) {
         return;
     }
     match mode {
-        Mode::Rt => sys::precise_sleep(left),
+        Mode::Rt if cfg!(target_os = "macos") => sys::precise_sleep(left),
         Mode::Sleep => sys::plain_sleep(left),
-        Mode::Hybrid | Mode::Spin => {
+        Mode::Rt | Mode::Hybrid | Mode::Spin => {
+            // rt off macOS spins, as pace.rs says
             if mode == Mode::Hybrid && left > spin {
                 sys::plain_sleep(left - spin);
             }
@@ -126,8 +127,21 @@ fn main() -> ExitCode {
     let realtime = mode == Mode::Rt && sys::realtime_thread(period);
     let spin = spin_ms / 1000.0;
     let log_frames = a.flag("log-frames");
-    let stall_ms: f64 = a.num("inject-stall-ms", 0.0).unwrap_or(0.0);
-    let stall_at: u64 = a.num("inject-stall-at", 100).unwrap_or(100);
+    let stall = (|| -> Result<(f64, u64), String> {
+        let ms: f64 = a.num("inject-stall-ms", 0.0)?;
+        let at: u64 = a.num("inject-stall-at", 100)?;
+        if !ms.is_finite() || !(0.0..=10_000.0).contains(&ms) || at == 0 {
+            return Err("--inject-stall-ms is 0..10000 and --inject-stall-at at least 1".into());
+        }
+        Ok((ms, at))
+    })();
+    let (stall_ms, stall_at) = match stall {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("tk-beacon: {e}");
+            return ExitCode::from(2);
+        }
+    };
     let mut size = sys::term_size().unwrap_or((80, 24));
     let mut clear = true;
     let mut k: u64 = 0; // frames drawn
@@ -171,8 +185,10 @@ fn main() -> ExitCode {
         let due = t0 + slot as f64 * period;
         wait_until(due, mode, spin);
         let now = sys::monotonic();
-        // Late by a whole refresh or more: skip to the slot of the current time, never draw the ones between.
-        let behind = ((now - t0) / period).floor() as u64;
+        // The frame takes the NEAREST slot (round, not floor), so the next frame is always at least half a refresh
+        // later: a wake late by half a refresh or more skips its slot (missed) instead of drawing two frames 2-4 ms
+        // apart, one of which never reaches the screen (review of ed7ecd5d53a1).
+        let behind = ((now - t0) / period + 0.5).floor() as u64;
         if behind > slot {
             let skipped = behind - slot;
             missed += skipped;

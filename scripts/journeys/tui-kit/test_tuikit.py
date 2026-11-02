@@ -418,6 +418,36 @@ class BeaconStall(unittest.TestCase):
         self.assertLessEqual(abs(end["frames"] + end["missed_frames"] - due), 3, (end, due))
 
 
+    def test_sigstop_stall_is_not_filled_by_a_burst(self):
+        """A stall from outside (SIGSTOP 60 ms, then SIGCONT), with no test flag: the old Pacer drew the late
+        frames back to back and kept its count; the beacon must draw fewer frames than were due and log the gap."""
+        if not tuikit.rust_bin("tk-beacon"):
+            if REQUIRE_RUST:
+                self.fail("tk-beacon is not built (tuikit.py build-bins)")
+            self.skipTest("tk-beacon is not built (tuikit.py build-bins)")
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "b.jsonl")
+            path = tuikit.rust_bin("tk-beacon")
+            run = PtyRun([path, "--ws", "1", "--pane", "2", "--hz", "240", "--duration", "1.2", "--log", log], 80, 24)
+            self.assertTrue(run.read_until(b"WS 1  PANE 2", 10))
+            deadline = time.monotonic() + 0.3
+            while time.monotonic() < deadline:
+                run.pump(0.01)
+            os.kill(run.pid, signal.SIGSTOP)
+            time.sleep(0.06)
+            os.kill(run.pid, signal.SIGCONT)
+            _, code = run.collect(20)
+            self.assertEqual(code, 0)
+            events = read_jsonl(log)
+        start = [e for e in events if e["ev"] == "start"][0]
+        end = [e for e in events if e["ev"] == "end"][0]
+        due = (end["mono"] - start["mono"]) * 240
+        # 60 ms is 14 frames at 240 Hz: a burst would draw them all (frames close to due); the beacon misses them
+        self.assertLessEqual(end["frames"], due - 10, (end, due))
+        self.assertGreaterEqual(end["missed_frames"], 10, end)
+        self.assertGreaterEqual(end["longest_gap_ms"], 55, end)
+
+
 class Sigwinch(unittest.TestCase):
     def test_logs_each_sigwinch_and_reflows_per_size(self):
         with tempfile.TemporaryDirectory() as tmp:
