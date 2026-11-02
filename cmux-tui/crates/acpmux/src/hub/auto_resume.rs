@@ -680,6 +680,11 @@ impl Hub {
         is_pending(session.auto_resume.lock().as_ref())
     }
 
+    /// Whether the chat holds any continuation mark: a shutdown stops those chats' retries first.
+    pub(super) fn has_auto_resume_mark(&self, session: &Session) -> bool {
+        session.auto_resume.lock().is_some()
+    }
+
     /// An explicit (non-restart) shutdown: a retry that waits, or one only the journal holds yet,
     /// is stopped; a chat whose turn runs or is ending is left alone, so the next daemon still
     /// continues the turn the shutdown cut (`restart_resume.rs`).
