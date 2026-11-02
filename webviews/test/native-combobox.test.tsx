@@ -689,7 +689,8 @@ test.each(["toggle", "slider", "textField"] as const)(
   },
 );
 
-test.each(["search", "change"] as const)("native combobox accepts %s from its designated query field", async (type) => {
+// The query field reports edits as "search"; the event fence drops a "change" from it (nativePopupEvents.ts).
+test.each(["search"] as const)("native combobox accepts %s from its designated query field", async (type) => {
   const container = installDom();
   const { host, shown, listeners } = nativeHost();
   const queries: string[] = [];
