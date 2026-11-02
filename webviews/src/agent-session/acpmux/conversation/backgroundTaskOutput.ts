@@ -6,6 +6,7 @@
 // is expanded; closing, unmounting, or the row leaving the live list stops and cleans up the timer.
 // The registry serves only this Mac's clients and keeps output for Claude Code's shells only.
 import { createContext, useContext, useEffect, useState } from "react";
+import { visibleInterval } from "../../../ui/pageClock";
 import { stripAnsi } from "./toolOutput";
 
 /// How much of the end of a task's output an opened note reads.
@@ -129,8 +130,8 @@ export function useBackgroundTaskOutput(toolCallId: string, open: boolean): Back
   return read?.key === key ? read.output : {};
 }
 
-/// A tray row's live tail. The caller's `open` is the stop predicate: the effect also cleans up
-/// its timer and ignores late replies when the row closes or unmounts.
+/// A tray row's live tail. The caller's `open` is the stop predicate: the effect also stops its
+/// clock and ignores late replies when the row closes or unmounts; a hidden page reads nothing.
 export function useLiveBackgroundTaskOutput(
   toolCallId: string | undefined,
   processId: string | undefined,
@@ -142,30 +143,28 @@ export function useLiveBackgroundTaskOutput(
   useEffect(() => {
     if (!reader || !open || (!toolCallId && !processId)) return;
     let current = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let poll: () => void;
-    const schedule = () => {
-      timer = setTimeout(poll, 1200);
-    };
-    poll = () => {
+    let reading = false;
+    const read = () => {
+      if (reading) return;
+      reading = true;
       readBackgroundTaskOutput(reader, toolCallId, processId).then(
         (output) => {
-          if (!current) return;
-          setRead({ key, output });
-          // The row is live while mounted; its unmount/close clears this timer and stops polling.
-          schedule();
+          reading = false;
+          if (current) setRead({ key, output });
         },
         () => {
-          if (!current) return;
-          setRead({ key, output: {} });
-          schedule();
+          reading = false;
+          if (current) setRead({ key, output: {} });
         },
       );
     };
-    poll();
+    read();
+    // The page clock owns the repeat: no timer while the page is hidden, and the next read comes a
+    // full interval after it shows. The row's close or unmount stops it.
+    const stop = visibleInterval("background-task-tail", read, 1200);
     return () => {
       current = false;
-      if (timer !== undefined) clearTimeout(timer);
+      stop();
     };
   }, [reader, open, toolCallId, processId, key]);
   return read?.key === key ? read.output : {};

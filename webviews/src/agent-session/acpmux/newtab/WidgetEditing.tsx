@@ -153,7 +153,7 @@ export function WidgetFrame({
         title={nt("edit.remove", { name: name(widget) })}
         onClick={remove}
       >
-        <Icon name="action.close" size={10} />
+        <Icon name="action.close" size={12} />
       </button>
     </div>
   );

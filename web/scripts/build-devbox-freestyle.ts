@@ -93,6 +93,7 @@ import {
   CMUX_TUI_HOOK_PROVIDERS,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiServiceInstallCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
@@ -312,7 +313,7 @@ try {
   // The Dockerfile's devtools list.
   await step(
     "apt-devtools",
-    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
+    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config locales jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs && locale-gen C.UTF-8 >/dev/null && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
   );
 
   // Muse needs the pinned upstream bubblewrap, rather than Ubuntu's 0.9.0.
@@ -536,6 +537,10 @@ try {
   // bake and the attach-time heal can never disagree about path or digest.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
+  // Keep the guest daemon alive across logout and image resume. This writes
+  // the same canonical user unit as `acpmux host setup`, then enables it once
+  // the binary and its state home are present.
+  await step("acpmux-service", cmuxTuiServiceInstallCommand());
   await step(
     "cmux-tui-pin",
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,

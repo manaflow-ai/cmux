@@ -117,11 +117,10 @@ test("with the toggle off, the line sits over the work and holds while text stre
   expect(lineOf(rows)!.durationMs).toBe(answer.at - prompt.at);
 });
 
-test("the first Thinking line ticks from the prompt; the start status has no time", () => {
+test("the first Thinking line ticks from the prompt, also while its agent starts", () => {
   expect(text(renderToStaticMarkup(<Thinking since={1_000} now={() => 13_000} />))).toBe("Thinking 12s");
-  expect(text(renderToStaticMarkup(<Thinking status="Starting Claude Code…" since={1_000} now={() => 13_000} />))).toBe(
-    "Starting Claude Code…",
-  );
+  // No "Starting Claude Code…" (Leo, 2026-11-01): the default start look is the same line.
+  expect(text(renderToStaticMarkup(<Thinking starting since={1_000} now={() => 13_000} />))).toBe("Thinking 12s");
 });
 
 test("the toggle is on unless the host turns it off", () => {

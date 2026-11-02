@@ -285,6 +285,10 @@ if mode == "http":
 if mode == "other-flag":
     sys.stderr.write("unknown flag: --hostname-x\\nunknown flag: --allow-escape-sequences\\n")
     sys.exit(1)
+if mode == "big":
+    line = "2026-10-30T12:00:00.000Z " + "x" * 1000 + "\\n"
+    sys.stdout.write(line * (41 * 1024 * 1024 // len(line)) + "2026-10-30T12:00:00.000Z tail\\n")
+    sys.exit(0)
 print("2026-10-30T12:00:00.000Z \\x1b[31mred\\x1b[0m log")
 """
 
@@ -330,6 +334,13 @@ class PortableGhLog(unittest.TestCase):
                 with self.assertRaises(excuse.Refused):
                     self.read(mode)
                 self.assertEqual(len(self.asked()), 1)
+
+    def test_a_job_log_over_32_mib_is_read_whole(self):
+        # 2026-11-01: #28391's cmux-next swift test log was about 40 MB, past the old 32 MiB cap.
+        text = self.read("big")
+        self.assertGreater(len(text), 40 * 1024 * 1024)
+        self.assertTrue(text.endswith("tail\n"))
+
 
 class Excusing(unittest.TestCase):
     def setUp(self):
@@ -1048,6 +1059,86 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no failed job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
 
+
+
+class BaseRedWindow(unittest.TestCase):
+    """2026-11-01: the tip Swift suite's red set churns (runs 41282022128, 41298073172, 41303556638), so a failing
+    test is the base's when it failed on any of the newest BASE_WINDOW verdicts, read only while one is missing."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, OTHER)  # the newest red verdict lacks the head's test
+        self.gh.base_runs = []
+        self.reads = []
+        plain = self.gh.log
+        self.gh.log = lambda repo, job: (self.reads.append(job["id"]), plain(repo, job))[1]
+
+    def base(self, run_id, hour, lines=(OTHER,), conclusion="failure"):
+        self.gh.base_runs.append({"id": run_id, "event": "push", "head_branch": "feat-cmux-next",
+                                  "status": "completed", "conclusion": conclusion, "head_sha": BASE_SHA,
+                                  "created_at": f"2026-11-01T{hour:02d}:00:00Z"})
+        self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, BASE_SHA), conclusion=conclusion)
+        self.gh.logs[run_id] = log(SWIFT, TEST_STEP, *lines)
+
+    def judge(self):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
+
+    def test_a_test_red_on_an_older_verdict_only_is_excused_and_named(self):
+        self.base(30, 12)
+        self.base(29, 11, (ISSUE,))
+        text = self.judge()
+        self.assertIn("run 30", text)
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() (red on run 29)", text)
+        self.assertIn("runs 29", text)
+
+    def test_the_newest_red_verdict_that_covers_every_test_reads_no_older_log(self):
+        self.base(30, 12, (ISSUE,))
+        self.base(29, 11, (ISSUE,))
+        self.judge()
+        self.assertEqual([read for read in self.reads if read != 1], [30])
+
+    def test_a_green_verdict_ends_the_window_and_older_reds_do_not_count(self):
+        # A green base run passed every test, so an older red may predate a fix.
+        self.base(30, 12)
+        self.base(29, 11, conclusion="success")
+        self.base(28, 10, (ISSUE,))
+        with self.assertRaisesRegex(excuse.Refused, "writesTheRequest"):
+            self.judge()
+        self.assertNotIn(28, self.reads)
+        self.assertNotIn(29, self.reads)
+
+    def test_a_test_red_only_outside_the_window_is_the_heads(self):
+        for offset in range(excuse.BASE_WINDOW):
+            self.base(30 - offset, 12 - offset)
+        self.base(30 - excuse.BASE_WINDOW, 12 - excuse.BASE_WINDOW, (ISSUE,))
+        with self.assertRaisesRegex(excuse.Refused, "writesTheRequest"):
+            self.judge()
+        self.assertEqual(len([read for read in self.reads if read != 1]), excuse.BASE_WINDOW)
+
+    def test_a_verdict_older_than_the_window_hours_is_not_read(self):
+        self.base(30, 12)
+        self.gh.base_runs.append({"id": 29, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                                  "conclusion": "failure", "created_at": "2026-10-31T11:00:00Z"})
+        self.gh.jobs[29] = failed_job(29, 29, BASE_SHA)
+        self.gh.logs[29] = log(SWIFT, TEST_STEP, ISSUE)
+        with self.assertRaisesRegex(excuse.Refused, "writesTheRequest"):
+            self.judge()
+        self.assertNotIn(29, self.reads)
+
+    def test_an_older_red_never_stands_over_a_newer_green(self):
+        self.base(30, 12, conclusion="success")
+        self.base(29, 11, (ISSUE,))
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 30"):
+            self.judge()
+
+    def test_a_crash_is_never_excused_by_any_window_run(self):
+        self.base(30, 12)
+        self.base(29, 11, (ISSUE,))
+        self.gh.logs[1] = crashed(SWIFT, 6, "writesTheRequestAfterTheReadyMarkerAndReturnsTheReply", [])
+        self.gh.logs[29] = self.gh.logs[1]
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+            self.judge()
+        self.assertEqual([read for read in self.reads if read != 1], [])
 
 def crashed(job, signal, unfinished, frames, *extra):
     """A swift test log whose test helper died on `signal` with `unfinished` tests in flight."""

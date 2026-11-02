@@ -147,7 +147,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           '.acpmux-context, .acpmux-context-ring, [role="progressbar"], [class*="spinner"], [class*="-ring"]',
         ),
       ].map((element) => element.className.toString() || element.tagName),
-      // LockIcon (ComposerPickers.tsx): its shackle path.
+      // A lock's shackle path: the row draws none (the mode menu no longer holds grants).
       locks: bar.querySelectorAll('svg path[d^="M5.5 7V5.6"]').length,
       status: bar.querySelector(".acpmux-permission-status") !== null,
       effortChip: document.querySelector(".acpmux-effort") !== null,

@@ -167,16 +167,24 @@ fn stage_key(send_id: &str, terminal: &str, stage: &str) -> String {
 
 /// The daemon's write key is an implementation detail. Return the caller's
 /// identity and the uncertain phase, so the *entire send* can be retried.
-fn stage_failure(mut failure: SendFailure, send_id: &str, terminal: &str, phase: &str) -> SendFailure {
-    if !failure.failure.error["details"].is_object() {
+fn stage_failure(
+    mut failure: SendFailure,
+    send_id: &str,
+    terminal: &str,
+    phase: &str,
+) -> SendFailure {
+    if !failure.failure.error.get("details").is_some_and(Value::is_object) {
         failure.failure.error.set("details", json!({}));
     }
     failure.failure.error.set_path(&["details", "send_id"], json!(send_id));
     failure.failure.error.set_path(&["details", "phase"], json!(phase));
     failure.failure.error.set_path(&["details", "terminal"], json!(terminal));
     if failure.failure.kind == FailureKind::InProgress {
-        let original = failure.failure.error["message"]
-            .as_str()
+        let original = failure
+            .failure
+            .error
+            .get("message")
+            .and_then(Value::as_str)
             .unwrap_or("terminal write acknowledgement lost")
             .to_owned();
         failure.failure.error.set(
@@ -365,9 +373,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     if request.idempotency_key.is_some() && request.target != id {
         return Err(SendFailure::local(
             "terminal.send_stable_target_required",
-            format!(
-                "a keyed send requires the full terminal ID {id}; use that ID on retry"
-            ),
+            format!("a keyed send requires the full terminal ID {id}; use that ID on retry"),
             json!({"terminal": id, "target": request.target}),
             2,
         ));

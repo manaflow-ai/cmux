@@ -128,6 +128,18 @@ public struct CloudConfiguration: Sendable, Equatable {
         return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev") ?? Self.inertURL
     }
 
+    /// The API a guest link's owner token comes from. The daemon makes each build's links in its
+    /// room (cmux-tui share_room.rs: DEV the development room), and a room takes only its own
+    /// environment's install tokens. A debug build signs in to the staging Worker
+    /// (``ownerAPIBaseURL(environment:)``), so its links mint from the development Worker; with
+    /// `CMUX_NEXT_FEED_API_URL` set, the owner API is the one named, as for every other call.
+    public func shareAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        guard isDebugBuild, !isProductionAuth, environment["CMUX_NEXT_FEED_API_URL"] == nil else {
+            return ownerAPIBaseURL(environment: environment)
+        }
+        return URL(string: "https://cmux-api-development.debussy.workers.dev") ?? Self.inertURL
+    }
+
     public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
         let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
         return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,

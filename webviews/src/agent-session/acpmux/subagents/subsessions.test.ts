@@ -141,7 +141,6 @@ test("the store follows sub-sessions only, and tells its readers only when one's
   expect(store.get("a")).toBeUndefined();
 });
 
-
 test("a sender name shared by live chats never chooses the first one arbitrarily", () => {
   const store = new SubsessionStore();
   let changes = 0;

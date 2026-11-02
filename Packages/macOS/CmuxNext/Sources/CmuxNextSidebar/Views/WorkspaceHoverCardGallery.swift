@@ -24,7 +24,8 @@ public struct WorkspaceHoverCardGallery {
         let branch = Fact(icon: .gitBranch, text: "cmux · feat/shared-hover-card", kind: "branch")
         let reply = Fact(icon: .agentChatList, text: "Done: the tab and session cards share one row now, with the PR status in color.",
                          lines: 2, kind: Fact.lastReplyKind, isPreview: true)
-        let context = Fact(icon: .contextUsage, text: "Context", kind: "context", accessory: .ring(0.62, tone: .secondary))
+        // What the agent chat carries per call and spent in 24 hours (acpmux `usageStats`).
+        let usage = Fact(icon: .contextUsage, text: "312K context · $1,421 in 24h", kind: "usage", accessory: .ring(0.31, tone: .secondary))
         // A pull request as the card's preview: its state in color, the icon in that color too.
         func pr(_ status: String, _ tone: HoverCardTone, adds: Int, dels: Int, preview: Bool = true) -> Fact {
             Fact(icon: .gitPullrequest, text: "#22231 Share one hover card row", kind: "pullRequest", status: status, statusTone: tone,
@@ -36,7 +37,7 @@ public struct WorkspaceHoverCardGallery {
         let states: [(String, WorkspaceHoverCardContent, [Double])] = [
             ("Agent running", WorkspaceHoverCardContent(
                 title: "Make the hover cards look like Codex's", icon: .agentChat, age: "3m",
-                facts: [agent, context, branch, pr("Checks running", .attention, adds: 412, dels: 96)],
+                facts: [agent, usage, branch, pr("Checks running", .attention, adds: 412, dels: 96)],
                 activity: .working, activitySince: now.addingTimeInterval(-192)), [0.4, 0.9, 1.3, 1.8, 2.2, 1.6, 2.4]),
             ("Agent idle", WorkspaceHoverCardContent(
                 title: "Fix the session hover card", icon: .agentChat, age: "1d",
@@ -78,9 +79,9 @@ public struct WorkspaceHoverCardGallery {
             ("Tabs first · details collapsed · chosen", .afterTitle, 4, true, false),
         ]
         let tabCards = variants.map { name, placement, limit, details, expanded in
-            let card = WorkspaceHoverCardView(tabPlacement: placement, tabLimit: limit, tabDetails: details)
+            let card = WorkspaceHoverCardView(tabPlacement: placement, style: WorkspaceTabHoverCardStyle(twoLines: details, rowLimit: limit))
             card.configure(content, now: now)
-            card.tabList.configure(title: content.title, tabs: overflow)
+            card.configureTabs(title: content.title, tabs: overflow, now: now)
             if expanded { card.detailsToggle.performClick(nil) }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }

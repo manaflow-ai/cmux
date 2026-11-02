@@ -23,6 +23,11 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        // The see-through branch is under test: Blacksmith's macOS VMs have Reduce Transparency
+        // on, which paints every surface opaque whatever the scope decides.
+        let savedReduceTransparency = ReduceTransparency.shared.override
+        ReduceTransparency.shared.override = false
+        defer { ReduceTransparency.shared.override = savedReduceTransparency }
 
         // The app shows no picture; only this workspace does.
         try #require(ThemeScope.app.backdropSelection == nil)
