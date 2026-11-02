@@ -67,12 +67,12 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
     let Some(listen) = status.get("listen").and_then(Value::as_str) else {
         return Ok(());
     };
-    // web_url appends the raw token after this exact prefix; do not decode
-    // it or split on '&', both of which would change a custom credential.
-    let token = status
-        .get("webUrl")
-        .and_then(Value::as_str)
-        .and_then(|url| url.split_once("?token=").map(|(_, token)| token));
+    // web_url appends the raw token after this exact prefix (`#token=`; an
+    // older daemon wrote `?token=`); do not decode it or split on '&', both
+    // of which would change a custom credential.
+    let token = status.get("webUrl").and_then(Value::as_str).and_then(|url| {
+        url.split_once("#token=").or_else(|| url.split_once("?token=")).map(|(_, token)| token)
+    });
     // Tagged/dev homes deliberately cannot claim the shared fixed port. A
     // restart cannot reapply that policy after stopping the explicit daemon,
     // so refuse before shutdown rather than silently moving the listener.

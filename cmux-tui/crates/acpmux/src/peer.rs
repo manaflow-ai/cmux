@@ -1209,7 +1209,11 @@ impl Peer {
         token: Option<&str>,
         peer_token: Option<&str>,
     ) -> Result<tokio_tungstenite::tungstenite::handshake::client::Request, String> {
-        let mut req = url.into_client_request().map_err(|e| e.to_string())?;
+        // A peer URL saved with `?token=` in it: the listener takes the token
+        // only from a header, so it moves there and out of the URL.
+        let (url, query_token) = lift_query_token(url);
+        let token = token.or(query_token.as_deref());
+        let mut req = url.as_str().into_client_request().map_err(|e| e.to_string())?;
         if let Some(t) = token {
             req.headers_mut().insert(
                 "authorization",
@@ -1244,7 +1248,7 @@ impl Peer {
         *self.last_error.lock_or_recover() = None;
         self.received.reset();
         self.with_link(|l| l.opened(crate::store::now_ms()));
-        tracing::info!(peer = %self.name, "link open to {}; handshaking", self.url);
+        tracing::info!(peer = %self.name, "link open to {}; handshaking", lift_query_token(&self.url).0);
 
         // Handshake in a task so the read loop below can serve the responses.
         let me = self.clone();
@@ -2143,6 +2147,35 @@ impl Drop for ForgetPending {
     }
 }
 
+/// `url` without its `token=` query items, and the first one's value.
+pub fn lift_query_token(url: &str) -> (String, Option<String>) {
+    let (rest, fragment) = url.split_once('#').map_or((url, None), |(r, f)| (r, Some(f)));
+    let Some((base, query)) = rest.split_once('?') else { return (url.to_owned(), None) };
+    let mut token = None;
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|item| match item.strip_prefix("token=") {
+            Some(t) => {
+                if token.is_none() && !t.is_empty() {
+                    token = Some(t.to_owned());
+                }
+                false
+            }
+            None => true,
+        })
+        .collect();
+    let mut out = base.to_owned();
+    if !kept.is_empty() {
+        out.push('?');
+        out.push_str(&kept.join("&"));
+    }
+    if let Some(f) = fragment {
+        out.push('#');
+        out.push_str(f);
+    }
+    (out, token)
+}
+
 #[cfg(test)]
 #[path = "peer_attach_tests.rs"]
 mod attach_tests;
@@ -2150,6 +2183,23 @@ mod attach_tests;
 #[cfg(test)]
 mod remote_config_tests {
     use super::*;
+
+    #[test]
+    fn a_query_token_moves_out_of_a_peer_url() {
+        assert_eq!(
+            lift_query_token("ws://h:1/?token=abc"),
+            ("ws://h:1/".to_owned(), Some("abc".to_owned()))
+        );
+        assert_eq!(
+            lift_query_token("ws://h:1/acp?x=1&token=abc&y=2"),
+            ("ws://h:1/acp?x=1&y=2".to_owned(), Some("abc".to_owned()))
+        );
+        assert_eq!(lift_query_token("ws://h:1/"), ("ws://h:1/".to_owned(), None));
+        assert_eq!(
+            lift_query_token("ws://h:1/?mytoken=a"),
+            ("ws://h:1/?mytoken=a".to_owned(), None)
+        );
+    }
 
     #[test]
     fn the_links_own_attach_names_its_byte_limit() {

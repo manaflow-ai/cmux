@@ -118,7 +118,12 @@ read `acpmux --json ls`, which is the daemon's rows, unchanged.
 ## Web dashboard
 
 The daemon serves a dashboard on the same port as its WebSocket, by default
-`http://127.0.0.1:47811/?token=…`. The token is generated on first run and saved in
+`http://127.0.0.1:47811/#token=…`. The token sits in the URL fragment, which a browser never
+sends to a server or in a Referer; the page moves it out of the address bar into the tab's
+session storage. The page itself is static and needs no token; its WebSocket does, and takes it
+only from a header: `Authorization: Bearer <token>` from a native client, or, from a browser,
+the subprotocols `acpmux.v1` and `acpmux.token.<token>` (the upgrade answers with `acpmux.v1`
+only). A token in the URL query is never read. The token is generated on first run and saved in
 `config.json`; `acpmux web` opens the full link and prints it without the token
 (`--show-token` prints it whole, `--json` has it in `url`). Only the local socket ever
 reads it back: a remote-origin (WebSocket) connection gets no `webUrl` and no peer URL query.
@@ -147,8 +152,11 @@ unfolds every turn, `?session=<name>` opens one, `?session=new` (or `&draft=1`) 
 draft. Keys: `⌘K`/`Ctrl-K` new session, `Alt-↑`/`Alt-↓` (or `Alt-j`/`Alt-k`) walk the rail,
 `y`/`n` answer a permission, `Esc` in the composer cancels the turn. On a phone the rail is a
 sheet behind a `Sessions` button. To reach it
-from another machine, set `websocket.listen` to a non-loopback address and put a tunnel or
-firewall in front. Clients may then connect by IP address; list every host name they use (a
+from another machine, keep the listener on loopback and use ssh (an `ssh://` peer) or a TLS
+proxy. The listener speaks plain `ws://`, so on a network address (a tailnet or VPN address
+too) its token crosses that network in clear: the daemon refuses to bind one unless you opt in
+with `"allowInsecureNetwork": true` under `websocket` (or `daemon run --insecure-network-listen`
+for one run). Clients may then connect by IP address; list every host name they use (a
 tailnet name, for example) in `websocket.allowedHosts`, because any other `Host` is refused.
 
 ### Remote connections (`webRoots`, `webAskingModes`)

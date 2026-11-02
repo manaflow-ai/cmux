@@ -600,6 +600,11 @@ pub enum Command {
         /// Bearer token WebSocket clients must present.
         #[arg(long)]
         token: Option<String>,
+        /// Allow a network (non-loopback) --listen or websocket.listen address.
+        /// The listener speaks plain ws://, so its token crosses that network
+        /// in clear; prefer loopback reached through ssh or a TLS proxy.
+        #[arg(long)]
+        insecure_network_listen: bool,
         /// Keep everything in memory. Nothing survives restart.
         #[arg(long)]
         memory: bool,
@@ -1107,6 +1112,11 @@ pub enum DaemonCmd {
         /// Bearer token WebSocket clients must present.
         #[arg(long)]
         token: Option<String>,
+        /// Allow a network (non-loopback) --listen or websocket.listen address.
+        /// The listener speaks plain ws://, so its token crosses that network
+        /// in clear; prefer loopback reached through ssh or a TLS proxy.
+        #[arg(long)]
+        insecure_network_listen: bool,
         /// Keep everything in memory. Nothing survives restart.
         #[arg(long)]
         memory: bool,
@@ -1302,6 +1312,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Run {
                 listen,
                 token,
+                insecure_network_listen,
                 memory,
                 log,
                 ready_fd,
@@ -1311,6 +1322,7 @@ pub fn flatten(c: Command) -> Command {
             } => Command::DaemonRun {
                 listen,
                 token,
+                insecure_network_listen,
                 memory,
                 log,
                 ready_fd,

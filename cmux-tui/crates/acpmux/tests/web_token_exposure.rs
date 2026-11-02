@@ -28,6 +28,7 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             allowed_origins: Vec::new(),
             allowed_hosts: Vec::new(),
             token_rotated: 1,
+            allow_insecure_network: false,
         }),
         ..Default::default()
     };
@@ -307,7 +308,7 @@ fn daemon_status_prints_the_web_link_without_its_token_unless_asked() {
     }
     for args in [&["daemon", "status", "--show-token"][..], &["daemon", "start", "--show-token"]] {
         let shown = cli(args);
-        assert!(shown.contains(&format!("/?token={token}")), "{args:?}: {shown}");
+        assert!(shown.contains(&format!("/#token={token}")), "{args:?}: {shown}");
     }
     let json: Value = serde_json::from_str(&cli(&["--json", "daemon", "status"])).unwrap();
     assert_eq!(url_token(&json), token, "--json keeps webUrl whole");
@@ -341,9 +342,9 @@ fn web_no_open_prints_the_link_without_its_token_unless_asked() {
     assert!(plain.contains("http://127.0.0.1:"), "{plain}");
     assert!(plain.contains("--show-token"), "{plain}");
     let shown = cli(&["web", "--no-open", "--show-token"]);
-    assert!(shown.contains(&format!("/?token={token}")), "{shown}");
+    assert!(shown.contains(&format!("/#token={token}")), "{shown}");
     let json: Value = serde_json::from_str(&cli(&["--json", "web"])).unwrap();
-    assert!(json["url"].as_str().unwrap().ends_with(&format!("/?token={token}")), "{json}");
+    assert!(json["url"].as_str().unwrap().ends_with(&format!("/#token={token}")), "{json}");
     // Plain `acpmux web` hands the browser opener the whole link, and the opener's own
     // output (`xdg-open` with no browser prints the link) stays out of the terminal.
     use std::os::unix::fs::PermissionsExt;
@@ -380,7 +381,7 @@ fn web_no_open_prints_the_link_without_its_token_unless_asked() {
         std::thread::sleep(Duration::from_millis(50));
     }
     let url = std::fs::read_to_string(&got).unwrap();
-    assert!(url.ends_with(&format!("/?token={token}")), "the browser gets the whole link: {url}");
+    assert!(url.ends_with(&format!("/#token={token}")), "the browser gets the whole link: {url}");
     stop(child);
     let _ = std::fs::remove_dir_all(&home);
 }

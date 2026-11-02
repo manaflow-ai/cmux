@@ -1060,7 +1060,8 @@ fn web_line(url: Option<&str>, show_token: bool) -> String {
     if show_token {
         return url.to_owned();
     }
-    match url.split_once("?token=") {
+    // `#token=` from this build; `?token=` from an older daemon still running.
+    match url.split_once("#token=").or_else(|| url.split_once("?token=")) {
         Some((bare, _)) => format!("{bare} (token hidden: add --show-token)"),
         None => url.to_owned(),
     }
