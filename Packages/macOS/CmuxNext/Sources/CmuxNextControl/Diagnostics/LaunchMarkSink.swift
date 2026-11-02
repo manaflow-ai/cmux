@@ -12,6 +12,7 @@ public nonisolated struct LaunchMarkSink: Sendable {
     public static let shared = LaunchMarkSink(environment: ProcessInfo.processInfo.environment)
 
     public static let environmentKey = "CMUX_NEXT_LAUNCH_MARKS_FD"
+    public static let pathKey = "CMUX_NEXT_LAUNCH_MARKS_PATH"
     private let fd: Int32?
 
     public init(environment: [String: String]) {
