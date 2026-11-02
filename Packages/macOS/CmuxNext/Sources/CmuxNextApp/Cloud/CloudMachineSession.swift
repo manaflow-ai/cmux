@@ -45,6 +45,8 @@ final class CloudMachineSession {
     @ObservationIgnored private var appConnecting = false
     /// A daemon update restarted the daemon while a connect hop ran: connect afresh once it ends.
     @ObservationIgnored private var reconnectAfterHop = false
+    /// The machine began running while a connect was in flight: that connect is retried if it fails.
+    @ObservationIgnored private var retryIfHopFails = false
     /// Counts suspends: a connect that a pause overtook opens no connection
     /// (not `isLive`: a click connects a paused machine on purpose).
     @ObservationIgnored private var suspends = 0
@@ -131,7 +133,7 @@ final class CloudMachineSession {
             connect()
         } else if previous == .starting || previous == .provisioning, record.status == .running, daemon.connection == nil {
             // A new machine is live while it provisions, but its daemon answers only once it runs.
-            retryNow()
+            if appConnecting { retryIfHopFails = true } else { retryNow() }
         }
         recoverInterruptedMutation()
     }
@@ -228,6 +230,9 @@ final class CloudMachineSession {
         defer {
             appConnecting = false
             recoverInterruptedMutation()
+            let retry = retryIfHopFails && linkEnded != nil
+            retryIfHopFails = false
+            if retry, !reconnectAfterHop { connect(origin: .user) }
             if reconnectAfterHop {
                 reconnectAfterHop = false
                 appTicket = nil
