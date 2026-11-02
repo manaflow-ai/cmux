@@ -105,6 +105,12 @@ pub fn find_in(env: &BTreeMap<String, String>, cwd: &Path) -> Found {
 }
 
 fn find_sources(env: &BTreeMap<String, String>, cwd: Option<&Path>) -> Found {
+    // Claude runs in the resolved directory: lexical ancestors of a symlink can miss its
+    // actual project's settings. Failure to resolve context is never proof of missing auth.
+    let project = cwd
+        .filter(|path| path.is_absolute())
+        .and_then(|path| std::fs::canonicalize(path).ok())
+        .filter(|path| path.is_dir());
     let user_home = env
         .get("HOME")
         .filter(|h| !h.is_empty())
@@ -116,7 +122,7 @@ fn find_sources(env: &BTreeMap<String, String>, cwd: Option<&Path>) -> Found {
     let mut found = Found {
         home: home.clone(),
         custom_home: custom.is_some(),
-        credential_sources_complete: cwd.is_some_and(|path| path.is_absolute() && path.is_dir()),
+        credential_sources_complete: project.is_some(),
         ..Found::default()
     };
     for (key, words) in PROVIDER_KEYS {
@@ -135,7 +141,7 @@ fn find_sources(env: &BTreeMap<String, String>, cwd: Option<&Path>) -> Found {
         found.endpoint = Some(endpoint_host(url));
     }
     let mut settings = settings_files(&home);
-    if let Some(cwd) = cwd {
+    if let Some(cwd) = project.as_deref() {
         for dir in cwd.ancestors() {
             settings.push(dir.join(".claude/settings.json"));
             settings.push(dir.join(".claude/settings.local.json"));
