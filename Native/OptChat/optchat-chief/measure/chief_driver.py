@@ -122,8 +122,12 @@ def ask_bound(participant, token, req, timeout=30):
     s.settimeout(timeout)
     s.connect(SOCK)
 
+    next_id = 0
+
     def call(body):
-        s.sendall((json.dumps(dict(body, id=1)) + "\n").encode())
+        nonlocal next_id
+        next_id += 1
+        s.sendall((json.dumps(dict(body, id=next_id)) + "\n").encode())
         buf = b""
         while not buf.endswith(b"\n"):
             chunk = s.recv(1 << 20)
@@ -325,7 +329,8 @@ try:
     daemon_log = open(os.path.join(OUT, "daemon.log"), "w")
     daemon_env = dict(base_env, CMUX_TUI_STATE_DIR=os.path.join(BRAIN, "daemon", "state"),
                       CMUX_TUI_CHIEF_TOOLS_SOCKET=TOOLS, ACPMUX_HOME=ACPMUX_HOME)
-    daemon_env.update(dict(kv.split("=", 1) for kv in opts.env))
+    if opts.scenario == "coordinator":
+        daemon_env.update(dict(kv.split("=", 1) for kv in opts.env))
     d = subprocess.Popen([os.path.join(BINS, "cmux-tui"), "--headless", "--socket", SOCK], stdout=daemon_log, stderr=subprocess.STDOUT,
                          env=daemon_env)
     pids.append(d.pid)
@@ -541,7 +546,17 @@ try:
     def sender_values(value):
         found = []
         if isinstance(value, dict):
-            mux = value.get("_meta", {}).get("acpmux") if isinstance(value.get("_meta"), dict) else None
+            meta = value.get("_meta") if isinstance(value.get("_meta"), dict) else {}
+            provenance = meta.get("provenance") if isinstance(meta.get("provenance"), dict) else {}
+            from_id = provenance.get("from")
+            if isinstance(from_id, str):
+                found.append({"sessionId": from_id})
+            for parent in (meta, value):
+                message = parent.get("_acpmuxMessage") if isinstance(parent, dict) else None
+                sender = message.get("sender") if isinstance(message, dict) else None
+                if isinstance(sender, dict) and "sessionId" in sender:
+                    found.append(sender)
+            mux = meta.get("acpmux")
             if isinstance(mux, dict) and "sender" in mux:
                 found.append(mux["sender"])
             for child in value.values():
@@ -595,12 +610,17 @@ try:
         sender_id = sender.get("sessionId") if isinstance(sender, dict) else None
         ping_ok = bool(ping_events)
         provenance_ok = bool(sender_id and sender_id == chief_session)
+        chief_pong_events = [e for e in acp_tail(chief_session or "") if pong in "".join(serialized([e]))]
+        pong_received = any(
+            any(isinstance(s, dict) and s.get("sessionId") == target_session
+                for s in sender_values(e))
+            for e in chief_pong_events
+        )
         pong_in_owner = any(
             pong.lower() in text.lower()
-            and any(isinstance(s, dict) and s.get("sessionId") == target_session
-                    for s in sender_values(message))
-            for _, message, text in owner_msgs
+            for _, _message, text in owner_msgs
         )
+        owner_posted = pong_received and pong_in_owner
         # A real model may finish its first turn before the target's inbox
         # reply arrives. Prompt the normal target once, then ask the owner to
         # read that reply, keeping the proof end to end.
@@ -613,12 +633,17 @@ try:
             send("Read your coordinator's reply and tell me when it arrived.",
                  f"coordinator-followup-{followup_started}")
             wait_turn(followup_seq, followup_started)
+            chief_pong_events = [e for e in acp_tail(chief_session or "") if pong in "".join(serialized([e]))]
+            pong_received = any(
+                any(isinstance(s, dict) and s.get("sessionId") == target_session
+                    for s in sender_values(e))
+                for e in chief_pong_events
+            )
             pong_in_owner = any(
                 pong.lower() in text.lower()
-                and any(isinstance(s, dict) and s.get("sessionId") == target_session
-                        for s in sender_values(message))
-                for _, message, text in agent_texts(poll_messages(seq0))
+                for _, _message, text in agent_texts(poll_messages(seq0))
             )
+            owner_posted = pong_received and pong_in_owner
             events = acp_tail("synthetic-coord")
             ping_events = [e for e in token_events(events, token)
                            if any(isinstance(s, dict) and s.get("sessionId") == chief_session
@@ -665,13 +690,18 @@ try:
                    "idempotency_key": f"coordinator-ask-{ask_started}",
                    "actor": ask_participant, "transaction": f"tx-coordinator-ask-{ask_started}",
                    "op": {"kind": "message.send", "client_msg_id": f"coordinator-ask-{ask_started}",
-                          "parts": [{"type": "text", "text": ask_text}]}})
+                          "parts": [{"type": "text", "text": "@agent_mux " + ask_text,
+                                     "runs": [{"start": 0, "length": 10, "mention": "agent_mux"}]}]}})
         ask_ok = wait_turn(last_seq(), ask_started)
         ask_events = [e for e in trace_events()
                       if e.get("ev") == "tool" and e.get("ts", 0) >= ask_started
                       and "acpmux_send" in str(e.get("name", ""))
                       and e.get("ok") is False]
-        ask_refused = bool(ask_events)
+        ask_approvals = [e for e in trace_events()
+                         if e.get("ev") == "approval" and e.get("ts", 0) >= ask_started
+                         and "acpmux_send" in str(e.get("tool", ""))
+                         and e.get("decision") == "deny"]
+        ask_refused = bool(ask_events and ask_approvals)
         ask_coord_events = token_events(acp_tail("synthetic-coord"), ask_token)
         log(f"COORDINATOR ask_send_refused={'PASS' if ask_ok and ask_refused and not ask_coord_events else 'FAIL'} token={ask_token}")
         log(f"COORDINATOR ask_turn_timeout={'YES' if not ask_ok else 'NO'}")
