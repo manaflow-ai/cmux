@@ -91,4 +91,47 @@ public protocol AgentChatsBackend: AnyObject {
     /// Open Chat Folder in Terminal: a new terminal tab beside the chat's tab, in the chat's
     /// folder. Returns it once the Mac lists it.
     func openChatFolderInTerminal(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// Stop: the chat's running turn stops (`session/cancel`). acpmux refuses a chat the Mac
+    /// started (only its owner stops it); that refusal is thrown.
+    func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws
+}
+
+/// What Stop All Agents did: the chats it stopped, and those acpmux kept running (started on
+/// the Mac, which only the Mac stops), each with its reason.
+public struct AgentChatsStopResult: Hashable, Sendable {
+    public var stopped: [AgentChatListing]
+    public var refused: [AgentChatListing]
+    public var reason: String?
+
+    public init(stopped: [AgentChatListing], refused: [AgentChatListing], reason: String?) {
+        self.stopped = stopped
+        self.refused = refused
+        self.reason = reason
+    }
+
+    /// The toast's line, in the Mac's wording ("Stopped 2 agents").
+    public var summary: String {
+        let stoppedText = stopped.count == 1 ? "Stopped 1 agent" : "Stopped \(stopped.count) agents"
+        guard !refused.isEmpty else { return stoppedText + "." }
+        let kept = refused.count == 1 ? "1 started on the Mac keeps running" : "\(refused.count) started on the Mac keep running"
+        return "\(stoppedText). \(kept): stop them on the Mac."
+    }
+}
+
+extension AgentChatsBackend {
+    /// Stop All Agents (the Mac's `home.stopAllAgents`): every working chat of the list, one
+    /// `session/cancel` each, in order. A refused one stays running and is counted.
+    public func stopAll(_ chats: [AgentChatListing], on macID: String) async -> AgentChatsStopResult {
+        var result = AgentChatsStopResult(stopped: [], refused: [], reason: nil)
+        for chat in chats where chat.isActive && !chat.archived {
+            do {
+                try await stopAgentChat(chat, on: macID)
+                result.stopped.append(chat)
+            } catch {
+                result.refused.append(chat)
+                result.reason = result.reason ?? (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            }
+        }
+        return result
+    }
 }

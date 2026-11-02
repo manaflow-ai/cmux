@@ -45,4 +45,39 @@ import Testing
         launcher.start(prompt: nil)
         #expect(seen.prompts == ["fix the build", nil])
     }
+
+    final class StopBackend: AgentChatsBackend {
+        var stopped: [String] = []
+        let refuse: Set<String>
+        init(refuse: Set<String>) { self.refuse = refuse }
+        func canListAgentChats(on macID: String) -> Bool { true }
+        func agentChats(on macID: String, cursor: String?) async throws -> AgentChatPage { AgentChatPage(chats: [], nextCursor: nil) }
+        func openAgentChat(_ chat: AgentChatListing, in workspace: Workspace) async throws -> WorkspaceTab { throw WorkspaceCreationError("no") }
+        func openAgentChatInNewWorkspace(_ chat: AgentChatListing, on macID: String) async throws -> Workspace { throw WorkspaceCreationError("no") }
+        func setAgentChatArchived(_ chat: AgentChatListing, archived: Bool, on macID: String) async throws -> AgentChatListing { chat }
+        func openChatFolderInTerminal(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab { throw WorkspaceCreationError("no") }
+        func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws {
+            if refuse.contains(chat.id) {
+                throw WorkspaceCreationError("This chat runs on the machine that started it, and only its owner can stop it", isForPerson: true)
+            }
+            stopped.append(chat.id)
+        }
+    }
+
+    private func chat(_ id: String, _ status: String, archived: Bool = false) -> AgentChatListing {
+        AgentChatListing(id: id, title: id, harness: "claude", cwd: "/p", status: status, updatedAt: nil, archived: archived)
+    }
+
+    @Test func stopAllStopsEveryWorkingChatAndCountsTheMacs() async {
+        let backend = StopBackend(refuse: ["mac-started"])
+        let result = await backend.stopAll([chat("a", "running"), chat("idle", "ready"), chat("b", "waiting"),
+                                            chat("mac-started", "running"), chat("old", "running", archived: true)], on: "m")
+        #expect(backend.stopped == ["a", "b"])
+        #expect(result.stopped.map(\.id) == ["a", "b"])
+        #expect(result.refused.map(\.id) == ["mac-started"])
+        #expect(result.summary == "Stopped 2 agents. 1 started on the Mac keeps running: stop them on the Mac.")
+        #expect(result.reason?.contains("only its owner can stop it") == true)
+        let none = await StopBackend(refuse: []).stopAll([chat("x", "running")], on: "m")
+        #expect(none.summary == "Stopped 1 agent.")
+    }
 }

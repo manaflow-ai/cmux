@@ -127,6 +127,17 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         return now
     }
 
+    /// Stop: `session/cancel` as a request, so acpmux's refusal (a chat the Mac started,
+    /// `remote.session_cancel_ownership`) comes back instead of being dropped.
+    public func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws {
+        let acpmux = try readyAcpmux(macID)
+        do {
+            _ = try await acpmux.request("session/cancel", .object(["sessionId": .string(chat.id)]), timeout: .seconds(20))
+        } catch let error as AcpmuxConnection.RPCError {
+            throw WorkspaceCreationError(error.message, isForPerson: true)
+        }
+    }
+
     public func openChatFolderInTerminal(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
             throw WorkspaceCreationError("Not connected")

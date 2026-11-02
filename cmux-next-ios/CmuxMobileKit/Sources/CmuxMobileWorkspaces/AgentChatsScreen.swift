@@ -88,6 +88,24 @@ public final class AgentChatsModel {
         }
     }
 
+    /// The chats working now (Stop All Agents' count).
+    public var activeChats: [AgentChatListing] { chats.filter { $0.isActive && !$0.archived } }
+
+    /// The last Stop All Agents' result (its toast).
+    public var stopResult: AgentChatsStopResult?
+    public private(set) var stoppingAll = false
+
+    /// Stop All Agents: each working chat stops; the list reads again, so each row says so.
+    public func stopAll() async {
+        guard let backend, !stoppingAll else { return }
+        stoppingAll = true
+        defer { stoppingAll = false }
+        let result = await backend.stopAll(activeChats, on: macID)
+        stopResult = result
+        if result.stopped.isEmpty, !result.refused.isEmpty { theme.haptics.error() } else { theme.haptics.success() }
+        await load()
+    }
+
     /// Archive or Unarchive on the Mac; the row moves to the other list when the Mac says so.
     public func setArchived(_ chat: AgentChatListing, _ archived: Bool) async {
         guard let backend, busyID == nil else { return }
@@ -123,6 +141,12 @@ public final class AgentChatsModel {
 struct AgentChatsScreen: View {
     let source: WorkspaceTabsSource
     @State private var model: AgentChatsModel
+    @State private var confirmingStopAll = false
+
+    private var stopAllTitle: String {
+        let count = model.activeChats.count
+        return count == 1 ? "Stop 1 agent on \(source.macName)?" : "Stop \(count) agents on \(source.macName)?"
+    }
 
     init(source: WorkspaceTabsSource) {
         self.source = source
@@ -143,6 +167,12 @@ struct AgentChatsScreen: View {
                             ForEach(AgentChatScope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                         }
                         .pickerStyle(.inline)
+                        Section {
+                            // The Mac's Stop All Agents: every chat working now on this Mac.
+                            Button("Stop All Agents", systemImage: "stop.circle", role: .destructive) { confirmingStopAll = true }
+                                .disabled(model.activeChats.isEmpty || model.stoppingAll)
+                                .accessibilityIdentifier("agentChats.stopAll")
+                        }
                     } label: {
                         Label("Filter", systemImage: model.scope == .archived ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
                     }
@@ -152,6 +182,17 @@ struct AgentChatsScreen: View {
             }
             .refreshable { await model.load() }
             .task { await model.load() }
+            .confirmationDialog(stopAllTitle, isPresented: $confirmingStopAll, titleVisibility: .visible) {
+                Button("Stop All Agents", role: .destructive) { Task { await model.stopAll() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Each agent stops its current turn. Its chat stays.")
+            }
+            .alert(model.stopResult?.summary ?? "", isPresented: Binding(get: { model.stopResult != nil }, set: { if !$0 { model.stopResult = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                if let reason = model.stopResult?.reason { Text(reason) }
+            }
             .alert("Couldn't do that", isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
