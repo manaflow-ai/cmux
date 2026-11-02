@@ -42,9 +42,7 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
 
   test("wheel over the collapsed tool rows scrolls the transcript", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    // Keep the scene below its normal desktop viewport so the long run has real transcript overflow.
-    // The assertion is about routing wheel input, so a scrollable target is an explicit precondition.
-    const page = await browser!.newPage({ viewport: { width: 1200, height: 520 } });
+    const page = await browser!.newPage({ viewport: { width: 1200, height: 700 } });
     await page.addInitScript(() => localStorage.clear());
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", { variant: "tool-run-scrolled-fade" })}`,
@@ -80,6 +78,13 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     expect(inline.max).toBeLessThanOrEqual(4.5);
 
     const transcript = page.locator(".acpmux-scroll");
+    // The gallery shell keeps its pane height independent of the browser viewport. Constrain the
+    // mounted transcript itself so this routing check always has a real scroll surface; this is a
+    // layout precondition, not a timing wait or a retry.
+    await transcript.evaluate((node) => {
+      node.style.flex = "none";
+      node.style.height = "360px";
+    });
     const outer = await transcript.evaluate((node) => ({
       scrollHeight: node.scrollHeight,
       clientHeight: node.clientHeight,
