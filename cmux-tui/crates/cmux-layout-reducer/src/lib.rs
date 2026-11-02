@@ -950,6 +950,7 @@ mod exhaustive_tests;
 #[cfg(test)]
 mod rows_tests;
 
+pub mod group_hover_summary;
 #[cfg(kani)]
 mod proofs;
 pub mod sidebar_doc;
