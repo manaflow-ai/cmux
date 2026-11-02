@@ -1,6 +1,5 @@
 //! The mux side of a state mutation (state-ownership.md steps A and B):
-//! one registry transaction under the registry lock, with the session lock
-//! only for its apply step (the session read), then the
+//! one registry transaction under the registry -> state fence, then the
 //! in-memory revision, the presentation cache, and the notifications every
 //! client follows (`session.events` wakeups, `personal-changed`,
 //! `tree-changed`).

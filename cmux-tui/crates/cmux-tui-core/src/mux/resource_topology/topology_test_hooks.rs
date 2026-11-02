@@ -45,9 +45,8 @@ impl Mux {
         self.workspace_registry.lock().unwrap().set_resource_patch_failures_remaining(failures);
     }
 
-    /// Runs `hook` in each state mutation after its apply step (inside its
-    /// open registry transaction) and in each terminal progress publish
-    /// after its session read.
+    /// Runs `hook` in each state mutation after its apply step, inside its
+    /// open registry transaction.
     #[cfg(test)]
     pub(crate) fn set_state_commit_after_apply_hook_for_test(
         &self,
