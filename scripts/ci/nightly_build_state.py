@@ -28,10 +28,11 @@ each new tip on it. An incremental build is a real compile of every changed file
 starts clean (CLEAN_REASONS) when:
 - the last build on it did not finish (no `mark-built` after `prepare`);
 - the key changed: the toolchain (Xcode, SDK, DEVELOPER_DIR) or a lockfile, toolchain
-  pin or submodule commit (KEY_PATHS). A Cargo.lock is not one: the Release build's only cargo
-  phase (Build Diff Sidecar) lists its lockfiles as inputs and builds a separate executable, so
-  Xcode reruns it and cargo rebuilds incrementally, and the nightly bundles cmux-tui after the
-  build (CMUX_NEXT_TUI_MODE=deferred). Three of the last five builder runs started clean on a
+  pin or submodule commit (KEY_PATHS). A Cargo.lock is not one: the Release build's cargo
+  phases (Build Diff Sidecar, Bundle optchat-chief, Bundle cmux-mobile-host) list their lockfiles
+  as inputs and build separate executables into Resources/bin, so Xcode reruns them and cargo
+  rebuilds incrementally; the Rust the Swift code links is a pinned binary (Package.swift,
+  Package.resolved); and the nightly bundles cmux-tui after the build (CMUX_NEXT_TUI_MODE=deferred). Three of the last five builder runs started clean on a
   cmux-tui Cargo.lock change alone;
 - a file that shapes modules or linking changed since the last built commit
   (STRUCTURE_PATHS: Package.swift, *.pbxproj, *.xcconfig, *.modulemap, ...), or an
