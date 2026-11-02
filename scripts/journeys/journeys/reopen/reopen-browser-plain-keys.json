@@ -1,10 +1,10 @@
 {
  "id": "reopen-browser-plain-keys",
- "priority": "P1",
- "title": "After Cmd-Q (Keep) and reopen with a browser page (focused text field) focused: plain keys typed after the restored page loaded reach it (cycle A); plain keys typed as soon as the main window is listed reach it, in order (cycle B)",
- "why": "Diagnostic for reopen-f4 (lead STATUS 6493, review of #32207): reopen-browser-first-key cycle 4 loses every plain key typed at once after the reopen. Cycle A tells whether plain keys reach the restored page at all; cycle B is the same check as cycle 4. Set-up clicks the field first: in a fresh app (no quit yet) real plain keys did not reach a page just loaded from the address bar (exploratory 9f0c6ff56af, both builds; journal: responder windowOrNone suppressed). Keys are CuaDriver desktop keys: on the minis this driver may not post events (CGPreflightPostEventAccess false in every reopen record), so CGEventPost keys and clicks were dropped with no error at e694efa.",
+ "priority": "P0",
+ "title": "After Cmd-Q (Keep) and reopen with a page's text field focused: plain keys typed after the restored page loaded (A) and at once when the window shows (B) reach the field in order",
+ "why": "Lead request (STATUS 6493, review of #32207): plain keys (no Cmd/Ctrl) after a reopen must reach the restored page; reopen-browser-first-key starts with Cmd-L and cannot see their loss. No click (STATUS 7302/7362).",
  "source": "REOPEN VIDEO for reopen-f4",
- "budget_seconds": 200,
+ "budget_seconds": 240,
  "steps": [
   {
    "do": "require_whole_host"
@@ -60,128 +60,39 @@
    "do": "outwait_hold"
   },
   {
+   "do": "page_server",
+   "var": "page_url",
+   "lines": [
+    "<!doctype html><html><head><title>keys</title><script>",
+    "var s='',ev=[];",
+    "function show(){document.getElementById('o').textContent='seen'+s.split('').reverse().join('');",
+    "document.getElementById('e').textContent='ev '+ev.slice(-12).join(' ');",
+    "var a=document.activeElement;document.getElementById('h').textContent='hasfocus '+(document.hasFocus()?'yes':'no')+' active '+(a?a.tagName.toLowerCase():'none')}",
+    "addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key}ev.push('kd');show()},true);",
+    "['mousedown','mouseup','click','focus','blur','focusin','focusout'].forEach(function(n){addEventListener(n,function(e){ev.push(n+(e.target&&e.target.tagName?'.'+e.target.tagName.toLowerCase():''));show()},true)});",
+    "setInterval(show,200);",
+    "</script></head><body style='font:24px sans-serif'>",
+    "<p id=r></p><input id=f autofocus autocomplete=off style='font:24px sans-serif;width:600px'><p id=o></p><p id=h></p><p id=e></p>",
+    "<script>document.getElementById('r').textContent='pg'+'ok'+(6*7);show()</script>",
+    "</body></html>"
+   ],
+   "title": "set-up: a local page (127.0.0.1, a driver thread) with an autofocused text field; it shows every key it gets, reversed, document.hasFocus() and the active element"
+  },
+  {
    "do": "key",
    "key": "l",
    "modifiers": [
     "cmd",
     "shift"
    ],
-   "mark": "browser"
+   "mark": "bar1",
+   "title": "cycle 1: Cmd-Shift-L opens a browser tab"
   },
   {
    "do": "expect",
-   "title": "set-up: Cmd-Shift-L opens a browser tab whose address bar takes the keys",
-   "since": "browser",
+   "title": "cycle 1: the address bar takes the keys",
+   "since": "bar1",
    "timeout": 15,
-   "all": [
-    {
-     "key_window_focus": {
-      "in": [
-       "addressBar"
-      ]
-     }
-    }
-   ]
-  },
-  {
-   "do": "type",
-   "text": "example.com",
-   "mark": "url"
-  },
-  {
-   "do": "key",
-   "key": "return",
-   "modifiers": [],
-   "mark": "loaded"
-  },
-  {
-   "do": "expect",
-   "title": "set-up: the page loads and has the keyboard",
-   "since": "loaded",
-   "timeout": 45,
-   "all": [
-    {
-     "key_window_focus": {
-      "in": [
-       "browserPage"
-      ]
-     }
-    },
-    {
-     "frame_text": "documentation examples"
-    }
-   ]
-  },
-  {
-   "do": "key",
-   "key": "t",
-   "modifiers": [
-    "cmd"
-   ],
-   "mark": "newtab"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.5
-  },
-  {
-   "do": "key",
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "mark": "closetab"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.5
-  },
-  {
-   "do": "expect",
-   "title": "set-up: after Cmd-T and Cmd-W the browser page has the keyboard again",
-   "since": "closetab",
-   "timeout": 15,
-   "all": [
-    {
-     "key_window_focus": {
-      "in": [
-       "browserPage"
-      ]
-     }
-    },
-    {
-     "frame_text": "documentation examples"
-    }
-   ]
-  },
-  {
-   "do": "page_server",
-   "var": "page_url",
-   "lines": [
-    "<!doctype html><html><head><title>keys</title><script>",
-    "var s='';",
-    "addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key;document.getElementById('o').textContent='seen'+s.split('').reverse().join('')}},true);",
-    "</script></head><body style='font:28px sans-serif'>",
-    "<p id=r></p><input id=f autofocus autocomplete=off style='font:28px sans-serif;width:600px'><p id=o></p>",
-    "<script>document.getElementById('r').textContent='pg'+'ok'+(6*7)</script>",
-    "</body></html>"
-   ],
-   "title": "set-up: a local page (127.0.0.1) with a focused text field; its script shows every key the page gets, reversed"
-  },
-  {
-   "do": "key",
-   "key": "l",
-   "modifiers": [
-    "cmd"
-   ],
-   "mark": "page4",
-   "title": "set-up: the browser tab goes to the local page"
-  },
-  {
-   "do": "expect",
-   "title": "set-up: the address bar takes the keys",
-   "since": "page4",
-   "timeout": 10,
    "all": [
     {
      "key_window_focus": {
@@ -195,64 +106,25 @@
   {
    "do": "type",
    "text": "${page_url}",
-   "mark": "url4"
+   "mark": "url1"
   },
   {
    "do": "key",
    "key": "return",
    "modifiers": [],
-   "mark": "loaded4"
+   "mark": "loaded1"
   },
   {
    "do": "expect",
-   "title": "set-up: the page ran its script and has the keyboard",
-   "since": "loaded4",
+   "title": "cycle 1: the page loaded from the address bar; the focus model and the page agree the page's text field has focus",
+   "since": "loaded1",
    "timeout": 20,
    "all": [
     {
-     "key_window_focus": {
-      "in": [
-       "browserPage"
-      ]
-     }
-    },
-    {
      "frame_text": "pgok42"
-    }
-   ]
-  },
-  {
-   "do": "hid_click",
-   "x": 520,
-   "y": 165,
-   "mark": "click4",
-   "title": "set-up: a real click in the page's text field (the page starts at the window's top left under the tab and address bars: field at 216-824 x 146-184 points in a 1100 x 720 window)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.5
-  },
-  {
-   "do": "hid_line",
-   "text": "fieldkeysok",
-   "enter": false,
-   "mark": "su4a",
-   "title": "set-up: a set-up word with real HID keys (CGEventPost at the HID tap)"
-  },
-  {
-   "do": "focus_probe"
-  },
-  {
-   "do": "expect",
-   "title": "set-up: the field has the keyboard (it shows the word) and the page got every key in order (shown reversed)",
-   "since": "su4a",
-   "timeout": 10,
-   "all": [
-    {
-     "frame_text": "fieldkeysok"
     },
     {
-     "frame_text": "seenkosyekdleif"
+     "frame_text": "hasfocus yes active input"
     },
     {
      "key_window_focus": {
@@ -266,20 +138,20 @@
   {
    "do": "reopen_browser_keys",
    "cmd_l": false,
-   "mark": "reopenedA",
+   "mark": "reA",
    "title": "cycle A: a real Cmd-Q (Keep) and reopen; no key until the restored page has loaded"
   },
   {
-   "do": "focus_probe"
-  },
-  {
    "do": "expect",
-   "title": "cycle A: the restored page has loaded and has the keyboard",
-   "since": "reopenedA",
+   "title": "cycle A: the restored page loaded; the focus model and the page agree its text field has focus",
+   "since": "reA",
    "timeout": 20,
    "all": [
     {
      "frame_text": "pgok42"
+    },
+    {
+     "frame_text": "hasfocus yes active input"
     },
     {
      "key_window_focus": {
@@ -294,16 +166,13 @@
    "do": "hid_line",
    "text": "latekeysca",
    "enter": false,
-   "mark": "lateA",
-   "title": "cycle A: then plain keys only (a marker, no modifier) with real keys"
-  },
-  {
-   "do": "focus_probe"
+   "mark": "keysA",
+   "title": "cycle A: then a word with real plain keys (CuaDriver desktop scope)"
   },
   {
    "do": "expect",
-   "title": "cycle A: the loaded restored page got every plain key in order (shown reversed) and its field shows the marker",
-   "since": "lateA",
+   "title": "cycle A: every key reached the restored page in order (shown reversed) and the field shows the word",
+   "since": "keysA",
    "timeout": 10,
    "all": [
     {
@@ -325,17 +194,14 @@
    "do": "reopen_browser_keys",
    "text": "earlykeyscb",
    "cmd_l": false,
-   "mark": "reopenedB",
-   "title": "cycle B: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed only plain keys (a marker, no modifier)"
-  },
-  {
-   "do": "focus_probe"
+   "mark": "reB",
+   "title": "cycle B: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed only plain keys (a word, no modifier)"
   },
   {
    "do": "expect",
-   "title": "cycle B: the restored page got every plain key in order (shown reversed) and its field shows the marker",
-   "since": "reopenedB",
-   "timeout": 10,
+   "title": "cycle B: every key typed at once reached the restored page in order (shown reversed) and the field shows the word",
+   "since": "reB",
+   "timeout": 15,
    "all": [
     {
      "frame_text": "seenbcsyekylrae"

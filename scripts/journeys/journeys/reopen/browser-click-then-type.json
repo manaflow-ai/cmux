@@ -1,0 +1,258 @@
+{
+ "id": "browser-click-then-type",
+ "priority": "P0",
+ "title": "A page loaded from the address bar has its text field focused; a person's plain keys reach the field in order (2 cycles). Covers the keys after focus; NOT the click (a click into the page cannot be delivered on the fleet minis)",
+ "why": "P0 browser-click-then-type (reopen-f4, STATUS 7374/7411, #32537): on dogfood 44dc8431 and feat 4611f6ba the model resolved browserPage after the load, but the page window never became key and every plain key went to the shell window with no responder. A CuaDriver click into the page window cannot be delivered on the minis (STATUS 7302, 7362: the desktop click reaches no Chromium mouse event; the window-targeted foreground click needs a screen-recording grant), so the click part is not covered here.",
+ "source": "REOPEN VIDEO for reopen-f4",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "require_whole_host"
+  },
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "term"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo t-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "t"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the terminal works",
+   "since": "t",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "t-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "page_server",
+   "var": "page_url",
+   "lines": [
+    "<!doctype html><html><head><title>keys</title><script>",
+    "var s='',ev=[];",
+    "function show(){document.getElementById('o').textContent='seen'+s.split('').reverse().join('');",
+    "document.getElementById('e').textContent='ev '+ev.slice(-12).join(' ');",
+    "var a=document.activeElement;document.getElementById('h').textContent='hasfocus '+(document.hasFocus()?'yes':'no')+' active '+(a?a.tagName.toLowerCase():'none')}",
+    "addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key}ev.push('kd');show()},true);",
+    "['mousedown','mouseup','click','focus','blur','focusin','focusout'].forEach(function(n){addEventListener(n,function(e){ev.push(n+(e.target&&e.target.tagName?'.'+e.target.tagName.toLowerCase():''));show()},true)});",
+    "setInterval(show,200);",
+    "</script></head><body style='font:24px sans-serif'>",
+    "<p id=r></p><input id=f autofocus autocomplete=off style='font:24px sans-serif;width:600px'><p id=o></p><p id=h></p><p id=e></p>",
+    "<script>document.getElementById('r').textContent='pg'+'ok'+(6*7);show()</script>",
+    "</body></html>"
+   ],
+   "title": "set-up: a local page (127.0.0.1, a driver thread) with an autofocused text field; it shows every key it gets, reversed, document.hasFocus() and the active element"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "bar1",
+   "title": "cycle 1: Cmd-Shift-L opens a browser tab"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 1: the address bar takes the keys",
+   "since": "bar1",
+   "timeout": 15,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "${page_url}",
+   "mark": "url1"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded1"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 1: the page loaded from the address bar; the focus model and the page agree the page's text field has focus",
+   "since": "loaded1",
+   "timeout": 20,
+   "all": [
+    {
+     "frame_text": "pgok42"
+    },
+    {
+     "frame_text": "hasfocus yes active input"
+    },
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "hid_line",
+   "text": "fieldkeysok",
+   "enter": false,
+   "mark": "keys1",
+   "title": "cycle 1: a person types a word with real keys (CuaDriver desktop scope, to the front app), no click"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 1: every key reached the page in order (it shows them reversed) and the field shows the word",
+   "since": "keys1",
+   "timeout": 10,
+   "all": [
+    {
+     "frame_text": "seenkosyekdleif"
+    },
+    {
+     "frame_text": "fieldkeysok"
+    },
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "bar2",
+   "title": "cycle 2: Cmd-L, the address bar of the same tab"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 2: the address bar takes the keys",
+   "since": "bar2",
+   "timeout": 15,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "${page_url}",
+   "mark": "url2"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded2"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 2: the page loaded from the address bar; the focus model and the page agree the page's text field has focus",
+   "since": "loaded2",
+   "timeout": 20,
+   "all": [
+    {
+     "frame_text": "pgok42"
+    },
+    {
+     "frame_text": "hasfocus yes active input"
+    },
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "hid_line",
+   "text": "secondwordok",
+   "enter": false,
+   "mark": "keys2",
+   "title": "cycle 2: a person types a word with real keys (CuaDriver desktop scope, to the front app), no click"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 2: every key reached the page in order (it shows them reversed) and the field shows the word",
+   "since": "keys2",
+   "timeout": 10,
+   "all": [
+    {
+     "frame_text": "seenkodrowdnoces"
+    },
+    {
+     "frame_text": "secondwordok"
+    },
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 300
+  }
+ ]
+}
