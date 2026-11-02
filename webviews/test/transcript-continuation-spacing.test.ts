@@ -50,7 +50,8 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
       // The empty footer's first button: its glyph is centred in it (grid.md 4), and that glyph, not
       // the 28 hit box, is what keeps clear of both rows.
       const button = (
-        node("footer-a").querySelector(".cv-turn-actions .cv-iconbtn") ?? node("footer-a").querySelector(".cv-turn-actions")!
+        node("footer-a").querySelector(".cv-turn-actions .cv-iconbtn") ??
+        node("footer-a").querySelector(".cv-turn-actions")!
       ).getBoundingClientRect();
       const centre = (button.top + button.bottom) / 2;
       return {
