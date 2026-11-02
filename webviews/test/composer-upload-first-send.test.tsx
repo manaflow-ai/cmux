@@ -159,6 +159,79 @@ test("an upload the host refused outright shows Retry at once, with no try again
   expect(handle.current!.hold(() => {})).toBe(true);
 });
 
+/// Two chats' composer options, each with its own machine's upload (`carries`: a switch carries the prompt).
+function twoChats(carries: boolean, a: AttachmentIntakeOptions["upload"], b: AttachmentIntakeOptions["upload"]) {
+  const make = (scope: string, upload: AttachmentIntakeOptions["upload"]): AttachmentIntakeOptions => ({
+    allowImages: true,
+    scope,
+    pasteTarget: () => undefined,
+    upload,
+    ...(carries ? { carries: () => true } : {}),
+  });
+  return { a: make("chat-a", a), b: make("chat-b", b) };
+}
+
+test("a try again on its own never uploads a chat's file into the chat the composer switched to", async () => {
+  // The composer survives a chat switch. Its Retry reads the chat showing now, so a try again for
+  // chat A's file after a plain switch to B would put A's file on B's machine and in B's prompt.
+  const handle: { current: Probe | null } = { current: null };
+  let aCalls = 0;
+  let bCalls = 0;
+  const { a, b } = twoChats(
+    false,
+    async () => (++aCalls === 1 ? { error: "Temporary peer disconnect" } : { paths: ["/chat-a/clip.mp4"] }),
+    async () => {
+      bCalls += 1;
+      return { paths: ["/chat-b/clip.mp4"] };
+    },
+  );
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={a} handle={handle} />));
+  await act(() => void handle.current!.attach([mp4()], true));
+  await until(() => aCalls === 1 && handle.current!.pending.length === 1);
+  const chip = handle.current!.pending[0]!.id;
+  act(() => root!.render(<Harness options={b} handle={handle} />));
+  expect(handle.current!.pending).toEqual([]);
+  // fixed-wait: the try again's delay is the behavior under test.
+  await act(() => new Promise((resolve) => setTimeout(resolve, UPLOAD_RETRY_DELAY_MS + 100)));
+  expect(bCalls).toBe(0);
+  expect(handle.current!.attachments).toEqual([]);
+  // Back in A, the chip shows Retry, which uploads through A.
+  act(() => root!.render(<Harness options={a} handle={handle} />));
+  await until(() => handle.current!.pending[0]?.uploadFailed === true);
+  await act(() => handle.current!.retry(chip));
+  await until(() => handle.current!.attachments.some((attached) => attached.name === "Sunbringer Menu Animation.mp4"));
+  expect(aCalls).toBe(2);
+  expect(bCalls).toBe(0);
+});
+
+test("a chip a switch carried to the new chat tries again there on its own", async () => {
+  const handle: { current: Probe | null } = { current: null };
+  let aCalls = 0;
+  let bCalls = 0;
+  const { a, b } = twoChats(
+    true,
+    async () => {
+      aCalls += 1;
+      return { error: "Temporary peer disconnect" };
+    },
+    async () => {
+      bCalls += 1;
+      return { paths: ["/chat-b/clip.mp4"] };
+    },
+  );
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={a} handle={handle} />));
+  await act(() => void handle.current!.attach([mp4()], true));
+  await until(() => aCalls === 1 && handle.current!.pending.length === 1);
+  act(() => root!.render(<Harness options={b} handle={handle} />));
+  expect(handle.current!.pending.length).toBe(1);
+  await until(() => handle.current!.attachments.length === 1, UPLOAD_RETRY_DELAY_MS * 3);
+  expect(bCalls).toBe(1);
+  expect(aCalls).toBe(1);
+  expect(handle.current!.pending).toEqual([]);
+});
+
 test("a file the composer refused never holds a send: Retry could never make it", async () => {
   const options: AttachmentIntakeOptions = { allowImages: false, scope: "chat", pasteTarget: () => undefined };
   const handle: { current: Probe | null } = { current: null };
