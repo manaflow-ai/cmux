@@ -14,9 +14,10 @@ extension AgentPaneView {
         refreshOtherInstallNotice()
     }
 
-    /// Shows or removes the line for the current daemon and the shown chat's waiting requests.
+    /// Shows or removes the line for the current daemon and the shown chat's waiting requests: any
+    /// question, tool permission or pending group member (`hasPending`).
     func refreshOtherInstallNotice() {
-        let waiting = model.sessionId.map { !model.transport.decisions.questions(session: $0).isEmpty } ?? false
+        let waiting = model.sessionId.map { model.transport.decisions.hasPending(session: $0) } ?? false
         guard Self.showsOtherInstallNotice(otherInstall: runsOnOtherInstall, requestWaiting: waiting) else {
             otherInstallNotice?.removeFromSuperview()
             otherInstallNotice = nil
