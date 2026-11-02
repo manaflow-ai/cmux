@@ -40,7 +40,7 @@ impl Mux {
         operation_name: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let workspace =
             self.surface_workspace(surface).context("content close target has no workspace")?;
@@ -76,7 +76,7 @@ impl Mux {
         operation_name: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let terminal_id = terminal_id.clone();
         let committed = self.commit_resource_close_with(
@@ -113,7 +113,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
         guard: TerminalCloseGuard,
     ) -> anyhow::Result<Option<TerminalCloseResult>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
