@@ -136,7 +136,7 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
   /// The waiters (`until`), checked each time the stand-in records a prompt or an answer.
   const recorded = new Set<() => void>();
   const heard = () => {
-    for (const check of [...recorded]) check();
+    for (const check of recorded) check();
   };
   function answer(method: string, params: Record<string, any> = {}): unknown {
     const id = typeof params.sessionId === "string" && chats[params.sessionId] ? params.sessionId : WARM;
@@ -279,7 +279,6 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
     await vite?.close();
     await daemon?.stop(true);
   });
-
 
   test("Send stays on under the trust question, and every prompt sent goes in order after Trust", async () => {
     const page = await open(HELD);

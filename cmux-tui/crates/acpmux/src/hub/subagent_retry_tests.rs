@@ -532,6 +532,7 @@ fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queu
         blocks: vec![json!({"type": "text", "text": "waits"})],
         display_parts: None,
         control: crate::hub::Control::Local,
+        cloud_mobile: false,
         trust_gate: false,
         provenance,
         agent: None,

@@ -80,7 +80,7 @@ import {
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
-import { failedRowOf, failedRowTrustRetry, type TrustRouter } from "./failedRowTrustRetry";
+import { failedRowOf, failedRowTrustRetry } from "./failedRowTrustRetry";
 import {
   authBlocksSend,
   authText,
@@ -100,6 +100,7 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabChat, type New
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
@@ -799,6 +800,8 @@ declare global {
       applyNowPlaying?(track: unknown): void;
       /// The app's read-aloud state (conversation/readAloud.ts): `{id}`, the message it reads or null.
       applyReadAloud?(state: unknown): void;
+      /// The tabs agents marked as needing the person, for Needs you (needsYou/attentionTabs.ts).
+      applyAttentionTabs?(tabs: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -9173,7 +9176,12 @@ function AcpmuxPane() {
   /// host's draft of that chat's tab (`chat.unsentDraft`), and their chips are answered (for the
   /// wake state, which carries them). `behind`: after what the composer or draft holds (sent after
   /// one already given back). `closing`: the page goes (its tab closed), its composer with it.
-  giveBackTrustHeld.current = async (entries, behind = false, closing = false, until = Date.now() + DRAFT_SETTLE_MS) => {
+  giveBackTrustHeld.current = async (
+    entries,
+    behind = false,
+    closing = false,
+    until = Date.now() + DRAFT_SETTLE_MS,
+  ) => {
     const composer = closing ? undefined : composerHandle.current;
     // The chips the shown chat's composer keeps, which its kept chips are now (keptAttachments.ts).
     const shownChips = closing ? (composerHandle.current?.wakeState().attachments ?? []) : undefined;
@@ -9613,7 +9621,10 @@ function AcpmuxPane() {
     } catch (error) {
       // Another chat showed before it went: unsent, its ticket unspent, it waits again; a new chat's
       // start that made its session binds its backlog there.
-      if (isStartCancelled(error) || (error as { message?: unknown } | null)?.message === "agent_session.changed_during_send")
+      if (
+        isStartCancelled(error) ||
+        (error as { message?: unknown } | null)?.message === "agent_session.changed_during_send"
+      )
         throw movedOn(startsChat ? made : undefined);
       throw error;
     }
@@ -10120,6 +10131,9 @@ function AcpmuxPane() {
       },
       applyReadAloud(state) {
         setReadAloudState(state);
+      },
+      applyAttentionTabs(tabs) {
+        setAttentionTabs(tabs);
       },
       revealTurn(turnId) {
         revealRef.current(turnId);
@@ -10679,7 +10693,8 @@ function AcpmuxPane() {
             sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
             cancelEpoch: trustCancelEpoch.current,
           };
-          const routeForSend: TrustRouter = (error, again, declined) =>
+          // `again` may be absent: a held prompt the hold puts back runs no step after Trust.
+          const routeForSend = (error: unknown, again?: () => void, declined?: () => void): boolean =>
             routeTrustFor(sendOwner, error, again, declined);
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
@@ -10799,8 +10814,14 @@ function AcpmuxPane() {
           // A Quick Composer handoff can close this page only after acpmux takes the prompt.
           // Releasing a local queued row happens earlier, while its gesture may still be pending.
           const turn = client
-            .send(text, attachments, kept?.promptId ?? sendPromptId, accepted && (() => accepted(sessionId)), sendTicket, steer, () =>
-              promptLanded.current(),
+            .send(
+              text,
+              attachments,
+              kept?.promptId ?? sendPromptId,
+              accepted && (() => accepted(sessionId)),
+              sendTicket,
+              steer,
+              () => promptLanded.current(),
             )
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The client counts it from here (it registers the send before its first wait).
@@ -14472,7 +14493,11 @@ function AcpmuxPane() {
                       sessions={snapshot.sessions}
                       currentId={snapshot.sessionId}
                       asks={snapshot.asks}
+                      tabs={needsYou.attentionTabs}
                       onSelect={selectSession}
+                      onOpen={(item) =>
+                        item.kind === "tab" ? needsYou.actions.goTo(item) : selectSession(item.sessionId)
+                      }
                       onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
                       shortcuts={!hasBottomAsk}
                     />
