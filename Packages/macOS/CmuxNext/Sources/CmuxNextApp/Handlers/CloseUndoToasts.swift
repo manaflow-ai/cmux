@@ -193,9 +193,9 @@ final class CloseUndoToasts {
             undo?.expectGroup(closing, costly: costly)
             PaneController.close(closing)
         }
-        TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window) { [weak services] asked in
-            guard user, let undo = services?.closedTabs?.undoToasts else { return closeAll(nil, false) }
-            undo.decideFirst(tabs, on: daemon, asked: asked, window: first.view.window) { costly in closeAll(undo, costly) }
+        TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window, leaving: parts) { [weak services] asked, hidden in
+            guard user, let undo = services?.closedTabs?.undoToasts else { hidden?.lift(); return closeAll(nil, false) }
+            undo.decideFirst(tabs, on: daemon, asked: asked, window: first.view.window) { costly in hidden?.lift(); closeAll(undo, costly) }
         }
     }
 

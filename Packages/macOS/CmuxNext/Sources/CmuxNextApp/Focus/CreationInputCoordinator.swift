@@ -156,11 +156,14 @@ final class CreationInputCoordinator {
     }
 
     /// A person's close of `tabs` waits for an answer (the close warning's read): when it takes the focused live terminal (never a cancelled stand-in), or comes while that terminal's close still reads (two quick Cmd-Ws), keys typed meanwhile are the close's (P0 close-then-type).
-    func beginClose(of tabs: [TabModel], in window: NSWindow?) -> CreationInputBuffer.Ticket? {
+    /// `hides`: the close takes its tabs out of the strip while it reads, so every key typed in the window meanwhile is
+    /// the close's, whatever the focus moved to (`CreationInputBuffer.openClose(closing:machine:takesEveryKey:)`).
+    func beginClose(of tabs: [TabModel], in window: NSWindow?, hides: Bool = false) -> CreationInputBuffer.Ticket? {
         let live = tabs.filter(\.isLiveTerminal).map(\.id)
         guard let window, ActionRunScope.viewChangeAllowed(), let controller = router?.focus(for: window).0, let focused = controller.focus.state.terminalTab, !live.isEmpty,
               live.contains(focused) || buffers[window.windowNumber]?.isClosing(tab: focused) == true else { return nil }
-        return buffer(in: window).openClose(closing: live.contains(focused) ? [focused] + live.filter { $0 != focused } : live, machine: controller.content?.daemon.machineID)
+        return buffer(in: window).openClose(closing: live.contains(focused) ? [focused] + live.filter { $0 != focused } : live,
+                                            machine: controller.content?.daemon.machineID, takesEveryKey: hides)
     }
 
     /// Keys of closes that ended while a close's question was up, by window: they wait for its answer with its own keys.
@@ -233,9 +236,9 @@ final class CreationInputCoordinator {
             scheduleFlush(in: shell)
             return false
         }
-        // A close key while a close of the focused terminal still reads (two quick Cmd-Ws): it acts now, and the held keys
-        // keep waiting (flushed, they ran into the closing terminal).
-        if closes, let tab = controller?.focus.state.terminalTab, buffer.isClosing(tab: tab) { return false }
+        // A close key while a close of the focused terminal (or a hidden close) still reads: it acts now, and the held keys
+        // keep waiting (flushed, they ran into the closing terminal or the neighbour, #29409).
+        if closes, buffer.isClosing(tab: controller?.focus.state.terminalTab) { return false }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it). A surface hold keeps a chord no app shortcut takes (Ctrl-C).
         // A page hold keeps every key but a close (Cmd-L needs the page), until its bound.
