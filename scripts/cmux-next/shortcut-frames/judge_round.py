@@ -28,6 +28,9 @@ def main() -> int:
     p.add_argument("--videos", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--python", default=sys.executable)
+    # The busy-block mask looks back this far before each key. Each press's undo ends 1 s before the next press,
+    # so a longer window would mask the very region the next press changes (Shift-Cmd-L, 2026-11-02 03:0xZ).
+    p.add_argument("--pre-ms", default="600")
     a = p.parse_args()
     os.makedirs(a.out, exist_ok=True)
     rows = [r for r in hid_log.presses(json.load(open(a.result, encoding="utf-8"))) if "t_ns" in r]
@@ -54,7 +57,7 @@ def main() -> int:
                 f.write(json.dumps(r) + "\n")
         out = os.path.join(a.out, case + ".judge.json")
         cmd = [a.python, os.path.join(HERE, "judge.py"), "--video", movie, "--frames", frames_path, "--hid", hid_path,
-               "--refresh-hz", f"{1000 / refresh_ms:.3f}", "--out", out]
+               "--refresh-hz", f"{1000 / refresh_ms:.3f}", "--pre-ms", a.pre_ms, "--out", out]
         if "anim-on" in case:
             cmd.append("--animated")
         done = subprocess.run(cmd, capture_output=True, text=True)
