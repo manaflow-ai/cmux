@@ -33,6 +33,8 @@ MAX_OUTPUT = 32 * 1024 * 1024
 MAX_ANCESTOR_DEPTH = 100
 MAX_ANCESTOR_NODES = 500
 PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
+# Upper bound on pages one paginated read may fetch (100 items each).
+MAX_PAGES = 200
 
 
 class Refused(RuntimeError):
@@ -81,28 +83,37 @@ class GitHub:
         if not paginate:
             return json.loads(self.run(["api", route]))
         # The gh-quota broker refuses --paginate, so page explicitly. Keep each
-        # response bounded and stop only after GitHub returns an empty page.
+        # response bounded and stop at an empty page, once total_count items
+        # are read, or when a page repeats the one before it (a server or fake
+        # that ignores `page`: 2026-11-02, CI fast guards hung in
+        # test_gh_merge_green.py paging the same jobs list until the job's
+        # timeout). MAX_PAGES bounds anything else.
         split = urlsplit(route)
         query = [(key, value) for key, value in parse_qsl(split.query, keep_blank_values=True)
                  if key not in {"page", "per_page"}]
         pages = []
-        page = 1
-        while True:
+        read = 0
+        for page in range(1, MAX_PAGES + 1):
             page_route = urlunsplit((split.scheme, split.netloc, split.path,
                                      urlencode(query + [("per_page", "100"), ("page", str(page))]),
                                      split.fragment))
             document = json.loads(self.run(["api", page_route]))
+            total = None
             if isinstance(document, list):
-                empty = not document
+                items = len(document)
             elif isinstance(document, dict):
                 lists = [value for value in document.values() if isinstance(value, list)]
-                empty = bool(lists) and all(not value for value in lists)
+                items = sum(len(value) for value in lists) if lists else 1
+                total = document.get("total_count") if isinstance(document.get("total_count"), int) else None
             else:
-                empty = True
-            if empty:
+                items = 0
+            if not items or (pages and document == pages[-1]):
                 return pages
             pages.append(document)
-            page += 1
+            read += items
+            if total is not None and read >= total:
+                return pages
+        raise Refused(f"GitHub listing {split.path} did not end within {MAX_PAGES} pages")
 
     def log(self, repo: str, job: dict) -> str:
         try:
