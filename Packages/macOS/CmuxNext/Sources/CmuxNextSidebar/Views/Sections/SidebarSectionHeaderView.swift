@@ -14,9 +14,6 @@ final class SidebarSectionHeaderView: NSView {
     /// How far the section's item rows end past this header (`SidebarRegionMetrics.trailingTrim`): the chevron
     /// centers on the items' trailing column, not on its own frame's.
     var trailingTrim: CGFloat = 0 { didSet { if trailingTrim != oldValue { needsLayout = true } } }
-    /// The leading inset used by this section's item flow. Carded sections place their rows inside the card;
-    /// the title follows that same inset so it stays on the rows' shared leading column.
-    var contentLeadingInset: CGFloat = 0 { didSet { if contentLeadingInset != oldValue { needsLayout = true } } }
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     var isHovered = false { didSet { if isHovered != oldValue { updateChevron(); needsDisplay = true } } }
     private var pointerHover: PointerHover?
@@ -80,6 +77,7 @@ final class SidebarSectionHeaderView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
+        let inset = SidebarStyle.horizontalInset * 2
         name.font = SidebarStyle.headerFont
         let th = ceil(name.intrinsicContentSize.height)
         let chevronSide = Metrics.smallIconSize
@@ -87,11 +85,8 @@ final class SidebarSectionHeaderView: NSView {
         // item's fill is inset by `horizontalInset` in a frame `trailingTrim` wider than this header's.
         let rowWidth = b.width - trailingTrim - SidebarStyle.horizontalInset
         chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: b.midY, side: chevronSide)
-        // The label cell draws inside its frame. Use the same leading column as a band item; carded flows add
-        // their content inset before the row's own inset.
-        let lead = SidebarStyle.columns(rowWidth: b.width,
-                                        leadingOffset: SidebarStyle.horizontalInset + contentLeadingInset).lead
-        let nameX = lead - SidebarStyle.labelCellPadding
+        // The label cell draws inside its frame: the text starts at the inset, with workspace titles.
+        let nameX = inset - SidebarStyle.labelCellPadding
         name.frame = NSRect(x: nameX, y: (b.height - th) / 2, width: max(0, chevron.frame.minX - Metrics.space2 - nameX), height: th)
     }
 
