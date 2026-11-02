@@ -453,6 +453,93 @@ fn a_retried_start_returns_the_same_job() {
 }
 
 #[test]
+fn a_replayed_full_seed_refuses_cloud_edits_and_preserves_git_state() {
+    let world = World::new("reseed-dirty");
+    let original = world.snapshot("first", &[&world.base]);
+    let folder = world.home.join("work/project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &original))["state"], "done");
+
+    // A Cloud coding turn committed to neither HEAD nor the index: its
+    // tracked edit and untracked file must survive a client retry.
+    write(&folder.join("a"), "a\nfrom Cloud after first send\n");
+    write(&folder.join("cloud-only.txt"), "unsaved Cloud work\n");
+    let before = state(&folder);
+    let first_seed_work = git(&folder, &["rev-parse", "refs/cmux-seed/work"]);
+
+    // The Mac sends a different full seed (e.g. its seed receipt was lost).
+    write(&world.mac.join("b"), "b\nnew Mac edit\n");
+    let newer = world.snapshot("second", &[&world.base]);
+    let result = seed(&world, &world.start_params(&folder, &newer));
+    assert_eq!(result["state"], "failed", "{result}");
+    assert_eq!(result["error_code"], "seed.machine_changed", "{result}");
+    assert_eq!(state(&folder), before, "Cloud Git state changed during refused reseed");
+    assert_eq!(git(&folder, &["rev-parse", "refs/cmux-seed/work"]), first_seed_work);
+    assert_eq!(std::fs::read_to_string(folder.join("cloud-only.txt")).unwrap(), "unsaved Cloud work\n");
+    assert_eq!(std::fs::read_to_string(folder.join("a")).unwrap(), "a\nfrom Cloud after first send\n");
+}
+
+#[test]
+fn a_full_seed_retry_refuses_excluded_untracked_secrets_before_git_clean() {
+    let world = World::new("reseed-secret");
+    let original = world.snapshot("first", &[&world.base]);
+    let folder = world.home.join("work/project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &original))["state"], "done");
+
+    // The working-tree snapshot deliberately excludes an untracked .env.
+    // Git clean -fd would still delete it without this additional check.
+    write(&folder.join(".env"), "SECRET=keep-on-cloud\n");
+    let before = state(&folder);
+    write(&world.mac.join("a"), "a\nnew Mac edit\n");
+    let newer = world.snapshot("second", &[&world.base]);
+    let result = seed(&world, &world.start_params(&folder, &newer));
+    assert_eq!(result["state"], "failed", "{result}");
+    assert_eq!(result["error_code"], "seed.machine_changed", "{result}");
+    assert_eq!(state(&folder), before);
+    assert_eq!(std::fs::read_to_string(folder.join(".env")).unwrap(), "SECRET=keep-on-cloud\n");
+}
+
+#[test]
+fn a_full_seed_retry_refuses_cloud_stash_or_assume_unchanged_edits() {
+    let world = World::new("reseed-hidden");
+    let original = world.snapshot("first", &[&world.base]);
+    let folder = world.home.join("work/project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &original))["state"], "done");
+    write(&world.mac.join("b"), "b\nnew Mac edit\n");
+    let newer = world.snapshot("second", &[&world.base]);
+
+    write(&folder.join("a"), "a\nstashed on Cloud\n");
+    git(&folder, &["stash", "push", "-q", "-m", "Cloud session"]);
+    let stash = git(&folder, &["rev-parse", "refs/stash"]);
+    let result = seed(&world, &world.start_params(&folder, &newer));
+    assert_eq!(result["error_code"], "seed.machine_changed", "{result}");
+    assert_eq!(git(&folder, &["rev-parse", "refs/stash"]), stash);
+
+    // Git status and add -A may skip a file marked assume-unchanged.
+    git(&folder, &["update-ref", "-d", "refs/stash"]);
+    git(&folder, &["update-index", "--assume-unchanged", "a"]);
+    write(&folder.join("a"), "a\nassume-unchanged Cloud work\n");
+    let result = seed(&world, &world.start_params(&folder, &newer));
+    assert_eq!(result["error_code"], "seed.machine_changed", "{result}");
+    assert_eq!(std::fs::read_to_string(folder.join("a")).unwrap(), "a\nassume-unchanged Cloud work\n");
+}
+
+#[test]
+fn an_unchanged_cloud_checkout_accepts_a_new_full_seed_after_daemon_relaunch() {
+    let world = World::new("reseed-clean");
+    let original = world.snapshot("first", &[&world.base]);
+    let folder = world.home.join("work/project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &original))["state"], "done");
+
+    // A new GitSeedService instance has lost the first job's in-memory id.
+    // A clean existing checkout may still accept the updated seed.
+    write(&world.mac.join("a"), "a\nnew edit to bring to Cloud\n");
+    let newer = world.snapshot("second", &[&world.base]);
+    let status = seed(&world, &world.start_params(&folder, &newer));
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(state(&folder), state(&world.mac));
+}
+
+#[test]
 fn hooks_in_the_repository_never_run() {
     let world = World::new("hooks");
     write(&world.mac.join("a"), "a\none\n");
