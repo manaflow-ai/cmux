@@ -4,7 +4,6 @@ import CmuxNextAgentActivity
 import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextPages
-import Observation
 
 extension InternalPageID {
     static let stats = InternalPageID(rawValue: "stats")
@@ -37,19 +36,7 @@ enum StatsPageTab {
         services.pages.register(WebPageTab(.artifacts, symbol: "shippingbox", title: ArtifactsPageProvider.title) { [weak services] in
             let baseURL = services?.cloud.configuration.artifactsAPIBaseURL()
             let auth = services?.cloud.auth
-            let authChanges: ArtifactsPageProvider.AuthChanges? = auth.map { auth in
-                { onEvent in
-                    let task = Task { @MainActor in
-                        var account = auth.isSignedIn ? auth.user?.id : nil
-                        for await next in ObservationStream({ auth.isSignedIn ? auth.user?.id : nil }) {
-                            guard next != account else { continue }
-                            account = next
-                            onEvent(.object([:]))
-                        }
-                    }
-                    return PageSubscription { task.cancel() }
-                }
-            }
+            let authChanges = auth.map { auth in ArtifactsPageProvider.authChanges { auth.isSignedIn ? auth.user?.id : nil } }
             return ArtifactsPageProvider.page(baseURL: baseURL, authChanges: authChanges) { @MainActor in
                 guard let auth, auth.isSignedIn else { return nil }
                 return try await auth.tokens().access

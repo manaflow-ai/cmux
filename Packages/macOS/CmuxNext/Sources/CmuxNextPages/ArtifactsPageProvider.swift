@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
 
@@ -74,6 +75,21 @@ public final class ArtifactsPageProvider: PageProvider {
                                                             PageRoute(prefix: "cmux.cloud.", provider: provider)])
     }
 
+    /// Bridges the app's observed account identity to the page's invalidation stream.
+    public static func authChanges(accountID: @escaping @MainActor @Sendable () -> String?) -> AuthChanges {
+        { onEvent in
+            let task = Task { @MainActor in
+                var previous = accountID()
+                for await next in ObservationStream(accountID) {
+                    guard next != previous else { continue }
+                    previous = next
+                    onEvent(.object([:]))
+                }
+            }
+            return PageSubscription { task.cancel() }
+        }
+    }
+
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == "cmux.cloud.auth.watch", let authChanges else { throw PageError.unknownOp(stream) }
@@ -146,14 +162,15 @@ public final class ArtifactsPageProvider: PageProvider {
     /// answer when `token` gives nil (signed out).
     public nonisolated static func platformFetch(base: URL?, token: @escaping @Sendable () async throws -> String?)
         -> @Sendable (ArtifactsRead) async throws -> ArtifactsReply {
-        { read in
+        let session = noStoreSession()
+        return { read in
             guard let base else { throw URLError(.badURL) }
             guard let access = try await token() else { return ArtifactsReply(status: 401, body: Data()) }
             guard let url = url(read, base: base) else { throw URLError(.badURL) }
             var request = URLRequest(url: url)
             request.timeoutInterval = 60
             request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-            let (body, response) = try await noStoreSession.data(for: request)
+            let (body, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
             return ArtifactsReply(status: http.statusCode, body: body, contentType: http.value(forHTTPHeaderField: "Content-Type"),
                                   commit: http.value(forHTTPHeaderField: "X-Artifacts-Commit"))
@@ -162,14 +179,14 @@ public final class ArtifactsPageProvider: PageProvider {
 
     /// Artifact replies carry account data. Keep them out of shared URLSession caches and cookies,
     /// and never follow a redirect that could move the bearer to another origin.
-    private static let noStoreSession: URLSession = {
+    private static func noStoreSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
         return URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
-    }()
+    }
 
     /// `read`'s URL under `base`, whose own path (a deployment under a prefix) is kept. Each query
     /// value is encoded whole (`&`, `=`, `+`, `;` and `#` included), so a path can never add a param.
