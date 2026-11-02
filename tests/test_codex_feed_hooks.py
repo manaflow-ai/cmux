@@ -1113,10 +1113,21 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
             expected = [override]
         if network_args != expected:
             raise AssertionError(f"recorded network policy {recorded_network!r}, explicit {explicit_network!r}: expected {expected}, got {network_args}")
-        if permission_args and (
-            actual.count("-a") != arguments.count("-a") or actual.count("-s") != arguments.count("-s")
-        ):
-            raise AssertionError("network recovery duplicated explicit approval or sandbox options")
+        # Every fixture records approval=never and a sandbox. A network-only
+        # override must not hide those other fields; compact explicit options
+        # must also stay single instead of gaining duplicate split options.
+        if "-anever" in arguments:
+            if actual.count("-a") != 0 or "-anever" not in actual:
+                raise AssertionError("explicit compact approval was duplicated or lost")
+        elif actual.count("-a") != 1 or actual[actual.index("-a") + 1] != "never":
+            raise AssertionError(f"recorded approval policy was lost or duplicated: {actual}")
+        compact_sandbox = any(arg.startswith(("-sworkspace-write", "-s=")) for arg in arguments)
+        if actual.count("-s") != (0 if compact_sandbox else 1):
+            raise AssertionError(f"recorded sandbox policy was lost or duplicated: {actual}")
+        if not permission_args and actual[actual.index("-s") + 1] != "workspace-write":
+            raise AssertionError("network-only override changed the recorded sandbox")
+        if any(argument not in actual for argument in permission_args):
+            raise AssertionError("explicit permission arguments were not preserved")
         if expected and expected[0] not in published.get("command", ""):
             raise AssertionError("network override missing from rendered resume command")
 
