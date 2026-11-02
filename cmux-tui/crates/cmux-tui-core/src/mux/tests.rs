@@ -28,6 +28,7 @@ mod layout_undo_commit;
 mod lone_dock;
 mod matrix;
 mod mux_retry;
+mod new_terminal_folder_delta;
 mod notifications;
 mod pane_close;
 mod resource_effects;
