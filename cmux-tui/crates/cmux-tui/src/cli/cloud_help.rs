@@ -463,7 +463,7 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 ";
 
 /// The new spelling of a hidden old verb.
-fn renamed(name: &str) -> Option<&'static str> {
+pub(super) fn renamed(name: &str) -> Option<&'static str> {
     HIDDEN.iter().find(|(old, _)| *old == name).map(|(_, new)| *new)
 }
 

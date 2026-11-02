@@ -530,7 +530,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         }
         let has_credential =
             || has_own_credential(&env) || !matches!(cmux_vm::token::read_stored(&env), Ok(None));
-        let app_present = global.app_socket.is_some() || super::cloud_machines::app_found();
+        // A named socket that is not the app's makes `run_cli_action` answer
+        // `None`, and the VM API takes it as before.
+        let app_present = global.app_socket.is_some()
+            || global.socket.is_some()
+            || super::cloud_machines::app_found();
         if new_route(scope, tail, has_credential, app_present) == NewRoute::App
             && let Some(code) = super::app::run_cli_action(&global, "cloud new-machine", tail)
         {
