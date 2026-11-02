@@ -204,15 +204,15 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
     let home_named = |key: &str| !s.unresolved.iter().any(|k| k == key);
     match s.family.as_str() {
         "codex" if program.contains("codex") && home_named("CODEX_HOME") => {
+            let env = crate::login_env::effective_for(Some("codex"), &s.env);
             // A project config can select a provider/profile the home-level probe cannot see.
             // Leave that target inconclusive so a stale OpenAI refusal never blocks its chat.
             if let Some(cwd) = cwd {
-                match codex_project_config(cwd) {
+                match codex_project_config(cwd, &env) {
                     None | Some(true) => return None,
                     Some(false) => {}
                 }
             }
-            let env = crate::login_env::effective_for(Some("codex"), &s.env);
             match codex_provider::provider_auth(&env) {
                 codex_provider::ProviderAuth::Configured(detail) => {
                     return Some((Auth::SignedIn, Some(detail)));
@@ -290,12 +290,30 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
 /// Whether a Codex launch can inherit a project configuration from `cwd` or
 /// one of its ancestors. The home-level login probe cannot account for a
 /// provider selected by any of those files.
-fn codex_project_config(cwd: &Path) -> Option<bool> {
+fn codex_project_config(cwd: &Path, env: &BTreeMap<String, String>) -> Option<bool> {
     let cwd = std::fs::canonicalize(cwd).ok()?;
+    let home = env
+        .get("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+        .and_then(|path| std::fs::canonicalize(path).ok());
+    let codex_home =
+        codex_provider::codex_home(env).and_then(|path| std::fs::canonicalize(path).ok());
     let mut dir = Some(cwd.as_path());
     while let Some(current) = dir {
+        // The Codex home itself is not a project directory. Its config controls
+        // the home-level probe and must not make this target inconclusive.
+        if codex_home.as_deref() == Some(current) {
+            return Some(false);
+        }
         if current.join(".codex/config.toml").is_file() {
             return Some(true);
+        }
+        // Do not inspect parent directories outside this project or the user's
+        // home. A repository root is the highest project-scoped config level.
+        if home.as_deref() == Some(current) || current.join(".git").exists() {
+            break;
         }
         dir = current.parent();
     }
@@ -832,12 +850,14 @@ mod tests {
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
-        let nested = root.join("src/deep");
-        std::fs::create_dir_all(root.join(".codex")).unwrap();
+        let project = root.join("project");
+        let nested = project.join("src/deep");
+        std::fs::create_dir_all(project.join(".codex")).unwrap();
         std::fs::create_dir_all(&nested).unwrap();
-        std::fs::write(root.join(".codex/config.toml"), "model_provider = \"local\"\n").unwrap();
+        std::fs::write(project.join(".codex/config.toml"), "model_provider = \"local\"\n").unwrap();
+        let env = BTreeMap::from([("HOME".to_owned(), root.display().to_string())]);
 
-        assert_eq!(codex_project_config(&nested), Some(true));
+        assert_eq!(codex_project_config(&nested, &env), Some(true));
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -859,9 +879,26 @@ mod tests {
         std::fs::create_dir_all(&source).unwrap();
         std::fs::write(project.join(".codex/config.toml"), "model_provider = \"local\"\n").unwrap();
         symlink(project.join("src"), &alias).unwrap();
+        let env = BTreeMap::from([("HOME".to_owned(), root.display().to_string())]);
 
-        assert_eq!(codex_project_config(&alias.join("deep")), Some(true));
-        assert_eq!(codex_project_config(&root.join("missing")), None);
+        assert_eq!(codex_project_config(&alias.join("deep"), &env), Some(true));
+        assert_eq!(codex_project_config(&root.join("missing"), &env), None);
+
+        let home_codex = root.join(".codex");
+        std::fs::create_dir_all(&home_codex).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(home_codex.join("config.toml"), "model_provider = \"local\"\n").unwrap();
+        assert_eq!(codex_project_config(&root.join("src"), &env), Some(false));
+
+        let custom_home = root.join("custom-codex");
+        let custom_cwd = custom_home.join("src/deep");
+        std::fs::create_dir_all(&custom_cwd).unwrap();
+        std::fs::write(custom_home.join("config.toml"), "model_provider = \"local\"\n").unwrap();
+        let env = BTreeMap::from([
+            ("HOME".to_owned(), root.display().to_string()),
+            ("CODEX_HOME".to_owned(), custom_home.display().to_string()),
+        ]);
+        assert_eq!(codex_project_config(&custom_cwd, &env), Some(false));
 
         let _ = std::fs::remove_dir_all(root);
     }
