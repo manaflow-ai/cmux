@@ -5413,6 +5413,17 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   margin: 0;
   padding: 0;
 }
+/* A waiting steer keeps its action row in flow (model.ts userMetaHeight reserves it), but draws it
+   where the sent prompt's row sits: half the turn gap's spare under the bubble, overhanging
+   col-right by the control's inset. Sending it then moves nothing (design/grid.md 5.5: the row's
+   glyphs sit 4 under the message "in every case"; queued-user-footer.test.ts). */
+.cv-user:has(.cv-user__pending) > .cv-user__actions,
+.cv-user:has(.cv-user__pending) > .cv-user__body > .cv-user__actions {
+  position: relative;
+  top: calc((var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
+  right: calc(-1 * var(--cv-action-overhang));
+  padding-right: 0;
+}
 
 
 .cv-repo-recovery {

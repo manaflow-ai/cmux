@@ -431,6 +431,62 @@ Verdict: CLEAN (writes `handoff/dogfood-fuzz/<JOB>.clean`), RED, NOT JUDGED, or 
 has no key window, so every key after a create waits out the 2.5 s creation hold; typing at once, quick pairs of
 creates and the focus oracle are weak there; never a clean file).
 
+## TUI load kit (layout-animation videos)
+
+`tui-kit/` holds the seeded terminal load for the real-app videos of layout animations (RESIZE VIDEOS,
+STATUS 4263): demanding programs for 4 to 12 panes, a browser page and an agent stand-in. Standard
+library only, Python 3.9 (the minis' `/usr/bin/python3`; they have vim 9.1 but no htop or btop, so the
+kit has its own `top`). Every program takes `--seed N` (the same seed draws the same frames),
+`--duration S` (0: until a signal) and `--log FILE` (JSON lines stamped `wall` = `time.time()` and
+`mono` = `time.monotonic()`), and ends cleanly on its deadline, SIGINT, SIGTERM or SIGHUP.
+
+```bash
+K=scripts/journeys/tui-kit/tuikit.py
+python3 $K gradient --seed 7 --duration 60 --log /tmp/g.jsonl   # 120 fps truecolor gradient, box art, CJK and emoji
+python3 $K describe --seed 7 --size 120x40                        # where gradient puts each element (columns, rows)
+python3 $K sigwinch --seed 7 --duration 60 --log /tmp/w.jsonl   # one reflow per new size; every SIGWINCH logged
+python3 $K mouse --seed 7 --duration 60 --log /tmp/m.jsonl      # curses, SGR 1006 mouse, cursor at (rows//2, cols//2)
+python3 $K flood --seed 7 --duration 60 [--rate N] [--width 48] # numbered lines with a CRC, as fast as `yes`
+python3 $K verify < screen.txt                                  # torn, lost or stale flood lines in a screen read
+python3 $K vim-scroll --seed 7 --duration 60 --log /tmp/v.jsonl # vim scrolls a generated 100k-line C file
+python3 $K top --seed 7 --duration 60                            # htop look-alike at 30 fps
+python3 $K agent-stream --seed 7 --duration 60 --cps 400         # an agent's streamed answer in a terminal
+python3 $K html --seed 7 --out /tmp/anim-7.html                  # the browser pane's page (or: serve --seed 7)
+python3 $K scenario --panes 12 --seed 7 --write                  # which program runs in which pane: manifest.json
+python3 scripts/journeys/tui-kit/heavy_profile.py build --tag TAG --seed 7 --out /tmp/tk-heavy-7
+python3 scripts/journeys/tui-kit/heavy_profile.py teardown --manifest /tmp/tk-heavy-7/heavy.json
+python3 scripts/journeys/tui-kit/test_tuikit.py                  # the kit's own tests (no app, no fleet)
+```
+
+What the analyzer reads in a frame:
+
+- `gradient`: top-left `F<frame> t=<s> seed=<n> <cols>x<rows>`; on row 2 a barcode: a magenta guard
+  cell, 20 cells of the frame index (white 1, black 0, most significant first), a cyan guard; a 3x5
+  block-digit counter bottom right (panes of 50x18 or more). The frame log gives each frame's write
+  time, so a video frame maps to a program frame. Frames are inside synchronized-update brackets
+  (`--no-sync` drops them), so a torn frame is the terminal's, not the program's.
+- `sigwinch`: header `SIGWINCH <cols>x<rows> winch=N reflow=M`; a new tint, the cards and the red right
+  edge and bottom-row line move only at a reflow. The log has one `sigwinch` line per signal and one
+  `reflow` line per new size: one reflow at the end of a resize is the rule.
+- `mouse`: the cursor rests between `[` and `]` at (rows//2, cols//2); rows 3-5 from column 4 are an
+  inverted block; a press draws its number where it lands and is logged (`press`, 1-based x, y).
+- `flood`: `<10-digit line> s<seed> <payload> #<crc32>`; keep `--width` under the pane's columns.
+- The page: a CSS slide, spin, pulse and hue animation; `F <n>` and 16 boxes count rAF frames;
+  `window.tuikit.longFrames` counts frames longer than 1.5x the median.
+- The agent pane: `agent_stream_acp.py` is acpmux's `fake_agent.py` with the prompt
+  `stream: SEED SECONDS CPS` (numbered paragraphs `[pNNNN]`, tool calls, diffs).
+
+`heavy_profile.py build` makes, on a running tagged build, through the bundled `cmux` CLI and the app
+socket: 40 workspaces, 200 tabs, one shown workspace with 12 TUI panes in seeded columns and rows plus
+a browser pane and an agent chat pane (the terminal stand-in when the build cannot open the chat; the
+manifest says why). It writes `heavy.json` (ids, which pane runs what, refusals, a `snapshot.get`
+check) after each step; `teardown` closes what it made and stops its page server. `heavy_profile.py
+plan` prints the plan with no app.
+
+The fleet check (no app, no GUI): `cmux-ci run --class exclusive --script
+scripts/measure/tui-kit-selftest.sh --ref SHA` runs the tests with the Mac's Python and reports the
+gradient's pace.
+
 ## Not supported yet
 
 - Generated journeys: one per action catalog row, settings schema entry and keyboard shortcut

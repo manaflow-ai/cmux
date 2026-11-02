@@ -114,6 +114,46 @@ import Testing
         #expect(pass.state.parents == [Self.opened: Self.caller])
     }
 
+    /// A malformed daemon replay must not make a cycle: a sidebar tree needs roots, even when
+    /// both chats claim the other as their parent (old records, cross-device reconnects).
+    @Test func conflictingLocalDaemonLineageKeepsBothWorkspacesInAForest() {
+        let lanes = [
+            "s-caller": Self.lane("s-caller", spawnedBy: "s-opened"),
+            "s-opened": Self.lane("s-opened", spawnedBy: "s-caller"),
+        ]
+        let pass = SidebarSessionTreeFeed.pass(Self.chats(), lanes: lanes,
+                                               localHost: Self.localHost, pullRequests: [:])
+        #expect(pass.state.parents.count == 1, "one of the two conflicting links is dropped")
+        #expect(pass.state.parents[Self.caller] != Self.opened ||
+                pass.state.parents[Self.opened] != Self.caller)
+    }
+
+    @Test func conflictingRemoteDaemonLineageKeepsHostQualifiedSessionsSeparate() {
+        let host = "registry:vm"
+        let remote = SidebarSessionTreeFeed.pass(Self.chats(host: host), lanes: [:],
+                                                   remoteParentsByHost: [host: [
+                                                       "s-caller": "s-opened",
+                                                       "s-opened": "s-caller",
+                                                   ]],
+                                                   localHost: Self.localHost, pullRequests: [:])
+        #expect(remote.state.parents.count == 1)
+        #expect(remote.state.parents[Self.caller] != Self.opened ||
+                remote.state.parents[Self.opened] != Self.caller)
+
+        // Reused session IDs on another daemon have their own parent map.
+        let a = WorkspaceID("ws-a-caller"), b = WorkspaceID("ws-a-opened")
+        let chats: [(WorkspaceID, [AgentSessionRef])] = [
+            (a, [AgentSessionRef(host: "registry:other", session: "s-caller")]),
+            (b, [AgentSessionRef(host: "registry:other", session: "s-opened")]),
+        ]
+        let other = SidebarSessionTreeFeed.pass(chats, lanes: [:],
+                                                remoteParentsByHost: [host: [
+                                                    "s-caller": "s-opened", "s-opened": "s-caller",
+                                                ]],
+                                                localHost: Self.localHost, pullRequests: [:])
+        #expect(other.state.parents.isEmpty)
+    }
+
     @Test func recordedParentsSurviveARelaunchAndKeepTheNewest() throws {
         let suite = "cmux.next.tests.lineage.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
