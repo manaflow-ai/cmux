@@ -179,5 +179,5 @@ nonisolated struct AgentPanePrimaryRoot: Equatable, Sendable {
 extension AgentPaneModel {
     /// The New Tab page's folder when a tab gave it; a context the spare pool prepared (``newTabPrepared``) names no
     /// tab's folder yet: no root, no start folder (SHORTCUT FRAMES F2 review).
-    var tabsNewTabFolder: String? { newTabPrepared ? nil : newTab?.cwd }
+    var tabsNewTabFolder: String? { newTab?.cwd }
 }
