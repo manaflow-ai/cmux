@@ -464,9 +464,11 @@ pub fn resolve_view<V: SnapshotView>(target: V::Id, view: &V) -> Outcome {
     };
     // The front-most window that shows the workspace, else one that lists it.
     let count = view.window_count();
-    let shows = |w: usize| view.window(w).is_some_and(|f| f.shown_workspace == Some(workspace));
-    let found =
-        (0..count).find(|&w| shows(w)).or_else(|| (0..count).find(|&w| view.lists(w, workspace)));
+    let shows_workspace =
+        |w: usize| view.window(w).is_some_and(|f| f.shown_workspace == Some(workspace));
+    let found = (0..count)
+        .find(|&w| shows_workspace(w))
+        .or_else(|| (0..count).find(|&w| view.lists(w, workspace)));
     let Some((window, facts)) = found.and_then(|w| Some((w, view.window(w)?))) else {
         return Outcome::NotDrawn { reason: NotDrawnReason::NotInAnyWindow };
     };
