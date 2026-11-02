@@ -71,7 +71,9 @@ struct ColumnAddFocusTests {
         state.reduce(.sync(strip, focused: "p1", source: .keyboard, animated: false))
         // c1 ends at 1632; with its 16 pt padding the view's right edge goes to 1648.
         #expect(abs(state.spring.target - (1648 - 1200)) < 0.5)
-        #expect(strip.isFullyVisible(strip.columns[1].frame, at: state.spring.target))
+        // c1 shows whole with its padding: 816...1632 inside 448 + 16...448 + 1200 - 16.
+        #expect(strip.columns[1].frame.minX - 16 >= state.spring.target - 0.5)
+        #expect(strip.columns[1].frame.maxX + 16 <= state.spring.target + 1200 + 0.5)
         let atRight = state.spring.target
         state.reduce(.sync(strip, focused: "p0", source: .keyboard, animated: false))
         // c0's left edge with padding: 0.

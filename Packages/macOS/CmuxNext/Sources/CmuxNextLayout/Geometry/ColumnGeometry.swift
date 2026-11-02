@@ -96,46 +96,8 @@ public nonisolated enum ColumnStripGeometry {
         return result
     }
 
-    /// Where a fling released at `offset` with `velocity` (points per second,
-    /// positive = offset increasing) would coast to. Same model as
-    /// `UIScrollView.decelerationRate.normal`.
-    public static func projectedOffset(_ offset: CGFloat, velocity: CGFloat, decelerationRate: CGFloat = 0.998) -> CGFloat {
-        offset + (velocity / 1000) * decelerationRate / (1 - decelerationRate)
-    }
-
-    /// The snap offset a release should settle on: the one nearest the
-    /// projected coast position. A fast fling always advances at least one
-    /// snap point in its direction.
-    public static func snapTarget(releaseOffset: CGFloat, velocity: CGFloat, snaps: [CGFloat], flingThreshold: CGFloat = 300) -> CGFloat {
-        guard !snaps.isEmpty else { return releaseOffset }
-        let projected = projectedOffset(releaseOffset, velocity: velocity)
-        var best = snaps.min { abs($0 - projected) < abs($1 - projected) }!
-        if velocity > flingThreshold, best <= releaseOffset + 0.5, let next = snaps.first(where: { $0 > releaseOffset + 0.5 }) {
-            best = next
-        } else if velocity < -flingThreshold, best >= releaseOffset - 0.5, let previous = snaps.last(where: { $0 < releaseOffset - 0.5 }) {
-            best = previous
-        }
-        return best
-    }
-
-    /// The adjacent snap offset from `offset` in `direction` (+1 or -1), for
-    /// discrete mouse wheel steps.
-    public static func adjacentSnap(from offset: CGFloat, direction: Int, snaps: [CGFloat]) -> CGFloat {
-        if direction > 0 { return snaps.first { $0 > offset + 0.5 } ?? snaps.last ?? offset }
-        return snaps.last { $0 < offset - 0.5 } ?? snaps.first ?? offset
-    }
-
-    /// Rubber-band resistance past the ends, like AppKit elastic scrolling.
-    public static func rubberBand(_ offset: CGFloat, contentWidth: CGFloat, viewportWidth: CGFloat) -> CGFloat {
-        let upper = maxOffset(contentWidth: contentWidth, viewportWidth: viewportWidth)
-        let dimension = max(viewportWidth, 1)
-        func resist(_ overshoot: CGFloat) -> CGFloat {
-            (1 - 1 / (overshoot * 0.55 / dimension + 1)) * dimension
-        }
-        if offset < 0 { return -resist(-offset) }
-        if offset > upper { return upper + resist(offset - upper) }
-        return offset
-    }
+    // Fling projection, snap target, wheel step and rubber band are the Rust scroll reducer's
+    // (cmux-layout-reducer `scroll::geometry`), behind ColumnScrollState.reduce.
 
     /// The column whose leading edge is nearest the viewport's leading edge.
     public static func leadingColumnIndex(frames: [CGRect], offset: CGFloat, gap: CGFloat) -> Int? {
