@@ -1,10 +1,10 @@
-//! Labs gated team-address messaging over the mesh hub.
+//! Team-address messaging over the mesh hub, on wherever a hub is configured.
 //!
 //! This keeps the CLI and MCP clients on one daemon path. The hub remains the
 //! authority for address resolution and `startWork`; this layer only validates
 //! the local request and passes the signed daemon identity to `MeshHub`.
 //!
-//! While the Labs flag is off, the inbox, read and ack of a chat's own agent read that chat's inbox
+//! While `meshRelay.teamMessaging` is off, the inbox, read and ack of a chat's own agent read that chat's inbox
 //! instead of refusing ([`chat_inbox`], `hub/inbox_team_page.rs`).
 
 use super::*;
@@ -94,9 +94,9 @@ pub(super) async fn authorize(hub: &Arc<Hub>, conn: &Arc<Conn>) -> Result<(), Rp
         hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
     if !enabled {
         return Err(RpcError::invalid_params(
-            "team messaging is disabled; enable meshRelay.teamMessaging in Labs",
+            "team messaging is off: meshRelay in config.json names no hub, or sets teamMessaging false",
         )
-        .with_data(json!({"reason": "team_messaging_disabled", "labs": true})));
+        .with_data(json!({"reason": "team_messaging_disabled"})));
     }
     Ok(())
 }
