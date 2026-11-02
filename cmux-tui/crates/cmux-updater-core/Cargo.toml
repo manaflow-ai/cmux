@@ -1,0 +1,19 @@
+[package]
+name = "cmux-updater-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The pure update rules of the cmux NEXT updater: Sparkle version order, appcast parse and selection, ring return, channel tracks, rollback decision, release-line rules (the macOS app calls them over the app FFI; Sparkle and the UI stay Swift)"
+
+[dependencies]
+quick-xml = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+# NSCharacterSet's classes (decimal digits, punctuation) are Unicode general
+# categories; Sparkle's version comparator splits on them.
+unicode-general-category = "1.1"
+
+[lints]
+workspace = true
