@@ -353,6 +353,19 @@ impl Screen {
         base_id: SplitId,
         column: LayoutColumn,
     ) -> bool {
+        self.insert_layout_column_beside(target, base_id, column, false)
+    }
+
+    /// Inserts `column` beside the column of `target`: before it when
+    /// `before` (`new-pane-right {side: "left"}`, `column-left-v1`), else
+    /// after it. A split screen first becomes the column `base_id`.
+    pub(crate) fn insert_layout_column_beside(
+        &mut self,
+        target: PaneId,
+        base_id: SplitId,
+        column: LayoutColumn,
+        before: bool,
+    ) -> bool {
         if self.layout_columns.is_empty() {
             if !self.root.contains(target) {
                 return false;
@@ -367,7 +380,7 @@ impl Screen {
         else {
             return false;
         };
-        self.layout_columns.insert(index + 1, column);
+        self.layout_columns.insert(if before { index } else { index + 1 }, column);
         self.sync_layout_column_projection();
         true
     }

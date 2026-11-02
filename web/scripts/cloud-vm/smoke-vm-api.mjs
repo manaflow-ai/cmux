@@ -12,7 +12,7 @@ import {
   parseWebDirAndTarget,
   requireEnvKeys,
 } from "./projects.mjs";
-import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
+import { classifyCodexCanaryOutcome, edgeCanaryProblems, retryGuestEdgeRequest } from "./canaryOutcome.mjs";
 import {
   CREATE_VM_RETRY_BUDGET_MS,
   createVmRequest,
@@ -133,15 +133,14 @@ async function timed(name, work) {
 async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS, signal) {
   if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs, signal);
   const controller = new AbortController();
-  const abort = () => controller.abort(signal?.reason);
-  if (signal?.aborted) abort();
-  else signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    // Keep caller cancellation connected while the response body is read,
+    // after fetch has returned its headers and this local timer is cleared.
+    const requestSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
+    return await fetch(url, { ...init, signal: requestSignal });
   } finally {
     clearTimeout(timer);
-    signal?.removeEventListener("abort", abort);
   }
 }
 
@@ -443,12 +442,12 @@ try {
     if (edgeCheck) {
       stage = "edge";
       const edgeStartedAt = performance.now();
-      const exec = async (command, timeoutMs = 120_000) => {
+      const exec = async (command, timeoutMs = 120_000, signal) => {
         const response = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/exec`, {
           method: "POST",
           headers: { ...authHeaders, "content-type": "application/json" },
           body: JSON.stringify({ command, timeoutMs }),
-        }, timeoutMs + 30_000);
+        }, timeoutMs + 30_000, signal);
         const text = await response.text();
         if (response.status !== 200) throw new Error(`POST exec expected 200, got ${response.status}: ${text}`);
         return JSON.parse(text);
@@ -456,15 +455,22 @@ try {
       const guestEnv = "export HOME=/root; for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done; . /etc/cmux/agent-config.sh;";
       const originHost = await exec(`${guestEnv} printf '%s' "$CMUX_CODEROUTER_URL" | sed -e 's#^https\\?://##' -e 's#/.*$##'`);
       const host = (originHost.stdout ?? "").trim();
+      // Only idempotent probes are retried, never paid agent turns. Reuse the
+      // request timeout as the total retry deadline, including retry delays.
+      const edgeExec = (command) => retryGuestEdgeRequest(
+        (signal) => exec(command, 30_000, signal),
+        host,
+        { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      );
       // Any crt_ string under the agent config roots means a token leaked into the guest.
       const leak = await exec("grep -rslE 'crt_[A-Za-z0-9_-]{40,}' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
       const tokenOnDisk = (leak.stdout ?? "").trim();
       // /v1/models needs an upstream client_version query, so the self-usage
       // route is the guest-side proof that the bound token arrived.
-      const models = await exec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
+      const models = await edgeExec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
       const modelsStatus = (models.stdout ?? "").trim();
       const codex = zeroToken
-        ? await exec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
+        ? await edgeExec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
         : await exec(`${guestEnv} cd /root && command -v codex && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20; echo "codex-exit $?"`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
       const codexOutcome = classifyCodexCanaryOutcome(codexOut, { zeroToken });
@@ -489,7 +495,7 @@ try {
         edge.claudeExit = claude.exitCode;
         edge.claudeOutcome = claudePong ? "answered" : /claude_upstream_not_configured|no upstream/i.test(claudeOut) ? "no_upstream" : "failed";
         edge.claudeTail = claudeOut.slice(-400);
-        const selfUsage = await exec(`${guestEnv} curl -sS --max-time 20 -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
+        const selfUsage = await edgeExec(`${guestEnv} curl -sS --max-time 20 -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
         edge.selfUsage = (selfUsage.stdout ?? "").trim().slice(0, 600);
       }
       const problems = edgeCanaryProblems({

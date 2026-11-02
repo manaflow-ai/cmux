@@ -28,6 +28,7 @@ use super::super::app::{self, ActionName};
 use super::super::mcp::{self, CallFailure, FailureKind};
 use super::super::{GlobalArgs, UsageError};
 use super::chat;
+use cmux_json::JsonSet as _;
 
 /// The permission policies an agent may start a chat with.
 pub(in crate::cli) const AGENT_POLICIES: [&str; 3] = ["ask", "approve-reads", "deny-all"];
@@ -57,9 +58,12 @@ pub(in crate::cli) struct NewChat {
     pub cwd: Option<String>,
     /// A first prompt, the chat's own (as a person types it into New Agent Chat).
     pub prompt: Option<String>,
+    /// The new workspace goes first in the sidebar (below Home), whatever
+    /// `workspaces.newPlacement` says (`--top`, #29875).
+    pub top: bool,
 }
 
-const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>] [--harness <h>] \
+const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] \
      [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] \
      [--] [<prompt>]";
 
@@ -67,10 +71,9 @@ const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>] [--har
 pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
     let mut chat = NewChat::default();
     let mut index = 0;
-    while index < words.len() {
-        let word = words[index];
+    while let Some(&word) = words.get(index) {
         if word == "--" {
-            let rest = &words[index + 1..];
+            let rest = words.get(index + 1..).unwrap_or_default();
             match rest {
                 [] => {}
                 [text] => chat.prompt = Some((*text).to_owned()),
@@ -90,6 +93,11 @@ pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
             }
             chat.prompt = Some(word.to_owned());
             break;
+        }
+        if word == "--top" {
+            chat.top = true;
+            index += 1;
+            continue;
         }
         let (flag, inline) = match word.split_once('=') {
             Some((flag, value)) => (flag, Some(value)),
@@ -128,6 +136,11 @@ pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
     }
     if chat.workspace.is_some() && chat.pane.is_some() {
         return Err(UsageError::new("agents chat new: name --workspace or --pane, not both"));
+    }
+    if chat.top && (chat.workspace.is_some() || chat.pane.is_some()) {
+        return Err(UsageError::new(
+            "agents chat new: --top places a new workspace; it does not go with --workspace or --pane",
+        ));
     }
     // A policy that approves edits or everything without asking is a person's choice in
     // cmux; an agent may only start chats that ask, approve reads, or deny.
@@ -194,11 +207,15 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
         if let Some(cwd) = &chat.cwd {
             arguments.insert("cwd".into(), json!(cwd));
         }
+        if chat.top {
+            arguments.insert("placement".into(), json!("top"));
+        }
         return Ok(Place { key, pane: None, arguments });
     }
     let snapshot = mcp::agent_resource(global, super::snapshot_plan())
         .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
-    let list = |name: &str| snapshot[name].as_array().cloned().unwrap_or_default();
+    let list =
+        |name: &str| snapshot.get(name).and_then(Value::as_array).cloned().unwrap_or_default();
     let (workspaces, screens, panes) = (list("workspaces"), list("screens"), list("panes"));
     let by_id = |items: &[Value], id: &Value| items.iter().find(|item| &item["id"] == id).cloned();
     // The app gets the ids the snapshot names, never the caller's spelling.
@@ -261,7 +278,14 @@ fn uuid_form(key: &str) -> String {
     if hex.len() != 32 {
         return key.to_owned();
     }
-    [&hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32]].join("-")
+    let dashed = || {
+        let (time_low, rest) = hex.split_at_checked(8)?;
+        let (time_mid, rest) = rest.split_at_checked(4)?;
+        let (time_high, rest) = rest.split_at_checked(4)?;
+        let (clock, node) = rest.split_at_checked(4)?;
+        Some([time_low, time_mid, time_high, clock, node].join("-"))
+    };
+    dashed().unwrap_or_else(|| key.to_owned())
 }
 
 /// `chat new`: the chat, its tab, and its first prompt.
@@ -337,18 +361,20 @@ pub(in crate::cli) fn new(
         None,
     ) {
         Ok(run) => {
-            result["opened"] = json!(true);
+            result.set("opened", json!(true));
             for field in ["tab", "pane", "workspace"] {
-                if let Some(value) = run["result"].get(field).filter(|value| !value.is_null()) {
-                    result[field] = value.clone();
+                if let Some(value) = run["result"].get(field).filter(|value| !value.is_null())
+                    && let Some(result) = result.as_object_mut()
+                {
+                    result.insert(field.to_owned(), value.clone());
                 }
             }
         }
         // The app took the run but did not answer in time: the tab may still come (a slow
         // agent tab create), so the chat stays and the receipt says so.
         Err(error) if matches!(error["code"].as_str(), Some("timeout" | "app.transport")) => {
-            result["opened"] = json!("pending");
-            result["open_error"] = error;
+            result.set("opened", json!("pending"));
+            result.set("open_error", error);
         }
         Err(error) if new_workspace => {
             // No workspace has the chat's key, so no chat verb could ever reach it: it ends.
@@ -358,8 +384,8 @@ pub(in crate::cli) fn new(
         Err(error) => {
             // The chat runs in that workspace and `chat send|read` reach it; the receipt
             // says why no tab shows it, so the caller can `agent open` it later.
-            result["opened"] = json!(false);
-            result["open_error"] = error;
+            result.set("opened", json!(false));
+            result.set("open_error", error);
         }
     }
 
@@ -367,10 +393,13 @@ pub(in crate::cli) fn new(
     // and presses Return (a chat this caller just started, as `cmux acp new PROMPT` does).
     if let Some(prompt) = &chat.prompt {
         let id = uuid::Uuid::new_v4().to_string();
-        result["prompt"] = match chat::acp::prompt(&session, prompt, &id, None, socket) {
-            Ok(_) => json!({"state": "accepted", "prompt_id": id}),
-            Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
-        };
+        result.set(
+            "prompt",
+            match chat::acp::prompt(&session, prompt, &id, None, socket) {
+                Ok(_) => json!({"state": "accepted", "prompt_id": id}),
+                Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
+            },
+        );
     }
     Ok(json!({
         "schema_version": 1,

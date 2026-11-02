@@ -31,6 +31,10 @@ public final class TabStripModel {
     /// Full Width Tab mode: the strip shows only the selected tab, across its whole width
     /// (``TabLayoutEngine/layout(items:availableWidth:style:metrics:closingModeWidth:fullWidthTab:)``).
     public var showsSelectedFullWidth = false
+    /// The strip's pane is zoomed: its selected tab shows the zoom indicator, whose click restores
+    /// the layout (`TabStripIntent.toggleZoom`; cmux classic's, #25624). Inside the tab, so a zoom
+    /// never changes the strip's width and moves no tab.
+    public var zoomsSelected = false
 
     /// Receives every intent. Set by the App (or the demo).
     @ObservationIgnored public var intentHandler: ((TabStripIntent) -> Void)?

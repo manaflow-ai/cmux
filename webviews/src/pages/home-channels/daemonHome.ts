@@ -15,6 +15,7 @@ import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import { DaemonPeople } from "./daemonPeople";
 import {
   HomeOps,
+  MESSAGE_PARTS,
   type HomeAttachment,
   type HomeChiefNames,
   type HomeConversation,
@@ -51,7 +52,13 @@ const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
 const CLOUD_ATTACHMENTS_CAPABILITY = "cloud-attachments-v1";
 /** The attachment steps the page may send (the owner checks every field). */
 const UPLOAD_STEPS = new Set(["begin", "chunk", "commit", "cancel"]);
-const CHIEF = { id: "agent_mux", kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" };
+const CHIEF = {
+  id: "agent_mux",
+  kind: "agent",
+  display_name: "Chief",
+  agent_class: "mux",
+  acp_session: "mux",
+};
 const TAPBACK_EMOJI: Record<string, string> = {
   love: "❤️",
   like: "👍",
@@ -63,6 +70,7 @@ const TAPBACK_EMOJI: Record<string, string> = {
 const MAX_PAGE = 200;
 /** Agent runs (`conversation-run*`, the `conversation-run-changed` event for a page that asks). */
 const RUNS_CAPABILITY = "conversation-runs-v1";
+const RUN_ANSWERS_CAPABILITY = "conversation-run-answers-v1";
 /** A Cloud Chief's runs through the daemon (`cloud-conversation-run*`). */
 const CLOUD_RUNS_CAPABILITY = "cloud-conversation-runs-v1";
 /** A Chief's live run frames (`conversation-live*`, the `conversation-live` event for a page that asks). */
@@ -104,7 +112,11 @@ function part(raw: Json): HomePart {
         text: String(raw.text ?? ""),
         mentions: runs
           .filter((run) => typeof run.mention === "string")
-          .map((run) => ({ start: num(run.start), length: num(run.length), participant: String(run.mention) })),
+          .map((run) => ({
+            start: num(run.start),
+            length: num(run.length),
+            participant: String(run.mention),
+          })),
       };
     }
     case "work": {
@@ -128,7 +140,11 @@ function part(raw: Json): HomePart {
 function derivedImage(raw: unknown): HomeDerivedImage | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const image = raw as Json;
-  return { hash: String(image.hash ?? ""), mimeType: String(image.mime_type ?? ""), byteCount: num(image.byte_count) };
+  return {
+    hash: String(image.hash ?? ""),
+    mimeType: String(image.mime_type ?? ""),
+    byteCount: num(image.byte_count),
+  };
 }
 
 function attachmentPart(raw: Json): HomeAttachment {
@@ -206,9 +222,9 @@ export function message(raw: Json): HomeMessage {
     result.thread = object;
   }
   if (replyTo) result.replyTo = { message: replyTo.message_id, partIndex: replyTo.part_index };
-  // A message from before threads marked its thread as a reply to the root (HomeCoreMapping).
-  const root = (raw.thread_root as string | undefined) ?? replyTo?.message_id;
-  if (root) result.threadRoot = root;
+  // The owner's root only: a reply without one is in the thread of the message it answers, which
+  // the window resolves (model `withThreadRoots`, `threadOf`); its target may be a thread reply.
+  if (typeof raw.thread_root === "string") result.threadRoot = raw.thread_root;
   return result;
 }
 
@@ -255,7 +271,11 @@ export function run(raw: Json): HomeRun {
       cacheWrite: optNum(usage.cache_write),
     };
   if (session && typeof session === "object")
-    result.session = { kind: String(session.kind), id: String(session.id), host: opt(optStr(session.host)) };
+    result.session = {
+      kind: String(session.kind),
+      id: String(session.id),
+      host: opt(optStr(session.host)),
+    };
   return result;
 }
 
@@ -274,7 +294,15 @@ export function liveFrame(raw: Json): HomeLiveFrame | undefined {
     const step = optStr(raw.step);
     const text = optStr(raw.text);
     if (!kind || !step || text === undefined || typeof raw.seq !== "number") return undefined;
-    const frame: HomeLiveFrame = { type: "step.delta", conversation, run, step, kind, seq: raw.seq, text };
+    const frame: HomeLiveFrame = {
+      type: "step.delta",
+      conversation,
+      run,
+      step,
+      kind,
+      seq: raw.seq,
+      text,
+    };
     if (raw.final === true) frame.final = true;
     if (typeof raw.author === "string") frame.author = raw.author;
     return frame;
@@ -529,6 +557,7 @@ export class DaemonHomeClient implements PageClient {
           capabilities: [
             "conversation-draft-events-v1",
             RUNS_CAPABILITY,
+            RUN_ANSWERS_CAPABILITY,
             AVATARS_CAPABILITY,
             LIVE_CAPABILITY,
             CLOUD_TYPING_CAPABILITY,
@@ -577,7 +606,11 @@ export class DaemonHomeClient implements PageClient {
     const id = String(raw.id);
     let row: HomeConversation;
     if ("pinned" in raw || "marked_unread" in raw) {
-      this.listState.set(id, { pinned: raw.pinned, pin_position: raw.pin_position, marked_unread: raw.marked_unread });
+      this.listState.set(id, {
+        pinned: raw.pinned,
+        pin_position: raw.pin_position,
+        marked_unread: raw.marked_unread,
+      });
       row = conversation(raw, this.me);
     } else row = conversation({ ...raw, ...this.listState.get(id) }, this.me);
     const owned = this.homeRows.get(id);
@@ -633,7 +666,11 @@ export class DaemonHomeClient implements PageClient {
       idempotency_key: key,
       op,
     });
-    return { rev: num(result.rev), replayed: result.replayed === true, conversation: conversationId };
+    return {
+      rev: num(result.rev),
+      replayed: result.replayed === true,
+      conversation: conversationId,
+    };
   }
 
   /** A read of the conversation's owner: the local one, or a cloud owner through the daemon. */
@@ -687,7 +724,10 @@ export class DaemonHomeClient implements PageClient {
           before_seq: num(params.beforeSeq),
           limit: bounded(params.limit, 100),
         });
-        return { messages: ((page.messages as Json[]) ?? []).map(message), threads: threads(page.threads) };
+        return {
+          messages: ((page.messages as Json[]) ?? []).map(message),
+          threads: threads(page.threads),
+        };
       }
       case HomeOps.thread: {
         const page = await this.read("conversation-thread", str(params, "conversation"), {
@@ -752,10 +792,11 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.send: {
         const text = String(params.text ?? "").trim();
         const files = Array.isArray(params.attachments) ? params.attachments.map(wireAttachment) : [];
-        if (files.length > 10) throw pageError("cmux.page.invalid_params", "attachments");
         if ((!text && files.length === 0) || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
         const key = this.key(params, options);
         const parts: Json[] = [...(text ? [{ type: "text", text }] : []), ...files];
+        // One message's protocol bound; the store sends more files as several messages (messageGroups).
+        if (parts.length > MESSAGE_PARTS) throw pageError("cmux.page.invalid_params", "attachments");
         const send: Json = { kind: "message.send", client_msg_id: key, parts };
         if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
         // The reply's parent at any depth (conversation-tree-v1): the owner keeps the top root.
@@ -819,13 +860,24 @@ export class DaemonHomeClient implements PageClient {
         const turns = ((params.turns as unknown[] | undefined) ?? []).filter(
           (turn): turn is string => typeof turn === "string" && turn.length > 0 && turn.length <= 128,
         );
+        const answers = ((params.answers as unknown[] | undefined) ?? []).filter(
+          (answer): answer is string => typeof answer === "string" && answer.length > 0 && answer.length <= 128,
+        );
         const request: Json = { conversation: id };
-        if (turns.length > 0) request.turns = turns.slice(0, 200);
-        else request.limit = Math.min(bounded(params.limit, 50), 200);
+        if (answers.length > 0) {
+          if (!(await this.capable(RUN_ANSWERS_CAPABILITY))) return { runs: [], hasMore: false };
+          request.answers = answers.slice(0, 200);
+        } else if (turns.length > 0) request.turns = turns.slice(0, 200);
+        else {
+          request.limit = Math.min(bounded(params.limit, 50), 200);
+          if (typeof params.beforeStartedAt === "number" && Number.isFinite(params.beforeStartedAt))
+            request.before_started_at = Math.max(0, Math.floor(params.beforeStartedAt));
+        }
         const found = await this.read("conversation-runs", id, request);
         return {
           runs: ((found.runs as Json[] | undefined) ?? []).map(run),
           hasMore: found.has_more === true,
+          answersComplete: answers.length > 0 && found.has_more !== true,
         };
       }
       case HomeOps.live: {
@@ -869,7 +921,11 @@ export class DaemonHomeClient implements PageClient {
         const avatar = (found?.avatar ?? null) as Json | null;
         return {
           avatar: avatar
-            ? { sha256: String(avatar.sha256), mediaType: String(avatar.media_type), data: String(avatar.data) }
+            ? {
+                sha256: String(avatar.sha256),
+                mediaType: String(avatar.media_type),
+                data: String(avatar.data),
+              }
             : null,
         };
       }
@@ -906,7 +962,9 @@ export class DaemonHomeClient implements PageClient {
           ? params.participants.filter((id) => typeof id === "string")
           : [];
         const title = typeof params.title === "string" ? params.title.slice(0, 200) : "";
-        return { conversation: await this.people.start(ids as string[], title, this.key(params, options)) };
+        return {
+          conversation: await this.people.start(ids as string[], title, this.key(params, options)),
+        };
       }
       case HomeOps.invite: {
         const id = str(params, "conversation");
@@ -965,7 +1023,10 @@ export class DaemonHomeClient implements PageClient {
         const link = await socket.request<Json>(this.attachmentCommand(id, "link"), request);
         // The link is a path on that owner connection's own listener: its origin.
         const base = socket.url.replace(/^ws/, "http");
-        return { url: new URL(String(link.path), base).toString(), expiresInMs: num(link.expires_in_ms) };
+        return {
+          url: new URL(String(link.path), base).toString(),
+          expiresInMs: num(link.expires_in_ms),
+        };
       }
       default:
         throw pageError("cmux.protocol.unknown_op", op);
@@ -979,7 +1040,11 @@ export class DaemonHomeClient implements PageClient {
     if (!(await this.capable(INBOX_STATE_CAPABILITY, owner)))
       throw pageError("cmux.page.unavailable", "this cmux instance keeps no pins");
     if (this.cloud.owns(conversationId)) {
-      await this.daemon.request("cloud-inbox-op", { conversation: conversationId, idempotency_key: key, op });
+      await this.daemon.request("cloud-inbox-op", {
+        conversation: conversationId,
+        idempotency_key: key,
+        op,
+      });
       return { conversation: conversationId };
     }
     // What the list state will be, at once: a conversation change that lands before the owner's
@@ -993,7 +1058,10 @@ export class DaemonHomeClient implements PageClient {
     this.listState.set(conversationId, next);
     this.ownInboxOps.set(conversationId, (this.ownInboxOps.get(conversationId) ?? 0) + 1);
     try {
-      const state = await this.local.request<Json>("conversation-inbox-op", { conversation: conversationId, op });
+      const state = await this.local.request<Json>("conversation-inbox-op", {
+        conversation: conversationId,
+        op,
+      });
       this.listState.set(conversationId, {
         pinned: state.pinned,
         pin_position: state.pin_position,
@@ -1062,23 +1130,51 @@ export class DaemonHomeClient implements PageClient {
    * agent), merged newest first. A daemon without the proxy answers nothing. */
   private async cloudRuns(id: string, params: Json): Promise<{ runs: HomeRun[]; hasMore: boolean }> {
     // The brain lists newest first only: a read by reply keys has nothing more to find.
-    if (!(await this.capable(CLOUD_RUNS_CAPABILITY, this.daemon)) || Array.isArray(params.turns))
+    if (
+      !(await this.capable(CLOUD_RUNS_CAPABILITY, this.daemon)) ||
+      Array.isArray(params.turns) ||
+      Array.isArray(params.answers)
+    )
       return { runs: [], hasMore: false };
     const agents = (this.cloud.summary(id)?.participants ?? [])
       .filter((participant) => participant.kind === "agent")
       .map((participant) => participant.id)
       .slice(0, 8);
     const limit = Math.min(bounded(params.limit, 20), 100);
+    const beforeStartedAt =
+      typeof params.beforeStartedAt === "number" && Number.isFinite(params.beforeStartedAt)
+        ? Math.max(0, Math.floor(params.beforeStartedAt))
+        : undefined;
+    // Fetch owner pages wide enough to include timestamp ties at the global boundary.
+    const ownerLimit = Math.max(limit, 100);
     const lists = await Promise.all(
       agents.map((agent) =>
         this.cloud
-          .read("cloud-conversation-runs", { conversation: id, agent, limit })
-          .then((found) => ((found.runs as Json[] | undefined) ?? []).map(run))
-          .catch(() => [] as HomeRun[]),
+          .read("cloud-conversation-runs", {
+            conversation: id,
+            agent,
+            limit: ownerLimit,
+            ...(beforeStartedAt === undefined ? {} : { before_started_at: beforeStartedAt }),
+          })
+          .then((found) => ({
+            runs: ((found.runs as Json[] | undefined) ?? []).map(run),
+            hasMore: found.has_more === true,
+          }))
+          .catch(() => ({ runs: [] as HomeRun[], hasMore: false })),
       ),
     );
-    const runs = lists.flat().sort((a, b) => b.startedAt - a.startedAt);
-    return { runs, hasMore: false };
+    const merged = lists.flatMap((list) => list.runs).sort((a, b) => b.startedAt - a.startedAt);
+    // Keep every run tied at the page boundary. The cursor is timestamp-only and strict, so
+    // dropping one of those ties would make it unreachable on the next request.
+    const boundary = merged[limit - 1]?.startedAt;
+    const page = boundary === undefined ? merged : merged.filter((entry) => entry.startedAt >= boundary);
+    // Each agent is paged independently. Merge one global page for Home client and preserve
+    // either upstream cursor as `hasMore`; the next `before_started_at` request advances every
+    // agent together, so no owner is treated as complete early.
+    return {
+      runs: page,
+      hasMore: lists.some((list) => list.hasMore) || page.length < merged.length,
+    };
   }
 
   /** A channel of the local user and known local participants (the Chief when none is named);
@@ -1104,7 +1200,11 @@ export class DaemonHomeClient implements PageClient {
       title,
       participants: members,
     });
-    return { rev: 0, replayed: created.replayed === true, conversation: String((created.conversation as Json).id) };
+    return {
+      rev: 0,
+      replayed: created.replayed === true,
+      conversation: String((created.conversation as Json).id),
+    };
   }
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {

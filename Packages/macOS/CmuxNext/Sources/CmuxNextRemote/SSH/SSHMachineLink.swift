@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 import os
@@ -81,11 +82,15 @@ public actor SSHMachineLink {
     private let environment: @Sendable () async -> [String: String]
     private let onStatus: @Sendable (SSHConnectionMachine.Status) -> Void
     private var machine = SSHConnectionMachine()
+    /// ``SSHConnectionMachine/waitsForUser``, mirrored at each event for readers off the actor.
+    private nonisolated let waitsForUserMirror = Mutex(false)
     private var child: ChildProcess?
     /// The stderr tail of the last link that exited.
     private var exitedOutput: String?
     private var socket: String?
     private var starting: Task<String, any Error>?
+    /// Invalidates in-flight startup work when transport ownership changes.
+    private var startGeneration = 0
     private var localProtocol: Int?
     /// The last probe's findings (platform for the installer).
     public private(set) var lastReport: SSHProbeReport?
@@ -104,6 +109,9 @@ public actor SSHMachineLink {
     }
 
     public var status: SSHConnectionMachine.Status { machine.status }
+    /// Only Reconnect may open the gate (``SSHConnectionMachine/waitsForUser``): read without a hop,
+    /// set before the status that follows it is reported.
+    public nonisolated var waitsForUser: Bool { waitsForUserMirror.withLock { $0 } }
 
     /// The link's stderr tail (ssh and the machine's cmux-tui write their
     /// errors there, the daemon's start failure included): the running
@@ -118,16 +126,40 @@ public actor SSHMachineLink {
     public func handle(_ event: SSHConnectionMachine.Event) {
         let before = machine.status
         machine.handle(event)
-        if event == .disconnect { tearDown() }
+        let waits = machine.waitsForUser
+        waitsForUserMirror.withLock { $0 = waits }
+        if event == .disconnect {
+            startGeneration += 1
+            starting?.cancel()
+            starting = nil
+            tearDown()
+        }
         if machine.status != before { onStatus(machine.status) }
     }
 
     public func socketPath() async throws -> String {
         if let socket, child?.isRunning == true, FileManager.default.fileExists(atPath: socket) { return socket }
         if let starting { return try await starting.value }
-        let task = Task { try await self.start() }
+        startGeneration += 1
+        let generation = startGeneration
+        let task = Task {
+            do {
+                return try await self.start(generation: generation)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try self.checkStartup(generation)
+                // Probe decoding, local state preparation and process launch can
+                // fail before the link has a child to report an SSH error.
+                // Preserve typed remote failures, install consent and disconnect.
+                if self.startGeneration == generation && (self.machine.status == .connecting || self.machine.status == .reconnecting) {
+                    self.handle(.failed(.remoteFailed(String(describing: error))))
+                }
+                throw error
+            }
+        }
         starting = task
-        defer { starting = nil }
+        defer { if startGeneration == generation { starting = nil } }
         return try await task.value
     }
 
@@ -157,32 +189,44 @@ public actor SSHMachineLink {
     /// its process group is ended.
     static let closeDeadline: Duration = .seconds(5)
 
-    private func start() async throws -> String {
+    private func start(generation: Int) async throws -> String {
+        try checkStartup(generation)
         tearDown()
         handle(.attemptStarted)
         guard machine.mayAttempt else { throw SSHLinkError.blocked(machine.status) }
         let env = await environment()
+        try checkStartup(generation)
         let report = try await probe(env)
+        try checkStartup(generation)
         guard machine.mayAttempt else { throw SSHLinkError.stopped }
         let need = InstallNeed.assess(report, localProtocol: try await bundledProtocol(env))
+        try checkStartup(generation)
         guard need == .none else {
             handle(.probed(need))
             throw SSHLinkError.needsInstall(need)
         }
-        return try await spawn(env)
+        return try await spawn(env, generation: generation)
+    }
+
+    private func checkStartup(_ generation: Int) throws {
+        try Task.checkCancellation()
+        guard startGeneration == generation else { throw CancellationError() }
     }
 
     /// One ssh round trip: platform and the machine's cmux-tui.
     public func probe(_ env: [String: String]) async throws -> SSHProbeReport {
+        try Task.checkCancellation()
         let result: SSHProcessResult
         do {
             result = try await SSHProcessRunner.run(commandLine.script(host), input: .data(Data(SSHProbeReport.script(remoteBinary: host.remoteBinary).utf8)),
                                                  environment: env, deadline: .seconds(45), label: "ssh probe \(host.destination)")
         } catch is DeadlineExceeded {
+            try Task.checkCancellation()
             let failure = SSHFailure.unreachable("ssh to \(host.destination) did not answer within 45 s")
             handle(.failed(failure))
             throw SSHLinkError.ssh(failure)
         }
+        try Task.checkCancellation()
         if let failure = SSHFailure.classify(status: result.status, stderr: result.stderr), result.status == 255 {
             handle(.failed(failure))
             throw SSHLinkError.ssh(failure)
@@ -202,12 +246,13 @@ public actor SSHMachineLink {
         if let localProtocol { return localProtocol }
         let result = try await SSHProcessRunner.run([binary.path, "remote-probe", "--json"], environment: env, deadline: .seconds(10),
                                                  label: "cmux-tui remote-probe")
+        try Task.checkCancellation()
         let value = try RemoteProbe.decode(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)).remoteProtocol
         localProtocol = value
         return value
     }
 
-    private func spawn(_ env: [String: String]) async throws -> String {
+    private func spawn(_ env: [String: String], generation: Int) async throws -> String {
         try paths.prepare()
         let path = paths.linkSocket(machineID: machineID)
         unlink(path)
@@ -224,6 +269,7 @@ public actor SSHMachineLink {
                 if case .connected(let socket) = CloudLinkEvent.parse(line) { return socket }
                 return nil
             }
+            try checkStartup(generation)
             guard machine.mayAttempt, self.child === child else {
                 // A disconnect that raced the connected line already ran
                 // tearDown for this child; otherwise stop it the same way, so
@@ -242,6 +288,7 @@ public actor SSHMachineLink {
         } catch {
             child.terminate()
             if self.child === child { self.child = nil }
+            try checkStartup(generation)
             let stderr = child.stderrText
             if let refusal = RemoteRefusal.parse(stderr) {
                 // A typed refusal is an install or update state, not a failure (cx-z3zh).

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022.
+// cmux-tui mux protocol 12, IR cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -745,6 +745,18 @@ pub struct CloudConversationUnsubscribeRequest {
 pub type CloudConversationUnsubscribeResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudEnvironmentRequest {
+    pub access_token: String,
+    pub action: String,
+    pub params: Nullable<T::JsonValue>,
+    pub platform_origin: String,
+}
+
+#[rustfmt::skip]
+pub type CloudEnvironmentResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudHostReplicaClearRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -779,6 +791,8 @@ pub type CloudHostReplicaStatusResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudInboxListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cursor: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub include_archived: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1251,6 +1265,8 @@ pub struct ConversationRunAppendResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationRunsRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answers: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub before_started_at: Optional<u64>,
     pub conversation: String,
@@ -2564,6 +2580,8 @@ pub struct NewPaneRightRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub side: Optional<T::ColumnSide>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub tab_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
@@ -3258,6 +3276,19 @@ pub type SendKeyResult = T::EmptyResult;
 pub struct ServerStatsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub include: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAttachVisibilityRequest {
+    pub surface: T::Id,
+    pub visible: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAttachVisibilityResult {
+    pub viewers: u32,
 }
 
 #[rustfmt::skip]
@@ -4386,6 +4417,10 @@ impl CmuxClient {
         self.execute(&CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA, &request)
     }
 
+    pub fn cloud_environment(&mut self, request: CloudEnvironmentRequest) -> Result<CloudEnvironmentResult> {
+        self.execute(&CLOUD_ENVIRONMENT_METADATA, &request)
+    }
+
     pub fn cloud_host_replica_clear(&mut self, request: CloudHostReplicaClearRequest) -> Result<CloudHostReplicaClearResult> {
         self.execute(&CLOUD_HOST_REPLICA_CLEAR_METADATA, &request)
     }
@@ -4519,6 +4554,9 @@ impl CmuxClient {
     }
 
     pub fn conversation_runs(&mut self, request: ConversationRunsRequest) -> Result<ConversationRunsResult> {
+        if !request.answers.is_missing() {
+            self.require_capability_field("conversation-runs", "conversation-run-answers-v1")?;
+        }
         self.execute(&CONVERSATION_RUNS_METADATA, &request)
     }
 
@@ -5034,6 +5072,10 @@ impl CmuxClient {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-shell-args-v1")?;
         }
+        if !request.side.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "column-left-v1")?;
+        }
         if !request.tab_id.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "split-client-keys-v1")?;
@@ -5350,6 +5392,10 @@ impl CmuxClient {
 
     pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
         self.execute(&SERVER_STATS_METADATA, &request)
+    }
+
+    pub fn set_attach_visibility(&mut self, request: SetAttachVisibilityRequest) -> Result<SetAttachVisibilityResult> {
+        self.execute(&SET_ATTACH_VISIBILITY_METADATA, &request)
     }
 
     pub fn set_cell_pixels(&mut self, request: SetCellPixelsRequest) -> Result<T::SetCellPixelsResult> {

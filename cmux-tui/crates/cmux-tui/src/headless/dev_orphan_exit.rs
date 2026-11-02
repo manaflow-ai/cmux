@@ -1,13 +1,17 @@
 //! DEV owner orphan exit. A tagged DEV app starts its session owner
-//! (`cmux-app-<tag>`) detached, so it outlives the app on purpose, and
-//! scripts delete throwaway tag bundles without stopping it. In a DEV build
-//! only (the bundle around this executable is `com.cmuxterm.app.debug.<tag>`)
-//! the OWNER stops itself when no client of any kind has been connected for
+//! (`cmux-app-<tag>`) and its Chief owner (`cmux-chief-<home hash>`)
+//! detached, so they outlive the app on purpose, and scripts delete
+//! throwaway tag bundles without stopping them. In a DEV build only (the
+//! bundle around this executable is `com.cmuxterm.app.debug.<tag>`) such an
+//! OWNER stops itself when no client has been connected for
 //! [`ORPHAN_EXIT_DELAY`] AND either its own executable is gone or it has no
-//! live terminal. With its executable present and a live terminal it never
-//! stops. It never ends a terminal and never signals a terminal host: the
-//! hosts keep running for the next owner of the session to adopt (live
-//! shells are the recovery design). Release builds never start the watcher.
+//! live terminal. The owner's own journal plugin (the bundled screen
+//! detector, which connects back at start and stays) is not a client here:
+//! counting it kept every DEV owner alive for days (cmux issue 23086). With
+//! its executable present and a live terminal an owner never stops. It
+//! never ends a terminal and never signals a terminal host: the hosts keep
+//! running for the next owner of the session to adopt (live shells are the
+//! recovery design). Release builds never start the watcher.
 //!
 //! One waiting thread, woken by client arrivals and departures or by its
 //! deadline on an injected clock. A deleted executable sends no event, so
@@ -96,7 +100,7 @@ pub(crate) fn bundle_id_of(exe: &Path) -> Option<String> {
 
 /// What the owner can observe, read only when a decision needs it.
 pub(crate) trait OrphanFacts: Send + Sync {
-    /// Connected clients of any role.
+    /// Connected clients of any role, except the owner's own journal plugin.
     fn clients(&self) -> usize;
     fn executable_present(&self) -> bool;
     /// Live terminals; `None` when the registry could not be read (the owner
@@ -275,7 +279,7 @@ pub(crate) struct OwnerFacts {
 
 impl OrphanFacts for OwnerFacts {
     fn clients(&self) -> usize {
-        self.mux.upgrade().map_or(0, |mux| mux.client_count())
+        self.mux.upgrade().map_or(0, |mux| mux.user_client_count())
     }
 
     fn executable_present(&self) -> bool {
@@ -322,10 +326,10 @@ pub(crate) fn start_for_owner(mux: &Arc<cmux_tui_core::Mux>) -> Option<OrphanExi
     })
 }
 
-/// Starts the watcher for a DEV app owner; `None` for any other owner
-/// (release builds, sessions other than `cmux-app-<tag>` and the per-build
-/// `cmux-app--<key hash>` (the untagged DEV build's, per-build isolation
-/// S3), no bundle). `stop_owner` runs on the
+/// Starts the watcher for a DEV app or Chief owner; `None` for any other
+/// owner (release builds, sessions other than `cmux-app-<tag>`, the per-build
+/// `cmux-app--<key hash>` (the untagged DEV build's, per-build isolation S3)
+/// and `cmux-chief-<home hash>`, no bundle). `stop_owner` runs on the
 /// watcher thread when the policy says exit, with the facts to check again
 /// under its fence; it returns false when it did not stop the owner (a
 /// client came back, or a terminal started), and the watcher keeps watching.
@@ -335,7 +339,7 @@ pub(crate) fn start(
     mux: &Arc<cmux_tui_core::Mux>,
     stop_owner: impl Fn(&dyn OrphanFacts) -> bool + Send + 'static,
 ) -> Option<OrphanExit> {
-    if !session.starts_with("cmux-app-")
+    if !is_app_owner_session(session)
         || !(test_dev_owner() || is_dev_build(bundle_id_of(&executable).as_deref()))
     {
         return None;
@@ -345,13 +349,20 @@ pub(crate) fn start(
     Some(spawn(watch, mux, stop_owner))
 }
 
+/// The sessions a cmux app starts detached: its own (`cmux-app-...`) and
+/// its Chief home's (`cmux-chief-...`, ChiefHome.swift). A person's own
+/// `cmux` sessions (`main`, named ones) are never watched.
+pub(crate) fn is_app_owner_session(session: &str) -> bool {
+    session.starts_with("cmux-app-") || session.starts_with("cmux-chief-")
+}
+
 fn spawn(
     watch: Arc<OrphanWatch>,
     mux: &Arc<cmux_tui_core::Mux>,
     stop_owner: impl Fn(&dyn OrphanFacts) -> bool + Send + 'static,
 ) -> OrphanExit {
     let observer = Arc::downgrade(&watch);
-    mux.set_client_presence_observer(move || {
+    mux.add_client_presence_observer(move || {
         if let Some(watch) = observer.upgrade() {
             watch.clients_changed();
         }

@@ -58,6 +58,15 @@
               "dark"
             ]
           },
+          "background": {
+            "enum": [
+              "none",
+              "light",
+              "dark",
+              "busy"
+            ],
+            "description": "The picture behind the window's glass (webviews/src/gallery/env.ts BACKGROUNDS); absent or none is an opaque window."
+          },
           "fontFamily": {
             "type": "string"
           },

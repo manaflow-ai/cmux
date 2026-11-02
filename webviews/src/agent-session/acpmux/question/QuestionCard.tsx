@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { experimentArm } from "../../../experiments/experiment";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
@@ -30,15 +30,15 @@ import {
   hasPreviews,
   itemAnswerText,
   QuestionProblemError,
-  cancelledKey,
+  consentChoice,
   reply,
   type AgentQuestion,
   type Answer,
   type Option,
   type QuestionReply,
 } from "./model";
-import { cancelledArgs } from "./record";
 import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
+import { QUESTION_KEY_REQUEST_EVENT, type QuestionKeyRequestEvent } from "./keyReply";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
 /// Arrow keys may repeat; a held digit, Enter or Space answers once.
@@ -74,18 +74,28 @@ const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// nothing else has it or the composer is empty. A click chooses an option and never sends it (Leo,
 /// 2026-10-24: "just clicking it directly just automatically sends the input. So it makes the skip
 /// and submit buttons redundant"): Submit or ⌘↩ sends, Enter sends the highlighted row, and a
-/// double-click on a single-choice option chooses and sends it. Escape skips the waiting ask,
+/// double-click on a single-choice option chooses and sends it. A yes-or-no ask (model.ts
+/// `consentChoice`, the folder trust card) is ChatGPT's consent card instead: the question, one muted
+/// line of what Allow does, and its two buttons, Deny with esc and Allow with ↩ (Leo's 2026-10-29
+/// reference). Escape skips the waiting ask,
 /// including from Other, and claims the key so it cannot also stop the turn or hide the floating
 /// chat. Other accepts Enter to submit and Shift-Enter for a newline. A reply acpmux refuses shows
 /// its error on the card, which takes input again for a retry. Only a person's click or key sends
-/// an answer.
-export function QuestionCard({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
+/// an answer. Memoized on its immutable question (and reply handler): a decided ask's record in the
+/// transcript never redraws while tokens stream elsewhere in the turn.
+export const QuestionCard = memo(function QuestionCard({
+  question,
+  onReply,
+}: {
+  question: AgentQuestion;
+  onReply: ReplyHandler;
+}) {
   if (question.state.kind === "answered")
     return <AnsweredQuestion question={question} answer={question.state.answer} />;
   if (question.state.kind === "cancelled") return <CancelledQuestion question={question} />;
   // Keyed by the ask: a new ask starts unfolded with fresh choices.
   return <PendingAsk key={question.id} question={question} onReply={onReply} />;
-}
+});
 
 /// Hands the host a reply. A promise that rejects means the reply was refused and the ask stays.
 type ReplyHandler = (reply: QuestionReply) => void | Promise<unknown>;
@@ -141,6 +151,21 @@ function keyboardIsIdle(document: Document): boolean {
   return composer !== null && composerText(composer) === "";
 }
 
+function enterReply(question: AgentQuestion, state: CardState): string | undefined {
+  if (!canSubmit(state)) return undefined;
+  try {
+    const sent = reply(question, cardAnswer(state));
+    const { optionId, answers, annotations } = sent;
+    return JSON.stringify({
+      optionId,
+      answers,
+      ...(annotations === undefined ? {} : { annotations }),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 // The rows are buttons with radio or checkbox roles (a radiogroup or group), not native inputs:
 // one roving tab stop and the reducer's keys drive them, and the Other row turns into a text field
 // in place. aria-checked carries the choice.
@@ -166,6 +191,7 @@ function PendingQuestion({
   // The ask a person already answered: the owner clears it a moment later, and until then a
   // second click or key must not answer it again. A refused reply clears it for a retry.
   const [sentFor, setSentFor] = useState<string | undefined>();
+  const [keyPendingFor, setKeyPendingFor] = useState<string | undefined>();
   // The last reply's refusal, shown until the next try: the card's sentence, then the pane's words
   // for a refusal it knows (transportErrors.ts) or a message already in the person's language (the
   // app's or the pane's own). acpmux's English is for its CLI.
@@ -184,26 +210,69 @@ function PendingQuestion({
   const item = activeItem(state);
   const highlighted = highlightedRow(state, item);
 
+  // The same, read at once: a second click before the card renders again (a consent's double click)
+  // must not answer twice either.
+  const sending = useRef<string | undefined>(undefined);
+  const refuseReply = useCallback((askId: string, error: unknown) => {
+    // The ask stays pending: say why on the card and take input again.
+    if (sending.current === askId) sending.current = undefined;
+    setSentFor((current) => (current === askId ? undefined : current));
+    if (isHostRefusal(error)) {
+      setRefused({ reason: errorMessage(error) });
+      return;
+    }
+    const reason = localizedMessage(error);
+    if (reason) setRefused({ reason });
+    else {
+      console.warn("agent pane: an answer was refused", error);
+      setRefused({});
+    }
+  }, []);
   const send = (sentReply: QuestionReply | undefined) => {
-    if (!sentReply || sent) return;
+    if (!sentReply || sent || sending.current === question.id) return;
+    sending.current = question.id;
     setSentFor(question.id);
     setRefused(undefined);
     const askId = question.id;
-    Promise.resolve(onReply(sentReply)).catch((error: unknown) => {
-      // The ask stays pending: say why on the card and take input again.
-      setSentFor((current) => (current === askId ? undefined : current));
-      if (isHostRefusal(error)) {
-        setRefused({ reason: errorMessage(error) });
-        return;
-      }
-      const reason = localizedMessage(error);
-      if (reason) setRefused({ reason });
-      else {
-        console.warn("agent pane: an answer was refused", error);
-        setRefused({});
-      }
-    });
+    Promise.resolve(onReply(sentReply)).catch((error: unknown) => refuseReply(askId, error));
   };
+  useEffect(() => {
+    const view = group.current?.ownerDocument.defaultView;
+    if (!view) return;
+    let currentRequest: string | undefined;
+    const receive = (event: Event) => {
+      const request = (event as QuestionKeyRequestEvent).detail;
+      if (
+        !request ||
+        request.sessionId !== question.source.session ||
+        request.permissionId !== (question.source.permission ?? question.id)
+      )
+        return;
+      currentRequest = request.id;
+      sending.current = question.id;
+      // Mark only the card busy: disabling Other or changing its editing state before the
+      // native host redeems its snapshot would revoke the exact DOM evidence it is checking.
+      setKeyPendingFor(question.id);
+      setRefused(undefined);
+      void request.result.then(
+        () => {
+          if (currentRequest !== request.id) return;
+          setKeyPendingFor(undefined);
+          setSentFor(question.id);
+        },
+        (error: unknown) => {
+          if (currentRequest !== request.id) return;
+          setKeyPendingFor(undefined);
+          refuseReply(question.id, error);
+        },
+      );
+    };
+    view.addEventListener(QUESTION_KEY_REQUEST_EVENT, receive);
+    return () => {
+      currentRequest = undefined;
+      view.removeEventListener(QUESTION_KEY_REQUEST_EVENT, receive);
+    };
+  }, [question.id, question.source.session, question.source.permission, refuseReply]);
   /// Gives the keyboard back: the composer claims an idle keyboard on this event (composerFocus.ts).
   const resign = () => {
     const card = group.current;
@@ -212,6 +281,8 @@ function PendingQuestion({
     const view = card?.ownerDocument.defaultView ?? window;
     view.dispatchEvent(new view.Event(COMPOSER_READY_EVENT));
   };
+  // A yes-or-no ask (consentChoice) draws as its two buttons, with no option list, Skip or Submit.
+  const consent = consentChoice(question);
   const skip = () => {
     if (sent) return;
     send(declineReply(question));
@@ -257,6 +328,13 @@ function PendingQuestion({
   const onKeyDown = (event: KeyboardEvent) => {
     // WebKit sends the Enter that commits an IME candidate after compositionend, as keyCode 229.
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+    // A consent's Return (or ⌘↩) is its Allow, except on a focused Not now, which presses that.
+    if (consent && event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      if (!event.metaKey && (event.target as HTMLElement).closest(".acpmux-question-skip")) return;
+      event.preventDefault();
+      if (!event.repeat) dispatch({ type: "number", value: consent.accept + 1 });
+      return;
+    }
     // ⌘↩ submits from anywhere in the card, the Other field included. With nothing chosen yet it
     // answers like Enter: the highlighted row, then Submit once every item has an answer.
     if (event.key === "Enter" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
@@ -279,6 +357,12 @@ function PendingQuestion({
     if (event.key === "Escape") {
       event.preventDefault();
       if (!event.repeat) skip();
+      return;
+    }
+    // A consent has no list, so its number and arrow keys pick nothing out of sight. They are
+    // still consumed, so a digit never falls through to the composer as typed text.
+    if (consent) {
+      if (/^[1-9]$|^Arrow(?:Up|Down)$/.test(event.key)) event.preventDefault();
       return;
     }
     // In Other, plain Enter submits; Shift-Enter and every other editing key stay native.
@@ -314,7 +398,8 @@ function PendingQuestion({
     if (!card || arrived.current === question.id) return;
     arrived.current = question.id;
     if (hidden || !keyboardIsIdle(card.ownerDocument)) return;
-    card.querySelector<HTMLElement>(`[data-row="${highlightedRow(state)}"]`)?.focus();
+    const target = consent ? ".acpmux-question-submit" : `[data-row="${highlightedRow(state)}"]`;
+    card.querySelector<HTMLElement>(target)?.focus();
   });
   const goToItem = (index: number) => {
     let next = state;
@@ -330,6 +415,65 @@ function PendingQuestion({
   };
 
   if (!item) return null;
+  if (consent) {
+    const accept = item.options[consent.accept]!;
+    const reject = item.options[consent.reject]!;
+    return (
+      <fieldset
+        ref={group}
+        id={id}
+        hidden={hidden}
+        className="acpmux-question"
+        data-consent=""
+        aria-labelledby={legendId}
+        aria-busy={sent || keyPendingFor === question.id || undefined}
+        data-cmux-question-session={question.source.session}
+        data-cmux-question-id={question.source.permission ?? question.id}
+        data-cmux-question-enter-reply={enterReply(question, state)}
+      >
+        <legend id={legendId} className="acpmux-question-head">
+          <span className="acpmux-hidden-label">
+            {t("question.asking", { agent: question.source.agentName ?? t("question.agent") })}
+          </span>
+          <span className="acpmux-question-prompt">
+            {inlineText(item.prompt)}
+            {accept.detail && <span className="acpmux-question-scope">{inlineText(accept.detail)}</span>}
+          </span>
+          {item.header && <span className="acpmux-question-chip">{item.header}</span>}
+        </legend>
+        {refused && (
+          <p className="acpmux-question-error" role="alert">
+            {t("question.replyFailed")}
+            {refused.reason && " "}
+            {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
+          </p>
+        )}
+        <div className="acpmux-question-actions">
+          <button
+            type="button"
+            className="acpmux-question-skip"
+            aria-keyshortcuts="Escape"
+            title={reject.detail}
+            disabled={sent}
+            onClick={skip}
+          >
+            {inlineText(reject.label)}
+            <Keycap>esc</Keycap>
+          </button>
+          <button
+            type="button"
+            className="acpmux-question-submit"
+            aria-keyshortcuts="Enter"
+            disabled={sent}
+            onClick={() => dispatch({ type: "number", value: consent.accept + 1 })}
+          >
+            {inlineText(accept.label)}
+            <Keycap>↩</Keycap>
+          </button>
+        </div>
+      </fieldset>
+    );
+  }
   const hoveredRow = hovered?.item === item.id ? hovered.row : undefined;
   const previewOption = shownPreview(item.options, [hoveredRow, highlighted]);
   const showPreview = hasPreviews(item);
@@ -358,7 +502,10 @@ function PendingQuestion({
       hidden={hidden}
       className="acpmux-question"
       aria-labelledby={legendId}
-      aria-busy={sent || undefined}
+      aria-busy={sent || keyPendingFor === question.id || undefined}
+      data-cmux-question-session={question.source.session}
+      data-cmux-question-id={question.source.permission ?? question.id}
+      data-cmux-question-enter-reply={enterReply(question, state)}
       data-preview={showPreview || undefined}
       data-preview-layout={showPreview ? layout : undefined}
     >
@@ -453,8 +600,15 @@ function PendingQuestion({
             {t("question.answerToSubmit", { questions: listFormat.format(waitingFor) })}
           </span>
         )}
-        <button type="button" className="acpmux-question-skip" disabled={sent} onClick={skip}>
+        <button
+          type="button"
+          className="acpmux-question-skip"
+          aria-keyshortcuts="Escape"
+          disabled={sent}
+          onClick={skip}
+        >
           {t("question.skip")}
+          <Keycap>esc</Keycap>
         </button>
         {action === "next" ? (
           <button
@@ -652,40 +806,50 @@ function respondentLine(t: Translate, answer: Answer): string | undefined {
   return undefined;
 }
 
-/// An answered ask collapses to one row: a check, "header: chosen labels" per item, and who
-/// answered on which device.
+/// An answered ask collapses to a compact card in the transcript (Claude desktop's, Leo 2026-10-29):
+/// each question, the chosen answers (with any Other text) in grey under it, then who answered on
+/// which device.
 function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answer: Answer }) {
   const t = useT();
   const by = respondentLine(t, answer);
   return (
     <div className="acpmux-question-answered" data-remote={answer.respondent?.isRemote || undefined}>
-      <span className="acpmux-question-answered-icon">
-        <Check size={14} strokeWidth={1.6} />
-      </span>
       <span className="acpmux-hidden-label">{t("question.answered")}</span>
-      <span className="acpmux-question-answered-lines">
-        {question.items.map((item) => (
-          <span key={item.id} className="acpmux-question-answered-line">
-            <span className="acpmux-question-answered-key">{item.header ?? inlineText(item.prompt)}:</span>{" "}
-            {inlineText(itemAnswerText(item, answer))}
-          </span>
-        ))}
-      </span>
+      {question.items.map((item) => {
+        const chosen = itemAnswerText(item, answer);
+        return (
+          <div key={item.id} className="acpmux-question-answered-item">
+            <span className="acpmux-question-answered-prompt">{inlineText(item.prompt)}</span>
+            <span className="acpmux-question-answered-answer">
+              {chosen === "" ? t("question.outcome.none") : inlineText(chosen)}
+            </span>
+          </div>
+        );
+      })}
       {by && <span className="acpmux-question-answered-by">{by}</span>}
     </div>
   );
 }
 
-/// An ask that ended unanswered: one muted line that says how, when the record says (Skip, or the
-/// turn stopped before an answer), else "Not answered", and the question.
+/// An ask that ended unanswered: the same card, its questions, and in the answer's place how it
+/// ended when the record says (Skipped, or the turn stopped before an answer), else Not answered.
 function CancelledQuestion({ question }: { question: AgentQuestion }) {
   const t = useT();
+  const reason = question.state.kind === "cancelled" ? question.state.reason : undefined;
+  const outcome =
+    reason === "skipped"
+      ? "question.outcome.skipped"
+      : reason === "stopped"
+        ? "question.outcome.stopped"
+        : "question.outcome.none";
   return (
-    <div
-      className="acpmux-question-cancelled"
-      data-reason={question.state.kind === "cancelled" ? question.state.reason : undefined}
-    >
-      {t(cancelledKey(question), cancelledArgs(question))}
+    <div className="acpmux-question-cancelled" data-reason={reason}>
+      {question.items.map((item) => (
+        <span key={item.id} className="acpmux-question-answered-prompt">
+          {inlineText(item.prompt)}
+        </span>
+      ))}
+      <span className="acpmux-question-answered-answer">{t(outcome)}</span>
     </div>
   );
 }

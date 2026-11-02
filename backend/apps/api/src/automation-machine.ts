@@ -24,7 +24,7 @@ export type MachineLikeStep = MachineStep | AgentStep
 /** The journaled output of a step: the last 8 KiB of its stdout. */
 export const STEP_OUTPUT_MAX = 8192
 
-export type MachineExecRefusal = "not_found" | "not_running" | "forbidden" | "provider_failed"
+export type MachineExecRefusal = "not_found" | "not_running" | "forbidden" | "provider_failed" | "output_limit"
 export type MachineExecReply =
   | { readonly ok: true; readonly exitCode: number; readonly stdout: string; readonly stderr: string }
   | { readonly ok: false; readonly refusal: MachineExecRefusal }
@@ -36,7 +36,7 @@ export interface MachineExec {
 
 export type StepOutcome =
   | { readonly ok: true; readonly output: string }
-  | { readonly ok: false; readonly code: "machine.exit" | "machine.timeout" | "machine.not_found" | "machine.not_running" | "machine.forbidden" | "machine.unavailable"; readonly message: string }
+  | { readonly ok: false; readonly code: "machine.exit" | "machine.timeout" | "machine.not_found" | "machine.not_running" | "machine.forbidden" | "machine.unavailable" | "machine.output_limit"; readonly message: string }
 
 export const isMachineLikeStep = (s: Step): s is MachineLikeStep => s.type === "machine" || s.type === "agent"
 
@@ -63,6 +63,7 @@ export const runMachineStep = async (port: MachineExec, step: MachineLikeStep, c
     if (r.refusal === "not_found") return { ok: false, code: "machine.not_found", message: `step ${ctx.index}: ${step.machine} is not a machine of this team` }
     if (r.refusal === "forbidden") return { ok: false, code: "machine.forbidden", message: `step ${ctx.index}: only automations of ${step.machine}'s creator may run commands on it` }
     if (r.refusal === "not_running") return { ok: false, code: "machine.not_running", message: `step ${ctx.index}: ${step.machine} is not running` }
+    if (r.refusal === "output_limit") return { ok: false, code: "machine.output_limit", message: `step ${ctx.index}: the command's output exceeded the response limit` }
     return { ok: false, code: "machine.unavailable", message: `step ${ctx.index}: the machine did not answer` }
   }
   if (r.exitCode === 124) return { ok: false, code: "machine.timeout", message: `step ${ctx.index}: timed out after ${step.timeout_seconds} s` }

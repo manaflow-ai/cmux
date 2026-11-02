@@ -47,6 +47,20 @@ pub struct Found {
 const GITLEAKS: &str = include_str!("../rules/secrets/gitleaks.toml");
 const LABELS: &str = include_str!("../rules/secrets/labels.toml");
 
+// Shared by assignment scanning and structured tool-input redaction. The structured
+// form also treats header/bare key names as sensitive without requiring a token shape.
+const ASSIGNMENT_KEY_PATTERN: &str =
+    r"api[_-]?key|secret|token|passw(?:or)?d|credentials?|private[_-]?key|access[_-]?key";
+static SENSITIVE_FIELD: LazyLock<Option<Regex>> =
+    LazyLock::new(|| compile(&format!(r"(?i)(?:{ASSIGNMENT_KEY_PATTERN}|auth|cookie|key|pass)")));
+
+/// Structured field names supply secret context even for short/non-string values.
+/// Callers bounding previews must bound the key before invoking this matcher.
+pub(crate) fn sensitive_field_name(key: &str) -> bool {
+    // Failure to compile a future pattern must redact every field, not leak values.
+    SENSITIVE_FIELD.as_ref().is_none_or(|pattern| pattern.is_match(key.as_bytes()))
+}
+
 #[derive(Deserialize)]
 struct Config {
     #[serde(default)]
@@ -271,7 +285,9 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| {
         own(
             "cmux-assignment",
             "secret",
-            r#"(?i)\b[a-z0-9_-]*(?:api[_-]?key|secret|token|passw(?:or)?d|credentials?|private[_-]?key|access[_-]?key)[a-z0-9_-]*["']?\s*[=:]\s*(?:"([^"\s]{6,})"|'([^'\s]{6,})'|([^\s"',;]{6,}))"#,
+            &format!(
+                r#"(?i)\b[a-z0-9_-]*(?:{ASSIGNMENT_KEY_PATTERN})[a-z0-9_-]*["']?\s*[=:]\s*(?:"([^"\s]{{6,}})"|'([^'\s]{{6,}})'|([^\s"',;]{{6,}}))"#,
+            ),
             0,
         ),
     ]);

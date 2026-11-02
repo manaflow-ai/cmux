@@ -193,6 +193,10 @@ function fakeDaemon(
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: any;
   let snapshots = 0;
+  // `connection` names why the client emitted, not the link: a local open drawn from its attach
+  // emits "connected", then "session changed" as soon as the list behind it settles
+  // (`listAfterOpen`). The open is done once a "connected" snapshot came; a lost link undoes it.
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     {
       protocolVersion: 1,
@@ -204,12 +208,14 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
     (next: any) => {
       snapshot = next;
       snapshots += 1;
+      if (next.connection === "connected") attached = true;
+      else if (next.connection === "disconnected" || next.connection === "failed") attached = false;
     },
     undefined,
     daemon.open,
   );
-  await until(() => snapshot?.connection === "connected", "the attach");
-  return { client, snapshot: () => snapshot, snapshots: () => snapshots };
+  await until(() => attached, "the attach");
+  return { client, snapshot: () => snapshot, snapshots: () => snapshots, attached: () => attached };
 }
 /// Yields until `ready()` holds; fails after 2 s with what it waited for.
 async function until(ready: () => boolean, what: string) {
@@ -385,7 +391,7 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
   // the held events (a lag resync, a Debug toggle, a reconnect's attach) must not count it either.
   const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000), call(9_000)]);
   const daemon = fakeDaemon(history, { attachFrom: 5 });
-  const { client, snapshot } = await connect(daemon);
+  const { client, snapshot, attached } = await connect(daemon);
   const scope = globalThis as { window?: unknown };
   const hadWindow = "window" in scope;
   // The client schedules its reconnect on `window`; this test has no DOM.
@@ -409,7 +415,7 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
 
     daemon.drop();
     expect(snapshot().connection).toBe("disconnected");
-    await until(() => snapshot().connection === "connected", "the reconnect");
+    await until(attached, "the reconnect");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
 
@@ -427,7 +433,7 @@ test("a reconnect whose page starts after the turn began keeps the count it held
   // The chat was read whole; then the turn outgrows the attach page and the socket drops. The new
   // page starts mid-turn, but the client still holds every call before it.
   const daemon = fakeDaemon(record([prompt("fix the build"), started, call(41_200), call(43_800)]));
-  const { client, snapshot } = await connect(daemon);
+  const { client, snapshot, attached } = await connect(daemon);
   const scope = globalThis as { window?: unknown };
   const hadWindow = "window" in scope;
   // The client schedules its reconnect on `window`; this test has no DOM.
@@ -440,7 +446,7 @@ test("a reconnect whose page starts after the turn began keeps the count it held
     daemon.pageFrom(4);
     daemon.drop();
     expect(snapshot().connection).toBe("disconnected");
-    await until(() => snapshot().connection === "connected", "the reconnect");
+    await until(attached, "the reconnect");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBe(131_000);
   } finally {
@@ -519,7 +525,7 @@ for (const [harness, family] of [
 // still carries the setup value for the context summary, but it is intentionally not guessed into
 // the small Codex-style hover surface.
 const compactCard = (usage: { used: number; size: number; setup?: number }) =>
-  renderToStaticMarkup(<ContextCardBody {...usage} working={false} />).includes("acpmux-context-card-line");
+  renderToStaticMarkup(<ContextCardBody {...usage} />).includes("acpmux-context-card-line");
 
 test("a usage record's reported setup reaches the context summary while the tooltip stays compact", async () => {
   const withSetup: Step = [

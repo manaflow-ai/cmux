@@ -85,7 +85,7 @@ extension ControlRouter {
     }
 
     /// Old argument names and the ones that replaced them (data-model.md 3.4).
-    static let renamedArguments = ["room": "space"]
+    static let renamedArguments = ["room": "space", "machine": "host"]
 
     static func value(_ raw: JSONValue, for argument: ControlArgumentInfo, action: String, knownKinds: [String]) throws -> ControlValue {
         func fail(_ expected: String) -> ControlError {

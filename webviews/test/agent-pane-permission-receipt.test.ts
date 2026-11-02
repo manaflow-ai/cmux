@@ -4,8 +4,8 @@
 // with the turn. The transcript now keeps a one-line receipt where the ask was answered: "Allowed:
 // Run npm test", "Always allowed: …", "Denied: …", or "Not answered: …" for one the turn's end
 // cancelled. It comes from acpmux's log (`permission_request`, then its `permission_decision`), so
-// a reload shows it again. An ask a chat in Full access answered unasked (`permission_auto` with
-// `fullAccess`) leaves "Approved: … (Full access)"; one a policy answered still leaves none. The page is the pane's dev entry with its browser host, talking
+// a reload shows it again. An ask a chat in its highest mode answered unasked (`permission_auto` with
+// `fullAccess`) leaves "Approved: … (native mode label)"; one a policy answered still leaves none. The page is the pane's dev entry with its browser host, talking
 // JSON-RPC to a stand-in acpmux daemon that can push live events.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -34,7 +34,12 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
   const LIVE = "0190a000-0000-7000-8000-0000000000f5";
   const LAG = "0190a000-0000-7000-8000-0000000000f6";
   const FULL = "0190a000-0000-7000-8000-0000000000f7";
+  const CODEX_FULL = "0190a000-0000-7000-8000-0000000000f9";
   const POLICY = "0190a000-0000-7000-8000-0000000000f8";
+  const SWITCHED = "0190a000-0000-7000-8000-0000000000fa";
+  const CODEX_SWITCHED = "0190a000-0000-7000-8000-0000000000fb";
+  const SWITCH_LIVE = "0190a000-0000-7000-8000-0000000000fc";
+  const CODEX_SWITCH_LIVE = "0190a000-0000-7000-8000-0000000000fd";
   const START = Date.now() - 90_000;
   type Step = [dir: string, kind: string, msg: Record<string, unknown>];
   const update = (update: Record<string, unknown>) => ({
@@ -75,8 +80,15 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     { permissionId: "perm-test", outcome },
   ];
   const picked = (optionId: string) => decided({ outcome: "selected", optionId });
-  /// Claude Code's own guard in bypassPermissions, answered by acpmux without a card: by Full access
-  /// (`fullAccess`, the mode) or, without it, by the chat's policy.
+  // A mode change can approve an ask that was already waiting. Its auto record keeps the
+  // original permission id, and the ordinary decision settles that same pending card.
+  const approvedAfterSwitch = (fullAccess: string): Step => [
+    "mux",
+    "permission_auto",
+    { ...asked[3]![2], policy: "ask", optionId: "allow_once", fullAccess },
+  ];
+  /// Claude Code's own guard in bypassPermissions, answered by acpmux without a card: by the
+  /// harness's highest mode (`fullAccess`, the mode) or, without it, by the chat's policy.
   const guard = {
     toolCallId: "call-guard",
     title: "rm -rf f/*",
@@ -130,7 +142,22 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     // The ask, its answer and the reply's first words reach the pane only through a resync.
     [LAG]: log(LAG, asked.slice(0, 3)),
     [FULL]: log(FULL, [...unasked("bypassPermissions"), ...ended("Sheet made.")]),
+    [CODEX_FULL]: log(CODEX_FULL, [...unasked("agent-full-access"), ...ended("Codex sheet made.")]),
     [POLICY]: log(POLICY, [...unasked(), ...ended("Sheet made by policy.")]),
+    [SWITCHED]: log(SWITCHED, [
+      ...asked,
+      approvedAfterSwitch("bypassPermissions"),
+      picked("allow_once"),
+      ...ended("Tests resumed in bypass."),
+    ]),
+    [CODEX_SWITCHED]: log(CODEX_SWITCHED, [
+      ...asked,
+      approvedAfterSwitch("agent-full-access"),
+      picked("allow_once"),
+      ...ended("Tests resumed in full access."),
+    ]),
+    [SWITCH_LIVE]: log(SWITCH_LIVE, asked),
+    [CODEX_SWITCH_LIVE]: log(CODEX_SWITCH_LIVE, asked),
   };
   const chunk = (text: string): Step => [
     "in",
@@ -142,9 +169,9 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     sessionId,
     cwd: "/home/dev/uploader",
     title: "Build",
-    harness: "claude",
-    family: "claude",
-    status: sessionId === LIVE || sessionId === LAG ? "waiting" : "idle",
+    harness: [CODEX_FULL, CODEX_SWITCHED, CODEX_SWITCH_LIVE].includes(sessionId) ? "codex" : "claude",
+    family: [CODEX_FULL, CODEX_SWITCHED, CODEX_SWITCH_LIVE].includes(sessionId) ? "codex" : "claude",
+    status: [LIVE, LAG, SWITCH_LIVE, CODEX_SWITCH_LIVE].includes(sessionId) ? "waiting" : "idle",
     turnCount: 1,
     updatedAt: START,
   });
@@ -173,8 +200,8 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
   let browser: Browser | undefined;
   const sockets = new Set<{ send(data: string): void }>();
   let liveSeq = asked.length;
-  const push = (step: Step) => {
-    const event = record(LIVE, step, ++liveSeq);
+  const push = (step: Step, sessionId = LIVE) => {
+    const event = record(sessionId, step, ++liveSeq);
     for (const ws of sockets) ws.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
   };
   const url = (session: string) => {
@@ -258,8 +285,11 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     }
   });
 
-  test("an ask Full access answered unasked leaves its own receipt; one a policy answered none", async () => {
+  test("an ask in each harness's highest mode keeps its native receipt label; policy answers none", async () => {
     let page = await open(FULL, "Sheet made.");
+    expect(await receipts(page)).toEqual(["Approved: rm -rf f/* (Bypass permissions)"]);
+    await page.close();
+    page = await open(CODEX_FULL, "Codex sheet made.");
     expect(await receipts(page)).toEqual(["Approved: rm -rf f/* (Full access)"]);
     await page.close();
     page = await open(POLICY, "Sheet made by policy.");
@@ -276,6 +306,33 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     expect(await page.locator(".acpmux-permission-ask").count()).toBe(0);
     expect(await receipts(page)).toEqual(["Allowed: Run npm test"]);
     await page.close();
+  });
+
+  test("switching either harness to full access settles its live card with one native receipt", async () => {
+    for (const [chat, mode, label] of [
+      [SWITCH_LIVE, "bypassPermissions", "Bypass permissions"],
+      [CODEX_SWITCH_LIVE, "agent-full-access", "Full access"],
+    ] as const) {
+      const page = await open(chat, "Check the build");
+      await page.locator(".acpmux-permission-ask").waitFor({ timeout: 5_000 });
+      push(approvedAfterSwitch(mode), chat);
+      push(picked("allow_once"), chat);
+      await page.locator(".acpmux-permission-ask").waitFor({ state: "detached", timeout: 5_000 });
+      expect(await receipts(page)).toEqual([`Approved: Run npm test (${label})`]);
+      await page.close();
+    }
+  });
+
+  test("replaying a pending ask approved by a mode switch keeps no card or duplicate receipt", async () => {
+    for (const [chat, shown, label] of [
+      [SWITCHED, "Tests resumed in bypass.", "Bypass permissions"],
+      [CODEX_SWITCHED, "Tests resumed in full access.", "Full access"],
+    ] as const) {
+      const page = await open(chat, shown);
+      expect(await page.locator(".acpmux-permission-ask").count()).toBe(0);
+      expect(await receipts(page)).toEqual([`Approved: Run npm test (${label})`]);
+      await page.close();
+    }
   });
 
   test("a resync that brings the answer keeps one receipt and the reply that streams after it whole", async () => {

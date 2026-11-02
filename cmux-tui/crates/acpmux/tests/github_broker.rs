@@ -1,5 +1,7 @@
 //! The GitHub broker (`src/github_broker.rs`): a machine the person added asks the Mac (A, which
 //! mirrors it as a peer) for a GitHub action, and A runs it with a stand-in `gh`.
+//! Unix only: the stand-in `gh` is a shell script.
+#![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
