@@ -441,11 +441,18 @@ struct CloudStartSessionTests {
     @Test func theSessionsMachineTakesTheHarnessLoginStep() async throws {
         let f = Self.fixture()
         #expect(f.session.harnessLogin == nil)
-        await CloudStartSession(services: f.services).passHarnessLogin(f.session, agent: "claude")
+        let start = CloudStartSession(services: f.services)
+        try await start.passHarnessLogin(f.session, agent: "claude") {}
         let decision = try #require(f.session.harnessLogin, "start-session ran no harness login step")
         #expect(decision.provider == .claude)
-        await CloudStartSession(services: f.services).passHarnessLogin(f.session, agent: "pi")
+        try await start.passHarnessLogin(f.session, agent: "pi") {}
         #expect(f.session.harnessLogin?.provider == nil, "pi has no login to pass")
+        // A sign-out or team switch while the login waited (its confirm) stops the run there.
+        let changed = CloudStartSessionStrings.accountChanged(Self.asked)
+        await #expect(throws: CloudStartSession.AccountChanged.self) {
+            try await start.passHarnessLogin(f.session, agent: "claude") { try CloudStartSession.check(Self.account, now: ["user-1", "team-2"], Self.asked) }
+        }
+        #expect(!changed.isEmpty)
     }
 
     @Test func theAccountCheckRefusesAChangeAndStopsACancelledRun() async throws {

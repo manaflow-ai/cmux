@@ -184,7 +184,7 @@ struct CloudStartSession {
         try still(name)
         try await connected(session, request, account: account, byPerson: byPerson)
         try still(name)
-        await passHarnessLogin(session, agent: agent)
+        try await passHarnessLogin(session, agent: agent) { try still(name) }
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
@@ -229,8 +229,7 @@ struct CloudStartSession {
         } catch {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), Self.startFailure(error, name: name, id: id, agent: agent))
         }
-        // A hook saving the session's trajectory off the machine (hq#4381) would go here, once acpmux has one.
-        // The session runs now; the result reports it. A switch during the start shows nothing.
+        // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
         return [
             "machine_id": .string(id), "machine_name": .string(name), "target": .string("machine:\(id)"),
@@ -262,8 +261,7 @@ struct CloudStartSession {
         }
     }
 
-    /// A refusal that passes through a step's error mapping as it is: the account changed since
-    /// the run was asked, or a step's own precondition failed.
+    /// A refusal that passes a step's error mapping as it is: the account changed since the ask, or a step's precondition failed.
     struct AccountChanged: Error { var failure: ActionFailure }
 
     /// Inside a step whose other errors are mapped (``AccountChanged`` passes through the mapping).
@@ -320,8 +318,7 @@ struct CloudStartSession {
         let machines = services.machines
         let cloud = services.cloud
         if let id = request.machineID {
-            // Only a machine of the list read for the account signed in now: after a team switch,
-            // the previous team's machines stay in the store until that list lands.
+            // Only a machine of the list read for this account now: after a team switch the previous team's stay until it lands.
             if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
             try Self.checked(account, now: cloud.account, request.asked(machine: id))
             guard cloud.hasLoadedCurrentMachines else { throw ActionFailure(message: CloudStartSessionStrings.targetUnread(request.asked(machine: id))) }
@@ -372,14 +369,17 @@ struct CloudStartSession {
         let up = await CloudWait.holds(within: Self.connectWait, until: {
             session.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         })
-        // A sign-out, team switch or cancellation during the wait is that, not a machine that
-        // didn't connect.
+        // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
         guard up, session.resumeFailure == nil else { throw failure() }
     }
 
     /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
-    func passHarnessLogin(_ session: CloudMachineSession, agent: String) async { _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session) }
+    /// The login may wait on a confirm: `still` checks the asking account after it, as after every wait.
+    func passHarnessLogin(_ session: CloudMachineSession, agent: String, still: () throws -> Void) async throws {
+        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session)
+        try still()
+    }
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
 }
