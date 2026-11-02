@@ -1,0 +1,937 @@
+{
+ "id": "bv-ctx-perf",
+ "priority": "P1",
+ "title": "#32132: main-thread time of 30 real pane focus moves and 30 real tab switches (debug.action_budget)",
+ "why": "The extra context refresh per focus move must cost the hot path nothing visible.",
+ "source": "handoff/resize-videos (BROWSER VIDEO suite, lead STATUS 4282; Lawrence's DevTools case)",
+ "budget_seconds": 150,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "rpc",
+   "title": "set-up: the app in dark (debug.appearance; Chromium and pages follow NSApp)",
+   "method": "debug.appearance",
+   "params": {
+    "mode": "dark"
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "bv_serve"
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "set-up: New Browser Workspace (Opt-Cmd-N): the page fills the workspace"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "set-up: the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "set-up: the test page typed in the address bar"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "perf set-up: a terminal pane beside the page (Cmd-D)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "title": "perf set-up: one more terminal tab (Ctrl-`)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "title": "perf set-up: one more terminal tab (Ctrl-`)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "title": "perf set-up: one more terminal tab (Ctrl-`)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "pane focus (Cmd-Opt-Left/Right)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "bv_budget",
+   "note": "perf-pane-focus",
+   "actions": [
+    "focusLeft",
+    "focusRight"
+   ],
+   "all": true
+  },
+  {
+   "do": "hid_key",
+   "key": "right",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "the terminal pane"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ],
+   "title": "tab switch (Ctrl-Tab)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.25
+  },
+  {
+   "do": "bv_budget",
+   "note": "perf-tab-switch",
+   "actions": [
+    "nextSurface"
+   ],
+   "all": true
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "bvend"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo bv-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "after the recordings the app still answers: the line shows in the app, the daemon and the frame",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "bv-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "bv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}

@@ -139,7 +139,7 @@ def agent(load, theme, rounds=3, mbps=60):
             "source": SOURCE, "budget_seconds": 60 + 25 * rounds, "options": {"key_path": "real"}, "steps": steps}
 
 
-def ctx(cycles=18, presses=30):
+def ctx(cycles=18):
     """#32132: the Developer Tools action over a page just shown in a new browser workspace (refused 'not available in the
     current context' in 9 of 18 rounds on feat ad8ae1b), then the main-thread time of tab switches and pane focus moves
     (debug.action_budget commit_ms: the app's ActionBudgetMonitor, never a Python clock), for the before/after."""
@@ -161,8 +161,19 @@ def ctx(cycles=18, presses=30):
                   dict(OPEN_KEY, title="close DevTools: real Cmd-Opt-I"),
                   {"do": "bv_devtools", "page": "light", "open": False, "timeout": 5},
                   {"do": "wait", "seconds": 0.4}]
-    # Perf: the last browser workspace gets a terminal pane beside it (Cmd-D) with 4 terminal tabs (Ctrl-`), then real
-    # pane focus moves (Cmd-Opt-Left/Right: focusLeft/focusRight, browser <-> terminal) and real Ctrl-Tab (nextSurface).
+    return {"id": jid, "priority": "P1",
+            "title": f"#32132: devtools.openDocked over a page just shown in a new browser workspace ({cycles} cycles, refusals counted)",
+            "why": "The action context must follow the focused web view: the Developer Tools set is never refused over a focused page.",
+            "source": SOURCE, "budget_seconds": 250, "options": {"key_path": "real"}, "steps": steps}
+
+
+def ctx_perf(presses=30):
+    """#32132 hot path: the app's own main-thread time (debug.action_budget commit_ms) of real pane focus moves and tab
+    switches, before and after (same mini)."""
+    jid = "bv-ctx-perf"
+    steps = setup("dark", "light")
+    # A browser workspace with a terminal pane beside it (Cmd-D) with 4 terminal tabs (Ctrl-`), then real pane focus moves
+    # (Cmd-Opt-Left/Right: focusLeft/focusRight, browser <-> terminal) and real Ctrl-Tab (nextSurface).
     steps += [{"do": "hid_key", "key": "d", "modifiers": ["cmd"], "title": "perf set-up: a terminal pane beside the page (Cmd-D)"},
               {"do": "wait", "seconds": 1.5}]
     for _ in range(3):
@@ -180,11 +191,9 @@ def ctx(cycles=18, presses=30):
                   {"do": "wait", "seconds": 0.25}]
     steps += [{"do": "bv_budget", "note": "perf-tab-switch", "actions": ["nextSurface"], "all": True}]
     return {"id": jid, "priority": "P1",
-            "title": "#32132: devtools.openDocked over a page just shown in a new browser workspace (18 cycles), then the "
-                     "main-thread time of pane focus moves and tab switches",
-            "why": "The action context must follow the focused web view: the Developer Tools set is never refused over a "
-                   "focused page; the extra context refresh per focus move must cost the hot path nothing visible.",
-            "source": SOURCE, "budget_seconds": 90 + 18 * cycles + 2 * presses, "options": {"key_path": "real"}, "steps": steps}
+            "title": "#32132: main-thread time of 30 real pane focus moves and 30 real tab switches (debug.action_budget)",
+            "why": "The extra context refresh per focus move must cost the hot path nothing visible.",
+            "source": SOURCE, "budget_seconds": 150, "options": {"key_path": "real"}, "steps": steps}
 
 
 END = [{"do": "new_terminal", "via": "key", "name": "bvend"}, {"do": "neutral_prompt"},
@@ -205,6 +214,7 @@ def main():
         for load in ("light", "heavy"):
             out.append(agent(load, theme))
     out.append(ctx())
+    out.append(ctx_perf())
     for j in out:
         j["steps"] += END
         with open(os.path.join(HERE, j["id"] + ".json"), "w") as f:
