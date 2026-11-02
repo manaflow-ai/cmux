@@ -395,6 +395,48 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(sent == ["fold:context:0"])
     }
 
+    /// A section's grip shows only while the pointer is over that section's line, in the gutter left of
+    /// its icon, and never moves the icon or the title: every section's icon and title sit on one grid, in
+    /// one weight, whether it is a header (Usage, Connectors) or a section's first row (Context) (Leo,
+    /// 2026-11-02: "THESE ARE JUST SO INSANELY STUPID LOOKING").
+    @Test func gripsShowOnlyOnHoverAndSectionsShareOneGrid() throws {
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
+        func line(_ value: SessionInfoLine) -> SessionInfoLineView {
+            let view = SessionInfoLineView(line: value, ink: ink)
+            view.frame = CGRect(x: 0, y: 0, width: 320, height: 26)
+            view.layoutSubtreeIfNeeded()
+            return view
+        }
+        let usage = line(SessionInfoLine(id: "usage", kind: .header, symbol: "chart.bar", title: "Usage", unfolded: true,
+                                         reorderable: true, action: "fold:usage:0"))
+        let context = line(SessionInfoLine(id: "context", kind: .row, symbol: "gauge", title: "Context", reorderable: true))
+        let tools = line(SessionInfoLine(id: "row:connectors:mcp", kind: .row, symbol: "wrench", title: "MCP tools"))
+        func title(_ view: SessionInfoLineView) throws -> ChromeLabel {
+            try #require(view.subviews.compactMap { $0 as? ChromeLabel }.first { $0.stringValue == view.line.title })
+        }
+        func icon(_ view: SessionInfoLineView) throws -> NSRect {
+            try #require(view.subviews.compactMap { $0 as? NSImageView }.min { $0.frame.minX < $1.frame.minX }).frame
+        }
+        for view in [usage, context] {
+            #expect(try title(view).frame.minX == title(tools).frame.minX, "\(view.line.title)'s title is off the grid")
+            #expect(try icon(view).minX == icon(tools).minX, "\(view.line.title)'s icon is off the grid")
+            #expect(try title(view).font == title(tools).font, "\(view.line.title)'s title has its own weight")
+        }
+
+        let grip = try #require(usage.subviews.first { $0 is SessionInfoGripView })
+        #expect(grip.isHidden, "a grip shows at rest")
+        #expect(grip.frame.maxX <= (try icon(usage).minX), "the grip covers the icon")
+        let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        let exit = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [], timestamp: 0,
+                                                       windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        usage.mouseEntered(with: enter)
+        #expect(!grip.isHidden)
+        usage.mouseExited(with: exit)
+        #expect(grip.isHidden)
+        #expect(!tools.subviews.contains { $0 is SessionInfoGripView })
+    }
+
     @Test func liveLabelsKeepUnchangedHeaderViews() throws {
         let store = AgentPaneSessionInfoStore()
         let panel = AgentPaneSessionInfoPanel(store: store)
