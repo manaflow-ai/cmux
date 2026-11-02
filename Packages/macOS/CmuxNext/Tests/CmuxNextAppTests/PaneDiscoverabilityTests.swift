@@ -3,9 +3,10 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct PaneDiscoverabilityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneDiscoverabilityTests {
     @Test func aPlainPressOpensTheTypeMenuBeforeMouseUp() throws {
         let model = TabStripModel(tabs: [TabItem(id: TabID("sample"), title: "Chat")], selectedID: TabID("sample"))
         var intents: [TabStripIntent] = []
@@ -13,7 +14,7 @@ import Testing
         let strip = TabStripView(model: model)
         strip.opensNewTabMenuOnPress = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.contentView = strip
         strip.frame = window.contentLayoutRect
         strip.layoutSubtreeIfNeeded()

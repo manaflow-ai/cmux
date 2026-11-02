@@ -23,11 +23,13 @@ mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
 mod caller_scope;
+mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod open_tool;
 mod placement;
 mod render_tool;
 mod schema;
@@ -37,7 +39,9 @@ mod terminal_talk_tools;
 mod tests;
 mod transport;
 mod upstream;
+mod upstream_listing;
 mod v2_tools;
+mod video_tools;
 mod watch;
 
 use std::collections::BTreeSet;
@@ -97,14 +101,14 @@ pub(super) fn agent_failure_value(failure: CallFailure) -> Value {
     error
 }
 
-/// MCP revisions this server speaks, newest first.
-const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 /// The largest JSON-RPC line read from the client.
 const MAX_MESSAGE_BYTES: usize = 8 << 20;
 /// The largest tool result; a larger page is cut and says where to go on.
 pub(super) const MAX_RESULT_BYTES: usize = 256 << 10;
 
 const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
+    This chat runs in cmux: a terminal, tab or workspace the person asks for is a cmux one, \
+    made with these tools, not your own shell. \
     Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, win_…) that the \
     *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
     `current` is this chat's own workspace or pane; `focused` is the one the person looks at. \
@@ -172,6 +176,15 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
+    /// Cloud chat repo actions run on the selected machine daemon.
+    fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "repo.unavailable",
+            "Connect to the Cloud machine and retry.",
+        ))
+    }
+
     /// App calls that may run on another thread: a computer use call's
     /// setup card waits with the call, not on this server's thread
     /// (`computer_use_gate`). `None`: the call runs without the card.
@@ -185,6 +198,11 @@ pub(super) trait Backend {
     /// The app's focus from `snapshot.get` (placement.rs).
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
         Ok(None)
+    }
+    /// The terminal this server's client runs in (`CMUX_TUI_TERMINAL_ID`),
+    /// for placing it without an app (placement.rs `daemon_caller`).
+    fn caller_terminal(&self) -> Option<String> {
+        std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
     }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
@@ -215,6 +233,25 @@ pub(super) trait Backend {
             idempotency_key: None,
         })
     }
+
+    /// A scoped chat read for agent waits. The session is routed by the same
+    /// owner policy as a daemon read; the default does not guess another session.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        if session.is_some() {
+            return Err(CallFailure::local(
+                FailureKind::NotRun,
+                "chat.unavailable",
+                "this backend cannot route chats to another cmux session",
+            ));
+        }
+        self.chat(command, idempotency_key, origin)
+    }
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -243,6 +280,10 @@ impl LiveBackend {
 }
 
 impl Backend for LiveBackend {
+    fn cloud_repo(&self, action: &str, args: Value) -> Result<Value, CallFailure> {
+        super::cloud_repo::call(&self.global, action, args)
+    }
+
     fn resource(
         &self,
         session: Option<&str>,
@@ -315,6 +356,16 @@ impl Backend for LiveBackend {
         origin: &str,
     ) -> Result<Value, CallFailure> {
         super::agents::chat::run(&self.global, command, idempotency_key, origin)
+    }
+
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        super::agents::chat::run(&self.routed(session)?, command, idempotency_key, origin)
     }
 }
 
@@ -468,6 +519,36 @@ fn list_tools(global: GlobalArgs) -> i32 {
     i32::from(written.is_err()) * 3
 }
 
+/// The session and terminal a planned terminal call names: where
+/// [`Server::wait_past_typed`] remembers what was typed.
+fn typed_key(call: &v2_tools::CallPlan) -> Option<(Option<String>, String)> {
+    let terminal = call.plan.params.get("terminal")?.as_str()?;
+    Some((call.session.clone(), terminal.to_owned()))
+}
+
+/// A history answer's rows as one `text` of lines (`{start, next, text}`): each unstyled
+/// row is one run, so the row's text is its runs joined.
+fn history_text(mut value: Value) -> Value {
+    let Some(rows) = value.get("rows").and_then(Value::as_array) else { return value };
+    let text = rows
+        .iter()
+        .map(|row| {
+            row.get("runs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|run| run.get("text").and_then(Value::as_str))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Some(object) = value.as_object_mut() {
+        object.remove("rows");
+        object.insert("text".into(), json!(text));
+    }
+    value
+}
+
 /// The stdio JSON-RPC server: one request per line, answered in order.
 pub(super) struct Server<B> {
     backend: B,
@@ -498,6 +579,9 @@ pub(super) struct Server<B> {
     notes: Option<watch::Output>,
     /// The ids `render` returned in this process: a render may update only one of these.
     renders: std::collections::HashSet<String>,
+    /// The last text `terminal_input_write` typed into each terminal (by the session and
+    /// terminal the call named), for [`Self::wait_past_typed`].
+    typed: std::cell::RefCell<std::collections::HashMap<(Option<String>, String), String>>,
 }
 
 impl<B: Backend> Server<B> {
@@ -516,6 +600,7 @@ impl<B: Backend> Server<B> {
             upstreams: Vec::new(),
             call_cap: None,
             call_deadline: None,
+            typed: std::cell::RefCell::default(),
             notes: None,
             renders: std::collections::HashSet::new(),
         }
@@ -614,6 +699,15 @@ impl<B: Backend> Server<B> {
     /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
+        for proxied in &mut self.upstreams {
+            proxied.refresh();
+        }
+        self.listed()
+    }
+
+    /// [`Self::list`] from the actions and proxied tools as last read,
+    /// asking nothing again.
+    fn listed(&self) -> Vec<Value> {
         let mut tools =
             v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
         tools
@@ -622,19 +716,21 @@ impl<B: Backend> Server<B> {
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.extend(agent_dispatch_tools::descriptors());
+        tools.extend(cloud_repo_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
+        tools.push(open_tool::descriptor());
+        tools.extend(video_tools::descriptors());
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
-        for proxied in &mut self.upstreams {
-            proxied.refresh();
+        for proxied in &self.upstreams {
             let taken = tools
                 .iter()
                 .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
@@ -728,6 +824,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(job) = self.proxied_tool(name, &arguments) {
             return Ok(job.run(self.call_cap));
+        }
+        if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
@@ -838,6 +937,15 @@ impl<B: Backend> Server<B> {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
         }
+        if let Some(result) = self.call_video(name, &arguments) {
+            return Ok(result);
+        }
+        if name == open_tool::NAME {
+            if !self.actions_loaded {
+                self.refresh_actions();
+            }
+            return Ok(self.call_open(&arguments));
+        }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
                 Ok(receipt) => success(receipt, false),
@@ -868,9 +976,156 @@ impl<B: Backend> Server<B> {
             self.refresh_actions();
         }
         let Some(tool) = self.actions.iter().find(|tool| tool.name == name) else {
-            return Err((-32602, format!("unknown tool: {name}")));
+            return Err((-32602, self.unknown_tool(name)));
         };
         Ok(self.call_action(tool, &arguments))
+    }
+
+    /// `unknown tool: NAME`, naming the nearest tool `tools/list` offers when
+    /// one is close (`acpmux::mcp_hint`): in code mode only `cmux_exec`.
+    fn unknown_tool(&self, name: &str) -> String {
+        if self.code_mode && self.allowed.is_none() {
+            return acpmux::mcp_hint::unknown_tool(name, [code_mode::EXEC]);
+        }
+        let listed = self.listed();
+        acpmux::mcp_hint::unknown_tool(name, listed.iter().filter_map(|tool| tool["name"].as_str()))
+    }
+
+    /// A terminal tool called with a `tab` and no `terminal`, or a tab or pane given as
+    /// `terminal`: the terminal that tab (or the pane's shown tab) shows, its `content_id`. Models name a terminal by the tab id they listed
+    /// (tests/tool-evals: 39 "needs terminal" errors in one 9-model panel). Other calls
+    /// pass unchanged.
+    fn terminal_of_tab<'a>(
+        &self,
+        tool: &v2_tools::V2Tool,
+        arguments: &'a Map<String, Value>,
+    ) -> Result<std::borrow::Cow<'a, Map<String, Value>>, Value> {
+        // Only a tool that needs a terminal: `terminal_list` takes `tab` as a filter.
+        if !tool.needs_terminal() {
+            return Ok(std::borrow::Cow::Borrowed(arguments));
+        }
+        // The tab that names the terminal: `tab`, or a `terminal` that is really a tab, by
+        // its id (`tab_…`) or by a name with no scope above it (`terminal: "eval"` for the
+        // tab named eval, which the daemon's terminal name selector cannot find without a
+        // tab). tests/tool-evals m1: three models named a terminal by its tab.
+        let terminal_arg = arguments.get("terminal").and_then(Value::as_str);
+        let scoped =
+            ["workspace", "screen", "pane", "tab"].iter().any(|key| arguments.contains_key(*key));
+        let tab_like = terminal_arg.filter(|value| {
+            let bare = value.rsplit_once(':').map_or(*value, |(_, id)| id);
+            bare.starts_with("tab_")
+                || bare.starts_with("pane_")
+                || (!scoped
+                    && !bare.starts_with("term_")
+                    && !matches!(bare, "current" | "focused" | "caller"))
+        });
+        let tab = match (arguments.get("tab").and_then(Value::as_str), terminal_arg) {
+            (Some(tab), None) => tab,
+            (None, Some(_)) if tab_like.is_some() => tab_like.unwrap_or_default(),
+            _ => return Ok(std::borrow::Cow::Borrowed(arguments)),
+        };
+        // A `<session>:tab_…` names another session: the terminal gets the same prefix.
+        let session = tab.rsplit_once(':').map(|(session, _)| session.to_owned());
+        let mut lookup = Map::new();
+        for key in ["session", "workspace", "screen", "pane"] {
+            if let Some(value) = arguments.get(key) {
+                lookup.insert(key.into(), value.clone());
+            }
+        }
+        lookup.insert("tab".into(), Value::String(tab.to_owned()));
+        let Some(tab_get) = v2_tools::find("tab_get") else {
+            return Ok(std::borrow::Cow::Borrowed(arguments));
+        };
+        // A `tab_…` id, or a name under a named workspace, screen or pane, resolves with
+        // tab_get. A name with no scope does not: the daemon finds a tab name only under
+        // its pane, so the session's tabs are listed and the name is used only when
+        // exactly one tab has it.
+        let bare = tab.rsplit_once(':').map_or(tab, |(_, id)| id);
+        let under_scope =
+            ["workspace", "screen", "pane"].iter().any(|key| arguments.contains_key(*key));
+        let record = if bare.starts_with("pane_") {
+            // A pane named where a terminal goes (`terminal: n.pane.id` after
+            // pane_neighbor_get, tests/tool-evals m1): the terminal of the tab it shows.
+            let Some(tab_list) = v2_tools::find("tab_list") else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            let mut list = Map::new();
+            if let Some(session) = arguments.get("session") {
+                list.insert("session".into(), session.clone());
+            }
+            list.insert("pane".into(), Value::String(tab.to_owned()));
+            let answer = self.call_v2(tab_list, &list);
+            if answer.get("isError").and_then(Value::as_bool) == Some(true) {
+                return Err(answer);
+            }
+            let items = answer
+                .pointer("/structuredContent/items")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let shown = match items.as_slice() {
+                [only] => Some(only),
+                items => items.iter().find(|item| item["focused"] == true),
+            };
+            let Some(shown) = shown else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            shown.clone()
+        } else if bare.starts_with("tab_") || under_scope {
+            let answer = self.call_v2(tab_get, &lookup);
+            if answer.get("isError").and_then(Value::as_bool) == Some(true) {
+                return Err(answer);
+            }
+            let record = answer.get("structuredContent").unwrap_or(&Value::Null);
+            record.get("value").unwrap_or(record).clone()
+        } else {
+            let Some(tab_list) = v2_tools::find("tab_list") else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            let mut list = Map::new();
+            // The call's session, else the `<session>:` the name carried.
+            if let Some(session) =
+                arguments.get("session").cloned().or_else(|| session.clone().map(Value::String))
+            {
+                list.insert("session".into(), session);
+            }
+            list.insert("limit".into(), json!(500));
+            let answer = self.call_v2(tab_list, &list);
+            let items = answer
+                .pointer("/structuredContent/items")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let named: Vec<Value> =
+                items.into_iter().filter(|item| item["name"].as_str() == Some(bare)).collect();
+            // No tab, or several, by that name: the daemon judges it as a terminal name.
+            let [only] = named.as_slice() else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            only.clone()
+        };
+        let record = &record;
+        let Some(terminal) = record["content_id"].as_str().filter(|id| id.starts_with("term_"))
+        else {
+            return Err(tool_error(envelope(
+                v2_tools::invalid(format!(
+                    "{} needs terminal: that tab shows no terminal",
+                    tool.name
+                )),
+                "not_run",
+                None,
+            )));
+        };
+        let terminal = match session {
+            Some(session) => format!("{session}:{terminal}"),
+            None => terminal.to_owned(),
+        };
+        let mut with_terminal = arguments.clone();
+        for key in ["tab", "pane", "screen", "workspace"] {
+            with_terminal.remove(key);
+        }
+        with_terminal.insert("terminal".into(), Value::String(terminal));
+        Ok(std::borrow::Cow::Owned(with_terminal))
     }
 
     /// One request from a running `cmux_exec` script: a tool call through
@@ -889,7 +1144,20 @@ impl<B: Backend> Server<B> {
                 )
             }
             code_mode::Request::Call { name, arguments } => {
-                let result = self.call(&json!({"name": name, "arguments": arguments}));
+                let mut result = self.call(&json!({"name": name, "arguments": arguments}));
+                // A guessed name (`context`, `terminal_send`) gets the tools
+                // a docs search for it finds, so the next call can be right
+                // (tests/tool-evals, 2026-10-27).
+                if let Err((_, message)) = &mut result
+                    && message.starts_with("unknown tool")
+                    && !message.contains("; did you mean")
+                {
+                    let tools = tools.get_or_insert_with(|| self.list());
+                    let near = code_mode::nearest_names(tools, &name);
+                    if !near.is_empty() {
+                        message.push_str(&format!("; did you mean {}?", near.join(", ")));
+                    }
+                }
                 code_mode::script_answer(result, images)
             }
             code_mode::Request::Docs { query } => {
@@ -912,6 +1180,14 @@ impl<B: Backend> Server<B> {
             Ok(arguments) => arguments,
             Err(answer) => return answer,
         };
+        let arguments = match self.terminal_of_tab(tool, &arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
+        let arguments = match self.tab_move_destination(tool, &arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
         let mut call = match tool.plan(&arguments) {
             Ok(call) => call,
             Err(error) => return tool_error(envelope(error, "not_run", None)),
@@ -920,7 +1196,39 @@ impl<B: Backend> Server<B> {
             return tool_error(envelope(error, "not_run", None));
         }
         let page = call.page;
+        // History an agent reads is plain lines: `styled` (colors and attributes per run)
+        // defaults to true in the daemon, and a 300-line read was 88k characters
+        // (tests/tool-evals r13a). Asked for `styled`, the rows come as the daemon sends them.
+        let plain_history =
+            tool.wire == "terminal.history.read" && !arguments.contains_key("styled");
+        if plain_history && let Some(params) = call.plan.params.as_object_mut() {
+            params.insert("styled".into(), json!(false));
+        }
+        let typed = self.wait_past_typed(tool, &mut call);
+        let wrote = (tool.wire == "terminal.input.write")
+            .then(|| {
+                typed_key(&call)
+                    .zip(call.plan.params.get("text").and_then(Value::as_str).map(str::to_owned))
+            })
+            .flatten();
         match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
+            Ok(value) if typed.is_some() => success(
+                {
+                    let mut value = value;
+                    if let (Some(note), Some(object)) = (typed, value.as_object_mut()) {
+                        object.insert("note".into(), json!(note));
+                    }
+                    value
+                },
+                tool.mutation,
+            ),
+            Ok(value) if wrote.is_some() => {
+                if let Some((key, text)) = wrote {
+                    self.typed.borrow_mut().insert(key, text);
+                }
+                success(value, tool.mutation)
+            }
+            Ok(value) if plain_history => success(history_text(value), tool.mutation),
             Ok(value) => success(
                 match page {
                     Some(page) => v2_tools::paginate(value, page),
@@ -930,6 +1238,38 @@ impl<B: Backend> Server<B> {
             ),
             Err(failure) => failure_result(failure),
         }
+    }
+
+    /// A `terminal_wait` whose pattern the command this server just typed there also
+    /// matches waits for it at the start of a line: the typed command line stays on the
+    /// screen after the prompt, so `pattern: "DONE"` after `cmd; echo DONE` matched at
+    /// once, before the command ran (tests/tool-evals r3j: GLM models said "done" four
+    /// seconds early). Answers the note the result then carries.
+    fn wait_past_typed(
+        &self,
+        tool: &v2_tools::V2Tool,
+        call: &mut v2_tools::CallPlan,
+    ) -> Option<String> {
+        if tool.wire != "terminal.wait" {
+            return None;
+        }
+        let key = typed_key(call)?;
+        let typed = self.typed.borrow().get(&key).cloned()?;
+        let pattern = call.plan.params.get("pattern")?.as_str()?.to_owned();
+        if pattern.starts_with('^') || pattern.starts_with("(?m)") {
+            return None;
+        }
+        // On screen the typed line follows the prompt, so an output line is the one
+        // that starts with the match.
+        if !regex::Regex::new(&pattern).ok()?.is_match(&typed) {
+            return None;
+        }
+        let anchored = format!("(?m)^\\s*(?:{pattern})");
+        call.plan.params.set("pattern", json!(anchored));
+        Some(format!(
+            "pattern {pattern:?} is also in the command typed here, so this waited for it at \
+             the start of an output line: {anchored:?}"
+        ))
     }
 
     fn call_window_list(&self, arguments: &Map<String, Value>) -> Value {
@@ -960,13 +1300,8 @@ impl<B: Backend> Server<B> {
 }
 
 fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
-    let requested = params["protocolVersion"].as_str();
-    let version = PROTOCOL_VERSIONS
-        .iter()
-        .find(|version| Some(**version) == requested)
-        .unwrap_or(&PROTOCOL_VERSIONS[0]);
     json!({
-        "protocolVersion": version,
+        "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(

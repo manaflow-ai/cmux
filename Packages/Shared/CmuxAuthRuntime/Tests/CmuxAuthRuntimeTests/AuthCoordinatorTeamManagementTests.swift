@@ -174,4 +174,10 @@ extension FakeAuthClient: TeamManaging {
         teams.removeAll { $0.id == id }
         if serverSelectedTeamID == id { serverSelectedTeamID = nil }
     }
+
+    func inviteToTeam(id: String, emails: [String], role: CMUXTeamRole) async throws -> CMUXTeamInviteResult {
+        guard teams.contains(where: { $0.id == id }) else { throw CMUXTeamError.notFound }
+        return CMUXTeamInviteResult(invitations: emails.enumerated().map { .init(id: "i\($0.offset)", email: $0.element, role: role, expiresAt: "") },
+                                    failed: [])
+    }
 }

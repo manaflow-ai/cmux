@@ -35,6 +35,13 @@ public final class OverflowButton: ClickableButton {
             image?.accessibilityDescription = label
         }
     }
+    /// The menu, popover or editor this button opened is open: the button stays shown pressed (lit)
+    /// after the pointer leaves it, until the host clears it as that closes (Leo 2026-10-26: "you keep it
+    /// on when you click the context menu ... the drop-down, the popover"). Only the button lights,
+    /// never the row it sits on (Leo 2026-10-27: "Just don't do that. Don't ever do that.").
+    public var showsMenu = false {
+        didSet { if showsMenu != oldValue { changeHover { $0.pressed = showsMenu } } }
+    }
     private var renderedSize: CGFloat = 0
 
     public init(label: String) {
@@ -116,7 +123,7 @@ public final class OverflowButton: ClickableButton {
     override public func mouseDown(with event: NSEvent) {
         guard isEnabled else { return super.mouseDown(with: event) }
         changeHover { $0.pressed = true }
-        defer { changeHover { $0.pressed = false } }
+        defer { changeHover { [showsMenu] in $0.pressed = showsMenu } }
         if let pressMenu {
             guard let menu = pressMenu(), !menu.items.isEmpty else { return }
             presentMenu(menu, self)
@@ -129,7 +136,7 @@ public final class OverflowButton: ClickableButton {
     /// owner clears it, and it shows again with the hover the pointer gives it then.
     override public func viewDidHide() {
         super.viewDidHide()
-        changeHover { $0.pressed = false }
+        changeHover { [showsMenu] in $0.pressed = showsMenu }
         hover.pointer?.refresh()
     }
 

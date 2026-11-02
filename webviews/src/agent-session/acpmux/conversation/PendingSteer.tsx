@@ -1,4 +1,4 @@
-import { useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
@@ -18,10 +18,17 @@ import { TurnActionsContext, type TakeBack } from "./turnActions";
 /// Copy stays after them, so a waiting steer can be copied as any message can (Leo, 2026-10-29:
 /// "i feel like im frequently missing the copy/whatever buttons on these steers").
 /// A refusal keeps the controls available. Accepted delivery removes them in the same render.
-/// An X acpmux refuses (the agent took the steer already, or its harness cannot drop one) never
-/// sits there doing nothing: it gives way to "Read after this step", so the row says why the
+/// An X acpmux refuses never does nothing: the row says "Read after this step", so it says why the
 /// message stays (Leo, 2026-10-29: "this fucking edit message thing. It doesn't even fucking work").
-/// One that failed on the way (an RPC error, attachments not read) stays to be tried again.
+/// The X stays beside it, as does one that failed on the way (an RPC error, attachments not read):
+/// acpmux also refuses for a moment right after the steer is sent, before it has registered it
+/// (it prepares the steer's large images first), and a later click takes the steer back then.
+/// While several of the person's steers wait, the row of the newest (snapshot `newestOwnSteer`):
+/// only it offers Send now. Send now stops the agent's current step and the agent then reads every
+/// waiting steer, so a Send now under each read as if each were held in a queue (Leo, 2026-11-01:
+/// "why are ALL of these send now???? aren't these steers???"). Undefined (one waits): its own.
+export const NewestSteerContext = createContext<string | undefined>(undefined);
+
 export function PendingSteer({
   row,
   send,
@@ -33,6 +40,7 @@ export function PendingSteer({
 }) {
   const t = useT();
   const { unsteer } = useContext(TurnActionsContext);
+  const newest = useContext(NewestSteerContext);
   const [sending, setSending] = useState(false);
   const waiting = row.steer === "waiting";
   const [sentNow, setSentNow] = useState(false);
@@ -42,11 +50,11 @@ export function PendingSteer({
   if (!waiting || sentNow || (promptId && sentNowIds.has(promptId))) return children ?? null;
   if (!promptId) return null;
   const busy = sending;
-  const stays = kept || keptIds.has(promptId);
+  const offersSendNow = newest === undefined || newest === row.id;
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
-        {promptId && (
+        {promptId && offersSendNow && (
           <button
             type="button"
             className="cv-user__send-now"
@@ -68,7 +76,7 @@ export function PendingSteer({
             {t("steer.sendNow")}
           </button>
         )}
-        {promptId && unsteer && !stays && (
+        {promptId && unsteer && (
           <button
             type="button"
             className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
@@ -79,18 +87,14 @@ export function PendingSteer({
               setSending(true);
               void unsteer(row)
                 .catch((): TakeBack => "failed")
-                .then((result) => {
-                  if (result !== "refused") return;
-                  keptIds.add(promptId);
-                  setKept(true);
-                })
+                .then((result) => setKept(result === "refused"))
                 .finally(() => setSending(false));
             }}
           >
             <Close size={ROW_ICON} />
           </button>
         )}
-        {stays && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
+        {kept && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
         {row.text?.trim() && <MessageCopy text={row.text} />}
       </MessageFooterRow>
     </div>
@@ -100,8 +104,6 @@ export function PendingSteer({
 /// The steers whose Send now worked, by promptId, so a row drawn again while acpmux still says the
 /// steer waits (scrolled away and back) shows no controls. One id per click, for the page's life.
 const sentNowIds = new Set<string>();
-/// The steers whose X acpmux refused, by promptId: drawn again, they say they stay instead.
-const keptIds = new Set<string>();
 
 /// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only acpmux's Claude
 /// Code adapter does. acpmux's `backgroundsWork` marks a chat that runs it, whatever its family is

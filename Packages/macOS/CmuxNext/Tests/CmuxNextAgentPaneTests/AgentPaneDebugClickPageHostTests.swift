@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -11,7 +12,7 @@ import Testing
 /// element is found in the page the chat shows, not in the pane's own unused WebKit view, which
 /// holds no document (a capture slot answered "no visible element matches" for every selector,
 /// even `textarea`, while `chat_state` worked on the same pane).
-@Suite(.serialized)
+@Suite(.closesItsWindows, .serialized)
 @MainActor
 struct AgentPaneDebugClickPageHostTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -20,7 +21,7 @@ struct AgentPaneDebugClickPageHostTests {
 
     @Test func clickFindsAnElementOfThePageTheChatShows() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, testRoot: true,
                                               chromium: nil))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         // The page loads in the page host.
@@ -56,7 +57,7 @@ struct AgentPaneDebugClickPageHostTests {
                 return #"{"result":{"type":"string","value":"{\"x\":308,\"y\":18,\"tag\":\"button\"}"}}"#
             }
         }
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, testRoot: true,
                                               chromium: hosting))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         let deadline = Date().addingTimeInterval(5)
@@ -79,7 +80,7 @@ struct AgentPaneDebugClickPageHostTests {
     @Test func aClickAndAKeyInTheChromiumPageWindowRecordThePersonsGestures() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, testRoot: true,
                                               chromium: hosting))
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         let paneWindow = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.borderless],

@@ -52,6 +52,14 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
            sourceFrameURL?.absoluteString == "about:srcdoc" {
             return .cancel
         }
+        // A page's own passive frames (``PageDescriptor/passiveFrames``): the page's document may
+        // set a frame's srcdoc; a srcdoc document can neither navigate nor be navigated elsewhere.
+        if page.passiveFrames, !mainFrame {
+            let srcdoc = url.absoluteString == "about:srcdoc"
+            if sourceFrameURL?.absoluteString == "about:srcdoc" { return .cancel }
+            if targetFrameURL?.absoluteString == "about:srcdoc", !srcdoc { return .cancel }
+            if srcdoc { return page.owns(sourceFrameURL) ? .allow : .cancel }
+        }
         if PageArtifactFrame.contextRestricted(frame: targetFrameURL, parent: sourceFrameURL) ||
             PageArtifactFrame.navigationRefused(mainFrame: mainFrame, frame: targetFrameURL,
                                                 parent: sourceFrameURL, target: url) {

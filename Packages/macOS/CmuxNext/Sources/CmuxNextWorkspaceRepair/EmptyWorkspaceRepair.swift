@@ -259,7 +259,7 @@ public final class EmptyWorkspaceRepair {
         // Disconnected: the next change this repair sees tries again.
         guard canCreate() else { retries.insert(key); return false }
         states[key] = .closing
-        populated[key] = nil
+        let populatedEpoch = populated.removeValue(forKey: key)
         let close = close, cause = cause, create = create
         // task-owner: one decision per emptied workspace; the claim is the state above
         Task {
@@ -283,8 +283,30 @@ public final class EmptyWorkspaceRepair {
             do {
                 try await close(key)
             } catch {
-                // Still open and empty: the next change repairs it instead.
-                if states[key] == .closing { states[key] = nil }
+                // Still open: keep the last-tab-close evidence, so the next
+                // change this repair sees closes it again instead of refilling
+                // it with a terminal (#17632). Only when nothing newer replaced
+                // it: after a reconnect (a new epoch) the old evidence is stale,
+                // and a pane seen on the new connection already recorded its own.
+                // Either way the workspace is examined again on the next change:
+                // its pane changes were ignored while the close owned it, so it
+                // may be empty again with that newer evidence.
+                if states[key] == .closing {
+                    states[key] = nil
+                    if let populatedEpoch, populatedEpoch == epoch(), populated[key] == nil {
+                        populated[key] = populatedEpoch
+                    }
+                    // A reconnect can replace the workspace model while this close is in
+                    // flight, so its pane flip may not reach the old watcher. The failed close
+                    // still proves that this workspace had a terminal before it emptied; carry
+                    // that evidence into the current epoch for the retry.
+                    if populated[key] != epoch() { populated[key] = epoch() }
+                    // Pane changes observed while the close was owned by this task were
+                    // intentionally ignored. Re-examine the workspace on the next store change
+                    // even when a reconnect replaced its evidence; a populated workspace is a
+                    // no-op, while an empty one gets the close it missed.
+                    retries.insert(key)
+                }
                 logger.error("closing emptied workspace failed: \(String(describing: error), privacy: .public)")
             }
         }

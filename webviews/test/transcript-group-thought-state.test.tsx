@@ -1,7 +1,9 @@
 // l10n-allow-file: test fixture thoughts, not shipped UI.
-// A thought between two calls draws inside their group (toolGroups.ts). The reader's open or closed
-// choice stays with that thought when a later call joins the group: the thought is named by its place in the whole group,
-// never by its place among the rows on screen (Codex review of #24075).
+// A thought between two calls draws inside their group (toolGroups.ts), one step among the calls
+// (ToolGroupRow.tsx). The reader's open or closed choice stays with that thought when a later call
+// joins the group: the thought is named by its place in the whole group, never by its place among
+// the rows on screen (Codex review of #24075). A thought that leads into a run opens the group, in
+// full.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -84,22 +86,40 @@ const opened = () =>
     .map((node) => node.nextElementSibling?.textContent ?? "");
 const click = (node: Element) => act(async () => node.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
 
-test("an opened thought inside a group stays open as every appended call is shown", async () => {
+test("an opened thought inside a group stays open as calls join", async () => {
   const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
   resetTranscriptDisclosure();
   await draw(items(6));
-  // All six reads and their five thoughts show, each thought closed.
+  // Six reads, every one listed: the five thoughts between them show, each closed.
   expect(toggles().length).toBe(5);
-  const second = toggles()[1]!;
+  const second = toggles()[2]!;
   await act(async () => second.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
   expect(opened()).toHaveLength(1);
-  expect(opened()[0]).toContain("Thought number 1:");
-  // A seventh read joins: every item shows and the same thought stays open.
+  expect(opened()[0]).toContain("Thought number 2:");
+  // A seventh read joins: the same thought stays the open one.
   await draw(items(7));
-  expect(opened()).toHaveLength(1);
-  expect(opened()[0]).toContain("Thought number 1:");
   expect(toggles().length).toBe(6);
+  expect(opened()).toHaveLength(1);
+  expect(opened()[0]).toContain("Thought number 2:");
   expect(host.querySelector(".cv-tool-group__more")).toBeNull();
+});
+
+test("a thought that led into a run opens its group in full, and keeps the reader's choice", async () => {
+  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  resetTranscriptDisclosure();
+  // The thought before any call draws on its own; once two reads follow it, it leads their group.
+  await draw([thought(0), read(0)], "leads");
+  expect(host.querySelector(".cv-steps")).toBeNull();
+  await draw([thought(0), read(0), read(1)], "leads");
+  const lead = host.querySelector(".cv-steps > .cv-step.is-lead");
+  expect(lead).not.toBeNull();
+  expect(opened()).toEqual([expect.stringContaining("Thought number 0:")]);
+  // Closed by the reader, it stays closed as another read joins.
+  await click(toggles()[0]!);
+  expect(opened()).toHaveLength(0);
+  await draw([thought(0), read(0), read(1), read(2)], "leads");
+  expect(opened()).toHaveLength(0);
+  expect(host.querySelectorAll(".cv-steps > .cv-step")).toHaveLength(4);
 });
 
 test("an opened thought stays open when the call after it finishes and joins it to a group", async () => {

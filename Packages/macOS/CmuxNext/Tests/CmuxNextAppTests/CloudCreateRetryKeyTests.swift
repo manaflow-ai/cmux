@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 import Testing
 
@@ -99,6 +100,29 @@ import Testing
 
     @MainActor final class Sends { var count = 0 }
 
+    @Test func aFailedDurableSentWriteSendsNoCreate() async throws {
+        let backend = Backend()
+        let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { "team_a" },
+            sent: { throw CancellationError() }, ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
+            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+        await #expect(throws: CancellationError.self) {
+            _ = try await flow.create(name: "cloud-chats", startedByPerson: true, key: "lost-answer")
+        }
+        #expect(backend.keys.isEmpty)
+        #expect(backend.machines.isEmpty)
+    }
+
+    @Test func aTeamSwitchWhilePersistingTheSendSendsNoCreate() async throws {
+        let backend = Backend()
+        let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
+            sent: { backend.team = "team_b" }, ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
+            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+        await #expect(throws: ActionFailure.self) {
+            _ = try await flow.create(name: "cloud-chats", startedByPerson: true, key: "lost-answer")
+        }
+        #expect(backend.keys.isEmpty)
+    }
+
     @Test func aTeamSwitchBeforeTheFirstSendSendsNothing() async throws {
         let backend = Backend(), sends = Sends()
         backend.team = "team_b"
@@ -134,5 +158,111 @@ import Testing
         #expect(creation.request.idempotencyKey == key)
         #expect(creation.request.team == "team_a", "a later send re-pinned the team")
         #expect(creation.request.wasSent)
+    }
+
+    @MainActor final class Approvals { var answered: [String] = [] }
+
+    @Test func aRetryWhileTheApprovedCreateStillRunsWaitsInsteadOfAnsweringAgain() async throws {
+        let backend = Backend(), approvals = Approvals()
+        let creation = CloudMachineCreation(windowID: nil)
+        let key = creation.request.idempotencyKey
+        func flow() -> CloudMachineCreateFlow {
+            CloudMachineCreateFlow(run: { _, _, key, _ in try await MainActor.run { try backend.call(key) } },
+                                   confirm: { _ in true },
+                                   approve: { request, _, _ in
+                                       // The feed item closes with its answer: a second answer is a mismatch.
+                                       guard !approvals.answered.contains(request) else {
+                                           throw CloudAppOpFailure(code: "cmux.cloud.approval_mismatch", message: "")
+                                       }
+                                       approvals.answered.append(request)
+                                   },
+                                   pause: { _ in })
+        }
+        backend.pending = 1 + 8 + 1
+        await #expect(throws: CloudMachineCreateFlow.Failure.stillPending(request: "req_1")) {
+            _ = try await flow().create(name: nil, startedByPerson: false, key: key, onApproved: { creation.markApproved($0, key: key) })
+        }
+        #expect(creation.request.approvedRequest == "req_1")
+        // The approved create is still running in the backend when the person clicks Retry.
+        backend.pending = 2
+        let retried = try await flow().create(name: nil, startedByPerson: false, key: key, approved: creation.request.approvedRequest,
+                                              onApproved: { creation.markApproved($0, key: key) })
+        #expect(retried["id"]?.stringValue == "vm_1")
+        #expect(approvals.answered == ["req_1"], "the Retry answered the closed approval again")
+        #expect(backend.machines.count == 1)
+    }
+
+    @Test func aRefusalThatMadeNoMachineGivesTheRetryANewKey() {
+        for code in ["cmux.cloud.quota_exceeded", "cloud.quota.exceeded", CloudAppOpFailure.planRequired, "cmux.cloud.size_locked",
+                     "cmux.cloud.approval_denied", "cmux.cloud.approval_expired", "approval.expired",
+                     "cmux.cloud.secrets_unavailable", "cloud.environment.secrets_unavailable", "cmux.cloud.no_snapshot_configured", "cmux.cloud.not_found"] {
+            #expect(CloudMachineCreateRetry().isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "\(code)")
+        }
+        for code in [CloudAppOpFailure.approvalPending, "cmux.cloud.relay_unavailable", "cmux.cloud.bad_response", "cmux.cloud.failed"] {
+            #expect(!CloudMachineCreateRetry().isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "an uncertain outcome lost its key: \(code)")
+        }
+        let creation = CloudMachineCreation(windowID: nil)
+        let key = creation.request.idempotencyKey
+        creation.markRequestSent(team: "team_a")
+        creation.markApproved("req_1", key: key)
+        creation.renewKey(replacing: key)
+        #expect(creation.request.idempotencyKey != key)
+        #expect(!creation.request.wasSent && creation.request.team == nil && creation.request.approvedRequest == nil)
+    }
+
+    @Test func aLateRefusalOrApprovalForAnOlderKeyLeavesTheCurrentKeyAlone() {
+        let creation = CloudMachineCreation(windowID: nil)
+        let old = creation.request.idempotencyKey
+        creation.renewKey(replacing: old)
+        let current = creation.request.idempotencyKey
+        creation.markRequestSent(team: "team_a")
+        // The superseded attempt's answers arrive after the Retry took the new key.
+        creation.renewKey(replacing: old)
+        creation.markApproved("req_old", key: old)
+        #expect(creation.request.idempotencyKey == current, "a late refusal replaced the key the Retry sent")
+        #expect(creation.request.wasSent && creation.request.team == "team_a")
+        #expect(creation.request.approvedRequest == nil)
+    }
+
+    @Test func aRetryAfterAnAnswerItNeverRecordedWaitsInsteadOfFailing() async throws {
+        let backend = Backend()
+        backend.pending = 3
+        // The first attempt answered req_1 and was cancelled before recording it: the item is closed.
+        let flow = CloudMachineCreateFlow(run: { _, _, key, _ in try await MainActor.run { try backend.call(key) } },
+                                          confirm: { _ in true },
+                                          approve: { request, _, _ in throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: "state") },
+                                          pause: { _ in })
+        let machine = try await flow.create(name: nil, startedByPerson: false, key: "k1")
+        #expect(machine["id"]?.stringValue == "vm_1")
+        #expect(backend.machines.count == 1)
+        #expect(CloudApprovalAnswer.Failure.mismatch(request: "r", reason: "state").alreadyAnswered(request: "r", answeredEarlier: false))
+        #expect(!CloudApprovalAnswer.Failure.mismatch(request: "r", reason: "params").alreadyAnswered(request: "r", answeredEarlier: true))
+        #expect(!CloudApprovalAnswer.Failure.notInFeed(request: "r").alreadyAnswered(request: "r", answeredEarlier: true))
+        #expect(!CloudApprovalAnswer.Failure.mismatch(request: "other", reason: "state").alreadyAnswered(request: "r", answeredEarlier: true))
+        // A closed feed item counts only after this key began answering the request.
+        #expect(CloudApprovalAnswer.Failure.mismatch(request: "r", reason: CloudApprovalAnswer.closedItem).alreadyAnswered(request: "r", answeredEarlier: true))
+        #expect(!CloudApprovalAnswer.Failure.mismatch(request: "r", reason: CloudApprovalAnswer.closedItem).alreadyAnswered(request: "r", answeredEarlier: false))
+        // This team's closed item (answered elsewhere) goes on without an answer here; another team's never does.
+        #expect(CloudApprovalAnswer.Failure.answered(request: "r").answeredElsewhere(request: "r"))
+        #expect(!CloudApprovalAnswer.Failure.mismatch(request: "r", reason: CloudApprovalAnswer.closedItem).answeredElsewhere(request: "r"))
+    }
+
+    @Test func aRetryCancelledMidAnswerWaitsForTheRunningApprovedOp() async throws {
+        let backend = Backend()
+        backend.pending = 3
+        let creation = CloudMachineCreation(windowID: nil)
+        let key = creation.request.idempotencyKey
+        // The first attempt marked req_1 as being answered, then was cancelled; the approval still
+        // reads pending (its op runs) but its feed item is closed.
+        creation.markAnswering("req_1", key: key)
+        let flow = CloudMachineCreateFlow(run: { _, _, key, _ in try await MainActor.run { try backend.call(key) } },
+                                          confirm: { _ in true },
+                                          approve: { request, _, _ in throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: CloudApprovalAnswer.closedItem) },
+                                          pause: { _ in })
+        let machine = try await flow.create(name: nil, startedByPerson: false, key: key, answering: creation.request.answeringRequest)
+        #expect(machine["id"]?.stringValue == "vm_1")
+        #expect(backend.machines.count == 1)
+        creation.renewKey(replacing: key)
+        #expect(creation.request.answeringRequest == nil)
     }
 }

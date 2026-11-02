@@ -9,33 +9,34 @@
          set { fallbackRenderScale = newValue }
      }
      /// The process value for code with no view: set from the first window's screen at launch and by every
-@@ -56,12 +56,22 @@
+@@ -56,12 +56,23 @@
      /// Light system appearance (the host sets it from its effective appearance).
      /// Link cards follow it: Messages' light card is the light incoming grey
      /// (#E9E9EB) with dark text. A change bumps `paletteGeneration`.
 -    static var lightAppearance = false { didSet { if lightAppearance != oldValue { paletteGeneration += 1 } } }
-+    static var lightAppearance = false { didSet { if lightAppearance != oldValue { baseGeneration += 1 } } }
++    static var lightAppearance = false { didSet { if lightAppearance != oldValue { PaletteScope.bumpBaseGeneration() } } }
      /// Bumped by an appearance or a colour space change: cached bitmaps are stale (not by a window's key state).
 -    static fileprivate(set) var paletteGeneration = 0
-+    // cmux: written on the main thread only; off-main renders compare a generation they were given.
-+    nonisolated(unsafe) static fileprivate(set) var baseGeneration = 0
++    // cmux: written on the main thread and read by off-main renders (their cache keys, `generationIsLive`), so it
++    // sits behind PaletteScope's lock.
++    static var baseGeneration: Int { PaletteScope.baseGeneration }
 +    /// cmux: the palette generation of the drawing that runs now: the base generation and the palette's id (the
 +    /// scope's, a window view's own Chat Colors, else the process palette, PaletteScope). Every palette-dependent
 +    /// cache is keyed by it, so two chats with different colours keep separate bitmaps and tiles.
 +    static var paletteGeneration: Int { generation(of: PaletteScope.current) }
 +    /// cmux: the generation drawing in a scope of `box` has now (nil: the process palette's).
-+    static func generation(of box: PaletteBox?) -> Int { baseGeneration &* 1_000_003 &+ ((box ?? PaletteScope.process)?.id ?? 0) }
++    static func generation(of box: PaletteBox?) -> Int { PaletteScope.generation(of: box) }
 +    /// cmux: `generation` was made since the last appearance or colour space change (its palette may be another
 +    /// view's): a result drawn for it is still good under its own key.
 +    static func generationIsLive(_ generation: Int) -> Bool { generation / 1_000_003 == baseGeneration }
      /// The bitmaps' colour space changed (a window moved to a display of another colour space): every cache keyed
      /// on the palette generation draws again (MessagesWindowView.displayColorSpaceChanged).
 -    static func colorSpaceChanged() { paletteGeneration += 1 }
-+    static func colorSpaceChanged() { baseGeneration += 1 }
++    static func colorSpaceChanged() { PaletteScope.bumpBaseGeneration() }
  
      /// Palette, measured with `screencapture -l` on macOS 27 Messages
      /// (cmux-lawrence-2, 2026-10-05): key and non-key windows are identical
-@@ -74,11 +84,24 @@
+@@ -74,11 +85,24 @@
      static func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
          UIColor(displayP3Red: r / 255, green: g / 255, blue: b / 255, alpha: 1)
      }
@@ -61,7 +62,7 @@
      /// The compose field's placeholder and audio waveform are see-through in Messages: the same ink over the
      /// key field (59, light 249) and the inactive one (50, light 240) is a constant step from it (lossless
      /// deactivate-activate and appearance-light takes, macOS 27, cx-3cb compose-parity): placeholder +63 in dark
-@@ -88,7 +111,7 @@
+@@ -88,7 +112,7 @@
      /// 10 levels too light on the inactive dark field, 60 levels too dark in light.
      static var placeholderInk: UIColor { lightAppearance ? UIColor(white: 0, alpha: 0.27) : UIColor(white: 1, alpha: 0.316) }
      static var waveformInk: UIColor { lightAppearance ? UIColor(white: 0, alpha: 0.39) : UIColor(white: 212 / 255, alpha: 0.556) }
@@ -70,7 +71,7 @@
      /// The typing indicator (bubble, tail discs, dots) is not the incoming grey: in Messages' key window it is
      /// one level darker in red and green (bubble and discs 58, 58, 61; dots dim 91, 91, 94, lit 133, 133, 135:
      /// the 12 settled lossless stills typing-dots-02..13 and send-typed-take1 +5.5 s), in its inactive window it
-@@ -98,16 +121,31 @@
+@@ -98,16 +122,31 @@
      /// `inactive`: the drawing view's own state (MessagesWindowView.inactive, through RowCell.inactive).
      static func typingColors(inactive: Bool) -> (fill: UIColor, dotDim: UIColor, dotLit: UIColor) {
          let dim = inactive && !lightAppearance && !elevated
@@ -105,7 +106,7 @@
      /// The capture caret after a send (cx-3cb parity26; Messages' macOS 26 original recording 4.65-5.30 s and
      /// macOS 27 send-typed-take1, lossless): it stays on the field's first line while the field collapses (the
      /// compose view moves it with the placeholder), starts in the accent colour and turns grey 0.04-0.22 s after
-@@ -126,8 +164,8 @@
+@@ -126,8 +165,8 @@
              return (s < 0.02 || s >= offFrom ? 0 : 1, c)
          }
      }
@@ -116,7 +117,7 @@
      /// Outgoing bubbles shade with their position in the window (measured:
      /// lighter near the top, deeper blue near the compose field).
      /// (window y in 2x px, red, green), Display P3.
-@@ -152,10 +190,68 @@
+@@ -152,10 +191,69 @@
      // optional, no force unwrap ; a nil gradient draws nothing.
      private static let darkGradient = gradient { p3($0, $1, 247) }
      private static let lightGradient = gradient(lightGradientColor)
@@ -168,7 +169,8 @@
 +    }
 +    static var repliesTint: UIColor { themedLink ?? PreviewStyle.repliesBlue }
 +    static var outgoingGradient: CGGradient? {
-+        if let t = theme, themedAccent { return t.active.outgoingGradient }
++        // cmux: the palette's own gradient, made once per palette (PaletteBox.outgoingGradient), not once per draw.
++        if themedAccent, let box = PaletteScope.effective { return box.outgoingGradient.gradient }
 +        return measuredGradient
 +    }
      /// Text colours measured with screencapture -l (macOS 27, 2026-10-05).

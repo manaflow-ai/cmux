@@ -68,7 +68,16 @@ const specs: Array<{ name: string; kid: string; sign_with: keyof typeof TEST_KEY
   { name: "bad_signature", kid: "test-k2", sign_with: "test-k2", claims: base(jti(9)), make: "tamper_signature", verify: [at({ expect: { ok: false, error: "bad_signature" } })], note: "One signature byte changed: a verifier that skips the signature passes every other case but not this one." },
   { name: "alg_none", kid: "test-k2", sign_with: "test-k2", claims: base(jti(10)), make: "alg_none", verify: [at({ expect: { ok: false, error: "malformed" } })], note: "Header alg none and an empty signature: any alg other than EdDSA is malformed." },
   { name: "wrong_typ", kid: "test-k2", sign_with: "test-k2", claims: base(jti(11)), make: "wrong_typ", verify: [at({ expect: { ok: false, error: "typ" } })], note: "Correctly signed, but the header typ is JWT, not cmux-link+jwt." },
-  { name: "lifetime", kid: "test-k2", sign_with: "test-k2", claims: { ...base(jti(12)), exp: IAT + 301 }, make: "raw_sign", verify: [at({ expect: { ok: false, error: "lifetime" } })], note: "Correctly signed, but exp - iat = 301 s, above the 300 s maximum." }
+  { name: "lifetime", kid: "test-k2", sign_with: "test-k2", claims: { ...base(jti(12)), exp: IAT + 301 }, make: "raw_sign", verify: [at({ expect: { ok: false, error: "lifetime" } })], note: "Correctly signed, but exp - iat = 301 s, above the 300 s maximum." },
+  {
+    name: "owner_claim",
+    kid: "test-k2",
+    sign_with: "test-k2",
+    claims: { ...base(jti(13)), vmk: "owner" },
+    verify: [at({ expect: { ok: true } }), at({ now: IAT + 300, expect: { ok: false, error: "expired" } }), at({ seen: [jti(13)], expect: { ok: false, error: "replay" } })],
+    note: "vmk owner (cmux-platform#89): the caller's owner answer for this one dial, gone with the token once it expires or is replayed. A token without vmk grants no owner answer."
+  },
+  { name: "bad_vmk", kid: "test-k2", sign_with: "test-k2", claims: { ...base(jti(14)), vmk: "admin" as never }, make: "raw_sign", verify: [at({ expect: { ok: false, error: "malformed" } })], note: "Correctly signed, but vmk is neither owner nor team." }
 ]
 
 const b64u = (s: string) => btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")

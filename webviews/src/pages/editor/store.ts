@@ -22,6 +22,7 @@ import {
   type EditorLook,
   type EditorSaveResult,
   type ReadOnlyReason,
+  EDITOR_UNAVAILABLE,
 } from "./host";
 import { resolveEditorSettings } from "./settings";
 import { revealOf, type RevealPosition } from "./keys";
@@ -55,6 +56,10 @@ export interface EditorState {
   /** Bumped whenever the document is replaced from outside (load, reload), so the view reloads. */
   revision: number;
   look: EditorLookState;
+  /** Why the file did not open, as the host says it (its machine is offline); null: the generic message. */
+  failure: string | null;
+  /** The file's machine stopped answering (the host's reason); the page keeps what it last read. */
+  unavailable: string | null;
 }
 
 /** A document the view loads: the file's full text (BOM and line endings included). */
@@ -137,6 +142,8 @@ export class EditorStore {
     conflict: null,
     revision: 0,
     look: EMPTY_LOOK,
+    failure: null,
+    unavailable: null,
   };
   private readonly listeners = new Set<() => void>();
   private view: CodeView | null = null;
@@ -202,6 +209,7 @@ export class EditorStore {
       console.error("cmux editor config failed", error);
       return this.set({
         phase: isPageError(error) && error.code === "cmux.protocol.closed" ? "disconnected" : "failed",
+        failure: isPageError(error) && error.code === EDITOR_UNAVAILABLE ? error.message : null,
       });
     }
     if (editorConfigNeedsPick(value)) {
@@ -255,6 +263,8 @@ export class EditorStore {
       conflict: null,
       revision: this.state.revision + 1,
       look: lookOf(config),
+      failure: null,
+      unavailable: null,
     });
     this.show({ path: config.path, text: config.text, size, readOnly });
     await this.subscribeStreams(client);
@@ -396,6 +406,14 @@ export class EditorStore {
         await view.prepareSave(settings).catch(() => undefined);
       }
       if (view.format && settings.formatOnSave) await view.format().catch(() => undefined);
+      // A second save (Cmd-S pressed again) began while this one formatted and is writing now: this
+      // one saves again when it ends. Writing beside it would use the same base hash, which the
+      // first write has already moved, and raise a conflict with the person's own text.
+      if (this.saving) {
+        this.saveAgain = true;
+        return this.saving;
+      }
+      if (this.state.conflict) return;
     }
     const version = view.version();
     if (version === this.savedVersion) {
@@ -461,6 +479,8 @@ export class EditorStore {
     if (this.state.phase !== "ready") return;
     // Changes of a file the page left (its watcher may still report) are not this file's.
     if (change.path && this.state.file && change.path !== this.state.file.path) return;
+    // The file's machine went away or came back: a notice, never a change of the text.
+    if (change.unavailable !== undefined) return this.set({ unavailable: change.unavailable });
     if (this.saving) {
       this.pendingChange = change;
       return;

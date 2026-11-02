@@ -164,6 +164,10 @@ public nonisolated final class HomeSourceRouter: HomeSource {
     }
 
     /// The live snapshot request goes to the conversation's owner.
+    public func agentRuns(of conversation: ConversationID, window: HomeAgentRunWindow) async -> [HomeAgentRun] {
+        await source(for: conversation).agentRuns(of: conversation, window: window)
+    }
+
     public func requestLive(of conversation: ConversationID) async {
         await source(for: conversation).requestLive(of: conversation)
     }

@@ -88,15 +88,8 @@ public nonisolated enum SidebarTunables {
     /// How far a press moves before it drags (`SidebarPress.dragThreshold`; Leo 2026-10-20: a click never drags).
     public static let dragThreshold = Tunable<CGFloat>.number(
         "sidebar.drag.threshold", .sidebar, "Drag start distance",
-        help: "How far a press on a sidebar row, tab row or tile moves before it drags; a shorter move stays a click.",
+        help: "How far a press on a sidebar row or tile moves before it drags; a shorter move stays a click.",
         default: 6, range: 2...16, step: 0.5, unit: .points, code: "SidebarTunables.dragThreshold")
-
-    /// What a listed tab row says (`SidebarTabLine`; Leo 2026-10-27: "look at what's redundant and look at
-    /// what's useful").
-    public static let tabLines = Tunable<SidebarTabLineLook>.choice(
-        "sidebar.tabLines", .sidebar, "Listed tab rows",
-        help: "What a tab row under its workspace says: its title only, its name without repeats of the workspace or a bare ~, that plus one detail (status words, agent, page host or folder), or the program's status words first.",
-        default: .detail, code: "SidebarTunables.tabLines")
 
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
@@ -179,8 +172,9 @@ public nonisolated enum SidebarTunables {
     /// (`SidebarSessionTreeFeed`), while the row's Pull Request element is on
     /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
     public static let pullRequestBadges = Tunable<Bool>.toggle(
-        "sidebar.pullRequestBadges", .sidebar, "Rows show their pull requests",
-        help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, colored by their state, even with the session tree off.",
+        "sidebar.pullRequestBadges", .sidebar,
+        String(localized: "sidebar.pullRequestBadges.label", defaultValue: "Rows show their pull requests", bundle: .module),
+        help: String(localized: "sidebar.pullRequestBadges.help", defaultValue: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, quiet unless their checks fail, even with the session tree off.", bundle: .module),
         default: true, code: "SidebarTunables.pullRequestBadges")
 
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
@@ -248,13 +242,14 @@ public nonisolated enum SidebarTunables {
         help: "Prototype for hiding and showing the sidebar: slide keeps the panel opaque; slide and fade fades its content with the same width motion.",
         default: .slide, code: "SidebarTunables.collapseMotion")
 
-    // @intent no reflow per frame (GPU audit 2026-10-21, offender #1): the slide used to lay out
-    // every pane, terminal and page at a new width on every frame. On by default; off restores that.
+    // @intent Leo 2026-10-31: the sidebar toggle must not snap after it settles.
+    // Holding a wider content frame needs a second resize at landing; keep that optimization
+    // available for comparison, but normally let content follow the sidebar edge.
     /// Whether the content beside the sidebar keeps one width through a show or hide slide.
     public static let slideHoldsContent = Tunable<Bool>.toggle(
         "sidebar.slideHoldsContent", .sidebar, "Hold content size in sidebar slide",
-        help: "While the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width and ride the moving edge, clipped at the far one; they lay out once when the slide lands. Off: every pane resizes on every frame.",
-        default: true, code: "SidebarTunables.slideHoldsContent")
+        help: "While the sidebar slides open or closed, the panes beside it take their final width when the slide starts and stay still, pinned to the far edge, while the sidebar slides over the near one. Off: every pane resizes on every frame.",
+        default: false, code: "SidebarTunables.slideHoldsContent")
 
     /// The transition used when a workspace row receives its generated or
     /// agent-derived title after creation. Crossfade is the shipped default (#21242).
@@ -279,6 +274,12 @@ public nonisolated enum SidebarTunables {
         help: "Workspace rows are one line (name, status, pull request), and Cmd-Shift-[ / ] go to the previous or next workspace, wrapping, instead of the previous or next tab (Home keeps its own keys).",
         default: false, code: "SidebarTunables.workspacesAsTabs")
 
+    /// Dogfood the connected group chip and capped rail without changing the shipped look.
+    public static let groupChromeShape = Tunable<Bool>.toggle(
+        "sidebar.groupChromeShape", .sidebar, "Connected group chip and rail",
+        help: "Prototype a group-colored header joined to a thicker rail with a clipped join and rounded end. Collapsed groups show only the header. Applies to the solid band look.",
+        default: false, code: "SidebarTunables.groupChromeShape")
+
     /// Every sidebar tunable, one per line in alphabetical order, so two pull requests that each add
     /// one insert different lines and merge cleanly (#21946). Debug Settings lists them in this order.
     public static var all: [TunableDescriptor] {
@@ -289,6 +290,7 @@ public nonisolated enum SidebarTunables {
             dragThreshold.descriptor,
             evenRowText.descriptor,
             groupByStatus.descriptor,
+            groupChromeShape.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             groupRowLimit.descriptor,
@@ -299,7 +301,6 @@ public nonisolated enum SidebarTunables {
             remoteMachineResources.descriptor,
             sinceLooked.descriptor,
             slideHoldsContent.descriptor,
-            tabLines.descriptor,
             nowLine.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,

@@ -7,7 +7,7 @@
 //! sent: no answer from acpmux", and so did its Retry; "fix it so 20 screenshots send in seconds:
 //! attachments go as blobs or files referenced from the prompt, not inlined base64 in one frame".
 //! The app's page host drops a call over 4 MiB unanswered (`ChromiumPageHostBridge`), and every
-//! acpmux hop takes one message of at most `rpc::MAX_MESSAGE_BYTES` (15 MiB), so screenshots
+//! acpmux hop takes one message of at most `rpc::MAX_MESSAGE_BYTES` (31 MiB), so screenshots
 //! inline in one `session/prompt` cannot pass. Uploaded first, in chunks, they go in a prompt of a
 //! few hundred bytes.
 //!
@@ -21,8 +21,9 @@
 //! every file's path while the message has room. Only a file of the chat's own uploads folder is
 //! read, never through a symlink or another hard link (`file_uploads::open_finished`), and only
 //! an inline image is read whole. A prompt that waits is refused at its turn if a file it links
-//! to was swept meanwhile. A remote web client uploads nothing here
-//! (`filePut.remote`), so it references nothing either.
+//! to was swept meanwhile. A Web client references only uploads begun under Web
+//! control with their daemon-issued capability. Resolved links carry a separate
+//! read-only proof bound to the same chat and file, including at queued dispatch.
 //!
 //! A chat on a peer: the prompt is forwarded as it is, and the peer that owns the chat resolves
 //! it, from the uploads its own `file_put_*` requests made (`peer_forward.rs` forwards those). A
@@ -30,6 +31,7 @@
 
 use crate::rpc::RpcError;
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::Read;
 use std::path::Path;
@@ -42,7 +44,7 @@ pub const URI_SCHEME: &str = "acpmux-upload:";
 /// over 5 MiB, which this is the decoded size of. A larger one goes by its path.
 pub const INLINE_IMAGE_BYTES: usize = (5 << 20) / 4 * 3;
 /// The most image bytes one prompt carries inline: as base64, with its text, one JSON-RPC
-/// message on every hop (`rpc::MAX_MESSAGE_BYTES`, 15 MiB). The images past it go by path.
+/// message on every hop (`rpc::MAX_MESSAGE_BYTES`, 31 MiB). The images past it go by path.
 pub const INLINE_PROMPT_BYTES: usize = 10 << 20;
 
 /// The upload a block names: its `_meta.acpmux.upload`, or (refused as invalid by [`resolve`])
@@ -114,14 +116,30 @@ fn refused(reason: &str, message: String) -> RpcError {
 
 /// For the daemon that runs session `session`: puts in place of each block that names an upload
 /// the inline image or the link to its file, and adds the note of their paths (module docs).
-/// `web`: a remote web client's prompt, which is refused. Blocking: run it off the runtime.
+/// `web`: only owned Web uploads and their authenticated resolved links. Blocking.
 pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), RpcError> {
-    // Web control never sends uploads, nor a link this daemon resolved (`uploadPath`): a queue
-    // edit from a remote web client keeps a person's resolved blocks, and must not hand their
-    // files to a turn it controls.
-    if web && any(blocks) {
-        let message = "a remote web connection cannot send uploaded files".to_owned();
-        return Err(refused("upload.remote", message));
+    // Validate every block independently: mixing an owned reference with a
+    // forged/local resolved link must not grant access to the latter.
+    if web {
+        for block in blocks.iter() {
+            let valid = if let Some(upload) = upload_of(block) {
+                let id = upload.get("uploadId").and_then(Value::as_str);
+                let owner = upload.get("owned").and_then(Value::as_str);
+                id.zip(owner).is_some_and(|(id, owner)| {
+                    crate::hub::file_uploads::web::owns(session, id, owner)
+                }) && block.pointer("/_meta/acpmux/uploadPath").is_none()
+            } else if block.pointer("/_meta/acpmux/uploadPath").is_some() {
+                crate::hub::file_uploads::web::verifies_resolved(session, block)
+            } else {
+                true
+            };
+            if !valid {
+                return Err(refused(
+                    "upload.remote",
+                    "a Web prompt may reference only its own uploaded files".to_owned(),
+                ));
+            }
+        }
     }
     // Resolved already (a prompt that waited): nothing to read again.
     if !blocks.iter().any(|b| upload_of(b).is_some()) {
@@ -171,6 +189,7 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
             let _held = crate::hub::file_uploads::IN_USE.lock().unwrap_or_else(|e| e.into_inner());
             let file = crate::hub::file_uploads::open_finished(&path).map_err(unreadable)?;
             crate::hub::file_uploads::touch(&path).map_err(|e| not_marked(name, &e))?;
+            crate::hub::file_uploads::web::mark_resolved(session, id)?;
             file
         };
         let len = file.metadata().map_err(unreadable)?.len();
@@ -182,6 +201,8 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
         let inline = image.is_some()
             && usize::try_from(len)
                 .is_ok_and(|n| n <= INLINE_IMAGE_BYTES && n.div_ceil(3) * 4 <= inline_left);
+        let web_proof =
+            web.then(|| crate::hub::file_uploads::web::resolved_proof(session, id, name)).flatten();
         *block = if inline {
             let mut bytes = head;
             file.read_to_end(&mut bytes).map_err(unreadable)?;
@@ -194,6 +215,9 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
                    "mimeType": mime, "size": len,
                    "_meta": {"acpmux": {"uploadPath": path.to_string_lossy()}}})
         };
+        if !inline && let Some(proof) = web_proof {
+            block.set_path(&["_meta", "acpmux", "webUpload"], proof);
+        }
         let shown = if inline || image.is_none() { "" } else { ", not shown inline: open it" };
         listed.push(format!("- {} ({mime}, {}{shown})", path.display(), size_text(len)));
     }

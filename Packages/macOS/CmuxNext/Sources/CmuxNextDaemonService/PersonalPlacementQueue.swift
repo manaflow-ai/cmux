@@ -19,6 +19,17 @@ public final class PersonalPlacementQueue {
 
     public init() {}
 
+    /// No placement is queued or running: every one enqueued so far has
+    /// finished (applied, skipped or failed) and released its ticket.
+    public var isIdle: Bool { tail == nil }
+
+    /// Returns once every placement enqueued so far, and any enqueued while
+    /// waiting, has finished. A write that must land after them (a group set
+    /// on a workspace a queued placement still moves) waits here first.
+    public func drained() async {
+        while let tail { _ = await tail.value }
+    }
+
     /// `failed` settles this placement's pending edit whenever it did not
     /// apply: skipped, failed, or stopped by an earlier failure.
     public func enqueue(on home: DaemonService, failed: @escaping @MainActor () -> Void,

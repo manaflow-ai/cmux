@@ -28,18 +28,7 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         var group: Group?
     }
 
-    struct Workspace: Codable, Hashable, Sendable {
-        var id: String
-        var machineID: String
-        var title: String
-        /// `harness`, `browser` or `terminal`; absent in older snapshots.
-        var kind: String?
-        /// The agent brand whose mark is the row's type glyph; absent in older snapshots.
-        var kindBrand: String?
-        /// `symbol:<name>`, `swatch:<color>` or `emoji:<text>`.
-        var icon: String?
-        var iconTint: String?
-    }
+    typealias Workspace = SidebarWorkspaceSnapshot
 
     struct Group: Codable, Hashable, Sendable {
         var id: String
@@ -134,12 +123,12 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         case .favicon?, nil: break
         }
         return Workspace(id: ws.id.rawValue, machineID: ws.machineID.rawValue, title: ws.title,
-                         kind: ws.kind.rawValue, kindBrand: ws.kindBrand, icon: icon, iconTint: tint)
+                         kind: ws.kind.rawValue, kindBrand: ws.kindBrand, icon: icon, iconTint: tint, color: ws.color?.rawValue)
     }
 
     private static func sidebarWorkspace(_ ws: Workspace) -> SidebarWorkspace {
         SidebarWorkspace(id: WorkspaceID(ws.id), machineID: MachineID(ws.machineID), title: ws.title,
-                         icon: ws.icon.flatMap { icon($0, tint: ws.iconTint) },
+                         icon: ws.icon.flatMap { icon($0, tint: ws.iconTint) }, color: ws.color.flatMap(GroupColor.init(rawValue:)),
                          kind: SidebarWorkspaceKind(rawValue: ws.kind ?? "terminal") ?? .terminal,
                          kindBrand: ws.kindBrand, rowState: .stale)
     }

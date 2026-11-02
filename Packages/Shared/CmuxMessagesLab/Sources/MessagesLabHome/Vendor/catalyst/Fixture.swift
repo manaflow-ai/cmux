@@ -56,22 +56,23 @@ enum Fixture {
     /// Light system appearance (the host sets it from its effective appearance).
     /// Link cards follow it: Messages' light card is the light incoming grey
     /// (#E9E9EB) with dark text. A change bumps `paletteGeneration`.
-    static var lightAppearance = false { didSet { if lightAppearance != oldValue { baseGeneration += 1 } } }
+    static var lightAppearance = false { didSet { if lightAppearance != oldValue { PaletteScope.bumpBaseGeneration() } } }
     /// Bumped by an appearance or a colour space change: cached bitmaps are stale (not by a window's key state).
-    // cmux: written on the main thread only; off-main renders compare a generation they were given.
-    nonisolated(unsafe) static fileprivate(set) var baseGeneration = 0
+    // cmux: written on the main thread and read by off-main renders (their cache keys, `generationIsLive`), so it
+    // sits behind PaletteScope's lock.
+    static var baseGeneration: Int { PaletteScope.baseGeneration }
     /// cmux: the palette generation of the drawing that runs now: the base generation and the palette's id (the
     /// scope's, a window view's own Chat Colors, else the process palette, PaletteScope). Every palette-dependent
     /// cache is keyed by it, so two chats with different colours keep separate bitmaps and tiles.
     static var paletteGeneration: Int { generation(of: PaletteScope.current) }
     /// cmux: the generation drawing in a scope of `box` has now (nil: the process palette's).
-    static func generation(of box: PaletteBox?) -> Int { baseGeneration &* 1_000_003 &+ ((box ?? PaletteScope.process)?.id ?? 0) }
+    static func generation(of box: PaletteBox?) -> Int { PaletteScope.generation(of: box) }
     /// cmux: `generation` was made since the last appearance or colour space change (its palette may be another
     /// view's): a result drawn for it is still good under its own key.
     static func generationIsLive(_ generation: Int) -> Bool { generation / 1_000_003 == baseGeneration }
     /// The bitmaps' colour space changed (a window moved to a display of another colour space): every cache keyed
     /// on the palette generation draws again (MessagesWindowView.displayColorSpaceChanged).
-    static func colorSpaceChanged() { baseGeneration += 1 }
+    static func colorSpaceChanged() { PaletteScope.bumpBaseGeneration() }
 
     /// Palette, measured with `screencapture -l` on macOS 27 Messages
     /// (cmux-lawrence-2, 2026-10-05): key and non-key windows are identical
@@ -237,7 +238,8 @@ enum Fixture {
     }
     static var repliesTint: UIColor { themedLink ?? PreviewStyle.repliesBlue }
     static var outgoingGradient: CGGradient? {
-        if let t = theme, themedAccent { return t.active.outgoingGradient }
+        // cmux: the palette's own gradient, made once per palette (PaletteBox.outgoingGradient), not once per draw.
+        if themedAccent, let box = PaletteScope.effective { return box.outgoingGradient.gradient }
         return measuredGradient
     }
     /// Text colours measured with screencapture -l (macOS 27, 2026-10-05).
