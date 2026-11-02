@@ -63,6 +63,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, anyhow, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_json::JsonSet as _;
 use cmux_link::LINK_PORT;
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::owner_session::OwnerSession;
@@ -441,16 +442,19 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(
-        state,
-        session_socket,
-        credential_socket,
-        owner,
-        ready,
-        served,
-        watch,
-        broker,
-    ))
+    let cloud = match broker {
+        Some(bound) => CloudAccess::Broker(Box::new(bound)),
+        None => CloudAccess::Relay(credential_socket),
+    };
+    tokio_runtime()?.block_on(serve(state, session_socket, cloud, owner, ready, served, watch))
+}
+
+/// How a serve resolves cloud hosts: through the app's inherited native broker
+/// stream, or through the credential relay socket (none: cloud hosts fail
+/// closed as unavailable). `run_serve` refuses a broker with a relay socket.
+enum CloudAccess {
+    Broker(Box<cloud_broker::Bound>),
+    Relay(Option<PathBuf>),
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -515,23 +519,25 @@ fn owner_session(
 async fn serve(
     state: LinkState,
     session_socket: Option<PathBuf>,
-    credential_socket: Option<PathBuf>,
+    mut cloud: CloudAccess,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
     watch: Option<AgentWatch>,
-    mut broker: Option<cloud_broker::Bound>,
 ) -> anyhow::Result<()> {
-    let native = broker.as_ref().is_some_and(|bound| bound.identity.is_some());
-    let (config, private_key, native_route) =
-        match broker.as_mut().and_then(|bound| bound.identity.take()) {
-            Some(identity) => (identity.config, identity.key, Some(identity.route)),
-            None => (
-                state.config().context("run `cmux link init --install ID` first")?,
-                state.private_key()?,
-                None,
-            ),
-        };
+    let native = matches!(&cloud, CloudAccess::Broker(bound) if bound.identity.is_some());
+    let identity = match &mut cloud {
+        CloudAccess::Broker(bound) => bound.identity.take(),
+        CloudAccess::Relay(_) => None,
+    };
+    let (config, private_key, native_route) = match identity {
+        Some(identity) => (identity.config, identity.key, Some(identity.route)),
+        None => (
+            state.config().context("run `cmux link init --install ID` first")?,
+            state.private_key()?,
+            None,
+        ),
+    };
     let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
@@ -549,13 +555,14 @@ async fn serve(
     let overlay = Arc::new(MeshOverlay::new(mesh, private_key).with_native_route(native_route));
     // Cloud host ids resolve through the private credential relay owned by
     // the signed-in app. A missing relay fails closed as unavailable.
-    let (source, broker_driver) = match broker {
-        Some(cloud_broker::Bound { stream, .. }) => {
+    let (source, broker_driver) = match cloud {
+        CloudAccess::Broker(bound) => {
+            let cloud_broker::Bound { stream, .. } = *bound;
             stream.set_nonblocking(true)?;
             let (source, driver) = cloud_broker::channel(tokio::net::UnixStream::from_std(stream)?);
             (cloud::CloudSource::Broker(source), Some(driver))
         }
-        None => (
+        CloudAccess::Relay(credential_socket) => (
             cloud::CloudSource::Relay(
                 credential_socket
                     .map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
@@ -589,8 +596,8 @@ async fn serve(
         "relay_available": cmux_link::dial::RELAY_AVAILABLE,
     });
     if native {
-        ready_line["native"] = json!(true);
-        ready_line["wg_public_key"] = json!(STANDARD.encode(public_key));
+        ready_line.set("native", json!(true));
+        ready_line.set("wg_public_key", json!(STANDARD.encode(public_key)));
     }
     print_json(&ready_line);
     if let Some(ready) = ready {

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1266,
+    "entries": 1267,
     "shortcuts": 189
   },
   "sections": [
@@ -2114,6 +2114,12 @@
           "title": "Set Pane Tint…",
           "shortcut": null,
           "command": "cmux pane set-tint"
+        },
+        {
+          "id": "artifacts.show",
+          "title": "Show Artifacts",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "pane.focus",
