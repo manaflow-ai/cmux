@@ -111,6 +111,7 @@ import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
+  returnPicks,
   shownName,
   slashMatches,
   useSlashNames,
@@ -354,6 +355,8 @@ export function NewTabScreen(props: Props) {
   const [text, setText] = useState(carried?.text || untouchedText.current);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
+  /// The `/word` the arrows chose a row at: Return picks that row while the word stays the same.
+  const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
   const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
@@ -648,8 +651,11 @@ export function NewTabScreen(props: Props) {
   };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
-    // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
-    const inText = placeInline(withSkillDollars(prompt, snapshot.commands), attachments, {
+    // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
+    // read against the list of the harness that asks: an Ask row for another harness has none.
+    const listed = snapshot.summary?.sessionId ? snapshot.summary.harness : harness;
+    const skills = agent === listed ? snapshot.commands : undefined;
+    const inText = placeInline(withSkillDollars(prompt, skills, pickedSkills.current), attachments, {
       dropped: (id) => reading.some((chip) => chip.id === id),
     });
     // As in chat, slash commands lead with their words and carry files after the command.
@@ -774,9 +780,15 @@ export function NewTabScreen(props: Props) {
   const commandTyping = commandAt !== undefined && (commandAt.leading || commandMatches.length > 0);
   const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
   const commandNames = useSlashNames(shell ? undefined : snapshot.commands);
+  /// The Codex skills picked into this draft, by shown name.
+  const pickedSkills = useRef(new Set<string>());
+  // A draft cleared (emptied, sent, replaced by an empty one) has no picks: the next starts fresh.
+  if (!text.trim() && pickedSkills.current.size) pickedSkills.current = new Set();
   const onCommands = props.onCommands;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
+    // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
+    if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
     if (field.current?.insertCommand(shownName(command))) {
       requestAnimationFrame(() => field.current?.focus());
@@ -786,8 +798,14 @@ export function NewTabScreen(props: Props) {
     setText(next);
     requestAnimationFrame(() => field.current?.focus());
   };
+  // The list loads once the text holds any `/word`, not only while the caret ends one: a pasted
+  // `use /emil-color now` reads its skill too (blue, and `/$name` for Codex at send).
+  const wantsCommands = useMemo(
+    () => commandQuery !== undefined || /(^|[\s\uFFFC])\/[^\s\uFFFC]/.test(text),
+    [commandQuery, text],
+  );
   useEffect(() => {
-    if (commandQuery === undefined) {
+    if (!wantsCommands) {
       requestedCommands.current = undefined;
       return;
     }
@@ -796,7 +814,7 @@ export function NewTabScreen(props: Props) {
       requestedCommands.current = key;
       onCommands?.(harness, chatFolder);
     }
-  }, [commandQuery, harness, chatFolder, snapshot.summary?.sessionId, onCommands]);
+  }, [wantsCommands, harness, chatFolder, snapshot.summary?.sessionId, onCommands]);
   // A dismiss (a press outside the composer, Escape, or the host's: another app, a resize) hides
   // the rows until the text changes or the field is pressed; the text stays (Leo 10-13).
   const [dismissed, setDismissed] = useState<string>();
@@ -1239,11 +1257,21 @@ export function NewTabScreen(props: Props) {
         setCommandActive(
           (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length,
         );
+        setCommandArrowedAt(commandQuery);
         return;
       }
-      if (event.key === "Enter" || event.key === "Tab") {
+      // As in chat (slashCommands.ts returnPicks): Tab picks; a plain Return picks only a row the
+      // arrows chose or one whose name the typed word begins. Shift-Return, Cmd-Return and any other
+      // Return keep their meaning (a line, a send).
+      const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+      const match = commandMatches[commandIndex];
+      if (
+        plain &&
+        (event.key === "Tab" ||
+          (event.key === "Enter" && returnPicks(match, commandQuery ?? "", commandArrowedAt === commandQuery)))
+      ) {
         event.preventDefault();
-        pickCommand(commandMatches[commandIndex]!.command);
+        pickCommand(match!.command);
         return;
       }
     }
@@ -1358,6 +1386,10 @@ export function NewTabScreen(props: Props) {
     setBrowseError(undefined);
     saved.pick(undefined);
     touch();
+    // A machine picked with a folder there (the location row picks its first known folder) is a
+    // project pick: the chat starts in that folder, so Do not work in a project ends, and the
+    // headline, the location row and the send all name it. A machine alone keeps the choice.
+    if (next?.folder) setNone(false);
     setMachine(next);
     field.current?.focus();
     requestAnimationFrame(() => field.current?.focus());

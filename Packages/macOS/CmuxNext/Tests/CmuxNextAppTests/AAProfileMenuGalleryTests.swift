@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// account's picture in the icon column). `CMUX_TEST_REQUIRE_GUI=1`; writes
 /// `profile-menu-gallery.tar` (PNGs and `geometry.txt`, each title's measured x) for
 /// `cmux-ci run --artifact`.
-@MainActor @Suite(.serialized) struct AAProfileMenuGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAProfileMenuGalleryTests {
     enum Header: String, CaseIterable { case text, lead, avatar }
 
     static func menu(header: Header, dark: Bool, services: AppServices) -> NSMenu {

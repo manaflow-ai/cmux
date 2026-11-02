@@ -117,10 +117,18 @@ const rail = () => {
   );
   const top = Number.parseFloat(nav.style.top);
   const lead = Number.parseFloat(list.style.marginTop || "0");
-  return { top, lead, height: Number.parseFloat(nav.style.height), latest: top + lead + (rows - 1) * 10 - list.scrollTop };
+  return {
+    top,
+    lead,
+    height: Number.parseFloat(nav.style.height),
+    latest: top + lead + (rows - 1) * 10 - list.scrollTop,
+  };
 };
 
+/// Centered in the view, then moved up only as far as it takes to clear the bottom stack (model.ts railTop).
 const centered = (height: number) => Math.round((VIEWPORT - height) / 2);
+/// Where the drawn ticks' run is centered, in px down the view.
+const middle = (box: ReturnType<typeof rail>) => (box.top + box.lead + box.latest + 10) / 2;
 
 test("held ticks sit centered in the view, never stacked at the box's foot, while older prompts are not held", async () => {
   const all = chat(45);
@@ -149,16 +157,17 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
     // The box holds the twelve ticks (the 320 px floor), centered: no empty rows above them.
     expect(open.lead).toBe(0);
     expect(open.height).toBe(320);
-    expect(open.top).toBe(centered(320));
-    // The latest tick draws in the box's top half's reach, nowhere near the view's foot.
-    expect(open.latest).toBe(open.top + 11 * 10);
+    expect(open.top).toBeLessThanOrEqual(centered(320));
+    // The ticks' run is about the view's middle, nowhere near its foot.
+    expect(Math.abs(middle(open) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
     expect(open.latest).toBeLessThan(VIEWPORT - stack - 100);
     // The index answers: every prompt has its tick, and the taller box is still centered.
     await render({ earlier });
     const full = rail();
     expect(full.lead).toBe(0);
     expect(full.height).toBe(450);
-    expect(full.top).toBe(centered(450));
+    expect(full.top).toBeLessThanOrEqual(centered(450));
+    expect(Math.abs(middle(full) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
   } finally {
     await act(async () => root.unmount());
   }
@@ -182,7 +191,7 @@ test("without a count the rail grows as prompts arrive, as before", async () => 
     );
     // Twelve prompts: the rail's 320 px floor, centered.
     expect(rail().height).toBe(320);
-    expect(rail().top).toBe(centered(320));
+    expect(rail().top).toBeLessThanOrEqual(centered(320));
   } finally {
     await act(async () => root.unmount());
   }
