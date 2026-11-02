@@ -77,7 +77,13 @@ import { SessionInfoSectionList } from "./SessionInfoGroup";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
-import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
+import {
+  subagentBackLabel,
+  subagentProcesses,
+  subagentSummary,
+  withChatEnds,
+  type SubagentScope,
+} from "./subagentScope";
 import {
   bindSessionInfoPane,
   SESSION_INFO_WIDTH,
@@ -901,7 +907,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           label={t("sessionInfo.title")}
           title={scope ? `${t("sessionInfo.subagent")} · ${scope.agent.name}` : undefined}
           onBack={scope?.onBack}
-          backLabel={scope ? t("sessionInfo.subagent.back", { name: scope.parent }) : undefined}
+          backLabel={scope ? subagentBackLabel(t, scope.parent) : undefined}
           summary={summary}
           usage={usage}
           machineName={machineName}
