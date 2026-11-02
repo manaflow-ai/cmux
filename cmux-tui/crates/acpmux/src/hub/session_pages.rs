@@ -42,7 +42,10 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
 
 /// Pick rows by reference from the shared session-list snapshot, then clone only rows
 /// actually returned. A list page of one must not copy all 3,000 session keys first.
-pub(crate) fn session_list_reply_borrowed(sorted: &[Value], params: &Value) -> Result<Value, RpcError> {
+pub(crate) fn session_list_reply_borrowed(
+    sorted: &[Value],
+    params: &Value,
+) -> Result<Value, RpcError> {
     let limit = match params.get("limit") {
         None | Some(Value::Null) => None,
         Some(v) => Some(
