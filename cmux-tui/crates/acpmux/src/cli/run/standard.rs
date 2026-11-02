@@ -437,8 +437,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
                     // An unnamed launch still names its workspace for the session (never
                     // `workspace-N`), through an argument that reuses no predecessor row.
-                    let default_name =
-                        launch::default_workspace_name(&name, session_id, v["peer"].as_str());
+                    let peer = v.get("peer").and_then(Value::as_str);
+                    let default_name = launch::default_workspace_name(&name, session_id, peer);
                     launch::show_in_group(
                         &id,
                         &name,
