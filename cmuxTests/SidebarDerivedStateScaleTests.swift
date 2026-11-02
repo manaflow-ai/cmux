@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -65,6 +66,41 @@ struct SidebarDerivedStateScaleTests {
         #expect(builds <= 3, "One changed workspace must not rebuild derived snapshots for the whole list.")
         #expect(inputs <= workspaceCount * 4, "One event must not fan out into N parent-list updates.")
         #expect(harness.counter.maxSnapshotBuildsInOneRowBody == 0)
+    }
+
+    /// The row's session-priority menu values reach it through its workspace snapshot, which
+    /// the workspace's change event refreshes. The sidebar body itself must not read the
+    /// `@Observable` state: that would tie it to every workspace and rebuild every row input.
+    @Test
+    func sessionPriorityValuesReachRowsOnlyThroughTheWorkspaceSnapshot() async throws {
+        let workspaceCount = 20
+        let harness = try await SidebarLazyLayoutScaleTests.mountSidebar(
+            workspaceCount: workspaceCount, includeGroups: false
+        )
+        defer { harness.tearDown() }
+        await settle(harness)
+        harness.counter.reset()
+        let workspace = try #require(harness.tabManager.tabs.last)
+
+        // Written to the model directly, without the workspace's change event: only a body
+        // that observes the state would rebuild now.
+        workspace.sessionPriorityState.difficultyOverride = .hard
+        workspace.sessionPriorityState.isManual = true
+        await settle(harness, minimumSnapshotBuilds: 0)
+        #expect(harness.counter.workspaceSnapshotBuilds == 0)
+        #expect(harness.counter.workspaceRowInputProjections == 0,
+                "The sidebar body must not observe a workspace's session priority state.")
+
+        // Through the workspace, the change event rebuilds that one snapshot, and the new
+        // values reach the rows in one parent update.
+        harness.counter.reset()
+        workspace.setClaudeDifficultyOverride(.easy)
+        await settle(harness)
+        let builds = harness.counter.workspaceSnapshotBuilds
+        let inputs = harness.counter.workspaceRowInputProjections
+        #expect((1...3).contains(builds), "Only the changed workspace's snapshot rebuilds (\(builds)).")
+        #expect(inputs > 0, "The changed snapshot must reach the row inputs.")
+        #expect(inputs <= workspaceCount * 4, "One change must not fan out into N parent-list updates (\(inputs)).")
     }
 
     /// Wait for accepted publisher emissions, then require a quiet interval.
