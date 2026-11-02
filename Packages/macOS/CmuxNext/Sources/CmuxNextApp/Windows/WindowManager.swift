@@ -290,7 +290,7 @@ final class WindowManager {
         // No saved window open (the last one closed, then quit, or the open ones' workspaces ended meanwhile): a relaunch restores
         // only what was open at quit (#31514). Closed windows keep their workspaces; the launch window opens on a new one (or `firstWorkspace`).
         let opensFresh = restoreClosed.windows.isEmpty && !registry.value.windows.isEmpty && !registry.value.windows.contains(where: \.isOpen)
-        if opensFresh, let launch = launchWindowID { if let first = firstWorkspace { transition(select: [launch: [first]]) { $0.openWindow(id: launch, workspaceIDs: [first]) } } else { Task { _ = await createWorkspace(into: launch, newTabPage: true) } } }
+        if opensFresh, let launch = launchWindowID { if let first = firstWorkspace { claimNew(workspaceID: first, window: launch) } else { Task { _ = await createWorkspace(into: launch, newTabPage: true) } } }
         // Restored windows but the front one come back at their saved place, in any content arrival order.
         restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
         sync(previous: [:])
