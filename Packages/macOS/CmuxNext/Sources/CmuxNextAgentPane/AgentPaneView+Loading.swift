@@ -237,9 +237,15 @@ extension AgentPaneView {
         ChatOpenTrace.shared.mark(.panePainted, view: self)
         ChatOpenTrace.shared.mark(.loadingLeave, view: self)
         #endif
+        // A saved transcript lies under this hidden cover. Chromium's child window already
+        // draws the reported frame and ignores pageContent's alpha: fading that native parent
+        // leaves the old transcript visible through the new page's clear areas for the fade.
+        // The page reports after its render (rAF, then a task), so hand off in that turn. Keep
+        // the ordinary fade for WebKit and for the watchdog, which has no drawn-frame report.
+        let replacesSavedFrame = pageDrawsOverCovers && loadingView.isHidden && model.pageReportedPaint
         loadingView.leave(over: pageContent,
-                          fades: Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
-                                                fromKeptTail: model.paintedFromKeptTail))
+                          fades: !replacesSavedFrame && Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
+                                                                       fromKeptTail: model.paintedFromKeptTail))
     }
 
     /// Whether the page fades in over the loading state or simply shows.
