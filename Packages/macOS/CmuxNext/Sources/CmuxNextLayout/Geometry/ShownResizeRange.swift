@@ -80,10 +80,16 @@ public nonisolated struct ShownResizeRange {
         let shownUpper = max(rows[upper].height, floor(rows[upper]))
         /// From where the row shows, one step toward `next`, inside `low...high`; nil when nothing would move, so a
         /// press never moves the edge the wrong way or sends a height the model refuses.
+        /// Each direction checks only its own bound: Up (shrinking the upper row) stops at `low`, Down at `high`. Where
+        /// the two rows' minimums cannot both fit (`low > high`), Up can still bring the upper row to its minimum (the
+        /// lower row only grows).
         func stepped(low: Int, high: Int) -> Int? {
-            guard low <= high else { return nil }
-            let next = step > 0 ? min(shownUpper + step, high) : max(shownUpper + step, low)
-            return (step > 0 ? next > shownUpper : next < shownUpper) ? next : nil
+            if step > 0 {
+                let next = min(shownUpper + step, high)
+                return next > shownUpper ? next : nil
+            }
+            let next = max(shownUpper + step, low)
+            return next < shownUpper ? next : nil
         }
         if fills {
             let pair = rows[upper].height + rows[upper + 1].height
