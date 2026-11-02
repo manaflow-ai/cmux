@@ -12,6 +12,7 @@ import React, {
 } from "react";
 import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
+import { AddAccountDialog } from "./AddAccountDialog";
 import { isModelRouterKind } from "./routerKinds";
 import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
@@ -360,6 +361,7 @@ export function QuickModelMenu({
     currentModel?.efforts?.length === 0 ? [] : (effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? []);
   const level = levels.find((choice) => choice.id === effort?.current);
   const accounts = useAccountList(open, account);
+  const [addingAccount, setAddingAccount] = useState(false);
   // The rail's tab and the typed filter start over with each opening.
   const [tab, setTab] = useState(families?.current);
   const [query, setQuery] = useState("");
@@ -754,6 +756,14 @@ export function QuickModelMenu({
       failed={accounts.failed}
       switchFailed={accounts.switchFailed}
       grouped={menu.routeLayout !== "inline"}
+      onAdd={
+        account.accounts.add
+          ? () => {
+              onOpenChange(false);
+              setAddingAccount(true);
+            }
+          : undefined
+      }
       onPick={(routeId) => {
         onOpenChange(false);
         accounts.pick(routeId);
@@ -1270,141 +1280,154 @@ export function QuickModelMenu({
     </div>
   ) : null;
   return (
-    <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-picker-button" aria-haspopup="menu" buttonRef={trigger} {...chip}>
-        {children}
-      </MenuButton>
-      <MenuPopup
-        side={side}
-        flip={false}
-        align="start"
-        label={t("picker.model")}
-        className={`acpmux-quick-menu acpmux-quick-placement-${placement} acpmux-quick-width-${menu.widthLook ?? "fit"}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
-        boundary={CHAT_COLUMN}
-        // A native menu panel cannot draw the harness strip or the More models scroll area.
-        // Keep this combined surface inside the window in both directions.
-        escapes={!families}
-        // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
-        onKeyDown={keyDown}
-      >
-        {widthProbe}
-        {showField && (
-          <div className="acpmux-quick-search">
-            <SearchIcon size={14} />
-            <input
-              ref={field}
-              type="search"
-              aria-label={t("picker.search")}
-              placeholder={t("picker.search")}
-              autoComplete="off"
-              spellCheck={false}
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                toTop();
-              }}
-              onKeyDown={fieldKeyDown}
-            />
-          </div>
-        )}
-        {families ? (
-          <div className="acpmux-quick-layout">
-            {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
-            <fieldset ref={railRef} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
-              {tabs.map((entry) => {
-                const family = entry === shownTab ? shown! : leadRoute(entry, families.current);
-                const name = entry.name;
-                return (
-                  <button
-                    key={entry.key}
-                    type="button"
-                    aria-label={name}
-                    // While a search shows, no tab is the list's: the matches are every harness's.
-                    aria-pressed={!query && entry === shownTab}
-                    disabled={entry.routes.every((route) => route.launch) && families.forkReady === false}
-                    // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
-                    // name's initial), never a machine or session initial; its accessible name and
-                    // title identify the harness.
-                    title={family.note ? `${name} · ${family.note}` : name}
-                    className="acpmux-quick-rail-tab"
-                    // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
-                    tabIndex={-1}
-                    onClick={() => {
-                      if (entry.routes.length === 1 && family.launch && !family.note) {
-                        onOpenChange(false);
-                        families.onLaunch?.(family.id);
-                        return;
-                      }
-                      setTab(family.id);
-                      setQuery("");
-                      toTop();
-                    }}
-                  >
-                    {family.starred ? (
-                      <StarIcon />
-                    ) : symbolOf(family) ? (
-                      <AgentMark agent={family.mark} size={16} tint={placement === "symbols"} />
-                    ) : placement === "symbols" ? (
-                      <span className="acpmux-quick-rail-initial" aria-hidden="true">
-                        {initialOf(name)}
-                      </span>
-                    ) : null}
-                    {/* The symbols row is marks only, never text on a tab (Leo 2026-10-31: "NOBODY
+    <>
+      <Menu open={open} onOpenChange={onOpenChange}>
+        <MenuButton className="acpmux-picker-button" aria-haspopup="menu" buttonRef={trigger} {...chip}>
+          {children}
+        </MenuButton>
+        <MenuPopup
+          side={side}
+          flip={false}
+          align="start"
+          label={t("picker.model")}
+          className={`acpmux-quick-menu acpmux-quick-placement-${placement} acpmux-quick-width-${menu.widthLook ?? "fit"}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
+          boundary={CHAT_COLUMN}
+          // A native menu panel cannot draw the harness strip or the More models scroll area.
+          // Keep this combined surface inside the window in both directions.
+          escapes={!families}
+          // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
+          onKeyDown={keyDown}
+        >
+          {widthProbe}
+          {showField && (
+            <div className="acpmux-quick-search">
+              <SearchIcon size={14} />
+              <input
+                ref={field}
+                type="search"
+                aria-label={t("picker.search")}
+                placeholder={t("picker.search")}
+                autoComplete="off"
+                spellCheck={false}
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  toTop();
+                }}
+                onKeyDown={fieldKeyDown}
+              />
+            </div>
+          )}
+          {families ? (
+            <div className="acpmux-quick-layout">
+              {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
+              <fieldset ref={railRef} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
+                {tabs.map((entry) => {
+                  const family = entry === shownTab ? shown! : leadRoute(entry, families.current);
+                  const name = entry.name;
+                  return (
+                    <button
+                      key={entry.key}
+                      type="button"
+                      aria-label={name}
+                      // While a search shows, no tab is the list's: the matches are every harness's.
+                      aria-pressed={!query && entry === shownTab}
+                      disabled={entry.routes.every((route) => route.launch) && families.forkReady === false}
+                      // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
+                      // name's initial), never a machine or session initial; its accessible name and
+                      // title identify the harness.
+                      title={family.note ? `${name} · ${family.note}` : name}
+                      className="acpmux-quick-rail-tab"
+                      // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
+                      tabIndex={-1}
+                      onClick={() => {
+                        if (entry.routes.length === 1 && family.launch && !family.note) {
+                          onOpenChange(false);
+                          families.onLaunch?.(family.id);
+                          return;
+                        }
+                        setTab(family.id);
+                        setQuery("");
+                        toTop();
+                      }}
+                    >
+                      {family.starred ? (
+                        <StarIcon />
+                      ) : symbolOf(family) ? (
+                        <AgentMark agent={family.mark} size={16} tint={placement === "symbols"} />
+                      ) : placement === "symbols" ? (
+                        <span className="acpmux-quick-rail-initial" aria-hidden="true">
+                          {initialOf(name)}
+                        </span>
+                      ) : null}
+                      {/* The symbols row is marks only, never text on a tab (Leo 2026-10-31: "NOBODY
                       FUCKING ASKED FOR THE HARNESSES TO HAVE FUCKING LABELED FUCKING TEXT ON THEM
                       THAT'S THE POINT"): the name is the tab's accessible name and its tooltip. */}
-                    <span className={`acpmux-quick-harness-name${placement === "symbols" ? " sr-only" : ""}`}>
-                      {name}
+                      <span className={`acpmux-quick-harness-name${placement === "symbols" ? " sr-only" : ""}`}>
+                        {name}
+                      </span>
+                    </button>
+                  );
+                })}
+                {families.onAddHarness && (
+                  <button
+                    type="button"
+                    className="acpmux-quick-rail-tab acpmux-quick-rail-add"
+                    tabIndex={-1}
+                    aria-label={t("modelPicker.addHarness")}
+                    title={t("modelPicker.addHarness")}
+                    onClick={() => {
+                      onOpenChange(false);
+                      families.onAddHarness?.();
+                    }}
+                  >
+                    <span aria-hidden="true" className="acpmux-quick-rail-add-icon">
+                      +
                     </span>
+                    <span className="sr-only">{t("modelPicker.addHarness")}</span>
                   </button>
-                );
-              })}
-              {families.onAddHarness && (
-                <button
-                  type="button"
-                  className="acpmux-quick-rail-tab acpmux-quick-rail-add"
-                  tabIndex={-1}
-                  aria-label={t("modelPicker.addHarness")}
-                  title={t("modelPicker.addHarness")}
-                  onClick={() => {
-                    onOpenChange(false);
-                    families.onAddHarness?.();
-                  }}
-                >
-                  <span aria-hidden="true" className="acpmux-quick-rail-add-icon">
-                    +
-                  </span>
-                  <span className="sr-only">{t("modelPicker.addHarness")}</span>
-                </button>
-              )}
-            </fieldset>
-            <div
-              className="acpmux-quick-body"
-              ref={body}
-              data-scrolled={scrolled ? "" : undefined}
-              onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
-            >
-              <div className="acpmux-quick-list">{list}</div>
+                )}
+              </fieldset>
+              <div
+                className="acpmux-quick-body"
+                ref={body}
+                data-scrolled={scrolled ? "" : undefined}
+                onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
+              >
+                <div className="acpmux-quick-list">{list}</div>
+              </div>
             </div>
-          </div>
-        ) : (
-          list
-        )}
-        {menu.update && (
-          <div className="acpmux-quick-update">
-            <span>{menu.update.text}</span>
-            <MenuItem
-              className="acpmux-quick-update-action"
-              onSelect={() => {
-                menu.update?.run();
-                onOpenChange(false);
-              }}
-            >
-              {t("harness.update")}
-            </MenuItem>
-          </div>
-        )}
-      </MenuPopup>
-    </Menu>
+          ) : (
+            list
+          )}
+          {menu.update && (
+            <div className="acpmux-quick-update">
+              <span>{menu.update.text}</span>
+              <MenuItem
+                className="acpmux-quick-update-action"
+                onSelect={() => {
+                  menu.update?.run();
+                  onOpenChange(false);
+                }}
+              >
+                {t("harness.update")}
+              </MenuItem>
+            </div>
+          )}
+        </MenuPopup>
+      </Menu>
+      {addingAccount && account?.accounts.add && (
+        <AddAccountDialog
+          add={account.accounts.add}
+          kinds={accounts.list?.kinds}
+          onClose={() => setAddingAccount(false)}
+          onAdded={() => {
+            setAddingAccount(false);
+            onOpenChange(true);
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -1455,12 +1478,14 @@ function AccountRows({
   switchFailed,
   onPick,
   grouped = false,
+  onAdd,
 }: {
   list?: ChatAccountList;
   failed: boolean;
   switchFailed: boolean;
   onPick(routeId: string | null): void;
   grouped?: boolean;
+  onAdd?(): void;
 }) {
   const t = useT();
   const refused = switchFailed && (
@@ -1515,7 +1540,12 @@ function AccountRows({
           choiceRows(choices)
         )}
       </MenuRadioGroup>
-      {choices.length === 0 && (
+      {onAdd && (
+        <MenuItem className="acpmux-quick-item" onSelect={onAdd}>
+          {t("picker.addAccount")}
+        </MenuItem>
+      )}
+      {!onAdd && choices.length === 0 && (
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
           {t("picker.accountHint")}
         </MenuItem>

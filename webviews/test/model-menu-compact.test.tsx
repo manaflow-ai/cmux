@@ -1034,7 +1034,6 @@ test.each([
   expect(menu()).toBeNull();
 });
 
-
 test("Add account submits a local native request and refreshes the picker without switching routes", async () => {
   const { postNative, setNativeHost } = await import("../src/agent-session/acpmux/native");
   const calls: { method: string; params: Record<string, unknown> }[] = [];
@@ -1043,12 +1042,19 @@ test("Add account submits a local native request and refreshes the picker withou
     return { id: params.id };
   });
   try {
-    const state = await mount({ routes: [], kinds: ["direct-subscription", "direct-api-key"] }, {
-      addAccount: async (params) => { await postNative("account.add", params); },
-    });
+    const state = await mount(
+      { routes: [], kinds: ["direct-subscription", "direct-api-key"] },
+      {
+        addAccount: async (params) => {
+          await postNative("account.add", params);
+        },
+      },
+    );
     await open();
     const account = await openSub("Account");
-    const add = Array.from(account.querySelectorAll<HTMLElement>("[role=menuitem]")).find((item) => item.textContent?.includes("Add account"));
+    const add = Array.from(account.querySelectorAll<HTMLElement>("[role=menuitem]")).find((item) =>
+      item.textContent?.includes("Add account"),
+    );
     expect(add).toBeDefined();
     await act(async () => add!.click());
     await settle();
@@ -1064,9 +1070,21 @@ test("Add account submits a local native request and refreshes the picker withou
     await fill("id", "work");
     await fill("name", "Work login");
     await fill("accountHome", "/Users/demo/.claude-work");
-    await act(async () => dialog.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+    await act(async () =>
+      dialog.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
+    );
     await settle();
-    expect(calls).toEqual([{ method: "account.add", params: { id: "work", name: "Work login", kind: "direct-subscription", accountHome: "/Users/demo/.claude-work" } }]);
+    expect(calls).toEqual([
+      {
+        method: "account.add",
+        params: {
+          id: "work",
+          name: "Work login",
+          kind: "direct-subscription",
+          accountHome: "/Users/demo/.claude-work",
+        },
+      },
+    ]);
     expect(state.sent.filter((item) => item.method === "route")).toEqual([]);
     expect(dom.window.document.querySelector('[role="dialog"]')).toBeNull();
   } finally {
