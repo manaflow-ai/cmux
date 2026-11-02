@@ -48,6 +48,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
+    private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`stripIsStale`)
     private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
@@ -147,6 +148,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel(); observation = Task { [weak self] in
             for await structure in later {
                 guard let self, let structure = structure.value else { return }
+                self.workspace?.applyLayoutIfChanged() // the layout first (no-op when unchanged): a moved tab leaves here as it shows there
+                guard !Task.isCancelled else { return } // that apply removed this pane (teardown cancels this task)
                 self.apply(self.compose(structure))
             }
         }
@@ -312,6 +315,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Pushes daemon truth (a New Tab page's replacement in its slot: NewTabSuccession) into the strip. `force` resets optimistic strip state after a rejected command.
     func apply(_ reported: Snapshot, force: Bool = false) {
         let snapshot = NewTabSuccession.order(reported, in: self)
+        appliedRecordTabs = pane.tabs.map(\.id)
         if force { view.stripView.discardPendingReorder() }
         snapshotHidesStrip = snapshot.hidesStrip
         if view.hidesStrip != (snapshot.hidesStrip || presentsPage) { view.hidesStrip = snapshot.hidesStrip || presentsPage }
@@ -570,7 +574,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     // MARK: Lookup
 
-    func tab(_ id: StripTabID) -> TabModel? { pane.tabs.first { $0.id == id.rawValue } }
+    func tab(_ id: StripTabID) -> TabModel? { pane.tabs.first { $0.id == id.rawValue } ?? daemon.store.creations.replacement(ofStandIn: id.rawValue, in: pane) }
 
     var selectedTab: TabModel? { stripModel.selectedID.flatMap(tab) }
 

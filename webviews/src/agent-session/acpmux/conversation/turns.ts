@@ -179,6 +179,9 @@ export type TurnView = {
 const NO_MESSAGE_BREAKS: readonly number[] = [];
 const NO_PENDING: readonly AcpmuxRow[] = [];
 
+const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
+  a.size === b.size && [...a].every((id) => b.has(id));
+
 const firstDateUnchanged = (view: TurnView, now: number) =>
   view.firstVisible === undefined ||
   showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
@@ -318,6 +321,20 @@ export function turnViewFrom(
     const turn = { promptAt: rows[start]!.at, answerAt };
     times.push(turn);
   }
+  // Reused turns were drawn with the previous view's folds. A row after them can change which
+  // background turns fold (cmux#30535), so a different set draws every turn again.
+  if (reuse > 0 && !sameIds(foldedBackground, previous!.foldedBackground))
+    return turnViewFrom(rows, expanded, {
+      now,
+      working,
+      clockOffset,
+      liveRuns,
+      sessionStatus,
+      lineBelow,
+      agentFamily,
+      waitingSteers,
+      messageBreaks,
+    });
   for (let at = first; at < starts.length; at += 1) {
     const start = starts[at]!;
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
@@ -730,9 +747,12 @@ function shapeTurn(
     if (work.length && !dialogue) {
       folded = !claudeGroups;
       const from = segment.anchor.at;
+      // Its label counts the fold's messages (`previous`), which can change while the summary's and
+      // the answer's versions do not: the count is part of the version, so the memoized row redraws.
+      const previous = foldMixesMessages(work) ? foldedMessages(work) : undefined;
       const worked: AcpmuxRow = {
         id,
-        version: version * 2 + (open ? 1 : 0),
+        version: (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
         at: from,
         kind: WORKED,
         foldOpen: open,
@@ -744,7 +764,7 @@ function shapeTurn(
         // and the worked for is if it's one contiguous thing ... let's follow those"): work with the
         // agent's own messages between it reads "N previous messages", one stretch of work alone
         // "Worked for".
-        ...(foldMixesMessages(work) && { previous: foldedMessages(work) }),
+        ...(previous !== undefined && { previous }),
       };
       if (!claudeGroups) shaped.push(worked);
       // Open, each run of its work folds into its summary line between the commentary, as in a
@@ -845,13 +865,21 @@ function shapeTurn(
     const failed = tail[lastSummary]!;
     tail[lastSummary] = { ...failed, continuable: true, version: failed.version + VERSION_SPAN };
   }
+  // Its clock runs from the running turn's first row, after the last turn the agent ended on its
+  // own, never from the prompt's turn's end: a chat that woke itself all night read "Thinking 11h"
+  // under a turn that had just started (Leo, 2026-10-29: "why the fuck are you still depicted as
+  // thinking for 11 hours?").
+  const ended = tail[lastSummary]?.at ?? summary.at;
+  const since = Math.max(ended, tail[lastSummary + 1]?.at ?? ended);
   if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
-    shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
+    shaped.push(...liveTurn({ ...summary, at: since }, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
   else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
 }
 
 const VERSION_SPAN = 1_000_000;
+/// Room in a Worked for row's version for its fold's message count (`previous`).
+const PREVIOUS_SPAN = 4096;
 
 /// One render card per render call in `body`, in call order.
 function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {

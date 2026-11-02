@@ -452,7 +452,7 @@ import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelGlide } from "./wheelGlide";
-import { installWheelPassThrough } from "./wheelPassThrough";
+import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
@@ -590,7 +590,7 @@ import {
 } from "./hostRetry";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { AgentRunCard } from "./subagents/AgentRunCard";
+import { AgentRunTranscriptCard } from "./subagents/AgentRunCard";
 import { SubagentEmptyRow } from "./subagents/SubagentEmptyRow";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
@@ -1678,16 +1678,17 @@ const PermissionRecordRow = memo(
 );
 /// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
 const SubagentGroupRow = memo(
-  function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
+  function SubagentGroupRow({ row, onToggleActivity, expanded, sessionId }: RowProps) {
     // An agent a shell call started (`codex exec`) draws as its own card where it started.
-    if (isRunGroup(row)) return <AgentRunCard agent={row.subagents![0]!} />;
+    if (isRunGroup(row)) return <AgentRunTranscriptCard agent={row.subagents![0]!} sessionId={sessionId} />;
     return <SubagentGroupHeader row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
   },
   (a, b) =>
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
-    a.onToggleActivity === b.onToggleActivity,
+    a.onToggleActivity === b.onToggleActivity &&
+    a.sessionId === b.sessionId,
 );
 const SubagentRow = memo(
   function SubagentRow({ row }: RowProps) {
@@ -2145,10 +2146,14 @@ const RowFrame = React.memo(function RowFrame({
   onFocus,
   onRowKeyDown,
   referenceScope,
+  gapBelow,
   children,
 }: {
   row: AcpmuxRow;
   kind: string;
+  /// The placed gap under the row (grid.md 5.5: the stack owns it, the row has no padding): the row's
+  /// gap target spans it, so a drag from between two rows starts a selection.
+  gapBelow: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -2295,6 +2300,18 @@ const RowFrame = React.memo(function RowFrame({
       style={{ top: integralTop, marginTop: placedTop - integralTop }}
       onFocus={() => onFocus(row.id)}
     >
+      {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
+          Keeping it as a separate hit target means content controls (including native media) never
+          need to be enumerated by the gap handler. On the grid the stack places the gap under the row
+          (design/grid.md 5.5), so the target spans the row's own bottom padding (inherited) and that
+          placed gap under it, down to the next row. It comes first: the action rows
+          laid in the same gap are positioned later in the row and stay over it, with their clicks. */}
+      <span
+        className="acpmux-row__gap"
+        data-transcript-gap="row"
+        aria-hidden="true"
+        style={gapBelow > 0 ? { bottom: -gapBelow, height: gapBelow, boxSizing: "content-box" } : undefined}
+      />
       {messageEntering ? (
         // The article is the virtualizer's measured box. Animate only this presentation wrapper:
         // compositor scale/opacity cannot change drawnHeightOf(article) while the entrance runs.
@@ -2302,10 +2319,6 @@ const RowFrame = React.memo(function RowFrame({
       ) : (
         content
       )}
-      {/* The row's own trailing padding is the only row-local empty surface owned by transcript
-          selection. Keeping it as a separate hit target means content controls (including native
-          media) never need to be enumerated by the gap handler. */}
-      <span className="acpmux-row__gap" data-transcript-gap="row" aria-hidden="true" />
     </article>
   );
 }, sameRowFrame);
@@ -2329,6 +2342,13 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
     (row.kind === "activity" && !isEditRow(row)));
+/// A step row by its layout mark: a step row above, or the running turn's line right under one
+/// (model.ts `isLiveStep`, which `layoutConversation` marks MARK_STEP), so the live line and its
+/// neighbours carry the after-step and before-step classes the layout implies (#31769).
+const isStepAt = (rows: readonly AcpmuxRow[], index: number) => {
+  const row = rows[index];
+  return isStepRow(row) || (row?.below === true && isLiveStep(row, prevDrawnRow(rows, index)));
+};
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -2943,6 +2963,8 @@ export function VirtualTranscript({
   withdrawn.current = withdrawnSet;
   const dockRef = useRef(dock);
   dockRef.current = dock;
+  // The wheel over the stack's parts scrolls nothing (wheelPassThrough.ts installDockWheelHold).
+  useEffect(() => (dock ? installDockWheelHold(dock) : undefined), [dock]);
   const queueSession = useRef(sessionId);
   queueSession.current = sessionId;
   /// The chat and the stack `queuedIds` were noted in.
@@ -4944,7 +4966,13 @@ export function VirtualTranscript({
     // A long way from the end: skip the middle at once and glide only the last viewport, so the rows
     // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
     const glideFrom = jumpGlideStart(node.scrollTop, target, node.clientHeight);
-    if (!reduce && glideFrom !== node.scrollTop) node.scrollTop = glideFrom;
+    if (!reduce && glideFrom !== node.scrollTop) {
+      node.scrollTop = glideFrom;
+      // Mount the rows at the new offset before this frame paints. Left to the scroll pacer, the
+      // frame painted the skip with the rows of the old place, out of view: one blank frame
+      // (transcript-cached-rows-browser "jump").
+      flushSync(() => setScrollAt(node.scrollTop));
+    }
     const duration = reduce
       ? 0
       : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
@@ -5471,10 +5499,10 @@ export function VirtualTranscript({
                       row={row}
                       kind={kind}
                       joinsPrevious={
-                        (isStepRow(row) && isStepRow(rows[absoluteIndex - 1])) ||
+                        (isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex - 1)) ||
                         isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
                       }
-                      joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
+                      joinsNext={isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex + 1)}
                       beforeFooter={isBeforeFooter(row, next)}
                       beforeIndicator={
                         next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR
@@ -5488,6 +5516,16 @@ export function VirtualTranscript({
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
+                      gapBelow={
+                        absoluteIndex + 1 < rows.length
+                          ? Math.max(
+                              0,
+                              layout.tops[absoluteIndex + 1]! -
+                                layout.tops[absoluteIndex]! -
+                                layout.heights[absoluteIndex]!,
+                            )
+                          : 0
+                      }
                       rowWidth={scaledRowWidth}
                       expanded={isExpanded}
                       observer={observer}
@@ -6462,6 +6500,9 @@ function AcpmuxPane() {
               return readChatAccounts(await client.routes(sessionId));
             },
             set: switchRoute,
+            add: async (account) => {
+              await postNative("account.add", account);
+            },
           }
         : undefined,
     [connected, healthLocal, switchRoute],
@@ -8913,29 +8954,32 @@ function AcpmuxPane() {
     !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
         <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          <SubagentTray
-            key={shownSessionId}
-            chat={shownSessionId}
-            items={trayList}
-            finished={trayFinished}
-            working={snapshot.isWorking}
-            waiting={waitingAgents}
-            onOpen={showSubagent}
-            onOpenCommand={openTrayCommand}
-            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-            canReadTail={
-              opensProcessTerminal(snapshot.summary) &&
-              clientEpoch > 0 &&
-              directClient.current !== undefined &&
-              backgroundTaskOutput !== undefined
-            }
-            onOpenSession={openOfferChat}
-            stop={stopSubagent}
-            stopProcess={stopProcess}
-            placement={trayPlacement}
-            shown={trayChat}
-            enters={trayEnters}
-          />
+          {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
+          <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+            <SubagentTray
+              key={shownSessionId}
+              chat={shownSessionId}
+              items={trayList}
+              finished={trayFinished}
+              working={snapshot.isWorking}
+              waiting={waitingAgents}
+              onOpen={showSubagent}
+              onOpenCommand={openTrayCommand}
+              canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+              canReadTail={
+                opensProcessTerminal(snapshot.summary) &&
+                clientEpoch > 0 &&
+                directClient.current !== undefined &&
+                backgroundTaskOutput !== undefined
+              }
+              onOpenSession={openOfferChat}
+              stop={stopSubagent}
+              stopProcess={stopProcess}
+              placement={trayPlacement}
+              shown={trayChat}
+              enters={trayEnters}
+            />
+          </SubagentHarnessContext.Provider>
         </SubagentClockContext.Provider>
       </BackgroundTaskOutputContext.Provider>
     ) : null;
@@ -13379,6 +13423,7 @@ function AcpmuxPane() {
               machineName,
               peerKinds: snapshot.peerKinds,
               repository: githubRepository,
+              cloudRepositoryAvailable,
               onOpenFolder:
                 quick || !sessionInfoLocal
                   ? undefined
