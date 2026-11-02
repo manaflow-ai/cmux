@@ -113,6 +113,9 @@ public nonisolated extension LinkHintSession {
         return String(array.dropFirst().dropLast())
     }
 
+    /// Whether the collect script found a text field with the keyboard (stub: not read yet).
+    package static func editing(from value: BrowserJSValue) -> Bool { false }
+
     /// The targets the collect script returned; empty when it returned
     /// anything else.
     package static func targets(from value: BrowserJSValue) -> [LinkHintTarget] {

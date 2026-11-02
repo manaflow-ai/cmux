@@ -51,6 +51,9 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
         case pick(LinkHintTarget)
         /// Nothing to label: the session ends.
         case cancel
+        /// A text field of the page has the keyboard: the session ends, and the letters typed meanwhile are the
+        /// field's, in order.
+        case passThrough
     }
 
     public let mode: Mode
@@ -64,7 +67,8 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
 
     /// The labels for `targets` (links only in `.newSplit`); `.cancel` when
     /// there is nothing to label, else what the keys typed so far mean.
-    public mutating func show(_ targets: [LinkHintTarget]) -> Outcome {
+    /// `editing`: a text field of the page has the keyboard (the page's own answer).
+    public mutating func show(_ targets: [LinkHintTarget], editing: Bool = false) -> Outcome {
         let usable = mode == .newSplit ? targets.filter { $0.href != nil } : targets
         let labels = LinkHintSession.labels(count: usable.count)
         hints = Array(zip(labels, usable)).map { (label: $0.0, target: $0.1) }
