@@ -11,13 +11,8 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-# Quiet git that still says why when it fails: a bare exit 128 told nobody which call broke.
-git_q() {
-  local err status=0
-  err=$(git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" 2>&1 >/dev/null) || status=$?
-  (( status == 0 )) || printf 'git_q %s: exit %d\n%s\n' "$*" "$status" "$err" >&2
-  return "$status"
-}
+# git_q, and no background git maintenance in the scratch repositories.
+source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 sha() { if command -v shasum >/dev/null; then shasum -a 256 "$1"; else sha256sum "$1"; fi | awk '{print $1}'; }
 # Every companion the publisher requires (macOS and Linux), from its own list.
