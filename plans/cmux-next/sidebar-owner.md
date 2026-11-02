@@ -75,6 +75,12 @@
   `SidebarStyle.unreadDotSize` token while retaining its cell, center and stack spacing. Other status marks
   keep their sizes; red-warning sizing is a separate change. `SidebarUnreadDotSizeTests` measures ink bounds.
 
+- 2026-11-02: Leo, beside ChatGPT's "Sent from dot" line: "this is what the chatgpt dot does" / "i don't think we
+  necessarily want these chief-operated ones looking like this". Chief-operated rows no longer draw the Chief's avatar
+  at the trailing column (replaces the 2026-11-01 entry below, cmux#30243): they look like any other row, with the one
+  spinner while running and unread/status marks as normal. The ownership mapping from acpmux tags stays; who sent a
+  message moves into the transcript. `SidebarChiefAvatarTests` covers both.
+
 - 2026-11-01: Leo: "they even show chief-operated chats". Chats owned by a Chief show that Chief’s profile avatar on the shared trailing column. The existing acpmux `mux.parent` / `mux.children` / `cmux.chief.participant` tags identify the operating Chief; names never do. Existing unread and status marks stay to its left, and hover controls replace the avatar as they replace other trailing marks. No Chief execution or chat ownership changes. `SidebarChiefAvatarTests` covers tag mapping, named Chiefs and the native hover layout.
 
 - 2026-10-31: one Archive section at the bottom replaces the per-list "Archived (N)" rows. Lawrence 19197 (a NIGHTLY
