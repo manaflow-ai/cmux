@@ -5,8 +5,16 @@ import { isModelRouterKind } from "./routerKinds";
 /// the chat's harness family, such as a direct subscription, an API key, a subrouter or CodeRouter.
 export type ChatAccount = { id: string; name: string; kind?: string };
 
-/// A chat's accounts. `active` is the route bound to it and `scope` where that binding comes from
-/// (`chat`, `workspace`, `family`, `global`); no `active` means the harness's own login.
+/// A new local account, sent only through the native host.
+export type NewChatAccount = {
+  id: string;
+  kind: string;
+  name?: string;
+  accountHome?: string;
+  secret?: string;
+};
+
+/// A chat's route choices and its active binding; no active route means the harness login.
 export type ChatAccountList = {
   accounts: ChatAccount[];
   active?: string;
@@ -20,6 +28,8 @@ export type ChatAccountList = {
 /// this Mac's acpmux has them: acpmux refuses routes to Web and peer connections.
 export type ChatAccounts = {
   list(sessionId: string): Promise<ChatAccountList>;
+  /** A local native gesture adds a route; it never changes the chat or default bindings. */
+  add?(account: NewChatAccount): Promise<void>;
   /// `routeId` null puts the chat back on its default (workspace, family or global binding, else
   /// the harness login). acpmux restarts the harness on it and resumes the same session.
   set(sessionId: string, routeId: string | null): Promise<void>;

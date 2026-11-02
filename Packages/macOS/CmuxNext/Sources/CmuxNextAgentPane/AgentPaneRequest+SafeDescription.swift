@@ -27,6 +27,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .shellRun: "shellRun"
         case .harnessUpdate: "harnessUpdate"
         case .harnessRestart: "harnessRestart"
+        case .addAccount: "addAccount"
         case .shellRead: "shellRead"
         case .shellStop: "shellStop"
         case .shellComplete: "shellComplete"

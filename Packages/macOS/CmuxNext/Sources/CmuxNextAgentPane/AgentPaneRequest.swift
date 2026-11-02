@@ -59,6 +59,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `harness.restart {}`: the card's Restart Chat: this chat's agent restarts on the installed
     /// version and resumes (after its turn); answers `{restarted, after_turn}`. Only with a gesture.
     case harnessRestart
+    /// `account.add`: the local picker form adds a route through the unix socket, on a real gesture.
+    case addAccount(AgentPaneAddAccount)
     /// `shell.read {id, after}`: the run's output from byte `after`.
     case shellRead(id: String, after: Int)
     /// `shell.stop {id}`: interrupt the run's process group.

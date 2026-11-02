@@ -1,0 +1,44 @@
+.acpmux-add-account {
+  width: min(400px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 16px;
+  color: var(--agent-text);
+  background: var(--surface-popup);
+  border: 1px solid var(--agent-border);
+  border-radius: 12px;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+}
+.acpmux-add-account form {
+  display: grid;
+  gap: 12px;
+}
+.acpmux-add-account label {
+  display: grid;
+  gap: 4px;
+}
+.acpmux-add-account input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--agent-border);
+  border-radius: 6px;
+  background: var(--agent-input-bg);
+  color: inherit;
+  font: inherit;
+}
+.acpmux-add-account input:focus-visible {
+  outline: 2px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-add-account p {
+  margin: 0;
+  color: var(--agent-muted);
+}
+.acpmux-add-account footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
