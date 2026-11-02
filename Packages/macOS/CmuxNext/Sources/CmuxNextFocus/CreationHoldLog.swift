@@ -29,6 +29,7 @@ public nonisolated struct CreationHoldLog: Equatable, Sendable {
     public mutating func end(in window: Int, forced: CreationHoldEnd?, pageTab: String? = nil) -> CreationHoldEnd {
         let failed = failedCreation.remove(window) != nil
         let end = forced ?? (failed ? .creationFailed : .focusLanded)
+        if end == .limitReached, let pageTab { pageExpired.insert(pageTab) }
         last[window] = end
         return end
     }

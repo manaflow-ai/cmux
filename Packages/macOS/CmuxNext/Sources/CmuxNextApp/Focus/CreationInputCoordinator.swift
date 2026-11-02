@@ -259,7 +259,7 @@ final class CreationInputCoordinator {
         let shell = controller?.window ?? window
         // The focused terminal or page does not show yet (a reopen, a workspace shown cold): keys wait, at most `holdLimit` (REOPEN-F4).
         if buffers[shell.windowNumber]?.awaitedTab == nil, buffers[shell.windowNumber].map({ !$0.holdsCreation }) ?? true, kind == .content,
-           let controller, ActionRunScope.viewChangeAllowed(), let awaited = Self.awaitedContent(controller) {
+           let controller, ActionRunScope.viewChangeAllowed(), let awaited = Self.awaitedContent(controller), awaited.hasTerminalLane || !holdEnds.pageExpired.contains(awaited.tab) {
             buffer(in: shell).awaitedTab = awaited.tab
             buffers[shell.windowNumber]?.awaitsPage = !awaited.hasTerminalLane
         }

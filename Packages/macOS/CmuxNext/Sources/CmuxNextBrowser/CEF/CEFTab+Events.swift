@@ -42,6 +42,7 @@ extension CEFTab {
                 machine.apply(.finished(navigation))
             }
             if !loading {
+                if documentLoaded { documentArrived() } // CEF reports this after every load end and error of the load
                 clearTitleBeforeCommit()
                 // A load that ends without OnLoadEnd (stopped, aborted) also
                 // leaves the page area to its document.
@@ -72,6 +73,7 @@ extension CEFTab {
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
             pageEvents?.committed?(URL(string: url))
         case .loadEnd:
+            if PageBackground.isRealPage(committedURL) { documentLoaded = true } // its script ran: a focused field and listeners exist
             if let navigation { machine.apply(.finished(navigation)) }
             documentDidSettle()
             // A document with no contentful paint (an empty body) shows as it is now.
@@ -88,6 +90,7 @@ extension CEFTab {
             clearTitleBeforeCommit()
             isDiscardedInPlace = false
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
+            if !error.isBenignInterruption { documentLoaded = true } // an error page; an aborted load (replaced) is none
             guard let navigation else { return }
             machine.apply(.failed(navigation, error))
             if !error.isBenignInterruption { firstContentFrame.contentShown() } // the error page or the base shows now
