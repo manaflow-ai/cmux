@@ -70,7 +70,7 @@ mod agent_message_reply_in_place {
         let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
         // The cmux-tui binary installs acpmux's build id at start (main.rs); so
         // does this in-process hub, or it reports `unstamped`.
-        acpmux::hub::install_build(acpmux_build_id::BUILD);
+        acpmux::hub::install_build(acpmux_build_id::build());
         let hub = Hub::new(cfg, store);
         let mut local = Client::open_as(&hub, Origin::Local);
         let sender = local.new_session().await;

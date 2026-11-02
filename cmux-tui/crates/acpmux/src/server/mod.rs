@@ -821,6 +821,14 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         if tokio::net::UnixStream::connect(path).await.is_ok() {
             anyhow::bail!("another acpmux daemon owns {}", path.display());
         }
+        // A failed connect is not a dead socket: a live daemon whose accept queue is full
+        // refuses it too. Only the holder of the lock that serves it may remove it.
+        if let Some(pid) = crate::daemon::socket_held_by_other(path) {
+            anyhow::bail!(
+                "the acpmux daemon pid {pid} holds the lock that serves {}; leaving its socket in place",
+                path.display()
+            );
+        }
         crate::config::refuse_lost_home(&crate::config::home())?;
         std::fs::remove_file(path)?;
     }

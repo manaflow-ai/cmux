@@ -389,6 +389,11 @@ extension SettingsSchema {
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxRunning": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // Whether and how often a failed turn is sent again spends the person's usage: their call,
+        // as `sessions.resumeAgents` is.
+        "agents.autoRetry.enabled": .userOnly,
+        "agents.autoRetry.intervalSeconds": .userOnly,
+        "agents.autoRetry.attempts": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not
         // widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly,

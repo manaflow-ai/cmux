@@ -258,8 +258,15 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         const box = await line(page).evaluate((node) => {
           const label = node.querySelector(".cv-thinking")!.getBoundingClientRect();
           const row = node.getBoundingClientRect();
-          const style = getComputedStyle(node);
-          const px = (name: string) => parseFloat(style.getPropertyValue(name));
+          // The tokens are var() chains, so resolve each through a probe's height.
+          const px = (name: string) => {
+            const probe = document.createElement("div");
+            probe.style.height = `var(${name})`;
+            node.append(probe);
+            const value = probe.getBoundingClientRect().height;
+            probe.remove();
+            return value;
+          };
           return {
             height: row.height,
             labelLeft: label.left - row.left,
