@@ -209,8 +209,9 @@ export const COMPOSER_LABELS = {
 export type ComposerHandle = {
   /// Reads the current prompt and attachments before the composer is swapped out.
   draft(): { text: string; attachments: ComposerAttachment[] };
-  /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
-  restore(text: string, attachments: ComposerAttachment[]): void;
+  /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest
+  /// (`behind`: after them, for prompts sent after one already given back).
+  restore(text: string, attachments: ComposerAttachment[], behind?: boolean): void;
   /// Snapshot the unsent text without attachment markers or taking it out of this chat.
   draftText(): string;
   /// Prevent ordinary session-switch attachment handoff for text-only recovery.
@@ -827,7 +828,7 @@ export function Composer({
       clearAttachmentCarrySuppression() {
         suppressedAttachmentCarry.current = undefined;
       },
-      restore(restoredText, restoredAttachments) {
+      restore(restoredText, restoredAttachments, behind = false) {
         // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
         // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
         // draft's picks; with nothing typed it is the whole draft, and they replace the old ones.
@@ -841,9 +842,15 @@ export function Composer({
         attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
         // Put back, not typed: the Enter that sent it says nothing about this change.
         notTyped();
-        // What comes back goes first; what was typed or attached since stays after it.
+        // What comes back goes first; what was typed or attached since stays after it. `behind`: it
+        // goes after what is there (prompts a folder's trust held, sent after one already given
+        // back: trustHeld.ts).
         const typed = field.current?.value() ?? "";
-        const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
+        const next = !typed.trim()
+          ? restoredText
+          : behind
+            ? `${typed}\n\n${restoredText}`
+            : `${restoredText}\n\n${typed}`;
         // A field whose editor is still starting (the chat composer that mounts as a New Tab page
         // leaves) takes it as its value, which becomes the editor's first content.
         if (!field.current?.type(next)) {
@@ -851,10 +858,12 @@ export function Composer({
           setCaret(next.length);
         }
         if (restoredAttachments.length)
-          setAttachments((current) => [
-            ...restoredAttachments,
-            ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
-          ]);
+          setAttachments((current) => {
+            const others = current.filter(
+              (attachment) => !restoredAttachments.some((back) => back.id === attachment.id),
+            );
+            return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
+          });
       },
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.

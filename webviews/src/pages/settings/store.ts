@@ -34,6 +34,7 @@ import {
   type Write,
 } from "./queries";
 import { rowsByKey } from "./schema";
+import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import {
@@ -125,12 +126,24 @@ const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recen
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
   const scope = cache.scope;
+  let rows = scope?.rows ?? new Map<string, ListRow>();
+  const placement = rows.get(HARNESS_PLACEMENT_KEY);
+  if (placement) {
+    const legacy = cache.host?.harness_placement;
+    const managed = placement.managed ?? scope?.managed.get(HARNESS_PLACEMENT_KEY);
+    const value = resolveHarnessPlacement(placement.stored, legacy, managed ? placement.value : undefined);
+    // A saved override is resettable even when it currently matches the inherited choice.
+    const customized = harnessPlacement(placement.stored) !== null;
+    if (value !== placement.value || customized !== placement.customized) {
+      rows = new Map(rows).set(HARNESS_PLACEMENT_KEY, { ...placement, value, customized });
+    }
+  }
   return {
     loaded: cache.scopeSettled,
     readable: (scope?.rows.size ?? 0) > 0,
     connected: ui.connected,
     revision: scope?.revision ?? 0,
-    rows: scope?.rows ?? new Map(),
+    rows,
     diagnostics: scope?.diagnostics ?? new Map(),
     problems: scope?.problems ?? [],
     managed: scope?.managed ?? new Map(),

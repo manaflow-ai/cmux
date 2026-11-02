@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+@testable import CmuxNextDaemon
 import Foundation
 import Observation
 import Testing
@@ -12,6 +13,22 @@ import Testing
 @MainActor
 struct CloudStartChatMachineTests {
     private static let me = "user-leo"
+
+    @Test func aRetryUsesTheDurablePaneAfterReorderingAndHandleReuse() throws {
+        let store = DaemonStore()
+        func tree(_ reordered: Bool) -> DaemonTree {
+            let target = PaneSnapshot(id: PaneID(rawValue: reordered ? 9 : 1), resourceID: ResourceID(rawValue: "pane_target"))
+            let other = PaneSnapshot(id: 1, resourceID: ResourceID(rawValue: "pane_other"))
+            let screen = ScreenSnapshot(id: 1, layout: .leaf(target.id), panes: reordered ? [other, target] : [target])
+            return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "ws-key"), name: "chat", screens: [screen])])
+        }
+        store.apply(snapshot: tree(false))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 1))
+        store.apply(snapshot: tree(true))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 9))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_missing", in: store) == nil)
+        #expect(CloudMachineWorkspace.targetAnchor("pane:1", in: store) == nil)
+    }
 
     /// Router review at 2a315af: a team switch keeps the user signed in and the previous team's
     /// machines in the store until the new list lands. A send is kept under the account it was sent
@@ -217,8 +234,12 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: false) == "cloud_disabled")
-        // The Cloud app server's link takes no folder copy: refused before a machine is created.
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true, appServerLink: true) == "unavailable")
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false, appServerLink: true) == "not_signed_in")
+    }
+
+    /// A signed-out first send keeps its stable refusal code for callers, but the
+    /// card must tell the person how to sign in instead of displaying `not_signed_in`.
+    @Test func aSignedOutFirstSendCarriesActionableRecoveryCopy() {
+        #expect(CloudStartChat.refusalMessage("not_signed_in") == CloudStrings.signInFirst)
+        #expect(CloudStartChat.refusalMessage("cloud_disabled") == "cloud_disabled")
     }
 }

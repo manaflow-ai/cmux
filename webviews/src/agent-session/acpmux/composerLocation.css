@@ -1090,7 +1090,7 @@
 .acpmux-folder-popover.acpmux-env-popover .acpmux-location-folders { overflow: auto; }
 .acpmux-folder-popover .acpmux-menu-item { display: flex; align-items: center; min-width: 0; border-radius: var(--ui-row-radius, 6px); }
 .acpmux-location-row,
-.acpmux-location-action { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.acpmux-location-action { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); width: 100%; min-width: 0; }
 .acpmux-folder-popover .ui-combobox-pinned::after { content: ""; display: block; height: 1px; margin: 4px 6px 0; background: color-mix(in srgb, currentColor 12%, transparent); }
 .acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; min-height: 16px; margin-left: auto; color: var(--agent-text); }
@@ -1118,8 +1118,10 @@
 .acpmux-location-row[data-worktree] { padding-inline-start: 28px; }
 .acpmux-location-branch-icon { display: inline-flex; flex: none; justify-content: center; width: 20px; color: var(--agent-muted); }
 /* One column for every name (Leo 2026-10-21, "aligned columns"): the actions after the folders start
-   where a repository's name does, past the 20 px badge and its 8 px gap. */
-.acpmux-folder-popover .acpmux-location-action { padding-inline-start: 28px; }
+   where a repository's name does, past the 20 px badge and the shared icon gap. */
+.acpmux-folder-popover .acpmux-location-action {
+  padding-inline-start: calc(20px + var(--cmux-menu-icon-gap));
+}
 .acpmux-location-worktrees {
   display: inline-flex;
   flex: none;
@@ -1456,7 +1458,7 @@
   content: attr(data-section);
   position: absolute;
   top: -17px;
-  left: 8px;
+  left: calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));
   color: var(--agent-muted);
   font-size: var(--text-caption);
   font-weight: 600;

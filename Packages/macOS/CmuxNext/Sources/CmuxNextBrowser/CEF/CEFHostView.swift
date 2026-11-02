@@ -497,7 +497,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     private func refreshSyncedDrag() {
         guard let page = syncedDragHostings.first else { return }
         var hostings = [page]
-        if !isHiddenOrHasHiddenAncestor, let host = tab?.devToolsController.views?.host, host.superview === self {
+        if !isHiddenOrHasHiddenAncestor, let host = tab?.devToolsController.views?.host, host.superview === self, !host.isHidden {
             hostings.append(host.layerHosting)
         }
         for hosting in syncedDragHostings where !hostings.contains(where: { $0 === hosting }) {
@@ -516,10 +516,12 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         for hosting in hostings { hosting.paneResizeDrag(active: false) }
     }
 
-    /// A plain page shown here: no docked DevTools, side panel or device fit, which place the page themselves.
+    /// A plain page shown here: no docked DevTools taking room, side panel or device fit, which place the page
+    /// themselves. Views kept hidden after an unreported DevTools open take no room (#32253): the page still holds.
     private var pageCanHold: Bool {
         guard let tab else { return false }
-        return tab.host.hostView.superview === self && tab.devToolsController.views == nil
+        return tab.host.hostView.superview === self && !tab.devToolsController.reservesRoom
+            && !(tab.devToolsController.deviceModeOn && tab.devToolsController.views != nil)
             && tab.sidePanel.state == nil && tab.deviceEmulation == nil
     }
 

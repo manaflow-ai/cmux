@@ -2317,6 +2317,10 @@ path = "tests/test_nightly_delivery_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_r2_cas.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_xcode_build_timeline.py"
 lane = "linux-guard"
 
@@ -2424,6 +2428,11 @@ lane = "linux-guard"
 path = "tests/test_nightly_tree_source_marker.py"
 lane = "manual"
 reason = "Portable source-contract test; run python3 tests/test_nightly_tree_source_marker.py through cmux-ci when tree observations change. No new CI gate."
+
+[[test]]
+path = "tests/test_ci_hosted_light_rescue.py"
+lane = "manual"
+reason = "Portable unit tests for the overflow watch's hosted light rescue (main runs the script at a pinned commit). Run python3 -m unittest tests.test_ci_hosted_light_rescue. No new CI gate."
 
 [[test]]
 path = "tests/test_ci_linux_pool_spill.py"
