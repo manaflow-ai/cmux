@@ -57,8 +57,8 @@ import Testing
         let rowView = PopupRowView(leading: nil, title: "Row")
         rowView.frame = NSRect(x: 0, y: 0, width: 240, height: box.minHeight)
         rowView.layoutSubtreeIfNeeded()
-        #expect(rowView.contentGuide.layoutFrame.minX == box.leading)
-        #expect(rowView.contentGuide.layoutFrame.maxX == 240 - box.trailing)
+        #expect(rowView.contentGuide.frame.minX == box.leading)
+        #expect(rowView.contentGuide.frame.maxX == 240 - box.trailing)
     }
 
     @Test func numericPositionOverridesNamedRestingIdentity() {
