@@ -298,7 +298,11 @@ async fn a_prompt_an_agent_sends_through_a_peer_names_that_agent_on_the_owning_d
     let messages: Vec<&Value> =
         page["events"].as_array().unwrap().iter().map(|e| &e["msg"]).collect();
     let by_id = |id: &str| *messages.iter().find(|m| m["promptId"] == id).expect(id);
-    let stamped = json!({"kind": "agent_message", "from": "fromAgent", "fromName": "codex-lane", "to": remote_id});
+    // A names its proven caller's session and harness family over the link (display only).
+    let meta = a.resolve(&lane_id).unwrap().meta();
+    let family = meta.family.clone().unwrap_or(meta.harness.clone());
+    let stamped = json!({"kind": "agent_message", "from": "fromAgent", "fromName": "codex-lane", "to": remote_id,
+                         "fromSessionId": lane_id, "fromHarness": family});
     assert_eq!(by_id("from-lane").pointer("/_meta/provenance"), Some(&stamped), "{messages:?}");
     assert!(by_id("from-person").pointer("/_meta/provenance").is_none(), "{messages:?}");
 }
@@ -774,6 +778,35 @@ async fn waiting_peer_add_answers_after_a_failed_first_attempt() {
     assert!(peers[0]["error"].is_string(), "{peers:?}");
 }
 
+/// A waiting `_acpmux/peer_add` or `_acpmux/peer_reconnect` says what its wait saw: whether the
+/// connect attempt settled, and the peer as it was then, with its error. Before, the reply was
+/// the peer list alone, the same whether the attempt failed, succeeded or was still running
+/// when the 30 s wait ran out, so `host check --fix` printed "does not connect" with no reason
+/// while a 90 s handshake went on (2026-10-30).
+#[tokio::test]
+async fn a_waiting_peer_add_or_reconnect_says_whether_it_settled_and_why() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut ca = client(a.clone()).await;
+    let url = format!("ws://127.0.0.1:{}", free_port());
+    let added = ca
+        .call("_acpmux/peer_add", json!({"name": "gone", "url": url, "wait": true}))
+        .await
+        .unwrap();
+    assert_eq!(added["wait"]["settled"], true, "{added}");
+    assert_eq!(added["wait"]["peer"]["name"], "gone", "{added}");
+    assert_eq!(added["wait"]["peer"]["connected"], false, "{added}");
+    assert!(added["wait"]["peer"]["error"].is_string(), "no reason: {added}");
+    let again = ca
+        .call("_acpmux/peer_reconnect", json!({"name": "gone", "wait": true, "force": true}))
+        .await
+        .unwrap();
+    assert_eq!(again["wait"]["settled"], true, "{again}");
+    assert!(again["wait"]["peer"]["error"].is_string(), "no reason: {again}");
+    // Without `wait`, the reply is as before.
+    let quick = ca.call("_acpmux/peer_add", json!({"name": "gone", "url": url})).await.unwrap();
+    assert!(quick.get("wait").is_none(), "{quick}");
+}
+
 /// ACP-REMOTE-GUARD P1: a peer proven by its peer token has no mode rule
 /// for its own local user, but a request it forwards for its Web client
 /// carries `via: web`, and the owning daemon applies the Web's rules on its
@@ -1108,6 +1141,154 @@ async fn recording_relay(port: u16) -> (u16, Arc<std::sync::Mutex<Vec<u8>>>) {
     (relay_port, seen)
 }
 
+/// A relay which drops its first peer connection after it has been up for a
+/// short while, then forwards later connections normally. This models the
+/// listener/daemon restart while keeping the owning hub and harness alive.
+async fn one_flap_relay(port: u16, after: Duration) -> (u16, tokio::sync::oneshot::Sender<()>) {
+    use tokio::io::copy_bidirectional;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_port = listener.local_addr().unwrap().port();
+    let first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (trigger, trigger_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let mut trigger_rx = Some(trigger_rx);
+        while let Ok((mut client, _)) = listener.accept().await {
+            let Ok(mut server) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else {
+                continue;
+            };
+            let drop_this = first.swap(false, std::sync::atomic::Ordering::SeqCst);
+            let trigger = drop_this.then(|| trigger_rx.take().expect("first peer connection"));
+            tokio::spawn(async move {
+                if drop_this {
+                    let gate = async {
+                        if let Some(trigger) = trigger {
+                            let _ = trigger.await;
+                        }
+                        tokio::time::sleep(after).await;
+                    };
+                    tokio::select! { _ = copy_bidirectional(&mut client, &mut server) => {}, _ = gate => {} }
+                } else {
+                    let _ = copy_bidirectional(&mut client, &mut server).await;
+                }
+            });
+        }
+    });
+    (relay_port, trigger)
+}
+
+/// Send a prompt while retaining the peer event notifications which arrive on
+/// the same client connection. The ordinary `C::call` helper intentionally
+/// discards those notifications while waiting for the response.
+async fn prompt_with_events(
+    c: &mut C,
+    session: &str,
+    text: &str,
+    mut flap: Option<tokio::sync::oneshot::Sender<()>>,
+) -> (Value, Vec<Value>) {
+    c.next += 1;
+    let id = c.next;
+    c.tx.send(
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": text}],
+                    "_meta": {"acpmux": {"promptId": "resume-flap"}}}),
+        )
+        .to_line(),
+    )
+    .await
+    .unwrap();
+    let mut events = Vec::new();
+    let mut answer = None;
+    let mut ended = false;
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(45), c.rx.recv())
+            .await
+            .expect("prompt timed out")
+            .expect("client closed");
+        match Message::parse(&line).unwrap() {
+            Message::Notification { method: m, params: Some(p) }
+                if m == method::MUX_PROMPT_ACCEPTED
+                    && p.get("promptId").and_then(Value::as_str) == Some("resume-flap") =>
+            {
+                if let Some(flap) = flap.take() {
+                    let _ = flap.send(());
+                }
+            }
+            Message::Notification { method: m, params: Some(p) }
+                if m == method::MUX_EVENT
+                    && p.get("sessionId").and_then(Value::as_str) == Some(session) =>
+            {
+                ended |= matches!(p["kind"].as_str(), Some("turn_end" | "turn_result"));
+                events.push(p);
+            }
+            Message::Response { id: rid, result, error } if rid == id => {
+                answer = Some(match error {
+                    Some(e) => panic!("forwarded prompt failed: {}", e.message),
+                    None => result.unwrap_or(Value::Null),
+                });
+                if ended {
+                    return (answer.take().unwrap(), events);
+                }
+            }
+            _ => {}
+        }
+        if answer.is_some() && ended {
+            return (answer.take().unwrap(), events);
+        }
+    }
+}
+
+/// A forwarded prompt keeps running while the peer link is interrupted. On
+/// reconnect, the peer re-attaches from A's mirrored sequence, so the client
+/// receives chunks produced during the gap and the real turn result.
+#[tokio::test]
+async fn forwarded_prompt_replays_events_after_peer_connection_flap() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "resume").await;
+    let mut cb = client(b.clone()).await;
+    let session = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "resume"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = session["sessionId"].as_str().unwrap().to_owned();
+
+    // Once the peer reports acceptance, the first connection is dropped five
+    // seconds later; the fake agent keeps the turn alive for roughly twenty
+    // seconds.
+    let (relay, flap) = one_flap_relay(port, Duration::from_secs(5)).await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call(method::MUX_ATTACH, json!({"session": "b/resume", "limit": 0, "eventStream": true}))
+        .await
+        .unwrap();
+
+    let (answer, events) =
+        prompt_with_events(&mut ca, &remote_id, "ticking:40:500", Some(flap)).await;
+    assert_eq!(answer["stopReason"], "end_turn", "{answer}");
+    let chunks: Vec<&Value> =
+        events.iter().filter(|e| e["kind"] == "agent_message_chunk").collect();
+    let texts: Vec<&str> = chunks
+        .iter()
+        .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
+        .collect();
+    let expected: Vec<String> = (0..40).map(|i| format!("tick{i} ")).collect();
+    assert_eq!(texts.len(), expected.len(), "reconnect lost or duplicated turn chunks: {texts:?}");
+    assert_eq!(
+        texts,
+        expected.iter().map(String::as_str).collect::<Vec<_>>(),
+        "chunks were not replayed in order"
+    );
+    assert!(events.iter().any(|e| e["kind"] == "turn_end"), "turn_end was lost: {events:?}");
+}
+
 /// The pane's Trust for a chat on a peer (Leo, 2026-10-21: only `cmux setup
 /// trust` on the peer cleared it). The folder is the peer's, so A's app sends
 /// `acp.trust.set` for it and A forwards it without looking for the folder on
@@ -1301,6 +1482,381 @@ async fn a_peer_decides_a_relayed_allow_with_its_own_decision_proof() {
         .await;
     assert_eq!(decided["msg"]["outcome"]["optionId"], "yes", "{decided}");
     assert_eq!(decided["msg"]["answeredBy"], by, "{decided}");
+}
+
+/// What an enrolled Mac signs (`hub/mac_approvers.rs`), written out here so
+/// the test states the wire contract: ECDSA P-256 / SHA-256, raw r || s as
+/// hex, over the domain and each part after a NUL.
+#[allow(clippy::too_many_arguments)]
+fn mac_signature(
+    key: &ring::signature::EcdsaKeyPair,
+    instance: &str,
+    mac: &str,
+    session: &str,
+    permission: &str,
+    tool_call: &str,
+    option: &str,
+    nonce: &str,
+    expires: u64,
+) -> String {
+    let expires = expires.to_string();
+    let mut message = b"acpmux-mac-approver-decision-v1".to_vec();
+    for part in [instance, mac, session, permission, tool_call, option, nonce, expires.as_str(), ""]
+    {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    let sig = key.sign(&ring::rand::SystemRandom::new(), &message).unwrap();
+    sig.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Peer-route approvals: the Mac's app signs a one-time Allow for a prompt of
+/// a peer (B) that it reaches through its own daemon (A), and only the signed
+/// answer crosses the link. B counts it against the Mac key enrolled in its
+/// `mac-approvers.json`, once, for that prompt and tool call; an unsigned
+/// Allow is refused, a deny from any client counts, and a Mac removed from
+/// the file (with the reload `host approvals rm` sends) allows nothing more.
+/// The session's policy and mode stay as they were.
+#[tokio::test]
+async fn a_peer_counts_an_enrolled_macs_signed_one_time_allow_until_it_is_unenrolled() {
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    let mac =
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+    let public: String = mac.public_key().as_ref().iter().map(|b| format!("{b:02x}")).collect();
+    let home = std::env::temp_dir().join(format!("api-mac-file-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let file = home.join(acpmux::hub::mac_approvers::FILE);
+    let write = |macs: Value| {
+        acpmux::config::write_atomic(&file, json!({"macs": macs}).to_string().as_bytes()).unwrap()
+    };
+    write(json!([{"id": "mac-1", "publicKey": public, "name": "Leo's Mac"}]));
+
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    b.person.macs.open(file.clone());
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "macs").await;
+    let mut cb = plain(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "mac"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let before = cb.call(method::MUX_INFO, json!({"sessionId": remote_id})).await.unwrap();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut app = client(a.clone()).await;
+    let mut relay = plain(a.clone()).await;
+    app.call(method::MUX_ATTACH, json!({"sessionId": remote_id, "limit": 0})).await.unwrap();
+    let ask = async |app: &mut C, text: &str, after: Option<&str>| {
+        app.next += 1;
+        let line = Message::request(
+            app.next,
+            method::SESSION_PROMPT,
+            json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": text}]}),
+        );
+        app.tx.send(line.to_line()).await.unwrap();
+        app.wait(method::MUX_PERMISSION_PENDING, |p| {
+            p["sessionId"] == remote_id && after.is_none_or(|a| p["permissionId"] != a)
+        })
+        .await
+    };
+    let pending = ask(&mut app, "ask: rm", None).await;
+    let perm = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let tool_call = pending["request"]["toolCall"]["toolCallId"].as_str().unwrap().to_owned();
+    let exp =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 120;
+    let respond = |perm: &str, nonce: &str, sig: &str| {
+        json!({"sessionId": remote_id, "permissionId": perm, "optionId": "yes",
+               "_meta": {"acpmux": {"decisionNonce": nonce,
+                   "approverDecision": {"approver": "mac-1", "expiresAt": exp, "signature": sig}}}})
+    };
+
+    // The person on A, unsigned: refused on B (A holds no key of B's).
+    let unsigned = json!({"sessionId": remote_id, "permissionId": perm, "optionId": "yes"});
+    let e = app.call(method::MUX_PERMISSION_RESPOND, unsigned).await.unwrap_err();
+    assert!(e.contains("approve this on the Mac app"), "{e}");
+    // Signed for another tool call: refused.
+    let other =
+        mac_signature(&mac, &instance, "mac-1", &remote_id, &perm, "t9", "yes", &nonce, exp);
+    let e = app.call(method::MUX_PERMISSION_RESPOND, respond(&perm, &nonce, &other)).await;
+    assert!(e.unwrap_err().contains("approve this on the Mac app"));
+    // The Mac's signature for this prompt and tool call: the allow counts.
+    let good =
+        mac_signature(&mac, &instance, "mac-1", &remote_id, &perm, &tool_call, "yes", &nonce, exp);
+    app.call(method::MUX_PERMISSION_RESPOND, respond(&perm, &nonce, &good)).await.unwrap();
+    let decided = app
+        .wait(method::MUX_EVENT, |p| {
+            p["kind"] == "permission_decision" && p["sessionId"] == remote_id
+        })
+        .await;
+    assert_eq!(decided["msg"]["outcome"]["optionId"], "yes", "{decided}");
+
+    // Replayed on the next prompt: refused (its nonce and permission are spent).
+    let next = ask(&mut app, "ask: again", Some(&perm)).await;
+    let perm2 = next["permissionId"].as_str().unwrap().to_owned();
+    let nonce2 = next["decisionNonce"].as_str().unwrap().to_owned();
+    let e = app.call(method::MUX_PERMISSION_RESPOND, respond(&perm2, &nonce, &good)).await;
+    assert!(e.unwrap_err().contains("approve this on the Mac app"));
+
+    // Unenrolled (`host approvals rm`: the file, then the reload): a fresh,
+    // valid signature counts nothing; a deny from a client that is no person does.
+    write(json!([]));
+    b.person.macs.view(&json!({"reload": true}));
+    let fresh = mac_signature(
+        &mac, &instance, "mac-1", &remote_id, &perm2, &tool_call, "yes", &nonce2, exp,
+    );
+    let e = app.call(method::MUX_PERMISSION_RESPOND, respond(&perm2, &nonce2, &fresh)).await;
+    assert!(e.unwrap_err().contains("approve this on the Mac app"));
+    relay
+        .call(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId": remote_id, "permissionId": perm2, "optionId": "no"}),
+        )
+        .await
+        .unwrap();
+    let decided = app
+        .wait(method::MUX_EVENT, |p| {
+            p["kind"] == "permission_decision"
+                && p["sessionId"] == remote_id
+                && p["msg"]["permissionId"] == perm2
+        })
+        .await;
+    assert_eq!(decided["msg"]["outcome"]["optionId"], "no", "{decided}");
+    let after = cb.call(method::MUX_INFO, json!({"sessionId": remote_id})).await.unwrap();
+    assert_eq!(after["policy"], before["policy"], "{after}");
+    assert_eq!(after["modes"], before["modes"], "{after}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// Peer-route approvals, groups: the card's tool asks are answered as a group
+/// (`_acpmux/permission_group_respond`). The person on A whose app gave this
+/// Mac's key reads B's group with Allow once and Deny only; a group Allow once
+/// signed by the Mac for every pending member resolves them all on B. An
+/// unsigned allow, a missing member, a wrong nonce, a stale revision, an
+/// expired or other-option signature, another Mac, an entry for something
+/// else, Allow for the chat and an unenrolled Mac are refused (naming B) and
+/// leave the members pending; the same proofs once the group resolved count
+/// nothing.
+#[tokio::test]
+async fn a_peer_counts_an_enrolled_macs_signed_group_allow_for_every_pending_member() {
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
+    let rng = ring::rand::SystemRandom::new();
+    let new_key = || {
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap()
+    };
+    let (mac, other_mac) = (new_key(), new_key());
+    let hex = |k: &EcdsaKeyPair| -> String {
+        k.public_key().as_ref().iter().map(|b| format!("{b:02x}")).collect()
+    };
+    let public = hex(&mac);
+    let home = std::env::temp_dir().join(format!("api-mac-group-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let file = home.join(acpmux::hub::mac_approvers::FILE);
+    let write = |macs: Value| {
+        acpmux::config::write_atomic(&file, json!({"macs": macs}).to_string().as_bytes()).unwrap()
+    };
+    let enrolled = json!([{"id": "mac-1", "publicKey": public, "name": "Leo's Mac"}]);
+    write(enrolled.clone());
+
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    b.person.macs.open(file.clone());
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "macgroup").await;
+    let mut cb = plain(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "macg"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut app = client(a.clone()).await;
+    app.call(method::MUX_ATTACH, json!({"sessionId": remote_id, "limit": 0})).await.unwrap();
+    app.next += 1;
+    let line = Message::request(
+        app.next,
+        method::SESSION_PROMPT,
+        json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": "permission-batch: parallel"}]}),
+    );
+    app.tx.send(line.to_line()).await.unwrap();
+    let read = async |app: &mut C| {
+        for _ in 0..500 {
+            let r = app.call(method::MUX_PERMISSION_GROUPS, json!({"sessionId": remote_id})).await;
+            let r = r.unwrap();
+            let groups = r["groups"].as_array().cloned().unwrap_or_default();
+            if let Some(g) = groups.iter().find(|g| g["state"] == "pending") {
+                return json!({"read": r, "group": g});
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("no pending group");
+    };
+    // Without this Mac's key on A, the read refuses allows as before.
+    let r = read(&mut app).await;
+    assert_eq!(r["read"]["allowRefused"], "permission.person_required", "{r}");
+    // The app gives this Mac's key: Allow once and Deny, no Allow for the chat.
+    app.call("_acpmux/mac_approver_set", json!({"id": "mac-1", "publicKey": public, "name": "M"}))
+        .await
+        .unwrap();
+    let r = read(&mut app).await;
+    assert!(r["read"].get("allowRefused").is_none(), "{r}");
+    assert_eq!(r["read"]["macAllowOnce"], true, "{r}");
+    let group = r["group"].clone();
+    assert_eq!(group["decisions"], json!(["allow_once", "deny"]), "{group}");
+    assert_eq!(group["items"].as_array().unwrap().len(), 3, "{group}");
+    let info = cb.call(method::MUX_INFO, json!({"sessionId": remote_id})).await.unwrap();
+    let members: Vec<(String, String, String)> = info["pending"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            let s = |v: &Value| v.as_str().unwrap().to_owned();
+            (
+                s(&p["permissionId"]),
+                s(&p["decisionNonce"]),
+                s(&p["request"]["toolCall"]["toolCallId"]),
+            )
+        })
+        .collect();
+    assert_eq!(members.len(), 3, "{info}");
+    let instance = b.person.instance().to_owned();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let exp = now + 120;
+    let sign = |k: &EcdsaKeyPair,
+                approver: &str,
+                perm: &str,
+                call: &str,
+                option: &str,
+                nonce: &str,
+                exp: u64| {
+        let sig = mac_signature(k, &instance, approver, &remote_id, perm, call, option, nonce, exp);
+        json!({"decisionNonce": nonce,
+               "approverDecision": {"approver": approver, "expiresAt": exp, "signature": sig}})
+    };
+    let good = |exclude: Option<usize>| -> serde_json::Map<String, Value> {
+        members
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| Some(*i) != exclude)
+            .map(|(_, (perm, nonce, call))| {
+                (perm.clone(), sign(&mac, "mac-1", perm, call, &format!("yes-{call}"), nonce, exp))
+            })
+            .collect()
+    };
+    let n = std::cell::Cell::new(0);
+    let answer = |decision: &str,
+                  revision: &Value,
+                  decisions: Option<serde_json::Map<String, Value>>| {
+        n.set(n.get() + 1);
+        let mut body = json!({"sessionId": remote_id, "groupId": group["groupId"], "revision": revision,
+                              "decisionKey": format!("k-{}", n.get()), "decision": decision});
+        if let Some(d) = decisions {
+            body["_meta"] = json!({"acpmux": {"approverDecisions": d}});
+        }
+        body
+    };
+    let rev = group["revision"].clone();
+    let (p0, nonce0, call0) = members[0].clone();
+    let mut refused = vec![("unsigned", answer("allow_once", &rev, None))];
+    refused.push(("a member missing", answer("allow_once", &rev, Some(good(Some(1))))));
+    let mut wrong_nonce = good(None);
+    wrong_nonce[&p0] =
+        sign(&mac, "mac-1", &p0, &call0, &format!("yes-{call0}"), &members[1].1, exp);
+    refused.push(("a wrong nonce", answer("allow_once", &rev, Some(wrong_nonce))));
+    let stale = json!(rev.as_u64().unwrap() - 1);
+    refused.push(("a stale revision", answer("allow_once", &stale, Some(good(None)))));
+    let mut expired = good(None);
+    expired[&p0] = sign(&mac, "mac-1", &p0, &call0, &format!("yes-{call0}"), &nonce0, now - 5);
+    refused.push(("an expired signature", answer("allow_once", &rev, Some(expired))));
+    let mut other_option = good(None);
+    other_option[&p0] = sign(&mac, "mac-1", &p0, &call0, &format!("no-{call0}"), &nonce0, exp);
+    refused.push(("another option", answer("allow_once", &rev, Some(other_option))));
+    let mut other = good(None);
+    other[&p0] = sign(&other_mac, "mac-2", &p0, &call0, &format!("yes-{call0}"), &nonce0, exp);
+    refused.push(("a Mac not enrolled", answer("allow_once", &rev, Some(other))));
+    let mut extra = good(None);
+    extra.insert("not-a-member".into(), extra[&p0].clone());
+    refused.push(("an entry for another permission", answer("allow_once", &rev, Some(extra))));
+    refused.push(("allow for the chat", answer("allow_chat", &rev, Some(good(None)))));
+    for (what, body) in refused {
+        let e = app.raw(method::MUX_PERMISSION_GROUP_RESPOND, body).await;
+        assert_eq!(e["error"]["data"]["reason"], "permission.person_required", "{what}: {e}");
+        assert_eq!(e["error"]["data"]["peer"], "b", "{what}: {e}");
+    }
+    // Unenrolled (`host approvals rm`): the Mac's good proofs count nothing.
+    write(json!([]));
+    b.person.macs.view(&json!({"reload": true}));
+    let e = app
+        .raw(method::MUX_PERMISSION_GROUP_RESPOND, answer("allow_once", &rev, Some(good(None))))
+        .await;
+    assert_eq!(e["error"]["data"]["reason"], "permission.person_required", "unenrolled: {e}");
+    write(enrolled);
+    b.person.macs.view(&json!({"reload": true}));
+    // Every refusal left every member pending at the same revision.
+    let on_b =
+        cb.call(method::MUX_PERMISSION_GROUPS, json!({"sessionId": remote_id})).await.unwrap();
+    let still = on_b["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["groupId"] == group["groupId"])
+        .unwrap();
+    assert_eq!(still["state"], "pending", "{still}");
+    assert_eq!(still["revision"], rev, "{still}");
+
+    // Signed for every member: the group resolves on B and each tool call goes on.
+    let proofs = good(None);
+    let r = app
+        .call(
+            method::MUX_PERMISSION_GROUP_RESPOND,
+            answer("allow_once", &rev, Some(proofs.clone())),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["group"]["state"], "resolved", "{r}");
+    let mut chosen = Vec::new();
+    for _ in 0..500 {
+        let events = cb
+            .call(method::MUX_EVENTS, json!({"sessionId": remote_id, "limit": 500}))
+            .await
+            .unwrap();
+        chosen = events["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "permission_decision")
+            .map(|e| e["msg"]["outcome"]["optionId"].as_str().unwrap_or("").to_owned())
+            .collect();
+        if chosen.len() == 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let mut want: Vec<String> = members.iter().map(|(_, _, c)| format!("yes-{c}")).collect();
+    chosen.sort();
+    want.sort();
+    assert_eq!(chosen, want);
+    // The same proofs again, under a new key: nothing is pending, nothing counts.
+    let e = app
+        .raw(method::MUX_PERMISSION_GROUP_RESPOND, answer("allow_once", &rev, Some(proofs)))
+        .await;
+    assert_eq!(e["error"]["data"]["reason"], "permission.person_required", "replay: {e}");
+    let _ = std::fs::remove_dir_all(&home);
 }
 
 /// cx-0q7o slice 2b: every answer for a peer's prompt goes to the peer,
@@ -1501,6 +2057,53 @@ async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
     assert!(on_b.get("peer").is_none(), "{on_b}");
 }
 
+/// A secret method for a chat on a peer is refused on this daemon with the way that machine gets a
+/// value (a delivery to its file), and nothing reaches the peer: no value, no ref, no card.
+#[tokio::test]
+async fn a_secret_for_a_peer_chat_is_refused_here_and_never_reaches_the_peer() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "secrets").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "vaulted"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    for (m, p) in [
+        (
+            "_acpmux/secret_submit",
+            json!({"sessionId": remote_id, "secretId": "s1", "value": "sk-live-123"}),
+        ),
+        (
+            "_acpmux/secret_run",
+            json!({"sessionId": remote_id, "secretRef": "secret_x", "env": "API_KEY", "argv": ["true"]}),
+        ),
+        (
+            "_acpmux/secret_request",
+            json!({"sessionId": remote_id, "name": "API_KEY", "reason": "deploy"}),
+        ),
+    ] {
+        let refused = ca.call(m, p).await;
+        assert!(
+            refused.as_ref().is_err_and(|e| e.contains("runs on b")
+                && e.contains("cmux cloud deliver-secrets --target machine:b --names NAME")
+                && !e.contains("sk-live-123")),
+            "{m}: {refused:?}"
+        );
+    }
+    // B never heard of it: its chat holds no secret record.
+    let page =
+        cb.call(method::MUX_EVENTS, json!({"sessionId": remote_id, "limit": 5000})).await.unwrap();
+    let events = page["events"].as_array().unwrap();
+    assert!(
+        events.iter().all(|e| !e["kind"].as_str().unwrap_or("").starts_with("secret_")),
+        "{page}"
+    );
+}
+
 /// A TCP relay in front of `port` that counts the bytes each way: what
 /// crosses the peer link between two daemons. Returns its port and the
 /// counters (toward the client, toward the server).
@@ -1695,10 +2298,10 @@ async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// No message on a peer link is larger than one frame every acpmux reads (16 MiB). At
+/// No message on a peer link is larger than one frame every acpmux reads (31 MiB). At
 /// 2026-10-21 06:23Z a 32.8 MB reply from huge-blue reset cosmic-gray's link with its 29 chats:
 /// a history read with no `maxBytes`, 5000 records of a chat with long tool outputs. Here a
-/// 33 MB prompt pushed over the link fails alone, with an error; a 60 MB history comes in a page
+/// 33 MB prompt pushed over the link fails alone, with an error; a 72 MB history comes in a page
 /// that fits, and a record too large for any message comes as a stub; the link never drops.
 #[tokio::test]
 async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
@@ -1708,7 +2311,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     cfg.store.mode = StoreMode::Local;
     cfg.store.segment_bytes = 64 * 1024 * 1024;
 
-    // B owns a chat of 40 tool outputs of 1 MB, then one of 20 MB, written straight to its store:
+    // B owns a chat of 40 tool outputs of 1 MB, then one of 32 MB, written straight to its store:
     // no hub runs the chat before B, so no other record lands after them.
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
     let id = uuid::Uuid::now_v7().to_string();
@@ -1738,7 +2341,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     for _ in 0..40 {
         output(1024 * 1024);
     }
-    output(20 * 1024 * 1024);
+    output(32 * 1024 * 1024);
     let last = seq;
     let b = Hub::new(cfg.clone(), store);
     let _ = b.person.install_spawn_key(PERSON_KEY);
@@ -1764,12 +2367,12 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     let att =
         ca.call(method::MUX_ATTACH, json!({"session": "b/big", "limit": 5000})).await.unwrap();
     let wire = serde_json::to_string(&att).unwrap().len();
-    assert!(wire < 16 * 1024 * 1024, "the history page was {} MiB", wire >> 20);
+    assert!(wire <= acpmux::rpc::MAX_MESSAGE_BYTES, "the history page was {} MiB", wire >> 20);
     assert_eq!(att["peer"], "b");
     assert_eq!(att["hasMore"], true, "60 MB of history came in one page");
     let events = att["events"].as_array().unwrap();
     assert_eq!(events.last().unwrap()["seq"], last, "the page ends on the latest record");
-    // The 20 MB record, too large for any message, is a stub that says what it left out.
+    // The 32 MB record, too large for one JSON-RPC message, is a stub that says what it left out.
     let omitted = &events.last().unwrap()["msg"]["_meta"]["acpmux"]["omitted"];
     assert!(omitted["bytes"].as_u64().unwrap() > 20 * 1024 * 1024, "{omitted}");
 
@@ -1781,7 +2384,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     ca.call(method::MUX_ATTACH, json!({"session": "b/live", "limit": 1})).await.unwrap();
     cb.call(
         method::SESSION_PROMPT,
-        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:16"}]}),
+        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:32"}]}),
     )
     .await
     .unwrap();
@@ -2525,17 +3128,23 @@ async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer()
     tokio::spawn(acpmux::server::serve_unix(a.clone(), l));
     let cli = acpmux::client::Client::connect(&sock).await.unwrap();
 
-    let here = resolve(&cli, "agent", Some("near"), false).await.unwrap_err().to_string();
+    let here =
+        resolve(&cli, "agent", Some("near"), false, false, false).await.unwrap_err().to_string();
     assert!(here.contains("already runs on this machine") && here.contains("--reuse"), "{here}");
-    assert_eq!(resolve(&cli, "agent", Some("near"), true).await.unwrap(), None);
-    let there = resolve(&cli, "agent", Some("far"), false).await.unwrap_err().to_string();
+    assert_eq!(resolve(&cli, "agent", Some("near"), true, false, false).await.unwrap(), None);
+    let there =
+        resolve(&cli, "agent", Some("far"), false, false, false).await.unwrap_err().to_string();
     assert!(there.contains("already runs on b"), "{there}");
-    assert_eq!(resolve(&cli, "agent", Some("far"), true).await.unwrap().as_deref(), Some("b"));
+    assert_eq!(
+        resolve(&cli, "agent", Some("far"), true, false, false).await.unwrap().as_deref(),
+        Some("b")
+    );
     // On two machines: not guessed at, even with --reuse.
-    let two = resolve(&cli, "agent", Some("both"), true).await.unwrap_err().to_string();
+    let two =
+        resolve(&cli, "agent", Some("both"), true, false, false).await.unwrap_err().to_string();
     assert!(two.contains("this machine, b") && two.contains("--host"), "{two}");
     // A new name goes to the pick (which a busy test machine may refuse).
-    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false).await {
+    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false).await {
         let e = e.to_string();
         assert!(!e.contains("runs on") && !e.contains("--reuse"), "{e}");
     }
@@ -2587,6 +3196,16 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
     let hosts: Vec<&Value> = r["matches"].as_array().unwrap().iter().map(|m| &m["peer"]).collect();
     assert_eq!(hosts, [&Value::Null, &json!("b")], "{r}");
     assert_eq!(far_agent, near_agent, "the stand-in's ids changed; this test assumes they repeat");
+
+    // An exact mux id uses the narrow cached-row path, including for a peer
+    // row that remains available while the peer is not serving an info call.
+    let r = ca
+        .call("_acpmux/resolve", json!({"exactSessionId": true, "sessionId": far}))
+        .await
+        .unwrap();
+    assert_eq!(r["session"]["sessionId"], far, "{r}");
+    assert_eq!(r["session"]["peer"], "b", "{r}");
+    assert_eq!(r["session"]["host"], "b", "{r}");
 
     // A peer's session, from the native link the app opens: the host it names ranks first.
     let native = format!("cmux://agent/{family}/{far_agent}?host=b");
@@ -2805,4 +3424,68 @@ async fn a_peers_display_line_never_reaches_a_client() {
     for reply in [info, events] {
         assert!(reply.to_string().contains("the tool's own input"), "{reply}");
     }
+}
+
+/// A first explicit no-history attach is a live subscription, not a request
+/// to replay the entire existing journal after its first connection drop.
+#[tokio::test]
+async fn first_no_history_attach_keeps_its_baseline_across_peer_reconnect() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let (port, token) = listen_with_peer_token(b.clone(), "no-history-reconnect").await;
+    let mut cb = client(b.clone()).await;
+    let session = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        "_meta": {"acpmux": {"name": "baseline"}}}),
+        )
+        .await
+        .unwrap();
+    let sid = session["sessionId"].as_str().unwrap();
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": sid,
+        "prompt": [{"type": "text", "text": "old history before subscription"}]}),
+    )
+    .await
+    .unwrap();
+    let (relay, flap) = one_flap_relay(port, Duration::ZERO).await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let attached = ca
+        .call(method::MUX_ATTACH, json!({"session": "b/baseline", "limit": 0, "eventStream": true}))
+        .await
+        .unwrap();
+    assert_eq!(attached["events"], json!([]));
+    let baseline = attached["pageThrough"].as_u64().unwrap();
+    assert!(baseline > 0, "the peer already has a journal");
+    let peer = a.peer_by_name("b").unwrap();
+    let epoch = peer.link_epoch();
+    let mut settled = peer.settled();
+    flap.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while peer.link_epoch() == epoch
+            || !peer.connected.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            settled.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("peer reconnects and replays");
+    // Nothing ran between attach and reconnect. Retain all notifications still
+    // queued on A's client while sending the first new turn after the reconnect.
+    let (answer, events) = prompt_with_events(&mut ca, sid, "new turn after reconnect", None).await;
+    assert_eq!(answer["stopReason"], "end_turn");
+    assert!(!events.is_empty(), "new turn must still stream");
+    assert!(
+        events.iter().all(|event| event["seq"].as_u64().unwrap() > baseline),
+        "no-history attachment received old journal records: {events:?}"
+    );
+    assert!(
+        !events.iter().any(|event| event.to_string().contains("old history before subscription"))
+    );
+    peer.stop();
 }

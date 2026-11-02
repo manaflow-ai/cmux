@@ -22,6 +22,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var stream: SCStream?
     /// The display `stream` captures (a frame rate change reconfigures it for that display).
     private var streamDisplay: SCDisplay?
+    /// Goes up each time `stream` is set or cleared: a reconfiguration task
+    /// holds the one it was started for, never the (non-Sendable) stream.
+    private var streamGeneration = 0
     /// Each display's most frames per second (`NSScreen.maximumFramesPerSecond`), by display ID.
     private var frameRates: [CGDirectDisplayID: Int] = [:]
     /// The capture rate (``setFrameRate(_:)``).
@@ -143,36 +146,35 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 
     public func setFrameRate(_ fps: Int) {
         let rate = Self.captureFrameRate(for: fps)
-        let running = lock.withLock { () -> (SCStream, SCDisplay)? in
+        let generation = lock.withLock { () -> Int? in
             guard rate != frameRate else { return nil }
             frameRate = rate
-            guard let stream, let streamDisplay else { return nil }
-            return (stream, streamDisplay)
+            return stream == nil || streamDisplay == nil ? nil : streamGeneration
         }
-        guard let running else { return }
-        reconfigure(running.0, display: running.1, frameRate: rate)
-    }
-
-    /// A running capture and the display it captures, handed to the task that reconfigures it.
-    // crash-allow: two immutable lets of ScreenCaptureKit objects, which are thread-safe; the task only reads the display and calls updateConfiguration.
-    private struct RunningCapture: @unchecked Sendable {
-        // @unchecked: SCStream and SCDisplay are not marked Sendable; both are immutable here.
-        let stream: SCStream
-        let display: SCDisplay
+        guard let generation else { return }
+        reconfigure(generation: generation)
     }
 
     /// Brings a running capture to the current ``setFrameRate(_:)`` rate
     /// without restarting it. Changes in quick succession each start one of
     /// these; each reads the rate again after applying, so the capture
     /// always ends at the latest one whatever order they finish in.
-    private func reconfigure(_ stream: SCStream, display: SCDisplay, frameRate: Int) {
+    ///
+    /// The task carries only `generation` (ScreenCaptureKit's objects are
+    /// not Sendable): each pass takes the stream and its display from the
+    /// backend under `lock`, and ends once `stream` was replaced or cleared.
+    private func reconfigure(generation: Int) {
         let log = self.log
-        let running = RunningCapture(stream: stream, display: display)
         Task {
             var applied: Int?
             while true {
-                let rate = lock.withLock { self.stream === running.stream && !stopped ? self.frameRate : nil }
-                guard let rate, rate != applied else { return }
+                let running = lock.withLock { () -> (stream: SCStream, display: SCDisplay, rate: Int)? in
+                    guard !stopped, streamGeneration == generation, let stream = self.stream,
+                          let streamDisplay else { return nil }
+                    return (stream, streamDisplay, self.frameRate)
+                }
+                guard let running, running.rate != applied else { return }
+                let rate = running.rate
                 do {
                     try await running.stream.updateConfiguration(configuration(for: running.display, frameRate: rate))
                     log("capturing display \(running.display.displayID) at \(rate) fps")
@@ -209,13 +211,14 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
         // stop() may have run while this capture started: it then ends here, never stored.
-        let (previous, late, latest) = lock.withLock { () -> (SCStream?, Bool, Int) in
-            if stopped { return (nil, true, rate) }
+        let (previous, late, latest, generation) = lock.withLock { () -> (SCStream?, Bool, Int, Int) in
+            if stopped { return (nil, true, rate, streamGeneration) }
             defer {
                 self.stream = stream
                 streamDisplay = display
+                streamGeneration += 1
             }
-            return (self.stream, false, frameRate)
+            return (self.stream, false, frameRate, streamGeneration + 1)
         }
         if late {
             try? await stream.stopCapture()
@@ -225,7 +228,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         input.display = display.frame
         log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), \(rate) fps")
         // The rate changed while this capture started (setFrameRate found no stream to update).
-        if latest != rate { reconfigure(stream, display: display, frameRate: latest) }
+        if latest != rate { reconfigure(generation: generation) }
     }
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -252,11 +255,17 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         input.handle(message)
     }
 
+    /// Pixel scrolling (`u: "px"`) and pointer events that carry the held modifiers.
+    public var inputCapabilities: [String] {
+        [ScreenHostMessage.pixelScrollCapability, ScreenHostMessage.modifiedPointerCapability]
+    }
+
     public func stop() {
         let (stream, reconfiguration) = lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?) in
             defer {
                 self.stream = nil
                 streamDisplay = nil
+                streamGeneration += 1
                 stopped = true
                 self.reconfiguration = nil
             }
@@ -271,40 +280,66 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             }
             if Thread.isMainThread { release() } else { DispatchQueue.main.async(execute: release) }
         }
+        input.releaseAll()
         if let stream { Task { try? await stream.stopCapture() } }
     }
 }
 
 /// Posts input with CGEvent at the HID level (Accessibility permission):
 /// absolute pointer positions on the streamed display, button transitions
-/// with click counting, wheel scrolling, keys by virtual key code, and text
-/// as Unicode strings.
-// crash-allow: one per backend, driven only by the input channel's callbacks, which libwebrtc delivers one at a time.
+/// with click counting, wheel scrolling (lines, or pixels for `u: "px"`),
+/// keys by virtual key code, and text as Unicode strings. Every event
+/// carries the modifiers the viewer holds down (a modifier `key` down stays
+/// on until its up), so a ⌘, ⇧ or ⌥ key down, then a click, is a modified click.
+// crash-allow: one per backend; input state is touched only under `lock` (the channel's callbacks and the session's end).
 final class EventInjector: @unchecked Sendable {
-    // @unchecked: used from the data channel's callbacks, one at a time.
+    // @unchecked: input state behind `lock`; `display` is set once per capture start.
     var display = CGRect.zero
-    private let source = CGEventSource(stateID: .hidSystemState)
+    private let source: CGEventSource?
+    private let poster: @Sendable (CGEvent) -> Void
+
+    /// `post` sends each event (tests capture them; the backend posts at the HID tap).
+    init(source: CGEventSource? = CGEventSource(stateID: .hidSystemState),
+         post: @escaping @Sendable (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) }) {
+        self.source = source
+        poster = post
+    }
+
     private var buttons: UInt8 = 0
     private var point = CGPoint.zero
     private var lastClick: (time: TimeInterval, button: UInt8, count: Int64) = (0, 0, 0)
     private var flags: CGEventFlags = []
+    /// The session ended (``releaseAll()``): late input posts nothing.
+    private var ended = false
+    /// Input and ``releaseAll()`` come from different tasks (the channel, the session's end).
+    private let lock = NSLock()
 
     func handle(_ input: ScreenInput) {
+        lock.withLock {
+            guard !ended else { return }
+            apply(input)
+        }
+    }
+
+    private func apply(_ input: ScreenInput) {
         switch input.t {
         case "move":
             point = location(input)
             setButtons(input.b ?? 0)
         case "scroll":
             point = location(input)
-            post(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left))
-            post(CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 2,
-                         wheel1: Int32(input.dy ?? 0), wheel2: Int32(input.dx ?? 0), wheel3: 0))
+            postPointer()
+            // Pixels take the same sign as lines: positive dy is wheel 1 up either way.
+            let units: CGScrollEventUnit = input.u == ScreenInput.pixelUnit ? .pixel : .line
+            post(CGEvent(scrollWheelEvent2Source: source, units: units, wheelCount: 2,
+                         wheel1: Self.wheelDelta(input.dy), wheel2: Self.wheelDelta(input.dx), wheel3: 0))
         case "key":
             guard let keysym = input.k else { return }
             key(keysym, down: input.d ?? true)
         case "chord":
             guard let keysym = input.k else { return }
-            let modifiers = input.m ?? []
+            // A modifier the viewer already holds stays held after the chord.
+            let modifiers = (input.m ?? []).filter { keysym in Self.modifierFlags[keysym].map { held in !flags.contains(held) } ?? true }
             for modifier in modifiers { key(modifier, down: true) }
             key(keysym, down: true)
             key(keysym, down: false)
@@ -316,20 +351,51 @@ final class EventInjector: @unchecked Sendable {
         }
     }
 
+    /// Lets go of every button and modifier the viewer holds (a viewer that
+    /// drops mid-click or with ⌘ down leaves none stuck on the Mac); input
+    /// after it posts nothing.
+    func releaseAll() {
+        lock.withLock {
+            guard !ended else { return }
+            setButtons(0)
+            for (keysym, flag) in Self.releaseOrder where flags.contains(flag) { key(keysym, down: false) }
+            flags = []
+            ended = true
+        }
+    }
+
+    /// One keysym per modifier flag, for ``releaseAll()``.
+    private static let releaseOrder: [(UInt32, CGEventFlags)] = [
+        (0xFFE7, .maskCommand), (0xFFE9, .maskAlternate), (0xFFE3, .maskControl), (0xFFE1, .maskShift),
+    ]
+
     private func location(_ input: ScreenInput) -> CGPoint {
         CGPoint(x: display.minX + (input.x ?? 0) * display.width, y: display.minY + (input.y ?? 0) * display.height)
+    }
+
+    /// A scroll delta for the wheel field (clamped: a huge value never traps).
+    private static func wheelDelta(_ value: Int?) -> Int32 {
+        Int32(clamping: value ?? 0)
+    }
+
+    /// The pointer at `point` with the buttons held: a drag of the first of
+    /// left, right and middle that is down, or a plain move.
+    private func postPointer() {
+        let (type, button): (CGEventType, CGMouseButton) = buttons & 1 != 0 ? (.leftMouseDragged, .left)
+            : buttons & 4 != 0 ? (.rightMouseDragged, .right)
+            : buttons & 2 != 0 ? (.otherMouseDragged, .center)
+            : (.mouseMoved, .left)
+        post(CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button))
     }
 
     /// Moves, then posts a down or up for each button whose state changed.
     private func setButtons(_ next: UInt8) {
         let changed = next ^ buttons
-        let held = buttons
-        buttons = next
-        if changed == 0 {
-            let type: CGEventType = held & 1 != 0 ? .leftMouseDragged : held & 4 != 0 ? .rightMouseDragged : .mouseMoved
-            post(CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left))
+        guard changed != 0 else {
+            postPointer()
             return
         }
+        buttons = next
         for (bit, button, down, up) in [(UInt8(1), CGMouseButton.left, CGEventType.leftMouseDown, CGEventType.leftMouseUp),
                                         (4, .right, .rightMouseDown, .rightMouseUp), (2, .center, .otherMouseDown, .otherMouseUp)]
             where changed & bit != 0 {
@@ -369,8 +435,13 @@ final class EventInjector: @unchecked Sendable {
         }
     }
 
+    /// Posts `event` with the held modifiers (keys set their own flags first).
+    /// The viewer's modifiers replace the source state's, so a key held on
+    /// the Mac's own keyboard is not added to a remote click.
     private func post(_ event: CGEvent?) {
-        event?.post(tap: .cghidEventTap)
+        guard let event else { return }
+        if event.type != .keyDown, event.type != .keyUp, event.type != .flagsChanged { event.flags = flags }
+        poster(event)
     }
 
     private static let modifierFlags: [UInt32: CGEventFlags] = [

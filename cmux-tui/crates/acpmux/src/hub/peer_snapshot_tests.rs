@@ -256,6 +256,7 @@ fn a_restart_drops_what_is_not_a_copy_and_cuts_one_past_its_bound() {
 }
 
 /// Runs `f` with `dir` read-only, so removals in it are refused; None when it cannot be.
+#[cfg(unix)]
 fn read_only<T>(dir: &Path, f: impl FnOnce() -> T) -> Option<T> {
     use std::os::unix::fs::PermissionsExt;
     // SAFETY: getuid has no preconditions.
@@ -268,6 +269,7 @@ fn read_only<T>(dir: &Path, f: impl FnOnce() -> T) -> Option<T> {
     Some(out)
 }
 
+#[cfg(unix)]
 #[test]
 fn a_refused_removal_stays_counted_and_holds_up_writes_past_the_total() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
@@ -301,6 +303,7 @@ fn a_refused_removal_stays_counted_and_holds_up_writes_past_the_total() {
     assert!(!peer_dir.exists(), "the emptied directory goes too");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_directory_that_does_not_read_or_is_a_symlink_holds_up_every_write() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");

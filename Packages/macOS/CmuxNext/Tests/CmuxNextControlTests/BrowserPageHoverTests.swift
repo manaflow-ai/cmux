@@ -28,7 +28,7 @@ import Testing
     }
 
     func hover(native: Bool) async throws -> RecordingEngine {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = RecordingEngine(native: native)
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = ControlSnapshot.sample()

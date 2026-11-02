@@ -230,6 +230,10 @@ const gitSource: ChangesSource = {
   commit: async () => ({}),
   push: async () => ({}),
 };
+/// A git scope whose host left untracked files out to stay responsive: the tracked-only banner.
+const trackedOnlySource: ChangesSource = {
+  diff: async (scope: ChangeScope) => ({ ...loadedScope, scope, untracked_skipped: 1284 }),
+};
 const emptySource: ChangesSource = { diff: async () => ({ files: [] }) };
 const errorSource: ChangesSource = {
   diff: async () => {
@@ -319,9 +323,17 @@ const splitPaneHeader: Play = async (ctx) => {
   });
 };
 
+/// Picks a scope from the Changes menu, then waits for the menu to close and give focus back to
+/// the panel: until then a key goes to the closing menu (a portal outside the panel), never to the
+/// panel's reading keys.
 const chooseScope = async (ctx: Parameters<Play>[0], scope: string) => {
   await ctx.click({ role: "button", name: /^Changes: / });
   await ctx.click({ text: scope });
+  await ctx.waitFor(
+    () =>
+      !ctx.document.querySelector('[role="menu"]') &&
+      ctx.document.querySelector(".acpmux-diff-panel")?.contains(ctx.document.activeElement) === true,
+  );
 };
 
 /// n twice reaches the second hunk; s stages that hunk alone, named from the repository's top.
@@ -445,10 +457,28 @@ export default componentEntry<GalleryProps>({
   ],
   load: async () => GalleryDiffPanel,
   styles: () =>
-    Promise.all([import("./styles.css"), import("./conversation/conversation.css"), import("./changes/changes.css")]),
+    Promise.all([
+      import("../shared/styles.css"),
+      import("./diffTokens.css"),
+      import("./styles.css"),
+      import("./conversation/conversation.css"),
+      import("./changes/changes.css"),
+    ]),
   widths: { narrow: 520, normal: 860, wide: 1180 },
   height: 620,
   variants: {
+    "unified-narrow": {
+      note: "At 520 px the shared auto preference resolves to a calm unified diff with no clipped second side.",
+      props: { files, initialLayout: "auto", initialShowTree: false, paneWidth: 520 },
+    },
+    "auto-wide-split": {
+      note: "At 1180 px auto layout resolves to the full viewer's split diff while keeping the file tree available.",
+      props: { files, initialLayout: "auto", initialShowTree: true, paneWidth: 1180 },
+    },
+    "tree-open-glass": {
+      note: "The tree-open glass treatment uses the shared pill and header tokens over the see-through surface.",
+      props: { files, initialLayout: "auto", initialShowTree: true, paneWidth: 860 },
+    },
     "last-turn": {
       note: "Two changed files show their stacked diffs, counts, tree and reader key hints.",
       props: { files },
@@ -519,6 +549,14 @@ export default componentEntry<GalleryProps>({
       note: "A successful git scope with no files reports an empty result.",
       props: { files, source: emptySource },
       play: showEmpty,
+    },
+    "tracked-only": {
+      note: "A git scope that left untracked files out shows the tracked-only banner, with Copy cleanup command and Refresh, above its diffs.",
+      props: { files, source: trackedOnlySource },
+      play: async (ctx) => {
+        await chooseScope(ctx, "Uncommitted");
+        await ctx.waitFor(() => ctx.find({ selector: ".acpmux-changes-banner" }));
+      },
     },
     "split-pane": {
       note: "A 280 px split beside the chat: Commit, Push and the view tools wrap under the Last turn pill instead of drawing over it.",

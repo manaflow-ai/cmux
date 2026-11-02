@@ -255,6 +255,43 @@ const both = () =>
     summary(5.5, { status: "completed" }),
   ]);
 
+const received = (name: string, text: string, minutes: number, harness?: string) =>
+  user("", minutes, {
+    incoming: { kind: "message", message: { name, sessionId: name, text, raw: text, ...(harness ? { harness } : {}) } },
+    untyped: true,
+  });
+
+// One icon column (transcript-icon-column.test.ts): a command row, a message from a Codex
+// session (its harness's logo), this agent's send (the envelope) and a message from a sender with
+// no mark (the bot), stacked as they arrive, so each row's glyph and words read against the others.
+const iconColumn = () =>
+  chat([
+    user("Ask go-live to cut the nightly, then report back.", 6),
+    activity(
+      [tool("Run", "execute", "completed", { command: "git log --oneline -1", output: "6d9ae71 base autofix\n" })],
+      5.9,
+    ),
+    received("go-live", "The nightly is cut at 6d9ae71; the feed has it.", 5.5, "codex"),
+    activity([sendMessage("go-live", "Send the feed link and the build number.", "completed", QUEUED)], 5),
+    received("release-notes", "The release notes are drafted.", 4.5),
+  ]);
+
+const foldedRun = () =>
+  chat([
+    received("claude-sr2", "The coordinator has the green build.", 4),
+    received("claude-sr2", "The exact head is 2a7ce36.", 3.8),
+    received("claude-sr2", "I am checking the final screenshots now.", 3.6),
+    received("claude-sr2", "I will report back when the review lands.", 3.4),
+  ]);
+
+const foldedMixedRun = () =>
+  chat([
+    received("claude-sr2", "The coordinator has the green build.", 4),
+    received("codex-review", "Astra found no blocking findings.", 3.8),
+    received("claude-sr2", "The exact head is 2a7ce36.", 3.6),
+    received("codex-review", "The visual check is ready.", 3.4),
+  ]);
+
 export default agentPaneEntry({
   id: "agent-pane.agent-message-row",
   title: "Messages between agents",
@@ -266,6 +303,14 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/agentMessages.ts",
   ],
   variants: {
+    "unicode-boundary": {
+      note: "The first line puts an emoji across the 240-code-unit preview boundary in both directions. At wide width the cutoff is visible; narrow width retains the normal CSS ellipsis.",
+      theme: { chatWidth: "wide" },
+      snapshot: chat([
+        activity([sendMessage("Jo", `${"i".repeat(239)}🦊 later`)], 3),
+        received("Jo", `${"i".repeat(239)}🦊 later`, 2),
+      ]),
+    },
     sent: {
       note: 'Sends start collapsed: an envelope, "Sent to" and the recipient as a chip (a subagent by its description, never its agentId), the first line muted, a chevron, and one muted word for how far it got: Queued, Delivered, Sent. A send still going out reads "Sending to" with the working mark.',
       snapshot: sends(),
@@ -309,14 +354,36 @@ export default agentPaneEntry({
       note: "A message this agent sent and the answer another agent sent back, one line each at the transcript's left.",
       snapshot: both(),
     },
+    "icon-column": {
+      note: "A command, a message from a Codex session, this agent's send and a message from a sender with no mark: every row's glyph sits in one 16px slot on one center line, and every row's words start at one x (Leo: \"the alignment i feel like we might as well\").",
+      snapshot: iconColumn(),
+    },
     "both-directions-opened": {
       note: "Both opened: the sent message and the received one under their lines.",
       snapshot: both(),
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
-        await ctx.click({ selector: ".cv-received__toggle" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__body"));
+        await ctx.click({ selector: ".cv-received .cv-disclosure__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
+      },
+    },
+    "folded-run": {
+      note: "Four consecutive messages from claude-sr2: four lines, each where it arrived (they no longer fold into one card); each line opens its whole message.",
+      snapshot: foldedRun(),
+    },
+    "folded-run-mixed": {
+      note: "A consecutive burst from two agents: one line per message, each naming its sender.",
+      snapshot: foldedMixedRun(),
+    },
+    "folded-run-opened": {
+      note: "The burst with every line opened: each received message's panel holds its whole body.",
+      snapshot: foldedRun(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 4);
+        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle"))
+          toggle.click();
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 4);
       },
     },
   },

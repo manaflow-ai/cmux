@@ -12,7 +12,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       if (url.searchParams.has("after") && !cursor) return runError(new RunRequestError("run_cursor_invalid", "The event cursor is invalid.", "Use the nextCursor returned by the previous Run events response."));
       const parsedLimit = Number(url.searchParams.get("limit") ?? "100");
       const result = await listRunEvents({ runId: id, userId: user.id, afterSequence: cursor?.sequence, limit: Number.isSafeInteger(parsedLimit) ? parsedLimit : 100 });
-      return runJson({ events: result.events.map(toRunEventView), nextCursor: nextCursor(result.nextSequence) });
+      return runJson({ events: result.events.map((event) => toRunEventView(event, result.environment, result.handles)), nextCursor: nextCursor(result.nextSequence) });
     } catch (error) {
       return runError(error);
     }

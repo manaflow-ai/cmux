@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+public import CmuxNextSettings
 import Foundation
 
 /// The picker of Move Sessions from Another cmux Build… (cx-yxmkh) as data:
@@ -152,6 +153,23 @@ public nonisolated struct SessionMoveSelection: Equatable {
         }
     }
 
+    /// Why a picked terminal must not move now, asked again right before its build ends it:
+    /// the picker's answer is seconds or minutes old, and a terminal idle then may run `vim`
+    /// now. `list` is the build's fresh `session.transfer.list` answer (nil when it gave none);
+    /// a terminal missing from it, or whose build can't tell, does not move either. Nil: still idle.
+    /// - Parameters:
+    ///   - surface: The terminal's id in its build (`SessionTransferItem.id`).
+    ///   - list: The build's `session.transfer.list` answer, if any.
+    public static func handoffRefusal(surface: String, list: JSONValue?) -> String? {
+        let item = (list?["sessions"]?.arrayValue ?? []).lazy.compactMap { SessionTransferItem(json: $0) }
+            .first { $0.id == surface && $0.kind == .terminal }
+        switch item?.activity ?? .unknown {
+        case .idle: return nil
+        case .running(let program) where !program.isEmpty: return becameBusy(program)
+        case .running, .unknown: return becameUnknown
+        }
+    }
+
     /// The build's app name and, when it has one, its tag.
     public static func heading(_ peer: SessionTransferPeer) -> String {
         guard let tag = peer.tag, !tag.isEmpty, tag != peer.app else { return peer.app }
@@ -192,6 +210,16 @@ public nonisolated struct SessionMoveSelection: Equatable {
     public static func unknownActivity(_ title: String) -> String {
         String(localized: "sessionMove.row.unknownActivity",
                defaultValue: "\(title): the other build can’t tell whether a program is running, so it stays there.", bundle: .module)
+    }
+    /// Localized text: a picked terminal that started running `program` before the move.
+    public static func becameBusy(_ program: String) -> String {
+        String(localized: "sessionMove.handoff.running",
+               defaultValue: "It started running \(program) after you picked it, so it stayed in the other build.", bundle: .module)
+    }
+    /// Localized text: a picked terminal whose build could no longer tell whether a program runs in it.
+    public static var becameUnknown: String {
+        String(localized: "sessionMove.handoff.unknownActivity",
+               defaultValue: "The other build could no longer tell whether a program is running in it, so it stayed there.", bundle: .module)
     }
     /// Localized text: endTerminalsTitle.
     public static var endTerminalsTitle: String {

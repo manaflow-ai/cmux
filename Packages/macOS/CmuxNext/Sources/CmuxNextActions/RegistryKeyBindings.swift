@@ -44,18 +44,24 @@ public struct RegistryKeyBindings {
         return sub
     }
 
-    /// Bound, available in `context` (the key window's facts), and enabled.
+    /// Bound, available in `context` (the key window's facts), and enabled, or disabled by a reason
+    /// a person's key may take a recovery past (``ActionRecovery``: Sign In, then the action).
     public func canPerform(_ id: ActionID, in context: ActionContext) -> Bool {
         guard let action = registry.action(for: id), registry.isAvailable(id, in: context) else { return false }
-        return action.isEnabled()
+        if action.isEnabled() { return true }
+        var invocation = ActionInvocation()
+        invocation.keyContext = context
+        return registry.personRecovery(for: id, invocation) != nil
     }
 
     /// Runs a resolved binding with the context of the window whose key
     /// ran it, so availability is checked against that window, never
-    /// against the context another window published.
+    /// against the context another window published. `target`: the object the key was typed for when it is not the
+    /// focused one (a key held for a terminal still being made, run after the focus moved on).
     @discardableResult
-    public func run(_ binding: KeyBinding, keyContext: ActionContext) -> Bool {
+    public func run(_ binding: KeyBinding, keyContext: ActionContext, target: ActionTargetRef? = nil) -> Bool {
         var invocation = ActionInvocation(arguments: binding.arguments)
+        invocation.target = target
         if let argument = binding.argument {
             let schema = registry.descriptor(for: binding.command)?.arguments.first
             invocation.arguments[schema?.name ?? "value"] = schema?.parse(argument) ?? .string(argument)
@@ -118,6 +124,11 @@ public struct RegistryKeyBindings {
                 let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? keyWhen : when, source: source)
                 layers[source, default: []].append((binding, specificity, order))
             }
+            // `{"any": [...]}`: the keys after the override are cmux.json entries too.
+            for keys in registry.alternateShortcuts[id] ?? [] {
+                guard let last = keys.last else { continue }
+                for (key, argument) in expandFamily(id, last) { add(Array(keys.dropLast()) + [key], argument: argument, source: .user) }
+            }
             let userChord = registry.chordOverrides[id] != nil
             if let chord = registry.effectiveChord(for: id) {
                 for (second, argument) in expandFamily(id, chord.second) {
@@ -152,17 +163,18 @@ public struct RegistryKeyBindings {
             entries += ranked.map(\.binding)
             switch source {
             case .ghosttyFallback: break
-            case .default: entries += KeyBindingDefaults.scopedEntries(registry: registry)
+            case .default:
+                entries += KeyBindingDefaults.scopedEntries(registry: registry)
+                // After the catalog defaults and the tab-cycle aliases, so they win where they hold;
+                // still cmux defaults: the user's Ghostty config and cmux.json win over them.
+                entries += KeyBindingDefaults.workspacesAsTabs(registry: registry)
+                // On Home the tab keys move through the chat list.
+                entries += KeyBindingDefaults.homeChatSwitching(registry: registry)
             case .app: entries += extra.app.filter(enabled)
             case .ghostty:
                 claimed = entries.filter(isClaimed)
                 entries.removeAll(where: isClaimed)
                 entries += extra.ghostty.filter { $0.source == .ghostty && enabled($0) }
-                // The Chrome tab keys win over every focus and the Ghostty config; cmux.json still decides.
-                entries += KeyBindingDefaults.tabSwitching(registry: registry)
-                entries += KeyBindingDefaults.workspacesAsTabs(registry: registry)
-                // On Home the same keys move through the chat list.
-                entries += KeyBindingDefaults.homeChatSwitching(registry: registry)
             case .user: entries += extra.user.filter(enabled)
             }
         }
@@ -171,7 +183,10 @@ public struct RegistryKeyBindings {
 
     /// A user override equal to the catalog default stays a default entry,
     /// so writing the default key into cmux.json changes nothing.
+    /// An action with alternates (`{"any": [...]}`) has all its keys as
+    /// cmux.json entries, so one of them never yields where another runs.
     private func source(_ id: ActionID, _ shortcut: Shortcut) -> KeyBinding.Source {
+        if registry.alternateShortcuts[id] != nil { return .user }
         guard let override = registry.shortcutOverrides[id], override != nil else { return .default }
         return override == registry.descriptor(for: id)?.defaultShortcut ? .default : .user
     }

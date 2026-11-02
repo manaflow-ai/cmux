@@ -1,25 +1,36 @@
+import * as Effect from "effect/Effect";
 import { defaultProviderId, getProvider } from "../vms/drivers";
 import { resolveVmImage } from "../vms/images/resolver";
 import { vmModelPlaneGatewayFor, vmModelPlaneRevoker } from "../vms/modelPlaneGateway";
 import { isVmNotFoundError } from "../vms/errors";
+import { isProviderDeletionConfirmed } from "../vms/providerErrors";
 import { createVm, destroyVm, runVmWorkflow } from "../vms/workflows";
+import { runAfterResponse } from "../vms/routeHelpers";
 import type { VmEntitlements } from "../vms/entitlements";
 import type { AuthedUser } from "../vms/auth";
-import { CloudVmRunAdapter } from "../vms/cloudVmRunAdapter";
+import { CloudVmRunAdapter, type CloudVmAgent } from "../vms/cloudVmRunAdapter";
 import { attachAttemptToRuntime, createRuntime, getRuntime, updateRuntime } from "../vms/runtimeRepository";
 import {
   claimAttemptLease,
   claimExpiredAttemptCleanups,
+  cloudVmRowLive,
+  confirmSandboxVmDestroyed,
+  deferAttemptCleanup,
+  failAbandonedSandboxAttempts,
   finishAttemptCleanup,
+  sandboxVmOwnedByAttempt,
   finalizeAttemptCancellation,
   forceFinalizeRunCancellation,
   ingestRunEvent,
   listActiveCloudVmAttempts,
   recordAttemptProviderHandle,
+  recordSandboxOutcome,
   renewAttemptLease,
   scheduleAttemptRetention,
   type RunSource,
 } from "./repository";
+import { SANDBOX_VM_MARKER_KEY, sandboxVmIdempotencyKey } from "./model";
+import { runSandboxAttempt, sandboxJournalKind, sandboxJournalPayload } from "./sandboxLauncher";
 
 /**
  * The first internal dogfood adapter deliberately goes through the existing
@@ -73,6 +84,8 @@ export async function launchCloudVmAttempt(input: {
       idempotencyKey: `run:${input.runId}:attempt:${input.attemptId}`,
       modelPlane: vmModelPlaneGatewayFor({ teamId: input.entitlements.billingTeamId, stackUserId: input.user.id }),
       origin: "create",
+      // The guest vm-kind write runs after the request's answer, kept alive by the platform.
+      deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
     }));
     const createdVmId = vm.providerVmId;
     vmId = createdVmId;
@@ -230,13 +243,39 @@ export async function cancelActiveCloudVmAttempts(input: {
   await forceFinalizeRunCancellation(input.runId, input.userId);
 }
 
-/** Reap completed cloud VMs after their terminal attach window expires. */
-export async function reapExpiredCloudVmAttempts(input: { readonly limit?: number } = {}): Promise<{ claimed: number; cleaned: number; errors: number }> {
+/** The provider's own strict destroy: true when it destroyed the VM or says it has no such machine. */
+async function strictProviderDestroy(providerVmId: string): Promise<boolean> {
+  try {
+    await getProvider(defaultProviderId()).destroy(providerVmId, undefined, { strict: true });
+    return true;
+  } catch (providerError) {
+    // Only the provider's own "no such machine" counts; an endpoint 404 is not proof.
+    if (isProviderDeletionConfirmed(providerError)) return true;
+    console.error("[runs] sandbox VM provider destroy failed", providerError);
+    return false;
+  }
+}
+
+/**
+ * Reap completed cloud VMs after their terminal attach window expires. The cron pass first fails
+ * sandboxed attempts whose launcher died, so their VMs are due in the same pass; `runId` scopes
+ * an inline destroy to one Run (a sandbox's own teardown or its cancel).
+ */
+export async function reapExpiredCloudVmAttempts(input: { readonly limit?: number; readonly runId?: string } = {}): Promise<{ claimed: number; cleaned: number; errors: number }> {
+  // The cron pass sweeps every Run; a scoped call (a cancel) adopts that Run's orphan VM only.
+  try {
+    await failAbandonedSandboxAttempts({ limit: input.limit, runId: input.runId });
+  } catch (error) {
+    console.error("[runs] abandoned sandbox sweep failed", error);
+  }
   const claims = await claimExpiredAttemptCleanups(input);
   let cleaned = 0;
   let errors = 0;
   await Promise.allSettled(claims.map(async (claim) => {
     let succeeded = false;
+    let deferred = false;
+    // A handle let go without any destroy: never recorded as a confirmed destroy.
+    let released = false;
     try {
       if (!claim.attempt.providerVmId) throw new Error("retained attempt has no provider VM id");
       await runVmWorkflow(destroyVm({
@@ -246,11 +285,48 @@ export async function reapExpiredCloudVmAttempts(input: { readonly limit?: numbe
         providerVmId: claim.attempt.providerVmId,
         modelPlane: vmModelPlaneRevoker(),
         source: "user_request",
+        requireConfirmedDeletion: claim.environment === "sandboxed",
       }));
       succeeded = true;
       cleaned += 1;
     } catch (error) {
-      if (isVmNotFoundError(error)) {
+      if (isVmNotFoundError(error) && claim.environment === "sandboxed" && claim.attempt.providerVmId
+        && await cloudVmRowLive(claim.attempt.providerVmId).catch(() => true)) {
+        // A sandbox's VM row is still up but this scope can't reach it: not proof it is gone.
+        // Keep the obligation (the receipt reads it as pending) and retry it in 10 minutes.
+        errors += 1;
+        deferred = true;
+        console.error("[runs] sandbox VM is still recorded but out of the reaper's scope", { attemptId: claim.attempt.id });
+      } else if (isVmNotFoundError(error) && claim.environment === "sandboxed" && claim.attempt.providerVmId) {
+        // The unscoped provider destroy below is only for the VM the launcher created for this
+        // attempt; an id that only came from an event never reaches another tenant's VM.
+        const providerVmId = claim.attempt.providerVmId;
+        const owned = await sandboxVmOwnedByAttempt({ providerVmId, runId: claim.attempt.runId, attemptId: claim.attempt.id, userId: claim.userId })
+          .catch((lookupError: unknown) => {
+            console.error("[runs] sandbox VM ownership lookup failed", lookupError);
+            return null;
+          });
+        if (owned === null) {
+          // Ownership unknown: no provider call; keep the obligation and retry later.
+          errors += 1;
+          deferred = true;
+        } else if (!owned) {
+          // Nothing of this Run's to destroy: let the handle go, and confirm no destroy.
+          succeeded = true;
+          released = true;
+          console.warn("[runs] sandbox attempt's VM id is not its own VM; released without a provider destroy", { attemptId: claim.attempt.id });
+        } else {
+          // Its own VM row is no longer live, but that is the control plane's view: ask the provider
+          // itself, and treat the VM as gone only when it confirms (destroyed now, or not found).
+          if (await strictProviderDestroy(providerVmId)) {
+            succeeded = true;
+            cleaned += 1;
+          } else {
+            errors += 1;
+            deferred = true;
+          }
+        }
+      } else if (isVmNotFoundError(error)) {
         // The VM is gone, or this run's user and billing scope can no longer reach it, so this
         // row can never destroy it. Leaving it claimable would fail it every minute and, with
         // claims oldest first, starve the rows behind it.
@@ -258,10 +334,18 @@ export async function reapExpiredCloudVmAttempts(input: { readonly limit?: numbe
         console.warn("[runs] retained cloud VM was already gone", { attemptId: claim.attempt.id });
       } else {
         errors += 1;
+        // A sandbox's destroy that keeps failing is retried later, not at the head of every batch.
+        deferred = claim.environment === "sandboxed";
         console.error("[runs] retained cloud VM cleanup failed", error);
       }
     } finally {
-      await finishAttemptCleanup({ attemptId: claim.attempt.id, cleanupLeaseToken: claim.cleanupLeaseToken, succeeded });
+      // For a sandbox, succeeded means a strict destroy confirmed the VM is gone. Record that: the
+      // orphan sweep adopts a marked VM until it is set, so a failed write costs one more destroy.
+      if (succeeded && !released && claim.environment === "sandboxed" && claim.attempt.providerVmId) {
+        await confirmSandboxVmDestroyed(claim.attempt.providerVmId).catch((error) => console.error("[runs] sandbox VM destroy confirmation not recorded", error));
+      }
+      if (deferred) await deferAttemptCleanup({ attemptId: claim.attempt.id, cleanupLeaseToken: claim.cleanupLeaseToken, delayMs: 10 * 60_000 });
+      else await finishAttemptCleanup({ attemptId: claim.attempt.id, cleanupLeaseToken: claim.cleanupLeaseToken, succeeded });
     }
   }));
   return { claimed: claims.length, cleaned, errors };
@@ -287,3 +371,113 @@ export async function launchQueuedCloudVmAttempts(input: {
   })));
 }
 
+
+/**
+ * Launch a sandboxed Run's one attempt (hq#3367): boot the Run's pinned image with no durable
+ * home, run the task, journal it through the fenced event API, then destroy the VM on every path.
+ * Runs after the create response, so its timeout stays inside that route's budget.
+ */
+export async function launchSandboxRun(input: {
+  readonly user: AuthedUser;
+  readonly entitlements: VmEntitlements;
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly image: { readonly id: string; readonly version: string | null; readonly size: Parameters<typeof createVm>[0]["imageSize"] | null };
+  readonly task: string;
+  readonly agent: CloudVmAgent;
+  readonly timeoutMs: number;
+  readonly requestedAt: number;
+}): Promise<void> {
+  const provider = defaultProviderId();
+  const adapter = new CloudVmRunAdapter(getProvider(provider));
+  const teamId = input.entitlements.billingTeamId;
+  const ids = { runId: input.runId, attemptId: input.attemptId };
+  // The lease covers the whole timeout plus boot; the loop's events renew it for as long again.
+  const leaseTtlMs = 15 * 60 * 1000;
+  let runtimeId: string | undefined;
+  await runSandboxAttempt({ ...ids, task: input.task, agent: input.agent, timeoutMs: input.timeoutMs, requestedAt: input.requestedAt }, {
+    claimLease: () => claimAttemptLease({ ...ids, workerId: `sandbox:${input.user.id}`, ttlMs: leaseTtlMs }),
+    // The runtime row is bookkeeping: the launcher bounds it and goes on without it on failure.
+    recordRuntime: async () => {
+      const runtime = await createRuntime({
+        ownerTeamId: teamId,
+        kind: "ephemeral",
+        lifecycleState: "provisioning",
+        idempotencyKey: `run:${input.runId}:attempt:${input.attemptId}:runtime`,
+      });
+      runtimeId = runtime.id;
+      await attachAttemptToRuntime({ ownerTeamId: teamId, ...ids, runtimeId: runtime.id });
+    },
+    createVm: async () => {
+      const vm = await runVmWorkflow(createVm({
+        userId: input.user.id,
+        billingCustomerType: input.entitlements.billingCustomerType,
+        billingTeamId: teamId,
+        billingPlanId: input.entitlements.planId,
+        maxActiveVms: input.entitlements.maxActiveVms,
+        provider,
+        image: input.image.id,
+        imageVersion: input.image.version,
+        imageSize: input.image.size ?? undefined,
+        // No durable home: nothing of a sandbox outlives its VM.
+        idempotencyKey: sandboxVmIdempotencyKey(input.runId, input.attemptId),
+        // The marker that, with the key, makes pause, snapshot and fork refuse this VM.
+        providerMetadata: { [SANDBOX_VM_MARKER_KEY]: sandboxVmIdempotencyKey(input.runId, input.attemptId) },
+        modelPlane: vmModelPlaneGatewayFor({ teamId, stackUserId: input.user.id }),
+        origin: "create",
+        deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
+      }));
+      if (runtimeId) await updateRuntime({ ownerTeamId: teamId, runtimeId, lifecycleState: "running" }).catch(() => undefined);
+      return { providerVmId: vm.providerVmId };
+    },
+    recordStarted: async (lease, providerVmId) => {
+      await ingestRunEvent({
+        ...ids, ...lease, externalId: "attempt-started", attemptSequence: 0, kind: "attempt.started",
+        payload: { provider, providerVmId, environment: "sandboxed" },
+      });
+    },
+    prepare: (spec) => adapter.prepareAttempt(spec),
+    start: (prepared) => adapter.start(prepared),
+    recordHandles: async (lease, attempt) => {
+      await recordAttemptProviderHandle({
+        ...ids, ...lease, providerVmId: attempt.vmId, providerWorkspaceId: attempt.workspaceId, providerTerminalId: attempt.terminalId,
+      });
+    },
+    events: (attempt, signal) => adapter.events(attempt, 0, signal),
+    ingest: async (lease, event) => {
+      const current = await renewAttemptLease({ ...ids, ...lease, ttlMs: leaseTtlMs });
+      // The renewal above fences a cancel even for an event that is not journaled.
+      const kind = sandboxJournalKind(event);
+      if (!kind) return;
+      await ingestRunEvent({
+        ...ids,
+        leaseToken: current.leaseToken,
+        leaseGeneration: current.leaseGeneration,
+        externalId: event.eventId,
+        attemptSequence: event.seq,
+        kind,
+        payload: sandboxJournalPayload(event),
+      });
+    },
+    closeTerminal: (attempt) => adapter.cancel(attempt),
+    recordFailure: async (lease, error, sequence, providerVmId) => {
+      await ingestRunEvent({
+        ...ids, ...lease, externalId: "attempt-failed", attemptSequence: sequence, kind: "attempt.failed",
+        payload: { error, ...(providerVmId ? { providerVmId } : {}) },
+      });
+    },
+    scheduleCleanup: async (lease, providerVmId) => {
+      await scheduleAttemptRetention({ ...ids, ...lease, providerVmId, retentionMs: 0 });
+    },
+    destroyNow: async () => {
+      const result = await reapExpiredCloudVmAttempts({ runId: input.runId });
+      if (result.errors > 0) throw new Error(`${result.errors} sandbox VM destroy(s) failed`);
+      if (runtimeId) await updateRuntime({ ownerTeamId: teamId, runtimeId, lifecycleState: "released" }).catch(() => undefined);
+    },
+    recordOutcome: async (lease, outcome) => {
+      await recordSandboxOutcome({ ...ids, ...lease, outcome });
+    },
+    now: () => Date.now(),
+    log: (message, error) => console.error(message, error),
+  });
+}

@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""The cmux-next "Tour the app" job runs on merges and once per `media-tour` label.
+"""The cmux-next "Tour the app" job runs on the nightly tip and once per `media-tour` label.
 
 It ran on every push to every feat-cmux-next pull request that touched UI
 paths: on 2026-10-14 it had 32 queued and 8 running jobs on the owned Macs'
 gui runners, one per mini, which saturated them. Then it ran for a labeled
 pull request on every push, and from 2026-10-19 for an unlabeled one whose
 Swift UI change a specific tour covered. Since 2026-10-21 (Leo: only on a merge
-or on demand) it runs for a push to feat-cmux-next (a merge), a dispatch, and
-the `labeled` event that adds `media-tour`. No push of a pull request starts a
-run, labeled or not; to tour a newer head, re-add the label. A
-label event for another label starts no job and cancels no tour.
+or on demand) it ran for every push to feat-cmux-next (a merge): 144 tours and
+3,408 Mac-minutes a day on 2026-10-26. Since 2026-10-27 a push to nightly-next
+(the nightly tip) replaces the per-merge tour; it spans many merges, so it
+posts on no pull request. It also runs for a dispatch and the `labeled` event
+that adds `media-tour`. No push of a pull request or of feat-cmux-next starts a
+run; to tour a newer head, re-add the label. A label event for another label
+starts no job and cancels no tour.
 
 This evaluates the workflow's own trigger, concurrency and job conditions for
 each event, runs the publish job's pull request lookup with a fake gh, and
@@ -124,7 +127,7 @@ def pr_event(action, labels, label=None, fork=False, number=42):
 
 def push_event():
     return {"github": {"event_name": "push", "repository": REPO, "repository_owner": "manaflow-ai",
-                       "ref": "refs/heads/feat-cmux-next", "sha": "a" * 40, "run_id": 9001,
+                       "ref": "refs/heads/nightly-next", "sha": "a" * 40, "run_id": 9001,
                        "event": {"before": "f" * 40}}, "vars": {}}
 
 
@@ -144,8 +147,13 @@ def main():
     _check(pr_trigger["types"] == ["labeled"],
            f"only a label event starts a pull request run; no push does ({pr_trigger['types']})")
     push = triggers.get("push") or {}
-    _check(push.get("branches") == ["feat-cmux-next"], "a merge to feat-cmux-next starts a tour")
-    _check(push.get("paths") == pr_trigger["paths"], "merges and pull requests share the UI path filter")
+    _check(push.get("branches") == ["nightly-next"],
+           f"only the nightly tip (a push to nightly-next) starts a push tour, not every merge ({push.get('branches')})")
+    # GitHub matches push paths against the first 300 changed files only; a nightly tip spans many
+    # merges, so a filter could drop a UI change past that window. The route job decides instead.
+    _check("paths" not in push and "paths-ignore" not in push,
+           "a nightly tip has no push path filter; the route job takes no Mac when nothing UI changed")
+    _check(bool(pr_trigger.get("paths")), "a pull request's label tour keeps the UI path filter")
 
     route_if = jobs["route"]["if"]
     group = workflow["concurrency"]["group"]
@@ -164,7 +172,7 @@ def main():
         ("adding no-media-tour reaches the route, which cancels the running tour and posts nothing",
          pr_event("labeled", ["no-media-tour"], label="no-media-tour"), True),
         ("a fork pull request never tours", pr_event("labeled", [LABEL], label=LABEL, fork=True), False),
-        ("a merge to feat-cmux-next tours", push_event(), True),
+        ("a nightly-next tip tours", push_event(), True),
         ("a batch dispatch with a base tours", dispatch_event("d" * 40), True),
         ("a dispatch without a base tours nothing", dispatch_event(""), False),
     ]
@@ -178,26 +186,27 @@ def main():
 
     _check(expression(cancel, pr_event("labeled", [LABEL], label=LABEL)) is True,
            "re-adding the label cancels the pull request's older tour")
-    _check(not expression(cancel, push_event()), "a merge tour in progress is never cancelled")
+    _check(not expression(cancel, push_event()), "a nightly tour in progress is never cancelled")
     merge_group = expression(group, push_event())
     _check(merge_group != expression(group, dict(push_event(), github=dict(push_event()["github"], sha="b" * 40))),
-           f"each merge has its own group, so no merge's tour is replaced by a newer one ({merge_group!r})")
+           f"each nightly tip has its own group, so no tour is replaced by a newer one ({merge_group!r})")
 
     # The route job decides; without a wanted tour no Mac is taken and nothing is posted.
     _check(jobs["tour"]["if"] == "${{ needs.route.outputs.runs_on != '' }}", "the tour needs a picked runner")
-    # A merge tour publishes from its own run; a pull request run only hands its
-    # tour to a run on feat-cmux-next (the pr-media environment admits no PR ref).
+    # A nightly tour spans many merges and posts on no pull request; a pull request
+    # run only hands its tour to a run on feat-cmux-next (the pr-media environment
+    # admits no PR ref).
     for wanted, want in (("true", True), ("false", False)):
         needs = {"route": {"result": "success", "outputs": {"wanted": wanted}}}
         publish_if = jobs["publish"]["if"].replace("!cancelled() && ", "")  # a run that is not cancelled
         hand_off_if = jobs["hand-off"]["if"].replace(" && !cancelled()", "")
-        _check(bool(expression(publish_if, dict(push_event(), needs=needs))) == want,
-               f"the publish job {'posts' if want else 'posts nothing'} for a merge when the route wanted={wanted}")
+        _check(not expression(publish_if, dict(push_event(), needs=needs)),
+               f"a nightly tour posts on no pull request (route wanted={wanted})")
         _check(not expression(publish_if, dict(pr_event("synchronize", []), needs=needs)),
                f"a pull request run never publishes itself (route wanted={wanted})")
         _check(bool(expression(hand_off_if, dict(pr_event("synchronize", []), needs=needs))) == want,
                f"the hand-off job {'starts the publisher' if want else 'starts nothing'} when the route wanted={wanted}")
-        _check(not expression(hand_off_if, dict(push_event(), needs=needs)), "a merge tour needs no hand-off")
+        _check(not expression(hand_off_if, dict(push_event(), needs=needs)), "a nightly tour needs no hand-off")
     handed = dispatch_event("")
     handed["inputs"] = {"base_sha": "", "publish_run": "555"}
     _check(bool(expression(jobs["publish"]["if"].replace("!cancelled() && ", ""), handed)),
@@ -213,10 +222,12 @@ def main():
            "no runner is picked when no tour is wanted")
 
     route_env = pick["env"]
-    _check(str(expression(route_env["SAME_REPO"], push_event())).lower() == "true", "a merge counts as same-repository")
+    _check(str(expression(route_env["SAME_REPO"], push_event())).lower() == "true",
+           "a nightly tip counts as same-repository")
     tour_env = jobs["tour"]["env"]
-    _check(expression(tour_env["BASE_SHA"], push_event()) == "f" * 40, "a merge tour compares against the previous head")
-    _check(expression(tour_env["HEAD_SHA"], push_event()) == "a" * 40, "a merge tour tours the merged head")
+    _check(expression(tour_env["BASE_SHA"], push_event()) == "f" * 40,
+           "a nightly tour compares against the previous nightly tip")
+    _check(expression(tour_env["HEAD_SHA"], push_event()) == "a" * 40, "a nightly tour tours the new tip")
     # The tag comes from the slot the tour claims on its Mac (tests/test_media_tag_lock.py), not from the
     # pull request, so a Mac keeps K warm pairs instead of one per pull request it toured.
     _check("TOUR_TAG" not in tour_env, "no per-pull-request tag")
@@ -232,7 +243,7 @@ def main():
     _check(not expression(jobs["publish"]["if"], dispatch_event("d" * 40)),
            "a batch dispatch publishes nothing; the queue reads the tour's artifact")
 
-    # The publish job comments on the merged pull request for a merge tour.
+    # The publish job comments on the pull request whose run handed off its tour.
     publish = jobs["publish"]
     target = next((s for s in publish["steps"] if s.get("id") == "target"), None)
     _check(target is not None, "the publish job looks up the pull request to comment on")
@@ -246,7 +257,6 @@ def main():
         handed = dispatch_event("")
         handed["inputs"] = {"base_sha": "", "publish_run": "555"}
         for name, context, want_pr, want_sha, want_calls in (
-            ("merge", push_event(), "77", "e" * 40, 1),
             ("handed-off pull request", handed, "77", "e" * 40, 1),
         ):
             output, log = os.path.join(tmp, f"out-{name}"), os.path.join(tmp, f"log-{name}")
@@ -309,13 +319,14 @@ def main():
             _check(ok, f"{why}: the comment note is {note!r} ({result.returncode}, {result.stderr.strip()[-200:]})")
 
     checkout = publish["steps"][0]
-    _check(expression(checkout["with"]["ref"], push_event()) == "a" * 40,
-           "a merge tour's publisher comes from the merged feat-cmux-next head")
+    publisher = dict(handed, github=dict(handed["github"], ref="refs/heads/feat-cmux-next", sha="a" * 40))
+    _check(expression(checkout["with"]["ref"], publisher) == "a" * 40,
+           "the publisher comes from the protected branch's own revision, never the pull request's")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
         sys.exit(1)
-    print("PASS: the tour runs on merges, dispatches and the event that adds media-tour")
+    print("PASS: the tour runs on the nightly tip, dispatches and the event that adds media-tour")
 
 
 if __name__ == "__main__":

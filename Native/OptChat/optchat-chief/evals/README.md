@@ -18,6 +18,29 @@ Claude Code shaped (its system line and user agent), as production turns are.
 Run it on a mini or Linux box, not the laptop: `ulimit -n 8192` first (each
 case opens a memory database; run.sh does it).
 
+## Health of a real Chief (no model)
+
+`measure/chief_health.py` reads a Chief home's memory and traces, read-only,
+in about a second, and prints the numbers the person feels for the last 7 days
+and for all time: time to first reply, messages with no reply, "hello?" pings
+while waiting, turns cut by restarts and turn failures, compactor refusal
+lines, "No such tool" calls, `cmux` usage errors by command, and spawns
+without a workspace. `--home DIR` picks the home's `optchat/` (default the
+default Chief), `--since 2w` the window, `--json` the output for diffs. Test:
+`python3 -m unittest test_chief_health` (from `measure/`).
+
+## Replays of a person's real messages
+
+`measure/replay_cases.py` turns messages from a real Chief memory into model
+cases for this runner, judged by rules only: dispatch fidelity (a spawn in the
+repo directory the person accepted, with their words and a Title line), feedback
+to action (a bug report becomes a spawn with their words) and rules stick (a
+rule taught earlier in the memory holds on a later dispatch, with a profile that
+lacks it). A message becomes a case only when Chief spawned for it then and the
+person's next message was not a correction. The cases hold real words, so the
+script refuses an output directory inside a git work tree: keep them private
+and run `evals/run.sh --cases DIR`. Test: `python3 -m unittest test_replay_cases`.
+
 ## Two kinds of case
 
 1. **Model cases**: one JSON file per case in `evals/cases/` (`<group>-<name>.json`).

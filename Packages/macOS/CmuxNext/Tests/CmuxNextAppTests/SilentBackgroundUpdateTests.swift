@@ -92,7 +92,8 @@ import Testing
 
     /// Downloads off (the stable default, claude-sr2 2026-10-26: "show a quiet 'Update available'
     /// button in the toolbar or title area, and install on click"): the scheduled check's found
-    /// update is the titlebar button, never the notice card; a click downloads and installs it.
+    /// update is the titlebar button, never the notice card; a click downloads it, then the staged
+    /// update asks before the relaunch (``UpdateAsksBeforeInstallTests``).
     @Test func aFoundUpdateIsTheQuietButtonWhenAutomaticDownloadsAreOff() {
         let updater = Self.updater()
         updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
@@ -142,12 +143,13 @@ import Testing
         #expect(updater.availableButton == nil)
     }
 
-    /// Stable and RC are opt-in; the dogfood apps (NIGHTLY, the tip app, DEV) download by default.
-    @Test func automaticDownloadsAreOptInOnlyOnStable() {
+    /// Automatic download and install is opt-in on every channel (Leo 2026-10-27: "ask before the
+    /// download + install step, and likewise for the reboot"): the dogfood apps ask as stable does.
+    @Test func automaticDownloadsAreOptInOnEveryChannel() {
         #expect(!UpdateTrack.stable.downloadsAutomaticallyByDefault)
         #expect(!UpdateTrack.rc.downloadsAutomaticallyByDefault)
-        #expect(UpdateTrack.nightly.downloadsAutomaticallyByDefault)
-        #expect(UpdateTrack.development.downloadsAutomaticallyByDefault)
+        #expect(!UpdateTrack.nightly.downloadsAutomaticallyByDefault)
+        #expect(!UpdateTrack.development.downloadsAutomaticallyByDefault)
     }
 
     /// `updates.status` (and `cmux version`) report whether this app downloads by itself, from its

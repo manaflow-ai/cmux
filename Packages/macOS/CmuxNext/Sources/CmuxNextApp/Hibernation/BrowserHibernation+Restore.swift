@@ -38,12 +38,13 @@ extension BrowserHibernation {
         wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshotImage(key) != nil)
         // The page was discarded (logged with its cause); restoring it loads it again.
         // The kind of request only: a URL is the person's browsing and stays out of the log.
+        let prewarm = prewarmCauses.removeValue(forKey: key)
         let reason = switch pendingWakes[key] {
         case .load?: "navigation"
         case .reload?: "reload"
         case .goBack?: "back"
         case .goForward?: "forward"
-        case nil: "shown or woken"
+        case nil: prewarm.map { "prewarm \($0)" } ?? "shown or woken"
         }
         logger.notice("restore \(key, privacy: .public): the discarded page reloads from its saved history (\(reason, privacy: .public))")
         var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom)
@@ -143,7 +144,7 @@ extension BrowserHibernation {
     /// default; with `HibernationTunables.compressedSnapshots` off, decoded and scaled so that
     /// several fit the 32 MB `previews` cache, which refuses a picture larger than itself.
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        guard let image = await capture(tab) else { return nil }
+        guard let image = await capture(tab) ?? cache.flatMap({ $0.pageThumbnailVersions[key] == tab.state.pictureVersion ? $0.pageThumbnails.image(for: key) : nil }) else { return nil } // Chromium: its current leave picture
         if HibernationTunables.compressedSnapshots.value { return await HibernationSnapshots.compress(image) }
         // A quarter of the cache, less a margin for row padding; same aspect and color space, off the main actor.
         let bytes = Double((cache?.previews.capacityBytes ?? 32 << 20) / 4) * 0.98

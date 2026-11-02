@@ -42,6 +42,41 @@ beforeEach(async () => {
 afterEach(async () => { await h.dispose(); });
 
 describe("device overlay policy", () => {
+  it("includes an explicit default-deny VM projection in the signed identity policy", async () => {
+    const id = await enroll();
+    const response = await signed(id);
+    expect(response.status).toBe(200);
+    const body = await json(response);
+    expect(body).toMatchObject({ tenantId: TEAM, deviceId: id, wgPublicKey: WG, installPublicKey: install.publicKey });
+    expect(body["vms"]).toEqual([]);
+  });
+
+  it("binds only this device's current VM ports to the same signed policy and digest", async () => {
+    const id = await enroll();
+    const other = await enroll(admin, "other");
+    const vm = h.addVm(TEAM);
+    const hidden = h.addVm(TEAM);
+    for (const target of [vm, hidden]) {
+      const attached = await call(`/v1/meshes/${mesh}/vms/${target.vmId}`, admin, "PUT");
+      expect(attached.status).toBe(200);
+    }
+    expect((await apply([
+      { src: [id], dst: [vm.vmId], allow: ["tcp:22", "tcp:4100"] },
+      { src: [other], dst: [hidden.vmId], allow: ["tcp:22"] },
+    ])).status).toBe(200);
+    const first = await json(await signed(id));
+    expect(first["vms"]).toEqual([{
+      kind: "vm", id: vm.vmId, address: expect.stringMatching(/^10\./u),
+      allow: [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }],
+    }]);
+    expect(first["peers"]).toEqual([]);
+    expect((await call(`/v1/meshes/${mesh}/vms/${vm.vmId}`, admin, "DELETE")).status).toBe(204);
+    const removed = await json(await signed(id));
+    expect(removed["aclVersion"]).toBe(first["aclVersion"]);
+    expect(removed["vms"]).toEqual([]);
+    expect(removed["policyDigest"]).not.toBe(first["policyDigest"]);
+  });
+
   it.each(["account", "signed"] as const)("identifies the authoritative tenant for a %s policy read", async (mode) => {
     const id = await enroll();
     const response = mode === "account" ? await read(id) : await h.request(`/v1/devices/${id}/signed/overlay-policy`, { "x-cmux-team-id": "team_bravo" }, {
@@ -58,7 +93,7 @@ describe("device overlay policy", () => {
     expect(response.status).toBe(200);
     const body = await json(response);
     expect(body).toMatchObject({ deviceId: id, meshId: mesh, wgPublicKey: WG, installPublicKey: install.publicKey, aclVersion: 0, peers: [] });
-    expect(Object.keys(body).sort()).toEqual(["aclVersion", "deviceId", "installPublicKey", "meshId", "peers", "policyDigest", "tenantId", "wgPublicKey"]);
+    expect(Object.keys(body).sort()).toEqual(["aclVersion", "deviceId", "installPublicKey", "meshId", "peers", "policyDigest", "tenantId", "vms", "wgPublicKey"]);
     expect(h.upstreamRequests).toHaveLength(before);
   });
 

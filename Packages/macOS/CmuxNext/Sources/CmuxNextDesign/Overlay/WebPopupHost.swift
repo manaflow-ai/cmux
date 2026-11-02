@@ -23,6 +23,8 @@ public final class WebPopupHost {
     /// What the page sends: its rows, the highlighted one, the anchor (CSS px in the page's
     /// viewport), the side it prefers and the menu's width (CSS px).
     public struct Model: Equatable, Sendable {
+        /// The generated native-first model; nil only for an unmigrated overflow consumer.
+        public var declaration: NativePopupModel?
         public var items: [Item]
         public var highlighted: String?
         public var anchor: CGRect
@@ -31,14 +33,29 @@ public final class WebPopupHost {
         public var width: CGFloat
         /// A tooltip: one row that takes no clicks and draws no check column.
         public var tooltip: Bool
-        /// The page shows nothing with an entrance (a New Tab, Leo 2026-10-22): the menu opens in
-        /// one frame; its close still fades.
+        /// The page asks for no entrance (`popupHost.ts` sets it on every menu, and on tooltips on
+        /// the New Tab). Menus open in one frame whatever it says; a tooltip without it keeps its
+        /// fade and grow in. Every close still fades.
         public var instant: Bool
 
         /// Reads `{items:[{id,label,shortcut?,checked?,disabled?,separator?}], highlighted?,
         /// anchor:{left,top,right,bottom}, side:"bottom"|"top", align:"start"|"end", width,
         /// kind?:"menu"|"tooltip", instant?:true}`.
         public init?(_ params: [String: Any]) {
+            if params["schemaVersion"] != nil {
+                guard let declaration = NativePopupModel.decode(params) else { return nil }
+                self.declaration = declaration
+                items = []
+                highlighted = nil
+                anchor = .zero
+                side = .below
+                trailing = false
+                width = declaration.width
+                tooltip = false
+                instant = true
+                return
+            }
+            declaration = nil
             guard let rows = params["items"] as? [[String: Any]], let anchor = params["anchor"] as? [String: Any],
                   let left = Self.number(anchor["left"]), let top = Self.number(anchor["top"]),
                   let right = Self.number(anchor["right"]), let bottom = Self.number(anchor["bottom"]) else { return nil }
@@ -71,6 +88,9 @@ public final class WebPopupHost {
     private var popup: NativePopupHost?
     private var panel: WebPopupPanel? { popup?.panel as? WebPopupPanel }
     private var model: Model?
+    private var declarationHost: DeclarativePopupHost?
+    private var presentationGeneration = 0
+    private var declarationShowDepth = 0
 
     public init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void) {
         self.webView = webView
@@ -79,11 +99,32 @@ public final class WebPopupHost {
     }
 
     /// The frame the menu is showing at (screen), for tests and `debug.window_list`.
-    public var shownFrame: CGRect? { popup?.isShown == true && model != nil ? popup?.cardFrame : nil }
+    public var shownFrame: CGRect? {
+        declarationHost?.shownFrame ?? (popup?.isShown == true && model != nil ? popup?.cardFrame : nil)
+    }
 
     /// Shows the page's menu on the screen; the reply names the side it took and its frame.
     @discardableResult
     public func show(_ model: Model) -> [String: Any] {
+        if model.declaration == nil, declarationShowDepth != 0 || declarationHost?.activeID != nil { return ["shown": false] }
+        presentationGeneration += 1
+        let generation = presentationGeneration
+        if let declaration = model.declaration {
+            declarationShowDepth += 1
+            defer { declarationShowDepth -= 1 }
+            guard let webView else { return ["shown": false] }
+            let replacing = self.model != nil
+            self.model = nil
+            popup?.hide()
+            if replacing {
+                send(["type": "dismiss"])
+                guard presentationGeneration == generation else { return ["shown": false] }
+            }
+            let host = declarationHost ?? DeclarativePopupHost(webView: webView, zoom: zoom, send: send)
+            declarationHost = host
+            return host.show(declaration)
+        }
+        // An old overflow effect cannot displace an active declarative native popup.
         guard let webView, let window = webView.window, window.isVisible else { return ["shown": false] }
         self.model = model
         let popup = self.popup ?? makePopup()
@@ -100,7 +141,8 @@ public final class WebPopupHost {
         let anchor = window.convertToScreen(webView.convert(flipped, to: nil))
         let size = CGSize(width: model.width * scale, height: panel.rows.contentHeight)
         guard let placed = popup.show(size: size, anchor: anchor, in: window, preferred: model.side,
-                                      trailing: model.trailing, entrance: !model.instant) else { return ["shown": false] }
+                                      trailing: model.trailing,
+                                      tooltipEntrance: model.tooltip && !model.instant) else { return ["shown": false] }
         panel.isClosing = false
         let frame = placed.frame
         return ["shown": true, "side": placed.side == .below ? "bottom" : "top",
@@ -126,14 +168,23 @@ public final class WebPopupHost {
 
     /// New rows or a new highlight (the page's arrows, its filter); the place stays.
     public func update(_ model: Model) {
+        if let declaration = model.declaration {
+            declarationHost?.update(declaration)
+            return
+        }
         // A menu closing here stays closed: the page may still post an update for it.
         guard self.model != nil, panel?.isVisible == true else { return }
-        if model.items != self.model?.items || model.anchor != self.model?.anchor { show(model); return }
+        if model.items != self.model?.items || model.anchor != self.model?.anchor ||
+            model.tooltip != self.model?.tooltip || model.width != self.model?.width ||
+            model.side != self.model?.side || model.trailing != self.model?.trailing ||
+            model.instant != self.model?.instant { show(model); return }
         self.model = model
         panel?.rows.update(model.items, highlighted: model.highlighted)
     }
 
     public func hide() {
+        presentationGeneration += 1
+        declarationHost?.hide()
         model = nil
         panel?.isClosing = true
         popup?.hide()
@@ -141,15 +192,33 @@ public final class WebPopupHost {
 
     private func picked(_ id: String) {
         guard model?.items.contains(where: { $0.id == id && !$0.disabled && !$0.separator }) == true else { return }
-        send(["type": "pick", "id": id])
+        // Capture the release modifiers before retiring the menu; the callback may open another.
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
         hide()
+        send(["type": "pick", "id": id, "altKey": modifiers.contains(.option),
+              "ctrlKey": modifiers.contains(.control), "metaKey": modifiers.contains(.command),
+              "shiftKey": modifiers.contains(.shift)])
     }
 
     /// Ends the menu from this side (its tab hid or closed): the page closes its own as well.
     public func dismiss() {
-        guard model != nil else { return }
-        send(["type": "dismiss"])
-        hide()
+        presentationGeneration += 1
+        if model != nil {
+            hide()
+            send(["type": "dismiss"])
+        } else {
+            declarationHost?.dismiss(reason: "owner-hidden")
+        }
+    }
+
+    /// Wire hide is owner-bound; a stale page effect cannot hide a newer popup.
+    public func hideRequest(_ params: [String: Any]) {
+        if params["schemaVersion"] != nil {
+            guard let id = params["id"] as? String, let revision = params["revision"] as? Int else { return }
+            declarationHost?.hide(id: id, revision: revision)
+        } else if declarationShowDepth == 0, declarationHost?.activeID == nil {
+            hide()
+        }
     }
 }
 
@@ -176,6 +245,7 @@ public final class WebPopupPanel: ContentChildPanel {
         SystemScrollers.follow(scroll)
         scroll.documentView = rows
         let surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
+        surface.samplesBehindWindow = true
         // The one popup shadow (POLISH: subtle shadows, one elevation), like the page's own menus;
         // the window's shadow was the system's, heavier.
         adoptPopupStyle(card: surface)
@@ -217,13 +287,35 @@ final class WebPopupRows: NSView {
     }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
-        if items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty { rebuild(items) }
+        if plain != builtPlain || rows.isEmpty != items.isEmpty || (items != self.items && !updateLabelsInPlace(items)) {
+            rebuild(items)
+        }
         self.highlighted = highlighted
         for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == highlighted }
         setFrameSize(NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight))
         needsLayout = true
         layoutSubtreeIfNeeded()
         scrollToHighlight()
+    }
+
+    /// Keeps native row views when only tooltip labels change; menu structure and state changes
+    /// still rebuild their rows.
+    private func updateLabelsInPlace(_ next: [WebPopupHost.Item]) -> Bool {
+        guard plain, plain == builtPlain, next.count == items.count, rows.count == next.count,
+              zip(items, next).allSatisfy({ old, new in
+                  old.id == new.id && old.shortcut == new.shortcut && old.checked == new.checked &&
+                      old.disabled == new.disabled && old.separator == new.separator
+              }) else { return false }
+        for (index, item) in next.enumerated() {
+            guard let row = rows[index].view as? PopupRowView else { return false }
+            if row.titleLabel.stringValue != item.label {
+                row.titleLabel.stringValue = item.label
+                row.setAccessibilityLabel(item.label)
+                row.needsLayout = true
+            }
+        }
+        self.items = next
+        return true
     }
 
     private func rebuild(_ items: [WebPopupHost.Item]) {

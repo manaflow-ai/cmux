@@ -44,6 +44,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -219,13 +220,14 @@ class App:
         except ValueError:
             return {"error": (out.stdout + out.stderr).strip()[:300]}
 
-    def action(self, action: str, *, focus: bool = False, **args) -> dict:
+    def action(self, action: str, *, focus: bool = False, wait: bool = True, **args) -> dict:
         """`action.run` over the socket itself: the CLI reads `--session`
         as its own option, so an action argument of that name never reaches
         the app through it. `focus` moves the app's focus to what the action
         opens or selects, as the user's shortcut would; without it a new tab
-        opens in the background and does not load until it is shown."""
-        params = {"action": action, "args": args, "wait": True, "origin": "script",
+        opens in the background and does not load until it is shown. `wait`
+        False answers once the handler ran, before the work it started ends."""
+        params = {"action": action, "args": args, "wait": wait, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
@@ -277,8 +279,10 @@ class FakeChats:
 
     def __init__(self, app: App, bundle: str, script: str):
         self.app = app
+        # The app splits `args` into words like a shell: a fleet step's checkout is under
+        # "/Library/Application Support/...", so the path is quoted or the agent never starts.
         added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                        args=os.path.abspath(script), protocol="acp", replace="true")
+                        args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
         self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
@@ -416,26 +420,46 @@ def control_socket(bundle: str, pid: int, dirs: list[str]) -> str | None:
     return None
 
 
+# Chromium's code-sign clone cleanup helper. CEF clones the app at each launch to
+# $TMPDIR/../X/<bundle id>.code_sign_clone/ (about 1 GB); after the app quits, this
+# helper (`<app>/Contents/MacOS/<exe> --type=code-sign-clone-cleanup`) removes the
+# clone about 1 s later. Ended with the app, it leaves the clone until reboot: 29 GB
+# on cmux18 (2026-11-02). A teardown lets it finish, up to CLONE_CLEANUP_WAIT_S.
+CLONE_CLEANUP = "--type=code-sign-clone-cleanup"
+CLONE_CLEANUP_WAIT_S = 15
+
+
+def is_clone_cleanup(cmd: str) -> bool:
+    return CLONE_CLEANUP in cmd
+
+
 def end_bundle(bundle: str):
     """Ends every process of the bundle, the app first: a live app (it can
     ignore SIGTERM) respawns daemons ended before it. No process of this
-    bundle ran before the launch (`launch`), so every one is this run's."""
+    bundle ran before the launch (`launch`), so every one is this run's.
+    Chromium's clone cleanup helper is ended last, and only when it is still
+    there after CLONE_CLEANUP_WAIT_S."""
     binary_dir = os.path.join(bundle, "Contents/MacOS")
-    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/")}
+    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/") and not is_clone_cleanup(cmd)}
     bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
     end_processes(apps)
-    end_processes(bundle_pids(bundle))
+    cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
+    end_processes(bundle_pids(bundle) - cleanups)
+    deadline = time.monotonic() + CLONE_CLEANUP_WAIT_S
+    end_processes({pid for pid in cleanups if not wait_gone(pid, max(0.0, deadline - time.monotonic()))})
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
+    """True once `pid` is gone; it is checked at least once, also with no time left."""
     deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
+    while True:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
             return True
+        if time.monotonic() >= deadline:
+            return False
         time.sleep(0.5)  # test script: waiting for the app to quit
-    return False
 
 
 def merged(base: dict, extra: dict) -> dict:
@@ -453,6 +477,24 @@ def tail(path: str, lines: int = 20) -> str:
     except OSError:
         return ""
     return ("\napp output:\n" + "\n".join(text)) if text else ""
+
+
+def exception_records(bundle: str, since: float) -> str:
+    """The app's own record of the exception it died on (AppRunMarker's `run.exception`), written
+    since `since`. The app reads the account's real home (`homeDirectoryForCurrentUser`), not the
+    scratch HOME, so it is under ~/Library/Application Support/cmux-next/<bundle id>/."""
+    import pwd
+    try:
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+            bundle_id = plistlib.load(handle).get("CFBundleIdentifier", "")
+    except OSError:
+        return ""
+    real_home = pwd.getpwuid(os.getuid()).pw_dir
+    path = os.path.join(real_home, "Library", "Application Support", "cmux-next", bundle_id, "run.exception")
+    if not bundle_id or not os.path.exists(path) or os.path.getmtime(path) < since:
+        return ""
+    with open(path, errors="replace") as handle:
+        return f"\n--- {path}\n{handle.read()[:4000]}"
 
 
 def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None):
@@ -491,11 +533,13 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
         json.dump(merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, config), handle)
     log_path = os.path.join(scratch, "app.log")
+    launched_at = time.time()
     if direct:
         env.setdefault("CMUX_NEXT_TEST_WINDOW_FRAME", "40,40,1400,900")
         with open(log_path, "a") as log:
-            subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+            child = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     else:
+        child = None
         argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
         subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
     try:
@@ -512,9 +556,16 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
             time.sleep(1)  # test script: waiting for the launched app's socket
         state = os.path.join(home, ".local", "state", "cmux")
         seen = sorted(os.listdir(state)) if os.path.isdir(state) else []
+        # A direct child that ended says how (its exit status, or the signal that ended it).
+        ended = ""
+        if child is not None and child.poll() is not None:
+            code = child.returncode
+            ended = f"; the app process {child.pid} ended with {'signal ' + str(-code) if code < 0 else 'exit status ' + str(code)}"
+        elif child is not None:
+            ended = f"; the app process {child.pid} still runs, as {next((cmd for p, _, cmd in process_table() if p == child.pid), '?')[:200]!r}"
         raise SystemExit(f"bench-memory: the launched app opened no socket within 90 s "
-                         f"(app pid {pid or 'none: it did not start'}; {state}: {seen}; "
-                         f"launch {'direct' if direct else 'open'})" + tail(log_path))
+                         f"(app pid {pid or 'none: it did not start'}{ended}; {state}: {seen}; "
+                         f"launch {'direct' if direct else 'open'})" + tail(log_path) + exception_records(bundle, launched_at))
     except BaseException:
         end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)

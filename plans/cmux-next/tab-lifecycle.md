@@ -68,10 +68,12 @@ tab's page window covers the pane (`foreign_pages`).
   its layout view leaves the window but its panes stay in the keep-alive
   band (mounted, paused, never evicted). Switching back swaps the view in
   within the frame: no pane controller rebuild, no surface re-attach, no
-  blank frame. Budget: at most 8 parked workspaces per window and as many
-  parked panes in total as the terminal warm set (4 to 12); pressure warning
-  one workspace of up to 2 panes, critical none. Many small workspaces stay
-  warm; a few large ones do not crowd memory.
+  blank frame. Budget (`ParkedWorkspaceBudget`): the 32 most recently shown
+  workspaces per window stay parked; an older one leaves (controller, tree,
+  panes, strips) and mounts again when shown, so visiting hundreds keeps the
+  footprint bounded (issue 26046). Their hidden GPU surfaces share the one
+  terminal LRU (`WarmSetBudget`); critical pressure releases every parked
+  workspace except the one under a top page and multi-view companions.
 - No screenshot or PNG decode on the main thread on hide.
 
 Bench: `scripts/cmux-next/bench-tab-switch.sh <tag>` (Ctrl-Tab held over 20
@@ -84,7 +86,8 @@ cmux.json:
 
 ```jsonc
 "browser": {
-  "hibernation": "moderate",          // "off" | "moderate" (60 min) | "aggressive" (10 min) | minutes
+  // "hibernation" is unset by default: hidden pages only freeze, never discarded on their own.
+  // Writing it turns discards on: "off" | "moderate" (30 min) | "aggressive" (10 min) | minutes
   "hibernationExclusions": ["mail.google.com", "*.example.com"],
   "hibernatePinnedTabs": false,
   "freezeHiddenTabs": 30,             // "off" | seconds: hidden Chromium pages freeze (power, msg 2654)
@@ -112,8 +115,12 @@ cmux.json:
   the sign-in page), so with no `browser.hibernation` in cmux.json hidden
   pages only freeze and nothing is discarded on its own, at any memory
   pressure (`keeps_state` in `debug.surfaces`). Writing `browser.hibernation`
-  (cmux.json or the palette) turns the timeout and pressure discards below
-  on. Hibernate Tab always discards. A Chromium tab whose renderer ended shows
+  (cmux.json, a timeout in Settings or the palette) turns the timeout and
+  pressure discards below on. Settings and the palette show unset as "Never
+  Discard", a choice of its own: the schema row has no
+  default, so any written value ("moderate" included) is customized and
+  Reset, or picking Never Discard, removes the key. Hibernate Tab always
+  discards. A Chromium tab whose renderer ended shows
   the crash notice when shown and reloads only from its Reload button. Every
   discard (with its cause), restore, renderer end and Chromium-to-WebKit
   fallback is logged at notice or error level, so the field log keeps it.

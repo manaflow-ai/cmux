@@ -49,6 +49,18 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
         try c.encodeIfPresent(lastDisplay, forKey: .lastDisplay)
     }
 
+    /// The machine each saved workspace was last seen on, when not this Mac (workspace key ->
+    /// machine id): every record's `workspace_machines`, then `machine` for the workspace a record
+    /// from an older build showed. The first record to name a workspace wins.
+    public var workspaceMachines: [String: String] {
+        var machines: [String: String] = [:]
+        for window in windows { machines.merge(window.workspaceMachines) { kept, _ in kept } }
+        for window in windows {
+            if let shown = window.workspaceKey?.rawValue, let machine = window.machine, machines[shown] == nil { machines[shown] = machine }
+        }
+        return machines
+    }
+
     /// Replaces or appends one window by id.
     public mutating func upsert(_ window: WindowRecord) {
         if !windows.modifyFirst(where: { $0.id == window.id }, { $0 = window }) {
@@ -69,6 +81,12 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
             var window = window
             window.workspaceKeys.removeAll { !liveWorkspaces.contains($0) }
             if let shown = window.workspaceKey, !liveWorkspaces.contains(shown) { window.workspaceKey = window.workspaceKeys.first }
+            window.workspaceMachines = window.workspaceMachines.filter { liveWorkspaces.contains(WorkspaceKey(rawValue: $0.key)) }
+            if let docks = window.docks {
+                let kept = docks.filter { liveWorkspaces.contains($0.workspaceKey) }
+                window.docks = kept.isEmpty ? nil : kept
+            }
+            if let stage = window.stageKey, !liveWorkspaces.contains(stage) { window.stageKey = nil }
             return window.workspaceKey == nil && window.workspaceKeys.isEmpty ? nil : window
         }
     }

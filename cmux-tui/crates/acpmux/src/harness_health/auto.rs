@@ -96,7 +96,9 @@ async fn run_updater(argv: &[String], channel: super::channel::Channel) -> (bool
     .unwrap_or_else(|e| Err(e.to_string()));
     match outcome {
         Ok((ok, text)) => {
-            (ok, text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_owned())
+            let last =
+                crate::stderr::clean_stderr_lines(&text).into_iter().rev().find(|l| !l.is_empty());
+            (ok, last.unwrap_or_default())
         }
         Err(e) => (false, e),
     }
@@ -158,7 +160,8 @@ impl HealthService {
     /// and returns the ids it ran for. Callers wait for a run already going.
     pub async fn run_auto_updates(&self) -> Vec<String> {
         // A build session with agent launches off changes no installed CLI (cx-9ettq).
-        if crate::launch_policy::agent_launch_disabled() {
+        // Nor a capture fixture's harnesses, which name no real install.
+        if crate::launch_policy::agent_launch_disabled() || self.fixed() {
             return Vec::new();
         }
         let _one = self.updating.lock().await;
@@ -214,6 +217,19 @@ impl HealthService {
         ids: Option<&BTreeSet<String>>,
     ) -> (Vec<HarnessHealth>, Vec<(String, Requested)>) {
         let _one = self.updating.lock().await;
+        if self.fixed() {
+            // A capture fixture's commands describe no install on this machine.
+            let rows = self.rows();
+            let asked: Vec<String> = match ids {
+                Some(ids) => ids.iter().cloned().collect(),
+                None => rows.iter().filter(|r| r.outdated).map(|r| r.id.clone()).collect(),
+            };
+            let refused = asked
+                .into_iter()
+                .map(|id| (id, Requested::Refused(crate::harness_fixture::REFUSAL.into())))
+                .collect();
+            return (rows, refused);
+        }
         let rows = check.await;
         let rows = &rows[..];
         let asked: Vec<String> = match ids {

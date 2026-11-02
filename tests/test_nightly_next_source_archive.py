@@ -15,6 +15,8 @@ import re
 import sys
 from pathlib import Path
 
+from nightly_workflow_text import expand, write_out_step_aliases
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 NEXT_FULL_BUILD = (
@@ -52,7 +54,7 @@ def step(name: str) -> str:
 
 def steps(name: str) -> list[str]:
     """The text of every step called `name` (dash line through the next step)."""
-    text = WORKFLOW.read_text(encoding="utf-8")
+    text = write_out_step_aliases(expand(WORKFLOW.read_text(encoding="utf-8")))
     starts = [m.start() for m in re.finditer(r"^      - name: ", text, re.MULTILINE)]
     blocks = []
     for index, start in enumerate(starts):
@@ -85,6 +87,12 @@ def test_source_archive_step_blocks() -> None:
         "a failed source archive step must say to pin the license in pinned-licenses/MANIFEST.json"
     )
     assert "::error" in build, "the pin instruction must be a workflow error annotation"
+    assert "CMUX_NEXT_SOURCE_ARCHIVE_TARBALL: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && '1' || '0' }}" in build, (
+        "the tarball is built exactly when the publish job may attach it"
+    )
+    script = (ROOT / "scripts/cmux-next/build-ghostty-source-archive.sh").read_text()
+    licenses, gate = script.index("verify-ghostty-license-bundle.py"), script.index('CMUX_NEXT_SOURCE_ARCHIVE_TARBALL:-1}" == 0')
+    assert licenses < gate < script.index('archive="$out/cmux-next-source-'), "the license trees come before the tarball gate"
 
 
 def test_upload_and_inject_do_not_depend_on_a_soft_outcome() -> None:
@@ -148,7 +156,7 @@ def test_the_link_graph_blocks() -> None:
 
 
 def test_no_other_step_reads_the_soft_outcome() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
+    text = write_out_step_aliases(expand(WORKFLOW.read_text(encoding="utf-8")))
     assert "steps.source_archive.outcome" not in text
     assert "steps.ghostty_licenses.outcome" not in text
 

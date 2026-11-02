@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-20: moving the pointer between sidebar workspace rows, the old row's hover stayed
@@ -8,7 +9,7 @@ import Testing
 /// its top and bottom edges), so the pointer felt trapped. The hover follows the pointer: on
 /// another row's fill that row takes it at once, one row at a time. Rows also stop short of the
 /// sidebar's right edge (Chrome's vertical tabs), so a row's pill never runs to the edge.
-@MainActor @Suite(.serialized) struct SidebarRowHoverFollowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarRowHoverFollowTests {
     private static func list() -> (SidebarListView, NSWindow, [SidebarRow]) {
         let titles = ["newtab", "workspace-2", "workspace-3", "Agent Activity"]
         let workspaces = titles.enumerated().map { SidebarWorkspace(id: WorkspaceID("ws-\($0.offset)"), title: $0.element) }
@@ -18,6 +19,7 @@ import Testing
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = list
         list.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         list.reload(animated: false)
@@ -33,7 +35,7 @@ import Testing
     /// From the row below up onto the right end of the row above (its x's corner): the row above.
     @Test func theRowUnderThePointerTakesTheHoverAtOnce() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         try #require(rows.count == 4)
         let above = rows[1], below = rows[2]
         let frameAbove = list.frame(for: above), frameBelow = list.frame(for: below)
@@ -47,12 +49,12 @@ import Testing
         }
     }
 
-    /// A row stops short of the sidebar's right edge: more room than its left inset.
+    /// Leo 2026-10-27: the row's fill ends 1.5 pt from the sidebar's right edge (#26378).
     @Test func aRowEndsShortOfTheSidebarsRightEdge() throws {
         let (list, window, rows) = Self.list()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let frame = list.frame(for: try #require(rows.first))
-        let left = frame.minX, right = list.bounds.maxX - frame.maxX
-        #expect(right >= left + 8, "the row ends \(right) pt from the right edge, \(left) pt from the left")
+        let right = list.bounds.maxX - frame.maxX
+        #expect(abs(right - 1.5) < 0.01, "the row ends \(right) pt from the right edge; expected 1.5 pt")
     }
 }

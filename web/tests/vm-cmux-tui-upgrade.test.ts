@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runChild } from "./helpers/run-child";
@@ -130,8 +130,51 @@ kill "$other" 2>/dev/null || true
 });
 
 describe("Cloud daemon upgrade from the app", () => {
-  // The cmux NEXT app runs this same script on machines too old to update in place
-  // (CloudLegacyMachineUpdate.swift); its copy is an app resource and must not drift.
+  // The app's automatic update writes the commit it judged older to <run-dir>/expect-build; a
+  // binary updated since (maybe to a newer build), or one that names no commit, is left alone
+  // under the lock before anything changes, and the run holds the in-place updater's lock
+  // (apply.rs) too. Without the file (the fleet runner) neither applies.
+  test.each(["absent", "same", "changed", "no-commit", "in-place-busy"])("expect-build %s", async (mode) => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-expect-"));
+    const run = path.join(root, "run");
+    mkdirSync(run);
+    try {
+      const seen = "1".repeat(40);
+      const now = mode === "changed" ? "2".repeat(40) : seen;
+      writeFileSync(
+        path.join(run, "cmux-tui"),
+        mode === "no-commit" ? "#!/bin/sh\necho 'cmux 1.0.0'\n" : `#!/bin/sh\necho 'cmux 1.0.0 (${now}; ghostty ${"9".repeat(40)})'\n`,
+        { mode: 0o755 },
+      );
+      if (mode !== "absent") writeFileSync(path.join(run, "expect-build"), `${seen}\n`);
+      const guards = script.split("\n").filter((line) => line.startsWith("hold_inplace_lock ||") || line.startsWith("still_expected ||"));
+      expect(guards.length).toBe(2);
+      const fixture = `flock() { ${mode === "in-place-busy" ? '[ "$2" = 8 ] && return 1; return 0' : "return 0"}; }
+${functions}
+sudo() { while [ "$1" != env ]; do shift; done; "$@"; }
+chown() { :; }
+H="$RUN"
+BIN="$RUN/cmux-tui"
+${guards.join("\n")}
+finish "OK passed"
+`;
+      const result = await runChild("/bin/sh", ["-c", fixture, "fixture", "target-sha", "target-commit", run], { timeout: 5000 });
+      expect(result.status).toBe(0);
+      const expected = {
+        absent: "OK passed",
+        same: "OK passed",
+        changed: `SKIP changed binary=${"2".repeat(40)} expected=${seen}`,
+        "no-commit": `SKIP changed binary= expected=${seen}`,
+        "in-place-busy": "SKIP busy an in-place update of this machine is running",
+      }[mode];
+      expect(readFileSync(path.join(run, "result"), "utf8").trim()).toBe(expected);
+      // The in-place updater's lock file exists only for an app run that expects a build.
+      expect(existsSync(path.join(run, ".cmux-tui.update.lock"))).toBe(mode !== "absent");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 20000);
+
   test("the app's copy of the guest script is this script", () => {
     const appCopy = readFileSync(
       path.join(import.meta.dirname, "../../Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/cmux-tui-upgrade.sh"),

@@ -108,6 +108,11 @@ Tests: `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneCloseMotionTests.swif
   the successor from the held topology without the pane (`layout.closeFocus` and the window's
   history, close-focus.md), the pick the echo's topology would make; the window applies it in the
   key's turn.
+- The window's fade sets alpha on its whole child-window tree too (pages, popups, the overlay
+  and catcher panels): AppKit does not pass a parent's alpha to children, so the pages stayed
+  opaque through the fade and vanished at its end.
+  Liquid Glass ignores window alpha (`FloatingGlassStyle`), so glass panels and a glass window
+  backdrop still go at the end of the fade, not with it.
 - The window's fade is alpha only: AppKit gives no public way to scale a window, and its content
   cannot be snapshotted with its Metal and page layers.
 - The grid hold is app-wide (every window's terminals) for the ~0.4 s of a close, not per pane.

@@ -410,7 +410,17 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           const page = await open(browser, `case=markdown${dir}`);
           await page.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true);
           expect(await axe(page, "markdown", log)).toEqual([]);
-          await page.keyboard.press("Tab");
+          const editButton = page.getByRole("button", { name: md["edit.button"] });
+          expect(await visible(page, ".md-edit-button")).toEqual([md["edit.button"]]);
+          await editButton.click();
+          await untilResult(page, "mode: source");
+          expect(await visible(page, ".md-source")).toHaveLength(1);
+          await page.getByRole("button", { name: md["mode.rich"] }).click();
+          await untilResult(page, "mode: rich");
+          // Start the directional toolbar walk from the first history control in both LTR and RTL.
+          // A mode switch can leave the document itself focused in Chromium RTL, so establish the
+          // same concrete starting point instead of relying on Tab order from a detached button.
+          await page.locator(".md-history-button").first().focus();
           await untilFocus(
             page,
             (state) => state.name === document.querySelector(".md-history-button")?.getAttribute("aria-label"),
@@ -423,6 +433,9 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           await page.keyboard.press(inlineEnd);
           expect((await focused(page)).name).toBe(md["nav.forward"]);
           await page.keyboard.press(inlineEnd);
+          expect((await focused(page)).name).toBe(md["edit.button"]);
+          await page.keyboard.press(inlineEnd);
+          expect((await focused(page)).name).toBe(md["mode.rich"]);
           await page.keyboard.press(inlineEnd);
           expect((await focused(page)).name).toBe(md["mode.source"]);
           await page.keyboard.press("Enter");

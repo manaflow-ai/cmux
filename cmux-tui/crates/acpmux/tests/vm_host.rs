@@ -1,8 +1,11 @@
-//! `_acpmux/vm_host` (`acpmux host vm-host [NAME] [on|off]`): a VM cmux
-//! created (an owner `/etc/cmux/vm-kind`, no `/srv/team`) is a dedicated agent
-//! VM by default; the toggle turns it off and on with no restart; a machine
-//! cmux did not create (personal, SSH-added, a team VM) never gets it. Each
-//! hub reads the marker under its own folder (`Hub::set_vm_marker_root`).
+//! `_acpmux/vm_host` (`acpmux host vm-host [NAME] [on|off]`): whether a machine
+//! takes its owner's VM boundary (`hub/vm_boundary.rs`), the per-machine
+//! toggle. Nothing on the machine turns the boundary on: not an owner
+//! `/etc/cmux/vm-kind` (the agent has sudo on a Cloud VM and can write it) and
+//! not config.json's `vmHost`. Only the caller asks for it, per session. The
+//! machine can only refuse it: `off` saves `vmHost: false`, `on` removes it.
+//! The marker is shown (`cmuxVm`). Each hub reads the marker under its own
+//! folder (`Hub::set_vm_marker_root`).
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -89,83 +92,76 @@ impl C {
     }
 }
 
+/// Whether a machine with no `vmHost: false` takes the VM boundary: Linux only (`vmHost`).
+const TAKES: bool = cfg!(target_os = "linux");
+
 #[tokio::test]
-async fn a_vm_cmux_created_is_a_vm_host_by_default_and_the_toggle_applies_without_a_restart() {
+async fn the_toggle_turns_the_boundary_off_and_on_with_no_restart() {
     let d = dir("default");
     mark(&d, "owner");
     let h = hub(&d, None);
     let mut c = C::new(h.clone(), Origin::Local).await;
     let read = c.call("_acpmux/vm_host", json!({})).await.unwrap();
-    assert_eq!(read, json!({"vmHost": true, "cmuxVm": true, "configured": null}));
-    assert!(h.vm_host().await);
+    assert_eq!(read, json!({"vmHost": TAKES, "cmuxVm": true, "configured": null}));
+    assert_eq!(h.vm_host().await, TAKES);
 
-    // Off: saved, and live in this daemon at once.
+    // Off: saved, and the machine refuses its owner's boundary at once.
     let off = c.call("_acpmux/vm_host", json!({"on": false})).await.unwrap();
     assert_eq!(off, json!({"vmHost": false, "cmuxVm": true, "configured": false}));
     assert_eq!(saved(&d).unwrap()["vmHost"], false);
-    assert!(!h.vm_host().await);
+    assert!(!h.takes_vm_boundary().await);
 
-    // On again: back to the default, the key gone.
+    // On: the key goes, back to the default.
     let on = c.call("_acpmux/vm_host", json!({"on": true})).await.unwrap();
-    assert_eq!(on, json!({"vmHost": true, "cmuxVm": true, "configured": null}));
+    assert_eq!(on, json!({"vmHost": TAKES, "cmuxVm": true, "configured": null}));
     assert!(saved(&d).unwrap().get("vmHost").is_none());
-    assert!(h.vm_host().await);
+    assert_eq!(h.takes_vm_boundary().await, TAKES);
     let _ = std::fs::remove_dir_all(&d);
 }
 
 #[tokio::test]
-async fn a_machine_cmux_did_not_create_refuses_vm_host() {
-    // A personal or SSH-added machine: no marker at all.
-    let d = dir("personal");
-    let h = hub(&d, None);
-    let mut c = C::new(h.clone(), Origin::Local).await;
-    let read = c.call("_acpmux/vm_host", json!({})).await.unwrap();
-    assert_eq!(read, json!({"vmHost": false, "cmuxVm": false, "configured": null}));
-    let e = c.call("_acpmux/vm_host", json!({"on": true})).await.unwrap_err();
-    assert_eq!(e["data"]["reason"], "vmHost.not_cmux_vm", "{e}");
-    assert!(saved(&d).is_none(), "nothing written");
-    assert!(!h.vm_host().await);
-    // Off is always allowed.
-    let off = c.call("_acpmux/vm_host", json!({"on": false})).await.unwrap();
-    assert_eq!(off["vmHost"], false);
-    let _ = std::fs::remove_dir_all(&d);
-
-    // A team VM (shared by people), by its kind or by its team files.
-    for (tag, kind, team_files) in [("team", "team", false), ("teamfiles", "owner", true)] {
+async fn the_marker_and_config_true_are_shown_but_decide_nothing() {
+    // The agent user has sudo on a Cloud VM, and can write config.json as this user.
+    for (tag, kind, vm_host) in [
+        ("personal", None, None),
+        ("team", Some("team"), None),
+        ("owner", Some("owner"), None),
+        ("fleet", None, Some(true)),
+        ("fleet-owner", Some("owner"), Some(true)),
+    ] {
         let d = dir(tag);
-        mark(&d, kind);
-        if team_files {
-            std::fs::create_dir_all(d.join("root/srv/team")).unwrap();
+        if let Some(kind) = kind {
+            mark(&d, kind);
         }
-        let h = hub(&d, None);
+        let h = hub(&d, vm_host);
         let mut c = C::new(h.clone(), Origin::Local).await;
-        assert!(!h.vm_host().await, "{tag}");
-        let e = c.call("_acpmux/vm_host", json!({"on": true})).await.unwrap_err();
-        assert_eq!(e["data"]["reason"], "vmHost.not_cmux_vm", "{tag}: {e}");
+        let read = c.call("_acpmux/vm_host", json!({})).await.unwrap();
+        let cmux_vm = kind == Some("owner");
+        // The marker and `vmHost: true` change nothing (`hub/vm_boundary.rs`).
+        assert_eq!(h.takes_vm_boundary().await, TAKES, "{tag}");
+        assert_eq!(
+            read,
+            json!({"vmHost": TAKES, "cmuxVm": cmux_vm, "configured": vm_host}),
+            "{tag}"
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
+    // Team files: shared, whatever the kind says.
+    let d = dir("teamfiles");
+    mark(&d, "owner");
+    std::fs::create_dir_all(d.join("root/srv/team")).unwrap();
+    assert!(!hub(&d, None).cmux_vm());
+    let _ = std::fs::remove_dir_all(&d);
 }
 
 #[tokio::test]
-async fn the_marker_is_read_live_so_a_fresh_vm_turns_on_once_it_reads_owner() {
-    // A fresh owner VM reads `team` until its kind sync answers (fail closed).
+async fn the_marker_is_read_live_for_display() {
     let d = dir("live");
     mark(&d, "team");
     let h = hub(&d, None);
-    assert!(!h.vm_host().await);
+    assert!(!h.cmux_vm());
     mark(&d, "owner");
-    assert!(h.vm_host().await, "no restart needed");
-    let _ = std::fs::remove_dir_all(&d);
-}
-
-#[tokio::test]
-async fn a_fleet_written_vm_host_still_holds_where_cmux_did_not_create_the_machine() {
-    let d = dir("fleet");
-    let h = hub(&d, Some(true));
-    assert!(h.vm_host().await);
-    let mut c = C::new(h.clone(), Origin::Local).await;
-    let read = c.call("_acpmux/vm_host", json!({})).await.unwrap();
-    assert_eq!(read, json!({"vmHost": true, "cmuxVm": false, "configured": true}));
+    assert!(h.cmux_vm(), "shown with no restart");
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -177,7 +173,7 @@ async fn a_web_client_never_changes_vm_host() {
     let mut web = C::new(h.clone(), Origin::Web).await;
     let e = web.call("_acpmux/vm_host", json!({"on": false})).await.unwrap_err();
     assert_eq!(e["data"]["reason"], "vmHost.remote", "{e}");
-    assert!(h.vm_host().await);
+    assert_eq!(h.vm_host().await, TAKES);
     assert!(saved(&d).is_none());
     let _ = std::fs::remove_dir_all(&d);
 }
@@ -202,17 +198,17 @@ async fn the_owner_toggles_a_peer_vm_over_its_link() {
         .unwrap();
     let mut ca = C::new(a.clone(), Origin::Local).await;
     let read = ca.call("_acpmux/vm_host", json!({"name": "vm"})).await.unwrap();
-    assert_eq!(read["vmHost"], true, "{read}");
+    assert_eq!(read["vmHost"], TAKES, "{read}");
+    assert_eq!(read["cmuxVm"], true, "{read}");
     assert_eq!(read["name"], "vm", "{read}");
 
     let off = ca.call("_acpmux/vm_host", json!({"name": "vm", "on": false})).await.unwrap();
     assert_eq!(off["vmHost"], false, "{off}");
-    assert!(!b.vm_host().await, "the peer turned off");
-    assert!(!a.vm_host().await, "this machine was never on");
     assert_eq!(saved(&db).unwrap()["vmHost"], false);
+    assert!(!b.vm_host().await);
     let on = ca.call("_acpmux/vm_host", json!({"name": "vm", "on": true})).await.unwrap();
-    assert_eq!(on["vmHost"], true, "{on}");
-    assert!(b.vm_host().await);
+    assert_eq!(on["vmHost"], TAKES, "{on}");
+    assert_eq!(b.vm_host().await, TAKES);
 
     let e = ca.call("_acpmux/vm_host", json!({"name": "nope"})).await.unwrap_err();
     assert!(e["message"].as_str().unwrap().contains("acpmux host ls"), "{e}");

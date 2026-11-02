@@ -63,6 +63,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["shortcuts", "keybindings", "hotkeys", "help"], category: .settings, symbol: "keyboard",
                 surfaces: [.palette, .menu], cliName: "settings search-keyboard-shortcuts", mainMenu: .help
             ),
+            // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it on one menu).
+            ActionDescriptor(
+                id: "settings.customizeMenus",
+                title: String(localized: "action.settings.customizeMenus", defaultValue: "Customize Right-Click Menus…", bundle: .module),
+                keywords: ["context menu", "right click", "menu", "customize", "reorder", "hide", "more"], category: .settings,
+                symbol: "contextualmenu.and.cursorarrow", surfaces: [.palette, .menu], cliName: "settings customize-menus", mainMenu: .app
+            ),
             // The Keyboard Shortcuts editor (R59), a React page tab; no
             // default key (defaults do not change, K1).
             ActionDescriptor(
@@ -392,6 +399,22 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.up.forward.app", surfaces: [.palette], cliName: "settings open-links-in-default-browser",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Sign-in pages (`browser.openSignInPagesInCmux`): a sign-in or device-code page opens in a
+            // cmux tab whatever the link settings, or follows them. Settings changes with no object.
+            ActionDescriptor(
+                id: "links.signInPagesInCmux",
+                title: String(localized: "action.links.signInPagesInCmux", defaultValue: "Sign-In Pages: Open in cmux Browser", bundle: .module),
+                keywords: ["sign in", "login", "device", "code", "oauth", "auth", "passkey", "browser", "helium", "gh auth login"], category: .settings,
+                symbol: "person.badge.key", surfaces: [.palette], cliName: "settings open-sign-in-pages-in-cmux",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "links.signInPagesByLinkSettings",
+                title: String(localized: "action.links.signInPagesByLinkSettings", defaultValue: "Sign-In Pages: Follow Link Settings", bundle: .module),
+                keywords: ["sign in", "login", "device", "code", "oauth", "auth", "default browser", "external", "system"], category: .settings,
+                symbol: "person.badge.key.fill", surfaces: [.palette], cliName: "settings sign-in-pages-follow-link-settings",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "focusRing.toggle",
                 title: String(localized: "action.focusRing.toggle", defaultValue: "Toggle Focus Ring", bundle: .module),
@@ -448,6 +471,23 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.appearance.glass.lens.toggle", defaultValue: "Toggle Liquid Glass Lens", bundle: .module),
                 keywords: ["glass", "liquid glass", "lens", "refraction", "wallpaper", "plain glass", "appearance"],
                 category: .settings, symbol: "drop", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Lawrence 2026-11-02: "get rid of host-pressure warning by default, can be enabled in cmd shift p tho".
+            // Set the Debug toggle `hostPressure.enabled` (off by default), as Enable / Disable Channels set theirs
+            // (DEV and NIGHTLY, where the tunable store is active).
+            ActionDescriptor(
+                id: "hostPressure.showWarning",
+                title: String(localized: "action.hostPressure.showWarning", defaultValue: "Show Host Pressure Warning", bundle: .module),
+                keywords: ["host pressure", "cpu", "ram", "memory", "load", "busy", "overloaded", "warning", "gauge", "enable"],
+                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "hostPressure.hideWarning",
+                title: String(localized: "action.hostPressure.hideWarning", defaultValue: "Hide Host Pressure Warning", bundle: .module),
+                keywords: ["host pressure", "cpu", "ram", "memory", "load", "busy", "overloaded", "warning", "gauge", "disable"],
+                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette], isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs

@@ -42,16 +42,13 @@ ALLOWED: dict[str, str] = {
         "each pass; a candidate for a concurrency group",
     "merge-group-fail-fast.yml: Locate and watch the merge-group CI run":
         "per merge group: finds and watches its CI run (lawrencecchen's #16224 cuts it)",
-    "nightly-next-tick.yml: Coalesce tick requests without cancelling work":
-        "only a hand dispatch with --ref feat-cmux-next runs this copy (schedule, workflow_run and the "
-        "tick's own dispatches run main's, which has no coalescer): at most 48 passes, 15 s apart",
     'cmux-next-base-autofix.yml: Wait for the GhosttyKit release':
         'per feat-cmux-next push touching its paths, only while the ghostty gitlink has no published GhosttyKit release: one release read every 120 s, at most 45 passes, one run at a time; a candidate for workflow_run on build-ghosttykit.yml',
-    "cmux-next.yml: Decide the Linux build's REF capture":
+    "cmux-next.yml: Decide the fleet build's REF capture":
         "per DEV compile on a mini with CMUX_NEXT_HYBRID_REF_CAPTURE=1: two artifact reads "
         "(hybrid_ref_capture.py have), each sleeping only after a rate-limit refusal (Retry-After or "
         "the reset) or a 5xx, 600 s in all; a silent rate limit lost run 40428066457's capture",
-    "cmux-next.yml: Capture the Linux build's REF":
+    "cmux-next.yml: Capture the fleet build's REF":
         "calls hybrid_ref_capture.py capture, which never runs have's retry loop (the scan reads the "
         "whole script); its one jobs read is not in a loop",
     'cmux-next.yml: Probe the same-tree cmux-tui':
@@ -99,7 +96,7 @@ ALLOWED: dict[str, str] = {
     'nightly.yml: Continue the newest accepted pending notarization':
         'walks at most 5 recovery candidates once each; the only sleep retries feed reads from files.cmux.com',
     'nightly.yml: Resolve cmux-tui client commit':
-        'the scan reads every loop of a script the step runs; resolve-newest-published never waits; its walk visits at most 50 commits once each and sleeps only to retry a files.cmux.com download',
+        "the scan reads every loop of a script the step runs; its walk visits at most 50 commits once each; only when none resolves it waits for the tip's active publisher (files.cmux.com every 30 s, one run read every 300 s, at most 3000 s)",
     'actions-artifact-prune.yml: Prune':
         'hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left',
     'ci-cloud-overflow-probe.yml: Probe and switch':
@@ -112,8 +109,6 @@ ALLOWED: dict[str, str] = {
         'a batch, only when CMUX_NEXT_BATCH_ENABLED=1: the flagged loop pages GraphQL with one 10 s retry on a timeout; the batch also waits for its dispatched runs, one read every 15 s to find a run (10 min) and every 90 s for it to finish',
     'cmux-next-batch.yml: Wait for quiet, then dispatch a batch':
         'only when CMUX_NEXT_BATCH_ENABLED=1: one debounce sleep between two run listings, then a dispatch; the flagged loop (GraphQL paging with one 10 s retry) is in the batch subcommand this step does not run',
-    'cmux-next-defaults-guard.yml: Judge the default changes':
-        "only while the pull request's head has not caught up with the event: at most four GraphQL re-reads (five in all), 5 s apart",
     "gallery-advisory.yml: Update the PR's gallery section":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     "pr-checks.yml: Update the PR's review line":

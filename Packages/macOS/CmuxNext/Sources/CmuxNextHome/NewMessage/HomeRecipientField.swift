@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxHomeCore
 import CmuxNextDesign
 
 /// New Message's To: field, as in Messages: "To:", one token per
@@ -8,8 +9,9 @@ import CmuxNextDesign
 /// highlighted suggestion when there is one), Backspace with nothing typed
 /// removes the last token, Up / Down move through the suggestions. Before
 /// anyone is chosen and while nothing is typed, the list offers the Chiefs
-/// (``idleSuggestions``) with nothing highlighted until Down. Return with
-/// nothing typed chooses the highlighted suggestion, else (and Tab with
+/// and the team in sections, with New Chief after the Chiefs (``idleSuggestions``,
+/// ``onNewChief``, ``onInvite``), nothing highlighted until Down. Return with
+/// nothing typed chooses the highlighted row, else (and Tab with
 /// nothing typed) hands the keyboard to the message box.
 public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     /// The draft changed (a token added or removed, or the typed text).
@@ -20,8 +22,17 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     public var onEscape: () -> Void = {}
     /// The people the field suggests (read on each change).
     public var contacts: () -> [HomeContact] = { [] }
-    /// What the list offers before anyone is chosen or typed (the Chiefs, main first).
+    /// What the list offers before anyone is chosen or typed (the Chiefs, main first, then the team).
     public var idleSuggestions: () -> [HomeContact] = { [] }
+    /// The idle list's New Chief row runs this (`home.newChief`); nil leaves the row out.
+    public var onNewChief: (() -> Void)?
+    /// The idle list's Invite row, shown when the Team section has nobody, runs this (`home.invite`); nil leaves it out.
+    public var onInvite: (() -> Void)?
+    /// The active team's name: a typed email address gets an "Invite … to <team>" row under it
+    /// (`onInviteToTeam`); nil (signed out, no team) leaves the row out.
+    public var inviteTeam: () -> String? = { nil }
+    /// The "Invite … to <team>" row was picked with its address (`home.inviteToTeam`).
+    public var onInviteToTeam: ((ContactAddress) -> Void)?
 
     public private(set) var draft = HomeNewMessageDraft()
     /// The suggestions under the field; the page places it (it overlaps the content).
@@ -72,6 +83,9 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         separator.wantsLayer = true
         addSubview(separator)
         suggestions.onChoose = { [weak self] in self?.choose($0) }
+        suggestions.onNewChief = { [weak self] in self?.onNewChief?() }
+        suggestions.onInvite = { [weak self] in self?.onInvite?() }
+        suggestions.onInviteToTeam = { [weak self] in self?.onInviteToTeam?($0) }
         applyColors()
     }
 
@@ -109,8 +123,8 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     public func commit(pickWithNothingTyped: Bool = false) -> Bool {
         let typed = text.stringValue.trimmingCharacters(in: HomeNewMessageDraft.separators)
         guard !typed.isEmpty || pickWithNothingTyped else { return false }
-        if let pick = suggestions.highlightedItem, !suggestions.isHidden {
-            choose(pick)
+        if let row = suggestions.highlightedRow, !suggestions.isHidden {
+            suggestions.activate(row)
             return true
         }
         guard !typed.isEmpty else { return false }
@@ -166,15 +180,47 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         onChange(draft)
     }
 
-    /// Shows the suggestions for the typed text; before anyone is chosen or typed, the Chiefs.
+    /// Shows the suggestions for the typed text; before anyone is chosen or typed, the Chiefs and the team.
     public func refreshSuggestions() {
         guard !browsing else { return }
         if draft.isEmpty {
-            suggestions.show(idleSuggestions().map(HomeRecipient.contact), highlightFirst: false)
+            suggestions.show(rows: idleRows(), highlightFirst: false)
         } else {
-            suggestions.show(draft.suggestions(contacts: contacts()))
+            suggestions.show(rows: typedRows())
         }
         superview?.needsLayout = true
+    }
+
+    /// The list before anything is typed (the user, 2026-10-27): the Chiefs under "Chiefs" with New Chief
+    /// after them, then everyone else under "Team" (an Invite row when the team has nobody).
+    func idleRows() -> [HomeRecipientSuggestion] {
+        let offered = idleSuggestions()
+        let chiefs = offered.filter { $0.source == .agent }
+        let team = offered.filter { $0.source != .agent }
+        var rows: [HomeRecipientSuggestion] = []
+        if !chiefs.isEmpty || onNewChief != nil {
+            rows.append(.header(HomeConversationStrings.chiefsSection))
+            rows += chiefs.map { .recipient(.contact($0)) }
+            if onNewChief != nil { rows.append(.newChief) }
+        }
+        if !team.isEmpty || onInvite != nil {
+            rows.append(.header(HomeConversationStrings.teamSection))
+            rows += team.isEmpty ? [.invite] : team.map { .recipient(.contact($0)) }
+        }
+        return rows
+    }
+
+    /// The list while something is typed: the matches, and after a typed email address an
+    /// "Invite … to <team>" row (an address in the To: field gets a DM invite; this row invites to the team).
+    func typedRows() -> [HomeRecipientSuggestion] {
+        let matches = draft.suggestions(contacts: contacts())
+        var rows = matches.map(HomeRecipientSuggestion.recipient)
+        if onInviteToTeam != nil, let team = inviteTeam(),
+           let address = matches.lazy.compactMap({ if case .address(let a) = $0, a.isEmail { a } else { nil } }).first {
+            let at = rows.firstIndex(of: .recipient(.address(address))).map { $0 + 1 } ?? rows.endIndex
+            rows.insert(.inviteToTeam(address, team: team), at: at)
+        }
+        return rows
     }
 
     public func controlTextDidChange(_ notification: Notification) {
@@ -286,7 +332,9 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         let placed = arrange(width: bounds.width)
         let line = Self.lineHeight
         let labelSize = toLabel.intrinsicContentSize
-        toLabel.frame = NSRect(x: Self.inset, y: 5 + (line - labelSize.height) / 2, width: ceil(labelSize.width), height: labelSize.height)
+        // The text box starts at the inset; the frame adds the label's padding around it.
+        toLabel.frame = toLabel.frame(forAlignmentRect: NSRect(x: Self.inset, y: 5 + (line - labelSize.height) / 2,
+                                                               width: ceil(labelSize.width), height: labelSize.height))
         for (chip, frame) in zip(chips, placed.chips) { chip.frame = frame.offsetBy(dx: 0, dy: 5) }
         text.frame = placed.text.offsetBy(dx: 0, dy: 5)
         addButton.frame = NSRect(x: bounds.width - Self.inset - 22, y: 5 + (line - 22) / 2, width: 22, height: 22)

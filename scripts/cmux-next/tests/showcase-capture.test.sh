@@ -9,7 +9,7 @@ output=$($SCRIPT --dry-run --host mini --tag showcase-test --checkout /tmp/check
 grep -q 'dry run (no effects)' <<<"$output"
 test ! -e "$OUT"
 grep -q -- "REPAIR.md" "$SCRIPT"
-# Artifact bytes must be pulled on the capture host; Big Red never relays an app zip.
+# Artifact bytes must be pulled on the capture host; the dispatching machine never relays an app zip.
 grep -q -- "cmux-ci artifact" "$SCRIPT"
 ! grep -q -- "scp \"\$RECEIPTS/cmux-\$TAG.zip" "$SCRIPT"
 # A live run must fail closed before mkdir, SSH, CUA, or cmux-ci without admission.

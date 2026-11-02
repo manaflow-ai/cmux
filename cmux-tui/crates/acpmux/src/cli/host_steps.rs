@@ -13,10 +13,14 @@ pub enum Step {
     Reach,
     Install,
     Daemon,
+    /// How the daemon stays current: a Linux host's acpmux-update.timer.
+    Update,
     Harness,
     Peer,
     PeerBack,
     Identity,
+    /// The machine lists this machine's cmux app key (`host_approvals.rs`).
+    Approvals,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

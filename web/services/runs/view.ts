@@ -16,12 +16,18 @@ import {
   type RunView,
   type RunStatus,
   type AttemptStatus,
+  type RunEnvironment,
 } from "./model";
+import { redactReceiptValue, SANDBOX_SCRUBBED_FROM_KEY, sandboxArtifactView, sandboxErrorView, sandboxReceiptFor } from "./sandbox";
 
 export type RunSnapshotRow = {
   readonly run: typeof runs.$inferSelect;
   readonly attempts: readonly (typeof runAttempts.$inferSelect)[];
   readonly artifacts: readonly (typeof runArtifacts.$inferSelect)[];
+  readonly sandboxVmLive?: boolean;
+  readonly sandboxVms?: readonly { readonly createdAt: Date; readonly destroyedAt: Date | null; readonly live: boolean }[];
+  readonly sandboxVmUnknown?: boolean;
+  readonly sandboxVmHandles?: readonly string[];
 };
 
 export type RunViewOptions = {
@@ -138,10 +144,13 @@ function placementFor(
 function attemptView(
   attempt: typeof runAttempts.$inferSelect,
   backendProvider: BackendProvider,
+  sandboxed: boolean,
   now = Date.now(),
 ): RunAttemptView {
   const retainedUntil = iso(attempt.terminalRetainUntil);
-  const attachable = !!attempt.providerVmId
+  // A sandboxed attempt's retained handle only waits for its destroy: never attachable.
+  const attachable = !sandboxed
+    && !!attempt.providerVmId
     && !!attempt.providerWorkspaceId
     && !!attempt.providerTerminalId
     && !!attempt.terminalRetainUntil
@@ -190,9 +199,14 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
     checkedAt: options.checkedAt,
   });
   const executionProvider: ExecutionProvider = "cloud-vm";
+  const sandboxed = snapshot.run.environment === "sandboxed";
   const run: RunView = {
     id: snapshot.run.id,
     status: snapshot.run.status as RunStatus,
+    environment: (snapshot.run.environment ?? "persistent") as RunEnvironment,
+    image: snapshot.run.environment === "sandboxed" && snapshot.run.imageId
+      ? { id: snapshot.run.imageId, version: snapshot.run.imageVersion ?? null }
+      : null,
     recipe: snapshot.run.recipe,
     desiredAttempts: snapshot.run.desiredAttempts,
     source: safeSource(snapshot.run.source),
@@ -201,7 +215,7 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
     backendProvider,
     routing,
     admission,
-    error: snapshot.run.error,
+    error: sandboxed ? sandboxErrorView(snapshot.run.error, snapshot) : snapshot.run.error,
     cancelRequestedAt: iso(snapshot.run.cancelRequestedAt),
     completedAt: iso(snapshot.run.completedAt),
     createdAt: requiredIso(snapshot.run.createdAt),
@@ -209,12 +223,32 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
   };
   return {
     run,
-    attempts: snapshot.attempts.map((attempt) => attemptView(attempt, backendProvider)),
-    artifacts: snapshot.artifacts.map(artifactView),
+    attempts: snapshot.attempts.map((attempt) => {
+      const view = attemptView(attempt, backendProvider, sandboxed);
+      // A sandbox is never attached; its terminal window is only the launcher's handoff.
+      return sandboxed ? { ...view, attachable: false, retainedUntil: null, error: sandboxErrorView(view.error, snapshot) } : view;
+    }),
+    artifacts: sandboxed
+      ? snapshot.artifacts.map((artifact) => sandboxArtifactView(artifactView(artifact), snapshot))
+      : snapshot.artifacts.map(artifactView),
+    receipt: sandboxReceiptFor(snapshot),
   };
 }
 
-export function toRunEventView(event: typeof runEvents.$inferSelect): RunEventView {
+/**
+ * A journal event as served. A sandboxed Run's events are redacted like its receipt (keys and
+ * values at any depth: token shapes, secret-named keys, private keys), since its receipt is the
+ * only place the run's output is meant to be read.
+ */
+export function toRunEventView(
+  event: typeof runEvents.$inferSelect,
+  environment: RunEnvironment = "persistent",
+  handles: readonly string[] = [],
+): RunEventView {
+  // Cleanup's record of what the worker sent is the server's own bookkeeping: never served.
+  const stored: Record<string, unknown> = { ...event.payload };
+  delete stored[SANDBOX_SCRUBBED_FROM_KEY];
+  const payload = (redactValue(stored) ?? {}) as Record<string, unknown>;
   return {
     id: event.id,
     runId: event.runId,
@@ -223,7 +257,7 @@ export function toRunEventView(event: typeof runEvents.$inferSelect): RunEventVi
     attemptSequence: event.attemptSequence,
     externalId: event.externalId,
     kind: event.kind,
-    payload: (redactValue(event.payload) ?? {}) as Record<string, unknown>,
+    payload: environment === "sandboxed" ? redactReceiptValue(payload, handles) as Record<string, unknown> : payload,
     createdAt: requiredIso(event.createdAt),
   };
 }

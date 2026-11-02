@@ -115,6 +115,9 @@ pub(super) struct MessageWriter {
     pub(super) conversation_tabs: Arc<conversation_tabs_wire::NegotiatedTabs>,
     /// Negotiated API revision (server/api_revision_wire.rs).
     pub(super) api_revision: Arc<api_revision_wire::NegotiatedRevision>,
+    /// Whether this connection carries the person's keys: its threads then run at user-interactive QoS
+    /// (server/input_qos.rs).
+    pub(super) input_lane: Arc<super::input_qos::InputLane>,
 }
 
 impl MessageWriter {
@@ -136,6 +139,7 @@ impl MessageWriter {
             closed: InterruptSet::default(),
             conversation_tabs: Arc::default(),
             api_revision: Arc::default(),
+            input_lane: Arc::default(),
         }
     }
 

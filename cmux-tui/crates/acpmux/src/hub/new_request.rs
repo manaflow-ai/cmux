@@ -72,6 +72,10 @@ pub struct NewRequest {
     pub effort: Option<String>,
     /// Requested over a remote-origin connection (the WebSocket listener).
     pub remote: bool,
+    /// Its caller asked for the VM boundary (`vm_boundary.rs`): a remote
+    /// chain's Claude Code here runs without the platform sandbox. Only with
+    /// `remote`; checked by the caller (`vm_boundary::asked`).
+    pub vm_boundary: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
     /// Per-session env (`session_env.rs`), already checked by the caller.
@@ -105,6 +109,10 @@ pub struct NewRequest {
     /// A sub-session's folder as its start checked it (`subsession_guard.rs`): its harness
     /// spawns only while `cwd` still leads to that very folder.
     pub checked_cwd: Option<super::subsession_guard::CheckedFolder>,
+    /// The person asks for this chat (`Session::person`): this host's app, or a connection that
+    /// proved it is the person (`server/requests.rs` `person_asks`), never an agent's or a lane's
+    /// create. Its start waits as long as its harness works on it (`lifecycle.rs`).
+    pub person: bool,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

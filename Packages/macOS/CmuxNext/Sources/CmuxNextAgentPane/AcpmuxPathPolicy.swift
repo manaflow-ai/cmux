@@ -6,7 +6,8 @@ public import Foundation
 /// canonical first (`realpath`: absolute, existing, symlinks and `..` resolved), then checked
 /// against each canonical root by path components, never by string prefix. A canonical path is
 /// what the daemon receives. Anything else is refused with a typed error. The daemon checks again
-/// (an existing canonical directory; a preset's pinned cwd wins), in its own lane.
+/// (an existing canonical directory; a preset's pinned cwd wins), in its own lane. A new chat on
+/// another machine names that machine's folder: only its shape is checked (``isPeerFolder(_:)``).
 nonisolated enum AcpmuxPathPolicy {
     /// The params a page frame may name a folder in, at any depth (C1): each value is a path or a
     /// list of paths. Every one of them must be a directory, except `path`, which may be a file.
@@ -111,6 +112,7 @@ nonisolated enum AcpmuxPathPolicy {
             context.roots.append(path)
         }
         var params = object["params"]
+        var peerCwd: String?
         // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root;
         // without one, the workspace's agent-home folder, made now. Never the home folder.
         // Do not work in a project (`_meta.acpmux.noProject`, the new chat's project picker,
@@ -121,6 +123,7 @@ nonisolated enum AcpmuxPathPolicy {
             var meta = fields["_meta"] as? [String: Any]
             var acpmux = meta?["acpmux"] as? [String: Any]
             let noProject = acpmux?["noProject"] as? Bool == true
+            let onPeer = startsOnPeer(acpmux)
             let hadNoProject = acpmux?.removeValue(forKey: "noProject") != nil
             // The pane's workspace, which acpmux holds the chat to (its sub-session limit, its
             // computer use display); the host's value, never the page's.
@@ -130,7 +133,9 @@ nonisolated enum AcpmuxPathPolicy {
                 fields["_meta"] = meta
                 context.changed = true
             }
-            if fields["cwd"] == nil {
+            // A peer without an explicit folder chooses its own default. This Mac's workspace
+            // and agent-home paths must never fill a request for another machine.
+            if fields["cwd"] == nil, !onPeer {
                 if !noProject, let fill = scope.fillCwd, !(canonical(fill).map(homeOrAbove) ?? false) {
                     fields["cwd"] = fill
                 } else if let agentHome = scope.agentHome, let path = agentHome.home.ensure(agentHome.workspace) {
@@ -140,13 +145,25 @@ nonisolated enum AcpmuxPathPolicy {
                     return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
                 }
                 context.changed = true
+            } else if onPeer, fields["cwd"] != nil {
+                // A start on another machine (an ssh peer): its folder is that machine's, which
+                // this Mac's disk and roots say nothing about. Only its shape is checked here, it
+                // goes as the page named it, and that machine's acpmux checks it (cx-k21v).
+                guard let cwd = fields.removeValue(forKey: "cwd") as? String, isPeerFolder(cwd) else {
+                    return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
+                }
+                peerCwd = cwd
             }
             params = fields
         }
         guard let params else { return .success(Checked(text: text, gestureRootsUsed: [])) }
-        let checked: Any
+        var checked: Any
         do {
             checked = try rewrite(params, context: &context)
+            if let peerCwd, var fields = checked as? [String: Any] {
+                fields["cwd"] = peerCwd
+                checked = fields
+            }
         } catch let refusal as Refusal {
             return .failure(Refusal(error: refusal.error, requestID: id, method: method, outsidePath: refusal.outsidePath,
                                     outsideIsHomeOrAbove: refusal.outsideIsHomeOrAbove))

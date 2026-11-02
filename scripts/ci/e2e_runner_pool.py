@@ -431,6 +431,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             fork=values.get("FORK_PULL_REQUEST") == "true"
             or (values.get("HEAD_REPO") or values.get("GITHUB_REPOSITORY"))
             != (values.get("GH_REPO") or values.get("GITHUB_REPOSITORY"))))
+        print(f"pool pick: {choice.label or 'default'} ({choice.reason})", file=sys.stderr)
         print(choice.label or args.variable or SMALL_RUNNER)
         return 0
     if args.retry_of is not None:

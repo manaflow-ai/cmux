@@ -34,6 +34,20 @@ copy_notes() {
 }
 copy_notes || echo "::warning::release notes of build $NIGHTLY_BUILD were not copied next to the old feed; the feed is still published"
 upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST" application/xml "no-cache, no-store, must-revalidate"
+# Release push for cmux NIGHTLY, once the old feed is written: the presence
+# worker re-reads it and tells connected NIGHTLY apps at once, as
+# publish-nightly's poke does for cmux NEXT's feed. No secret (it only reads an
+# allowlisted public appcast, and a build only moves up). Best effort: a failure
+# warns and never fails the publish; the worker's minute cron catches up.
+# RELEASE_POKE_URL comes from the step env, so a run without it calls nothing.
+if [[ -n "${RELEASE_POKE_URL:-}" ]]; then
+  if status="$(curl -sS -o /dev/null -w '%{http_code}' -X POST --max-time 10 --retry 3 "$RELEASE_POKE_URL")" \
+    && [[ "$status" == 2?? ]]; then
+    echo "release poke accepted: HTTP $status ($RELEASE_POKE_URL)"
+  else
+    echo "::warning::release poke failed (HTTP ${status:-none}); the minute cron will catch up"
+  fi
+fi
 # Keep the three newest cmux NIGHTLY-identity DMGs, never one the feed names.
 gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
   | python3 -I -c 'import re, sys; p = re.compile("^" + re.escape(sys.argv[1]) + r"(\d+)\.dmg$"); keep = {int(b) for b in re.findall(r"<sparkle:version>(\d+)</sparkle:version>", open(sys.argv[2], encoding="utf-8").read())}; names = sorted((int(m.group(1)), n) for n in sys.stdin.read().split() if (m := p.match(n))); [print(n) for b, n in names[:-3] if b not in keep]' "$LEGACY_DMG_PREFIX" "legacy-out/$LEGACY_APPCAST" \

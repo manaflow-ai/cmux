@@ -74,19 +74,25 @@ public final class WebViewRetirement {
     /// Closes the page of `webView` (`-[WKWebView _close]`; nothing when this WebKit has no such SPI,
     /// the view's release then closes it).
     public static func closePage(_ webView: WKWebView) {
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
-        let selector = NSSelectorFromString("_close")
+        let selector = #selector(WebKitPageClosingSPI._close)
         guard webView.responds(to: selector) else { return }
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         webView.perform(selector)
     }
 
     /// Whether the page of `webView` is closed (`-[WKWebView _isClosed]`); nil when this WebKit has
     /// no such SPI.
     public static func isPageClosed(_ webView: WKWebView) -> Bool? {
-        let selector = NSSelectorFromString("_isClosed")
+        let selector = #selector(getter: WebKitPageClosingSPI._isClosed)
         guard let method = class_getInstanceMethod(WKWebView.self, selector) else { return nil }
         typealias IsClosed = @convention(c) (AnyObject, Selector) -> Bool
         return unsafeBitCast(method_getImplementation(method), to: IsClosed.self)(webView, selector)
     }
+}
+
+/// The WebKit SPI a retirement uses: `-[WKWebView _close]` and `-[WKWebView _isClosed]`. No class
+/// conforms; it only names the selectors at compile time, and each is sent only after
+/// `responds(to:)` or `class_getInstanceMethod` found it on this WebKit.
+@objc private protocol WebKitPageClosingSPI {
+    func _close()
+    var _isClosed: Bool { get }
 }

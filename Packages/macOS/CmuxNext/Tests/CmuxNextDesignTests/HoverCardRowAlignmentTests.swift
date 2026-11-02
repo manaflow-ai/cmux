@@ -5,7 +5,7 @@ import CmuxNextDesignTokens
 
 /// Leo 2026-10-21: "WHY HAS IT NOT BEEN ALIGNED". A sidebar row's hover card sat with its top on
 /// the row's middle (#22473), so it never lined up with the row it describes. It now sits beside
-/// the sidebar with its top on the row's top, one device pixel off the sidebar's edge, as Chrome's and Arc's tab
+/// the sidebar with its top on the row's top, flush with the sidebar's edge, as Chrome's and Arc's tab
 /// cards do, follows the row from row to row, and stays inside the screen's visible frame.
 @MainActor @Suite struct HoverCardRowAlignmentTests {
     /// A 32 pt sidebar row on a 1440 x 900 screen (y up), and a 280 x 160 card.
@@ -13,8 +13,8 @@ import CmuxNextDesignTokens
     private let size = CGSize(width: 280, height: 160)
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
     private let margin: CGFloat = 8
-    /// One device pixel at the default scale of 2 (`HoverCardEscapeGeometry.edgeGap`).
-    private let gap = HoverCardEscapeGeometry.edgeGap(scale: 2)
+    /// Workspace row cards touch the sidebar edge; non-sidebar `.beside` cards keep their own gap.
+    private let gap: CGFloat = 0
 
     /// The card's frame at rest beside `anchor`, as the panel places a workspace card.
     private func card(for anchor: CGRect, visible: CGRect? = nil, scale: CGFloat = 2) -> CGRect {
@@ -39,7 +39,7 @@ import CmuxNextDesignTokens
         #expect(g.card == CGRect(x: row.maxX + gap, y: row.maxY - size.height, width: size.width, height: size.height))
         #expect(!g.isLeading)
         #expect(g.escapeSlot == .zero)
-        #expect(g.gapStrip == CGRect(x: row.maxX, y: g.card.minY, width: gap, height: size.height))
+        #expect(g.gapStrip == .zero)
         // Right of the row's upper half is the card now, not an empty slot.
         #expect(g.zone(at: CGPoint(x: row.maxX + gap + 4, y: row.maxY - 3)) == .card)
     }

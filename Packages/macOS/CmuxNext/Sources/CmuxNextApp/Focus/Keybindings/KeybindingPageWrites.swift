@@ -12,9 +12,11 @@ import CmuxNextSettings
 /// file. The recorder's assessment decides: a refusal, or a conflict with
 /// an action in the same place, is an error; a conflict in another place
 /// is saved and listed. Ghostty rows are the user's Ghostty config and are
-/// never written. What cmux.json cannot hold (a `when` clause, arguments,
-/// three or four keys, one of several keys of an action, an app's entry)
-/// and every keybindings.json entry is written to keybindings.json by the
+/// never written. One of an action's cmux.json alternates
+/// (`{"any": [...]}`) is changed or removed in that list, the others kept.
+/// What cmux.json cannot hold (a `when` clause, arguments, three or four
+/// keys, one of several keys of an action that are not its cmux.json
+/// alternates, an app's entry) and every keybindings.json entry is written to keybindings.json by the
 /// home daemon (`file`, cx-9ce.17); without it such a change is unsupported.
 /// A numbered family's row (`⌃1…9`, cx-w7uu): its digit on other modifiers
 /// moves all nine keys (cmux.json holds the family by its `1`); any other
@@ -54,6 +56,11 @@ struct KeybindingPageWrites {
               !isFromFile(target), keys.count <= 2 else {
             return try await setInFile(id, keys: keys, when: params["when"]?.stringValue, args: args, replaces: target)
         }
+        if var configured = registry.configuredShortcuts(for: id), let index = alternateIndex(id, target, in: configured) {
+            try assess(keys[0], for: id)
+            configured[index] = keys
+            return try await setConfigured(configured, for: id)
+        }
         // The action's own default keys: its override goes, and the shipped entry (with the keys
         // it yields to others) is back, sharing its keys with the other defaults by design.
         if restoresDefault(params) {
@@ -84,6 +91,10 @@ struct KeybindingPageWrites {
         if let target, target.source.isGhostty { throw Self.readOnly }
         // cmux.json unbinds the whole action (keybindings.json entries stay): one of
         // several keys, an app's entry or a keybindings.json entry is a keybindings.json edit.
+        if var configured = registry.configuredShortcuts(for: id), let index = alternateIndex(id, target, in: configured) {
+            configured.remove(at: index)
+            return try await setConfigured(configured, for: id)
+        }
         let others = RegistryKeyBindings(registry).table.entries.filter {
             $0.command == id && !$0.source.isGhostty && $0 != target && !isFromFile($0)
         }
@@ -179,6 +190,20 @@ struct KeybindingPageWrites {
     private func isFromFile(_ entry: KeyBinding?) -> Bool {
         guard let entry, entry.source == .user else { return false }
         return file.isFromFile(entry)
+    }
+
+    /// Where `target` is in `configured`, `id`'s cmux.json keys, when
+    /// those are several (`{"any": [...]}`); else nil.
+    private func alternateIndex(_ id: ActionID, _ target: KeyBinding?, in configured: [[Shortcut]]) -> Int? {
+        guard configured.count > 1, let target, target.argument == nil,
+              target.source == .user || target.source == .default, !isFromFile(target) else { return nil }
+        return configured.firstIndex(of: target.keys)
+    }
+
+    /// Writes `keys` as `id`'s cmux.json keys (one key, a chord, or `{"any": [...]}`).
+    private func setConfigured(_ keys: [[Shortcut]], for id: ActionID) async throws {
+        registry.setConfiguredShortcuts(keys, for: id)
+        try await write { try await settings.setShortcuts(keys, for: id) }
     }
 
     /// Writes keybindings.json through the daemon; its refusal is the page's error.

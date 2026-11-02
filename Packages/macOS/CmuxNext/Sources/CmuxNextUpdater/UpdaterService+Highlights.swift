@@ -54,7 +54,11 @@ extension UpdaterService {
     public func openStagedChangelog() -> Bool {
         if stagedNotes == nil, let url = stagedReleaseNotesURL, let open = openReleaseNotesURL { return open(url) }
         guard let span = stagedHighlights?.changelog else { return openChangelog?() ?? false }
-        if let open = openChangelogSpan { return open(span.from, span.to) }
+        if let open = openChangelogSpan, open(span.from, span.to) { return true }
+        // The changelog page is a preview surface. If it is disabled after
+        // the update was staged, keep the action useful by opening the
+        // signed release-notes URL from the appcast instead.
+        if let url = stagedReleaseNotesURL, let open = openReleaseNotesURL, open(url) { return true }
         return openChangelog?() ?? false
     }
 }

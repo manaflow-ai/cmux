@@ -129,10 +129,11 @@ public final class GhosttyRuntime {
         configDiagnostics = diagnostics
     }
 
-    /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`).
+    /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`). The caller hands over
+    /// its own clone of it (`GhosttyActionDecoder`), which this keeps and later frees.
     func adoptAppliedConfig(_ applied: ghostty_config_t) {
         adoptedDuringReload = true
-        replaceConfig(ghostty_config_clone(applied))
+        replaceConfig(applied)
     }
 
     private func replaceConfig(_ fresh: ghostty_config_t?) {
@@ -162,6 +163,15 @@ public final class GhosttyRuntime {
     /// the theme they edit (`themeLines`). Set it, then call `reloadConfig()`.
     public static var themeEdits = ThemeEdits.none
 
+    /// `selection-background = <color>` for `appearance.highlightColor` (`ThemeEdits.highlight`),
+    /// loaded after the theme and its edits, so it wins in every terminal (a space, workspace or
+    /// terminal theme too) and reaches the chrome and pages through the config's selection color
+    /// (`ThemeBridge`). Empty for nil or anything but `#rrggbb`, so no other line can be injected.
+    public nonisolated static func highlightLines(_ color: String?) -> [String] {
+        guard let color, ThemeEdits.isColor(color) else { return [] }
+        return ["selection-background = \(color.lowercased())"]
+    }
+
     /// The light/dark side `themeLines` takes from a pair, as the app's
     /// color scheme last was (`applyColorScheme`).
     static var colorSchemeIsDark = false
@@ -187,21 +197,26 @@ public final class GhosttyRuntime {
     }
 
     /// Loads the user's config. `theme` replaces `themeOverride` (a room,
-    /// workspace or terminal theme; see `themeConfig(named:)`).
-    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil) -> ghostty_config_t? {
+    /// workspace or terminal theme; see `themeConfig(named:)`). `configFile`
+    /// replaces `configOverrideKey`'s file for one load, so a test can load a
+    /// file of its own without writing the process environment: a setenv after
+    /// `ghostty_init` frees the environ copy libghostty reads, and the next
+    /// `ghostty_config_finalize` crashes (SIGSEGV; `ProcessEnvironmentGuard`).
+    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil,
+                           configFile: String? = nil) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
         // cmux's defaults, before the user's files so theirs win.
         loadPaddingDefault(into: config)
         loadThemeDefault(into: config)
         loadKeybindDefaults(into: config)
         GhosttyUnfocusedSplit.loadDefault(into: config)
-        if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
+        if let path = configFile ?? ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
             ghostty_config_load_file(config, path)
         } else {
             loadDefaultFiles(into: config)
         }
         ghostty_config_load_recursive_files(config)
-        for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) {
+        for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) + highlightLines(themeEdits.highlight) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
         for line in fontOverrideLines(fontOverride) {

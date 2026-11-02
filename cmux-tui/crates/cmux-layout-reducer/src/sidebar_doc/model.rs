@@ -633,6 +633,10 @@ pub struct ItemPatch {
     /// A url item's favicon.
     #[serde(default, skip_serializing_if = "Patch::is_keep")]
     pub icon_url: Patch<String>,
+    /// The space whose windows draw the item (`extra.room`): a link, tab or
+    /// app moved into Pinned takes the acting window's space (spaces.md).
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub room: Patch<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

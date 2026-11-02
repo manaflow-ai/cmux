@@ -30,6 +30,44 @@ function jobText(job: NonNullable<HarnessesState["jobs"]>[number]): string {
   return t("settingsWindow.harnesses.jobUnknown");
 }
 
+function HarnessUpdateCard({ row, harnesses }: { row: HarnessRow; harnesses: HarnessesState | null }) {
+  const store = useStore();
+  const name = row.name ?? agentDisplayName(row.id);
+  const safeUpdate = offersUpdate(row);
+  const titleId = useId();
+  const unsettled = updateUnsettled(harnesses, row.id);
+  if (!row.outdated || !row.version || !row.latest || !row.update) return null;
+  return (
+    <article className="harness-update-card" data-harness-update-card={row.id}>
+      <div className="harness-update-card-copy">
+        <strong id={titleId}>{t("settingsWindow.harnesses.updateCard.title", name)}</strong>
+        <p className="row-help">{t("settingsWindow.harnesses.updateCard.detail", row.version, row.latest)}</p>
+        {row.update.elevated && <p className="row-help">{t("settingsWindow.harnesses.updateElevated")}</p>}
+        {!safeUpdate && !row.update.elevated && (
+          <p className="row-help">{t("settingsWindow.harnesses.updateCard.manual", name)}</p>
+        )}
+        {!safeUpdate && (
+          <code className="font-mono selectable" data-harness-update-command="">
+            {row.update.command}
+          </code>
+        )}
+      </div>
+      {safeUpdate && (
+        <button
+          type="button"
+          className="button"
+          data-harness-action="updateCard"
+          aria-describedby={titleId}
+          disabled={unsettled}
+          onClick={() => void store.runHarnesses({ action: "update", id: row.id })}
+        >
+          {t("settingsWindow.harnesses.update")}
+        </button>
+      )}
+    </article>
+  );
+}
+
 function Row({ row }: { row: HarnessRow }) {
   const store = useStore();
   const { harnesses } = useSettingsState();
@@ -88,8 +126,8 @@ function Row({ row }: { row: HarnessRow }) {
               {t("settingsWindow.harnesses.autoUpdateFailed", row.lastAutoUpdate.detail)}
             </div>
           )}
-          {row.auth === "signedOut" && (
-            <div className="row-error" data-harness-auth="signedOut">
+          {(row.auth === "signedOut" || row.auth === "expired") && (
+            <div className="row-error" data-harness-auth={row.auth}>
               {t("settingsWindow.harnesses.signedOut")}
             </div>
           )}
@@ -183,6 +221,13 @@ export function HarnessesCard() {
           </button>
         )}
       </div>
+      {harnesses && !harnesses.problem && (
+        <div className="harness-update-cards" data-harness-update-cards="">
+          {harnesses.harnesses.map((row) => (
+            <HarnessUpdateCard key={row.id} row={row} harnesses={harnesses} />
+          ))}
+        </div>
+      )}
       {(harnesses?.jobs ?? []).map((job, index) => (
         <div key={`${job.machine}:${job.terminal ?? index}`} className="row-help" data-agent-update-job={job.state}>
           <output>

@@ -49,13 +49,13 @@ final class MainPaneCardView: NSView {
     }
 
     /// One width for the content through a sidebar slide (`WindowRootView+ContentAreaMotion`):
-    /// the wider of its start and its landing, so a pane, terminal or page lays out once instead
-    /// of on every frame. The content rides the card's edge that moves (the sidebar's side) and the
-    /// card clips it at the other; nil at rest, and clearing it fits the content to the card again.
+    /// its landing width, so a pane, terminal or page lays out once, as the slide starts. It is pinned
+    /// to the card's edge away from the sidebar, which stays put, and the card clips it at the moving
+    /// one; nil at rest, and clearing it at the landing fits the content to the size it already has.
     struct ContentHold: Equatable {
         var width: CGFloat
-        /// The sidebar is on the right, so the card's trailing edge moves and the content rides it.
-        var ridesTrailingEdge: Bool
+        /// The sidebar is on the left, so the card's trailing edge stays put and the content is pinned to it.
+        var pinsTrailingEdge: Bool
     }
 
     var contentHold: ContentHold? {
@@ -75,12 +75,12 @@ final class MainPaneCardView: NSView {
     /// (`arrangeContent`) are placed by their own arrangement and never held.
     var heldContentFrame: CGRect? {
         guard let contentHold, arrangeContent == nil else { return nil }
-        let width = max(bounds.width, contentHold.width)
-        return CGRect(x: contentHold.ridesTrailingEdge ? bounds.width - width : 0, y: 0, width: width, height: bounds.height)
+        let width = contentHold.width
+        return CGRect(x: contentHold.pinsTrailingEdge ? bounds.width - width : 0, y: 0, width: width, height: bounds.height)
     }
 
-    /// Whether the card clips its content: when rounded, and while it holds content wider than
-    /// itself, a square card too. That clip is what Chromium pages (`CEFClipShape.clips(around:)`) and
+    /// Whether the card clips its content: when rounded, and while it holds content at another
+    /// width than its own, a square card too. That clip is what Chromium pages (`CEFClipShape.clips(around:)`) and
     /// the window overlay's rings (`OverlayPlane.roundedClip`) read for the card's edge.
     private var clips: Bool { (layer?.cornerRadius ?? 0) > 0 || contentHold != nil }
 
@@ -141,7 +141,7 @@ extension WindowRootView {
     // @intent familiar first (Lawrence 2026-10-14): a margin on every side of the main pane, as in
     // Helium, the sidebar's side too.
     func applyMainPane() {
-        let gutter = Metrics.mainPaneGutter, top = WindowTitlebar.cardTopInset(of: self, minimal: titlebarStyle == .minimal, gutter: gutter)
+        let gutter = Metrics.mainPaneGutter, top = mainPaneTopInset
         // The right sidebar sits on the edge opposite the sidebar: on the left
         // side's pins it insets the trailing edge, on the right side's the leading one.
         let panel = rightPanelWidth
@@ -172,9 +172,20 @@ extension WindowRootView {
         Metrics.mainPaneCornerRadius(windowCornerRadius: window?.frameCornerRadius ?? 0)
     }
 
-    /// Under a minimal titlebar the top row's pills sit on the traffic lights' line (`WindowTitlebar.cardTopInset`).
+    /// The card's top inset: under a minimal titlebar the top row's pills sit on the traffic
+    /// lights' line, and with tab bars at the bottom the card clears the lights when no sidebar
+    /// is under them (`WindowTitlebar.cardTopInset`).
+    var mainPaneTopInset: CGFloat {
+        let gutter = Metrics.mainPaneGutter
+        // The sidebar's state, not the card's frame mid-slide: the inset changes once per toggle.
+        let sidebarHoldsLights = sidebarSide == .left && !sidebarHidden && !sidebar.isHidden
+        let clears = DesignSettings.shared.tabBarPosition == .bottom && !sidebarHoldsLights
+        return WindowTitlebar.cardTopInset(of: self, minimal: titlebarStyle == .minimal, gutter: gutter, clearsTrafficLights: clears)
+    }
+
+    /// Under a minimal titlebar the top row's pills sit on the traffic lights' line (`mainPaneTopInset`).
     func updateMainPaneTopInset() {
-        let top = WindowTitlebar.cardTopInset(of: self, minimal: titlebarStyle == .minimal, gutter: Metrics.mainPaneGutter)
+        let top = mainPaneTopInset
         for edge in mainPaneEdges where edge.firstItem === contentHost && edge.firstAttribute == .top && edge.constant != top { edge.constant = top }
     }
 

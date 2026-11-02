@@ -2,6 +2,11 @@
 //! timeout; each child has a twenty-second alarm that bounds waits.
 #![cfg(target_os = "linux")]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// Starts no acpmux and no agent: only python3 children (kept on the bare PATH).
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -47,8 +52,7 @@ fn spawn(args: &[&str], fd: RawFd) -> Child {
 }
 
 fn spawn_with_extra(args: &[&str], fd: RawFd, extra_fd: Option<RawFd>) -> Child {
-    let exe = env!("CARGO_BIN_EXE_acpmux");
-    let mut command = Command::new(exe);
+    let mut command = Command::new(daemon_env::bin());
     command.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     command.env("NO_PROXY", "*").env("no_proxy", "*");
     if let Some(extra_fd) = extra_fd {
@@ -86,7 +90,7 @@ fn recv_handoff(
     stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
     let mut bytes = vec![0u8; 4096];
     let control_len =
-        unsafe { libc::CMSG_SPACE((2 * std::mem::size_of::<RawFd>()) as u32) as usize };
+        unsafe { libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()) as u32) as usize };
     let mut cmsg = vec![0usize; control_len.div_ceil(std::mem::size_of::<usize>())];
     let mut iov = libc::iovec { iov_base: bytes.as_mut_ptr().cast(), iov_len: bytes.len() };
     // SAFETY: all pointers refer to writable buffers for recvmsg's duration.
@@ -186,7 +190,7 @@ print(json.dumps({key: os.environ[key] for key in keys}))"#,
     let proxy = json["proxy"].as_u64().expect("proxy port") as u16;
     let api = json["api"].as_u64().expect("api port") as u16;
     assert!(proxy > 0 && api > 0);
-    assert_eq!(fds.len(), 2);
+    assert_eq!(fds.len(), 3); // proxy, API, and the supervisor notify listener
     let listener = &fds[0];
     let address = listener.local_addr().unwrap();
     assert_eq!(address.port(), proxy);

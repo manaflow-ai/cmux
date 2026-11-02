@@ -58,13 +58,24 @@ public nonisolated struct UpdateRelaunchFocus: Codable, Equatable, Sendable {
         defaults.set(data, forKey: key)
     }
 
+    /// The launch argument of an automatic install's background reopen (``UpdateRelaunchBehind``):
+    /// that launch stays behind whatever build it starts (the installed one, or the previous one
+    /// Sparkle put back after a failed install) and however long the quit took.
+    public static let reopenArgument = "--cmux-update-reopened-behind"
+
     /// Reads and clears the record at launch: the record when this launch is the relaunch it was
-    /// written for, else nil (no record, unreadable, or stale).
-    public static func consume(defaults: UserDefaults = .standard, build: String, now: Date = Date()) -> UpdateRelaunchFocus? {
-        guard let data = defaults.data(forKey: key) else { return nil }
-        defaults.removeObject(forKey: key)
-        guard let record = try? JSONDecoder().decode(UpdateRelaunchFocus.self, from: data),
-              record.applies(toBuild: build, now: now) else { return nil }
+    /// written for, else nil (no record, unreadable, or stale). A background reopen
+    /// (`reopenedBehind`) always stays behind: its record when there is one, else one with no app
+    /// to hand the front back to.
+    public static func consume(defaults: UserDefaults = .standard, build: String, now: Date = Date(),
+                               reopenedBehind: Bool = false) -> UpdateRelaunchFocus? {
+        let data = defaults.data(forKey: key)
+        if data != nil { defaults.removeObject(forKey: key) }
+        let record = data.flatMap { try? JSONDecoder().decode(UpdateRelaunchFocus.self, from: $0) }
+        if reopenedBehind {
+            return record ?? UpdateRelaunchFocus(targetBuild: nil, recordedAt: now, frontmostPID: nil, frontmostBundleID: nil)
+        }
+        guard let record, record.applies(toBuild: build, now: now) else { return nil }
         return record
     }
 }

@@ -69,9 +69,9 @@ extension AppControl {
                 }
             },
         ] + WebUpdates.shared.controlMethods)
-        // DEV and NIGHTLY only: a test appcast for every check (signatures
-        // still required). `{url: null}` returns to the real feed.
-        if updater.identity.track == .nightly || updater.identity.track == .development {
+        // DEV and NIGHTLY (classic or NEXT) only: a test appcast for every check
+        // (signatures still required). `{url: null}` returns to the real feed.
+        if updater.identity.track.allowsTestFeed {
             service?.router.register([
                 .mainActor("updates.test_feed") { call in
                     do {

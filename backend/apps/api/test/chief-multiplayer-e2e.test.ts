@@ -136,6 +136,18 @@ describe("Chief multiplayer: two people, two Chiefs, one group", { timeout: 180_
     expect(await spawns(ann.chief.id, group)).toEqual(["ann's own task"])
     expect(await brainOwner(ann.chief.id, group)).toBe(ann.user)
     expect(await brainOwner(ben.chief.id, group)).toBe(ben.user)
+    // A brain is idle with no queued or running message, no reply waiting to post, and every subagent reported.
+    const idle = (chief: string) =>
+      runInDurableObject(brainOf(chief, group), async (_i, state) => {
+        const sql = state.storage.sql
+        const busy = sql.exec(`SELECT 1 FROM cb_inbox WHERE state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE status = 'running' OR post = 'pending' UNION ALL SELECT 1 FROM cb_spawn WHERE state NOT IN ('reported', 'done', 'failed')`).toArray()
+        return busy.length === 0
+      })
+    // Atlas finishes with its subagent first: the first round of answers to a person is free of the loop guard's
+    // gap, so Atlas's thread posts can otherwise land after Ben's line and end Bolt's batch (the fake model acts
+    // on a batch's last line).
+    for (let i = 0; i < 60 && !(await idle(ann.chief.id)); i++) await settle(group, chiefs)
+    expect(await idle(ann.chief.id)).toBe(true)
     // Ben confirms on his own Chief: now it runs, as Ben's.
     await say(ben, group, mentionText(ben.chief, `tool:spawn ${JSON.stringify({ tasks: ["approved by ben"] })}`))
     h = await until(ann.token, group, chiefs, (x) => by(x, ben.chief.id).length >= 3, "Bolt answers Ben's confirmation")
@@ -164,7 +176,7 @@ describe("Chief multiplayer: two people, two Chiefs, one group", { timeout: 180_
       expect(rows, chief).toHaveLength(1)
       expect(rows[0], chief).toMatchObject({ woke: 1, state: "done" })
       const turn = rows[0]!.turn
-      // That turn's reply reaches the group (after the loop guard's gap between two agent posts).
+      // That turn's reply reaches the group (both Chiefs answer the person at once: the gap starts after that round).
       const reply = await runInDurableObject(brainOf(chief, group), async (_i, state) => state.storage.sql.exec<{ reply: string }>(`SELECT substr(reply, 1, 120) AS reply FROM cb_turn WHERE id = ?`, turn).toArray()[0]?.reply)
       expect(reply, chief).toBeTruthy()
       await until(ann.token, group, chiefs, (x) => by(x, chief).some((m) => (m.parts[0]?.text ?? "").startsWith(reply!)), `${chief}'s answer to status is in the group`)
@@ -174,14 +186,7 @@ describe("Chief multiplayer: two people, two Chiefs, one group", { timeout: 180_
     const authorOf = new Map(h.map((m) => [m.id, m.author]))
     const crossTalk = h.filter((m) => chiefs.includes(m.author) && chiefs.includes(authorOf.get(m.reply_to?.message_id)) && authorOf.get(m.reply_to?.message_id) !== m.author)
     expect(crossTalk).toEqual([])
-    // Quiet: once both brains are idle (no queued or running message, no reply waiting to post, every
-    // subagent reported), nothing more comes.
-    const idle = (chief: string) =>
-      runInDurableObject(brainOf(chief, group), async (_i, state) => {
-        const sql = state.storage.sql
-        const busy = sql.exec(`SELECT 1 FROM cb_inbox WHERE state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE status = 'running' OR post = 'pending' UNION ALL SELECT 1 FROM cb_spawn WHERE state NOT IN ('reported', 'done', 'failed')`).toArray()
-        return busy.length === 0
-      })
+    // Quiet: once both brains are idle, nothing more comes.
     for (let i = 0; i < 60 && !((await idle(ann.chief.id)) && (await idle(ben.chief.id))); i++) await settle(group, chiefs)
     expect((await idle(ann.chief.id)) && (await idle(ben.chief.id))).toBe(true)
     const quiet = (await history(ann.token, group)).length

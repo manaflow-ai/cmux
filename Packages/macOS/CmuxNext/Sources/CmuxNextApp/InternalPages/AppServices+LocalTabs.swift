@@ -9,7 +9,10 @@ import CmuxNextDaemon
 extension AppServices {
     /// Strip items of `paneKey`'s page tabs.
     func localTabItems(in paneKey: String, hiding closed: Set<String>) -> [StripTabItem] {
-        pages.tabIDs(in: paneKey).filter { !closed.contains($0) }.map(pages.stripItem)
+        let previews = settings?.snapshot.previewFeatures == true
+        return pages.tabIDs(in: paneKey).filter {
+            !closed.contains($0) && (previews || !InternalPageTabStore.isPreviewPage(LocalPageTab.page(of: $0)?.rawValue))
+        }.map(pages.stripItem)
     }
 
     /// Page tabs as the control snapshot lists them (bd cx-5xsi).

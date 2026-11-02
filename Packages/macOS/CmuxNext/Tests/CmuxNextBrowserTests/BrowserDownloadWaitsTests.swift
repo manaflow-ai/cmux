@@ -5,7 +5,12 @@ import Testing
 /// `cmux browser … download wait` (`BrowserDownloadWaits`): a wait follows the click's download even when it
 /// started before the wait, a wait that times out gives its download back to the next wait, and one download
 /// goes to one wait.
-@MainActor @Suite(.timeLimit(.minutes(1))) struct BrowserDownloadWaitsTests {
+///
+/// No `.timeLimit`: every wait here ends at its own deadline (at most 5 s, a `DemandTimer`), so none can
+/// hang. A suite time limit only measured how long a CPU-starved main actor took to run them: in the full
+/// parallel run `oneNewDownloadGoesToOneWait`, two 400 ms waits, failed its one minute after 274 s of wall
+/// clock. A real hang is still named and sampled by `swift-test-with-hang-sampler.sh`.
+@MainActor @Suite struct BrowserDownloadWaitsTests {
     private func download(_ name: String) -> BrowserDownload {
         BrowserDownload(sourceURL: URL(string: "https://example.com/\(name)"), filename: name, quarantine: { _, _ in })
     }

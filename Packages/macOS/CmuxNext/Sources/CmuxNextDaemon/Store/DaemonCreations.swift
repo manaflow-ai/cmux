@@ -49,6 +49,16 @@ import Foundation
     /// only if a snapshot says the daemon kept it).
     public static let closeAttemptLimit = 3
 
+    /// The tab of `pane` that stand-in tab `id` became, once the records list it there in its place
+    /// (a confirmed reply or echo named it). A pane's strip shows the records one observation step
+    /// late: a Cmd-W in that step still names the stand-in, which the records no longer hold, and
+    /// closed nothing (smoke, STATUS 4852). Nil for any other id, and for a stand-in still shown,
+    /// cancelled (its tab is hidden) or refused.
+    public func replacement(ofStandIn id: String, in pane: PaneModel) -> TabModel? {
+        guard ProvisionalTab.isProvisional(id), let surface = store.intentLog.replacement(ofStandIn: id) else { return nil }
+        return pane.tabs.first { $0.surface == surface }
+    }
+
     /// Whether tab `id` is still a pending creation's provisional tab (a close cancels it).
     public func isPending(tab id: String) -> Bool { CancelledCreation.transaction(showingTab: id, in: store) != nil }
 

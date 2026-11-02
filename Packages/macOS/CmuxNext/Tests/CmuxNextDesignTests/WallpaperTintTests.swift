@@ -102,20 +102,20 @@ import Testing
         let watch = DesktopWallpaperWatch(read: { Self.reading(shown, folder: folder) }, sample: DesktopWallpaperWatch.sample)
 
         watch.tintEnabled = true
-        watch.refresh()
+        await watch.refreshed()
         await watch.settled()
         let first = try #require(watch.tint)
         #expect(first.blue > first.red + 0.3, "the blue picture's color: \(first)")
         #expect(watch.sampleCount == 1 && watch.generation == 0)
 
         // A Space switch that shows the same picture: no sample, nothing moved.
-        watch.refresh()
+        await watch.refreshed()
         await watch.settled()
         #expect(watch.sampleCount == 1 && watch.generation == 0 && watch.tint == first)
 
         // A new picture.
         shown = redPicture
-        watch.refresh()
+        await watch.refreshed()
         await watch.settled()
         let second = try #require(watch.tint)
         #expect(second.red > second.blue + 0.3, "the red picture's color: \(second)")
@@ -123,7 +123,7 @@ import Testing
 
         // Back to the first Space: its color without decoding again.
         shown = bluePicture
-        watch.refresh()
+        await watch.refreshed()
         #expect(watch.tint == first, "a known picture's color applies at once")
         #expect(watch.sampleCount == 2 && watch.generation == 2)
     }
@@ -144,9 +144,9 @@ import Testing
             return Self.red
         })
         watch.tintEnabled = true
-        watch.refresh()
+        await watch.refreshed()
         shown = fast
-        watch.refresh()
+        await watch.refreshed()
         #expect(watch.sampleCount == 1, "the newer picture waits for the decode under way")
         releasing.finish()
         await watch.settled()
@@ -164,7 +164,7 @@ import Testing
             return Self.blue
         })
         watch.tintEnabled = true
-        watch.refresh()
+        await watch.refreshed()
         watch.tintEnabled = false
         releasing.finish()
         await watch.settled()
@@ -186,13 +186,13 @@ import Testing
             return Self.blue
         }, isHidden: { hidden })
         watch.tintEnabled = true
-        watch.refresh()
+        await watch.refreshed()
         hidden = true
         releasing.finish()
         await watch.settled()
         #expect(watch.tint == nil, "nothing shows: the color waits")
         hidden = false
-        watch.refresh()
+        await watch.refreshed()
         #expect(watch.tint == Self.blue && watch.sampleCount == 1, "the same picture's kept color shows on the next read")
     }
 
@@ -205,15 +205,15 @@ import Testing
         let color = OSAllocatedUnfairLock(initialState: Self.blue)
         let watch = DesktopWallpaperWatch(read: { Self.reading(url, folder: folder) }, sample: { _ in color.withLock { $0 } })
         watch.tintEnabled = true
-        watch.refresh()
+        await watch.refreshed()
         await watch.settled()
-        watch.refresh()
+        await watch.refreshed()
         #expect(watch.sampleCount == 1, "the same file, unchanged, is not sampled again")
 
         _ = try Self.writePicture(Self.red, named: "desktop.png", in: folder)
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000_000)], ofItemAtPath: url.path)
         color.withLock { $0 = Self.red }
-        watch.refresh()
+        await watch.refreshed()
         await watch.settled()
         #expect(watch.sampleCount == 2)
         #expect(watch.tint == Self.red)
@@ -228,13 +228,13 @@ import Testing
         var shown = folder.appendingPathComponent("blue.png"), hidden = true
         let watch = DesktopWallpaperWatch(read: { Self.reading(shown, folder: folder) }, sample: { _ in Self.blue },
                                           isHidden: { hidden })
-        watch.refresh()
+        await watch.refreshed()
         #expect(watch.generation == 0 && watch.sampleCount == 0 && watch.tint == nil, "hidden: nothing read")
 
         hidden = false
-        watch.refresh()
+        await watch.refreshed()
         shown = folder.appendingPathComponent("red.png")
-        watch.refresh()
+        await watch.refreshed()
         await watch.settled()
         #expect(watch.generation == 1, "the art follows the picture with the tint off")
         #expect(watch.sampleCount == 0 && watch.tint == nil, "no sample while the tint is off")
@@ -242,7 +242,7 @@ import Testing
         watch.tintEnabled = true
         await watch.settled()
         #expect(watch.sampleCount == 1 && watch.tint == Self.blue)
-        watch.refresh()
+        await watch.refreshed()
         #expect(watch.sampleCount == 1, "the same picture is not sampled again")
     }
 
@@ -259,17 +259,67 @@ import Testing
         let untinted = try #require(view.tintColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
         #expect(abs(untinted.redComponent - untinted.blueComponent) < 0.001, "no sample yet: the theme's grey")
 
-        watch.refresh()
+        await watch.refreshed()
         await watch.settled()
         let blue = try #require(view.tintColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
         #expect(blue.blueComponent > blue.redComponent + 0.01)
         #expect(abs(blue.alphaComponent - 0.6) < 0.0001)
 
         color.withLock { $0 = Self.red }
-        watch.refresh()
+        await watch.refreshed()
         await watch.settled()
         let red = try #require(view.tintColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
         #expect(red.redComponent > red.blueComponent + 0.01)
+    }
+
+    /// #26394: reading the desktop picture waits on the WindowServer; on a key-window change the
+    /// main thread sat in `desktopImageURL(for:)` until the debug hang assertion ended the app. A
+    /// read that has not returned holds nothing: the event's turn ends, a second event during it
+    /// asks for one more read (not a second at once), and the reading lands when it returns.
+    @Test func aSlowReadNeverHoldsTheEventsTurn() async throws {
+        let folder = try Self.folder()
+        let (firstRelease, releasingFirst) = AsyncStream<Void>.makeStream()
+        let (secondRelease, releasingSecond) = AsyncStream<Void>.makeStream()
+        let (secondStarted, startingSecond) = AsyncStream<Void>.makeStream()
+        let first = folder.appendingPathComponent("blue.png"), second = folder.appendingPathComponent("red.png")
+        var reads = 0, running = 0, mostAtOnce = 0
+        let watch = DesktopWallpaperWatch(read: {
+            reads += 1
+            let isFirst = reads == 1
+            running += 1
+            mostAtOnce = max(mostAtOnce, running)
+            defer { running -= 1 }
+            if !isFirst { startingSecond.yield() }
+            let gate = isFirst ? firstRelease : secondRelease
+            await Task.detached { for await _ in gate {} }.value
+            return Self.reading(isFirst ? first : second, folder: folder)
+        }, sample: { _ in Self.blue })
+        watch.tintEnabled = true
+        watch.refresh()
+        watch.refresh()
+        #expect(watch.picture == nil && watch.tint == nil, "the read has not returned: nothing applied yet")
+
+        releasingFirst.finish()
+        for await _ in secondStarted { break }
+        #expect(watch.picture?.reportedURL == first, "the first reading applied before the read the event asked for")
+        releasingSecond.finish()
+        await watch.settled()
+        #expect(reads == 2 && mostAtOnce == 1, "the event during the read reads once more, after it")
+        #expect(watch.picture?.reportedURL == second && watch.generation == 1 && watch.tint == Self.blue)
+    }
+
+    /// The live read takes the picture (and stats its file) on the watch's queue, never on the
+    /// caller's main thread.
+    @Test func thePictureIsReadOffTheMainThread() async throws {
+        let folder = try Self.folder()
+        let shown = folder.appendingPathComponent("blue.png")
+        let onMain = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+        let reading = await DesktopWallpaperWatch.readPicture(dark: true, on: DispatchQueue(label: "wallpaper-tint-test", qos: .utility)) {
+            onMain.withLock { $0 = Thread.isMainThread }
+            return DesktopPicture(reportedURL: shown, fillColor: nil, fallbackFolder: folder)
+        }
+        #expect(onMain.withLock { $0 } == false)
+        #expect(reading?.picture.reportedURL == shown && reading?.dark == true)
     }
 
     // MARK: Fixtures

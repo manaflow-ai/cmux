@@ -2,6 +2,14 @@
 # nightly.yml publish-nightly: "Prepare nightly release notes and appcast summaries".
 # Moved out of the workflow verbatim to keep nightly.yml under GitHub's
 # workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The notes take seconds. Bounded here, a slow notes run fails before
+# any asset upload instead of using up the job's time and being
+# cancelled mid-upload (run 37611677848 left partial assets that way).
+# 60 of these minutes are the most its gh calls may wait for a rate-limit
+# reset (gh_budget_wait.sh); the job's timeout leaves 20 after them.
+# nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
 set -euo pipefail
 read -ra feeds <<< "$NIGHTLY_FEEDS"
 download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}"
@@ -51,13 +59,14 @@ python3 "$PUBLISH_TOOLING/ci/nightly_release_notes.py" \
 if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$NOTES_HEAD" ]; then
   ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
   # The changelog gate (2026-10-20, Lawrence: "the change log needs to be better at all
-  # times"): before any asset uploads, the span's notes must give the update card real
-  # What's New entries. A span with none fails here instead of shipping a card that says
-  # only "What's new in this build"; sign-release-notes builds the same notes later.
+  # times"): before any asset uploads, the span's What's New digest must validate, so a
+  # malformed entry fails here. A span with nothing user-facing publishes the generic
+  # "Fixes and improvements" entry with a warning (claude-sr2, 2026-10-27: that failure
+  # threw away 9 of 79 notarized builds); sign-release-notes builds the same notes later.
   gate_dir="$(mktemp -d)"
   python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
     --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
-    --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" --out "$gate_dir" >/dev/null
+    --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" --out "$gate_dir" --pr-descriptions >/dev/null
   python3 scripts/cmux-next/release-notes.py check --notes "$gate_dir/$NIGHTLY_BUILD.json"
   rm -rf "$gate_dir"
   python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \

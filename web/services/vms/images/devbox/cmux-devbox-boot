@@ -402,9 +402,16 @@ sync_vm_kind_if_due() {
   /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1 &
 }
 
+# A clone's kind record goes back to `team` before its daemon starts. A reset
+# that cannot take the sync's lock (10 s at most) or cannot write records
+# `team` and a new generation without the lock; the daemon starts either way.
 mark_vm_kind_shared() {
   [ -x /usr/local/bin/cmux-vm-kind-sync ] || return 0
-  CMUX_VM_MODEL_ENV_FILE=/run/cmux/no-model-plane /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1
+  if ! CMUX_VM_KIND_RESET=team /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1; then
+    echo "cmux-devbox-boot: vm-kind reset failed; recording team without the lock" >&2
+    CMUX_VM_KIND_RESET=team-unlocked /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1 \
+      || echo "cmux-devbox-boot: vm-kind fallback failed; the record may still be the source's" >&2
+  fi
   vm_kind_sync_at=0
 }
 
@@ -463,9 +470,10 @@ while true; do
     else
       sync_vm_kind_if_due
       if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
-        # A snapshot clone may carry its source's `owner` marker and a future
-        # sync deadline. Fail closed before its daemon or first terminal can
-        # start; the ordinary sync below may promote it back to owner.
+        # A snapshot clone may carry its source's `owner` record and a future
+        # sync deadline. Record `team` before its daemon or first terminal can
+        # start (mark_vm_kind_shared falls back to a write without the lock);
+        # the ordinary sync below may promote it back to owner.
         mark_vm_kind_shared
         sync_vm_kind_if_due
         # Announce first: the fabric drops the Mac's SYNs until it sees a frame.

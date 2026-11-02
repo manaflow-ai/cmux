@@ -165,6 +165,33 @@ import Testing
         #expect(SessionTransferItem(json: old)?.activity == .unknown)
     }
 
+    /// Right before a picked terminal is ended in its build, its build is asked again: only a
+    /// terminal still idle there moves. One that runs a program now, whose build can't tell,
+    /// that is gone, or whose build gave no answer stays, and the toast says why.
+    @Test func aPickedTerminalThatBecameBusyStays() {
+        func list(_ items: SessionTransferItem...) -> CmuxNextSettings.JSONValue {
+            ["sessions": .array(items.map(\.json))]
+        }
+        #expect(SessionMoveSelection.handoffRefusal(surface: "1", list: list(Self.item("1"))) == nil)
+        #expect(SessionMoveSelection.handoffRefusal(surface: "1", list: list(Self.item("1", activity: .running("vim"))))
+            == SessionMoveSelection.becameBusy("vim"))
+        #expect(SessionMoveSelection.handoffRefusal(surface: "1", list: list(Self.item("1", activity: .running(""))))
+            == SessionMoveSelection.becameUnknown)
+        #expect(SessionMoveSelection.handoffRefusal(surface: "1", list: list(Self.item("1", activity: .unknown)))
+            == SessionMoveSelection.becameUnknown)
+        // Another terminal being idle says nothing about this one.
+        #expect(SessionMoveSelection.handoffRefusal(surface: "1", list: list(Self.item("2"))) == SessionMoveSelection.becameUnknown)
+        #expect(SessionMoveSelection.handoffRefusal(surface: "1", list: nil) == SessionMoveSelection.becameUnknown)
+
+        // The refusal is the failure's message, so the toast names the terminal and the reason.
+        let reason = SessionTransferService.message(for: SessionTransferService.Failure.terminalBusy(SessionMoveSelection.becameBusy("vim")))
+        #expect(reason == SessionMoveSelection.becameBusy("vim"))
+        var outcome = SessionMoveOutcome()
+        outcome.record(["moved": .array([]), "failed": .array([.object(["surface": .string("1"), "error": .string(reason)])])],
+                       titles: ["1": "editor"])
+        #expect(outcome.notice == SessionMoveOutcome.couldNotMove("editor", SessionMoveSelection.becameBusy("vim")))
+    }
+
     @Test func theToastSaysWhatMovedAndNamesEachFailure() {
         let selection = SessionMoveSelection(peers: Self.peers)
         var outcome = SessionMoveOutcome()

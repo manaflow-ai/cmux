@@ -53,8 +53,16 @@ pub struct QuestionAnswers {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReplyShape {
     String,
+    /// A JSON `true` or `false` only (Swift's `.bool`).
+    Bool,
+    /// A finite number, never a boolean (Swift's `.number`).
+    Number,
     Object(BTreeMap<String, ReplyShape>),
     List(Box<ReplyShape>),
+    /// Only the scheme (`ssh`, `ws`, `wss`) of the URL in the sibling field
+    /// named here (Swift's `.scheme(from:)`), so the page learns a peer's
+    /// transport without its URL, which can carry a user or a token.
+    Scheme(String),
 }
 
 impl ReplyShape {
@@ -62,7 +70,16 @@ impl ReplyShape {
         if v.as_str() == Some("string") {
             return Some(ReplyShape::String);
         }
+        if v.as_str() == Some("number") {
+            return Some(ReplyShape::Number);
+        }
+        if v.as_str() == Some("bool") {
+            return Some(ReplyShape::Bool);
+        }
         let o = v.as_object()?;
+        if let Some(source) = o.get("scheme").and_then(Value::as_str) {
+            return Some(ReplyShape::Scheme(source.to_owned()));
+        }
         if let Some(fields) = o.get("object").and_then(Value::as_object) {
             let fields = fields
                 .iter()
@@ -154,10 +171,14 @@ pub fn policy() -> &'static Policy {
         // not parse. Should it not, the policy denies everything (no method,
         // every frame too large) instead of ending the host.
         let raw: Raw = serde_json::from_str(POLICY_JSON).unwrap_or_default();
+        // A shape that does not parse filters everything out (an empty
+        // result), never lets its replies through unfiltered.
         let reply_shapes = raw
             .reply_shapes
             .iter()
-            .filter_map(|(k, v)| ReplyShape::from_json(v).map(|shape| (k.clone(), shape)))
+            .map(|(k, v)| {
+                (k.clone(), ReplyShape::from_json(v).unwrap_or(ReplyShape::Object(BTreeMap::new())))
+            })
             .collect();
         Policy {
             pane_origin: raw.pane_origin,
