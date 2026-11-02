@@ -87,6 +87,8 @@ describe("cmux VM image apt index", () => {
   test("an index outage gets one bounded retry with backoff before failing", async () => {
     expect(bake.APT_UPDATE_COMMAND).toContain("timeout \"${timeout_s}s\" apt-get update -q --error-on=any");
     expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=240");
+    expect(bake.APT_UPDATE_COMMAND).toContain("apt_update_ok=1; break;");
+    expect(bake.APT_UPDATE_COMMAND).not.toContain("then exit 0");
     expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=45");
     expect(bake.APT_UPDATE_COMMAND).toContain("sleep 5");
     expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
