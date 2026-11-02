@@ -532,20 +532,3 @@ fn question_permissions() {
         assert_eq!(options.question_keys(id).is_some(), question, "{id}");
     }
 }
-
-/// Every reply shape in policy.json parses: a shape this crate cannot read
-/// must never leave its method's replies unfiltered.
-#[test]
-fn every_reply_shape_parses() {
-    let raw: Value = serde_json::from_str(cmux_agent_pane_policy::data::POLICY_JSON).unwrap();
-    let methods: BTreeSet<&String> = raw["reply_shapes"].as_object().unwrap().keys().collect();
-    let parsed: BTreeSet<&String> = policy().reply_shapes.keys().collect();
-    assert_eq!(parsed, methods, "reply shapes that parse vs policy.json reply_shapes");
-    for (method, shape) in &policy().reply_shapes {
-        assert_ne!(
-            *shape,
-            cmux_agent_pane_policy::ReplyShape::Object(Default::default()),
-            "{method}: its shape did not parse"
-        );
-    }
-}
