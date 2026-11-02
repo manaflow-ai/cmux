@@ -49,6 +49,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
+    private var presentedReport = PresentedContentReport() // what this pane last reported as presented to focus
     private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`syncStripIfStale`)
     private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
@@ -509,9 +510,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown, and a page's
         // first paint while shown is the launch's `first_page_frame`.
         if case .terminal(let terminal) = content, let key { if services.terminalLaunchFrames.show(key, on: terminal.session, in: view.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if let content { services.launchReveal.markReady(.pane); if let key { DebugTimings.markFirstPageFrame(of: content.view, node: services.cache.node(for: key)) } }
-        // The content view exists now: the coordinator re-applies focus if
-        // this pane has it (content is shown a frame after selection).
-        if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
+        // What shows changed (a frame after selection): focus applies again if this pane has it; a re-show of the same content reports nothing.
+        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.window], replacing: previous) { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
         BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
         BenchSpans.measure("switch.neighbors") { noteNeighbors() }
     }
