@@ -107,6 +107,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// The background the next DevTools starts with (`cmux_shim_devtools_set_background`).
     let devToolsSetBackground: @convention(c) (Int32, UInt32) -> Void
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
+    /// The host's dock side into the DevTools frontend's own setting (`cmux_shim_devtools_set_frontend_dock_side`).
+    let devToolsSetFrontendDockSide: @convention(c) (Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
     let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
     /// Opens DevTools on one frontend panel (`network`, `timeline`); 0 when gone or invalid.
@@ -364,6 +366,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
         devToolsSetBackground = try r("cmux_shim_devtools_set_background")
         devToolsCommand = try r("cmux_shim_devtools_command")
+        devToolsSetFrontendDockSide = try r("cmux_shim_devtools_set_frontend_dock_side")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
         devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
         devToolsShowPanel = try r("cmux_shim_devtools_show_panel")
