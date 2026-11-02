@@ -159,11 +159,34 @@ final class CEFDevToolsController {
     private func endClosingForNewDevTools() {
         guard closing else { return }
         closing = false
+        // The older session's device mode ended with it (its DEVTOOLS_CLOSED, now retired, would have ended it): the new
+        // DevTools gets its docked frame, and the tab's own emulation applies again.
+        if deviceModeBounds != nil {
+            deviceModeBounds = nil
+            tab?.devToolsDeviceModeEnded()
+        }
         // The closing DevTools' late event retires it only. The new DevTools is the open a waiting open asked for: a
         // plain open is done; a console or panel the person asked for applies to it once it opened (`opened`).
         retiredBrowserID = devToolsBrowserID
         devToolsBrowserID = nil
         if afterClose == .show || afterClose == .toggle { afterClose = nil }
+        views?.host.isHidden = false
+        views?.divider.isHidden = false
+    }
+
+    /// `openedLimit` passed after `DEVTOOLS_WILL_OPEN` with no `DEVTOOLS_OPENED`: the creation failed. The page gets its
+    /// whole frame back. The views stay, hidden: Chromium was given the host view (unretained) as its parent, so a late
+    /// OPENED still finds it; the next open or that OPENED shows them again (`showViews`).
+    private func openNeverReported() {
+        guard opening, !standIn, let tab, !tab.devTools.isOpen, let views else { return }
+        opening = false
+        views.host.isHidden = true
+        views.divider.isHidden = true
+        tab.container.layoutContent()
+    }
+
+    /// Shows views an unreported open hid (`openNeverReported`).
+    private func showViews() {
         views?.host.isHidden = false
         views?.divider.isHidden = false
     }
@@ -271,6 +294,9 @@ final class CEFDevToolsController {
         standIn = false
         endClosingForNewDevTools()
         opening = true
+        // A creation that fails sends no OPENED: the room it reserved stayed for good (an empty DevTools area beside a
+        // narrowed page). After a bounded wait the room goes back, as a stand-in rolls back.
+        openTimer.schedule(after: Self.openedLimit) { @MainActor [weak self] in self?.openNeverReported() }
         let embedded = tab.container.window != nil && tab.runtime.supportsEmbeddedDevTools
         // The DevTools frontend keeps its own dock side (its profile setting) and applies it when it loads; the fork
         // reports that as a dock-side choice (`dockSideChosen`), which moved a just-opened DevTools from cmux's side
@@ -285,6 +311,7 @@ final class CEFDevToolsController {
             // page's window; a window of its own takes the same view after
             // DEVTOOLS_OPENED (opened), like a later move does.
             let views = views ?? makeViews(in: tab)
+            showViews()
             tab.container.layoutContent()
             if views.host.bounds.isEmpty { views.host.frame = tab.container.bounds }
             // Until its frontend draws, DevTools shows its browser's background: the pane's theme color, as every
@@ -316,6 +343,8 @@ final class CEFDevToolsController {
     func opened(browser: Int32, docked: Bool) {
         guard let tab else { return }
         endClosingForNewDevTools()
+        openTimer.cancel()
+        showViews()
         opening = false
         devToolsBrowserID = browser
         // `docked` = a child of a cmux view (the pane's DevTools host).
