@@ -500,8 +500,21 @@ def main() -> int:
     ev = json.load(open(args.events))
     if isinstance(ev, dict):
         ev = ev["events"]
-    results = judge(args.video, ev, args.hz, args.sidebar_right, movie_times(args.frames) if args.frames else None)
-    out = {"video": args.video, "hz": args.hz, "summary": summary(results), "events": results}
+    times = movie_times(args.frames) if args.frames else None
+    hz = args.hz
+    if times and len(times) > 10:
+        # The display's real refresh: the most common frame interval (a busy beacon draws every refresh).
+        steps = sorted(b - a for a, b in zip(times, times[1:]) if b > a)
+        hz = 1.0 / steps[len(steps) // 4]
+        if abs(hz - args.hz) > 5:
+            print(f"note: the movie's display refresh is {hz:.1f} Hz, not {args.hz:.0f} Hz: refreshes count at {hz:.1f} Hz",
+                  file=sys.stderr)
+    for e in ev:
+        if "t" not in e and "action_start_host_s" in e:
+            e["t"] = e["action_start_host_s"]
+    ev = [e for e in ev if "t" in e]
+    results = judge(args.video, ev, hz, args.sidebar_right, times)
+    out = {"video": args.video, "hz": round(hz, 2), "summary": summary(results), "events": results}
     text = json.dumps(out, indent=1, default=str)
     if args.out:
         Path(args.out).write_text(text)
