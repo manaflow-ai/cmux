@@ -317,19 +317,29 @@ pub fn filter_response(message: &str, state: &SessionExposure, bound: &HashSet<S
 }
 
 fn daemon_chat_blocked(value: &Value, state: &SessionExposure) -> bool {
-    // Request/legacy rows, raw conversation tabs, and projected workspace tabs.
-    ["/agent_session", "/conversation/agent_session", "/extra/conversation/agent_session"].iter().any(
-        |path| {
-            value
-                .pointer(path)
-                .and_then(|agent| agent.as_str().or_else(|| agent.get("session").and_then(Value::as_str)))
-                .is_some_and(|id| !allowed(state, id, &HashSet::new()))
-        },
-    )
+    // Conversation tabs, list-agents/agent-changed rows, their registry
+    // projections, and send's expected agent all carry agent identities.
+    // A bare `session`/`session_id` instead identifies the daemon or terminal
+    // registry and must not be treated as an acpmux chat.
+    [
+        "/agent_session",
+        "/conversation/agent_session",
+        "/extra/conversation/agent_session",
+        "/agent_session_id",
+        "/extra/agent_session_id",
+        "/expect_agent/session",
+    ]
+    .iter()
+    .any(|path| {
+        value
+            .pointer(path)
+            .and_then(|agent| agent.as_str().or_else(|| agent.get("session").and_then(Value::as_str)))
+            .is_some_and(|id| !allowed(state, id, &HashSet::new()))
+    })
 }
 
-/// Daemon protocol rows carry an agent session nested under `agent_session`;
-/// ordinary daemon `session` fields identify the terminal and must remain.
+/// Remove daemon rows with a blocked agent identity, preserving unrelated
+/// terminal rows and their daemon/registry `session` fields.
 pub fn filter_daemon_response(message: &str, state: &SessionExposure) -> Option<String> {
     if !state.available {
         return None;
@@ -547,6 +557,51 @@ mod tests {
         assert_eq!(filter_daemon_response(&singleton, &state).as_deref(), Some("null"));
         let alias = json!({"cmd":"new-conversation-tab","agent_session":{"session":"alias"}}).to_string();
         assert!(daemon_request_blocked(&alias, &state));
+    }
+
+    #[test]
+    fn daemon_agent_rosters_events_and_projections_hide_blocked_agents() {
+        let blocked = "00000000-0000-7000-8000-000000000001";
+        let visible = "00000000-0000-7000-8000-000000000002";
+        let state = exposure(&[blocked]);
+        for (key, hidden, shown) in [
+            (
+                "agents",
+                json!({"surface":7,"state":"idle","agent_session_id":blocked,"last_prompt":"private"}),
+                json!({"surface":8,"state":"idle","agent_session_id":visible}),
+            ),
+            (
+                "agents",
+                json!({"id":"hidden","extra":{"agent_session_id":blocked},"state":"idle"}),
+                json!({"id":"visible","extra":{"agent_session_id":visible},"state":"idle"}),
+            ),
+        ] {
+            let terminal = json!({"id":"terminal","session":blocked,"session_id":"main"});
+            let message = json!({"id":1,"data":{key:[hidden,shown.clone(),terminal.clone()]}});
+            let filtered: Value =
+                serde_json::from_str(&filter_daemon_response(&message.to_string(), &state).unwrap()).unwrap();
+            assert_eq!(filtered["data"][key], json!([shown, terminal]));
+        }
+        let event = json!({"event":"agent-changed","surface":7,"agent_session_id":blocked,
+                           "state":"idle","last_prompt":"private"});
+        assert_eq!(filter_daemon_response(&event.to_string(), &state).as_deref(), Some("null"));
+    }
+
+    #[test]
+    fn daemon_expected_agent_is_checked_independently_of_terminal_session() {
+        let blocked = "00000000-0000-7000-8000-000000000001";
+        let visible = "00000000-0000-7000-8000-000000000002";
+        let state = exposure(&[blocked]);
+        for session in [blocked, "short-alias"] {
+            let request = json!({"id":1,"cmd":"send","surface":7,"text":"private",
+                                 "expect_agent":{"session":session},"submit":true});
+            assert!(daemon_request_blocked(&request.to_string(), &state));
+        }
+        let visible_request = json!({"id":2,"cmd":"send","surface":8,"text":"hello",
+                                     "expect_agent":{"session":visible},"submit":true});
+        assert!(!daemon_request_blocked(&visible_request.to_string(), &state));
+        let terminal = json!({"id":3,"cmd":"send","surface":9,"session":blocked,"text":"ls"});
+        assert!(!daemon_request_blocked(&terminal.to_string(), &state));
     }
 
     #[test]
