@@ -1,0 +1,117 @@
+{
+ "id": "reopen-kill-all-scrollback",
+ "priority": "P0",
+ "title": "Kill -9 of the app AND every background process of its bundle (daemon, holder, terminal hosts), reopen: each terminal's last screen and its whole scrollback come back exactly, a 'session ended' line follows them, and the new shell starts in the same path string (/tmp stays /tmp)",
+ "why": "REOPEN-F3 (STATUS 4421, P0 data loss, cmux-ad 01:30Z): on the dogfood build f350103 a kill of every cmux process lost the last screen (400 numbered lines) and the 363-row scrollback; the terminal showed only '- session restored (previous process ended) -' and a new prompt in /private/tmp. A Mac that crashes, a force quit of everything, or a kernel panic leaves exactly this state.",
+ "source": "REOPEN-F3 (STATUS 4421, 4426), owner of the fix reopen-f3",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "as": "main"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'ks-${nonce}-%g' 1 400",
+   "enter": true,
+   "mark": "lines"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: 400 numbered lines, the last on screen; the scrollback holds the rest",
+   "since": "lines",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "ks-${nonce}-400"
+    },
+    {
+     "app_text_line": "ks-${nonce}-400"
+    },
+    {
+     "frame_text": "ks-${nonce}-400"
+    },
+    {
+     "scrollback_whole": {
+      "prefix": "ks-${nonce}-",
+      "last": 400
+     }
+    }
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2,
+   "title": "set-up: the app saves what it saves at its own pace (no quit runs: a kill gives no chance)"
+  },
+  {
+   "do": "kill_all_relaunch",
+   "mark": "reopened",
+   "title": "SIGKILL of every process of the bundle (hosts and holder first, then daemon and app), reopen"
+  },
+  {
+   "do": "use",
+   "name": "main"
+  },
+  {
+   "do": "expect",
+   "title": "the last screen and the whole scrollback are back, exactly (1..400 once each, in order), with a 'session ended' line after them",
+   "since": "reopened",
+   "timeout": 30,
+   "all": [
+    {
+     "scrollback_whole": {
+      "prefix": "ks-${nonce}-",
+      "last": 400
+     }
+    },
+    {
+     "ended_line_after": {
+      "prefix": "ks-${nonce}-",
+      "last": 400
+     }
+    },
+    {
+     "app_text_contains": "ks-${nonce}-400"
+    },
+    {
+     "frame_text": "ks-${nonce}-400"
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "pwd",
+   "enter": true,
+   "mark": "pwd"
+  },
+  {
+   "do": "expect",
+   "title": "the new shell starts in the same path string the terminal had (/tmp, not /private/tmp)",
+   "since": "pwd",
+   "timeout": 10,
+   "all": [
+    {
+     "cwd_string": {
+      "path": "/tmp"
+     }
+    },
+    {
+     "app_text_line": "/tmp"
+    },
+    {
+     "frame_text": "/tmp"
+    }
+   ]
+  }
+ ]
+}

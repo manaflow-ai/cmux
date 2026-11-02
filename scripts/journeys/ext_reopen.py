@@ -952,5 +952,51 @@ def step_heavy_teardown(j, step):
     return {"exit": done.returncode, "tail": (done.stdout or done.stderr or "")[-300:]}
 
 
-STEPS = {"reopen_video": step_reopen_video, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
-CONDITIONS = {}
+def step_kill_all_relaunch(j, step):
+    """REOPEN-F3 (P0 data loss, cmux-ad 01:30Z): SIGKILL of every background process of the app's bundle (the
+    terminal hosts and the holder first, so no shell survives), then the driver's own `relaunch` kind kill-both
+    (SIGKILL of the daemon and the app) and its reopen through LaunchServices, which finds every named terminal
+    again. No film (the check is what comes back). Records what was killed and that nothing of the bundle ran at
+    the reopen."""
+    app = j.app
+    others = [r for r in app.bundle_processes(app.pid) if r["pid"] != app.pid and "--headless" not in r["command"]]
+    for row in others:
+        try:
+            os.kill(row["pid"], signal.SIGKILL)
+        except OSError:
+            pass
+    record = D.Journey.step_relaunch(j, dict(step, how="kill-both"))
+    record["killed_first"] = [{"pid": r["pid"], "command": r["command"][:100]} for r in others]
+    return record
+
+
+def cond_cwd_string(j, want, cache):
+    """The current terminal's shell prints its working directory with `pwd` as exactly WANT (the same path string a
+    person had: /tmp stays /tmp, not /private/tmp). Reads the daemon's screen for the line after `pwd`'s echo."""
+    wanted = j.sub(want["path"] if isinstance(want, dict) else want)
+    text = j.app.screen(j.need_term())["text"]
+    lines = [line.strip() for line in text.splitlines()]
+    after = [lines[i + 1] for i, line in enumerate(lines[:-1]) if line.endswith("pwd")]
+    got = after[-1] if after else None
+    return got == wanted, {"pwd_printed": got, "want": wanted}
+
+
+def cond_ended_line_after(j, want, cache):
+    """The current terminal's screen shows the last content (a line with PREFIX + LAST), and AFTER it a line that
+    says the session ended (any of WORDS, default "ended"), then a prompt: the restored last screen is not replaced."""
+    prefix, last = j.sub(want["prefix"]), int(want["last"])
+    words = want.get("words", ["ended"])
+    lines = [line.rstrip() for line in j.app.screen(j.need_term())["text"].splitlines()]
+    marker = f"{prefix}{last}"
+    at = max([i for i, line in enumerate(lines) if line.strip() == marker] or [-1])
+    ended = [i for i, line in enumerate(lines) if i > at >= 0 and any(w in line.lower() for w in words)]
+    detail = {"last_content_row": at, "ended_rows": ended[:3], "screen_tail": [l for l in lines if l.strip()][-4:]}
+    if at < 0:
+        return False, dict(detail, why=f"the last content line {marker!r} is not on the screen (the last screen was not restored)")
+    if not ended:
+        return False, dict(detail, why="no 'session ended' line after the restored last content")
+    return True, detail
+
+
+STEPS = {"reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+CONDITIONS = {"cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}
