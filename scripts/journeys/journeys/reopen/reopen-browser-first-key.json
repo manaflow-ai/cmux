@@ -1,0 +1,540 @@
+{
+ "id": "reopen-browser-first-key",
+ "priority": "P0",
+ "title": "After Cmd-Q (Keep) and reopen with a browser page focused, a person's real keys reach the page's address bar (Cmd-L, a typed marker), and Cmd-N then Ctrl-` make a new workspace and terminal; 3 cycles",
+ "why": "reopen-f4 for the lead (STATUS 5612/5646): REOPEN-F4 fixed the terminal case; this is the browser-focused case. Real HID keys after the reopen (CuaDriver), the app's focus model (debug.focus) and the frame.",
+ "source": "REOPEN-F4 (reopen-f4, a02ba201c73876f53)",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "require_whole_host"
+  },
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "term"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo t-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "t"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the terminal works",
+   "since": "t",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "t-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "browser"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: Cmd-Shift-L opens a browser tab whose address bar takes the keys",
+   "since": "browser",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.com",
+   "mark": "url"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the page loads and has the keyboard",
+   "since": "loaded",
+   "timeout": 45,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    },
+    {
+     "frame_text": "documentation examples"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newtab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "closetab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "expect",
+   "title": "set-up: after Cmd-T and Cmd-W the browser page has the keyboard again",
+   "since": "closetab",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    },
+    {
+     "frame_text": "documentation examples"
+    }
+   ]
+  },
+  {
+   "do": "real_quit",
+   "mark": "reopened1",
+   "title": "cycle 1: a real Cmd-Q (Keep) and reopen"
+  },
+  {
+   "do": "real_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "cmdl1",
+   "title": "cycle 1: as soon as the window shows, a real Cmd-L"
+  },
+  {
+   "do": "hid_line",
+   "text": "mk${nonce}c1",
+   "enter": false,
+   "mark": "marker1",
+   "title": "cycle 1: a marker word with real keys into the address bar"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 1: the address bar has the keyboard and shows the marker",
+   "since": "marker1",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    },
+    {
+     "frame_text": "mk${nonce}c1"
+    }
+   ]
+  },
+  {
+   "do": "real_key",
+   "key": "escape",
+   "mark": "esc1"
+  },
+  {
+   "do": "real_key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "cmdn1",
+   "title": "cycle 1: a real Cmd-N"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "real_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "ctrlbt1",
+   "title": "cycle 1: a real Ctrl-` makes a terminal"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "new1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo n1-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "n1"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 1: the new workspace's terminal answers",
+   "since": "n1",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "n1-${nonce}-42"
+    },
+    {
+     "app_text_line": "n1-${nonce}-42"
+    },
+    {
+     "frame_text": "n1-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "focus_browser_pane",
+   "name": "term",
+   "title": "cycle 1: the browser workspace and its page pane again, for the next quit"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "expect",
+   "title": "cycle 1: set-up for the next quit: the browser page has the keyboard",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "in": [
+       "browserPage",
+       "addressBar"
+      ]
+     }
+    },
+    {
+     "frame_text": "documentation examples"
+    }
+   ]
+  },
+  {
+   "do": "real_quit",
+   "mark": "reopened2",
+   "title": "cycle 2: a real Cmd-Q (Keep) and reopen"
+  },
+  {
+   "do": "real_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "cmdl2",
+   "title": "cycle 2: as soon as the window shows, a real Cmd-L"
+  },
+  {
+   "do": "hid_line",
+   "text": "mk${nonce}c2",
+   "enter": false,
+   "mark": "marker2",
+   "title": "cycle 2: a marker word with real keys into the address bar"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 2: the address bar has the keyboard and shows the marker",
+   "since": "marker2",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    },
+    {
+     "frame_text": "mk${nonce}c2"
+    }
+   ]
+  },
+  {
+   "do": "real_key",
+   "key": "escape",
+   "mark": "esc2"
+  },
+  {
+   "do": "real_key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "cmdn2",
+   "title": "cycle 2: a real Cmd-N"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "real_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "ctrlbt2",
+   "title": "cycle 2: a real Ctrl-` makes a terminal"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "new2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo n2-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "n2"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 2: the new workspace's terminal answers",
+   "since": "n2",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "n2-${nonce}-42"
+    },
+    {
+     "app_text_line": "n2-${nonce}-42"
+    },
+    {
+     "frame_text": "n2-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "focus_browser_pane",
+   "name": "term",
+   "title": "cycle 2: the browser workspace and its page pane again, for the next quit"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "expect",
+   "title": "cycle 2: set-up for the next quit: the browser page has the keyboard",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "in": [
+       "browserPage",
+       "addressBar"
+      ]
+     }
+    },
+    {
+     "frame_text": "documentation examples"
+    }
+   ]
+  },
+  {
+   "do": "real_quit",
+   "mark": "reopened3",
+   "title": "cycle 3: a real Cmd-Q (Keep) and reopen"
+  },
+  {
+   "do": "real_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "cmdl3",
+   "title": "cycle 3: as soon as the window shows, a real Cmd-L"
+  },
+  {
+   "do": "hid_line",
+   "text": "mk${nonce}c3",
+   "enter": false,
+   "mark": "marker3",
+   "title": "cycle 3: a marker word with real keys into the address bar"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 3: the address bar has the keyboard and shows the marker",
+   "since": "marker3",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    },
+    {
+     "frame_text": "mk${nonce}c3"
+    }
+   ]
+  },
+  {
+   "do": "real_key",
+   "key": "escape",
+   "mark": "esc3"
+  },
+  {
+   "do": "real_key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "cmdn3",
+   "title": "cycle 3: a real Cmd-N"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "real_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "ctrlbt3",
+   "title": "cycle 3: a real Ctrl-` makes a terminal"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "new3"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo n3-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "n3"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 3: the new workspace's terminal answers",
+   "since": "n3",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "n3-${nonce}-42"
+    },
+    {
+     "app_text_line": "n3-${nonce}-42"
+    },
+    {
+     "frame_text": "n3-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "focus_browser_pane",
+   "name": "term",
+   "title": "cycle 3: the browser workspace and its page pane again, for the next quit"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "expect",
+   "title": "cycle 3: set-up for the next quit: the browser page has the keyboard",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "in": [
+       "browserPage",
+       "addressBar"
+      ]
+     }
+    },
+    {
+     "frame_text": "documentation examples"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 300
+  }
+ ]
+}

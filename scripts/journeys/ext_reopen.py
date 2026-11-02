@@ -1112,12 +1112,14 @@ def step_hid_line(j, step):
     text = j.sub(step["text"])
     if not re.fullmatch(r"[a-z0-9 ]+", text):
         raise D.StepError(f"hid_line: only lowercase letters, digits and spaces, not {text!r}")
+    if front_pid() != j.app.pid:
+        raise D.StepError(f"hid_line: the app is not the front app (front pid {front_pid()}): keys would go elsewhere")
     if step.get("mark"):
         j.marks[step["mark"]] = D.now()
     cua = Cua()
     sent = []
     try:
-        for ch in list(text) + ["return"]:
+        for ch in list(text) + (["return"] if step.get("enter", True) else []):
             key = "space" if ch == " " else ch
             t = time.time()
             cua.tool("press_key", {"scope": "desktop", "key": key}, check=False)
@@ -1209,7 +1211,27 @@ def cond_reopen_window_frame_within(j, want, cache):
     return not bad, {"limit_ms": limit, "window_ms": rows, "bad": bad[:10]}
 
 
-STEPS = {"require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+def step_focus_browser_pane(j, step):
+    """Set-up between cycles: the workspace that holds the terminal named NAME is shown again and its pane with a
+    browser tab gets the focus (the daemon CLI's workspace/pane focus, as seed_workspaces does)."""
+    alias = j.aliases.get(step["name"])
+    if not alias:
+        raise D.StepError(f"focus_browser_pane: no terminal named {step['name']!r}")
+    topo = j.topology()
+    place = j.place_of(alias["term"], topo)
+    if not place:
+        raise D.StepError(f"focus_browser_pane: terminal {alias['term']} is in no tab")
+    ws = place[0]
+    panes = [pane for screen in ws.get("screens", []) for pane in screen.get("panes", [])
+             if any(tab.get("kind") == "browser" for tab in pane.get("tabs", []))]
+    if not panes:
+        raise D.StepError(f"focus_browser_pane: workspace {ws.get('name')} has no browser pane")
+    j.app.cmux("workspace", ws.get("id"), "focus")
+    j.app.cmux("pane", panes[0].get("id"), "focus")
+    return {"workspace": ws.get("name"), "pane": panes[0].get("id")}
+
+
+STEPS = {"focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"reopen_window_frame_within": ("app", cond_reopen_window_frame_within),
               "reopen_frames_in_first_window_frame": ("app", cond_reopen_frames_in_first_window_frame),
               "reopen_keys_received": ("app", cond_reopen_keys_received), "cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}
