@@ -7,10 +7,11 @@ launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this s
   verdict --dir DIR
       The verdict of up to two harness runs (DIR/status-N and DIR/attempt-N/report.json). An attempt
       crashed only on the harness's own evidence: exit 1, report verdict fail, and the launched app's
-      pid (the app exited, wrote a crash report, or never rendered Home). Anything else could not run
-      (no GUI session, no app, a hop or harness error before launch). A crash counts only when both
-      attempts crashed: a check cut short after one crash (a step timeout) is cannot-run, and so is
-      any cannot-run attempt. Prints pass, crash or cannot-run.
+      pid, plus a nonzero app exit, a crash report, or an uncaught exception in that report. A live
+      app that never rendered Home is a failed smoke, but is not a launch crash and cannot trigger a
+      rollback. Anything else could not run (no GUI session, no app, a hop or harness error before
+      launch). A crash counts only when both attempts crashed: a check cut short after one crash (a
+      step timeout) is cannot-run, and so is any cannot-run attempt. Prints pass, crash or cannot-run.
 
   pick --feed LIVE.xml [--build BUILD]
       The build to smoke, as GITHUB_OUTPUT lines (build=, url=, length=, ed_signature=, the item's
@@ -61,12 +62,21 @@ LOG_TAIL = 40
 
 
 def attempt_result(status: int, report: dict) -> str:
-    """One harness run's result. A crash needs the harness's own evidence that the app ran: exit 1,
-    a report whose verdict is fail, and the launched app's pid. Exit 1 without that (a console-session
-    hop that failed, an uncaught setup error) could not run."""
+    """One harness run's result.
+
+    A crash needs both the harness's evidence that the app ran (exit 1, a failed report and its pid)
+    and evidence from the app itself: a nonzero process exit, a crash report or an uncaught exception.
+    A failed report from a live app that never rendered Home is not a launch crash, so it cannot roll a
+    build back. Exit 1 without the harness or app evidence (a console-session hop or setup error) could
+    not run.
+    """
     if status == 0 and report.get("verdict") == "pass":
         return PASS
-    if status == 1 and report.get("verdict") == "fail" and report.get("pid"):
+    exit_status = report.get("exit")
+    app_crashed = (
+        isinstance(exit_status, int) and not isinstance(exit_status, bool) and exit_status != 0
+    ) or bool(report.get("crash_reports")) or bool(report.get("run_exceptions"))
+    if status == 1 and report.get("verdict") == "fail" and report.get("pid") and app_crashed:
         return CRASH
     return CANNOT_RUN
 

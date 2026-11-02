@@ -18,6 +18,19 @@ export async function repositoryRoot(
   return typeof root === "string" && root.startsWith("/") ? root.replace(/\/+$/, "") || "/" : undefined;
 }
 
+/// Whether the chat header's Changes opens the last turn's changes in the page, not the folder's diff
+/// tab: the chat's folder (`folder`, on this Mac) is in no repository, so that tab would have nothing to
+/// show and the app would ask for a folder in the palette instead. A diff tab Changes already opened
+/// (`open`) closes through the app as before.
+export async function headerChangesInPlace(
+  folder: string | undefined,
+  open: boolean,
+  readStatus: (cwd: string) => Promise<unknown>,
+): Promise<boolean> {
+  if (!folder || open) return false;
+  return (await repositoryRoot(folder, readStatus)) === undefined;
+}
+
 /// Whether the turn holding `rowId` opens in the chat folder's diff beside the chat: the folder is in
 /// a repository (`root`, from `repositoryRoot`) and every file the turn's tool calls changed lies in
 /// it. A relative path is the agent's, under its folder; a `~` path cannot be placed, so it counts as

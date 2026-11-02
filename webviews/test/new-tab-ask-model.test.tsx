@@ -5,6 +5,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
+import type { ComponentProps } from "react";
+import type { NewTabScreen } from "../src/agent-session/acpmux/newtab/NewTabScreen";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
@@ -187,7 +189,7 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
         </QueryClientProvider>,
       ),
     );
-    expect(queries).toEqual([{ target: { harness: "codex" } }]);
+    expect(queries).toEqual([{ target: { harness: "codex", cwd: "/Users/you/src/app" } }]);
     const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
     for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
       await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -207,20 +209,33 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
 
 /// A New Tab with the draft typed whose harness's sign-in check answers `auth`, or never answers.
 /// `onAsk` stands in for the start: by default it is taken at once.
-async function newTabPage(options: { auth?: unknown; onAsk?: (...args: unknown[]) => unknown } = {}) {
+async function newTabPage(
+  options: {
+    auth?: unknown;
+    signedOut?: Record<string, string>;
+    chips?: ComponentProps<typeof NewTabScreen>["chips"];
+    onAsk?: (...args: unknown[]) => unknown;
+    launch?: Pick<ComponentProps<typeof NewTabScreen>, "runMode" | "onCloud" | "onSandbox">;
+  } = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
   const asks: unknown[][] = [];
-  const readSessionAuth = () =>
-    options.auth === undefined ? new Promise<unknown>(noop) : Promise.resolve(options.auth);
+  const queries: unknown[] = [];
+  const readSessionAuth = (query: unknown) => {
+    queries.push(query);
+    return options.auth === undefined ? new Promise<unknown>(noop) : Promise.resolve(options.auth);
+  };
   const root = createRoot(host);
   await act(async () =>
     root.render(
       <QueryClientProvider client={new QueryClient()}>
-        <SignInContext.Provider value={{ signedOut: {}, logIn: noop, readSessionAuth }}>
+        <SignInContext.Provider value={{ signedOut: options.signedOut ?? {}, logIn: noop, readSessionAuth }}>
           <NewTabScreen
+            {...options.launch}
+            chips={options.chips}
             snapshot={noChat()}
             lastAgent="codex"
             cwd="/Users/you/src/app"
@@ -264,6 +279,7 @@ async function newTabPage(options: { auth?: unknown; onAsk?: (...args: unknown[]
       },
     },
     asks,
+    queries,
     type,
     pressReturn,
     status,
@@ -359,6 +375,54 @@ test("a chat start that fails says why over the kept draft, and Return tries aga
     await page.pressReturn();
     expect(page.asks).toHaveLength(2);
     expect(page.asks[1]?.slice(0, 2)).toEqual(["codex", "fix the flaky upload test"]);
+  } finally {
+    await act(async () => page.root.unmount());
+  }
+});
+
+for (const mode of ["cloud", "sandboxed"] as const) {
+  test(`${mode} launch does not query or obey auth on the local machine`, async () => {
+    const { NewTabComposerChips } = await import("../src/agent-session/acpmux/App");
+    const launches: unknown[][] = [];
+    const launch = (...args: unknown[]) => {
+      launches.push(args);
+      return true;
+    };
+    const page = await newTabPage({
+      auth: { ...READY, state: "expired" },
+      signedOut: { codex: "codex login" },
+      chips: NewTabComposerChips,
+      launch: {
+        runMode: { mode, onMode: noop },
+        ...(mode === "cloud" ? { onCloud: launch } : { onSandbox: launch }),
+      },
+    });
+    try {
+      await page.pressReturn();
+      expect(page.queries).toEqual([]);
+      expect(launches).toHaveLength(1);
+      expect(launches[0]?.slice(0, 2)).toEqual(["codex", "fix the flaky upload test"]);
+      expect(page.asks).toEqual([]);
+      const chip = host.querySelector(".acpmux-model-name")?.closest("button");
+      expect(chip).toBeTruthy();
+      await act(async () => chip!.click());
+      expect(window.document.querySelectorAll('.acpmux-quick-list [role="menuitemradio"]').length).toBeGreaterThan(0);
+    } finally {
+      await act(async () => page.root.unmount());
+    }
+  });
+}
+
+test("Cloud mode without its launch handler still checks the local fallback", async () => {
+  const page = await newTabPage({
+    auth: { ...READY, state: "expired" },
+    launch: { runMode: { mode: "cloud", onMode: noop } },
+  });
+  try {
+    await page.pressReturn();
+    expect(page.queries).toEqual([{ target: { harness: "codex", cwd: "/Users/you/src/app" } }]);
+    expect(page.asks).toEqual([]);
+    expect(page.field.value).toBe("fix the flaky upload test");
   } finally {
     await act(async () => page.root.unmount());
   }
