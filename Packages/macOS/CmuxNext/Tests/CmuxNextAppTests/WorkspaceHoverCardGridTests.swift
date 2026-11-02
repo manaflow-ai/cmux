@@ -116,7 +116,9 @@ import Testing
         }
         for row in rows {
             let detail = row.detail?.stringValue ?? ""
-            #expect(!detail.isEmpty, "\"\(row.title.stringValue)\" shows no detail line")
+            // A blank page has no fact worth a line (Leo 2026-11-01: no "Tab" under "New Tab"); every other row has one.
+            let blank = row.title.stringValue == Strings.hoverCardNewTab
+            #expect(detail.isEmpty == blank, "\"\(row.title.stringValue)\" detail line: \"\(detail)\"")
             // The icon sits on its title's line (the middle of its capitals), not between the two lines.
             let font = try #require(row.title.font)
             let titleFrame = Self.frame(row.title, in: card)
