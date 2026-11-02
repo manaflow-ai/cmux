@@ -155,7 +155,7 @@ nonisolated struct PeerProcessScanTests {
     }
 
     @Test func aPeerThatIsNotThisProcessIsNotTrusted() async {
-        let trusted = await PeerProcess.isTrustedOffPool(peerHost: .ipv4(.loopback), peerPort: 1, localHost: .ipv4(.loopback),
+        let trusted = await PeerScan().isTrusted(peerHost: .ipv4(.loopback), peerPort: 1, localHost: .ipv4(.loopback),
                                                          localPort: 2)
         #expect(!trusted)
     }

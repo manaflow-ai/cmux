@@ -40,19 +40,6 @@ enum PeerProcess {
         }
     }
 
-    /// `isTrusted`, run by ``PeerScan/shared`` instead of on the caller's thread: one scan at a time on a
-    /// queue of its own, with a bounded, cancellation-aware wait.
-    static func isTrustedOffPool(
-        peerHost: NWEndpoint.Host,
-        peerPort: UInt16,
-        localHost: NWEndpoint.Host,
-        localPort: UInt16
-    ) async -> Bool {
-        await PeerScan.shared.run {
-            isTrusted(peerHost: peerHost, peerPort: peerPort, localHost: localHost, localPort: localPort)
-        }
-    }
-
     static func children(of parent: pid_t) -> [pid_t] {
         var pids = [pid_t](repeating: 0, count: 256)
         let count = pids.withUnsafeMutableBytes { raw in
@@ -139,7 +126,6 @@ enum PeerProcess {
 /// once and its queued scan is skipped. At most `limit` scans are queued or running; past that a caller is
 /// untrusted at once, so a stalled scan cannot grow the queue.
 final class PeerScan: Sendable {
-    static let shared = PeerScan()
     /// The longest a caller waits for its scan.
     static let timeout: Duration = .seconds(2)
     static let pendingLimit = 32
@@ -149,6 +135,13 @@ final class PeerScan: Sendable {
     private let limit: Int
 
     init(limit: Int = pendingLimit) { self.limit = limit }
+
+    /// ``PeerProcess/isTrusted(peerHost:peerPort:localHost:localPort:candidates:)`` through ``run(timeout:_:)``.
+    func isTrusted(peerHost: NWEndpoint.Host, peerPort: UInt16, localHost: NWEndpoint.Host, localPort: UInt16) async -> Bool {
+        await run {
+            PeerProcess.isTrusted(peerHost: peerHost, peerPort: peerPort, localHost: localHost, localPort: localPort)
+        }
+    }
 
     func run(timeout: Duration = PeerScan.timeout, _ scan: @escaping @Sendable () -> Bool) async -> Bool {
         let admitted = pending.withLock { count -> Bool in

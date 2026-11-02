@@ -24,10 +24,10 @@ final class ProxyConnection: Sendable {
     }
 
     /// A machine listener's route when the peer is this app or its helpers. The process scan runs off
-    /// the cooperative pool (``PeerProcess/isTrustedOffPool``).
+    /// the cooperative pool (``PeerScan``).
     private func trustedRoute() async -> RemoteLocalhostProxy.Route? {
         guard machineListener, case .hostPort(let peerHost, let peerPort) = client.endpoint,
-              await PeerProcess.isTrustedOffPool(
+              await proxy.peerScan.isTrusted(
                   peerHost: peerHost,
                   peerPort: peerPort.rawValue,
                   localHost: .ipv4(.loopback),
