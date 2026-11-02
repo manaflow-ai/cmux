@@ -1213,8 +1213,7 @@ export function restRoom(): number {
 /// height, waiting steer or sent (design/grid.md 5.5: the action row is laid in the turn gap), so
 /// sending a steer changes no row's height. A waiting prompt of images alone has no bubble to lay
 /// the row under, so its row (Send now first, PendingSteer.tsx) stays in flow.
-const userMetaHeight = (row: AcpmuxRow) =>
-  row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0;
+const userMetaHeight = (row: AcpmuxRow) => (row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0);
 /// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
 const AUTHOR_HEIGHT = 22;
 const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
@@ -1567,9 +1566,7 @@ function fallbackRowHeight(
       if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     const items = row.items ?? [];
-    const steps = items.length
-      ? items.reduce((height, item) => height + activityStepHeight(item), 0)
-      : toolRowHeight();
+    const steps = items.length ? items.reduce((height, item) => height + activityStepHeight(item), 0) : toolRowHeight();
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
