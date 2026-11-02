@@ -1,5 +1,4 @@
 public import CmuxNextCloud
-import CryptoKit
 public import Foundation
 
 /// The Claude login a Cloud machine already holds, as a `cloud.startChat` start reads it before it
@@ -14,7 +13,11 @@ public import Foundation
 /// A `/login` session (Claude refreshes it itself), the cached token already there, a provider that
 /// cannot be reached and any other answer leave the machine's login alone, so a start never loops on a
 /// login it just installed; a later rejection is the turn card's recovery (#26148).
-public nonisolated enum CloudMachineLogin: String, Sendable, Equatable, CaseIterable {
+///
+/// Reading the probe's word, the fingerprint and which logins are replaced are Rust's
+/// (cmux-cloud-start-core `machine_login` and `harness_login`, with their tests); this type runs the
+/// probe and hands its output to ``CloudHarnessLoginDecision``.
+public nonisolated enum CloudMachineLogin: String, Sendable, Equatable, CaseIterable, Decodable {
     /// No own Claude sign-in on the machine (the image's `cmux_agent_has_own_login` says so).
     case none
     /// A `/login` session with a refresh token: Claude renews it itself, so it is never replaced.
@@ -26,30 +29,28 @@ public nonisolated enum CloudMachineLogin: String, Sendable, Equatable, CaseIter
     /// Another token the provider answered 401 for: expired or revoked.
     case rejected
 
-    /// Whether a start gives the machine the account's login, replacing a rejected one.
-    public var needsLogin: Bool { self == .none || self == .rejected }
-
     /// The provider endpoint the probe asks: an authenticated read that costs no tokens.
     static let endpoint = "https://api.anthropic.com/v1/models?limit=1"
 
-    /// Reads the machine's login (with `api` already pinned to the machine's team) and whether cmux holds
-    /// this account's login. Never throws: an exec that fails reads as `.none`, as the probe before it did.
-    public static func read(on api: CloudAPIClient, machineID: String, teamID: String?, userID: String) async -> (login: CloudMachineLogin, cached: Bool) {
+    /// Runs the probe on the machine (with `api` already pinned to the machine's team) and reads whether
+    /// cmux holds this account's login. Never throws: `probe` is nil for an exec that failed, which the
+    /// start reads as `.none`, as the probe before it did.
+    public static func read(on api: CloudAPIClient, machineID: String, teamID: String?, userID: String) async
+        -> (probe: CloudHarnessLoginDecision.MachineProbe?, cached: Bool) {
         let cached = (try? await CloudCredentialLogin.load(provider: .claude, teamID: teamID, userID: userID)) ?? nil
-        guard let result = try? await api.exec(machineID, command: probe(cachedFingerprint: cached.map(fingerprint)), timeoutMs: 30_000) else {
-            return (.none, cached != nil)
+        guard let result = try? await api.exec(machineID, command: probe(cachedFingerprint: cached.flatMap(fingerprint)), timeoutMs: 30_000) else {
+            return (nil, cached != nil)
         }
-        return (parse(exitCode: result.exitCode, stdout: result.stdout), cached != nil)
+        return (CloudHarnessLoginDecision.MachineProbe(exitCode: result.exitCode, stdout: result.stdout), cached != nil)
     }
 
-    /// The SHA-256 of a token, hex: what the probe compares on the machine, so no token is sent there to compare.
-    static func fingerprint(_ token: Data) -> String {
-        SHA256.hash(data: token).map { String(format: "%02x", $0) }.joined()
-    }
-
-    /// The probe's one word. An unknown answer keeps today's reading of the exit code: 0 a login that stays.
-    static func parse(exitCode: Int, stdout: String) -> CloudMachineLogin {
-        Self(rawValue: stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? (exitCode == 0 ? .working : .none)
+    /// The SHA-256 of a token, hex (cmux-cloud-start-core `machine_login::fingerprint`): what the probe
+    /// compares on the machine, so no token is sent there to compare. Nil when the FFI does not answer;
+    /// the probe then compares nothing, and a machine with cmux's own token reads as a login that stays.
+    static func fingerprint(_ token: Data) -> String? {
+        struct Request: Encodable { var token: [UInt8] }
+        struct Reply: Decodable { var fingerprint: String }
+        return CloudStartCore().call("cloud_login_fingerprint", Request(token: Array(token)), as: Reply.self)?.fingerprint
     }
 
     /// Prints one word of ``CloudMachineLogin``. The image's own detection first, with its config sourced as
