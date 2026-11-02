@@ -99,9 +99,10 @@
   --cv-status-gap-plain: 0px;
   --cv-status-gap-plain-over: 0px;
   /* #30865's reply room on the grid: the stack's block gap is the room under a reply. A note in a
-     run of flush lines keeps --cv-note-gap (below) around it. */
+     run of flush lines keeps --cv-note-gap (below) around it: the run gap, as for any prose by a run
+     (design/transcript-spacing.md rule 4). */
   --cv-reply-room: 0px;
-  --cv-note-gap: var(--grid-gap-block);
+  --cv-note-gap: var(--grid-gap-run);
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--grid-gap);
   /* One icon column for every transcript meta row (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN
@@ -3423,9 +3424,12 @@ button.cv-video-frames__frame:focus-visible {
   max-width: 100%;
 }
 /* The other machine the sender runs on, after its name: muted, a middle dot before it, and the first
-   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName). */
+   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName).
+   Flex shrinks each item by its factor times its width, so 10 still cut the name beside a whole host
+   (session-chip-browser.test.ts); 1000 leaves the name under a hundredth of the overflow until the
+   host is gone. */
 .cv-received__host {
-  flex: 0 10 auto;
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
