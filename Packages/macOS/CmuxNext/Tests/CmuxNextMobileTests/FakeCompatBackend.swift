@@ -16,6 +16,8 @@ final class FakeCompatBackend: MobileCompatBackend, @unchecked Sendable {
     var sent: [(SurfaceID, Data, Bool)] { lock.withLock { _sent } }
     var attachSizes: [CellSize] { lock.withLock { _attachSizes } }
     var lastChannel: FakeTerminalChannel? { lock.withLock { channels.last } }
+    /// Attached channels that have not been detached.
+    var liveChannelCount: Int { lock.withLock { channels.filter { !$0.isDetached }.count } }
 
     func tree() async throws -> DaemonTree { lock.withLock { _tree } }
     func treeChanges() -> AsyncStream<Void> { changes.subscribe() }
@@ -53,6 +55,7 @@ final class FakeTerminalChannel: MobileCompatTerminalChannel, @unchecked Sendabl
     private let lock = NSLock()
     private var _resizes: [CellSize] = []
     private var _claims = 0
+    private var _detached = false
 
     init() { (events, continuation) = AsyncStream.makeStream() }
 
@@ -63,7 +66,11 @@ final class FakeTerminalChannel: MobileCompatTerminalChannel, @unchecked Sendabl
     func resize(cols: Int, rows: Int) async { lock.withLock { _resizes.append(CellSize(cols: cols, rows: rows)) } }
     func claimGeometry() async { lock.withLock { _claims += 1 } }
     func releaseGeometry() async {}
-    func detach() async { continuation.finish() }
+    func detach() async {
+        lock.withLock { _detached = true }
+        continuation.finish()
+    }
+    var isDetached: Bool { lock.withLock { _detached } }
 }
 
 /// Collects emitted event frames.
