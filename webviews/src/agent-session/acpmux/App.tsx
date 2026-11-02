@@ -9125,6 +9125,8 @@ function AcpmuxPane() {
   };
   const adoptSession = useCallback(
     (adoption: SessionAdoption) => {
+      const da = (window as unknown as { __adoptDiag?: Record<string, unknown> }).__adoptDiag;
+      if (da) da.adopted = [...((da.adopted as unknown[]) ?? []), [adoption.sessionId.slice(0, 8), Math.round(performance.now()), directClient.current?.selectedSession?.slice(0, 8) ?? null]].slice(-4);
       directClient.current?.bindToSession(adoption.sessionId);
       paintReported.current = false;
       setAdoptingSession(adoption.sessionId);
@@ -9138,6 +9140,37 @@ function AcpmuxPane() {
     [runAdoption],
   );
   useSessionAdoption(adoptSession);
+  // DIAG (not for landing): the paint gate's state, read by debug.agent_pane readiness.
+  {
+    const w = window as unknown as { __adoptDiag?: Record<string, unknown> };
+    const prev = w.__adoptDiag ?? {};
+    w.__adoptDiag = {
+      ...prev,
+      renders: ((prev.renders as number) ?? 0) + 1,
+      at: Math.round(performance.now()),
+      visibility: document.visibilityState,
+      adoptingSession: adoptingSession ?? null,
+      awaitsChat,
+      handshaken,
+      chatRead: clientSnapshot.chatRead === true,
+      snapSession: clientSnapshot.sessionId ?? null,
+      connection: clientSnapshot.connection,
+      showsWhatItIs,
+      paintReported: paintReported.current,
+      newTab: newTab !== undefined,
+      hostError: hostError !== undefined,
+    };
+    if (!(prev as { rafLoop?: boolean }).rafLoop) {
+      (w.__adoptDiag as Record<string, unknown>).rafLoop = true;
+      const tick = () => {
+        const d = w.__adoptDiag as Record<string, unknown>;
+        d.rafs = ((d.rafs as number) ?? 0) + 1;
+        d.lastRaf = Math.round(performance.now());
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+  }
   // What this frame drew, not only that it drew: a chat taken from a kept tail is on screen in the
   // frame the open landed on, so the host shows the page instead of fading it in (tailCache.ts,
   // AgentPaneView+Loading.swift). A kept tail is drawn before the frame that shows what the pane
@@ -9146,8 +9179,11 @@ function AcpmuxPane() {
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
+    const dd = (window as unknown as { __adoptDiag?: Record<string, unknown> }).__adoptDiag;
+    if (dd) dd.paintAsked = [...((dd.paintAsked as number[]) ?? []), Math.round(performance.now())].slice(-6);
     requestAnimationFrame(() =>
       setTimeout(() => {
+        if (dd) dd.paintSent = [...((dd.paintSent as number[]) ?? []), Math.round(performance.now())].slice(-6);
         void callNative("pane.painted", { drewKeptTail }).catch(() => undefined);
         void loadDiffPanel();
         void loadHighlightedCode();

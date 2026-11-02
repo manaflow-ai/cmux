@@ -236,6 +236,7 @@ enum DebugAgentPane {
             }
             guard case .object(var members) = value else { return .object(["pane": .string(pane), "result": value]) }
             members["pane"] = .string(pane)
+            members["native_diag"] = .string("hasPainted=\(view.model.hasPainted) loading=\(view.loadingView.superview != nil) loadingHidden=\(view.loadingView.isHidden) alpha=\(view.alphaValue) newTab=\(view.model.newTab != nil) session=\(view.model.sessionId ?? "-") showsLoading=\(view.showsLoadingState)")
             return .object(members)
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
@@ -265,7 +266,9 @@ enum DebugAgentPane {
           composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
           composer_text_length: (composer?.innerText || '').trim().length,
           document_ready: document.readyState === 'complete',
-          animations_pending: animationsPending
+          animations_pending: animationsPending,
+          adopt_diag: window.__adoptDiag || null,
+          now: Math.round(performance.now())
         });
         """
         do {
