@@ -162,4 +162,56 @@ public nonisolated struct WindowFrame: Sendable {
         CGImageDestinationFinalize(destination)
     }
 }
+
+/// A window and every window over it in its rect (its pages and the overlay panel that carries
+/// dialogs), as the screen shows them: `CmuxDialogCenter.frameStrip` (DEBUG builds) needs the
+/// dialog, which draws in the overlay panel, the pages and the window under it in one frame.
+nonisolated extension WindowFrame {
+    /// Reads `window` and every window above it, composited in `bounds` (global display
+    /// coordinates, top-left origin), back to back until `until` ms after `start`. Every frame has
+    /// the size of `bounds`, so frames before and after the overlay panel attaches compare pixel for
+    /// pixel. Another app's window over that rect would show too: record where none is.
+    @concurrent public static func recordAbove(_ window: CGWindowID, bounds: CGRect, scale: Double,
+                                              from start: ContinuousClock.Instant, until: Double) async -> [WindowFrame] {
+        typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return [] }
+        let create = unsafeBitCast(symbol, to: CreateImage.self)
+        var frames: [WindowFrame] = []
+        while elapsed(since: start) < until {
+            // kCGWindowListOptionOnScreenAboveWindow | IncludingWindow; BoundsIgnoreFraming | NominalResolution.
+            guard let image = create(bounds, (1 << 1) | (1 << 3), window, (1 << 0) | (1 << 9))?.takeRetainedValue() else { break }
+            if let frame = WindowFrame(image, scale: scale, at: elapsed(since: start)) { frames.append(frame) }
+        }
+        return frames
+    }
+
+    /// Writes each frame as `<prefix>-NNN.png` in `dir` and returns the file names.
+    public static func writeEach(_ frames: [WindowFrame], prefix: String, in dir: String) -> [String] {
+        frames.enumerated().map { index, frame in
+            let name = String(format: "%@-%03d.png", prefix, index)
+            if let image = frame.image { writePNG(image, to: (dir as NSString).appendingPathComponent(name)) }
+            return name
+        }
+    }
+
+    /// The mean per-channel color distance from `other` (0...255) over the pixels `within` a rect
+    /// (pixel coordinates, top-left origin) and outside `excluding`: a continuous measure of how far
+    /// a fade or scale has gone, where `difference` only counts pixels past a threshold.
+    public func meanDistance(from other: WindowFrame, within: CGRect? = nil, excluding: CGRect? = nil) -> Double {
+        guard width == other.width, height == other.height else { return 255 }
+        var total = 0, counted = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let point = CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)
+                if let within, !within.contains(point) { continue }
+                if let excluding, excluding.contains(point) { continue }
+                let i = (y * width + x) * 4
+                total += abs(Int(pixels[i]) - Int(other.pixels[i])) + abs(Int(pixels[i + 1]) - Int(other.pixels[i + 1]))
+                    + abs(Int(pixels[i + 2]) - Int(other.pixels[i + 2]))
+                counted += 3
+            }
+        }
+        return counted == 0 ? 0 : Double(total) / Double(counted)
+    }
+}
 #endif

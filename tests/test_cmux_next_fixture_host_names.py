@@ -36,11 +36,14 @@ class FixtureHostNamesTest(unittest.TestCase):
     def test_only_gallery_fixture_files_are_scanned(self):
         for rel in ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCardGallery.swift",
                     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/HomeShowcase.swift",
+                    "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarNestedFixture.swift",
                     "webviews/src/a/b.gallery.tsx", "webviews/src/a/b.gallery.ts",
                     "webviews/src/gallery/fixtures/cases.md", "webviews/src/a/runBoardFixture.ts"):
             with self.subTest(rel=rel):
                 self.assertTrue(check.is_fixture(rel))
         for rel in ("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs.swift", "webviews/src/a/b.tsx",
+                    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentChatActionFixture.swift",
+                    "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift",
                     "webviews/test/fixtures/palette-eval/overlay.json", "scripts/gallery-compare.sh"):
             with self.subTest(rel=rel):
                 self.assertFalse(check.is_fixture(rel))

@@ -70,6 +70,49 @@ import Testing
         #expect(submitted == nil)
     }
 
+    @Test func descriptorClearAndPolicyChangeResetExplicitSelectionAndTyping() throws {
+        let content = NativePopupContent()
+        var next = try model(policy: "first", query: "typed")
+        content.update(next)
+        let search = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        search.stringValue = "typed"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
+        content.update(next)
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:)))
+        var submitted: String?
+        content.emit = { type, id, _ in if type.rawValue == "submit" { submitted = id } }
+        next.revision += 1; next.search?.value = ""
+        content.update(next)
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(submitted == nil && content.selectionReason == "none")
+        next.search?.value = "prefilled"
+        content.update(next)
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(submitted == nil, "descriptor clear must reset typing history")
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:)))
+        next.search?.autoHighlight = NativePopupAutoHighlight.none
+        content.update(next)
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(submitted == nil && content.selectionReason == "none")
+    }
+
+    @Test func clearBeforeDescriptorEchoResetsTypingHistory() throws {
+        let content = NativePopupContent()
+        var next = try model(policy: "first")
+        content.update(next)
+        let search = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        for value in ["typed", ""] {
+            search.stringValue = value
+            content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
+        }
+        next.search?.value = "prefilled"
+        content.update(next)
+        var submitted: String?
+        content.emit = { type, id, _ in if type == .submit { submitted = id } }
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(submitted == nil && content.selectionReason == "none")
+    }
+
     @Test func alwaysHighlightsInitiallyButDisabledAndMarkedTextNeverSubmit() throws {
         let content = NativePopupContent()
         var next = try model(policy: "always")
@@ -96,5 +139,115 @@ import Testing
         content.update(next)
         _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
         #expect(events.isEmpty)
+    }
+
+    @Test func delayedDescriptorEchoCannotOverwriteANewerLocalEdit() throws {
+        let content = NativePopupContent()
+        var next = try model(policy: "none")
+        next.search?.editSequence = 0
+        content.update(next)
+        let search = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        search.stringValue = "ab"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
+        next.revision += 1
+        next.search?.value = "a"
+        next.search?.editSequence = 0
+        content.update(next)
+        #expect(search.stringValue == "ab")
+        next.revision += 1
+        next.search?.value = "AB"
+        next.search?.editSequence = content.lastEditSequence
+        content.update(next)
+        #expect(search.stringValue == "AB")
+    }
+
+    @Test(arguments: [false, true])
+    func pendingEditsCannotCrossFieldKinds(_ startsAsSearch: Bool) throws {
+        let content = NativePopupContent()
+        var next = try model(policy: "none")
+        let row = NativePopupRow(id: "query", kind: .textField, label: "Text", value: "fresh", editSequence: 0)
+        next.search?.editSequence = 0
+        if !startsAsSearch { next.search = nil; next.rows = [row] }
+        content.update(next)
+        let field = try #require(startsAsSearch
+            ? content.subviews.compactMap { $0 as? NSSearchField }.first
+            : content.rowView(id: "query") as? NSTextField)
+        field.stringValue = "pending old identity"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        next.revision += 1
+        if startsAsSearch {
+            next.search = nil; next.rows = [row]
+        } else {
+            next.rows = []
+            next.search = NativePopupField(id: "query", value: "fresh", placeholder: "Search", editSequence: 0)
+        }
+        content.update(next)
+        let replacement = try #require(startsAsSearch
+            ? content.rowView(id: "query") as? NSTextField
+            : content.subviews.compactMap { $0 as? NSSearchField }.first)
+        #expect(replacement.stringValue == "fresh")
+    }
+
+    @Test func pendingEditsCannotCrossAncestorIdentity() throws {
+        var next = try model(policy: "none")
+        next.search = nil
+        let row = NativePopupRow(id: "text", kind: .textField, label: "Text", value: "fresh", editSequence: 0)
+        next.rows = [row]
+        var state = NativePopupInputState()
+        state.record(id: "text", value: "pending root", model: next)
+        next.rows = [NativePopupRow(id: "parent", kind: .submenu, label: "Parent", children: [row])]
+        #expect(state.preservingLocalEdits(in: next).rows.first?.children?.first?.value == "fresh")
+        state.record(id: "text", value: "pending child", model: next)
+        next.rows = [NativePopupRow(id: "replacement-parent", kind: .submenu, label: "Parent", children: [row])]
+        #expect(state.preservingLocalEdits(in: next).rows.first?.children?.first?.value == "fresh")
+        state.record(id: "text", value: "pending replacement", model: next)
+        next.rows = [row]
+        #expect(state.preservingLocalEdits(in: next).rows.first?.value == "fresh")
+    }
+
+    @Test(arguments: ["rows", "rail", "footer"])
+    func textFieldAcknowledgmentsPreserveNewerEditsAndRetireRemovedFields(_ placement: String) throws {
+        let content = NativePopupContent()
+        var next = try model(policy: "none")
+        let field = NativePopupRow(id: "text", kind: .textField, label: "Text", value: "", editSequence: 0)
+        switch placement {
+        case "rail": next.rail = [field]
+        case "footer": next.footer = [field]
+        default: next.rows = [field]
+        }
+        content.update(next)
+        let editor = try #require(content.rowView(id: "text") as? NSTextField)
+        for value in ["a", "ab"] {
+            editor.stringValue = value
+            content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: editor))
+        }
+        let latestSequence = try #require(content.lastEditSequence)
+        func descriptor(_ value: String, _ acknowledgment: Int, disabled: Bool = false) -> NativePopupModel {
+            var updated = next
+            var row = field
+            row.value = value; row.editSequence = acknowledgment; row.disabled = disabled
+            switch placement {
+            case "rail": updated.rail = [row]
+            case "footer": updated.footer = [row]
+            default: updated.rows = [row]
+            }
+            return updated
+        }
+        content.update(descriptor("a", latestSequence - 1))
+        #expect((content.rowView(id: "text") as? NSTextField)?.stringValue == "ab")
+        content.update(descriptor("AB", latestSequence))
+        #expect((content.rowView(id: "text") as? NSTextField)?.stringValue == "AB")
+        let current = try #require(content.rowView(id: "text") as? NSTextField)
+        current.stringValue = "pending"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: current))
+        content.update(descriptor("disabled", latestSequence, disabled: true))
+        #expect((content.rowView(id: "text") as? NSTextField)?.stringValue == "disabled")
+        content.update(descriptor("enabled", latestSequence))
+        #expect((content.rowView(id: "text") as? NSTextField)?.stringValue == "enabled")
+        var removed = next
+        removed.rows = []; removed.rail = nil; removed.footer = nil
+        content.update(removed)
+        content.update(descriptor("replacement", 0))
+        #expect((content.rowView(id: "text") as? NSTextField)?.stringValue == "replacement")
     }
 }

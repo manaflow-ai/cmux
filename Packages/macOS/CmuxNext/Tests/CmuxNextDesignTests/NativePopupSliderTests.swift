@@ -1,8 +1,9 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct NativePopupSliderTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NativePopupSliderTests {
     private func descriptor(style: NativePopupSliderStyle = .accent) -> NativePopupSlider {
         NativePopupSlider(stops: [NativePopupSliderStop(value: "low", label: "Low"),
                                  NativePopupSliderStop(value: "high", label: "High", description: "More careful", accessibilityLabel: "High, recommended")],
@@ -28,7 +29,7 @@ import Testing
         #expect(values.isEmpty)
         #expect(view.slider.doubleValue == 1)
         #expect(view.currentLabel.stringValue == "High")
-        #expect(view.currentLabel.toolTip == "More careful")
+        #expect(view.currentLabel.themedToolTip == "More careful")
         #expect(view.slider.accessibilityLabel() == "Effort")
         #expect(view.slider.accessibilityValueDescription() == "High, recommended")
         view.slider.keyDown(with: key(36))
@@ -40,6 +41,53 @@ import Testing
         #expect(values == ["1", "0"])
         #expect(view.currentLabel.stringValue == "Low")
         #expect(closes == 2)
+    }
+
+    /// The slider's parts and a slider row's accessory keep to the padded box of the popup's other
+    /// rows (``PopupRowView/contentGuide``), not to insets of their own.
+    @Test func partsSpanThePopupRowsPaddedBox() {
+        let spec = descriptor()
+        let row = NativePopupRow(id: "effort", kind: .slider, label: "Reasoning", value: "1", minimum: 0, maximum: 1, step: 1, slider: spec)
+        let view = NativePopupSliderView(row: row, descriptor: spec)
+        view.frame = NSRect(x: 0, y: 0, width: 240, height: view.preferredHeight)
+        view.layout()
+        let box = PopupRowView.Layout()
+        #expect(view.slider.frame.minX == box.leading)
+        #expect(view.slider.frame.maxX == 240 - box.trailing)
+        let rowView = PopupRowView(leading: nil, title: "Row")
+        rowView.frame = NSRect(x: 0, y: 0, width: 240, height: box.minHeight)
+        rowView.layoutSubtreeIfNeeded()
+        #expect(rowView.contentGuide.frame.minX == box.leading)
+        #expect(rowView.contentGuide.frame.maxX == 240 - box.trailing)
+    }
+
+    @Test func numericPositionOverridesNamedRestingIdentity() {
+        var spec = descriptor()
+        spec.selectedValue = "high"
+        let row = NativePopupRow(id: "effort", kind: .slider, label: "Reasoning", value: "0", minimum: 0, maximum: 1, step: 1, slider: spec)
+        let view = NativePopupSliderView(row: row, descriptor: spec)
+        var values: [String] = []
+        view.change = { values.append($0) }
+        #expect(view.slider.doubleValue == 0 && view.currentLabel.stringValue == "Low")
+        #expect(values.isEmpty)
+        view.slider.keyDown(with: key(36))
+        #expect(values == ["0"])
+    }
+
+    @Test func numericSliderReceivesInitialKeyboardFocus() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        defer { window.closeAfterTest() }
+        let model = NativePopupModel(schemaVersion: 1, id: "numeric", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320,
+                                     rows: [NativePopupRow(id: "slider", kind: .slider, label: "Value", value: "0", minimum: 0, maximum: 1, step: 1)])
+        content.update(model)
+        content.focusInitial()
+        #expect(window.firstResponder is NSSlider)
     }
 
     @Test func selectedValueWinsOverDefaultAndDisabledSliderEmitsNothing() {
@@ -57,6 +105,52 @@ import Testing
         view.slider.commitValue(false)
         #expect(values.isEmpty)
         #expect(closes == 0)
+    }
+
+    @Test(arguments: ["absent", "enabled", "disabled"])
+    func verticalArrowsTravelToFollowingActionsAndBackWithoutChangingEffort(searchState: String) throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 260),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        defer { window.closeAfterTest() }
+        let spec = descriptor()
+        var model = NativePopupModel(schemaVersion: 1, id: "effort", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320,
+                                     rows: [NativePopupRow(id: "slider", kind: .slider, label: "Reasoning", minimum: 0, maximum: 1, step: 1, slider: spec),
+                                            NativePopupRow(id: "heading", kind: .section, label: "Speed"),
+                                            NativePopupRow(id: "disabled", kind: .action, label: "Disabled", disabled: true),
+                                            NativePopupRow(id: "off", kind: .action, label: "Off"),
+                                            NativePopupRow(id: "on", kind: .action, label: "On")])
+        if searchState != "absent" {
+            model.search = NativePopupField(id: "query", value: "", placeholder: "Search", disabled: searchState == "disabled")
+        }
+        content.update(model)
+        content.focusInitial()
+        let view = try #require(content.rowView(id: "slider") as? NativePopupSliderView)
+        if searchState == "enabled" { #expect(window.makeFirstResponder(view.slider)) }
+        #expect(window.firstResponder === view.slider)
+        var changes: [String?] = []
+        var highlights: [String?] = []
+        content.emit = { type, id, value in
+            if type == .change { changes.append(value) }
+            if type == .highlight { highlights.append(id) }
+        }
+        view.slider.keyDown(with: key(126))
+        #expect(window.firstResponder === view.slider && changes.isEmpty)
+        view.slider.keyDown(with: key(125))
+        #expect(window.firstResponder === content && highlights.last == "off" && changes.isEmpty)
+        content.keyDown(with: key(126))
+        #expect(window.firstResponder === view.slider && changes.isEmpty)
+        view.slider.keyDown(with: key(123))
+        #expect(changes == ["0"])
+        model.rows = [model.rows[0]]
+        content.update(model)
+        let standalone = try #require(content.rowView(id: "slider") as? NativePopupSliderView)
+        standalone.slider.keyDown(with: key(125))
+        #expect(standalone.slider.doubleValue == 0, "without following actions vertical arrows still adjust the range")
     }
 
     @Test func descriptorRoundTripsAndNativeStylesRenderDistinctly() throws {

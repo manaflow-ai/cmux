@@ -3,6 +3,7 @@
 //! workspaces.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
@@ -144,6 +145,7 @@ impl Mux {
     /// Report an agent state for a selected terminal resource and reconcile
     /// any durable hook projections waiting for that terminal.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_resource_mutation_plan(
         &self,
         mutation: &WorkspaceMutation,
@@ -450,7 +452,7 @@ impl Mux {
             "name": name,
         });
         if let Some(name_authority) = authority.fingerprint() {
-            fingerprint["name_authority"] = name_authority;
+            fingerprint.set("name_authority", name_authority);
         }
         self.commit_resource_mutation_plan(
             mutation,

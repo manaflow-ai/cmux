@@ -1,8 +1,10 @@
 // The model button is the composer's one model control (Leo 2026-10-20: "Opus 5.5  Medium", no
 // separate Reasoning dropdown). Earlier (P0 #8) Reasoning was its own chip beside the model; now the
-// effort is named inside the model button, and its levels are the Effort row of that button's menu.
+// effort is named inside the model button, and its levels are in that button's menu: the running
+// model's side dropdown beside its row where the caller picks model and effort together (#27948),
+// else its Effort row.
 // Effort must stay reachable and live before the session reports its options (P0 #8's point): the
-// menu's Effort row lists real levels with one checked, never a picture.
+// menu lists real levels with one checked, never a picture.
 //
 // At the boundary a person meets, in real Chromium: a pointer press at the model button's centre
 // (so whatever is on top takes it) at 760, 400 and 300 px, on the New Tab page, a new chat and a
@@ -64,12 +66,15 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   };
 
-  const cases: [string, string, string][] = [
-    ["New Tab", "agent-pane.new-tab", "reasoning-chip"],
-    ["new chat", "agent-pane.composer", "new-chat-reasoning"],
-    ["live chat", "agent-pane.composer-row", "claude-auto"],
+  // `inline`: the caller picks model and effort together (New Tab and a live chat), so the running
+  // model's effort is a side dropdown beside its row (#27948) and the menu has no Effort row. A new
+  // chat's composer keeps the Effort row.
+  const cases: [string, string, string, boolean][] = [
+    ["New Tab", "agent-pane.new-tab", "reasoning-chip", true],
+    ["new chat", "agent-pane.composer", "new-chat-reasoning", false],
+    ["live chat", "agent-pane.composer-row", "claude-auto", true],
   ];
-  for (const [where, entry, variant] of cases)
+  for (const [where, entry, variant, inline] of cases)
     for (const width of [760, 400, 300]) {
       test(`${where} at ${width} px: one model button names the effort; no separate Reasoning control`, async () => {
         const page = await open(entry, variant, width);
@@ -83,15 +88,22 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
         await page.close();
       });
 
-      test(`${where} at ${width} px: the model button opens its menu, whose Effort row lists live levels`, async () => {
+      test(`${where} at ${width} px: the model button opens its menu, whose effort levels are live`, async () => {
         const page = await open(entry, variant, width);
         await pressCentre(page, ".acpmux-chips .acpmux-model .acpmux-picker-button");
         await page.locator(".acpmux-quick-menu").first().waitFor();
         // The compact menu, not the full picker: that one is More models.
         expect(await page.locator(".acpmux-mp").count()).toBe(0);
+        // The running model's effort: its row's side dropdown (#27948), else the menu's Effort row.
+        // Exactly one of the two is offered.
+        const side = page.locator(".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger");
         const effortRow = page.getByRole("menuitem", { name: /^Effort/ });
-        expect(await effortRow.count()).toBe(1);
-        await effortRow.click();
+        expect((await side.count()) + (await effortRow.count())).toBe(1);
+        expect(
+          await side.count(),
+          `${where}: the side dropdown is offered exactly where model and effort are picked together`,
+        ).toBe(inline ? 1 : 0);
+        await ((await side.count()) ? side : effortRow).click();
         await page.waitForFunction(() => document.querySelectorAll(".acpmux-quick-menu").length >= 2);
         const levels = page.locator(".acpmux-quick-menu").last().locator('[role="menuitemradio"]');
         expect(await levels.count()).toBeGreaterThan(1);

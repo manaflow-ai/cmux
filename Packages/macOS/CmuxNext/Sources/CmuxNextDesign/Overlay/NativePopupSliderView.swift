@@ -9,10 +9,14 @@ final class NativePopupSliderView: NSView {
     private let minimumLabel: ThemedLabel
     private let maximumLabel: ThemedLabel
     private let recommendedLabel: ThemedLabel
-    private let descriptor: NativePopupSlider
+    /// Its parts span the popup row's padded box (``PopupRowView/contentGuide``): the row layout
+    /// of ``NativePopupContent``'s other rows owns the inset, so the slider moves with them.
+    private let rowLayout = PopupRowView.Layout()
+    private var descriptor: NativePopupSlider
     private var lastEmittedValue: String?
     var change: (String) -> Void = { _ in }
     var commit: () -> Void = {}
+    var prepareCommit: (() -> (() -> Void)?)?
     var escape: () -> Void = {}
     var preferredHeight: CGFloat { descriptor.recommendedLabel == nil ? 84 : 104 }
     override var isFlipped: Bool { true }
@@ -44,7 +48,8 @@ final class NativePopupSliderView: NSView {
         slider.maxValue = Double(max(1, descriptor.stops.count - 1))
         let selected = descriptor.stops.firstIndex { $0.value == descriptor.selectedValue }
         let fallback = descriptor.stops.firstIndex { $0.value == descriptor.defaultValue }
-        slider.doubleValue = Double(selected ?? fallback ?? 0)
+        let position = row.value.flatMap(Int.init).flatMap { descriptor.stops.indices.contains($0) ? $0 : nil }
+        slider.doubleValue = Double(position ?? selected ?? fallback ?? 0)
         slider.isContinuous = true
         slider.isEnabled = row.disabled != true && !descriptor.stops.isEmpty
         slider.setAccessibilityLabel(descriptor.accessibilityLabel ?? row.label)
@@ -52,8 +57,12 @@ final class NativePopupSliderView: NSView {
         slider.action = #selector(valueChanged(_:))
         slider.commitValue = { [weak self] close in
             guard let self, slider.isEnabled else { return }
+            let finish: (() -> Void)?
+            if !close { finish = nil }
+            else if let prepareCommit { finish = prepareCommit() }
+            else { finish = commit }
             publishValue()
-            if close { commit() }
+            finish?()
         }
         slider.escape = { [weak self] in self?.escape() }
         addSubview(slider)
@@ -63,15 +72,28 @@ final class NativePopupSliderView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    func update(row: NativePopupRow) {
+        guard let descriptor = row.slider else { return }
+        self.descriptor = descriptor
+        if !slider.isInteracting {
+            let selected = descriptor.stops.firstIndex { $0.value == descriptor.selectedValue }
+            let fallback = descriptor.stops.firstIndex { $0.value == descriptor.defaultValue }
+            slider.doubleValue = Double(row.value.flatMap(Int.init) ?? selected ?? fallback ?? 0)
+            lastEmittedValue = descriptor.selectedValue
+        }
+        refreshValue()
+    }
+
     override func layout() {
         super.layout()
-        let width = max(0, bounds.width - 16)
-        heading.frame = NSRect(x: 8, y: 5, width: width / 2, height: 20)
-        currentLabel.frame = NSRect(x: 8 + width / 2, y: 5, width: width / 2, height: 20)
-        slider.frame = NSRect(x: 8, y: 29, width: width, height: 24)
-        minimumLabel.frame = NSRect(x: 8, y: 56, width: width / 2, height: 18)
-        maximumLabel.frame = NSRect(x: 8 + width / 2, y: 56, width: width / 2, height: 18)
-        recommendedLabel.frame = NSRect(x: 8, y: 80, width: width, height: 18)
+        let start = rowLayout.leading
+        let width = max(0, bounds.width - rowLayout.leading - rowLayout.trailing)
+        heading.frame = NSRect(x: start, y: 5, width: width / 2, height: 20)
+        currentLabel.frame = NSRect(x: start + width / 2, y: 5, width: width / 2, height: 20)
+        slider.frame = NSRect(x: start, y: 29, width: width, height: 24)
+        minimumLabel.frame = NSRect(x: start, y: 56, width: width / 2, height: 18)
+        maximumLabel.frame = NSRect(x: start + width / 2, y: 56, width: width / 2, height: 18)
+        recommendedLabel.frame = NSRect(x: start, y: 80, width: width, height: 18)
     }
 
     @objc private func valueChanged(_ sender: NSSlider) { publishValue() }
@@ -82,8 +104,8 @@ final class NativePopupSliderView: NSView {
         guard descriptor.stops.indices.contains(index) else { return }
         let stop = descriptor.stops[index]
         currentLabel.stringValue = stop.label
-        currentLabel.toolTip = stop.description
-        slider.toolTip = stop.description
+        currentLabel.themedToolTip = stop.description
+        slider.themedToolTip = stop.description
         slider.setAccessibilityValueDescription(stop.accessibilityLabel ?? stop.label)
     }
 
@@ -99,8 +121,26 @@ final class NativePopupSliderView: NSView {
 }
 
 @MainActor
-final class NativePopupDiscreteSlider: NSSlider {
+class NativePopupTrackingSlider: NSSlider {
+    var isInteracting = false
+
+    override func mouseDown(with event: NSEvent) {
+        isInteracting = true
+        defer { isInteracting = false }
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        isInteracting = true
+        defer { isInteracting = false }
+        super.keyDown(with: event)
+    }
+}
+
+@MainActor
+final class NativePopupDiscreteSlider: NativePopupTrackingSlider {
     var commitValue: (Bool) -> Void = { _ in }
+    var navigate: (UInt16) -> Bool = { _ in false }
     var escape: () -> Void = {}
 
     override func mouseDown(with event: NSEvent) {
@@ -111,6 +151,9 @@ final class NativePopupDiscreteSlider: NSSlider {
 
     override func keyDown(with event: NSEvent) {
         guard isEnabled else { return }
+        isInteracting = true
+        defer { isInteracting = false }
+        if [125, 126].contains(event.keyCode), navigate(event.keyCode) { return }
         switch event.keyCode {
         case 36, 76: commitValue(true)
         case 53: escape()

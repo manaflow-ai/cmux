@@ -12,8 +12,15 @@ export type ProviderOffer<T> = { model: T; provider: string };
 
 /// A model as the menu lists it: `model` is the row a pick lands (the running provider's, else the
 /// first listed), `name` the model's name without a provider, `tag` a bracketed note the name
-/// carried ("New"), and `offers` every provider's row, in list order (one, for a plain model).
-export type ModelGroup<T> = { model: T; name: string; tag?: string; offers: ProviderOffer<T>[] };
+/// carried ("New"), `offers` every provider's row, and `ids` every original catalog ID, including aliases.
+export type ModelGroup<T> = {
+  model: T;
+  name: string;
+  tag?: string;
+  offers: ProviderOffer<T>[];
+  count: number;
+  ids: string[];
+};
 
 /// Providers' names as they write them; any other is its id, capitalized.
 const PROVIDER_NAMES: Record<string, string> = {
@@ -35,80 +42,103 @@ const PROVIDER_NAMES: Record<string, string> = {
 const BRACKET_TAG = /\s*\[([^\]]+)\]\s*$/;
 
 /// Who serves a row and what model it is: `provider` (absent for a bare id), `key` (the model's id
-/// without any provider path, which rows of one model share), `vendor` (the path segment before the
-/// key when the id has one, "deepseek" in "openrouter/deepseek/deepseek-v4-pro") and the name
-/// without a provider prefix ("OpenRouter/DeepSeek V4 Pro" is "DeepSeek V4 Pro") or bracketed tag.
+/// without any provider path, which rows of one model share) and the name without a provider prefix
+/// ("OpenRouter/DeepSeek V4 Pro" is "DeepSeek V4 Pro") or bracketed tag.
 export function providerOf(model: VariantModel): {
   provider?: string;
   key: string;
-  vendor?: string;
   name: string;
   tag?: string;
 } {
   const parts = model.id.split("/");
   const id = parts.length > 1 ? parts[0]! : undefined;
   const slash = model.name.lastIndexOf("/");
-  const named = slash > 0 ? model.name.slice(0, model.name.indexOf("/")).trim() : undefined;
   const bare = slash > 0 ? model.name.slice(slash + 1).trim() : model.name.trim();
   const tag = BRACKET_TAG.exec(bare)?.[1];
-  const provider = id ? (named ?? PROVIDER_NAMES[id.toLowerCase()] ?? id[0]!.toUpperCase() + id.slice(1)) : undefined;
-  const vendor = parts.length > 2 ? parts.at(-2)!.toLowerCase() : undefined;
+  // The route prefix is authoritative. Names can carry an owner ("Qwen/Coder 3")
+  // that must never be shown as the provider (OpenRouter).
+  const provider = id ? (PROVIDER_NAMES[id.toLowerCase()] ?? id[0]!.toUpperCase() + id.slice(1)) : undefined;
   return {
     ...(provider ? { provider } : {}),
     key: (parts.at(-1) ?? model.id).toLowerCase(),
-    ...(vendor ? { vendor } : {}),
     name: bare.replace(BRACKET_TAG, ""),
     ...(tag ? { tag } : {}),
   };
 }
 
+/// The owner a row's id names between its provider and its model ("openrouter/qwen/coder-3" is
+/// "qwen"); a "provider/model" id names none.
+const ownerOf = (id: string): string | undefined => {
+  const parts = id.toLowerCase().split("/");
+  return parts.length > 2 ? parts.slice(1, -1).join("/") : undefined;
+};
+
 /// `models` as one row per model, in order of each model's first row. Only rows that name a
-/// provider join: two bare ids are two models. `current` is the running row's id: its group lands it.
+/// provider join, only rows of one owner join, and only one row per provider: two bare ids are two
+/// models, and so are "openrouter/qwen/m" and "together/mistral/m". A row that names no owner
+/// ("groq/m") joins the one owner its model has, or the owner its provider is ("mistral/m"); with
+/// several and neither, it is its own model. `current` is the running row's id: its group lands it.
 /// A provider's row is named without the provider ("Z.ai/GLM 5.3" is "GLM 5.3"); the menu names the
-/// provider beside it. Rows whose ids name different vendors ("openrouter/qwen/coder-3",
-/// "together/mistral/coder-3") are different models even when their last segments match. A row
-/// that names no vendor ("qwen/coder-3") joins the model of the vendor its provider is, else the
-/// only model with its last segment; when that is ambiguous it is its own model.
+/// provider beside it. When one provider repeats a route, its offer is the available row, the running
+/// one first.
 export function groupVariants<T extends VariantModel>(models: readonly T[], current?: string): ModelGroup<T>[] {
-  type Group = { key: string; vendor?: string; rows: number[] };
-  const read = models.map((model) => providerOf(model));
-  const groups: Group[] = [];
-  const byKey = new Map<string, Group[]>();
-  const add = (index: number, vendor?: string) => {
-    const group: Group = { key: read[index]!.key, ...(vendor ? { vendor } : {}), rows: [index] };
-    groups.push(group);
-    byKey.set(group.key, [...(byKey.get(group.key) ?? []), group]);
+  const rows = models.map((model) => ({ model, ...providerOf(model), owner: ownerOf(model.id) }));
+  // Every owner each model id is named under.
+  const owners = new Map<string, Set<string>>();
+  for (const row of rows)
+    if (row.provider && row.owner) owners.set(row.key, (owners.get(row.key) ?? new Set<string>()).add(row.owner));
+  // The model a row is: its id's last part and its owner, or undefined when that cannot be told.
+  const identity = (row: (typeof rows)[number]): string | undefined => {
+    if (!row.provider) return undefined;
+    const named = owners.get(row.key) ?? new Set<string>();
+    const by = row.model.id.split("/")[0]!.toLowerCase();
+    const owner = row.owner ?? (named.size <= 1 ? ([...named][0] ?? "") : named.has(by) ? by : undefined);
+    return row.key + "\u0000" + (owner === undefined ? "provider:" + by : owner);
   };
-  // Rows that name their vendor first, so a row that does not can find its vendor's model.
-  read.forEach((row, index) => {
-    if (!row.provider) return add(index);
-    if (!row.vendor) return;
-    const group = byKey.get(row.key)?.find((candidate) => candidate.vendor === row.vendor);
-    if (group) group.rows.push(index);
-    else add(index, row.vendor);
-  });
-  read.forEach((row, index) => {
-    if (!row.provider || row.vendor) return;
-    const own = models[index]!.id.split("/")[0]!.toLowerCase();
-    const candidates = byKey.get(row.key) ?? [];
-    const group =
-      candidates.find((candidate) => candidate.vendor === own) ??
-      (candidates.length === 1 ? candidates[0] : candidates.find((candidate) => !candidate.vendor));
-    if (group && read[group.rows[0]!]!.provider) group.rows.push(index);
-    else add(index);
-  });
-  return groups
-    .map((group) => group.rows.sort((a, b) => a - b))
-    .sort((a, b) => a[0]! - b[0]!)
-    .map((rows): ModelGroup<T> => {
-      const first = read[rows[0]!]!;
-      const tag = rows.map((index) => read[index]!.tag).find(Boolean);
-      const running = rows.find((index) => models[index]!.id === current);
-      return {
-        model: models[running ?? rows[0]!]!,
-        name: first.provider ? first.name : models[rows[0]!]!.name,
-        ...(tag ? { tag } : {}),
-        offers: rows.map((index) => ({ model: models[index]!, provider: read[index]!.provider ?? "" })),
-      };
-    });
+  const groups: ModelGroup<T>[] = [];
+  const byIdentity = new Map<string, ModelGroup<T>>();
+  const byBareId = new Map<string, ModelGroup<T>>();
+  for (const row of rows) {
+    const { model, provider, name, tag } = row;
+    const offer = { model, provider: provider ?? "" };
+    const id = identity(row);
+    const bareId = id === undefined ? row.model.id : undefined;
+    const joined = id === undefined ? byBareId.get(bareId!) : byIdentity.get(id);
+    if (joined) {
+      joined.count += 1;
+      joined.ids.push(model.id);
+      const providerId = row.model.id.split("/")[0]!.toLowerCase();
+      const duplicateIndex = joined.offers.findIndex(
+        (each) => each.model.id.split("/")[0]!.toLowerCase() === providerId,
+      );
+      if (duplicateIndex < 0) {
+        joined.offers.push(offer);
+      } else {
+        const existing = joined.offers[duplicateIndex]!;
+        const existingUnavailable = Boolean((existing.model as VariantModel & { unavailable?: unknown }).unavailable);
+        const incomingUnavailable = Boolean((model as T & { unavailable?: unknown }).unavailable);
+        const existingCurrent = existing.model.id === current;
+        const incomingCurrent = model.id === current;
+        const rank = (current: boolean, unavailable: boolean) => (unavailable ? 0 : 2) + (current ? 1 : 0);
+        const existingRank = rank(existingCurrent, existingUnavailable);
+        const incomingRank = rank(incomingCurrent, incomingUnavailable);
+        if (incomingRank > existingRank) joined.offers[duplicateIndex] = offer;
+      }
+      if (model.id === current) joined.model = model;
+      joined.tag ??= tag;
+      continue;
+    }
+    const next: ModelGroup<T> = {
+      model,
+      name: provider ? name : model.name.replace(BRACKET_TAG, ""),
+      ...(tag ? { tag } : {}),
+      offers: [offer],
+      count: 1,
+      ids: [model.id],
+    };
+    groups.push(next);
+    if (id !== undefined && !byIdentity.has(id)) byIdentity.set(id, next);
+    if (bareId !== undefined && !byBareId.has(bareId)) byBareId.set(bareId, next);
+  }
+  return groups;
 }

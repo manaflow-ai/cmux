@@ -2159,133 +2159,133 @@
         }
       }
     },
-    "quit.button.quitEverything": {
+    "quit.button.endKeepLayout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quit Everything"
+            "value": "End Sessions, Keep Layout"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إنهاء كل شيء"
+            "state": "translated",
+            "value": "إنهاء الجلسات مع إبقاء التخطيط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatvori sve"
+            "value": "Završi sesije, zadrži raspored"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afslut alt"
+            "value": "Afslut sessioner, behold layout"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Alles beenden"
+            "state": "translated",
+            "value": "Sitzungen beenden, Layout behalten"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Salir de todo"
+            "state": "translated",
+            "value": "Finalizar sesiones y mantener el diseño"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tout quitter"
+            "state": "translated",
+            "value": "Terminer les sessions, garder la disposition"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esci da tutto"
+            "value": "Termina le sessioni, mantieni il layout"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべて終了"
+            "value": "セッションを終了してレイアウトを維持"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចាកចេញទាំងអស់"
+            "value": "បញ្ចប់វគ្គ ហើយរក្សាប្លង់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "모두 종료"
+            "state": "translated",
+            "value": "세션 끝내고 레이아웃 유지"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avslutt alt"
+            "value": "Avslutt økter, behold oppsett"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zakończ wszystko"
+            "value": "Zamknij sesje, zachowaj układ"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Encerrar tudo"
+            "value": "Encerrar sessões e manter o layout"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завершить всё"
+            "value": "Завершить сеансы, сохранить макет"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ออกทั้งหมด"
+            "value": "จบเซสชัน คงเลย์เอาต์ไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Her Şeyden Çık"
+            "value": "Oturumları sonlandır, düzeni koru"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завершити все"
+            "value": "Завершити сеанси, зберегти макет"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thoát tất cả"
+            "value": "Kết thúc phiên, giữ bố cục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "全部退出"
+            "state": "translated",
+            "value": "结束会话，保留布局"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "全部結束"
+            "state": "translated",
+            "value": "終止工作階段，保留版面"
           }
         }
       }
@@ -3858,6 +3858,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "仍在工作的代理程式：%lld 個。"
+          }
+        }
+      }
+    },
+    "quit.endEverything.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit and close every workspace?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد الإنهاء وإغلاق كل مساحات العمل؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatvoriti aplikaciju i sve radne prostore?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut og luk alle arbejdsområder?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beenden und alle Arbeitsbereiche schließen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Salir y cerrar todos los espacios de trabajo?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quitter et fermer tous les espaces de travail ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uscire e chiudere tutte le aree di lavoro?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終了してすべてのワークスペースを閉じますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាកចេញ ហើយបិទកន្លែងធ្វើការទាំងអស់?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "종료하고 모든 작업 공간을 닫을까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutte og lukke alle arbeidsområder?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zakończyć i zamknąć wszystkie obszary robocze?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sair e fechar todos os espaços de trabalho?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выйти и закрыть все рабочие области?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ออกและปิดพื้นที่ทำงานทั้งหมดหรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çıkıp tüm çalışma alanları kapatılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вийти й закрити всі робочі простори?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thoát và đóng mọi không gian làm việc?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "退出并关闭所有工作区？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "結束並關閉所有工作區？"
+          }
+        }
+      }
+    },
+    "quit.endEverything.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every terminal and agent ends. The workspaces stay in Recently Closed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنتهي كل الطرفيات والوكلاء. تبقى مساحات العمل في «المغلقة مؤخرًا»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svi terminali i agenti se završavaju. Radni prostori ostaju u Nedavno zatvorenim."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle terminaler og agenter afsluttes. Arbejdsområderne bliver i Senest lukkede."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle Terminals und Agenten werden beendet. Die Arbeitsbereiche bleiben unter „Zuletzt geschlossen“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todas las terminales y agentes terminan. Los espacios de trabajo quedan en Cerrados recientemente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tous les terminaux et agents s’arrêtent. Les espaces de travail restent dans Fermés récemment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tutti i terminali e gli agenti terminano. Le aree di lavoro restano in Chiusi di recente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべてのターミナルとエージェントが終了します。ワークスペースは「最近閉じた項目」に残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទែមីណាល់ និងភ្នាក់ងារទាំងអស់បញ្ចប់។ កន្លែងធ្វើការនៅតែមានក្នុង បានបិទថ្មីៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 터미널과 에이전트가 끝납니다. 작업 공간은 최근 닫은 항목에 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle terminaler og agenter avsluttes. Arbeidsområdene blir liggende i Nylig lukket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wszystkie terminale i agenci kończą pracę. Obszary robocze zostają w Ostatnio zamkniętych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todos os terminais e agentes terminam. Os espaços de trabalho ficam em Fechados recentemente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Все терминалы и агенты завершаются. Рабочие области остаются в «Недавно закрытых»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลและเอเจนต์ทั้งหมดจะสิ้นสุด พื้นที่ทำงานยังอยู่ใน ปิดล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm terminaller ve ajanlar sonlanır. Çalışma alanları Son Kapatılanlar’da kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Усі термінали й агенти завершуються. Робочі простори залишаються в «Нещодавно закритих»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mọi terminal và tác tử đều kết thúc. Các không gian làm việc vẫn ở mục Đã đóng gần đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有终端和代理都会结束。工作区保留在“最近关闭”中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有終端機和代理程式都會結束。工作區保留在「最近關閉」中。"
           }
         }
       }

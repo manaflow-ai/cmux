@@ -43,11 +43,41 @@ import Testing
         model.rows = [NativePopupRow(id: "effort", kind: .slider, label: "Effort", value: "0",
                                      minimum: 0, maximum: 0, step: 1, slider: NativePopupSlider(stops: [stop]))]
         #expect(model.isValid)
+        for value in ["-1", "1", "0.5", "nan", "not a number"] {
+            model.rows[0].value = value
+            #expect(!model.isValid)
+        }
+        model.rows[0].value = "0"
         model.rows[0].slider?.stops.append(stop)
         #expect(!model.isValid)
         model.rows[0].slider?.stops = [stop]
         model.rows[0].maximum = 2
         #expect(!model.isValid)
+    }
+
+    @Test func completionMetadataIsBoundedAndOnlyValidOnActionRows() {
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "suggestion", kind: .action, label: "Suggestion", value: "opaque", completion: "Named suggestion")]
+        #expect(model.isValid)
+        model.rows[0].kind = .text
+        #expect(!model.isValid)
+        model.rows[0].kind = .action
+        model.rows[0].completion = String(repeating: "x", count: 100_001)
+        #expect(!model.isValid)
+    }
+
+    @Test func hugeAnchorsAndNonNumericPlainSliderValuesAreRejected() {
+        var model = Self.model()
+        model.anchor = NativePopupAnchor(left: -Double.greatestFiniteMagnitude, top: 0,
+                                         right: Double.greatestFiniteMagnitude, bottom: 10)
+        #expect(!model.isValid, "right - left overflows to infinity in the host")
+        model = Self.model()
+        model.rows = [NativePopupRow(id: "volume", kind: .slider, label: "Volume", value: "0.5", minimum: 0, maximum: 1)]
+        #expect(model.isValid)
+        for bad in ["nan", "inf", "-infinity", "loud"] {
+            model.rows[0].value = bad
+            #expect(!model.isValid, "\(bad) would reach NSSlider")
+        }
     }
 
     private static func model() -> NativePopupModel {

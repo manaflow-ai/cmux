@@ -5,9 +5,12 @@ The native host is the popup renderer. Web code supplies typed state and action 
 AppKit owns the glass, layout, keyboard, editable controls and accessibility. Web code
 does not mount hidden DOM rows and scrape them into a native facsimile.
 
-`webviews/src/ui/popupProtocol.schema.json` is the wire source. Run
-`python3 scripts/cmux-next/gen-popup-protocol.py` to derive the TypeScript and Swift
-Codable types. `--check` runs in the web check to prevent drift. This local AppKit UI
+The wire types are written by hand in two places that change together:
+`webviews/src/ui/popupProtocol.ts` and the Swift Codable types in
+`Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/PopupProtocol/`. No generator
+writes them (committed generated files are refused; see
+`scripts/ci/generated_files_guard.py`). The Swift protocol tests and the web popup
+tests decode the same wire shapes. This local AppKit UI
 protocol is separate from the pane protocol IR, which owns daemon operations,
 capability scopes and MCP/CLI exposure and currently emits only TypeScript clients.
 Popup action IDs are callbacks in the page, never daemon RPC names.
@@ -30,5 +33,5 @@ consumer supplies tint, blur, shadow or material constants. Menus open at once;
 the existing closing behavior remains owned by `NativePopupHost`.
 
 The old overflow DOM adapter remains only while consumers migrate. New native popup
-consumers use generated declarations and have no production DOM fallback. Gallery
+consumers use typed declarations and have no production DOM fallback. Gallery
 fixtures may inject a transport to inspect declarations without a native host.

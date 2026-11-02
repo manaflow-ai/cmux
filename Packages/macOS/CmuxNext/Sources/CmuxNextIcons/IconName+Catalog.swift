@@ -290,6 +290,7 @@ extension IconName {
         .terminalCopymode,
         .terminalDead,
         .terminalNew,
+        .terminalPrompt,
         .textDescription,
         .textWrap,
         .theme,

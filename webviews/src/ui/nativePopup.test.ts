@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createPopupHost, type PopupEvent } from "./popupHost";
-import type { NativePopupEvent, NativePopupModel } from "./generated/popupProtocol";
+import type { NativePopupEvent, NativePopupModel } from "./popupProtocol";
 
 describe("declarative native popup transport", () => {
   test("sends rows without a DOM surface and binds hide to its popup", async () => {

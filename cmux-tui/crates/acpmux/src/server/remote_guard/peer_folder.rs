@@ -1,6 +1,8 @@
 //! A proven peer's (the owner's own daemon's) `session/new` folder (`remote_guard.rs`): a
 //! missing one inside a root is made without ever following a link, and a refused one says
-//! what `mkdir -p` would make of it and which folder inside the roots to use instead.
+//! what `mkdir -p` would make of it and which folder inside the roots to use instead. A
+//! folder that was removed on purpose (a cleaned-up worktree with its archive record) is
+//! never made again for a chat that still names it.
 
 use super::{canonical_dir, folder_refused, fs_spelling};
 use crate::rpc::RpcError;
@@ -40,6 +42,21 @@ pub(super) async fn make_inside_root(
     if !inside(&target) {
         return Err(None);
     }
+    // Each folder the make would add, in the caller's spelling and in the found one.
+    let (mut asked, mut real, mut added) = (ancestor.to_path_buf(), found.clone(), Vec::new());
+    for name in rest.iter() {
+        asked.push(name);
+        real.push(name);
+        added.push(asked.clone());
+        if real != asked {
+            added.push(real.clone());
+        }
+    }
+    for spelling in added {
+        if removed_on_purpose(&spelling).await {
+            return Err(Some(removed_refused(&spelling)));
+        }
+    }
     if !make {
         return Ok(None);
     }
@@ -51,6 +68,49 @@ pub(super) async fn make_inside_root(
     let canonical =
         canonical_dir(&target.to_string_lossy()).await.ok_or(Some(folder_refused("cwd")))?;
     if inside(Path::new(&canonical)) { Ok(Some(canonical)) } else { Err(None) }
+}
+
+/// Where worktree cleanup keeps what it removed: `~/archive/<time>-<name>[-...]/manifest.json`,
+/// whose `path` names the folder removed (leo-workspace's worktree and disk reclaimers).
+const REMOVED_RECORDS: &str = "archive";
+
+/// Whether `path` was removed on purpose: an archive record names it. Such a folder comes back
+/// only as the restore its record describes, never as an empty folder a stale chat asks for
+/// (it brought back cleaned-up worktrees, which the cleanup then archived again on every pass).
+async fn removed_on_purpose(path: &Path) -> bool {
+    let (Some(home), Some(leaf)) = (dirs::home_dir(), path.file_name()) else { return false };
+    let Ok(mut entries) = tokio::fs::read_dir(home.join(REMOVED_RECORDS)).await else {
+        return false;
+    };
+    let tag = format!("-{}", leaf.to_string_lossy());
+    let want = path.to_string_lossy();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if !entry.file_name().to_string_lossy().contains(&tag) {
+            continue;
+        }
+        let Ok(text) = tokio::fs::read(entry.path().join("manifest.json")).await else { continue };
+        let named = serde_json::from_slice::<Value>(&text)
+            .ok()
+            .and_then(|m| m.get("path").and_then(Value::as_str).map(str::to_owned));
+        if named.is_some_and(|named| named.trim_end_matches('/') == want.trim_end_matches('/')) {
+            return true;
+        }
+    }
+    false
+}
+
+/// `folder_refused` for a folder `removed_on_purpose`: `data.cause` `removed`, and the path.
+fn removed_refused(path: &Path) -> RpcError {
+    let shown = path.to_string_lossy().into_owned();
+    let mut e = folder_refused("cwd");
+    e.message = format!(
+        "cwd is refused: {shown} was removed (its archive record is in ~/{REMOVED_RECORDS}); start the chat in an existing folder"
+    );
+    if let Some(data) = e.data.as_mut() {
+        data["cause"] = Value::from("removed");
+        data["cwd"] = Value::from(shown);
+    }
+    e
 }
 
 /// Make each name of `rest` below `base` (canonical), one folder at a time through

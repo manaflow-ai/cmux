@@ -10,7 +10,6 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use serde_json::{Value, json};
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
@@ -122,10 +121,7 @@ impl Daemon {
             .stderr(Stdio::inherit())
             .spawn()
             .expect("start daemon");
-        let mut ready = String::new();
-        BufReader::new(child.stdout.take().unwrap()).read_line(&mut ready).unwrap();
-        assert!(ready.contains("\"ready\":true"), "daemon not ready: {ready}");
-        self.ready = ready;
+        self.ready = daemon_env::ready_line(child.stdout.take().unwrap());
         self.child = Some(child);
     }
 
@@ -451,7 +447,10 @@ async fn pooled_sessions_end_with_the_daemon_and_after_a_crash() {
     assert!(daemon.pool_records().is_empty());
     assert_eq!(daemon.stored_sessions(), 0, "an untaken pooled session leaves no trace");
 
-    // A crash leaves the pooled host running; the next daemon ends it.
+    // A crash: no daemon can use a pooled host nobody took, so the host ends its harness
+    // and itself as its daemon's link closes (`agent_host/host.rs` `on_frame`), with no
+    // next daemon. Whether it is still alive right after the SIGKILL is a race with that
+    // end, so the test never asks it.
     daemon.start();
     {
         let mut rpc = daemon.rpc().await;
@@ -459,11 +458,13 @@ async fn pooled_sessions_end_with_the_daemon_and_after_a_crash() {
         wait_pool_ready(&mut rpc, "fakeb").await;
     }
     let r = daemon.pool_records().pop().expect("a pooled host");
-    let harness = r["harness_pid"].as_i64().unwrap();
+    let (host, harness) = (r["host_pid"].as_i64().unwrap(), r["harness_pid"].as_i64().unwrap());
     daemon.sigkill();
-    assert!(alive(harness), "a crashed daemon cannot end it");
+    assert!(gone_within(harness, Duration::from_secs(15)), "pooled harness outlived a crash");
+    assert!(gone_within(host, Duration::from_secs(15)), "pooled host outlived a crash");
+    assert!(daemon.pool_records().is_empty(), "the ended host left its record");
+    // The next daemon starts clean: nothing listed, nothing stored.
     daemon.start();
-    assert!(gone_within(harness, Duration::from_secs(15)), "the next daemon ended it");
     let mut rpc = daemon.rpc().await;
     let listed = rpc.call("_acpmux/sessions", json!({})).await;
     assert!(listed["sessions"].as_array().unwrap().is_empty(), "{listed}");
@@ -549,8 +550,7 @@ async fn a_pool_claim_in_a_mode_that_does_not_ask_refuses_a_web_prompt() {
     assert!(taken(&daemon, &claimed), "the session came from the pool");
     // A Web connection (the dashboard token only).
     let ready: Value = serde_json::from_str(&daemon.ready).unwrap();
-    let ws_url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
-    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    let (mut ws, _) = tokio_tungstenite::connect_async(web_request(&ready)).await.unwrap();
     let prompt = json!({"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
         "params": {"sessionId": claimed, "prompt": [{"type": "text", "text": "from the web"}]}});
     ws.send(Frame::Text(prompt.to_string().into())).await.unwrap();
@@ -605,8 +605,7 @@ async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
     let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
     assert_eq!(info["modes"]["currentModeId"], "bypassPermissions", "{info}");
     let ready: Value = serde_json::from_str(&daemon.ready).unwrap();
-    let ws_url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
-    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    let (mut ws, _) = tokio_tungstenite::connect_async(web_request(&ready)).await.unwrap();
     let prompt = json!({"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
         "params": {"sessionId": claimed, "prompt": [{"type": "text", "text": "from the web"}]}});
     ws.send(Frame::Text(prompt.to_string().into())).await.unwrap();
@@ -1492,4 +1491,15 @@ async fn a_released_hint_ends_its_pooled_session() {
     // The next chat there starts cold: nothing was left to take.
     let (id, _) = new_session(&mut rpc, &home, "fake").await;
     assert!(!taken(&daemon, &id));
+}
+
+/// A WebSocket request to the listener of a readiness line, with the token of
+/// its `webUrl` (`http://host/#token=t`) as a bearer token.
+fn web_request(ready: &Value) -> tokio_tungstenite::tungstenite::handshake::client::Request {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let url = ready["webUrl"].as_str().unwrap();
+    let (base, token) = url.split_once("#token=").unwrap();
+    let mut req = base.replace("http://", "ws://").into_client_request().unwrap();
+    req.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
+    req
 }

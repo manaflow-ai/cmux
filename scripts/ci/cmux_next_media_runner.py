@@ -31,6 +31,14 @@ Rules, in order: a change with nothing to tour gets nothing; a fork head gets no
 CI_PR_POOL_OWNED must be 1; the first owned pool class whose gui label has
 machines in CI_OWNED_POOL_SLOTS wins, its session label first.
 
+--idle-now (the nightly visual gate, docs/ci/nightly-next-visual-gate.md)
+places the job only on a runner that is online and idle now, read live from
+the runners API with ROUTE_TOKEN (side_lane_placement.py's rule): the first
+owned pool class with an idle session runner, else an idle gui runner. With
+none idle, or runners that cannot be read, it picks nothing, so the job is
+skipped rather than queued: a queued self-hosted job waits up to a day, and
+the nightly's publication waits on it.
+
 Writes `runs_on` (a label, or "") and `reason` to $GITHUB_OUTPUT, and prints them.
 """
 
@@ -97,14 +105,55 @@ def pick(*, same_repo: bool, owned: str | None, owned_slots: str | None,
     return "", "no owned pool has session or gui runners in CI_OWNED_POOL_SLOTS"
 
 
+def pick_idle(*, same_repo: bool, owned: str | None, pr_xcode_app: str | None,
+              runners: list[dict] | None) -> tuple[str, str]:
+    """(label, reason) for a job that must not queue: an owned session runner idle now, else a gui one."""
+    if not same_repo:
+        return "", "a fork head never runs on an owned Mac"
+    if (owned or "").strip() != "1":
+        return "", "owned Macs are off (CI_PR_POOL_OWNED is not 1)"
+    pools = pr_runner_pool.owned_pools(pr_xcode_app)
+    if not pools:
+        return "", f"no owned pool for the lane's Xcode pin ({pr_xcode_app or 'unset'})"
+    if runners is None:
+        return "", "the owned runners could not be read, so no idle session runner is known"
+    for role in (pr_runner_pool.session_label, pr_runner_pool.gui_label):
+        for pool in pools:
+            label = role(pool)
+            free = pr_runner_pool.live_owned_free(runners, [label])[label] if label else 0
+            if free > 0:
+                return label, f"{free} idle runner(s) carry {label} now"
+    return "", "no owned session or gui runner is idle now"
+
+
+def read_runners(token: str, repo: str) -> list[dict] | None:
+    """The self-hosted runners, live; None when they cannot be read."""
+    if not token or not repo:
+        return None
+    try:
+        return list(pr_runner_pool.GitHub(token, repo).runners())
+    except Exception as error:  # noqa: BLE001 - unreadable runners place nothing
+        print(f"could not list runners ({error})", file=sys.stderr)
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--same-repo", required=True, choices=("true", "false"))
     parser.add_argument("--paths-file", type=Path, help="newline-delimited changed paths, when known")
     parser.add_argument("--force-mac", action="store_true", help="tour on a Mac whatever changed")
+    parser.add_argument("--idle-now", action="store_true",
+                        help="only a runner idle now (runners read with ROUTE_TOKEN), else none")
     args = parser.parse_args(argv)
     skip = None if args.force_mac else scope_reason(read_paths(args.paths_file))
-    if skip:
+    if args.idle_now:
+        label, reason = pick_idle(
+            same_repo=args.same_repo == "true",
+            owned=os.environ.get("POOL_OWNED"),
+            pr_xcode_app=os.environ.get("PR_XCODE_APP"),
+            runners=read_runners(os.environ.get("ROUTE_TOKEN", ""), os.environ.get("GITHUB_REPOSITORY", "")),
+        )
+    elif skip:
         label, reason = "", skip
     else:
         label, reason = pick(

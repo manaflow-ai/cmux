@@ -1,5 +1,5 @@
 /** Declarative row descriptions for the native WebPopupHost. These helpers accept data only. */
-import type { NativePopupAction, NativePopupRow, NativePopupRowKind } from "./generated/popupProtocol";
+import type { NativePopupAction, NativePopupRow, NativePopupRowKind } from "./popupProtocol";
 import type { NativePopupDescription } from "./nativePopup";
 
 export type PopupRowKind = NativePopupRowKind;

@@ -1,9 +1,10 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct NativePopupContentTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NativePopupContentTests {
     @Test func searchDescriptorUpdatesWithoutChangingItsIdentity() throws {
         let content = NativePopupContent()
         var model = Self.model()
@@ -16,6 +17,59 @@ import Testing
         #expect(field.stringValue == "b")
         #expect(field.placeholderString == "Unavailable")
         #expect(!field.isEnabled)
+    }
+
+    @Test(arguments: [true, false])
+    func descriptorRebuildPreservesAndClampsTheTextSelection(isSearch: Bool) throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        defer { window.closeAfterTest() }
+        var model = Self.model()
+        if isSearch { model.search = NativePopupField(id: "query", value: "A😀BCDE", placeholder: "Search") }
+        else { model.rows = [NativePopupRow(id: "query", kind: .textField, label: "Value", value: "A😀BCDE")] }
+        content.update(model)
+        let original = try #require(content.subviews.compactMap { $0 as? NSTextField }.first)
+        #expect(window.makeFirstResponder(original))
+        let editor = try #require(original.currentEditor() as? NSTextView)
+        editor.setSelectedRange(NSRange(location: 1, length: 4))
+        model.title = "Changed title"
+        content.update(model)
+        let replacement = try #require(content.subviews.compactMap { $0 as? NSTextField }.first { $0.currentEditor() != nil })
+        let after = try #require(replacement.currentEditor() as? NSTextView)
+        #expect(after.selectedRange() == NSRange(location: 1, length: 4))
+        model.title = "Shorter value"
+        if isSearch { model.search?.value = "A😀" } else { model.rows[0].value = "A😀" }
+        content.update(model)
+        let shorter = try #require(content.subviews.compactMap { $0 as? NSTextField }.first { $0.currentEditor() != nil })
+        let shorterEditor = try #require(shorter.currentEditor() as? NSTextView)
+        #expect(shorterEditor.selectedRange() == NSRange(location: 1, length: 2))
+    }
+
+    @Test func accessoryActionKeepsFocusAndActivationAcrossDescriptorRebuild() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        defer { window.closeAfterTest() }
+        var model = Self.model()
+        model.rows[0].actions = [NativePopupAction(id: "accessory", label: "Accessory", keepOpen: true)]
+        content.update(model)
+        let original = try #require(Self.descendants(of: content).compactMap { $0 as? NSButton }.first)
+        #expect(window.makeFirstResponder(original))
+        var picked: [String?] = []
+        content.emit = { type, id, _ in if type == .pick { picked.append(id) } }
+        original.performClick(nil)
+        model.title = "Changed title"
+        content.update(model)
+        let replacement = try #require(Self.descendants(of: content).compactMap { $0 as? NSButton }.first)
+        #expect(replacement !== original && window.firstResponder === replacement)
+        let focused = try #require(window.firstResponder as? NSButton)
+        focused.performClick(nil)
+        #expect(picked == ["accessory", "accessory"])
     }
 
     @Test func documentTracksAClampedViewport() {
@@ -33,7 +87,7 @@ import Testing
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = Self.model()
         model.width = 120
         model.rows = [NativePopupRow(id: "slider", kind: .slider, label: "Value", value: "0.5", minimum: 0, maximum: 1)]
@@ -83,7 +137,7 @@ import Testing
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = Self.model()
         let row = NativePopupRow(id: "name", kind: .textField, label: "Name", value: "")
         switch location {
@@ -123,7 +177,7 @@ import Testing
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = Self.model()
         model.rows = [NativePopupRow(id: "control", kind: kind, label: "Control", value: "0",
                                     options: [NativePopupOption(id: "0", label: "First"), NativePopupOption(id: "1", label: "Second")])]
@@ -145,7 +199,7 @@ import Testing
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
         window.contentView = content
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         var model = Self.model()
         model.rows = [NativePopupRow(id: "control", kind: kind, label: "Control", value: kind == .choice ? "0" : "0",
                                      options: kind == .choice ? [NativePopupOption(id: "0", label: "First"),
@@ -160,8 +214,13 @@ import Testing
         if kind == .toggle { model.rows[0].checked = true }
         content.update(model)
         let replacement = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider || $0 is NSSwitch })
-        #expect(replacement !== original)
+        if kind == .slider { #expect(replacement === original, "a value echo must preserve slider tracking") }
+        else { #expect(replacement !== original) }
         #expect(window.firstResponder === replacement, "the descriptor update dropped control focus")
+        model.rows[0].label = "Structurally changed"
+        content.update(model)
+        let rebuilt = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider || $0 is NSSwitch })
+        #expect(rebuilt !== replacement && window.firstResponder === rebuilt)
     }
 
     @Test func sliderStepRoundingStaysWithinItsBounds() throws {
@@ -201,6 +260,25 @@ import Testing
             content.keyDown(with: event)
         }
         #expect(picked == "next")
+    }
+
+    @Test func repeatedKeyboardToggleFlipsTheSwitchEachTime() throws {
+        let content = NativePopupContent()
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "toggle", kind: .toggle, label: "Toggle", checked: false)]
+        var changes: [String?] = []
+        content.emit = { type, id, value in if type == .change, id == "toggle" { changes.append(value) } }
+        content.update(model)
+        let control = try #require(Self.descendants(of: content).compactMap { $0 as? NSSwitch }.first)
+        for code: UInt16 in [125, 36, 36] {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                     timestamp: 0, windowNumber: 0, context: nil,
+                                                     characters: "", charactersIgnoringModifiers: "",
+                                                     isARepeat: false, keyCode: code))
+            content.keyDown(with: event)
+        }
+        #expect(changes == ["true", "false"], "a second Return before the page echoes must flip back, not resend")
+        #expect(control.state == .off)
     }
 
     @Test func ordinaryTextFieldReturnDoesNotActivateTheHighlightedAction() throws {

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "./Menu";
 import { cx } from "./cx";
 import type { NativePopupDescription } from "./nativePopup";
-import type { NativePopupEvent, NativePopupRow } from "./generated/popupProtocol";
+import type { NativePopupEvent, NativePopupRow } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
 
 function selectionRows(rows: readonly NativePopupRow[], keepOpen: boolean): NativePopupRow[] {
@@ -87,11 +87,12 @@ export function Select({
           aria-labelledby={labelledBy}
           disabled={disabled}
           aria-haspopup="menu"
+          fieldTrigger
         >
           <span className="ui-select-value">{selected?.label ?? placeholder}</span>
           <span className="ui-select-chevron" aria-hidden="true" />
         </MenuButton>
-        <MenuPopup className={cx("ui-select-popup", popupClassName)}>
+        <MenuPopup className={cx("ui-select-popup", popupClassName)} matchTrigger>
           <MenuRadioGroup value={value} onValueChange={onChange}>
             {options.map((option) => (
               <MenuRadioItem

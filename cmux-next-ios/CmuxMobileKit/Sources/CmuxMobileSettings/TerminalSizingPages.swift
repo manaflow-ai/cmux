@@ -109,7 +109,7 @@ struct TerminalSizingMacsPage: View {
         List {
             Section {
                 if macs.isEmpty {
-                    Text("No Macs yet.").foregroundStyle(theme.colors.label2)
+                    Text("No Macs.").foregroundStyle(theme.colors.label2)
                 }
                 ForEach(macs) { mac in
                     NavigationLink(value: SettingsRoute.terminalSizingMac(mac.id)) {

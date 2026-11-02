@@ -2752,6 +2752,137 @@
         }
       }
     },
+    "item.answered": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمت الإجابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odgovoreno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Besvaret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beantwortet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answered"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Respondida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Répondu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Risposta data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回答済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានឆ្លើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답변함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Besvart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odpowiedziano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Respondida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отвечено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตอบแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıtlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відповіли"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã trả lời"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已回答"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已回答"
+          }
+        }
+      }
+    },
     "item.answeredInTerminal": {
       "extractionState": "manual",
       "localizations": {
@@ -4063,7 +4194,7 @@
       }
     },
     "reports.empty": {
-      "comment": "Labs reports basket: the empty list's title.",
+      "comment": "Reports basket: the empty list's title.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -4195,7 +4326,7 @@
       }
     },
     "reports.emptyBody": {
-      "comment": "Labs reports basket detail: shown instead of a report with no text.",
+      "comment": "Reports basket detail: shown instead of a report with no text.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -4327,7 +4458,7 @@
       }
     },
     "reports.emptyHint": {
-      "comment": "Labs reports basket: the empty list's hint. reports:<person> is the literal mailbox address syntax and stays as is; Chief is the product name of cmux's lead agent.",
+      "comment": "Reports basket: the empty list's hint. reports:<person> is the literal mailbox address syntax and stays as is; Chief is the product name of cmux's lead agent.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -4459,7 +4590,7 @@
       }
     },
     "reports.from": {
-      "comment": "Labs reports basket detail: the line under the sender. %1$@: the sending session; %2$@: when the report arrived (date and time).",
+      "comment": "Reports basket detail: the line under the sender. %1$@: the sending session; %2$@: when the report arrived (date and time).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -4590,140 +4721,8 @@
         }
       }
     },
-    "reports.labs": {
-      "comment": "Labs reports basket header: the uppercase badge saying the page is a Labs (experimental) feature.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "المختبر"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "LABORATORIJ"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "LABORATORIUM"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "LABOR"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "LABS"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "LABORATORIO"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "LABO"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "LABORATORIO"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ラボ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មន្ទីរពិសោធន៍"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "실험실"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "LABORATORIUM"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "LABORATORIUM"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "LABORATÓRIO"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ЛАБОРАТОРИЯ"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ห้องทดลอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "LABORATUVAR"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ЛАБОРАТОРІЯ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "THỬ NGHIỆM"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "实验室"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "實驗室"
-          }
-        }
-      }
-    },
     "reports.notSent": {
-      "comment": "Labs reports basket detail: shown under the reply field when acpmux did not take the reply (the session ended, the daemon refused or did not answer). The draft stays.",
+      "comment": "Reports basket detail: shown under the reply field when acpmux did not take the reply (the session ended, the daemon refused or did not answer). The draft stays.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -4855,7 +4854,7 @@
       }
     },
     "reports.reply": {
-      "comment": "Labs reports basket detail: the button that sends the reply (a verb).",
+      "comment": "Reports basket detail: the button that sends the reply (a verb).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -4987,7 +4986,7 @@
       }
     },
     "reports.replyPlaceholder": {
-      "comment": "Labs reports basket detail: the reply field's placeholder. The reply goes to the agent session that sent the report.",
+      "comment": "Reports basket detail: the reply field's placeholder. The reply goes to the agent session that sent the report.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -5119,7 +5118,7 @@
       }
     },
     "reports.select": {
-      "comment": "Labs reports basket: the detail pane's placeholder when no report is selected.",
+      "comment": "Reports basket: the detail pane's placeholder when no report is selected.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -5251,7 +5250,7 @@
       }
     },
     "reports.subtitle": {
-      "comment": "Labs reports basket header: the line under the title. Reports reach a person and never start an agent's model turn.",
+      "comment": "Reports basket header: the line under the title. Reports reach a person and never start an agent's model turn.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -5383,7 +5382,7 @@
       }
     },
     "reports.title": {
-      "comment": "Labs reports basket header: the page title.",
+      "comment": "Reports basket header: the page title.",
       "extractionState": "manual",
       "localizations": {
         "ar": {

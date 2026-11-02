@@ -1,0 +1,29 @@
+{
+ "title": "Chief agent messages, folded under the reply",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Home fixture conversation",
+   "rpc": {
+    "method": "debug.home_native_fixture.open",
+    "params": {}
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A Chief run messages five agents and gets one report",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "agent_messages"
+    }
+   },
+   "wait": 3
+  }
+ ]
+}

@@ -9,7 +9,7 @@ import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
 import { ScrollArea } from "./ScrollArea";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
-import type { NativePopupEvent } from "./generated/popupProtocol";
+import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction, popupActionByValue, popupSearchId } from "./popupDescriptors";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
