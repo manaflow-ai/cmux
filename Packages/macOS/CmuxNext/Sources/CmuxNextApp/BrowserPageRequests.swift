@@ -350,13 +350,30 @@ final class BrowserPageRequests: BrowserTabDelegate {
     private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel,
                       opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
-        if let controller = services.paneController(for: pane) {
-            if let url, reuseExistingTab(url, in: pane, engine: engine, profile: profile, background: background) {
-                // Chromium/WebKit may have created a child before this intent arrived. The
-                // matching tab is the one the pane already owns, so discard the duplicate page.
+        // Keep the same disabled-browser routing as PaneBrowserTabOpener before
+        // considering a same-pane match. A matching cmux tab must not swallow a
+        // web link when the cmux browser is disabled.
+        if !BrowserAvailability(enabled: services.cache.browserTabs.browserEnabled()).allows(url?.absoluteString) {
+            if let controller = services.paneController(for: pane) {
+                controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
+                                         opener: opener)
+            } else {
                 child?.close()
-                return
+                if let url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    LinkRouter.shared.open(url, in: .system)
+                } else {
+                    services.registry.refuse(MiscHandlerStrings.browserOff)
+                }
             }
+            return
+        }
+        if let url, reuseExistingTab(url, in: pane, engine: engine, profile: profile, background: background) {
+            // Chromium/WebKit may have created a child before this intent arrived. The
+            // matching tab is the one the pane already owns, so discard the duplicate page.
+            child?.close()
+            return
+        }
+        if let controller = services.paneController(for: pane) {
             controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
                                      opener: opener)
             return
