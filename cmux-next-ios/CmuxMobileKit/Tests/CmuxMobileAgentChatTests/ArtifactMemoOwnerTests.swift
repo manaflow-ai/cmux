@@ -111,6 +111,20 @@ import Testing
         func count() -> Int { reads }
     }
 
+    @Test @MainActor func uncachedTileReloadsAnEditedFileWithoutReloadingOnReorder() {
+        let source = Source(scope: nil, text: "inline preview")
+        let first = TerminalArtifact(reference: "/repo/README.md", kind: .markdown, detail: "Edited · +1 −0")
+        var edited = first
+        edited.detail = "Edited · +2 −0"
+        var reordered = edited
+        reordered.order = 4
+
+        let firstID = ArtifactTile(artifact: first, source: source).cacheTaskID
+        let editedID = ArtifactTile(artifact: edited, source: source).cacheTaskID
+        #expect(firstID != editedID)
+        #expect(editedID == ArtifactTile(artifact: reordered, source: source).cacheTaskID)
+    }
+
     @Test func actualThumbnailWrapperKeepsSamePathOnDifferentMacsSeparate() async {
         let memo = ArtifactMemo<ArtifactThumbnail>(costLimit: 8_192)
         let file = TerminalArtifact(reference: "/repo/README.md", kind: .markdown)

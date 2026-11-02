@@ -233,11 +233,10 @@ struct ArtifactTile: View {
     @State private var thumbnail: ArtifactThumbnail?
     @Environment(\.displayScale) private var displayScale
 
-    private var cacheTaskID: String {
-        guard let scope = source.thumbnailCacheScope, !scope.isEmpty else {
-            return "uncached:\(artifact.kind.rawValue):\(artifact.id)"
-        }
-        return ArtifactMemo<ArtifactThumbnail>.key(artifact, scope: scope) as String
+    var cacheTaskID: String {
+        // Uncached sources still need a new task after an edit. An empty
+        // owner keeps that discriminator without enabling shared caching.
+        ArtifactMemo<ArtifactThumbnail>.key(artifact, scope: source.thumbnailCacheScope ?? "") as String
     }
 
     init(artifact: TerminalArtifact, source: any ArtifactSource) {
