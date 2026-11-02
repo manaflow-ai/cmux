@@ -6,7 +6,12 @@
 // these records, draw exactly as before.
 import { expect, test } from "bun:test";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "../src/agent-session/acpmux/conversation/backgroundTurns";
-import { messageRevealTarget, turnFoldFor, turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
+import {
+  messageRevealTarget,
+  turnFoldFor,
+  turnView,
+  turnViewFrom,
+} from "../src/agent-session/acpmux/conversation/turns";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
@@ -323,8 +328,13 @@ test("Find and a link open the background line that hides a row", async () => {
 // after another person's prompt, its done line is inserted under that later turn by end time.
 // It must still fold under the *original* quiet background line (cmux#30535).
 test("a subagent done after the next user prompt stays folded with its owner background turn", () => {
-  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow =>
-    ({ id, at, kind, version: 1, ...fields });
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    at,
+    kind,
+    version: 1,
+    ...fields,
+  });
   const owner = "backgroundTurn-bg-cross";
   const rows: AcpmuxRow[] = [
     row("prompt-1", 1, "user", { text: "Watch CI" }),
@@ -335,10 +345,18 @@ test("a subagent done after the next user prompt stays folded with its owner bac
     }),
     row("group", 5, "subagents", {
       inBackground: "bg-cross",
-      subagents: [{
-        id: "child-cross", parent: null, name: "CI observer", kind: "general-purpose",
-        state: "completed", startedAt: 5, endedAt: 11, background: true,
-      }],
+      subagents: [
+        {
+          id: "child-cross",
+          parent: null,
+          name: "CI observer",
+          kind: "general-purpose",
+          state: "completed",
+          startedAt: 5,
+          endedAt: 11,
+          background: true,
+        },
+      ],
     }),
     row("prompt-2", 7, "user", { text: "Show me the status" }),
     row("answer-2", 8, "assistant", { text: "Still working." }),
@@ -364,8 +382,13 @@ test("a subagent done after the next user prompt stays folded with its owner bac
 });
 
 test("an earlier background owner update invalidates every later reused turn", () => {
-  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow =>
-    ({ id, at, kind, version: 1, ...fields });
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    at,
+    kind,
+    version: 1,
+    ...fields,
+  });
   const owner = "backgroundTurn-bg-reuse";
   const base: AcpmuxRow[] = [
     row("prompt-1", 1, "user", { text: "Watch CI" }),
