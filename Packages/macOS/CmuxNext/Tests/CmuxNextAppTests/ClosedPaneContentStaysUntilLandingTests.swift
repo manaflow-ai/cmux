@@ -118,10 +118,9 @@ import Testing
         let prepared = try #require(closing.prepareClose(closing.stripModel.orderedTabs.map(\.id)), "fixture: the close has a daemon tab")
         let screen = try #require(app.root.screenViews.values.first { !$0.isHidden })
         try #require(screen.hasMotion, "fixture: the close springs")
-        // The next frame's content presentation (the scheduler runs it on the display link): the pane withdraws the tab
-        // the strip no longer lists, so the cache has no presenter for it any more.
+        // The next frame's content presentation (the scheduler runs it on the display link). A closing pane presents
+        // nothing until its landing (it keeps its tab); the withdraw path is driven below.
         closing.showSelected()
-        try #require(app.cache.presenter(of: closedTab) == nil, "fixture: the closing pane withdrew its tab")
         // A close releases its tab more than once before it lands: the gone-tab watch on the tree that drops the pane and
         // again on each later tree revision, then the reply's finish. Every one of them waits for the landing (review of
         // #32197: the second release found no pane and ran in the motion).
