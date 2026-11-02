@@ -138,9 +138,7 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
   const heard = () => {
     for (const check of [...recorded]) check();
   };
-  const calls: string[] = [];
   function answer(method: string, params: Record<string, any> = {}): unknown {
-    calls.push(`${method} ${typeof params.cwd === "string" ? params.cwd : ""}`);
     const id = typeof params.sessionId === "string" && chats[params.sessionId] ? params.sessionId : WARM;
     switch (method) {
       case "initialize":
@@ -373,14 +371,6 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
       "use OAuth after all",
     ]);
     expect(await heldRow(page, "use OAuth after all").count()).toBe(0);
-    if ((await trustAsk(page).count()) !== 1) {
-      const dump = await page.evaluate(() => ({
-        text: document.body.innerText.slice(-3000),
-        trust: [...document.querySelectorAll("[class*=trust]")].map((el) => el.className).join(" | "),
-      }));
-      console.log("DEBUG-TRUST", JSON.stringify(dump));
-      console.log("DEBUG-CALLS", JSON.stringify(calls.slice(-40)));
-    }
     expect(await trustAsk(page).count()).toBe(1);
     await page.context().close();
   });
