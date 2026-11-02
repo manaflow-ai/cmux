@@ -207,11 +207,18 @@ DEBUG_MOUSE = {5: "move", 1: "down", 2: "up", 6: "drag", 3: "down", 4: "up"}
 CUA = {}
 
 
+def cua_env():
+    """The daemon's socket is under the login's own home (~/Library/Caches/cua-driver); a fleet step runs with a HOME of
+    its own, where the client finds no daemon."""
+    import pwd
+    return dict(os.environ, HOME=pwd.getpwuid(os.getuid()).pw_dir)
+
+
 def cua(tool, args=None, timeout=30):
     """One CuaDriver tool call through the host's daemon (it holds the grants); its JSON answer, or {"error": ...}."""
     try:
         done = subprocess.run([opts.cua_driver, "call", tool, json.dumps(args or {})], capture_output=True, text=True,
-                              timeout=timeout)
+                              timeout=timeout, env=cua_env())
     except (OSError, subprocess.TimeoutExpired) as error:
         return {"error": f"cua-driver {tool}: {error}"}
     try:
@@ -568,8 +575,13 @@ def rect_center(rect, dy=0.0):
 def element_point(element_id):
     """The global point at the middle of the page element ELEMENT_ID (its client rect over the page's rect)."""
     where = page(f"(()=>{{const r=document.getElementById('{element_id}').getBoundingClientRect();"
-                 "return [(r.left+r.width/2)/innerWidth,(r.top+r.height/2)/innerHeight]}})()")
-    return screen_point(*where) if isinstance(where, list) and len(where) == 2 else None
+                 "return JSON.stringify([(r.left+r.width/2)/innerWidth,(r.top+r.height/2)/innerHeight])}})()")
+    try:
+        fx, fy = json.loads(where) if isinstance(where, str) else where
+    except (TypeError, ValueError):
+        FACTS.setdefault("element_point_misses", []).append({element_id: repr(where)[:120]})
+        return None
+    return screen_point(fx, fy)
 
 
 def hosted_pages():
@@ -692,14 +704,15 @@ def check_devtools():
     detail = image_detail(image) if image else 0
     row("devtools.pixels", detail > 8, {"colours": detail, "devtools_frame": entry.get("devtools_frame"),
                                          "via": "cua" if opts.input == "cua" else "screencapture"})
-    if entry.get("page_frame"):
-        hid_click(rect_center(entry["page_frame"]))  # the page's window key first
-        time.sleep(0.3)  # test harness: key window settles
-    point = rect_center(entry["devtools_frame"])
-
     def devtools_key():
         found = devtools_entry()
         return found if found and any(c.get("devtools") and c.get("key") for c in found.get("child_windows") or []) else None
+    if entry.get("page_frame"):
+        hid_click(rect_center(entry["page_frame"]))  # the page's window key first
+        wait(lambda: not devtools_key(), 2)
+    # Opening DevTools can make its window key by itself: the click proves something only when it was not key before.
+    key_before = bool(devtools_key())
+    point = rect_center(entry["devtools_frame"])
     key = None
     for _ in (1, 2):  # the first click may only activate
         hid_click(point)
@@ -707,7 +720,9 @@ def check_devtools():
         if key:
             break
     final = key or devtools_entry() or {}
-    row("devtools.click", bool(key), {"at": [round(v) for v in point], "child_windows": (final.get("child_windows") or [])[:4]})
+    row("devtools.click", bool(key) and not key_before,
+        {"at": [round(v) for v in point], "key_before_click": key_before, "child_windows": (final.get("child_windows") or [])[:4],
+         "note": "DevTools was key before the click (the page click did not take the key)" if key_before else None})
     action("devtools.close")
 
 
@@ -767,7 +782,8 @@ def main():
         open(probe, "w").write(PAGE)
         open(os.path.join(SCRATCH, "popup.html"), "w").write(POPUP_PAGE)
         if opts.input == "cua":
-            status = subprocess.run([opts.cua_driver, "permissions", "status"], capture_output=True, text=True, timeout=30)
+            status = subprocess.run([opts.cua_driver, "permissions", "status"], capture_output=True, text=True, timeout=30,
+                                    env=cua_env())
             FACTS["cua"] = {"permissions": (status.stdout or status.stderr).strip()[:400], "screen": (cua_scale(), CUA.get("screen"))[1]}
         opened = action("openBrowser.chromium", {"url": pathlib.Path(probe).as_uri()}, timeout=120)
         if not wait(lambda: page("document.readyState === 'complete' && document.title === 'layer probe'"), 60, 0.5):
