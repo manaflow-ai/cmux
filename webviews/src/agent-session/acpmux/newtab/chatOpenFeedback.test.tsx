@@ -44,9 +44,15 @@ function Probe({ onOpen, onBring }: { onOpen: Open; onBring?: Bring }) {
   const { open, bring, opening, failure } = useChatOpenFeedback(onOpen, onBring);
   return (
     <div>
-      <button data-open="a" type="button" onClick={() => open("a")}>Open A</button>
-      <button data-open="b" type="button" onClick={() => open("b")}>Open B</button>
-      <button data-bring type="button" onClick={() => bring(["a", "b"])}>Bring</button>
+      <button data-open="a" type="button" onClick={() => open("a")}>
+        Open A
+      </button>
+      <button data-open="b" type="button" onClick={() => open("b")}>
+        Open B
+      </button>
+      <button data-bring type="button" onClick={() => bring(["a", "b"])}>
+        Bring
+      </button>
       <output data-opening={opening ?? ""} data-failed={failure?.key ?? ""}>
         {failure?.message ?? ""}
       </output>
@@ -65,12 +71,17 @@ test("a refused chat open names the failure, releases the pending click, and ret
     calls.push(key);
     if (first) {
       first = false;
-      return new Promise<void>((_resolve, reject) => { rejectFirst = reject; });
+      return new Promise<void>((_resolve, reject) => {
+        rejectFirst = reject;
+      });
     }
     return Promise.resolve();
   };
   await act(async () => root.render(<Probe onOpen={onOpen} />));
-  await act(async () => { button('[data-open="a"]').click(); button('[data-open="a"]').click(); });
+  await act(async () => {
+    button('[data-open="a"]').click();
+    button('[data-open="a"]').click();
+  });
   expect(calls).toEqual(["a"]);
   expect(result().dataset.opening).toBe("a");
   await act(async () => rejectFirst(new Error("This machine disconnected")));
@@ -87,7 +98,11 @@ test("a late failure from an older chat never replaces the newer click's state",
   const calls: string[] = [];
   const onOpen: Open = (key) => {
     calls.push(key);
-    return key === "a" ? new Promise<void>((_resolve, reject) => { rejectA = reject; }) : Promise.resolve();
+    return key === "a"
+      ? new Promise<void>((_resolve, reject) => {
+          rejectA = reject;
+        })
+      : Promise.resolve();
   };
   await act(async () => root.render(<Probe onOpen={onOpen} />));
   await act(async () => button('[data-open="a"]').click());

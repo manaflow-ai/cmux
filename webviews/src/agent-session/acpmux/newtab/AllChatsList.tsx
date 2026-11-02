@@ -378,10 +378,7 @@ function useSelection(rows: AllChatsRow[], query: string) {
  * One click creates one request; a late refusal cannot overwrite a newer row's status.
  * A bulk History open reports failure without offering an unsafe all-rows replay.
  */
-export function useChatOpenFeedback(
-  onOpen: (key: string) => unknown,
-  onBring?: (keys: string[]) => unknown,
-) {
+export function useChatOpenFeedback(onOpen: (key: string) => unknown, onBring?: (keys: string[]) => unknown) {
   const t = useT();
   const [opening, setOpening] = useState<string>();
   const [failure, setFailure] = useState<{ key?: string; message: string }>();
