@@ -546,6 +546,14 @@ def step_switch_keys(j, step):
     profile = getattr(j, "switch_profile", {}) or {}
     digits = profile.get("digits", {})
     before = max([int(r.get("sequence") or 0) for r in _recent(j)] or [0])
+    # The app's own switch timers (intent -> CA commit; stages; warm/cold): a cross-check of the video, never the verdict.
+    timers = {}
+    for method in ("debug.workspace_switch", "debug.tab_switch"):
+        try:
+            j.app.rpc(method, {"action": "start"})
+            timers[method] = True
+        except D.StepError:
+            timers[method] = False
     sent = []
     for entry in keys:
         mods, key, case = entry[0], entry[1], entry[2]
@@ -598,8 +606,16 @@ def step_switch_keys(j, step):
             ev["t_source"] = "sent"
             ev["t_source"] = "keydown" if age >= 0 else "action-start"
         events.append(ev)
+    app_timers = {}
+    for method, on in timers.items():
+        if on:
+            try:
+                app_timers[method] = j.app.rpc(method, {"action": "stop"})
+            except D.StepError as error:
+                app_timers[method] = {"error": str(error)[-200:]}
     (j.out / "video").mkdir(exist_ok=True)
-    (j.out / "video" / (name + "-keys.events.json")).write_text(json.dumps({"events": events, "runs": runs}, indent=1))
+    (j.out / "video" / (name + "-keys.events.json")).write_text(json.dumps({"events": events, "runs": runs,
+                                                                            "app_timers": app_timers}, indent=1))
     missing = [e["case"] for e in events if e.get("t_source") == "sent"]
     wrong = [e["case"] for e in events if e.get("expect") and e.get("shown") != e["expect"]]
     return {"keys": len(sent), "runs": len(runs), "missing_runs": missing, "wrong_target": wrong,
