@@ -107,10 +107,6 @@ extension CloudService {
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             },
-            watchPause: { attempt in
-                // wakeup-allow: same-key watch while the approval sheet is open; cancelled when the sheet closes
-                try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
-            },
             holds: approvalHolds
         )
     }
