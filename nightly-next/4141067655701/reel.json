@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4141067655701",
+  "notes": "notes/4141067655701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31926,
+      "title": "cmux-url-input: the daemon's normalize_url and a Rust port of the omnibox URL rule, in one crate",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31992,
+      "title": "acpmux: placement refuses a machine the registry marks retired",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31938,
+      "title": "fix(launch): deferred launch work never runs before the first window frame (REOPEN-F7)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31973,
+      "title": "fix(cloud): list the Native receiver's two CloudDO ops in the client error table (base red from #28947)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31980,
+      "title": "ci(runner pools): the linux spill samples the whole 90-minute window, not only the newest runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31817,
+      "title": "sidebar: Earlier's Show More is acpmux's hasMore (Rust migration A7, list 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31979,
+      "title": "base red: CloudApprovalsPrepareTests imports Foundation for UUID (#31904)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31939,
+      "title": "base red: the router owns 58 connection operations (chief.continue and chief.retry, #30774)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31624,
+      "title": "New Tab: the spare draws the tab's context before Cmd-T, so its first frame is final (SHORTCUT FRAMES F2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31965,
+      "title": "base red: SSH recovery shots draw each pass in a theme of its own brightness",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31957,
+      "title": "fix(cmux-tui): an unfinished Kitty upload is not held as a redraw in the output tail",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31844,
+      "title": "fix(next): a window's own Home is born in its window's space, so Cmd-1 and Home work in a new window (MW-1b)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
