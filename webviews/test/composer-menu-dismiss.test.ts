@@ -105,8 +105,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
     return page;
   };
   /** A real press and release at the centre of `selector`'s box: whatever is on top there takes it. */
-  const visibleChip = (page: Page, selector: string) =>
-    page.locator(selector).filter({ visible: true }).first();
+  const visibleChip = (page: Page, selector: string) => page.locator(selector).filter({ visible: true }).first();
   const pressAt = async (page: Page, selector: string) => {
     const chip = visibleChip(page, selector);
     await chip.waitFor({ state: "visible" });
@@ -197,8 +196,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
         // transition: the state is settled only when an ending popup no longer intercepts input.
         if (
           popups.some(
-            (popup) =>
-              popup.hasAttribute("data-ending-style") && getComputedStyle(popup).pointerEvents !== "none",
+            (popup) => popup.hasAttribute("data-ending-style") && getComputedStyle(popup).pointerEvents !== "none",
           )
         )
           return false;
