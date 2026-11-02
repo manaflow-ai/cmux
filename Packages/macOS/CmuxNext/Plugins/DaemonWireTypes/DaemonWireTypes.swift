@@ -19,11 +19,14 @@ struct DaemonWireTypes: BuildToolPlugin {
         guard FileManager.default.fileExists(atPath: generator.path) else {
             throw DaemonWireTypesError.missing("the generator \(generator.path)")
         }
+        // SwiftPM compiles only the files directly in this folder (generate.py --out writes no subfolders).
         let output = context.pluginWorkDirectoryURL.appending(path: "Generated")
+        let python = try Self.python()
+        Diagnostics.remark("DaemonWireTypes: \(python.path) \(generator.path) --out \(output.path)")
         return [
             .prebuildCommand(
                 displayName: "Generate the CmuxNextDaemon wire types from sdk-schema.json",
-                executable: try Self.python(),
+                executable: python,
                 // -I: ignore PYTHON* variables and the user's site packages; -B: write no __pycache__ beside the
                 // generator (the plugin may write only its work folder).
                 arguments: ["-I", "-B", generator.path, "--out", output.path],

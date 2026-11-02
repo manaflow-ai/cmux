@@ -11,7 +11,8 @@ every .swift file under a target's folder, so a second copy there would fail wit
 `--out` therefore refuses a folder inside `sources_root` (the target's folder) or anywhere under a package's
 `Sources`.
 
---out DIR  write every generated file under DIR and delete the files in DIR an earlier run wrote that are no
+--out DIR  write every generated file directly in DIR (no family folders: SwiftPM compiles only the files
+           directly in a prebuild command's output folder) and delete the files in DIR an earlier run wrote that are no
            longer generated (a file is ours when its first line is emit.HEADER_MARK).
 --check    render every family in a temporary folder (so a schema or bindings change that cannot generate
            fails here, not in the build), and refuse a generated type that a hand-written file under
@@ -111,7 +112,20 @@ def hand_written_declarations(root: Path) -> dict[str, str]:
     return found
 
 
+def flat(files: dict[str, str]) -> dict[str, str]:
+    """The files keyed by file name alone. SwiftPM compiles only the files directly in a prebuild command's
+    output folder, not those in a subfolder, so --out writes no family folders (type names are unique)."""
+    result: dict[str, str] = {}
+    for relative, content in files.items():
+        name = PurePosixPath(relative).name
+        if name in result:
+            raise BindingError(f"two generated files are named {name}")
+        result[name] = content
+    return result
+
+
 def write(files: dict[str, str], out: Path) -> None:
+    files = flat(files)
     owned = owned_files(out)
     for relative, content in files.items():
         target = out / relative
