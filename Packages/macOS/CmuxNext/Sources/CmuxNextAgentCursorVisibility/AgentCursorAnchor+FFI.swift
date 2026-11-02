@@ -1,7 +1,7 @@
 /// The anchor's name on the wire of cmux-focus-core's `agent_cursor_visibility`
 /// answer (and the debug socket): `tabChip`, `tabStrip`, `columnEdge.<side>`,
 /// `workspaceRow`, `windowEdge`.
-extension AgentCursorAnchor {
+nonisolated extension AgentCursorAnchor {
     public var wireName: String {
         switch self {
         case .tabChip: "tabChip"
