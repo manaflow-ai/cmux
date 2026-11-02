@@ -174,14 +174,6 @@
   background-color: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 30%, transparent) !important;
   color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent)))) !important;
 }
-.find-pill__button[data-press-active]:not(:disabled) {
-  background: color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
-  color: inherit;
-}
-.find-pill__button[aria-pressed="true"][data-press-active]:not(:disabled) {
-  background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 30%, transparent) !important;
-  color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent)))) !important;
-}
 
 /* The replace row (the code editor's Replace): the capsule grows into a rounded panel of two rows. */
 .find-pill--replace {

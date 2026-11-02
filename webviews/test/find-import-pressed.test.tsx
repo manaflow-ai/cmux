@@ -1,68 +1,13 @@
-// Real pointer and keyboard input: a held button must differ from hover without moving its box.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+// Real React component and browser input: a held button must differ from hover without moving its box.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser, type Locator } from "playwright";
-import { FindPill } from "../src/ui/FindPill";
-import { ImportCards } from "../src/ui/ImportCards";
+import { type ViteDevServer, createServer } from "vite";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("find-import-pressed.test.tsx", async () => {
-  const css = ["pages/shared/desktop.css", "ui/findPill.css", "ui/importCards.css"]
-    .map((file) => readFileSync(path.resolve(import.meta.dir, "../src", file), "utf8"))
-    .join("\n");
-  expect(css).toContain('.find-pill__button[aria-pressed="true"]:active');
-  expect(css).toContain("30%, transparent) !important");
-  const noop = () => undefined;
-  const fixture = (canStep = true) =>
-    renderToStaticMarkup(
-      <>
-        <FindPill
-          query="needle"
-          onQueryChange={noop}
-          status={canStep ? "1 of 3" : "No matches"}
-          noMatches={!canStep}
-          canStep={canStep}
-          onNext={noop}
-          onPrevious={noop}
-          onClose={noop}
-          matchCase
-          onMatchCaseChange={noop}
-          labels={{ placeholder: "Find", previous: "Previous", next: "Next", close: "Close", matchCase: "Match case" }}
-          icon={(role) => <span>{role}</span>}
-          replace={{
-            open: true,
-            value: "replacement",
-            onChange: noop,
-            onReplace: noop,
-            onReplaceAll: noop,
-            onToggle: noop,
-            labels: { field: "Replace", replace: "Replace", replaceAll: "All", toggle: "Toggle Replace" },
-          }}
-        />
-        <ImportCards
-          list={{
-            title: "Found on This Mac",
-            cards: [
-              {
-                id: "browser.fixture",
-                kind: "browser",
-                title: "Browser",
-                facts: "3 profiles",
-                benefit: "Bring your bookmarks into cmux.",
-                state: "ready",
-                dismissed: false,
-                primary: { action: "start", title: "Import" },
-                secondary: [{ action: "dismiss", title: "Not Now" }],
-              },
-            ],
-          }}
-          onAction={noop}
-        />
-      </>,
-    );
   const paint = (button: Locator) =>
     button.evaluate(async (element) => {
       await window.cmuxPaintFrame();
@@ -70,21 +15,31 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
       return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
     });
   let browser: Browser;
+  let vite: ViteDevServer;
   beforeAll(async () => {
+    setDefaultTimeout(120_000);
+    vite = await createServer({
+      root: path.resolve(import.meta.dir, ".."),
+      configFile: path.resolve(import.meta.dir, "../vite.config.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    await warmViteServer(vite, "/test/browser/find-import-pressed.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
     await browser?.close();
+    await vite?.close();
   });
 
   for (const theme of ["light", "dark"] as const) {
     describe(theme, () => {
       const setup = async (canStep = true) => {
         const page = await browser.newPage({ colorScheme: theme, reducedMotion: "reduce" });
-        await page.setContent(`<style>${css}
-          :root { --cmux-text: CanvasText; --cmux-accent: LinkText; --cmux-app-danger: MarkText; }
-          body { margin: 24px; color: CanvasText; background: Canvas; }
-        </style>${fixture(canStep)}`);
+        const port = (vite.httpServer!.address() as { port: number }).port;
+        await page.goto(`http://127.0.0.1:${port}/test/browser/find-import-pressed.html?canStep=${canStep}`);
+        await page.getByRole("button", { name: "Match case", exact: true }).waitFor();
         await installPaintedFrames(page);
         return page;
       };
@@ -106,32 +61,19 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             await button.hover();
             const hovered = await paint(button);
             const box = await button.boundingBox();
+            if (!box) throw new Error(`${name} has no box`);
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
             await page.mouse.down();
-            const held = await button.evaluate((element) => {
-              const selected = element.getAttribute("aria-pressed") === "true";
-              element.style.setProperty(
-                "background-color",
-                selected
-                  ? "color-mix(in srgb, var(--cmux-accent) 30%, transparent)"
-                  : "color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent)",
-                "important",
-              );
-              if (selected) element.style.setProperty("color", "var(--cmux-accent)", "important");
-              const style = getComputedStyle(element);
-              return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
-            });
+            const held = await paint(button);
             expect(held).not.toEqual(hovered);
             expect(await button.boundingBox()).toEqual(box);
+            if (await button.evaluate((element) => element.matches(".find-pill__button")))
+              expect(await button.getAttribute("data-press-active")).toBe("true");
             await page.mouse.up();
-            const restored = await button.evaluate((element) => {
-              element.style.removeProperty("background-color");
-              element.style.removeProperty("color");
-              const style = getComputedStyle(element);
-              return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
-            });
+            const restored = await paint(button);
             expect(await button.getAttribute("style")).toBe("");
-            expect(restored.color).toBe(hovered.color);
-            expect(restored.opacity).toBe(hovered.opacity);
+            expect(await button.getAttribute("data-press-active")).toBeNull();
+            expect(restored).toEqual(hovered);
           } finally {
             await page.close();
           }
