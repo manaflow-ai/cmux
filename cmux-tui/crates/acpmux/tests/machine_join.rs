@@ -13,6 +13,12 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// No agent runs here. A disposable-account run points `ACPMUX_TEST_BINARY` at a relocated
+// build the other UID can read (`machine_consent_home::binary`), so it survives the re-start.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&["ACPMUX_TEST_BINARY"]);
+
 #[path = "support/machine_consent_home.rs"]
 mod machine_consent_home;
 
@@ -23,9 +29,10 @@ const PENDING: &str = "machine-join.pending.json";
 const FINAL: &str = "machine-credential.json";
 
 fn cli(home: &Path) -> Command {
-    let mut command =
-        Command::new(machine_consent_home::binary(Path::new(env!("CARGO_BIN_EXE_acpmux"))));
+    let mut command = Command::new(machine_consent_home::binary(daemon_env::bin()));
     command
+        .env_clear()
+        .envs(daemon_env::vars(home, daemon_env::Agents::Deny, &[]))
         .env("ACPMUX_HOME", home)
         .env_remove("CMUX_JOIN")
         .env_remove("CMUX_PLATFORM_ORIGIN")

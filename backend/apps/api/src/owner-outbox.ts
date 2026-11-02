@@ -43,7 +43,9 @@ export const drainOutboxChannels = async <S>(
   /** The security mail sender (a fake in tests). */
   mail: typeof deliverSecurityMail = deliverSecurityMail,
   /** Only these channels (the commit-time wake path); no prune or replay then. */
-  only?: (channel: string) => boolean
+  only?: (channel: string) => boolean,
+  /** At most this many channels (the commit-time path: a change that touches thousands of objects is the alarm's). */
+  maxChannels = Infinity
 ): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
@@ -54,9 +56,11 @@ export const drainOutboxChannels = async <S>(
     // (A cross-channel order was never guaranteed: each channel backs off on its own.)
     const due = outbox.dueChannels(Date.now())
     const wake = isWakeChannel
+    let sent = 0
     for (const channel of [...due.filter(wake), ...due.filter((c) => c === ""), ...due.filter((c) => c !== "" && !wake(c))]) {
       // After a failure a target channel sends its head alone, so a poison item is found by itself.
       if (only && !only(channel)) continue
+      if (++sent > maxChannels) break
       const rows = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
       if (rows.length === 0) continue
       try {

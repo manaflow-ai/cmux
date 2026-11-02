@@ -5,7 +5,8 @@
 //! handshakes, and serves link channels: `echo`, `daemon` (the cmux-tui
 //! session socket through an allowlist), `chief` (the Chief's conversation
 //! owner, scoped to the owner's agent conversations), `acpmux`, `file` and
-//! `browser` (a streamed Mac browser tab, `browser.rs`). Beside a WireGuard
+//! `browser` (a streamed Mac browser tab, `browser.rs`) and `localhost` (a
+//! phone's native browser tab reaching a port on this Mac's loopback). Beside a WireGuard
 //! link the phone may open a WebRTC media session for browser video
 //! (`media_session.rs`).
 
@@ -16,9 +17,11 @@ pub mod browser_policy;
 pub mod browser_track;
 pub mod chief_answers;
 pub mod chief_policy;
+pub(crate) mod cloud_acp;
 pub mod config;
 pub mod control;
 pub mod host;
+pub mod localhost;
 pub mod mailbox;
 pub mod mailbox_apply;
 pub mod media_session;
@@ -38,3 +41,6 @@ pub mod sealed_notify;
 pub mod services;
 pub mod size_release;
 pub mod surface;
+
+mod workspace_cache;
+mod side_completion;

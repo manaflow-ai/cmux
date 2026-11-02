@@ -183,10 +183,12 @@
   opacity: 0;
 }
 .acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-tools,
+.acpmux-needs-you-item[data-stage] .acpmux-needs-you-tools,
 .acpmux-needs-you-item:has(.acpmux-needs-you-ask-about[aria-expanded="true"]) .acpmux-needs-you-tools {
   opacity: 1;
 }
 .acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-age,
+.acpmux-needs-you-item[data-stage] .acpmux-needs-you-age,
 .acpmux-needs-you-item:has(.acpmux-needs-you-ask-about[aria-expanded="true"]) .acpmux-needs-you-age {
   opacity: 0;
 }
@@ -200,6 +202,7 @@
   }
 }
 .acpmux-needs-you-go,
+.acpmux-needs-you-expand,
 .acpmux-needs-you-ask-about {
   flex: none;
   display: inline-grid;
@@ -214,6 +217,9 @@
 }
 .acpmux-needs-you-go:hover,
 .acpmux-needs-you-go:active,
+.acpmux-needs-you-expand:hover,
+.acpmux-needs-you-expand:active,
+.acpmux-needs-you-expand[aria-expanded="true"],
 .acpmux-needs-you-ask-about:hover,
 .acpmux-needs-you-ask-about:active,
 .acpmux-needs-you-ask-about[aria-expanded="true"] {
@@ -221,6 +227,9 @@
   color: var(--agent-text);
 }
 .acpmux-needs-you-go:focus-visible,
+.acpmux-needs-you-expand:focus-visible,
+.acpmux-needs-you-ask-toggle:focus-visible,
+.acpmux-needs-you-more-button:focus-visible,
 .acpmux-needs-you-ask-about:focus-visible,
 .acpmux-needs-you-answer:focus-visible,
 .acpmux-needs-you-side-send:focus-visible {
@@ -239,6 +248,28 @@
 }
 .acpmux-needs-you-panel[data-mode="compact"] .acpmux-needs-you-ask {
   -webkit-line-clamp: 1;
+}
+/* The ask is the row's expand control too: plain text, no fill of its own (a highlight covers only
+   its control, and this control is the text). */
+.acpmux-needs-you-ask-toggle {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  letter-spacing: inherit;
+}
+/* Expanded: the whole ask and its details, wrapped, never clamped. */
+.acpmux-needs-you-item[data-stage] .acpmux-needs-you-ask {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+.acpmux-needs-you-item[data-stage] .acpmux-needs-you-detail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .acpmux-needs-you-detail {
   margin: 2px 0 0 22px;
@@ -425,4 +456,126 @@
   width: 6px;
   height: 6px;
   box-shadow: none;
+}
+
+/* The expanded row's next steps: its context, and the ways to open another chat (on the right,
+   the default; the workspace that shows it; a new workspace). Text buttons (24 px) in one wrapping line. */
+.acpmux-needs-you-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 0 22px;
+}
+.acpmux-needs-you-more-button {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-needs-you-more-button:hover,
+.acpmux-needs-you-more-button:active,
+.acpmux-needs-you-more-button[aria-expanded="true"] {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+}
+.acpmux-needs-you-more-button[data-place="right"] {
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-pill-edge, color-mix(in srgb, var(--agent-text) 24%, transparent));
+}
+
+/* The context stage: the last turns before the ask, read-only, each on three lines at most. */
+.acpmux-needs-you-context {
+  margin: 6px 0 0 22px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-needs-you-context-turns {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-needs-you-context-turn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-needs-you-context-who {
+  color: var(--agent-muted);
+  font-weight: 500;
+}
+.acpmux-needs-you-context-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--agent-text);
+}
+.acpmux-needs-you-context-note {
+  margin: 0;
+  color: var(--agent-muted);
+}
+.acpmux-needs-you-context-turns + .acpmux-needs-you-context-note {
+  margin-top: 6px;
+}
+
+/* An expanded question: each item's prompt, every option, an Other field, then Submit. */
+.acpmux-needs-you-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0 0 22px;
+}
+.acpmux-needs-you-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-self: stretch;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.acpmux-needs-you-form-prompt {
+  margin-bottom: 2px;
+  padding: 0;
+  color: var(--agent-text);
+  font-weight: 500;
+}
+.acpmux-needs-you-form-option {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: baseline;
+  min-height: 24px;
+}
+.acpmux-needs-you-form-option > input {
+  margin: 0;
+  accent-color: var(--agent-accent, var(--agent-text));
+}
+.acpmux-needs-you-form-detail {
+  grid-column: 2;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-needs-you-form-other {
+  margin-top: 2px;
+}
+.acpmux-needs-you-form .acpmux-needs-you-error {
+  margin: 0;
 }

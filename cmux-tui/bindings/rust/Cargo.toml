@@ -29,7 +29,6 @@ socket-path-hash = ["dep:sha2"]
 local-socket = []
 
 [dependencies]
-cmux-json.workspace = true
 base64 = { workspace = true }
 getrandom = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

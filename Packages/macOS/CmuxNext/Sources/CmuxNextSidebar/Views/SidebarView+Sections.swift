@@ -44,6 +44,8 @@ extension SidebarViewComponents {
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
         SidebarPinDrops.install(self)
+        // A Shift range runs from the tiles pinned above the list into its rows (#27701).
+        list.leadingSelectionOrder = { [weak self] in self?.aboveRegion.content?.workspaceOrder ?? [] }
         // The footer row's items (the profile control) do not drag; its space
         // dots reorder by their own drag, dropped on the footer band
         // (`ProfileBarView+DotDrag`). The band below keeps the rule it had while it held the footer.
@@ -60,10 +62,12 @@ extension SidebarViewComponents {
 
     /// A region's item activation and section folding (the bands and the list's blocks).
     private func wireItems(_ region: SidebarRegionView) {
-        region.onCloseWorkspace = { [weak self] workspace in self?.model.send(.close([workspace])) }
         region.onActivateWithModifiers = { [weak self, weak region] id, flags in
             // The profile control opens its menu over itself.
             if let view = region?.itemView(id), view.showsAvatar, self?.footerBand.showProfileMenu(from: view) == true { return }
+            // A pinned workspace's tile selects as its row does: Shift the drawn range, Cmd toggles (#27701).
+            if let workspace = region?.itemView(id)?.info.workspace,
+               self?.list.modifierSelect(workspace, flags: flags.intersection(.deviceIndependentFlagsMask)) == true { return }
             self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
         }
         region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
@@ -149,10 +153,12 @@ extension SidebarViewComponents {
 
     /// Draws the one selection on the top item it names, in every band and list block: the old and new
     /// item repaint, nothing lays out (a workspace switch to a workspace with a tile, I6).
+    /// The multi-selection draws on the pinned workspaces' tiles the same way (#27701).
     func showActiveTopItem() {
         let active: LayoutItemID? = if case let .topItem(id)? = model.selectedItem { id } else { nil }
-        for region in [aboveRegion, belowRegion, footerRegion] { region.activeItem = active }
+        for region in [aboveRegion, belowRegion, footerRegion] { (region.activeItem, region.selectedWorkspaces) = (active, model.selection) }
         list.activeTopItem = active
+        list.selectedWorkspaces = model.selection
     }
 
     /// App sections no band shows any more release their content; one that

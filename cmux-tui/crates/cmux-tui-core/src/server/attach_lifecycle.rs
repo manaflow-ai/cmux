@@ -30,7 +30,31 @@ pub(super) fn spawn_attach_notification_stream(
     lifecycle: AttachLifecycle,
     outbound_stream: OutboundStream,
 ) -> std::io::Result<()> {
+    spawn_attach_notification_stream_gated(
+        mux,
+        surface_id,
+        writer,
+        lifecycle,
+        outbound_stream,
+        None,
+    )
+}
+
+/// ``spawn_attach_notification_stream`` for a snapshot viewer: while `gate` says the viewer is hidden
+/// (`set-attach-visibility`), its `scroll-changed` events are held (the newest replaces the older) and the newest
+/// goes out when it is shown again; notifications are never held (SWITCH FRAMES SF-5).
+pub(super) fn spawn_attach_notification_stream_gated(
+    mux: Arc<Mux>,
+    surface_id: SurfaceId,
+    writer: MessageWriter,
+    lifecycle: AttachLifecycle,
+    outbound_stream: OutboundStream,
+    gate: Option<crate::surface::snapshot_attach::SnapshotRequestGate>,
+) -> std::io::Result<()> {
     let events = mux.subscribe_attached_surface(surface_id);
+    if let Some(gate) = &gate {
+        gate.on_visibility_change(events.waker());
+    }
     std::thread::Builder::new()
         .name("mux-attach-notifications".into())
         .spawn(move || {
@@ -39,7 +63,17 @@ pub(super) fn spawn_attach_notification_stream(
             outbound_stream.register_interrupt(&interrupt);
             lifecycle.register_interrupt(&interrupt);
             events.wake_on(&interrupt);
+            // The newest scroll position held while the viewer is hidden.
+            let mut held_scroll: Option<Value> = None;
             while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
+                let hidden = gate.as_ref().is_some_and(|gate| gate.is_hidden());
+                if !hidden
+                    && let Some(value) = held_scroll.take()
+                    && let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream)
+                {
+                    handle_attach_send_error(&lifecycle, &error);
+                    break;
+                }
                 let event = match events.recv_until_interrupted(&interrupt) {
                     Ok(event) => event,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
@@ -61,12 +95,18 @@ pub(super) fn spawn_attach_notification_stream(
                     MuxEvent::ScrollChanged { surface, offset, at_bottom }
                         if surface == surface_id =>
                     {
-                        json!({
+                        let value = json!({
                             "event": "scroll-changed",
                             "surface": surface,
                             "offset": offset,
                             "at_bottom": at_bottom,
-                        })
+                        });
+                        if gate.as_ref().is_some_and(|gate| gate.is_hidden()) {
+                            held_scroll = Some(value);
+                            continue;
+                        }
+                        held_scroll = None;
+                        value
                     }
                     _ => continue,
                 };

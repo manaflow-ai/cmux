@@ -9,7 +9,12 @@
 //! caller token, so the daemon, not a request field, says which session acts (`hub/person.rs` (a)).
 //!
 //! Limits, decided here and nowhere else:
-//! - Width: a session has at most `maxChildren` open children (not closed).
+//! - Width: a session has at most `maxChildren` live children. A child counts while its harness
+//!   is alive (`ready`, `running` or `waiting`); idle-finished, disconnected and closed children
+//!   do not use a slot. One with a prompt on its way to a turn (queued, or starting its
+//!   harness) counts as live (`waking_children`), so a start never takes the slot a wake needs.
+//!   The limit is checked when a child starts: a prompt to a child it has still wakes it even
+//!   past the limit, as a reopen always did, and the child frees its slot when it hibernates.
 //!   Depth: a session is started at depth `parent.depth + 1` only when that
 //!   is at most the parent's `maxDepth`.
 //! - Running: at most `maxRunning` children run a turn at once; a start or a
@@ -72,13 +77,16 @@
 //! without running anything from that repository: its files are checked out without the
 //! repository's config. A start that fails after it is made removes it again.
 //!
-//! The index of open children per parent is a leaf lock: nothing else is
+//! The index of live children per parent (`subsession_index.rs`) is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
 
 use super::*;
 use crate::store::{SubsessionLimits, SubsessionLink};
 use cmux_json::JsonSet as _;
-use std::collections::BTreeSet;
+
+#[path = "subsession_index.rs"]
+mod index;
+pub use index::Index;
 
 /// The settings keys (schemas/settings/source/subsessions.json).
 pub const SETTING_ENABLED: &str = "agents.subsessions.enabled";
@@ -86,7 +94,7 @@ pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
 pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
 pub const SETTING_MAX_RUNNING: &str = "agents.subsessions.maxRunning";
 /// `maxRunning`'s default and ceiling until the catalog has its row.
-const MAX_RUNNING_FALLBACK: NumberSetting = NumberSetting { default: 16, max: 1000 };
+const MAX_RUNNING_FALLBACK: NumberSetting = NumberSetting { default: 1000, max: 1000 };
 pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
 /// The settings catalog source of those keys: their defaults and ranges have
 /// one definition, shared with the app's Settings.
@@ -174,116 +182,6 @@ fn setting(key: &str, max: u32) -> Option<u32> {
     };
     let n = crate::user_settings::value(&doc, key)?.as_f64().filter(|n| n.is_finite())?;
     Some(n.floor().clamp(1.0, f64::from(max)) as u32)
-}
-
-/// The open children of each parent, and the slots reserved by starts in flight.
-#[derive(Default)]
-pub struct Index {
-    state: StdMutex<IndexState>,
-}
-
-#[derive(Default)]
-struct IndexState {
-    open: HashMap<String, BTreeSet<String>>,
-    reserved: HashMap<String, u32>,
-    /// Every short name a child of each parent has or had, open or closed;
-    /// a failed start keeps its name, so a name is never given twice.
-    names: HashMap<String, BTreeSet<String>>,
-}
-
-impl Index {
-    fn lock(&self) -> std::sync::MutexGuard<'_, IndexState> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    /// Notes `child` of `parent` as open or closed.
-    pub(super) fn set_open(&self, parent: &str, child: &str, open: bool) {
-        let mut s = self.lock();
-        if open {
-            s.open.entry(parent.to_owned()).or_default().insert(child.to_owned());
-        } else if let Some(set) = s.open.get_mut(parent) {
-            set.remove(child);
-            if set.is_empty() {
-                s.open.remove(parent);
-            }
-        }
-    }
-
-    /// Notes a loaded child's short name as taken.
-    pub(super) fn note_name(&self, parent: &str, short: &str) {
-        self.lock().names.entry(parent.to_owned()).or_default().insert(short.to_owned());
-    }
-
-    /// Takes the first free short name of `parent` from `base`, `base-2`, ...
-    pub(super) fn claim_name(&self, parent: &str, base: &str) -> String {
-        let mut s = self.lock();
-        let taken = s.names.entry(parent.to_owned()).or_default();
-        let short = (1..)
-            .map(|n| if n == 1 { base.to_owned() } else { format!("{base}-{n}") })
-            .find(|n| !taken.contains(n))
-            .unwrap_or_else(|| base.to_owned());
-        taken.insert(short.clone());
-        short
-    }
-
-    /// The open children of `parent`.
-    pub(super) fn open_children(&self, parent: &str) -> Vec<String> {
-        self.lock().open.get(parent).map(|s| s.iter().cloned().collect()).unwrap_or_default()
-    }
-
-    /// How many children of `parent` are open.
-    pub fn open_count(&self, parent: &str) -> u32 {
-        self.lock().open.get(parent).map_or(0, |s| s.len() as u32)
-    }
-
-    /// Reserves one child slot of `parent` under `max`, or returns how many
-    /// are open or reserved.
-    fn reserve<'a>(&'a self, parent: &'a str, max: u32) -> Result<Reservation<'a>, u32> {
-        let mut s = self.lock();
-        let used = s.open.get(parent).map_or(0, |set| set.len() as u32)
-            + s.reserved.get(parent).copied().unwrap_or(0);
-        if used >= max {
-            return Err(used);
-        }
-        *s.reserved.entry(parent.to_owned()).or_default() += 1;
-        Ok(Reservation { index: self, parent })
-    }
-
-    fn release(&self, parent: &str) {
-        let mut s = self.lock();
-        if let Some(n) = s.reserved.get_mut(parent) {
-            *n = n.saturating_sub(1);
-            if *n == 0 {
-                s.reserved.remove(parent);
-            }
-        }
-    }
-}
-
-/// One width slot held by a start in flight; dropped (an error, a panic, a
-/// cancelled request) it frees the slot.
-struct Reservation<'a> {
-    index: &'a Index,
-    parent: &'a str,
-}
-
-impl Reservation<'_> {
-    /// The start made `child`: it holds the slot from now on, unless it was
-    /// closed meanwhile. Under the child's meta lock, like every other
-    /// change of its entry ([`Hub::set_status`]), so the index follows the
-    /// order of the status writes.
-    fn settle(self, child: &Session) {
-        let m = child.meta.lock().unwrap_or_else(|e| e.into_inner());
-        if m.status != SessionStatus::Closed {
-            self.index.set_open(self.parent, &child.id, true);
-        }
-    }
-}
-
-impl Drop for Reservation<'_> {
-    fn drop(&mut self) {
-        self.index.release(self.parent);
-    }
 }
 
 /// Where a limit value came from.
@@ -506,8 +404,34 @@ impl Hub {
         })
     }
 
-    /// Notes a sub-session's status change in its parent's index, and tells
-    /// the parent's watchers when it opened or closed.
+    /// `parent`'s open children with a prompt on its way to a turn: queued (for the turn lock or
+    /// a run slot), or holding the turn lock while their harness starts. The index counts the
+    /// ones among them that are not live (`Index::reserve`), so a wake never lets a start take
+    /// its slot. Read over every open child, live ones too: one that hibernates between this
+    /// read and the reservation still counts. A prompt that comes after this read wakes its child
+    /// as one after the reservation would: past the limit, as a reopen does. Prompts a failed
+    /// turn holds (`pause_queue`) or that wait for the owner (`queue_approve.rs`) wake nothing
+    /// until released or approved, so they do not count.
+    pub(super) fn waking_children(&self, parent: &str) -> Vec<String> {
+        let open = self.subsessions.open_children(parent);
+        let children: Vec<Arc<Session>> = {
+            let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            open.iter().filter_map(|id| sessions.get(id).cloned()).collect()
+        };
+        let waking = |c: &Session| {
+            let held = c.queue().iter().filter(|q| q.aside()).count() as u64;
+            c.queued() > held || c.turn_lock.try_lock().is_err()
+        };
+        children.iter().filter(|c| waking(c)).map(|c| c.id.clone()).collect()
+    }
+
+    /// How many of `parent`'s children use a width slot now: live or waking.
+    pub(super) fn width_used(&self, parent: &str) -> u32 {
+        self.subsessions.used(parent, &self.waking_children(parent))
+    }
+
+    /// Tells the parent's watchers when a sub-session closed or reopened. Its width slot follows
+    /// every status write (`note_status`); hibernating or waking is not a close or a reopen.
     pub(super) fn subsession_status(
         &self,
         id: &str,
@@ -517,8 +441,8 @@ impl Hub {
     ) {
         let event = match (was == SessionStatus::Closed, now == SessionStatus::Closed) {
             (false, true) => "closed",
-            // Reopened (a prompt to a closed child, by the user or a client):
-            // it holds a slot again, past the limit if the parent is full.
+            // Reopened (a prompt to a closed child, by the user or a client): once its harness
+            // is up it holds a slot again, past the limit if the parent is full.
             (true, false) => "reopened",
             _ => return,
         };
@@ -599,17 +523,18 @@ impl Hub {
                 json!({"depth": depth - 1, "maxDepth": limits.max_depth, "source": limits.max_depth_source.as_str()}),
             ));
         }
-        let slot = match self.subsessions.reserve(&parent.id, limits.max_children) {
+        let waking = self.waking_children(&parent.id);
+        let slot = match self.subsessions.reserve(&parent.id, limits.max_children, &waking) {
             Ok(slot) => slot,
-            Err(used) => {
+            Err(live) => {
                 return Err(refused(
                     "subsessions.width_limit",
                     format!(
-                        "start_session refused: width limit reached. This session has {used} open sub-sessions and may have at most {} open at once (source: {}). Close finished ones with stop_session (close: true) to free a slot, or ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
+                        "start_session refused: width limit reached. This session has {live} live sub-sessions (running, waiting for input, with a harness process alive, or with a message on its way to a turn); finished, dead, idle-finished and closed sub-sessions do not count. It may have at most {} live at once (source: {}). Ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
                         limits.max_children,
                         limits.max_children_source.as_str()
                     ),
-                    json!({"open": used, "maxChildren": limits.max_children, "source": limits.max_children_source.as_str()}),
+                    json!({"open": live, "live": live, "maxChildren": limits.max_children, "source": limits.max_children_source.as_str(), "counted": "running, waiting, harness-alive, or a message on its way"}),
                 ));
             }
         };
@@ -850,7 +775,8 @@ impl Hub {
         // session whose last turn was one: a family prompt never runs, or
         // lets the receiver run, below the floor (`remote_floor.rs`).
         let web = Self::web_turn(from) || Self::web_turn(to);
-        let stop = self.interrupt_once_queued(to, interrupt);
+        // A family message waits behind a review box's review, never stops it (`inbox.rs`).
+        let stop = self.interrupt_once_queued(to, interrupt && !super::inbox::review_box(to));
         let on_accepted: Option<Box<dyn FnOnce(Value) + Send>> = Some(Box::new(move |v| {
             stop(&v);
             if let Some(accepted) = accepted {
@@ -891,10 +817,10 @@ impl Hub {
     /// One family row for the tools: the session's place, state and last reply.
     pub fn subsession_row(&self, s: &Session, with_reply: bool) -> Value {
         let mut summary = self.session_summary(s);
-        // Masked before their cut (`TurnInfo::masked_preview`, `doing`), for `turn` and `doing`.
+        // Masked before its cut (`TurnInfo::masked_preview`), for `turn` and `doing`; the turn's
+        // activity and plan step are masked in every summary (`activity.rs`).
         if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
             summary.set_path(&["turn", "prompt"], json!(t.masked_preview));
-            t.doing.mask_into(&mut summary["turn"]);
         }
         if summary["waitingPrompt"].is_string() {
             summary.set("waitingPrompt", json!(super::subsession_send::masked_waiting_prompt(s)));
@@ -977,6 +903,7 @@ impl Hub {
                 "depth": self.lineage_depth(&m),
                 "startedBy": m.subsession.as_ref().map(|l| &l.started_by),
                 "openChildren": self.subsessions.open_count(&caller.id),
+                "liveChildren": self.width_used(&caller.id),
                 "maxChildren": e.max_children,
                 "maxDepth": e.max_depth,
                 "maxRunning": e.max_running,

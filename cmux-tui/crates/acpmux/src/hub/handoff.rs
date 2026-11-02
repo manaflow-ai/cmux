@@ -149,6 +149,9 @@ struct Record {
     /// target is a Web turn, held to the remote floor.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     web: bool,
+    /// A Cloud mobile start keeps the target under the strict phone floor.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    cloud_mobile: bool,
 }
 
 /// Draft writes remembered per handoff for `draftKey` replays.

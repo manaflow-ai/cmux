@@ -95,10 +95,11 @@ final class SidebarItemListRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         // The workspace row's geometry: the icon in the leading slot, else the title at the leading inset.
-        let leading = SidebarStyle.horizontalInset
-        let side: CGFloat = hasIcon ? SidebarStyle.iconBox : 0
+        let columns = SidebarStyle.columns(rowWidth: b.width)
+        let leading = columns.lead
+        let side: CGFloat = hasIcon ? SidebarStyle.iconColumnBox : 0
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
-        let textX = SidebarStyle.titleTextX(leading: leading, iconSide: side) - WorkspaceRowView.labelInset
+        let textX = columns.text(hasLeadingMark: hasIcon) - WorkspaceRowView.labelInset
         // The badge and the status trail it, as on the item's band row.
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
         let badgeHeight = badge.state == .dot ? badgeWidth : SidebarStyle.badgeHeight
@@ -109,6 +110,6 @@ final class SidebarItemListRowView: SidebarRowView {
         activity.frame = activity.showsGlyph ? NSRect(x: activityX, y: (b.height - indicator) / 2, width: indicator, height: indicator) : .zero
         let height = ceil(title.intrinsicContentSize.height)
         let textEnd = activity.showsGlyph || !badge.isHidden ? activityX - Metrics.space2 : b.width - SidebarStyle.horizontalInset
-        title.frame = NSRect(x: textX, y: (b.height - height) / 2, width: max(0, textEnd - textX), height: height)
+        title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY), width: max(0, textEnd - textX), height: height)
     }
 }

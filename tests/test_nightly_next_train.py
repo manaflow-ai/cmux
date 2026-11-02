@@ -555,7 +555,7 @@ class OwnedRefusal(unittest.TestCase):
         self.assertEqual(jobs["build"]["needs"], "pick-train-runner")
         self.assertIn("needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || "
-                      "vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}", runs_on)
+                      "vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}", runs_on)
 
 
 class Wiring(unittest.TestCase):
@@ -584,7 +584,8 @@ class Wiring(unittest.TestCase):
 
     def test_the_canary_writes_each_verdict_through_release_next(self) -> None:
         canary = self.read("nightly-next-canary.yml")
-        self.assertIn("gh workflow run nightly-next-verdict.yml -R \"$GITHUB_REPOSITORY\" --ref nightly-next", canary)
+        self.assertIn("request=(workflow run nightly-next-verdict.yml -R \"$GITHUB_REPOSITORY\" --ref nightly-next", canary)
+        self.assertIn('gh "${request[@]}"', canary)
         self.assertIn("name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}", canary)
         verdict = self.read("nightly-next-verdict.yml")
         self.assertIn("environment: release-next", verdict)

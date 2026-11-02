@@ -258,6 +258,7 @@ def run_select(**env: str) -> dict[str, str]:
 
 OWN = dict(
     OWN_RESULT="success",
+    OWN_TREE="ok",
     OWN_PENDING="",
     OWN_VERIFIED="success",
     OWN_DMG_VERIFIED="success",
@@ -309,7 +310,20 @@ class WorkflowTests(unittest.TestCase):
     def test_publish_takes_every_build_detail_from_the_selected_source(self):
         job = workflow()["jobs"]["publish-nightly"]
         self.assertIn("recover-nightly-next-notarization", job["needs"])
-        self.assertEqual(job["steps"][0]["name"], "Select the build to publish")
+        # Publication source selection and checkout precede the exact claim gate;
+        # no release token is minted until the gate and helper both pass.
+        gate = step(job, "Hold the whole Mac before any credential")
+        gate_index = job["steps"].index(gate)
+        self.assertGreater(gate_index, job["steps"].index(step(job, "Checkout publish ref")))
+        self.assertGreater(gate_index, job["steps"].index(step(job, "Checkout publication tooling at the workflow commit")))
+        helper_index = job["steps"].index(step(job, "Claim the whole Mac for signing"))
+        self.assertGreater(helper_index, gate_index)
+        credential_indices = [index for index, item in enumerate(job["steps"])
+                              if "secrets." in json.dumps(item)]
+        self.assertTrue(credential_indices, "publication must have a credentialed step to guard")
+        self.assertLess(gate_index, min(credential_indices))
+        self.assertLess(helper_index, min(credential_indices))
+        self.assertEqual(step(job, "Select the build to publish")["id"], "source")
         text = yaml.safe_dump(job)
         for stale in (
             "needs.resolve-nightly-cmux-tui-client.outputs.build_sha",
@@ -336,11 +350,30 @@ class WorkflowTests(unittest.TestCase):
 
     def test_publish_runs_for_an_accepted_own_or_recovered_build(self):
         condition = workflow()["jobs"]["publish-nightly"]["if"]
-        self.assertTrue(condition.startswith("!cancelled() && needs.decide.result == 'success' && "), condition)
+        self.assertTrue(condition.startswith("always() && !cancelled() && needs.decide.result == 'success' && "), condition)
         self.assertIn(
-            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
+            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success' && (needs.verify-final-dmg-nightly.outputs.smoked_in_job == 'true' || !(needs.signer-dmg.result == 'success' && vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off' && needs.decide.outputs.track == 'nightly-next') && needs.verify-final-dmg-nightly.outputs.image == '' || needs.launch-smoke-nightly.result == 'success' && needs.verify-final-dmg-nightly.outputs.image != '' && needs.launch-smoke-nightly.outputs.image == needs.verify-final-dmg-nightly.outputs.image)) || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
         )
+        needs = workflow()["jobs"]["publish-nightly"]["needs"]
+        self.assertNotIn("visual-gate-nightly", needs)
+        self.assertNotIn("visual-gate-nightly-verdict", needs)
+        # NIGHTLY_NEXT_TREE_AT_INSTALL: a build that started before its tree published (or a
+        # resumed one) is this run's source only after await-nightly-tree-marker passed
+        # (main's G5, moved into the run): the selection step reads it as OWN_TREE.
+        job = workflow()["jobs"]["publish-nightly"]
+        self.assertIn("await-nightly-tree-marker", job["needs"])
+        own_tree = step(job, "Select the build to publish")["env"]["OWN_TREE"]
+        self.assertIn("needs.await-nightly-tree-marker.result == 'success'", own_tree)
+        self.assertIn("inputs.nightly_next_unsigned_run == ''", own_tree)
+        build_outputs = workflow()["jobs"]["build-nightly-app"]["outputs"]
+        self.assertIn("steps.resume.outputs.cmux_tui_commit", build_outputs["cmux_tui_commit"])
+
+    def test_an_unmarked_own_build_is_never_the_source(self):
+        with self.assertRaises(AssertionError):
+            run_select(**dict(OWN, OWN_TREE="unmarked"))
+        both = dict(OWN, **RECOVERED, OWN_TREE="unmarked")
+        self.assertEqual(run_select(**both)["source"], "recovered")
 
     def test_select_prefers_this_run_s_accepted_build(self):
         self.assertEqual(run_select(**OWN)["source"], "own")
@@ -429,7 +462,7 @@ class FailureIssueTests(unittest.TestCase):
     OUTPUTS = {"decide": {"should_publish": "true", "track": "nightly-next"}, "publish-nightly": {"tag_status": "updated"}}
 
     def publication(self, source, **results):
-        jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "resolve-nightly-cmux-tui-client",
+        jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "build-nightly-remote-daemon", "resolve-nightly-cmux-tui-client",
                 "prepare-nightly-variant", "build-sign-notarize-nightly", "verify-signed-nightly", "verify-final-dmg-nightly",
                 "verify-recovered-nightly-next", "publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas",
                 "sign-release-notes", "publish-release-notes")
@@ -496,7 +529,7 @@ class FailureIssueTests(unittest.TestCase):
 
 
 def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), classic_builds: tuple = (),
-                *, source: str = "recovered", track: str = "nightly-next"):
+                *, source: str = "recovered", track: str = "nightly-next", attempt: int = 1):
     """Apply the workflow gate, then run its real recheck against local feeds.
 
     A local publication marker stands in for the later mutable feed writes;
@@ -522,6 +555,7 @@ def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), class
             NIGHTLY_NEXT_FEED_BASE=str(work / "next"),
             NIGHTLY_NEXT_LEGACY_FEED_BASE=str(work / "legacy"),
             GITHUB_OUTPUT=str(output),
+            GITHUB_RUN_ATTEMPT=str(attempt),
             PUBLISH_TOOLING=str(ROOT / "scripts"),
         )
         result = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
@@ -560,6 +594,18 @@ class RecheckTests(unittest.TestCase):
 
     def test_an_own_build_already_published_by_another_run_writes_nothing(self):
         result = run_recheck(49801, (49801,), source="own")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.output.get("already_published"), "true")
+        self.assertIsNone(result.published_build)
+
+    def test_retry_of_a_newer_superseded_build_still_writes_nothing(self):
+        result = run_recheck(49801, (49901,), source="own", attempt=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.output.get("superseded"), "true")
+        self.assertIsNone(result.published_build)
+
+    def test_classic_recovered_retry_keeps_its_already_published_no_op(self):
+        result = run_recheck(49801, (49801,), track="nightly", attempt=2)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.output.get("already_published"), "true")
         self.assertIsNone(result.published_build)
@@ -603,7 +649,7 @@ class RecheckTests(unittest.TestCase):
     def test_a_superseded_build_is_refused_for_every_later_job_without_a_failure_reason(self):
         job = workflow()["jobs"]["publish-nightly"]
         self.assertEqual(job["outputs"]["refused"],
-                         "${{ steps.gate.outputs.refused == 'true' || steps.recheck.outputs.superseded == 'true' }}")
+                         "${{ steps.gate.outputs.refused == 'true' || steps.recheck.outputs.superseded == 'true' || steps.upload_next_appcasts.outputs.publication_refused == 'true' }}")
         self.assertEqual(job["outputs"]["refusal_reason"], "${{ steps.gate.outputs.refusal_reason }}")
         report = workflow()["jobs"]["report-nightly-failure"]["if"]
         self.assertIn("needs.publish-nightly.outputs.refusal_reason != ''", report)
@@ -614,6 +660,8 @@ class RecheckTests(unittest.TestCase):
         recheck = names.index("Recheck the recovered build against both feeds")
         self.assertEqual(steps[recheck].get("id"), "recheck")
         for later in steps[recheck + 1:]:
+            if later.get("name") == "Release the nightly-next publish lease":
+                continue  # releases the lease taken before the recheck, whatever the recheck found
             self.assertIn("steps.recheck.outputs.already_published != 'true'", later.get("if", ""), later.get("name"))
 
     def test_an_already_published_build_republishes_no_deltas(self):
@@ -634,9 +682,16 @@ class RecheckTests(unittest.TestCase):
                 self.assertTrue(job_runs(name, outcome, outputs))
 
     def test_the_recheck_holds_the_release_tag_publication_lock(self):
-        lock = workflow()["jobs"]["publish-nightly"]["concurrency"]
-        self.assertEqual(lock["group"], "release-publish-${{ needs.decide.outputs.release_tag }}")
+        # Classic and RC: the release tag's shared group. nightly-next: a group of its own run, and
+        # the R2 lease taken before the recheck (a shared group cancelled a waiting publish).
+        job = workflow()["jobs"]["publish-nightly"]
+        lock = job["concurrency"]
+        self.assertEqual(lock["group"], "release-publish-${{ needs.decide.outputs.release_tag }}"
+                         "${{ needs.decide.outputs.track == 'nightly-next' && format('-run-{0}', github.run_id) || '' }}")
         self.assertFalse(lock["cancel-in-progress"])
+        names = [s.get("name") for s in job["steps"]]
+        self.assertLess(names.index("Take the nightly-next publish lease"),
+                        names.index("Recheck the recovered build against both feeds"))
 
 
 def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
@@ -661,6 +716,7 @@ def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
                 "DMG_NAME=next.dmg IMMUTABLE_NAME=next-49801.dmg\n"
             ),
             ci / "nightly_version.py": "exit 0\n",
+            ci / "nightly_next_canary_mode.py": "exit 0\n",
             ci / "nightly-next-recovery-lineage.sh": "echo ok\n",
             ci / "notarize-nightly-dmg.sh": (
                 'case "$FIXTURE_NOTARY" in\n'
@@ -761,7 +817,13 @@ def run_gate(variables: dict, *, token: str = "app-token", track: str = "nightly
             GITHUB_STEP_SUMMARY=str(work / "summary"),
             RUNNER_TEMP=str(work),
             PUBLISH_TOOLING=str(ROOT / "scripts"),
+            # This run's webview checks passed on the build commit, and the known-bad list is empty
+            # (tests/test_nightly_publish_guard.py drives both checks).
+            WEBVIEW_CHECK="success",
+            WEBVIEW_CHECK_SHA="a" * 40,
+            NIGHTLY_KNOWN_BAD_LIST_FILE=str(work / "known-bad.json"),
         )
+        (work / "known-bad.json").write_text('{"pairs": []}')
         result = subprocess.run(["bash", "-c", gate["run"]], cwd=ROOT, env=env, capture_output=True, text=True)
         result.output = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)  # type: ignore[attr-defined]
         return result

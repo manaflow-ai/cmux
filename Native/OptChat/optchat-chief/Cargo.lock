@@ -162,7 +162,6 @@ name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
  "base64",
- "cmux-json",
  "getrandom 0.3.4",
  "libc",
  "serde",

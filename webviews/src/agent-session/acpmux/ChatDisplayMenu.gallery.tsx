@@ -8,6 +8,7 @@
 //   C: inline steppers inside the menu itself: quick for size, but the menu grows by five rows and
 //     a menu closes on the first click elsewhere.
 import { componentEntry } from "../../gallery/format";
+import type { PlayContext } from "../../gallery/play";
 import { ChatDisplayRows } from "./ChatDisplaySettings";
 
 type Layout = "popover" | "submenu" | "inline";
@@ -51,6 +52,10 @@ const highlighted = {
   display: "flex",
   justifyContent: "space-between",
 } as const;
+
+const typeCustomFont = async (ctx: PlayContext) => {
+  await ctx.type("JetBrains Mono", { selector: '.acpmux-display-row input[type="text"]' });
+};
 
 function Layouts({ layout }: { layout: Layout }) {
   if (layout === "popover")
@@ -175,6 +180,11 @@ export default componentEntry<{ layout: Layout }>({
     "c-inline-steppers": {
       props: { layout: "inline" },
       note: "Steppers inside the menu: quick, but the menu grows and closes on the first click elsewhere",
+    },
+    "d-custom-font-typed": {
+      props: { layout: "popover" },
+      note: "A multi-word custom code font remains intact while it is typed in the Text & Width popover",
+      play: typeCustomFont,
     },
   },
 });
