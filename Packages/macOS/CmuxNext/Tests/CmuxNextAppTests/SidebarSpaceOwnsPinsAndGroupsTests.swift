@@ -277,6 +277,19 @@ import Testing
                 && (sent.first?["patch"] as? [String: Any])?["profile"] as? String == Self.home, "\(remote.applied)")
     }
 
+    /// The review of #27308 at 904e2435: a window on a home daemon without spaces (`profiles-v1`) has no space to
+    /// filter by, though its state names the default one, so it draws every pin and group whatever space they store.
+    /// With spaces, it filters by its own.
+    @Test func aWindowWithoutSpacesDrawsEverything() {
+        let store = DaemonStore()
+        let document = SidebarDocument(stores: { [store] }, machine: { _ in store })
+        #expect(document.room(Self.home) == nil)
+        #expect(Self.goneSpaceProjection().layout.scopedToWindow(ownedElsewhere: { _ in false }, room: document.room(Self.home))
+            .section(SidebarLayoutDocument.pinnedSectionID)?.items.map(\.id.rawValue) == ["itm_lg", "itm_lw"])
+        store.noteHandshake(DaemonIdentity(capabilities: [DaemonCapability.profiles.rawValue], generation: DaemonGeneration(rawValue: "spaces")))
+        #expect(document.room(Self.work) == Self.work)
+    }
+
     /// The wire: a group's space is its body's `profile`, another item's is `extra.room`.
     @Test func theSpaceIsReadFromTheWire() throws {
         let group = Data(#"{"id":"itm_g","section":"sec_custom","body":{"type":"group","name":"G","profile":"prof_work"}}"#.utf8)
