@@ -159,6 +159,7 @@ function run(): Promise<LongTaskQueueReport> {
         streamTickMs.push(performance.now() - streamStarted);
         window.setTimeout(() => runStreamSample(stream + 1), 0);
       };
+      window.clearInterval(timer);
       observer?.disconnect();
       runStreamSample(0);
     }, TICK_MS);
