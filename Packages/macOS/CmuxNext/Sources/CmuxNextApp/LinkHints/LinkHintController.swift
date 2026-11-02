@@ -18,9 +18,11 @@ final class LinkHintController {
         let isFocused: () -> Bool
         let openInSplit: (URL) -> Void
         let notice: (String) -> Void
+        var held = LinkHintHeldKeys<NSEvent>(startedAt: ProcessInfo.processInfo.systemUptime) // a text field's keys when one has the keyboard
     }
 
     private var session: Session?
+    private var replays = LinkHintReplays<NSEvent>()
     /// The pending page call (collect, draw, narrow); a newer one replaces it.
     private var work: Task<Void, Never>?
 
@@ -32,9 +34,9 @@ final class LinkHintController {
         session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
                           openInSplit: openInSplit, notice: notice)
         work = Task { [weak self] in
-            let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated, gesture: .cmux)
+            let value = try? await tab.evaluate(LinkHintSession.sessionCollectScript, world: .isolated, gesture: .cmux)
             guard !Task.isCancelled else { return }
-            self?.collected(value.map(LinkHintSession.targets(from:)) ?? [], from: tab)
+            self?.collected(value.map(LinkHintSession.targets(from:)) ?? [], editing: value.map(LinkHintSession.editing(from:)) ?? false, from: tab)
         }
     }
 
@@ -43,16 +45,14 @@ final class LinkHintController {
     /// being a hint key goes on, and so does every key once the page no
     /// longer has the keyboard (a terminal, a field, another window).
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        if replays.isReplay(event) { return false } // sent back to the page: it goes on, never held again
         guard var current = session, let tab = current.tab, let home = current.window,
               window === home || window?.parent === home, current.isFocused() else {
             cancel()
             return false
         }
         let flags = event.modifierFlags.intersection([.command, .control, .option])
-        if event.keyCode == 53 {
-            cancel()
-            return true
-        }
+        if event.keyCode == 53 { cancel(); return true } // Escape ends the session
         let outcome: LinkHintSession.Outcome
         if flags.isEmpty, event.keyCode == 51 {
             outcome = current.keys.type(nil)
@@ -63,6 +63,7 @@ final class LinkHintController {
             cancel()
             return false
         }
+        if current.keys.hints == nil { current.held.hold(event, typedAt: event.timestamp) }
         session = current
         apply(outcome, on: tab)
         return true
@@ -71,19 +72,17 @@ final class LinkHintController {
     func cancel() {
         work?.cancel()
         work = nil
-        guard let tab = session?.tab else {
-            session = nil
-            return
-        }
+        guard let tab = session?.tab else { return session = nil }
         session = nil
         // task-owner: fire-and-forget overlay removal; nothing waits on it.
         Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
     }
 
-    private func collected(_ targets: [LinkHintTarget], from tab: CEFTab) {
+    private func collected(_ targets: [LinkHintTarget], editing: Bool, from tab: CEFTab) {
         guard var current = session, current.tab === tab else { return }
-        let outcome = current.keys.show(targets)
+        let outcome = current.keys.show(targets, editing: editing)
         session = current
+        if outcome == .passThrough { session = nil; let keys = current.held.release(after: outcome); replays.mark(keys); return keys.forEach { NSApp.sendEvent($0) } }
         if outcome == .cancel {
             current.notice(LinkHintStrings.noLinks)
             session = nil
@@ -100,7 +99,7 @@ final class LinkHintController {
     private func apply(_ outcome: LinkHintSession.Outcome, on tab: CEFTab) {
         guard let current = session else { return }
         switch outcome {
-        case .cancel:
+        case .cancel, .passThrough:
             cancel()
         case .narrow(let prefix):
             guard current.keys.hints != nil else { return }

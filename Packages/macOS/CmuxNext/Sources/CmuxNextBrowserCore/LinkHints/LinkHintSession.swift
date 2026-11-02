@@ -35,7 +35,8 @@ public nonisolated struct LinkHintTarget: Hashable, Sendable, Decodable {
 /// The keys of one link-hint session (`f`, or `F` to open in a new split):
 /// letters narrow the labels until one is typed in full; a letter no label
 /// continues with is ignored; Backspace undoes a letter. Keys typed before
-/// the labels arrive are kept and checked when they do.
+/// the labels arrive are kept and checked when they do; when a text field of
+/// the page has the keyboard instead, they are its keys (``LinkHintHeldKeys``).
 public nonisolated struct LinkHintSession: Equatable, Sendable {
     public enum Mode: Equatable, Sendable {
         /// Click the element in the page.
@@ -51,6 +52,9 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
         case pick(LinkHintTarget)
         /// Nothing to label: the session ends.
         case cancel
+        /// A text field of the page has the keyboard: the session ends, and the letters typed meanwhile are the
+        /// field's, in order.
+        case passThrough
     }
 
     public let mode: Mode
@@ -64,7 +68,9 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
 
     /// The labels for `targets` (links only in `.newSplit`); `.cancel` when
     /// there is nothing to label, else what the keys typed so far mean.
-    public mutating func show(_ targets: [LinkHintTarget]) -> Outcome {
+    /// `editing`: a text field of the page has the keyboard (the page's own answer).
+    public mutating func show(_ targets: [LinkHintTarget], editing: Bool = false) -> Outcome {
+        guard !editing else { return .passThrough }
         let usable = mode == .newSplit ? targets.filter { $0.href != nil } : targets
         let labels = LinkHintSession.labels(count: usable.count)
         hints = Array(zip(labels, usable)).map { (label: $0.0, target: $0.1) }
@@ -97,5 +103,45 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.mode == rhs.mode && lhs.typed == rhs.typed
             && lhs.hints?.map(\.label) == rhs.hints?.map(\.label) && lhs.hints?.map(\.target) == rhs.hints?.map(\.target)
+    }
+}
+
+/// The keys a link-hint session took before the page answered (``LinkHintSession/show(_:editing:)``), in order. Once
+/// it answered they are the text field's when one has the keyboard (``LinkHintSession/Outcome/passThrough``): each
+/// goes to the page once, in the order typed; otherwise they were hint keys and none goes to the page.
+public nonisolated struct LinkHintHeldKeys<Key> {
+    public private(set) var keys: [Key] = []
+    /// When the session started (the event clock, seconds since boot).
+    private let startedAt: TimeInterval
+
+    public init(startedAt: TimeInterval) { self.startedAt = startedAt }
+
+    /// `key`, typed at `typedAt` (its event's timestamp). A key typed before the session started already went to the page
+    /// (this is its second pass through the key route): it is taken, never sent back.
+    public mutating func hold(_ key: Key, typedAt: TimeInterval) { if typedAt >= startedAt { keys.append(key) } }
+
+    /// The held keys the page gets now, after `outcome`: all of them, once, for ``LinkHintSession/Outcome/passThrough``.
+    public mutating func release(after outcome: LinkHintSession.Outcome) -> [Key] {
+        defer { keys = [] }
+        return outcome == .passThrough ? keys : []
+    }
+}
+
+/// The keys link hints sent back to the page (``LinkHintHeldKeys``): each goes on to the page untouched once, never
+/// held or taken by a session again (a key sent again and taken again looped without end, v5 of #32537).
+public nonisolated struct LinkHintReplays<Key: AnyObject> {
+    /// Held, so a key's identity is never another key's (a freed event's address reused).
+    private var pending: [Key] = []
+
+    public init() {}
+
+    /// `keys` are being sent back now; a send-back is synchronous, so an earlier batch has had its turn.
+    public mutating func mark(_ keys: [Key]) { pending = keys }
+
+    /// Whether `key` is one sent back to the page; true once.
+    public mutating func isReplay(_ key: Key) -> Bool {
+        guard let index = pending.firstIndex(where: { $0 === key }) else { return false }
+        pending.remove(at: index)
+        return true
     }
 }
