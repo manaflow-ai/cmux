@@ -75,6 +75,7 @@ struct PaneResizeGestureTests {
 
     @Test func aDragTellsTheFollowerOnceAtTheStartAndOnceWhenItsReleaseLanded() throws {
         let harness = Harness()
+        defer { harness.window.close() }
         let handle = try harness.handle
         let start = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, start))
@@ -97,6 +98,7 @@ struct PaneResizeGestureTests {
 
     @Test func reduceMotionDuringTheLandingStillEndsTheDrag() throws {
         let harness = Harness()
+        defer { harness.window.close() }
         let handle = try harness.handle
         let start = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, start))
@@ -116,6 +118,7 @@ struct PaneResizeGestureTests {
 
     @Test func aWorkspaceHiddenMidDragEndsItAndTheNextDragStartsAgain() throws {
         let harness = Harness()
+        defer { harness.window.close() }
         let handle = try harness.handle
         let start = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, start))
@@ -138,6 +141,7 @@ struct PaneResizeGestureTests {
 
     @Test func aClickOnTheDividerTellsNothing() throws {
         let harness = Harness()
+        defer { harness.window.close() }
         let handle = try harness.handle
         let point = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, point))
