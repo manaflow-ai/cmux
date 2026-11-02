@@ -58,6 +58,47 @@ def load(base):
     return trace, events, meta, result
 
 
+def load_tiers(base):
+    """ext_tiers' diag-tiers.json (the app main thread's cumulative CPU ms per core tier, CLOCK_UPTIME_RAW), if the
+    round ran tiers_start/tiers_stop (HARNESS CORES, cp/harness-cores-kit; lead 2026-11-02 23:0xZ: judge before/after
+    within the same start tier)."""
+    for d in (Path(os.path.dirname(base)), Path(os.path.dirname(base)).parent):
+        f = d / "diag-tiers.json"
+        if f.is_file():
+            return json.loads(f.read_text())
+    return None
+
+
+def tier_split(tiers, a_ns, b_ns):
+    rows = tiers["rows"]
+    n = len(tiers["levels"])
+    def at(t):
+        best = rows[0]
+        for r in rows:
+            if r[0] > t:
+                break
+            best = r
+        return best
+    ra, rb = at(a_ns), at(b_ns)
+    return [round(rb[1 + i] - ra[1 + i], 2) for i in range(n)]
+
+
+def add_tiers(item, tiers, t0_s, t_key, t_first):
+    """start_tier: the tier with the most main-thread CPU in the first 4 ms after the key (from 2 ms before its journal
+    stamp); key_turn_cpu_ms: CPU per tier from the key to the first moving tick."""
+    if not tiers or len(tiers.get("rows") or []) < 2:
+        return
+    ns = lambda ms: int((ms + t0_s * 1000.0) * 1e6)
+    a = ns(t_key - JOURNAL_MARGIN_MS)
+    if not (tiers["rows"][0][0] <= a and tiers["rows"][-1][0] >= ns(t_key + 4)):
+        return
+    names = [str(x)[:1] for x in tiers["levels"]]
+    first4 = tier_split(tiers, a, ns(t_key + 4))
+    item["start_tier"] = names[max(range(len(first4)), key=lambda i: first4[i])] if sum(first4) > 0.05 else "idle"
+    if t_first is not None:
+        item["key_turn_cpu_ms"] = dict(zip(names, tier_split(tiers, a, ns(t_first))))
+
+
 def key_downs(events, t0_s):
     out = []
     for e in events.get("journal") or []:
@@ -175,6 +216,7 @@ def judge(base):
     scale = float((meta.get("start") or {}).get("scale") or 2)
     px = 1.0 / scale
     keys = key_downs(events, float(trace["t0_s"]))
+    tiers = load_tiers(base)
     report = {"case": os.path.basename(base), "build": os.path.basename(os.path.dirname(base)), "refresh_ms": refresh,
               "scale": scale, "presses": len(keys), "items": [], "faults": []}
     times = [s["t"] for s in samples]
@@ -237,6 +279,7 @@ def judge(base):
             after = [p for t, p in series if t > t_last]
             item["tail_ms"] = round(landed_at - t_last, 1) if landed_at else None
             item["travel_after_last_key_pt"] = round(abs(p1 - after[0]) if after else 0, 2)
+        add_tiers(item, tiers, float(trace["t0_s"]), t_key, first[0] if first else None)
         faults = []
         if item["motion_frames"] <= 1:
             faults.append("snap (no animation)")
@@ -276,14 +319,14 @@ def judge(base):
 
 
 def markdown(reports):
-    lines = ["| case | build | press | keys | target | step px | first move (refr.) | film first move (refr.) | frames | landed ms | verdict |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    lines = ["| case | build | press | keys | target | step px | first move (refr.) | film first move (refr.) | frames | landed ms | start tier | verdict |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for r in reports:
         for n, i in enumerate(r["items"]):
             lines.append(f"| {r['case']} | {r['build']} | {n} | {i.get('keys')} | {i.get('target') or '-'} | {i.get('step_px', 0)} | "
-                         f"{i.get('first_move_refreshes')} | {i.get('film_first_move_refreshes')} | {i.get('motion_frames')} | {i.get('landed_ms')} | {i.get('verdict')} |")
+                         f"{i.get('first_move_refreshes')} | {i.get('film_first_move_refreshes')} | {i.get('motion_frames')} | {i.get('landed_ms')} | {i.get('start_tier', '-')} | {i.get('verdict')} |")
         for f in r["faults"]:
-            lines.append(f"| {r['case']} | {r['build']} | all | | | | | | | {f['check']}: {json.dumps({k: v for k, v in f.items() if k != 'check'})[:200]} |")
+            lines.append(f"| {r['case']} | {r['build']} | all | | | | | | | | {f['check']}: {json.dumps({k: v for k, v in f.items() if k != 'check'})[:200]} |")
     return "\n".join(lines)
 
 

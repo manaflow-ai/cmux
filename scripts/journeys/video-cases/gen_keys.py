@@ -79,9 +79,10 @@ def case(cid, title, build, play, notes, seconds, budget=125, jid=None, after="p
     steps += [panes_note(notes, "before"),
               {"do": "rpc", "method": "debug.frames", "params": {"action": "start", "raw": True}, "title": "probe: per-frame main thread on"},
               G.kit_record_start(jid, seconds, require_hz=120),
+              {"do": "tiers_start", "name": "tiers", "seconds": seconds + 1.0, "title": "probe: the main thread's core tier per ms (ext_tiers, no profiler)"},
               {"do": "wait", "seconds": 0.6, "title": "lead: the recorder's start stall passes before the first key"}]
     steps += play[lead:]
-    steps += [G.kit_record_stop(jid, 1.0),
+    steps += [G.kit_record_stop(jid, 1.0), {"do": "tiers_stop", "name": "tiers"},
               {"do": "rpc", "method": "debug.frames", "params": {"action": "stop", "raw": True}, "title": "probe: per-frame main thread (raw)"},
               panes_note(notes, "after")]
     steps += after_check(after)

@@ -187,6 +187,12 @@
    "require_hz": 120
   },
   {
+   "do": "tiers_start",
+   "name": "tiers",
+   "seconds": 15.0,
+   "title": "probe: the main thread's core tier per ms (ext_tiers, no profiler)"
+  },
+  {
    "do": "wait",
    "seconds": 0.6,
    "title": "lead: the recorder's start stall passes before the first key"
@@ -332,6 +338,10 @@
    "name": "resize-keyboard",
    "tail": 1.0,
    "title": "the motion ends; stop the recording (resize-keyboard)"
+  },
+  {
+   "do": "tiers_stop",
+   "name": "tiers"
   },
   {
    "do": "rpc",
