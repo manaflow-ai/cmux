@@ -535,6 +535,25 @@ fn question_permissions() {
     }
 }
 
+/// The keys a question's `answers` may use (tests/cases/question_keys.json):
+/// the normalized question's item ids and prompts, else Claude Code's own
+/// AskUserQuestion's `toolCall.rawInput.questions[].question`
+/// (AgentPaneUserGestures.swift `questionKeys`, #28129); None for a request
+/// that is no question.
+#[test]
+fn question_answer_keys() {
+    for c in cases("question_keys.json").as_array().unwrap() {
+        let options = PermissionOptions::new();
+        let pending = serde_json::json!({"method": "_acpmux/permission_pending",
+            "params": {"permissionId": "p", "request": c["request"]}});
+        options.observe(pending.as_object().unwrap(), None);
+        let want: Option<BTreeSet<String>> = c["keys"]
+            .as_array()
+            .map(|a| a.iter().map(|k| k.as_str().unwrap().to_owned()).collect());
+        assert_eq!(options.question_keys("p"), want, "{}", name(c));
+    }
+}
+
 /// A prompt block's upload reference (tests/cases/prompt_uploads.json, the
 /// Swift `AgentPanePromptUploadMetaTests` cases): a top-level `image` or
 /// `resource_link` block keeps exactly `_meta.acpmux.upload {uploadId,

@@ -1,4 +1,4 @@
-//! Part of `host_pressure.rs`: the daemon's [`Meter`]. It samples only when a
+//! The host's [`Meter`] (the daemon's and the app's). It samples only when a
 //! request asks, at most once per `sample_seconds`, on a blocking thread and one
 //! sample at a time, and keeps the last verdict and the swap baseline. No timer.
 
@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 pub const SAMPLE_WAIT: Duration = Duration::from_millis(250);
 
 /// The oldest verdict a turn's acceptance repeats ([`Meter::peek`]).
+#[cfg(feature = "tokio")]
 const RECENT: Duration = Duration::from_secs(60);
 
 /// A swap baseline older than this gives no rate; the next sample starts a new one.
@@ -48,8 +49,10 @@ impl Drop for Sampling<'_> {
 
 /// A [`Meter::sampling`] claim taken before a blocking job is queued, so a queued
 /// job also counts as in flight; it clears the flag even if the job never runs.
+#[cfg(feature = "tokio")]
 struct Claim(Arc<Meter>);
 
+#[cfg(feature = "tokio")]
 impl Drop for Claim {
     fn drop(&mut self) {
         self.0.sampling.store(false, Ordering::SeqCst);
@@ -95,6 +98,7 @@ impl Meter {
             .then(|| v.clone())
     }
 
+    #[cfg(feature = "tokio")]
     /// The verdict for a daemon request (never blocks a runtime worker): a fresh
     /// one, or one sampled on a blocking thread within [`SAMPLE_WAIT`], or else
     /// the last one (`None` before the first sample ends).
@@ -111,6 +115,7 @@ impl Meter {
         }
     }
 
+    #[cfg(feature = "tokio")]
     /// Claims [`Meter::sampling`] and then queues one sample on a blocking thread;
     /// `None` while another is queued or running, so a stalled probe never piles
     /// up blocking jobs.
@@ -122,6 +127,7 @@ impl Meter {
         Some(tokio::task::spawn_blocking(move || claim.0.take_sample(Instant::now())))
     }
 
+    #[cfg(feature = "tokio")]
     /// For a turn's acceptance, which must not wait: the last verdict while it is
     /// at most a minute old. When it is not fresh, a sample starts on a blocking
     /// thread for the next request (none while one is in flight).
@@ -189,5 +195,5 @@ impl Meter {
 }
 
 #[cfg(test)]
-#[path = "host_pressure_meter_tests.rs"]
+#[path = "meter_tests.rs"]
 mod tests;
