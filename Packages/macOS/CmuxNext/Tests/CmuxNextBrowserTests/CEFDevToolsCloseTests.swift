@@ -1,5 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -166,6 +168,72 @@ import Testing
         #expect(!tab.devTools.isOpen)
     }
 
+    // MARK: Follow-ups of #32246 (lead 12:3xZ)
+
+    /// Chromium began DevTools (WILL_OPEN reserved the room) and never reported it opened (no OPENED: the creation
+    /// failed). The page kept its docked frame with an empty DevTools area for good: the room is given back after a
+    /// bounded wait, and the layout is the one before the open.
+    @Test func aDevToolsThatNeverOpensGivesTheRoomBack() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let clock = ManualClock()
+        tab.devToolsController.openTimer = DemandTimer(owner: "test", clock: clock)
+        tab.performDevTools(.dock(.right))
+        rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))
+        #expect(tab.devToolsController.reservesRoom, "WILL_OPEN reserves the room")
+        try await clock.waitForSleeper()
+        clock.advance(by: CEFDevToolsController.openedLimit)
+        await rig.until { !tab.devToolsController.reservesRoom }
+        #expect(!tab.devToolsController.reservesRoom, "no OPENED: the page gets its whole frame back")
+        #expect(tab.devToolsController.frames(in: tab.container.bounds).page == tab.container.bounds)
+        let host = try #require(tab.devToolsController.views?.host, "the host view Chromium was given stays alive")
+        #expect(host.isHiddenOrHasHiddenAncestor, "and hidden")
+        #expect(!tab.devTools.isOpen)
+        // A late OPENED still opens, over the same host view, shown.
+        rig.runtime.handle(.devToolsOpened(browser: Rig.browser, devTools: Rig.devTools, docked: true))
+        #expect(tab.devTools.isOpen)
+        #expect(tab.devToolsController.views?.host === host)
+        #expect(!host.isHiddenOrHasHiddenAncestor)
+        #expect(tab.devToolsController.reservesRoom)
+    }
+
+    /// The bounded wait never cuts a DevTools that did open: OPENED cancels it.
+    @Test func anOpenedDevToolsKeepsItsRoomPastTheWait() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let clock = ManualClock()
+        tab.devToolsController.openTimer = DemandTimer(owner: "test", clock: clock)
+        tab.performDevTools(.dock(.bottom))
+        rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))
+        rig.runtime.handle(.devToolsOpened(browser: Rig.browser, devTools: Rig.devTools, docked: true))
+        clock.advance(by: CEFDevToolsController.openedLimit * 2)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(tab.devTools.isOpen)
+        #expect(tab.devToolsController.reservesRoom)
+    }
+
+    /// The frontend's device mode was on when the person closed DevTools, and Chromium began a new DevTools before the
+    /// older one's DEVTOOLS_CLOSED (its event is retired, #32246): the older session's device frames must not place
+    /// the page in the new DevTools' layout; the tab's own emulation applies again.
+    @Test func aNewDevToolsDuringTheCloseDropsTheOldDeviceMode() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.openDockedDevTools(.right)
+        ShimLog.inspectedBounds = (0, 0, 390, 844)
+        defer { ShimLog.inspectedBounds = nil }
+        tab.devToolsController.deviceModeChanged(on: true)
+        try #require(tab.devToolsController.deviceModeOn)
+        tab.performDevTools(.close)
+        rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))
+        #expect(!tab.devToolsController.deviceModeOn, "the older session's device mode ended with it")
+        let frames = tab.devToolsController.frames(in: tab.container.bounds)
+        #expect(frames.devTools != tab.container.bounds, "the new DevTools has its docked frame, not the device-mode cover")
+        rig.runtime.handle(.devToolsClosed(browser: Rig.browser, devTools: Rig.devTools))  // the older one, retired
+        #expect(!tab.devToolsController.deviceModeOn)
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {
@@ -241,6 +309,8 @@ import Testing
 /// The DevTools commands and panels the shim got, in order (the shim is called on the main thread).
 private nonisolated enum ShimLog {
     nonisolated(unsafe) static var calls: [String] = []
+    /// What `cmux_shim_devtools_inspected_bounds` answers (nil: no device mode area).
+    nonisolated(unsafe) static var inspectedBounds: (Int32, Int32, Int32, Int32)?
 
     static func library() throws -> CEFShimLibrary {
         let version: @convention(c) () -> Int32 = { 29 }
@@ -255,6 +325,12 @@ private nonisolated enum ShimLog {
             ShimLog.calls.append("panel \(browser) \(id.map { String(cString: $0) } ?? "")")
             return 1
         }
+        let bounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
+                                    UnsafeMutablePointer<Int32>?) -> Int32 = { _, x, y, width, height in
+            guard let area = ShimLog.inspectedBounds else { return 0 }
+            (x?.pointee, y?.pointee, width?.pointee, height?.pointee) = (area.0, area.1, area.2, area.3)
+            return 1
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
             switch name {
@@ -262,6 +338,7 @@ private nonisolated enum ShimLog {
             case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_devtools_command": unsafeBitCast(command, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_devtools_show_panel": unsafeBitCast(panel, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_devtools_inspected_bounds": unsafeBitCast(bounds, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
         }

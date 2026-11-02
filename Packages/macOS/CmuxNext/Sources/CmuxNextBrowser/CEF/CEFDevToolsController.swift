@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 
 /// DevTools of one Chromium tab: docked below or beside
 /// the page inside the pane, resizable, or in its own window. The docked
@@ -29,6 +30,10 @@ final class CEFDevToolsController {
     /// The DevTools cmux closed while Chromium began a new one (`willOpen` during `closing`): its late
     /// `DEVTOOLS_CLOSED` only retires it and never removes the new DevTools' views.
     private var retiredBrowserID: Int32?
+    /// The bounded wait for `DEVTOOLS_OPENED` after `DEVTOOLS_WILL_OPEN` (`openedLimit`).
+    var openTimer = DemandTimer(owner: "CEFDevToolsController.opened")
+    /// How long a DevTools Chromium began may take to report it opened before its room is given back.
+    static let openedLimit: Duration = .seconds(5)
     /// Runs once DevTools closed (a move into or out of a window reopens).
     var afterClose: BrowserDevToolsCommand?
     /// The docked DevTools' parent view and the divider, while docked.
