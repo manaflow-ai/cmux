@@ -3869,13 +3869,17 @@ jobs:
       # they do not compete with the other MainActor-isolated suites.
       - name: Run package tests (changed suites first, then selected targets)
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
-        timeout-minutes: 30
+        timeout-minutes: 40
         working-directory: Packages/macOS/CmuxNext
         env:
           # Whole-run limit per pass. The hang guard is the stall rule (no test
           # finished in CMUX_NEXT_TEST_STUCK_SECONDS, default 300), so a real
           # hang ends in ~5 min; this only caps a slow healthy pass (~860 s).
-          # Both passes share one deadline below the step's 30 minutes.
+          # Both passes share one deadline below the step's 40 minutes. On a
+          # 6-vCPU overflow Mac the shards run one at a time (width 1): the
+          # broad pass took 1,266-1,371 s over four runs and 1,725 s in run
+          # 41372093339, where the last shard (CmuxNextAppTests.Cloud, ~90 s
+          # alone) started with 33 s left and was cut at its 60 s floor.
           CMUX_NEXT_TEST_HANG_SECONDS: "1500"
           # One Swift Testing test at a time inside each shard process; the
           # shards themselves run side by side (swift-test-shards.py). A test's
@@ -3893,7 +3897,7 @@ jobs:
           echo "Test targets: $SWIFT_TARGETS"
           # One deadline for both passes, 2 min inside the step timeout, so a pass
           # hung before any test starts is still sampled and reported.
-          deadline=$(( $(date +%s) + 1680 ))
+          deadline=$(( $(date +%s) + 2280 ))
           # The heavy suites only ever run in their own step: never --skip "" (an
           # empty pattern matches, and so skips, every test).
           heavy_skip=()
