@@ -8,6 +8,7 @@
 // fails the file when it cannot launch the engine (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/session-info-glass.test.tsx
 import { readFileSync } from "node:fs";
+import { gridTokenCss } from "./support/gridTokens";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -28,6 +29,8 @@ await requireBrowserLane("session-info-glass.test.tsx", async () => {
   const css = ["ui/glass/glass.css", "agent-session/acpmux/session-info/sessionInfo.css"]
     .map((file) => readFileSync(path.join(src, file), "utf8"))
     .join("\n");
+  // The block gap that holds the hairline is a grid token (#27570), which the page defines.
+  const tokens = gridTokenCss();
   let browser: Browser | undefined;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
@@ -54,7 +57,7 @@ await requireBrowserLane("session-info-glass.test.tsx", async () => {
     // The host's tokens on an opaque window: a solid page and theme surface, so only the panel's own
     // material decides whether the transcript behind it shows.
     await page.setContent(
-      `<style>:root{--cmux-surface-solid:rgb(30, 30, 30);--agent-page-bg:rgb(30, 30, 30);--agent-text:rgb(236, 236, 240);--agent-border:rgba(255, 255, 255, 0.14);--surface-blur:blur(20px) saturate(1.8)}${css}</style><div class="acpmux-shell" style="position:relative;display:flex;justify-content:flex-end;height:600px">${panel}</div>`,
+      `<style>:root{--cmux-surface-solid:rgb(30, 30, 30);--agent-page-bg:rgb(30, 30, 30);--agent-text:rgb(236, 236, 240);--agent-border:rgba(255, 255, 255, 0.14);--surface-blur:blur(20px) saturate(1.8)}${tokens}\n${css}</style><div class="acpmux-shell" style="position:relative;display:flex;justify-content:flex-end;height:600px">${panel}</div>`,
     );
     return page;
   }
@@ -62,8 +65,9 @@ await requireBrowserLane("session-info-glass.test.tsx", async () => {
     page.evaluate(() => {
       const panel = getComputedStyle(document.querySelector(".acpmux-session-info")!);
       const card = getComputedStyle(document.querySelector(".acpmux-session-info-section")!);
+      // The hairline is the block's ::before, centred in the block gap (sessionInfo.css, #27570).
       const blocks = [...document.querySelectorAll(".acpmux-session-info-group")].map(
-        (block) => getComputedStyle(block).borderTopStyle,
+        (block) => getComputedStyle(block, "::before").borderTopStyle,
       );
       return {
         panel: { background: panel.backgroundColor, filter: panel.backdropFilter },

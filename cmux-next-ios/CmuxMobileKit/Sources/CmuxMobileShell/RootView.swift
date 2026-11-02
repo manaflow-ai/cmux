@@ -328,6 +328,10 @@ public struct RootView: View {
         store.resetForSignOut()
         // The chats loaded in this launch go too: the next background would save them again.
         AgentSessionDirectory.shared.removeAll()
+        // A shared thumbnail cache can still hold this account's file
+        // excerpts or images. Clear it, including in-flight reads, before a
+        // different account can open an artifact grid in the same process.
+        ArtifactThumbnailCacheLifecycle.clearForSignOut()
         // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
         PushRetryStore.app?.removeAll()
         // The App Group is resolved and emptied off the main thread, after any snapshot save in flight.

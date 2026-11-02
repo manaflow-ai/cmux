@@ -39,6 +39,8 @@ on:
       - "config/vite-plus/**"
       - "schemas/sync-motion/**"
       - "schemas/agent-pane/**"
+      # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
+      - "schemas/layout-grid/layout-grid.json"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "scripts/cmux-next/web-ota-pointer.py"

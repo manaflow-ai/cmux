@@ -72,27 +72,30 @@ export function useBackgroundNotice(sessionId: string | undefined): {
     setNotice(undefined);
   }, [sessionId, stopCheck]);
   useEffect(() => stopCheck, [stopCheck]);
-  const track = useCallback((request: Promise<unknown> | undefined, stillForeground?: () => boolean) => {
-    const asked = ++generation.current;
-    const from = session.current;
-    stopCheck();
-    setNotice(undefined);
-    const current = () => asked === generation.current && from === session.current;
-    const settle = (outcome: { answer: unknown } | { error: unknown }) => {
-      if (!current()) return;
-      const earned = backgroundNotice(outcome);
-      setNotice(earned);
-      if (earned !== "moved" || !stillForeground) return;
-      check.current = setTimeout(() => {
-        check.current = undefined;
-        if (current() && stillForeground()) setNotice("kept");
-      }, BACKGROUND_CHECK_MS);
-    };
-    (request ?? Promise.reject(Object.assign(new Error(), { code: "native.not_connected" }))).then(
-      (answer) => settle({ answer }),
-      (error: unknown) => settle({ error }),
-    );
-  }, [stopCheck]);
+  const track = useCallback(
+    (request: Promise<unknown> | undefined, stillForeground?: () => boolean) => {
+      const asked = ++generation.current;
+      const from = session.current;
+      stopCheck();
+      setNotice(undefined);
+      const current = () => asked === generation.current && from === session.current;
+      const settle = (outcome: { answer: unknown } | { error: unknown }) => {
+        if (!current()) return;
+        const earned = backgroundNotice(outcome);
+        setNotice(earned);
+        if (earned !== "moved" || !stillForeground) return;
+        check.current = setTimeout(() => {
+          check.current = undefined;
+          if (current() && stillForeground()) setNotice("kept");
+        }, BACKGROUND_CHECK_MS);
+      };
+      (request ?? Promise.reject(Object.assign(new Error(), { code: "native.not_connected" }))).then(
+        (answer) => settle({ answer }),
+        (error: unknown) => settle({ error }),
+      );
+    },
+    [stopCheck],
+  );
   useEffect(() => {
     if (!notice) return;
     const clear = () => setNotice(undefined);
