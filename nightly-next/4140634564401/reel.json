@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4140634564401",
+  "notes": "notes/4140634564401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31951,
+      "title": "Reject naive embedded queue timestamps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31916,
+      "title": "Transcript: the live line under a run carries the step row classes its layout mark implies",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31946,
+      "title": "base red: transcript continuation and fold tests read the stack's grid gaps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31952,
+      "title": "Agent pane: a compaction whose end was never heard says it ended, not that it failed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31920,
+      "title": "fix(app): a tab moved to a new pane leaves its old pane's strip in the same turn, so focus follows it at once",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
