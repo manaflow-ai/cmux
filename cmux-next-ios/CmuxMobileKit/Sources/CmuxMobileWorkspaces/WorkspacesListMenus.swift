@@ -42,11 +42,34 @@ extension WorkspacesList {
                 action("Send Message…", "paperplane") { ChiefMessenger.shared.messageAbout(subject) },
             ]))
         }
+        // The Mac's Copy rows (Copy Workspace Link, Copy Workspace ID, Copy Workspace ID and
+        // Ref), each only when the Mac sent the workspace's public id.
+        if status != .offline {
+            let rows: [(title: String, symbol: String, text: String?)] = [
+                ("Copy Workspace Link", "link", ws.copyLinkText),
+                ("Copy Workspace ID", "number", ws.copyIDText),
+                ("Copy Workspace ID and Ref", "number.square", ws.copyIDAndRefText),
+            ]
+            var copies: [UIMenuElement] = []
+            for row in rows {
+                guard let text = row.text else { continue }
+                copies.append(action(row.title, row.symbol) { UIPasteboard.general.string = text })
+            }
+            if !copies.isEmpty {
+                children.append(UIMenu(title: "Copy", image: UIImage(systemName: "doc.on.doc"), children: copies))
+            }
+        }
         if canManage {
             if creator.canArrange(ws) { children.append(arrangeMenu(ws, inbox: inbox)) }
             var manage: [UIMenuElement] = [action("Rename", "pencil") { startRename(ws) }]
             if creator.canDuplicate(ws) {
                 manage.append(action(WorkspaceCreator.duplicateTitle, "plus.square.on.square") { creator.duplicate(ws) })
+                // Only a workspace with a page: without one it is the same as Duplicate Workspace.
+                if ws.tabs.contains(where: { $0.kind == .browser }) {
+                    manage.append(action(WorkspaceCreator.duplicateTerminalsOnlyTitle, "terminal") {
+                        creator.duplicate(ws, browsers: false)
+                    })
+                }
             }
             manage.append(action("Close Workspace", "xmark", destructive: true) { confirmClose(ws) })
             if let bulk = bulkCloseMenu(ws, inbox: inbox) { manage.append(bulk) }
