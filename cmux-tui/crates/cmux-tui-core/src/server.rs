@@ -2290,6 +2290,8 @@ enum Command {
     },
     /// One READY snapshot on the caller's snapshot attach (`terminal-snapshot-v1`).
     SnapshotRequest(terminal_snapshot::SnapshotRequestParams),
+    /// The caller's snapshot attach of a surface shows it or not (`attach-visibility-v1`).
+    SetAttachVisibility(terminal_snapshot::AttachVisibilityParams),
     /// GHOSTSNP history pages above a row marker (`terminal.history`).
     TerminalHistory(terminal_history::TerminalHistoryParams),
     /// Text or VT of a row-marker range (`terminal.read_range`).
@@ -2866,7 +2868,8 @@ mod attach_lifecycle;
 use attach_lifecycle::{
     AttachWorkerCommit, MarkedClientAttach, attach_response, commit_client_attach_and_start_worker,
     detach_committed_attach, mark_client_attached, mark_resource_client_attached,
-    rollback_failed_attach, spawn_attach_notification_stream, wait_for_initial_browser_resize,
+    rollback_failed_attach, spawn_attach_notification_stream,
+    spawn_attach_notification_stream_gated, wait_for_initial_browser_resize,
 };
 #[cfg(test)]
 use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};

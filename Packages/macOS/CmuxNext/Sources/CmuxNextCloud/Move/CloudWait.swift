@@ -20,6 +20,19 @@ public struct CloudWait {
         }
     }
 
+    /// Whether `condition` holds within `tries` waits of `each`: `redial` runs before each wait, so a link
+    /// that ended while the condition did not hold yet is dialed again (a new machine's daemon may answer
+    /// a little after its record runs). The first wait that sees `condition` hold ends the tries.
+    public static func holds(tries: Int, each: Duration, redial: @MainActor () -> Void,
+                             until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+        var up = false
+        for _ in 0..<tries where !up {
+            redial()
+            up = await holds(within: each, until: condition)
+        }
+        return up
+    }
+
     /// Waits within `limit` for a link to come up: nil once `connected`, else `failure`, or `deadline`
     /// when there is none. A failure already showing when the wait begins is the last link's: it ends
     /// the wait only once the new connect cleared it and failed again, or at the deadline.
