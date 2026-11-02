@@ -1469,7 +1469,7 @@ export default agentPaneEntry({
     },
     "grid-settled": {
       height: 900,
-      note: "A settled reply above the composer: the composer gap after a message is the block gap, so its hover row fits.",
+      note: "A settled reply above the composer: its footer row 8 under it (32 buttons), then the composer gap.",
       snapshot: gridSettledSnapshot,
     },
     "grid-rhythm-hover": {
