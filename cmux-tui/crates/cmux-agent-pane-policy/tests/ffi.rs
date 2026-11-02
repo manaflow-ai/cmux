@@ -137,7 +137,7 @@ fn feed_permissions(pane: &Handle, case: &Value) {
 }
 
 #[test]
-fn the_check_corpus_runs_through_the_c_abi() {
+fn c_abi_runs_the_check_corpus() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/check.json");
     let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let cases = cases.as_array().unwrap();
@@ -163,7 +163,7 @@ fn the_check_corpus_runs_through_the_c_abi() {
 }
 
 #[test]
-fn a_started_session_joins_the_scope_when_its_reply_comes() {
+fn c_abi_a_started_session_joins_the_scope_when_its_reply_comes() {
     let pane = new();
     let p = pane.0;
     assert_eq!(call(p, "is_unstarted", json!({})).unwrap(), json!({"unstarted": true}));
@@ -184,7 +184,7 @@ fn a_started_session_joins_the_scope_when_its_reply_comes() {
 }
 
 #[test]
-fn a_remote_wires_watch_reply_brings_the_tab_session_in() {
+fn c_abi_a_remote_wires_watch_reply_brings_the_tab_session_in() {
     let pane = new();
     let reply =
         json!({"jsonrpc": "2.0", "id": 3, "result": {"tabSessionId": "remote-1"}}).to_string();
@@ -220,7 +220,7 @@ fn a_remote_wires_watch_reply_brings_the_tab_session_in() {
 }
 
 #[test]
-fn the_permission_ops_read_what_the_daemon_sent() {
+fn c_abi_the_permission_ops_read_what_the_daemon_sent() {
     let pane = new();
     observe(
         &pane,
@@ -245,7 +245,7 @@ fn the_permission_ops_read_what_the_daemon_sent() {
 }
 
 #[test]
-fn the_ops_without_a_pane() {
+fn c_abi_the_ops_without_a_pane() {
     let none = std::ptr::null();
     let p = call(none, "policy", json!({})).unwrap();
     assert_eq!(p["initialize"], "initialize");
@@ -268,7 +268,7 @@ fn the_ops_without_a_pane() {
 }
 
 #[test]
-fn bad_input_is_an_error_and_writes_nothing() {
+fn c_abi_bad_input_is_an_error_and_writes_nothing() {
     let pane = new();
     assert_eq!(call(pane.0, "no_such_op", json!({})), Err(ERR_UNKNOWN_OP));
     assert_eq!(call(pane.0, "add", json!({})), Err(ERR_INVALID));
@@ -330,7 +330,7 @@ fn bad_input_is_an_error_and_writes_nothing() {
 }
 
 #[test]
-fn a_reply_is_cut_to_its_shape() {
+fn c_abi_a_reply_is_cut_to_its_shape() {
     let mut out = empty();
     let method = "_acpmux/peers";
     let reply = json!({"jsonrpc": "2.0", "id": 90, "result": {"peers": [{"name": "m1", "secret": "x"}], "other": 1}})

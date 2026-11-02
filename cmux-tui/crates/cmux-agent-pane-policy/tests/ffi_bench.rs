@@ -40,7 +40,7 @@ fn print(label: &str, s: &Stats) {
 }
 
 #[test]
-fn one_check_per_page_frame_stays_cheap() {
+fn c_abi_one_check_per_page_frame_stays_cheap() {
     let pane = cmux_agent_pane_policy_new();
     let op = c"add";
     let add = br#"{"session":"s1"}"#;
