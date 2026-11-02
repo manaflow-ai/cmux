@@ -639,6 +639,20 @@ def step_switch_keys(j, step):
             ev["t_source"] = "sent"
             ev["t_source"] = "keydown" if age >= 0 else "action-start"
         events.append(ev)
+    # The trace build's per-reveal rows (test/switch-reveal-trace-feat): $TMPDIR/cmux-reveal-trace-<pid>-*.json.
+    try:
+        import glob
+        tmp = j.app.launch_env().get("TMPDIR") or os.environ.get("TMPDIR", "/tmp")
+        reveals = []
+        for path in glob.glob(os.path.join(tmp, "cmux-reveal-trace-%d-*.json" % j.app.pid)):
+            try:
+                reveals.extend(json.load(open(path)))
+            except (OSError, ValueError):
+                pass
+        if reveals:
+            (j.out / "diag-reveals.json").write_text(json.dumps(sorted(reveals, key=lambda r: r.get("t", 0)), indent=1))
+    except Exception as error:  # noqa: BLE001 (diagnostics only)
+        (j.out / "diag-reveals.json").write_text(json.dumps({"error": str(error)}))
     app_timers = {}
     for method, on in timers.items():
         if on:
