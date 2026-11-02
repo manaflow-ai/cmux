@@ -9,6 +9,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "lane_reports/detach.rs"]
+mod detach;
 #[path = "lane_reports/reads.rs"]
 mod reads;
 // This process runs stand-in agents (the fake agents under tests/).
