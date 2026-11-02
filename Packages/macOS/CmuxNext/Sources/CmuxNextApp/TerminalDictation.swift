@@ -52,6 +52,7 @@ final class TerminalDictation {
         session?.cancel()
         session?.onUpdate = nil
         session?.onFinalText = nil
+        session = nil
         claims.release(self)
         clearTarget()
     }
