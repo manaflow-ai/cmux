@@ -30,7 +30,7 @@ extension DaemonConnection {
             do {
                 return try await send()
             } catch DaemonError.timedOut(let request) where ContinuousClock.now < giveUp && !Task.isCancelled {
-                lateReplyLogger.info("\(what, privacy: .public): \(request, privacy: .public) timed out; asking again")
+                lateReplyLogger.info("\(what, privacy: .public): \(request, privacy: .public) timed out; asking again"); print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) late-reply-retry \(what) \(request)")
             }
         }
     }

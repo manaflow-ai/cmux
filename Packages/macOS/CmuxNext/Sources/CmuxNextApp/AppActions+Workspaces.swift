@@ -242,7 +242,7 @@ extension AppActions {
                 // Told only once the close goes ahead: a cancelled question keeps the workspace's remote terminals.
                 let terminals = WorkspaceClose.closing(workspace, on: daemon)
                 let close: @MainActor () async -> ActionWorkFailure? = {
-                    let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
+                    print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) close-task-start \(key.rawValue)"); let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
                         print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) close-sent \(key.rawValue)"); try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
                     }
