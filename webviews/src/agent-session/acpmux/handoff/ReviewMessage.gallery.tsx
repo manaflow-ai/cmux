@@ -195,6 +195,11 @@ const edit: Play = async (ctx) => {
 };
 
 const checkpointGating: Play = async (ctx) => {
+  await ctx.click({ selector: '.acpmux-handoff-review button[type="submit"]' });
+  await ctx.waitFor(() => {
+    const field = ctx.document.querySelector<HTMLInputElement>('.acpmux-handoff-review input:not([type="checkbox"])');
+    return field !== null && ctx.document.activeElement === field && field.validity.valueMissing;
+  });
   await ctx.type("refs/cmux/gallery-confirmed", { selector: '.acpmux-handoff-review input:not([type="checkbox"])' });
   await ctx.click({ selector: ".acpmux-handoff-confirm input[type=checkbox]" });
   await ctx.waitFor(() => {
