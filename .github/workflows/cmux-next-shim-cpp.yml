@@ -37,6 +37,7 @@ on:
       - scripts/cmux-next/test-context-proxy-cpp.sh
       - scripts/cmux-next/test-shim-devtools-id-cpp.sh
       - scripts/cmux-next/test-shim-devtools-dock-cpp.sh
+      - scripts/cmux-next/test-shim-devtools-ready-cpp.sh
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
       - scripts/cmux-next/test-chromium-host-wire-cpp.sh
       - scripts/cmux-next/test-shim-file-dialog-cpp.sh
@@ -62,6 +63,7 @@ on:
       - scripts/cmux-next/test-context-proxy-cpp.sh
       - scripts/cmux-next/test-shim-devtools-id-cpp.sh
       - scripts/cmux-next/test-shim-devtools-dock-cpp.sh
+      - scripts/cmux-next/test-shim-devtools-ready-cpp.sh
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
       - scripts/cmux-next/test-chromium-host-wire-cpp.sh
       - scripts/cmux-next/test-shim-file-dialog-cpp.sh
@@ -116,6 +118,9 @@ jobs:
       - name: DevTools dock-side values
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-shim-devtools-dock-cpp.sh
+      - name: DevTools shows only after its frontend reported loadCompleted
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-shim-devtools-ready-cpp.sh
       - name: cmux-page:// paths, MIME types and ids
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-cmux-page-path-cpp.sh

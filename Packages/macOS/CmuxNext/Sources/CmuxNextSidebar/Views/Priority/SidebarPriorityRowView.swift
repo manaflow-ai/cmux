@@ -226,11 +226,10 @@ final class SidebarPriorityRowView: NSView {
         }
     }
 
-    /// A machine's tag takes a stable color of the group palette, so one machine reads the same in every row.
+    /// A machine's tag takes its identity color (MachineColor: the person's pick, else a stable
+    /// theme accent), so it matches the machine's sidebar rows, tabs and chips.
     static func machineColor(_ machine: String) -> NSColor {
-        let colors = GroupColor.allCases.filter { $0 != .grey }
-        let sum = machine.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
-        return SidebarStyle.color(colors[sum % colors.count])
+        MachineColor(name: machine).color
     }
 
     override func mouseDown(with event: NSEvent) {
