@@ -305,19 +305,64 @@ def gradient_layout(cols, rows, style):
     return lay
 
 
+def find_cargo():
+    """cargo: $CARGO, PATH, $CARGO_HOME/bin, then the account's own ~/.cargo/bin. A capture slot runs with its own
+    HOME (no .cargo), so the account's home comes from the password database, not from $HOME."""
+    import pwd
+    homes = []
+    try:
+        homes.append(pwd.getpwuid(os.getuid()).pw_dir)
+    except KeyError:
+        pass
+    candidates = [os.environ.get("CARGO"), shutil.which("cargo")]
+    if os.environ.get("CARGO_HOME"):
+        candidates.append(os.path.join(os.environ["CARGO_HOME"], "bin", "cargo"))
+    candidates += [os.path.join(h, ".cargo", "bin", "cargo") for h in homes]
+    candidates.append(os.path.expanduser("~/.cargo/bin/cargo"))
+    # the perf minis have Homebrew's rustup shim (/opt/homebrew/bin/cargo) and no ~/.cargo; a slot's PATH may lack it
+    candidates += ["/opt/homebrew/bin/cargo", "/usr/local/bin/cargo"]
+    for path in candidates:
+        if path and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+def build_bins(quiet=False):
+    """Builds rust/ (std only, --offline); returns (exit, {program: path or None}). Incremental: about 0.3 s
+    when the programs are current, about 2 s from scratch on an M4."""
+    if os.environ.get("CMUX_TUIKIT_NO_BUILD") == "1":  # tests on a host that must not compile (the agents' VM)
+        return 69, {name: rust_bin(name) for name in RUST_PROGRAMS}
+    cargo = find_cargo()
+    if not cargo:
+        if not quiet:
+            sys.stderr.write("build-bins: no cargo ($CARGO, PATH, $CARGO_HOME/bin, the account's ~/.cargo/bin)\n")
+        return 69, {name: rust_bin(name) for name in RUST_PROGRAMS}
+    env = dict(os.environ)
+    # A capture slot runs with its own HOME: rustup then finds no toolchain (~/.rustup). Point it at the account's.
+    import pwd
+    try:
+        account = pwd.getpwuid(os.getuid()).pw_dir
+    except KeyError:
+        account = None
+    if account and "RUSTUP_HOME" not in env and os.path.isdir(os.path.join(account, ".rustup")):
+        env["RUSTUP_HOME"] = os.path.join(account, ".rustup")
+    if account and "CARGO_HOME" not in env and os.path.isdir(os.path.join(account, ".cargo")):
+        env["CARGO_HOME"] = os.path.join(account, ".cargo")
+    # --target-dir: a CARGO_TARGET_DIR or build.target elsewhere would put the programs where rust_bin() does not look
+    done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",
+                           os.path.join(RUST_DIR, "Cargo.toml"), "--target-dir", os.path.join(RUST_DIR, "target")],
+                          env=env, stdout=subprocess.DEVNULL if quiet else None, stderr=subprocess.PIPE if quiet else None)
+    return done.returncode, {name: rust_bin(name) for name in RUST_PROGRAMS}
+
+
 def cmd_build_bins(a):
     """cargo build --release of rust/ (std only, no network); prints where the programs are."""
-    cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
-    if not os.access(cargo, os.X_OK):
-        sys.stderr.write("build-bins: no cargo on PATH or in ~/.cargo/bin\n")
+    code, built = build_bins()
+    if code == 69:
         return 69
-    # --target-dir: a CARGO_TARGET_DIR or build.target elsewhere would put the programs where rust_bin()
-    # does not look
-    done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",
-                           os.path.join(RUST_DIR, "Cargo.toml"), "--target-dir", os.path.join(RUST_DIR, "target")])
+    done = argparse.Namespace(returncode=code)
     if done.returncode != 0:
         return done.returncode
-    built = {name: rust_bin(name) for name in RUST_PROGRAMS}
     print(json.dumps(dict(bin_dir=os.path.join(RUST_DIR, "target", "release"), **built)))
     return 0 if all(built.values()) else 1
 

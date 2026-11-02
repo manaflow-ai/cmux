@@ -22,6 +22,8 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+# L1's auto-build must not compile here: the fleet self-test builds first (build-bins); this VM never compiles.
+os.environ["CMUX_TUIKIT_NO_BUILD"] = "1"
 TOOL = os.path.join(HERE, "load_profiles.py")
 PY = sys.executable
 
@@ -362,6 +364,37 @@ class StormL1(Base):
             events = [json.loads(line)["ev"] for line in f]
         self.assertEqual(events[0], "baseline")
         self.assertIn("change", events)
+
+
+class AutoBuild(Base):
+    def test_l1_tries_build_bins_when_the_storm_is_missing(self):
+        import tuikit
+        if tuikit.rust_bin("tk-storm"):
+            self.skipTest("tk-storm is built here")
+        done, out, app = self.run_tool("L1", "--duration", "1", "--rate", "20")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        m = self.manifest(out, "L1")
+        self.assertEqual(m["build_bins"]["exit"], 69)  # CMUX_TUIKIT_NO_BUILD: tried, not compiled
+        self.assertEqual(m["engine"], "python")
+
+    def test_find_cargo_ignores_a_slot_home(self):
+        import pwd
+        import tuikit
+        account = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".cargo", "bin", "cargo")
+        if not os.access(account, os.X_OK):
+            self.skipTest("no cargo in the account's ~/.cargo/bin")
+        saved = {k: os.environ.get(k) for k in ("HOME", "PATH", "CARGO", "CARGO_HOME")}
+        try:
+            os.environ.update(HOME=self.tmp, PATH="/usr/bin:/bin")
+            os.environ.pop("CARGO", None)
+            os.environ.pop("CARGO_HOME", None)
+            self.assertEqual(tuikit.find_cargo(), account)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 class Safety(Base):

@@ -399,6 +399,13 @@ class L1(Profile):
 
     def load(self):
         path = tuikit.rust_bin("tk-storm") if self.a.engine != "python" else None
+        if not path and self.a.engine != "python":
+            # One command (lead 07:4xZ, the first real-app run): build the compiled tools when they are missing,
+            # with the account's cargo (a capture slot's HOME has none). An incremental build is about 0.3 s.
+            code, built = tuikit.build_bins(quiet=True)
+            self.manifest["build_bins"] = {"exit": code, "built": built}
+            self.save()
+            path = built.get("tk-storm")
         if path:
             return self.load_rust(path)
         if self.a.engine == "rust":
