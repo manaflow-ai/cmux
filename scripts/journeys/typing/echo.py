@@ -44,8 +44,11 @@ def main():
                 if pasting:
                     end = pending.find(b"\x1b[201~")
                     if end < 0:
-                        echo += pending
-                        pending = b""
+                        # Keep a tail that may be the start of the end marker split across reads (review 6).
+                        keep = next((k for k in range(min(5, len(pending)), 0, -1)
+                                     if b"\x1b[201~".startswith(pending[-k:])), 0)
+                        echo += pending[:len(pending) - keep]
+                        pending = pending[len(pending) - keep:]
                         break
                     echo += pending[:end]
                     pending = pending[end + 6:]

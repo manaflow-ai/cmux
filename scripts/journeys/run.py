@@ -73,7 +73,7 @@ JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
 RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
                          r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt"
                          # TYPING UNDER LOAD (ext_load.py): the echo log, the in-app probe, the flow trace and the load
-                         r"|echo\.jsonl|probe\.csv|probe-[a-z]+\.json|flows/flows-\d+\.jsonl"
+                         r"|echo\.jsonl|probe\.csv|probe-[a-z]+\.json|flows/[a-z0-9_-]+-\d+\.blackbox\.cmxtrace"
                          r"|load/L[0-9](?:\.stdout|\.stderr|/(?:[A-Za-z0-9_-]+/)?[a-z_-]+\.(?:json|jsonl)))"
                          r"|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20

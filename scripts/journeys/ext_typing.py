@@ -54,18 +54,18 @@ def _pane_rect(j, pick):
         if pick(p):
             g = p.get("grid") or {}
             if all(k in g for k in ("frame_x", "frame_y", "frame_width", "frame_height")):
-                _pane_rect.cell = (g.get("cell_width"), g.get("cell_height"))
-                return [g["frame_x"], g["frame_y"], g["frame_width"], g["frame_height"]], p.get("pane")
-    return None, None
+                return ([g["frame_x"], g["frame_y"], g["frame_width"], g["frame_height"]], p.get("pane"),
+                        (g.get("cell_width"), g.get("cell_height")))
+    return None, None, (None, None)
 
 
 def step_typing_rect(j, step):
     target = step.get("target", "terminal")
     rk = _realkey()
     win = rk._layers_window(j) or {}
-    rect, pane = None, None
+    rect, pane, cell = None, None, (None, None)
     if target == "terminal":
-        rect, pane = _pane_rect(j, lambda p: p.get("focused"))
+        rect, pane, cell = _pane_rect(j, lambda p: p.get("focused"))
     elif target == "composer":
         # A composer is no terminal (no grid frame): the whole window; the judge finds the band the keys changed.
         frame = (win or {}).get("frame")
@@ -73,7 +73,7 @@ def step_typing_rect(j, step):
             rect, pane = [0.0, 0.0, float(frame[2]), float(frame[3])], None
     elif target.startswith("pane:"):
         named = (getattr(j, "smoke_named", {}) or {}).get(target[5:]) or {}
-        rect, pane = _pane_rect(j, lambda p: p.get("pane") == named.get("pane"))
+        rect, pane, cell = _pane_rect(j, lambda p: p.get("pane") == named.get("pane"))
     elif target == "address_bar":
         bar = j.app.rpc("debug.omnibar") or {}
         frame = bar.get("field_frame") if isinstance(bar, dict) else None
@@ -83,7 +83,6 @@ def step_typing_rect(j, step):
             rect = [fx, wh - fy - fh, fw, fh]  # bottom-left window points -> top-left
     if rect is None:
         raise D.StepError(f"typing_rect: no rect for {target!r}")
-    cell = getattr(_pane_rect, "cell", (None, None)) if target != "address_bar" else (None, None)
     j.typing_rect = {"target": target, "rect_points_top_left": rect, "pane": pane, "window": win,
                      "cell_width": cell[0], "cell_height": cell[1]}
     return j.typing_rect

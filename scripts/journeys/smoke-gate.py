@@ -476,10 +476,22 @@ TYPING_MAX = 2
 
 
 def typing_row_ok(row):
-    """(counts, breaks, why) of one ledger row."""
+    """(counts, breaks, why) of one ledger row. A row counts only for a run that happened as the rule says: a pass of
+    the journey, both 60 s parts played in full, a 120 Hz video judge of both, the load alive until it was stopped with
+    the focus never moved, the 15 GB hog held (>= 12 GB) for L6, a clean kit and no host dialog. A row whose start is
+    the HID post (t_post, an upper bound of the latency) counts only when it passes (review at 8802cbd6e87)."""
     if row.get("kit_dirty") is not False or row.get("smoke_env") is not False or row.get("source") != "video":
         return False, False, "not judged (dirty kit, SMOKE ENV, or no video judge)"
-    if abs(float(row.get("refresh_ms") or 0) - 1000 / 120) > 0.35:
+    if row.get("status") != "pass" or row.get("parts") != 2 or not row.get("planned_keys") \
+            or row.get("keys") != row.get("planned_keys"):
+        return False, False, f"not judged (status {row.get('status')}, parts {row.get('parts')}, keys {row.get('keys')} of {row.get('planned_keys')})"
+    if not row.get("load_ok") or (row.get("profile") == TYPING_PROFILE and float(row.get("hog_held_gb") or 0) < 12):
+        return False, False, f"not judged (load_ok {row.get('load_ok')}, hog {row.get('hog_held_gb')} GB)"
+    try:
+        hz_ok = abs(float(row.get("refresh_ms") or 0) - 1000 / 120) <= 0.35
+    except (TypeError, ValueError):
+        hz_ok = False
+    if not hz_ok:
         return False, False, f"display at {row.get('refresh_ms')} ms, not 120 Hz"
     p95, top = row.get("p95_refreshes"), row.get("max_refreshes")
     broke = []
@@ -487,13 +499,27 @@ def typing_row_ok(row):
         broke.append(f"p95 {p95} > {TYPING_P95} refresh")
     if top is None or top > TYPING_MAX:
         broke.append(f"max {top} > {TYPING_MAX} refreshes")
+    if row.get("missing_frames"):
+        broke.append(f"{row.get('missing_frames')} keys never shown")
     if row.get("lost") or row.get("merged") or row.get("order_ok") is not True:
         broke.append(f"keys: lost {row.get('lost')}, merged {row.get('merged')}, order_ok {row.get('order_ok')}")
+    if broke and row.get("start_clock") != "nsevent":
+        return False, False, "an upper-bound breach (start = HID post, not NSEvent time): " + "; ".join(broke)
     return True, bool(broke), "; ".join(broke)
 
 
+# The rule is live only while TYPING_RULE_ON exists (the lead creates it when the L6 load tool and the per-build L6
+# round exist), so it never blocks every .pass before its evidence can be made (review must-fix 2 at 8802cbd6e87).
+TYPING_RULE_ON = Path(os.environ.get("SMOKE_GATE_TYPING_RULE_ON", "/Users/lawrence/fun/wt/handoff/typing-load-rule.on"))
+
+
 def typing_blockers(job):
-    """[(what, why)] that block a .pass for JOB under the typing rule (empty = the rule holds)."""
+    """[(what, why)] that block a .pass for JOB under the typing rule (empty = the rule holds or is not live)."""
+    try:
+        if not TYPING_RULE_ON.exists():
+            return []
+    except OSError as error:
+        return [(str(TYPING_RULE_ON), f"the typing rule switch cannot be read ({error}): no .pass")]
     rows = []
     try:
         for text in (TYPING_LEDGER / f"{job}.jsonl").read_text().splitlines():
@@ -765,7 +791,8 @@ def main(argv=None):
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)
         summary["video_goldens"] = {"list": listing[0], "checked": [f[0] for f in listing[1]]}
-        summary["typing_rule"] = {"profile": TYPING_PROFILE, "p95": TYPING_P95, "max": TYPING_MAX, "ledger": str(TYPING_LEDGER)}
+        summary["typing_rule"] = {"live": TYPING_RULE_ON.exists(), "profile": TYPING_PROFILE, "p95": TYPING_P95,
+                                  "max": TYPING_MAX, "ledger": str(TYPING_LEDGER)}
         summary["open_p0_waived"] = waived
         summary["open_p0_checked"] = [l.split()[0] for l in OPEN_P0.read_text().splitlines()
                                       if l.strip() and not l.lstrip().startswith("#")]

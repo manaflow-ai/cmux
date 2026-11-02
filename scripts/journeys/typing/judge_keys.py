@@ -29,50 +29,68 @@ def np():
     return numpy
 
 
-def judge(frames, times, events, cell_px, refresh_hz=120.0, thresh=24):
+def judge(frames, times, events, cell_px, refresh_hz=120.0, thresh=24, cell_h_px=None):
+    """Each event's `t_start` (else `t_post`) is its key's start. A key's frame is the first movie frame after the
+    start, and at or after the previous key's frame, that differs from the frame shown at that point over >= 1.5 cells
+    of width, inside the typed line's band: the rows of the previous key's change +- one cell height (after a Return or
+    Ctrl-C, the next line too). So a late echo of the key before, a relayout elsewhere in the pane or a toast never
+    counts for this key (review should-fix 4 at 8802cbd6e87). A key not shown within 0.5 s is `missing` (the ledger
+    counts it as a breach)."""
     n = np()
     period = 1.0 / refresh_hz
     phase = float(n.median([t % period for t in times])) if times else 0.0
     rows, defects = [], []
+    cell_h = cell_h_px or 2 * cell_px
+    band = None  # (r0, r1) of the line being typed
+    prev_frame = 0
 
     def shown_at(t):
         return max([i for i, tt in enumerate(times) if tt <= t] or [0])
-    for k, e in enumerate(events):
-        t0 = e["t_post"]
-        base = frames[shown_at(t0)].astype(n.int16)
-        limit = t0 + 0.5
+    for e in events:
+        t0 = e.get("t_start", e["t_post"])
+        b = max(shown_at(t0), prev_frame)
+        base = frames[b].astype(n.int16)
         idx = None
-        for j in range(shown_at(t0) + 1, len(times)):
-            if times[j] > limit:
+        for j in range(b + 1, len(times)):
+            if times[j] > t0 + 0.5:
                 break
             if times[j] <= t0:
                 continue
-            cols = n.nonzero((n.abs(frames[j].astype(n.int16) - base) > thresh).any(axis=0))[0]
+            m = n.abs(frames[j].astype(n.int16) - base) > thresh
+            if band is not None:
+                lo = max(0, int(band[0] - cell_h))
+                hi = int(band[1] + cell_h * (2 if e["kind"] in ("return", "ctrl_c") else 1))
+                m[:lo, :] = False
+                m[hi:, :] = False
+            cols = n.nonzero(m.any(axis=0))[0]
             if cols.size and (cols[-1] - cols[0] + 1) >= 1.5 * cell_px:
-                idx = j
-                break
-            # a change of 1.5 cells may also be in two rows (a wrap): count the columns that changed
-            if cols.size >= 1.5 * cell_px:
+                r = n.nonzero(m.any(axis=1))[0]
+                band = (int(r[0]), int(r[-1]) + 1) if e["kind"] not in ("return", "ctrl_c") else (int(r[-1]) + 1 - int(cell_h), int(r[-1]) + 1)
                 idx = j
                 break
         if idx is None:
-            rows.append(dict(i=e["i"], kind=e["kind"], t_post=t0, frame=None, refreshes=None))
+            rows.append(dict(i=e["i"], kind=e["kind"], t_start=t0, frame=None, refreshes=None))
+            defects.append({"kind": "missing", "key": e["i"], "key_kind": e["kind"]})
             continue
+        prev_frame = idx
         t = times[idx]
         first_vsync = math.floor((t0 - phase) / period) * period + phase + period
         refreshes = int(round((t - first_vsync) / period)) + 1
-        rows.append(dict(i=e["i"], kind=e["kind"], t_post=t0, frame=idx, t_frame=round(t, 6),
+        rows.append(dict(i=e["i"], kind=e["kind"], t_start=t0, frame=idx, t_frame=round(t, 6),
                          video_s=round(t - times[0], 4), refreshes=refreshes))
         if refreshes > 2:
             defects.append({"kind": "stall", "key": e["i"], "key_kind": e["kind"], "frame": idx,
                             "video_s": round(t - times[0], 4), "refreshes": refreshes})
     got = sorted(r["refreshes"] for r in rows if r.get("refreshes") is not None)
+    # A missing key counts as worse than any measured one in the percentiles (review must-fix 1 at 8802cbd6e87).
+    allk = got + [10 ** 6] * (len(events) - len(got))
+    allk.sort()
 
     def pct(p):
-        return got[min(len(got) - 1, int(math.ceil(p / 100.0 * len(got))) - 1)] if got else None
+        return allk[min(len(allk) - 1, int(math.ceil(p / 100.0 * len(allk))) - 1)] if allk else None
     summary = {"n": len(events), "shown": len(got), "missing": len(events) - len(got), "p50": pct(50), "p95": pct(95),
-               "p99": pct(99), "max": got[-1] if got else None, "over1": sum(1 for g in got if g > 1),
-               "over2": sum(1 for g in got if g > 2)}
+               "p99": pct(99), "max": allk[-1] if allk else None, "over1": sum(1 for g in allk if g > 1),
+               "over2": sum(1 for g in allk if g > 2)}
     return {"keys": rows, "summary": summary, "stalls": defects}
 
 
@@ -99,6 +117,17 @@ def self_test():
     got = [r["refreshes"] for r in out["keys"]]
     assert got[7] == 5 and all(g == 1 for i, g in enumerate(got) if i != 7), got
     assert out["summary"]["over2"] == 1 and out["stalls"][0]["key"] == 7, out["summary"]
+    # A key that never shows is missing and counts as the worst key (max is no longer the measured 5).
+    frames2 = n.stack(frames)
+    ev2 = events + [{"i": 20, "kind": "char", "t_post": 2.2}]
+    out2 = judge(frames2, times, ev2, cell)
+    assert out2["summary"]["missing"] == 1 and out2["summary"]["max"] > 100, out2["summary"]
+    # A change far from the typed line (a toast in rows 0-1 is outside the band once the band is known) does not count.
+    f3 = frames2.copy()
+    j_late = next(j for j, t in enumerate(times) if t > events[7]["t_post"])
+    f3[j_late:j_late + 3, 0:1, :] = 255  # row 0: above the band (rows 2-18) by more than one cell height (1 here)
+    out3 = judge(f3, times, events, cell, cell_h_px=1)
+    assert [r["refreshes"] for r in out3["keys"]][7] == 5, out3["keys"][7]
     print("self-test OK", json.dumps(out["summary"]))
 
 

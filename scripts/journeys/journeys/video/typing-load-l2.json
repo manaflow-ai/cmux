@@ -116,7 +116,7 @@
       "seed": 7,
       "duration": 240,
       "keep": "typing",
-      "ready_timeout": 90
+      "ready_timeout": 60
     },
     {
       "do": "typing_rect",
@@ -129,7 +129,8 @@
     {
       "do": "video_start",
       "name": "typing-load-l2-part1",
-      "seconds": 70
+      "seconds": 75,
+      "codec": "prores"
     },
     {
       "do": "typist_play",
@@ -147,7 +148,8 @@
     {
       "do": "video_start",
       "name": "typing-load-l2-part2",
-      "seconds": 70
+      "seconds": 75,
+      "codec": "prores"
     },
     {
       "do": "typist_play",

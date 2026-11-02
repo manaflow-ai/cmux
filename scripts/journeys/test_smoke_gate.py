@@ -99,7 +99,8 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     env.update({"SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "ledger"),
                 "SMOKE_GATE_VIDEO_GOLDENS": os.path.join(tmp, "video-goldens.txt"),
                 "SMOKE_GATE_GOLDEN_LEDGER": os.path.join(tmp, "golden-ledger"),
-                "SMOKE_GATE_TYPING_LEDGER": os.path.join(tmp, "typing-ledger")})
+                "SMOKE_GATE_TYPING_LEDGER": os.path.join(tmp, "typing-ledger"),
+                "SMOKE_GATE_TYPING_RULE_ON": os.path.join(tmp, "typing-rule.on")})
     env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false",
                 "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json"), **(env_extra or {})})
     done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
@@ -629,9 +630,19 @@ class TypingRule(unittest.TestCase):
     """TYPING UNDER LOAD: no .pass without a judged L6 run on the build that holds p95 <= 1 and max <= 2 refreshes."""
 
     GOOD = {"profile": "L6", "build_job": "J", "kit_dirty": False, "smoke_env": False, "source": "video",
-            "refresh_ms": 8.333, "p95_refreshes": 1, "max_refreshes": 2, "lost": [], "merged": [], "order_ok": True}
+            "refresh_ms": 8.333, "p95_refreshes": 1, "max_refreshes": 2, "lost": [], "merged": [], "order_ok": True,
+            "status": "pass", "parts": 2, "keys": 973, "planned_keys": 973, "load_ok": True, "hog_held_gb": 14.2,
+            "missing_frames": 0, "start_clock": "nsevent"}
+
+    def setUp(self):
+        self.on = tempfile.NamedTemporaryFile(delete=False)
+        self.on.close()
+
+    def tearDown(self):
+        os.unlink(self.on.name)
 
     def rows(self, mod, tmp, *rows):
+        mod.TYPING_RULE_ON = Path(self.on.name)
         mod.TYPING_LEDGER = Path(tmp) / "typing"
         mod.TYPING_LEDGER.mkdir(exist_ok=True)
         (mod.TYPING_LEDGER / "J.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
@@ -640,6 +651,9 @@ class TypingRule(unittest.TestCase):
         mod = load_gate()
         with tempfile.TemporaryDirectory() as tmp:
             mod.TYPING_LEDGER = Path(tmp) / "none"
+            mod.TYPING_RULE_ON = Path(tmp) / "off"
+            self.assertEqual(mod.typing_blockers("J"), [], "a rule that is not live blocks nothing")
+            mod.TYPING_RULE_ON = Path(self.on.name)
             self.assertIn("no judged L6", mod.typing_blockers("J")[0][1])
             self.rows(mod, tmp, self.GOOD)
             self.assertEqual(mod.typing_blockers("J"), [])
@@ -648,7 +662,7 @@ class TypingRule(unittest.TestCase):
         mod = load_gate()
         with tempfile.TemporaryDirectory() as tmp:
             for bad in ({"p95_refreshes": 2}, {"max_refreshes": 3}, {"lost": [5]}, {"merged": [{"first": 1}]},
-                        {"order_ok": False}):
+                        {"order_ok": False}, {"missing_frames": 3}):
                 self.rows(mod, tmp, self.GOOD, dict(self.GOOD, **bad, out="/r"))
                 self.assertIn("break the rule", mod.typing_blockers("J")[0][1], bad)
 
@@ -656,16 +670,25 @@ class TypingRule(unittest.TestCase):
         mod = load_gate()
         with tempfile.TemporaryDirectory() as tmp:
             for skip in ({"kit_dirty": True}, {"smoke_env": True}, {"source": "in-app"}, {"refresh_ms": 16.67},
-                         {"profile": "L5"}, {"build_job": "OTHER"}):
+                         {"profile": "L5"}, {"build_job": "OTHER"}, {"status": "fail"}, {"parts": 1},
+                         {"keys": 400}, {"load_ok": False}, {"hog_held_gb": 3}, {"refresh_ms": "x"},
+                         {"start_clock": "t_post", "p95_refreshes": 3}):
                 self.rows(mod, tmp, dict(self.GOOD, **skip))
                 self.assertIn("no judged L6", mod.typing_blockers("J")[0][1], skip)
             # a breach in a row that does not count does not block a good row
             self.rows(mod, tmp, self.GOOD, dict(self.GOOD, p95_refreshes=5, smoke_env=True))
             self.assertEqual(mod.typing_blockers("J"), [])
 
+    def test_an_upper_bound_pass_counts(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            self.rows(mod, tmp, dict(self.GOOD, start_clock="t_post"))
+            self.assertEqual(mod.typing_blockers("J"), [])
+
     def test_the_rule_holds_back_the_pass_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "open-p0.txt"), "w").write("# none open\n")
+            open(os.path.join(tmp, "typing-rule.on"), "w").close()
             code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
             self.assertEqual(code, 75)
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))

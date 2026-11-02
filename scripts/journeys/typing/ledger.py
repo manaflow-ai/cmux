@@ -10,6 +10,7 @@ refreshes, out. A run with no typist_play result writes nothing (exit 75).
 """
 import argparse
 import json
+import os
 import math
 import subprocess
 import sys
@@ -17,7 +18,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VENV = "/work/tmp/video-extra/venv/bin/python"
+sys.path.insert(0, str(HERE))
 LEDGER = Path("/Users/lawrence/fun/wt/handoff/typing-load-results")
 
 
@@ -41,6 +42,30 @@ def probe_contents(path):
             "rows": len(lines) - 1}
 
 
+def probe_starts(path):
+    """The key-down times (s, CLOCK_UPTIME_RAW) of the in-app probe's rows (`event_uptime_ns`), in order."""
+    try:
+        lines = Path(path).read_text().splitlines()
+    except OSError:
+        return []
+    head = lines[0].split(",") if lines else []
+    if "event_uptime_ns" not in head:
+        return []
+    k = head.index("event_uptime_ns")
+    return [int(r.split(",")[k]) / 1e9 for r in lines[1:] if len(r.split(",")) > k and r.split(",")[k]]
+
+
+def hog_held_gb(run):
+    rows = []
+    for h in Path(run).glob("hog-*.jsonl"):
+        for l in h.read_text(errors="replace").splitlines():
+            try:
+                rows.append(json.loads(l))
+            except ValueError:
+                pass
+    return round(max([float(r.get("held_mb") or 0) for r in rows if isinstance(r, dict)] or [0]) / 1024, 2)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--run", required=True); ap.add_argument("--journey", required=True)
@@ -57,36 +82,68 @@ def main():
     envs = [s.get("result") for s in res.get("steps", []) if s.get("do") == "env_windows" and isinstance(s.get("result"), dict)]
     smoke = not envs or any(e.get("smoke_env") for e in envs)
     events = [e for p in plays for e in p["result"]["events"]]
+    planned = len(__import__("typist").plan(7, 120)) if (HERE / "typist.py").is_file() else None
+    # Start of each key: the key's own NSEvent time from the in-app probe (event_uptime_ns, CLOCK_UPTIME_RAW ns, the
+    # clock of time.monotonic and of the recorder's frames), else t_post (before the CuaDriver call: an UPPER bound
+    # of the latency; the gate counts such a row only when it passes: review should-fix 5 at 8802cbd6e87).
+    starts = probe_starts(jdir / "probe.csv")
+    start_clock = "nsevent" if starts else "t_post"
+    for e in events:
+        hit = [t for t in starts if e["t_post"] - 0.002 <= t <= e["t_back"] + 0.002]
+        if hit:
+            e["t_start"] = hit[0]
+    if starts and sum(1 for e in events if "t_start" in e) < 0.95 * len(events):
+        start_clock = "t_post"  # the probe missed keys: do not mix clocks
+        for e in events:
+            e.pop("t_start", None)
     keys = {}
     if (jdir / "echo.jsonl").is_file():
-        sys.path.insert(0, str(HERE))
         import keys_check
         reads = [json.loads(l) for l in (jdir / "echo.jsonl").read_text().splitlines() if '"bytes"' in l]
         keys = keys_check.check(events, reads)
-    refreshes, stalls, refresh_ms, judged = [], [], None, 0
+    refreshes, stalls, refresh_ms, judged, missing = [], [], None, 0, 0
+    import judge as line_judge
+    import judge_keys
     for p in plays:
         label = p["result"].get("label")
         mov = jdir / "video" / f"{label}.mov"
         if not mov.is_file() or mov.stat().st_size == 0:
             continue
-        out = mov.with_suffix(".keys.json")
-        done = subprocess.run([VENV, str(HERE / "judge_keys.py"), "--video", str(mov), "--frames", f"{mov}.frames.json",
-                               "--result", str(jdir / "result.json"), "--label", label, "--out", str(out)],
-                              capture_output=True, text=True)
-        if done.returncode != 0 or not out.is_file():
-            continue
-        rep = json.loads(out.read_text())
+        rect = next(s["result"] for s in res["steps"] if s.get("do") == "typing_rect" and s.get("ok"))
+        meta = json.loads(Path(str(mov)[:-4] + ".meta.json").read_text())
+        scale = float(meta["start"]["scale"])
+        crop = [int(round(v * scale)) for v in rect["rect_points_top_left"]]
+        crop[2] -= crop[2] % 2
+        crop[3] -= crop[3] % 2
+        frames = line_judge.decode_band(mov, crop)
+        times = line_judge.movie_times(f"{mov}.frames.json")
+        m = min(len(frames), len(times))
+        cell = float(rect.get("cell_width") or 8) * scale
+        cell_h = float(rect.get("cell_height") or 16) * scale
+        ids = {(e["i"], e["t_post"]) for e in p["result"]["events"]}
+        part = [x for x in events if (x["i"], x["t_post"]) in ids]  # this part's keys, with their t_start
+        rep = judge_keys.judge(frames[:m], times[:m], part, cell, cell_h_px=cell_h)
+        (mov.with_suffix(".keys.json")).write_text(json.dumps(rep, indent=1))
         judged += 1
         refreshes += [r["refreshes"] for r in rep["keys"] if r.get("refreshes") is not None]
+        missing += rep["summary"]["missing"]
         stalls += [dict(s, part=label) for s in rep["stalls"]]
-        refresh_ms = rep["input"].get("refresh_ms")
-    source = "video" if judged == len(plays) and refreshes else "in-app"
+        refresh_ms = meta.get("refresh_ms")
+    loads = [s.get("result") or {} for s in res.get("steps", []) if s.get("do") == "load_stop" and s.get("result", {}).get("profile")]
+    load_ok = bool(loads) and all(l.get("alive_at_stop") and l.get("focus_changed") is False for l in loads)
+    hog = hog_held_gb(run)
+    lag = max([p["result"].get("post_late_ms", {}).get("max") or 0 for p in plays] or [0])
+    source = "video" if judged == len(plays) == 2 and (refreshes or missing) else "in-app"
     profile = a.journey.split("typing-load-")[1].split("-")[0].upper()
+    full = refreshes + [10 ** 6] * missing  # a key never shown is a breach (review must-fix 1)
+    refreshes = full
     row = {"profile": profile, "journey": a.journey, "build_job": row0.get("build_job"), "commit": row0.get("commit"),
            "kit": row0.get("kit"), "kit_dirty": row0.get("kit_dirty"), "smoke_env": smoke, "status": row0.get("status"),
            "refresh_ms": refresh_ms, "source": source, "keys": len(events),
            "p50_refreshes": pct(refreshes, 50), "p95_refreshes": pct(refreshes, 95), "p99_refreshes": pct(refreshes, 99),
-           "max_refreshes": max(refreshes) if refreshes else None, "missing_frames": len(events) - len(refreshes) if judged else None,
+           "max_refreshes": max(refreshes) if refreshes else None, "missing_frames": missing,
+           "start_clock": start_clock, "parts": len(plays), "planned_keys": planned,
+           "load_ok": load_ok if profile != "L0" else True, "loads": loads, "hog_held_gb": hog, "typist_late_ms_max": lag,
            "lost": keys.get("lost"), "merged": keys.get("merged"), "order_ok": keys.get("order_ok"),
            "pty_ms": keys.get("pty_ms"), "probe_contents_ms": probe_contents(jdir / "probe.csv"),
            "stalls_over_2": stalls[:50], "out": str(run), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}

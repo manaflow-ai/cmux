@@ -87,33 +87,43 @@ def step_load_start(j, step):
             "--seed", str(step.get("seed", 7)), "--duration", str(step.get("duration", 300)), "--out", str(out),
             "--keep", named["pane"]]
     stdout = open(out / f"{profile}.stdout", "w")
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=open(out / f"{profile}.stderr", "w"), text=True,
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=open(out / f"{profile}.stderr", "w"),
                             env=dict(os.environ, HOME=str(home)))
     j.load = {"proc": proc, "profile": profile, "out": out, "stdout": stdout}
     end = D.now() + float(step.get("ready_timeout", 180))
-    ready = None
+    ready, buf = None, b""
     import select
+    fd = proc.stdout.fileno()
+    # Raw reads of the pipe, split into lines here (a buffered readline could hide LOAD-READY: review 7).
     while D.now() < end and ready is None:
-        if proc.poll() is not None:
-            rest = proc.stdout.read() or ""
-            stdout.write(rest)
-            raise D.NotRun(f"load_start: {profile} ended (exit {proc.returncode}) before LOAD-READY: {rest[-300:]}")
-        r, _, _ = select.select([proc.stdout], [], [], 0.5)
+        r, _, _ = select.select([fd], [], [], 0.5)
         if r:
-            line = proc.stdout.readline()
-            stdout.write(line)
-            stdout.flush()
-            if line.startswith(f"LOAD-READY {profile}"):
-                ready = line.strip()
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                proc.wait(timeout=10)
+                stdout.write(buf.decode(errors="replace"))
+                raise D.NotRun(f"load_start: {profile} ended (exit {proc.returncode}) before LOAD-READY: "
+                               f"{buf.decode(errors='replace')[-300:]}")
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                text = line.decode(errors="replace")
+                stdout.write(text + "\n")
+                stdout.flush()
+                if text.startswith(f"LOAD-READY {profile}"):
+                    ready = text.strip()
     if ready is None:
         proc.send_signal(signal.SIGTERM)
         raise D.NotRun(f"load_start: no LOAD-READY {profile} within {step.get('ready_timeout', 180)} s")
-    # Keep the rest of its stdout flowing to the file (a full pipe would block the tool).
     import threading
 
-    def pump():
-        for line in proc.stdout:
-            stdout.write(line)
+    def pump(rest=buf):
+        stdout.write(rest.decode(errors="replace"))
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                return
+            stdout.write(chunk.decode(errors="replace"))
             stdout.flush()
     threading.Thread(target=pump, daemon=True).start()
     return {"profile": profile, "ready": ready, "t_ready": round(D.now(), 4), "argv": argv[3:], "pid": proc.pid}
@@ -124,6 +134,7 @@ def step_load_stop(j, step):
     if not load:
         return {"running": None}
     proc = load["proc"]
+    alive = proc.poll() is None  # the load ran until now (a tool that died early is no load: review 3)
     if proc.poll() is None:
         proc.send_signal(signal.SIGTERM)
         try:
@@ -137,7 +148,7 @@ def step_load_stop(j, step):
         focus_changed = json.loads(manifest.read_text()).get("focus_changed")
     except (OSError, ValueError):
         pass
-    return {"profile": load["profile"], "exit": proc.returncode, "focus_changed": focus_changed,
+    return {"profile": load["profile"], "exit": proc.returncode, "alive_at_stop": alive, "focus_changed": focus_changed,
             "manifest": str(manifest)}
 
 
@@ -173,7 +184,9 @@ def step_typist_play(j, step):
         t_back = D.now()
         played.append(dict(e, t_post=round(t_post, 6), t_back=round(t_back, 6), late_ms=round((t_post - due) * 1000, 2)))
     late = sorted(p["late_ms"] for p in played)
-    return {"label": step.get("label"), "events": played, "key_path": "real_hid", "start": round(start, 6),
+    calls = sorted(p["t_back"] - p["t_post"] for p in played)
+    return {"label": step.get("label"), "events": played, "planned": len(events),
+            "call_ms": {"p50": round(calls[len(calls) // 2] * 1000, 2), "max": round(calls[-1] * 1000, 2)}, "key_path": "real_hid", "start": round(start, 6),
             "post_late_ms": {"p50": late[len(late) // 2], "max": late[-1]},
             "clock": "time.monotonic (mach_absolute_time, the clock of frames.json t and of echo.py)"}
 

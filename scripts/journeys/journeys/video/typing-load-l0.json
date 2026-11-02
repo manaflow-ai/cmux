@@ -121,7 +121,8 @@
     {
       "do": "video_start",
       "name": "typing-load-l0-part1",
-      "seconds": 70
+      "seconds": 75,
+      "codec": "prores"
     },
     {
       "do": "typist_play",
@@ -139,7 +140,8 @@
     {
       "do": "video_start",
       "name": "typing-load-l0-part2",
-      "seconds": 70
+      "seconds": 75,
+      "codec": "prores"
     },
     {
       "do": "typist_play",
