@@ -64,7 +64,7 @@ struct ColdFocusedTerminalTypeAheadTests {
             let frames = Dictionary(uniqueKeysWithValues: terminals().map { ($0.pane, content.paneController(key: $0.pane)?.view.frame.minX ?? 0) })
             let ordered = terminals().sorted { frames[$0.pane, default: 0] < frames[$1.pane, default: 0] }
             let left = ordered[0], right = ordered[1]
-            PaneHandlers.focus(LayoutPaneID(right.pane), in: content)
+            PaneHandlers.focus(try #require(content.paneController(key: right.pane)).layoutPaneID, in: content)
             try await PinnedPageTests.until({ controller.focus.state.resolved == .terminal(pane: right.pane, tab: right.tab)
                     && (window.firstResponder as? NSView)?.isDescendant(of: content.paneController(key: right.pane)?.view ?? NSView()) == true },
                 report: { "waiting for the keyboard on the right terminal: \(describe())" })
