@@ -34,7 +34,7 @@ extension CloudService {
     func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
                          onSent: @escaping @MainActor @Sendable () async -> Void,
-                         persistSent: @escaping @MainActor @Sendable (String) async throws -> Void = { _ in }) async throws -> CloudMachine {
+                         persistSent: (@MainActor @Sendable (String) async throws -> Void)? = nil) async throws -> CloudMachine {
         let pinned = creation?.request ?? request
         let identity = installIdentity
         let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }
@@ -42,7 +42,7 @@ extension CloudService {
         // stays with the first send's team, and is refused if the token now bills another one.
         let team = try Self.appServerTeam(current: try await currentTeam(), request: pinned)
         let sent: @MainActor @Sendable () async throws -> Void = { [weak creation] in
-            try await persistSent(team)
+            try await persistSent?(team)
             creation?.markRequestSent(team: team)
             await onSent()
         }
