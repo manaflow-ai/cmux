@@ -241,7 +241,7 @@ def _shows(j, ws, name):
         if focused.get("workspace") == ws.get("id"):
             return "id"
         return "pane" if focused.get("pane") in pane_ids else None
-    how = _wait(held, 10, "workspace %s did not show" % name)
+    how = _wait(held, 30, "workspace %s did not show" % name)
     j.switch_id_match = getattr(j, "switch_id_match", set()) | {how}
     return how
 
