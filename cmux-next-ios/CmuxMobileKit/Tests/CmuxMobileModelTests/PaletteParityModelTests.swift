@@ -15,6 +15,9 @@ import Testing
         #expect(NewTabText("readme.md") == .prompt("readme.md"))
         #expect(NewTabText("node.js") == .prompt("node.js"))
         #expect(NewTabText("www.node.js") == .address(URL(string: "https://www.node.js")!))
+        #expect(NewTabText("1.2.3") == .prompt("1.2.3"))
+        #expect(NewTabText("v1.2") == .prompt("v1.2"))
+        #expect(NewTabText("10.0.0.5/admin") == .address(URL(string: "https://10.0.0.5/admin")!))
         #expect(NewTabText("fix the flaky test in auth.swift") == .prompt("fix the flaky test in auth.swift"))
         #expect(NewTabText.searchURL("swift testing")?.absoluteString == "https://duckduckgo.com/?q=swift%20testing")
     }
@@ -34,10 +37,26 @@ import Testing
         let list = ChatMuteList()
         var saved: [Set<String>] = []
         list.save = { saved.append($0) }
+        list.load([])
         list.setMuted(true, mac: "MAC-1", session: "s1")
         list.setMuted(true, mac: "mac-1", session: "s1")
         #expect(list.isMuted(mac: "Mac-1", session: "s1"))
         list.setMuted(false, mac: "mac-1", session: "s1")
         #expect(saved == [["mac-1|s1"], []])
+    }
+
+    /// A mute or unmute made before the stored list loaded survives the load (review of #32570).
+    @MainActor @Test func earlyChangesWinOverTheLaunchRead() {
+        let list = ChatMuteList()
+        var saved: [Set<String>] = []
+        list.save = { saved.append($0) }
+        list.setMuted(true, mac: "m", session: "new")
+        list.setMuted(false, mac: "m", session: "old")
+        #expect(saved.isEmpty)
+        list.load(["m|old", "m|kept"])
+        #expect(list.keys == ["m|new", "m|kept"])
+        #expect(saved == [["m|new", "m|kept"]])
+        list.load([])
+        #expect(list.keys == ["m|new", "m|kept"])
     }
 }

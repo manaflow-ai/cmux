@@ -43,7 +43,10 @@ public enum NewTabText: Equatable, Sendable {
         if text.wholeMatch(of: /[A-Za-z0-9.-]+:[0-9]{1,5}(\/.*)?/) != nil { return URL(string: "http://\(text)") }
         guard text.contains("."), !looksLikeFileName(text), !text.hasPrefix("."), !text.hasSuffix(".") else { return nil }
         let host = text.split(separator: "/", maxSplits: 1).first.map(String.init) ?? text
-        guard host.wholeMatch(of: /[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/) != nil else { return nil }
+        // A dotted host whose last label is a top-level domain (letters), or an IPv4 address:
+        // never a version (`1.2.3`, `v1.2`).
+        guard host.wholeMatch(of: /[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/) != nil
+            || host.wholeMatch(of: /[0-9]{1,3}(\.[0-9]{1,3}){3}/) != nil else { return nil }
         return URL(string: "https://\(text)")
     }
 

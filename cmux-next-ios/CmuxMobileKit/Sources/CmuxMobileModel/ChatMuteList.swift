@@ -11,16 +11,26 @@ public final class ChatMuteList {
 
     /// `mac|session` keys (`PushChatMutes.key`).
     public private(set) var keys: Set<String> = []
-    /// Saves a changed list (set by the shell).
+    /// Saves a changed list (set by the shell; it writes them in order, newest last).
     @ObservationIgnored public var save: (@MainActor (Set<String>) -> Void)?
+    /// Changes made before the stored list loaded: applied on top of it, so a launch-time
+    /// read never undoes a mute or unmute the person already made.
+    @ObservationIgnored private var early: [String: Bool]? = [:]
 
     public init() {}
 
     public static func key(mac: String, session: String) -> String { "\(mac.lowercased())|\(session)" }
 
-    /// The stored list, at launch.
-    public func load(_ keys: Set<String>) {
-        if self.keys != keys { self.keys = keys }
+    /// The stored list, at launch (once).
+    public func load(_ stored: Set<String>) {
+        guard let edits = early else { return }
+        early = nil
+        var merged = stored
+        for (key, on) in edits {
+            if on { merged.insert(key) } else { merged.remove(key) }
+        }
+        if keys != merged { keys = merged }
+        if !edits.isEmpty { save?(merged) }
     }
 
     public func isMuted(mac: String, session: String) -> Bool {
@@ -31,6 +41,10 @@ public final class ChatMuteList {
         let key = Self.key(mac: mac, session: session)
         guard on != keys.contains(key) else { return }
         if on { keys.insert(key) } else { keys.remove(key) }
+        if early != nil {
+            early?[key] = on
+            return
+        }
         save?(keys)
     }
 }

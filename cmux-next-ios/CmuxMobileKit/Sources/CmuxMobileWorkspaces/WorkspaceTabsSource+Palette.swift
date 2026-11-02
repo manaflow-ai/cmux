@@ -166,7 +166,7 @@ extension WorkspaceTabsSource {
             return
         }
         guard let destination = store.workspace(id: workspaceID) else {
-            return show("That workspace is no longer on \(macName).")
+            return show("That workspace is no longer listed.")
         }
         store.noteOpened(tabID: tabID, in: destination.id)
         guard let openWorkspace else { return show("Open \(destination.title) from Workspaces.") }

@@ -162,7 +162,11 @@ public final class WorkspaceSync {
             let setup = try await Task.detached { try Self.decodeSetup(replies.map { $0.map(\.data) }) }.value
             guard self.client === client else { return }
             identity = setup.identity
-            for (surface, state) in setup.agents.bySurface { notePrompt(surface, from: nil, to: state) }
+            // A reconnect's list counts a prompt only by its own time (a turn already running
+            // when the link came back is not a new prompt at the moment it is seen).
+            for (surface, state) in setup.agents.bySurface where state.updatedAt != nil {
+                notePrompt(surface, from: agents.bySurface[surface], to: state)
+            }
             agents.bySurface = setup.agents.bySurface
             let snapshot = try replies[4].get()
             let known = (tree?.workspaces ?? []).filter { $0.macID == macID }

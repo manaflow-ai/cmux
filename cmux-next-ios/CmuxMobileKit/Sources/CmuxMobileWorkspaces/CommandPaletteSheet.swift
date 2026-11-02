@@ -20,14 +20,14 @@ struct CommandPaletteSheet: View {
             List {
                 section(PaletteCommand.Section.actions, "Actions", rows)
                 section(.text, WorkspaceTabsSource.newTabFromTextTitle, rows)
-                section(.tabs, scope == .tabs ? "Tabs" : "Tabs in All Workspaces", rows)
+                section(.tabs, scope == .tabs ? "Tabs" : "Tabs in all workspaces", rows)
             }
             .listStyle(.insetGrouped)
             .overlay {
                 if rows.isEmpty {
                     if query.isEmpty {
                         if scope == .tabs {
-                            ContentUnavailableView("No Tabs", systemImage: "square.on.square",
+                            ContentUnavailableView("No tabs", systemImage: "square.on.square",
                                                    description: Text("This team's Macs list no tabs."))
                         }
                     } else {
@@ -112,17 +112,21 @@ private struct PaletteRow: View {
 }
 
 /// Cmd-Shift-P (the Mac's Command Palette…) and Cmd-K open the palette from a hardware
-/// keyboard. Zero-size, transparent buttons, so the keys are listed in the keyboard's
-/// shortcut overlay and never take a touch or a VoiceOver stop.
+/// keyboard. Cmd-K is left to a terminal on screen, where it is Ghostty's Clear Screen.
+/// Zero-size, transparent buttons, so the keys are listed in the keyboard's shortcut overlay
+/// and never take a touch or a VoiceOver stop.
 struct PaletteKeys: View {
     let source: WorkspaceTabsSource
 
     var body: some View {
+        let terminalShown = source.tabs.first { $0.id == source.activeTabID }?.kind == .terminal
         ZStack {
             Button("Command Palette") { source.openPalette() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
-            Button("Command Palette") { source.openPalette() }
-                .keyboardShortcut("k", modifiers: .command)
+            if !terminalShown {
+                Button("Search actions and tabs") { source.openPalette() }
+                    .keyboardShortcut("k", modifiers: .command)
+            }
         }
         .frame(width: 0, height: 0)
         .opacity(0)

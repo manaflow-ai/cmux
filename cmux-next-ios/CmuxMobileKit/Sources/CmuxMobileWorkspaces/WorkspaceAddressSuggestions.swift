@@ -39,7 +39,7 @@ public struct WorkspaceAddressSuggestions: View {
 
     private func otherWorkspacesSection(_ hits: [PaletteCommand]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            header("Other Workspaces")
+            header("Other workspaces")
             ForEach(hits) { hit in
                 Button {
                     // The field closes on the edited tab (its page unchanged), then the other workspace shows.
