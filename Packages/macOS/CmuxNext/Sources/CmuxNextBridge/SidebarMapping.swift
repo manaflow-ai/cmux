@@ -43,7 +43,7 @@ public struct SidebarMapping {
               tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
               tab.titleText.isEmpty || Self.trimmingSlash(tab.titleText) == cwd,
               tab.agent == nil, tab.agentSession == nil else { return false }
-        return label == URL(fileURLWithPath: cwd).lastPathComponent
+        return label == URL(fileURLWithPath: cwd).lastPathComponent || Self.trimmingSlash(label) == cwd
     }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later.
     public typealias RowSource = (WorkspaceModel, MachineID, @escaping SidebarRowFeed.Make) -> SidebarWorkspace
