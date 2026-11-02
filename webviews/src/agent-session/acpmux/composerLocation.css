@@ -1458,7 +1458,7 @@
   content: attr(data-section);
   position: absolute;
   top: -17px;
-  left: 8px;
+  left: calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));
   color: var(--agent-muted);
   font-size: var(--text-caption);
   font-weight: 600;

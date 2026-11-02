@@ -302,10 +302,17 @@ const applyMenuGridArm = (ctx: Parameters<Play>[0], arm: "legacy" | "shared" | "
         ? "var(--cmux-menu-highlight-inset)"
         : "var(--ui-row-padding-inline)";
   const gap = arm === "compact" ? "4px" : arm === "shared" ? "var(--cmux-menu-icon-gap)" : "8px";
+  const headingInset =
+    arm === "shared"
+      ? "calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding))"
+      : arm === "compact"
+        ? "var(--cmux-menu-highlight-inset)"
+        : "8px";
   style.dataset.galleryMenuGridArm = arm;
   style.textContent = `
     .acpmux-location-menu .acpmux-menu-item { padding-inline: ${inset}; }
     .acpmux-location-menu .acpmux-location-row { gap: ${gap}; }
+    .acpmux-location-menu .acpmux-location-name[data-section]::before { left: ${headingInset}; }
   `;
   ctx.document.head.append(style);
 };
