@@ -1,4 +1,4 @@
-fn configure_turns(mux: &Mux) {
+pub(crate) fn configure_turns(mux: &Mux) {
     mux.set_cloud_turn_config(
         CloudTurnConfig::from_lookup(|key| {
             Some(
@@ -61,7 +61,7 @@ fn preparation_capability() -> Value {
     cap
 }
 
-fn turn_command(command: &str, surface: SurfaceId) -> Value {
+pub(crate) fn turn_command(command: &str, surface: SurfaceId) -> Value {
     json!({"cmd":command,"surface":surface,"prompt_id":"p1","workspace":"ws_one",
         "machine":"vm_logical","generation":3,"attempt_id":"attempt_1",
         "authorization":preparation_capability()})

@@ -416,7 +416,7 @@ extension AgentTabStore {
                 host.cloudTurn = Self.turnForwarder(tab: key, services: services)
                 host.prepareCloudTurns = { [weak services] in
                     guard let services else { throw CancellationError() }
-                    try await Self.enrollTurnWorkspace(tab: key, services: services)
+                    try await Self.enrollTurnWorkspace(tab: key, services: services, reconnect: reconnect)
                 }
             }
             if started {
@@ -563,14 +563,28 @@ extension AgentTabStore {
 }
 
 extension AgentTabStore {
-    @MainActor private static func enrollTurnWorkspace(tab key: String, services: AppServices) async throws {
+    /// Enrolls the tab's workspace machine. A dropped link has no owner answer: it reconnects
+    /// first (as the attachment's own reconnect would), and the fresh link's owner is checked
+    /// before enrollment.
+    @MainActor private static func enrollTurnWorkspace(tab key: String, services: AppServices,
+                                                       reconnect: AgentSessionAttachClient.Reconnect?) async throws {
+        var scope = await ownedTurnScope(tab: key, services: services)
+        if scope == nil, let reconnect, await reconnect() {
+            scope = await ownedTurnScope(tab: key, services: services)
+        }
+        guard let (workspace, machine) = scope else { throw CloudTurnOwnerClient.Failure.scope }
+        try await services.cloud.enrollTurnWorkspace(workspace: workspace, machine: machine)
+    }
+
+    /// The tab's workspace and Cloud machine, read now, when that machine's link answers its owner.
+    @MainActor private static func ownedTurnScope(tab key: String, services: AppServices) async -> (String, CloudMachineSession)? {
         guard let (tab, pane) = services.locateTabOnAnyMachine(key),
               let daemon = try? services.machines.agentDaemon(forTab: tab),
               let machine = services.machines.session(daemon.machineID), machine.appLink != nil,
               let workspace = daemon.store.workspace(containing: pane.handle)?.resourceID,
               await CloudMachineLinks(appLink: machine.appLink, link: nil).ownerLink() != nil
-        else { throw CloudTurnOwnerClient.Failure.scope }
-        try await services.cloud.enrollTurnWorkspace(workspace: workspace.rawValue, machine: machine)
+        else { return nil }
+        return (workspace.rawValue, machine)
     }
 
     /// Resolves the pane's current machine and workspace on every send. Neither value is supplied
