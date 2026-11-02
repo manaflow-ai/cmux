@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4139510839501",
+  "notes": "notes/4139510839501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31766,
+      "title": "fix(next panes): a split of a still-moving pane starts the new pane and divider under it, across the split's axis too",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31834,
+      "title": "feat(ci): reuse trusted shared runner state across picker steps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31814,
+      "title": "Rail preview card: the chat under it blurs in see-through Chromium pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31707,
+      "title": "fix(focus): a reopened window's focused terminal is presented first, and keys typed before its surface wait for it (REOPEN-F4)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29083,
+      "title": "scripts/fuzz: shared R3a content check (the view's screen after a resize or reattach == the daemon's, row by row)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31559,
+      "title": "fix(terminal): pin keyed sends to a full terminal id and return the recovery target [carry of #30708]",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31753,
+      "title": "cmux NEXT: a window closed before quit stays closed after relaunch, with its workspaces (#31514)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31837,
+      "title": "fix(tabs): Cmd-W right after Cmd-T closes the new tab, not nothing (tip smoke red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31811,
+      "title": "perf(next panes): a zoom keeps the panes it covers, hidden, and the unzoom shows them again (stacked on #31708)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31675,
+      "title": "fix(agent-pane): relaunch hands the saved chat picture to Chromium without a flicker (carries #26594)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31833,
+      "title": "ci(cmux-next): report a failed same-tree cmux-tui once per marker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31757,
+      "title": "cmux-next: list acpmux sessions with terminal agents (#16417)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31773,
+      "title": "base red: acpmux process pages and retry delays without an index (panic ratchet 697 > 686, #30726, #31709)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31841,
+      "title": "fix cloud image settle when acpmux is absent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31853,
+      "title": "test(composer): an update's reload keeps a chat's text beside its chip (Leo ask-57e1c63246)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31754,
+      "title": "test(chat): account for transcript grid gaps in scroll oracle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31570,
+      "title": "Transcript: a fold change in a later row redraws the reused turns before it (follow-up to #30696)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31785,
+      "title": "ci: CI routers and report steps take hosted Ubuntu first as declared light jobs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31789,
+      "title": "agent pane: a subagent's line draws its own mark, not the chat bubble",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31838,
+      "title": "acpmux: team messaging is on wherever a team hub is configured, not a Labs opt-in",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
