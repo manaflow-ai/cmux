@@ -324,16 +324,15 @@ test("prompts the hold gives back go where they were typed, never into another c
   const held = [entry("a1", "chat-a"), entry("b1", "chat-b"), entry("new1", undefined), entry("a2", "chat-a")];
   const texts = (list: Entry[]) => list.map((item) => item.text);
   // Chat B shows: A's go into A's draft, B's into the composer, the new chat's wait for its own.
-  const showingB = whereHeldGoes(held, "chat-b", true, "/Users/you/a");
+  const showingB = whereHeldGoes(held, "chat-b", true);
   expect(texts(showingB.composer)).toEqual(["b1"]);
   expect(texts(showingB.drafts.get("chat-a")!)).toEqual(["a1", "a2"]);
   expect(texts(showingB.later)).toEqual(["new1"]);
-  // The new chat still shows: its prompt goes back into its composer; a new chat in another
-  // folder is not that chat.
-  expect(texts(whereHeldGoes(held, undefined, true, "/Users/you/a").composer)).toEqual(["new1"]);
-  const otherFolder = whereHeldGoes(held, undefined, true, "/Users/you/b");
-  expect(otherFolder.composer).toEqual([]);
-  expect(texts(otherFolder.later)).toEqual(["new1"]);
+  // The tab's new chat shows (its folder changed or not): its prompt goes back into its composer,
+  // as its typed text stays there.
+  const showingNew = whereHeldGoes(held, undefined, true);
+  expect(texts(showingNew.composer)).toEqual(["new1"]);
+  expect(texts(showingNew.drafts.get("chat-a")!)).toEqual(["a1", "a2"]);
   // No composer shows (a hand-off review in its place): every chat's go into its draft; the new
   // chat's wait for the next composer.
   const noComposer = whereHeldGoes(held, "chat-b", false);

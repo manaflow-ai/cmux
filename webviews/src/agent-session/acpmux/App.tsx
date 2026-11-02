@@ -1078,11 +1078,14 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
 const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
-/// The new chat's typed text, and its prompts held for a trust answer: the host keeps both, the held
-/// first, so a held prompt outlives the tab moving to another chat as typed text does.
-const newChatDraft = { typed: "", held: [] as string[] };
+/// The new chat's typed text, its prompts held for a trust answer, and held ones given back that no
+/// composer took (`kept`, a new chat in another folder by then): the host keeps them all, so a held
+/// prompt outlives the tab moving to another chat or folder as typed text does.
+const newChatDraft = { typed: "", held: [] as string[], kept: [] as string[] };
 const postNewChatDraft = () =>
-  postUnsentDraft([...newChatDraft.held, newChatDraft.typed].filter((part) => part.trim()).join("\n\n"));
+  postUnsentDraft(
+    [...newChatDraft.kept, ...newChatDraft.held, newChatDraft.typed].filter((part) => part.trim()).join("\n\n"),
+  );
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -9129,7 +9132,7 @@ function AcpmuxPane() {
   trustHeldNow.current = trustHeld;
   // A new chat's held prompts go to the host with its typed text the moment they are held, so the
   // tab keeps them when it moves to another chat (the host keeps no new-chat text past that).
-  const newChatHeldText = snapshot.sessionId ? undefined : trustHeld.rows.map((row) => row.prompt).join("\u0000");
+  const newChatHeldText = snapshot.sessionId ? undefined : trustHeld.newChatTexts.join("\u0000");
   useEffect(() => {
     if (newChatHeldText === undefined) return;
     const held = newChatHeldText ? newChatHeldText.split("\u0000") : [];
@@ -9137,6 +9140,14 @@ function AcpmuxPane() {
     newChatDraft.held = held;
     void postNewChatDraft();
   }, [newChatHeldText]);
+  // Held prompts given back while no composer of the new chat showed go into the next one's.
+  useEffect(() => {
+    const composer = composerHandle.current;
+    if (snapshot.sessionId || !composer || !newChatDraft.kept.length) return;
+    const kept = newChatDraft.kept;
+    newChatDraft.kept = [];
+    for (const text of kept) composer.restore(text, [], true);
+  }, [snapshot.sessionId]);
   holdRefused.current = (text, attachments, error, sentFrom) => {
     trustHeld.hold(text, attachments, sentFrom);
     if (error && typeof error === "object") heldRefusals.add(error);
@@ -9151,7 +9162,7 @@ function AcpmuxPane() {
     const composer = closing ? undefined : composerHandle.current;
     // The chips the shown chat's composer keeps, which its kept chips are now (keptAttachments.ts).
     const shownChips = closing ? (composerHandle.current?.wakeState().attachments ?? []) : undefined;
-    const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer), trustHeldCwd);
+    const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer));
     const writes: Promise<unknown>[] = [];
     // `restore` puts what comes back first: the last one goes in first, so they read in order;
     // behind what is there, the first goes first.
@@ -9160,7 +9171,7 @@ function AcpmuxPane() {
     // The next composer gets them only while that new chat shows, and they join its typed text
     // the host keeps. With another chat shown they stay in the host's draft of the new chat's tab,
     // where the hold put them (`newChatDraft`), out of that chat's composer.
-    const shownHere = where.later.filter((entry) => sentInHeld(entry, snapshot.sessionId, trustHeldCwd));
+    const shownHere = snapshot.sessionId === undefined ? where.later : [];
     if (shownHere.length) {
       heldBack.current = [
         ...(heldBack.current ?? []),
@@ -9169,8 +9180,10 @@ function AcpmuxPane() {
       const text = shownHere.map((entry) => entry.text).filter((part) => part.trim());
       newChatDraft.typed = [...text, newChatDraft.typed].filter((part) => part.trim()).join("\n\n");
       newChatDraft.held = newChatDraft.held.filter((part) => !shownHere.some((entry) => entry.text === part));
-      writes.push(postNewChatDraft());
     }
+    const elsewhere = where.later.filter((entry) => !shownHere.includes(entry));
+    newChatDraft.kept = [...newChatDraft.kept, ...elsewhere.map((entry) => entry.text).filter((part) => part.trim())];
+    if (shownHere.length || elsewhere.length) writes.push(postNewChatDraft());
     await Promise.all(
       [...where.drafts].map(async ([chat, list]) => {
         const text = list.map((entry) => entry.text).filter((part) => part.trim());
@@ -9200,7 +9213,9 @@ function AcpmuxPane() {
     // it does (AgentPageRetirer), and a write still queued then would be lost. Bounded like the
     // draft a quit settles (`until`, DRAFT_SETTLE_MS from the ask).
     await settledBy(Promise.all([settlePendingDraftWrites(), ...writes]), until);
-    return keptChips(where.later.flatMap((entry) => entry.attachments));
+    // Only the shown new chat's: the wake state is the shown chat's, and another chat's composer
+    // never takes a new chat's chips.
+    return keptChips(shownHere.flatMap((entry) => entry.attachments));
   };
   // A page that goes (its tab closed, the chat archived) puts its held prompts into their chats'
   // drafts first, as quitting does: they live only in this page. Its composer goes with it, so the
@@ -9555,7 +9570,10 @@ function AcpmuxPane() {
           if (isTrustRefusal(error)) trustAsk.refused(error, heldGoesAfterTrust);
           throw error;
         });
-        if (typeof started === "string" && started) made = started;
+        // A start cancelled (another chat picked meanwhile) sends nothing: it waits again, never
+        // into the chat shown by then.
+        if (typeof started !== "string" || !started) throw movedOn();
+        made = started;
       }
     }
     // The session acpmux took it in, as the send reports it: never the chat shown by then, which
@@ -11322,8 +11340,10 @@ function AcpmuxPane() {
             // `holdsPrompts`): their tickets live with it. Quitting puts them back into drafts, and
             // a new chat's that no composer took give their chips to the wake state.
             if (quitting !== true && held.holdsAny()) return { holdsPrompts: true };
+            // As a closing page's, the shown chat's go into its draft with what acpmux holds of it
+            // (another client's newer save kept), never through the composer's copy.
             const released = quitting === true ? held.release() : [];
-            const chips = released.length ? await giveBackTrustHeld.current(released, false, false, until) : [];
+            const chips = released.length ? await giveBackTrustHeld.current(released, false, true, until) : [];
             await settleDraftWithin(composerHandle.current, Math.max(0, until - Date.now()));
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();

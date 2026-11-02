@@ -44,14 +44,13 @@ export function sentIn(entry: TrustHeldPrompt, chat: string | undefined, cwd: st
 
 /// Where prompts the hold gives back go (a refusal, or a page that quits), each list in order: the
 /// shown chat's into its composer; another chat's into that chat's draft, as the shown chat's when
-/// no composer shows (a hand-off review in its place); a new chat's into the composer when that
-/// new chat (same folder) still shows, the only draft such a chat has, else into what the next
-/// composer of that new chat gets (`later`), never into another chat's composer.
+/// no composer shows (a hand-off review in its place); a new chat's into the composer while the
+/// tab's new chat shows (in whichever folder, as its typed text stays), the only draft such a chat
+/// has, else into what the tab's new chat gets next (`later`), never into another chat's composer.
 export function whereHeldGoes(
   entries: readonly TrustHeldPrompt[],
   shownChat: string | undefined,
   composerShows: boolean,
-  shownCwd?: string,
 ): { composer: TrustHeldPrompt[]; drafts: Map<string, TrustHeldPrompt[]>; later: TrustHeldPrompt[] } {
   const composer: TrustHeldPrompt[] = [];
   const drafts = new Map<string, TrustHeldPrompt[]>();
@@ -59,7 +58,7 @@ export function whereHeldGoes(
   for (const entry of entries) {
     if (entry.chat !== undefined && (entry.chat !== shownChat || !composerShows))
       drafts.set(entry.chat, [...(drafts.get(entry.chat) ?? []), entry]);
-    else if (composerShows && sentIn(entry, shownChat, shownCwd)) composer.push(entry);
+    else if (composerShows && shownChat === undefined) composer.push(entry);
     else later.push(entry);
   }
   return { composer, drafts, later };
@@ -249,9 +248,16 @@ export function useTrustHeldPrompts({
 
   // The same rows until a held prompt comes, goes or changes (the composer's snapshot keeps them).
   const rows = useMemo(() => heldQueueRows(held, chat, cwd), [held, chat, cwd]);
+  // Every new chat's held text, whichever folder it was picked in: the tab's one new chat keeps them.
+  const newChatTexts = useMemo(
+    () => held.filter((entry) => entry.chat === undefined).map((entry) => entry.text),
+    [held],
+  );
   return {
     /// The shown chat's held prompts, for the composer's queue.
     rows,
+    /// A new chat's held prompts' text, in order, for the host's copy of the tab's new chat.
+    newChatTexts,
     hold,
     /// Whether `id` is a held prompt (its queue row's actions are the pane's).
     has: (id: string) => now.current.held.some((entry) => entry.id === id),
