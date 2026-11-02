@@ -5,7 +5,7 @@ import { Notice } from "./NoticeSlot";
 /// and the app's button, off while its action runs.
 export function PaneNoticeCard({ notice, onAction }: { notice: PaneNotice; onAction(id: string): void }) {
   return (
-    <div className="acpmux-host-error acpmux-pane-notice" role="status" data-notice={notice.id}>
+    <output className="acpmux-host-error acpmux-pane-notice" data-notice={notice.id}>
       <div className="acpmux-host-error-card">
         <p className="acpmux-host-error-message">{notice.title}</p>
         {notice.detail && <p className="acpmux-host-error-hint">{notice.detail}</p>}
@@ -17,7 +17,7 @@ export function PaneNoticeCard({ notice, onAction }: { notice: PaneNotice; onAct
           </div>
         )}
       </div>
-    </div>
+    </output>
   );
 }
 
