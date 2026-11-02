@@ -14,7 +14,7 @@ struct PhoneTerminalStreamTests {
 
     private static func tree(terminals: Int = 1) -> DaemonTree {
         let tabs = (0..<terminals).map { index in
-            TabSnapshot(surface: UInt64(index + 1), terminalID: TerminalID(rawValue: String(format: "%032x", index + 1)),
+            TabSnapshot(surface: SurfaceID(rawValue: UInt64(index + 1)), terminalID: TerminalID(rawValue: String(format: "%032x", index + 1)),
                         title: "shell \(index)", cwd: "/work")
         }
         let screen = ScreenSnapshot(id: 1, active: true, activePane: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: tabs)])
