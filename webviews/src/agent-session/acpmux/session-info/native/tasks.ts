@@ -4,10 +4,11 @@
 // then the dev servers, then the running commands and the scheduled wakeups, then "N finished",
 // which opens into the ended commands. The lists, their order and their words come from the page's
 // own helpers, so both panels say the same thing.
+import { useState } from "react";
 import { formatDuration } from "../../conversation/turns";
 import type { StringKey, Translate } from "../../i18n";
 import { openCommand } from "../../processTerminal";
-import { modelName, phaseAgents, tally, workflowDetailRequest } from "../../summary/foldWorkflows";
+import { modelName, phaseAgents, phaseState, tally, workflowDetailRequest } from "../../summary/foldWorkflows";
 import type { SummaryBackgroundTask, SummaryWakeup } from "../../summary/sessionSummary";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
 import {
@@ -49,8 +50,7 @@ export type TasksSectionInput = {
   /// The finished commands show under "N finished"; `onFinishedOpen` flips it.
   finishedOpen?: boolean;
   onFinishedOpen?: (open: boolean) => void;
-  /// A workflow phase the person opened or closed, by `<workflow id>/<phase id>`; one not named opens
-  /// on its own while its agents run (WorkflowTasks `phaseOpensAlone`). `onPhase` flips one.
+  /// The page-owned phase choices, by `<workflow id>/<phase id>` (useNativeWorkflowPhases).
   phases?: Readonly<Record<string, boolean>>;
   onPhase?: (key: string, open: boolean) => void;
   /// Optimistic status for stop operations; parent clears on process/workflow snapshots.
@@ -206,9 +206,85 @@ export function tasksSection(
   };
 }
 
-/// WorkflowTasks' rows: "N running" and "N finished" heads when both show, each workflow (its time,
-/// Stop while it runs, its counts under it), its phases (indent 1, a click folds one) and an open
-/// phase's agents (indent 2), then "Up next".
+type PhaseChoice = { started: boolean; open: boolean };
+export type NativeWorkflowPhaseChoices = Readonly<Record<string, PhaseChoice>>;
+
+/// The same mounted-phase lifetime as WorkflowPhaseRow: pending rows start closed, and the first
+/// agent starting opens a running phase. Later agent/count changes keep the person's fold choice.
+export function reconcileNativeWorkflowPhases(
+  workflows: readonly WorkflowSummary[],
+  previous: NativeWorkflowPhaseChoices,
+): NativeWorkflowPhaseChoices {
+  const next: Record<string, PhaseChoice> = {};
+  let changed = false;
+  for (const workflow of workflows) {
+    for (const phase of workflow.phases) {
+      const key = `${workflow.id}/${phase.id}`;
+      const agents = phaseAgents(workflow, phase);
+      const started = phaseState(agents) !== "pending";
+      const was = previous[key];
+      const opens = workflow.state === "running" && tally(agents).running > 0;
+      next[key] = !was
+        ? { started, open: opens }
+        : was.started !== started
+          ? { started, open: started ? opens : was.open }
+          : was;
+      if (next[key] !== was) changed = true;
+    }
+  }
+  return changed || Object.keys(next).length !== Object.keys(previous).length ? next : previous;
+}
+
+/// Keep folds in the page; Swift only sends the phase's action id back. Pass no workflows when the
+/// section body unmounts, matching the web section's phase children being removed.
+export function useNativeWorkflowPhases(workflows: readonly WorkflowSummary[]) {
+  const [choices, setChoices] = useState<NativeWorkflowPhaseChoices>({});
+  const next = reconcileNativeWorkflowPhases(workflows, choices);
+  if (next !== choices) setChoices(next);
+  return {
+    phases: Object.fromEntries(Object.entries(next).map(([key, choice]) => [key, choice.open])),
+    onPhase: (key: string, open: boolean) =>
+      setChoices((current) => {
+        const choice = current[key];
+        return choice && choice.open !== open ? { ...current, [key]: { ...choice, open } } : current;
+      }),
+  };
+}
+
+const workflowCounts = (t: Translate, agents: readonly WorkflowAgent[]) => {
+  const counts = tally(agents);
+  return [
+    counts.running > 0 && t("summary.subagents.running", { n: counts.running }),
+    counts.queued > 0 && t("workflow.queued", { n: counts.queued }),
+    counts.done > 0 && t("summary.subagents.done", { n: counts.done }),
+    counts.failed > 0 && t("summary.subagents.failed", { n: counts.failed }),
+  ].filter((part): part is string => typeof part === "string");
+};
+
+const workflowStateWord = (t: Translate, state: WorkflowAgent["state"]): string => {
+  if (state === "running") return t("subagents.state.running");
+  if (state === "completed") return t("subagents.state.completed");
+  if (state === "failed") return t("subagents.state.failed");
+  if (state === "cancelled") return t("subagents.state.cancelled");
+  if (state === "waiting" || state === "pending") return t("workflow.agentQueued");
+  if (state === "paused") return t("goal.paused");
+  return t("inspector.unknown");
+};
+
+const workflowAgentSymbol = (state: WorkflowAgent["state"]) =>
+  state === "completed" ? "checkmark" : state === "failed" || state === "cancelled" ? "xmark" : "circle";
+
+const phaseMark = (state: WorkflowAgent["state"]): NativeInfoTone =>
+  state === "running" || state === "paused"
+    ? "accent"
+    : state === "completed"
+      ? "done"
+      : state === "failed" || state === "cancelled"
+        ? "failed"
+        : "muted";
+
+/// WorkflowTasks' rows: running and finished groups, visible descriptions, every phase in source
+/// order (including pending ones), and an open phase's agents. Empty phases have nothing to open.
 function workflowRows(
   input: TasksSectionInput,
   actions: NativeInfoActions,
@@ -222,17 +298,19 @@ function workflowRows(
   const both = running.length > 0 && finished.length > 0;
   const workflow = (item: WorkflowSummary) => {
     const live = isRunning(item);
-    const elapsed = item.elapsedMs ?? (item.startedAt !== undefined ? Math.max(0, input.now - item.startedAt) : undefined);
+    const elapsed =
+      item.elapsedMs ?? (item.startedAt !== undefined ? Math.max(0, input.now - item.startedAt) : undefined);
     const counts = tally(item.agents);
-    const countLine = [
-      counts.running > 0 && t("summary.subagents.running", { n: counts.running }),
-      counts.queued > 0 && t("workflow.queued", { n: counts.queued }),
-      counts.done > 0 && t("summary.subagents.done", { n: counts.done }),
-      counts.failed > 0 && t("summary.subagents.failed", { n: counts.failed }),
-    ].filter((part): part is string => typeof part === "string");
-    const meta = item.state === "running"
-      ? [...countLine, ...(item.tokens !== undefined ? [t("subagents.tokens", { n: item.tokens, tokens: compactTokens(item.tokens) })] : [])]
-      : [t("workflow.kind"), item.state === "completed" ? t("bgTask.state.completed") : item.state === "failed" ? t("subagents.state.failed") : item.state === "cancelled" ? t("subagents.state.cancelled") : t("inspector.unknown"), t("subagents.pill", { n: counts.total }), ...(item.tokens !== undefined ? [t("subagents.tokens", { n: item.tokens, tokens: compactTokens(item.tokens) })] )];
+    const tokens =
+      item.tokens !== undefined ? [t("subagents.tokens", { n: item.tokens, tokens: compactTokens(item.tokens) })] : [];
+    const meta = live
+      ? [...workflowCounts(t, item.agents), ...tokens]
+      : [
+          t("workflow.kind"),
+          item.state === "completed" ? t("bgTask.state.completed") : workflowStateWord(t, item.state),
+          t("subagents.pill", { n: counts.total }),
+          ...tokens,
+        ];
     const onStop = input.onStopWorkflow;
     rows.push({
       id: `workflow:${item.id}`,
@@ -241,67 +319,89 @@ function workflowRows(
       ...(meta.length > 0 ? { subtitle: meta.join(" · ") } : {}),
       ...(elapsed !== undefined ? { trailing: formatDuration(elapsed) } : {}),
       tone: WORKFLOW_TONE[item.state],
-      ...(item.description ? { help: item.description } : {}),
       ...(live && onStop ? { buttons: [stop(item.id, item.title, onStop, `tasks.stopWorkflow:${item.id}`)] } : {}),
     });
-    const next = live ? item.phases.filter((phase) => phase.state === "pending") : [];
-    const listed = live ? item.phases.filter((phase) => !next.includes(phase)) : item.phases;
-    for (const phase of listed) {
+    if (item.description)
+      rows.push({
+        id: `workflowDescription:${item.id}`,
+        title: item.description,
+        help: item.description,
+        tone: "muted",
+        indent: 1,
+      });
+    for (const phase of item.phases) {
       const agents = phaseAgents(item, phase);
       const counts = tally(agents);
       const key = `${item.id}/${phase.id}`;
       const open = input.phases?.[key] ?? (live && counts.running > 0);
       const onPhase = input.onPhase;
       const label = live
-        ? [counts.running > 0 && t("summary.subagents.running", { n: counts.running }), counts.queued > 0 && t("workflow.queued", { n: counts.queued }), counts.done > 0 && t("summary.subagents.done", { n: counts.done }), counts.failed > 0 && t("summary.subagents.failed", { n: counts.failed })].filter(Boolean).join(" · ")
-        : counts.total > 0 ? `${counts.done}/${counts.total}` : "";
+        ? workflowCounts(t, agents).join(" · ")
+        : counts.total > 0
+          ? `${counts.done}/${counts.total}`
+          : "";
       rows.push({
         id: `phase:${key}`,
-        symbol: open ? "chevron.down" : "chevron.right",
+        ...(agents.length > 0 ? { symbol: open ? "chevron.down" : "chevron.right" } : {}),
         title: phase.name || t("workflow.unassigned"),
         ...(label ? { trailing: label } : {}),
-        tone: WORKFLOW_TONE[phase.state],
+        marks: agents.map((agent) => phaseMark(agent.state)),
         indent: 1,
-        ...(onPhase ? { action: actions.add(`tasks.phase:${key}`, () => onPhase(key, !open)) } : {}),
+        ...(agents.length > 0 && onPhase
+          ? { action: actions.add(`tasks.phase:${key}`, () => onPhase(key, !open)) }
+          : {}),
       });
       if (!open) continue;
       for (const agent of agents) {
-        const modelEffort = [agent.model ? modelName(agent.model) : undefined, agent.effort].filter((value): value is string => Boolean(value)).join(" · ");
+        const modelEffort = [agent.model ? modelName(agent.model) : undefined, agent.effort]
+          .filter((value): value is string => Boolean(value))
+          .join(" · ");
         const model = modelEffort ? t("workflow.model", { model: modelEffort }) : undefined;
-        const message = agent.lastMessage ?? agent.doing;
-        const elapsed = agent.elapsedMs ?? (agent.state === "running" && agent.startedAt !== undefined ? Math.max(0, input.now - agent.startedAt) : undefined);
+        const message = (agent.state === "failed" ? agent.error : undefined) ?? agent.lastMessage ?? agent.doing;
+        const elapsed =
+          agent.elapsedMs ??
+          (agent.state === "running" && agent.startedAt !== undefined
+            ? Math.max(0, input.now - agent.startedAt)
+            : undefined);
         const onOpen = input.onOpenWorkflowAgent;
         const openable = Boolean(onOpen && workflowDetailRequest(item, agent));
+        const time =
+          agent.state === "waiting" || agent.state === "pending" || elapsed === undefined
+            ? undefined
+            : formatDuration(elapsed);
+        const state = workflowStateWord(t, agent.state);
         rows.push({
           id: `workflowAgent:${item.id}/${agent.id}`,
-          symbol: "bubble.left",
+          symbol: workflowAgentSymbol(agent.state),
           title: agent.name,
           ...(model ? { detail: model } : {}),
-          ...(message ? { subtitle: message, help: message } : {}),
-          trailing: [
-            agent.state === "running" ? t("subagents.state.running") : agent.state === "completed" ? t("subagents.state.completed") : agent.state === "failed" ? t("subagents.state.failed") : agent.state === "cancelled" ? t("subagents.state.cancelled") : agent.state === "paused" ? t("goal.paused") : t("workflow.agentQueued"),
-            agent.state === "waiting" || agent.state === "pending" || elapsed === undefined ? undefined : formatDuration(elapsed),
-          ].filter(Boolean).join(" · "),
+          ...(message ? { subtitle: message } : {}),
+          trailing: [state, time].filter(Boolean).join(" · "),
+          help: [agent.name, model, message, state, time].filter(Boolean).join(", "),
           tone: WORKFLOW_TONE[agent.state],
           indent: 2,
           ...(openable
-            ? { action: actions.add(`tasks.openWorkflowAgent:${item.id}/${agent.id}`, () => onOpen!(agent)) }
+            ? {
+                action: actions.add(`tasks.openWorkflowAgent:${item.id}/${agent.id}`, () => onOpen!(agent)),
+              }
             : {}),
         });
       }
     }
-    if (next.length > 0)
-      rows.push({
-        id: `upNext:${item.id}`,
-        title: t("workflow.upNext", { phases: next.map((phase) => phase.name).join(", ") }),
-        tone: "muted",
-        indent: 1,
-      });
   };
-  if (both) rows.push({ id: "workflows.running", title: t("rail.running", { count: running.length }), tone: "muted" });
+  if (both)
+    rows.push({
+      id: "workflows.running",
+      title: t("rail.running", { count: running.length }),
+      tone: "muted",
+    });
   running.forEach(workflow);
   if (both)
-    rows.push({ id: "workflows.finished", title: t("rail.finished", { count: finished.length }), tone: "muted" });
+    rows.push({
+      id: "workflows.finished",
+      title: t("rail.finished", { count: finished.length }),
+      tone: "muted",
+    });
   finished.forEach(workflow);
   return rows;
 }
