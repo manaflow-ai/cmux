@@ -106,9 +106,11 @@ import os
         let frames = await Self.launch(directory)
         #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.held != nil)
-        // The attach answers late (a daemon that restores hundreds of workspaces): longer than the old 3 s limit.
-        try await Task.sleep(for: .milliseconds(3_500))
-        #expect(pane.held != nil, "the pane showed its empty terminal (a cursor box) while the attach was still pending")
+        // The attach answers late (a daemon that restores hundreds of workspaces): nothing but the terminal's
+        // content may end the hold, so no timer runs for it before that content comes.
+        #expect(!pane.session.frameHold.hasDeadline,
+                "a timer ends the last frame before the attach answers: the pane then shows its empty terminal (a cursor box)")
+        #expect(pane.held != nil)
         #expect(pane.session.frameHold.isHolding)
     }
 

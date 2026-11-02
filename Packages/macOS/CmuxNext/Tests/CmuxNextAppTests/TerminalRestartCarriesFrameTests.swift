@@ -56,23 +56,33 @@ struct TerminalRestartCarriesFrameTests {
                 "the new view of the terminal shows an empty pane: the last frame went with the old view")
     }
 
-    /// A view replaced because the tab now shows ANOTHER terminal (its surface changed) must not show
-    /// the old terminal's frame over the new one.
+    /// A view replaced because the tab now shows ANOTHER terminal (a new generation and another
+    /// terminal id under the same tab id) must not show the old terminal's frame over the new one.
     @Test func anotherTerminalInTheTabDoesNotShowTheOldTerminalsFrame() throws {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let cache = services.cache
         let daemon = DaemonService()
         let store = daemon.store
+        let tabID = "tab_0123456789abcdef0123456789abcdef" as ResourceID
+        func tree(_ generation: String, surface: UInt64, terminal: ResourceID) -> DaemonTree {
+            let tab = TabSnapshot(surface: SurfaceID(rawValue: surface), tabResourceID: tabID, contentResourceID: terminal,
+                                  terminalResourceID: terminal, title: "~")
+            let pane = PaneSnapshot(id: 1, tabs: [tab])
+            let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+            return DaemonTree(generation: DaemonGeneration(rawValue: generation),
+                              workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])])
+        }
         store.connectionState = .connected(Self.connected("g1"))
-        store.apply(snapshot: Self.tree(generation: "g1"))
+        store.apply(snapshot: tree("g1", surface: 1, terminal: "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
         let tab = try #require(store.tab(surface: 1))
         let first = cache.terminal(for: tab, daemon: daemon)
         #expect(TerminalLaunchFrame(try Self.frame()).show(on: first.session))
 
-        // Same daemon, same tab id: the tab now shows another terminal (another surface).
-        store.apply(snapshot: Self.tree(generation: "g1", surface: 2))
+        // The daemon restarts and the tab now shows another terminal.
+        store.connectionState = .connected(Self.connected("g2"))
+        store.apply(snapshot: tree("g2", surface: 2, terminal: "term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
         let moved = try #require(store.tab(surface: 2))
-        guard moved.id == tab.id else { return }  // a store that gives the tab a new id never replaces the view
+        try #require(moved.id == tab.id, "the tab record changed its id: the view would never be replaced")
         let second = cache.terminal(for: moved, daemon: daemon)
         try #require(second !== first)
         #expect(!second.session.frameHold.isHolding, "another terminal shows the old terminal's frame")

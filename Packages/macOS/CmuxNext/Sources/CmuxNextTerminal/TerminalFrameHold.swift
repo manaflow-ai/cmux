@@ -40,6 +40,9 @@ final class TerminalFrameHold {
     /// Whether a held frame is on screen.
     var isHolding: Bool { view.superview != nil }
 
+    /// Whether a timer will end the hold (only once its content is queued: ``limit``).
+    var hasDeadline: Bool { deadline.isScheduled }
+
     /// The frame on screen while a hold shows one, as the pane shows it; nil while nothing is held.
     var heldFrame: HeldFrame? { isHolding ? held : nil }
 
@@ -182,7 +185,7 @@ private final class HeldFrameView: NSView {
 }
 
 /// A pane's shown frame handed from a terminal session to the one that replaces it on the same tab
-/// (``TerminalSession/carriedFrame()``, ``TerminalSession/holdCarriedFrame(_:)``).
+/// (``TerminalSession/carriedFrame(for:)``, ``TerminalSession/showsTerminal(_:carrying:)``).
 @MainActor
 public struct TerminalCarriedFrame {
     let frame: TerminalFrameHold.HeldFrame

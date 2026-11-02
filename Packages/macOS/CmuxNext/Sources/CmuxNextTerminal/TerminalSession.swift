@@ -385,6 +385,10 @@ public final class TerminalSession {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
     }
 
+    /// Whether the pane shows a held frame (a restored, evicted or replaced terminal whose attach has
+    /// not drawn its content yet): its hover card pictures that frame (``shownFrameInBackground(maxPixelSize:)``).
+    public var showsHeldFrame: Bool { frameHold.isHolding }
+
     /// What the pane shows now, rendered off the main thread: while the frame hold is on screen (a
     /// restored, evicted or replaced terminal whose attach has not drawn its content yet), the held
     /// frame, never the empty surface under it; else ``snapshotInBackground(maxPixelSize:)``. The quit
@@ -395,7 +399,10 @@ public final class TerminalSession {
         case nil:
             return await snapshotInBackground(maxPixelSize: maxPixelSize)
         case .image(let image)?:
-            return image
+            guard CGFloat(max(image.width, image.height)) > maxPixelSize else { return image }
+            return await Task.detached(priority: .utility) {
+                TerminalSnapshotRenderer.render(image, maxPixelSize: maxPixelSize)
+            }.value
         case .surface(let surface)?:
             let frame = SendableSurface(surface: surface)
             return await Task.detached(priority: .utility) {
@@ -413,6 +420,7 @@ public final class TerminalSession {
         closeCancels.forEach { $0.cancel() }
         closeCancels = []
         input.finish()
+        frameHold.end() // a held frame has no time limit: it goes with the session, not with the object
         surfaceView.removeFromSuperview()
     }
 
