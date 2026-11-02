@@ -112,6 +112,28 @@ fn opts(argv: &[String]) -> Result<Opts, String> {
     })
 }
 
+/// Writes the whole frame. A non-blocking stdout that is full (WouldBlock) waits until it can write
+/// again, as tuikit.py's Out does with select; any other error ends the program.
+fn write_frame(out: &mut impl Write, mut bytes: &[u8]) -> std::io::Result<()> {
+    while !bytes.is_empty() {
+        match out.write(bytes) {
+            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(n) => bytes = bytes.get(n..).unwrap_or_default(),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => sys::wait_writable(1),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    loop {
+        match out.flush() {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => sys::wait_writable(1),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let o = match opts(&argv) {
@@ -161,6 +183,7 @@ fn main() -> ExitCode {
             ("pace", Value::Str(format!("{:?}", o.mode).to_lowercase())),
             ("spin_ms", Value::Num(o.spin_ms, 3)),
             ("engine", Value::Str("rust".into())),
+            ("darwin_bg", Value::Str(sys::darwin_bg().into())),
             ("pid", Value::Int(i64::from(std::process::id()))),
         ],
     );
@@ -195,11 +218,7 @@ fn main() -> ExitCode {
             drawn - t0
         };
         let text = g.frame(k, t);
-        if out
-            .write_all(text.as_bytes())
-            .and_then(|()| out.flush())
-            .is_err()
-        {
+        if write_frame(&mut out, text.as_bytes()).is_err() {
             break; // the reader went away (EPIPE): end quietly
         }
         if late > period {
@@ -260,6 +279,7 @@ fn main() -> ExitCode {
             ("late_over_one_frame", Value::Int(late_frames as i64)),
             ("verdict", Value::Str(verdict.into())),
             ("engine", Value::Str("rust".into())),
+            ("darwin_bg", Value::Str(sys::darwin_bg().into())),
         ],
     );
     log.flush();
