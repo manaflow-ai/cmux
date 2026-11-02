@@ -2342,6 +2342,13 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
     (row.kind === "activity" && !isEditRow(row)));
+/// A step row by its layout mark: a step row above, or the running turn's line right under one
+/// (model.ts `isLiveStep`, which `layoutConversation` marks MARK_STEP), so the live line and its
+/// neighbours carry the after-step and before-step classes the layout implies (#31769).
+const isStepAt = (rows: readonly AcpmuxRow[], index: number) => {
+  const row = rows[index];
+  return isStepRow(row) || (row?.below === true && isLiveStep(row, prevDrawnRow(rows, index)));
+};
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -5486,10 +5493,10 @@ export function VirtualTranscript({
                       row={row}
                       kind={kind}
                       joinsPrevious={
-                        (isStepRow(row) && isStepRow(rows[absoluteIndex - 1])) ||
+                        (isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex - 1)) ||
                         isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
                       }
-                      joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
+                      joinsNext={isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex + 1)}
                       beforeFooter={isBeforeFooter(row, next)}
                       beforeIndicator={
                         next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR
