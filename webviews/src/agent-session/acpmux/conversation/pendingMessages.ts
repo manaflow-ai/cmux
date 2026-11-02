@@ -16,6 +16,7 @@
 //
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
+import { batchLaneNotices, flattenInboxRows, noticeOf } from "./laneNoticeBatches";
 import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
 
 /// The group's row id: one while any message waits.
@@ -23,7 +24,9 @@ export const PENDING_MESSAGES_ROW_ID = "pending-messages";
 
 /// Whether `row` is another session's message the agent has not read yet in the running turn.
 export const isWaitingMessage = (row: AcpmuxRow) =>
-  row.kind === "user" && row.steer === "waiting" && row.incoming?.kind === "message";
+  row.kind === "user" &&
+  row.steer === "waiting" &&
+  (row.incoming?.kind === "message" || row.incoming?.kind === "inbox");
 
 /// A waiting message's prompt id: the queue entry's, or the steer's.
 const promptIdOf = (row: AcpmuxRow) => row.queuedMessage?.promptId ?? row.steerPromptId;
@@ -52,11 +55,18 @@ export function searchablePendingRows(
   sourceRows: readonly AcpmuxRow[],
   queuedRows: readonly AcpmuxRow[],
 ): readonly AcpmuxRow[] {
-  const all = queuedRows.length ? [...sourceRows, ...queuedRows] : sourceRows;
+  const raw = queuedRows.length ? [...sourceRows, ...queuedRows] : sourceRows;
+  const all = flattenInboxRows(raw);
   const waiting = all.filter((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row));
-  if (waiting.length < 2) return all;
+  if (waiting.length === 0) return all;
   const kept = new Set(dedupeMessages(waiting));
-  return all.filter((row) => (row.kind !== QUEUED_MESSAGE && !isWaitingMessage(row)) || kept.has(row));
+  const visible = flattenInboxRows([...kept]);
+  return all
+    .filter(
+      (row) =>
+        (row.kind !== QUEUED_MESSAGE && !isWaitingMessage(row)) || (kept.has(row) && noticeOf(row)?.kind !== "inbox"),
+    )
+    .concat(visible.filter((row) => !kept.has(row)));
 }
 
 /// The key a message's sender is grouped under.
@@ -89,17 +99,22 @@ export function pendingMessagesRow(
   if (members.length === 0) return undefined;
   const held = last?.pendingMessages?.rows;
   if (held && held.length === members.length && held.every((row, index) => row === members[index])) return last;
+  const flat = members.some((row) => row.inboxDelivery === true || noticeOf(row)?.kind === "inbox");
+  const flattened = flattenInboxRows(members);
+  // Inbox deliveries already form the flat message run required by the waiting card. Keep
+  // report batching out of that run so no notice/report group can nest inside the outer card.
+  const displayRows = flat ? flattened : batchLaneNotices(flattened);
   return {
     id: PENDING_MESSAGES_ROW_ID,
     version: ++version,
     at: members[0]!.at,
     kind: PENDING_MESSAGES,
     // Find counts the messages' words; the group opens for a match in one of them.
-    text: members
+    text: displayRows
       .map((row) => (row.incoming?.kind === "message" ? row.incoming.message.text : (row.text ?? "")))
       .join("\n\n"),
     untyped: true,
-    joined: members.map((row) => row.id),
-    pendingMessages: { rows: members },
+    joined: [...members.map((row) => row.id), ...displayRows.map((row) => row.id)],
+    pendingMessages: { rows: members, displayRows, ...(flat ? { flat: true } : {}) },
   };
 }

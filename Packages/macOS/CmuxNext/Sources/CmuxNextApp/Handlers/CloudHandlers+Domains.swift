@@ -29,5 +29,41 @@ extension CloudHandlers {
                 return CloudAnswer(title: CloudStrings.publicationsTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"), fields: ["count": .int(publications.count)])
             }
         }
+        bindAPIActions(into: registry, context: context, reason: reason)
+    }
+
+    /// A machine port as an API behind a key (#25594). The key is answered once: a person sees
+    /// it in the copyable sheet, a CLI or agent run gets it as `key`; the server keeps its hash.
+    static func bindAPIActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
+        let cloud = context.services.cloud
+        bind("cloudProvisionAPI", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            guard let port = invocation["port"]?.intValue, (1...65535).contains(port) else { throw ActionFailure(message: CloudStrings.invalidPort) }
+            let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+            answer("provision Cloud API", invocation, context) {
+                let api = try await cloud.api.provisionAPI(machineID: session.machineID, port: port, keyName: name?.isEmpty == false ? name : nil)
+                return CloudAnswer(title: CloudStrings.apiTitle, text: CloudStrings.provisionedAPI(url: api.url, key: api.token, cookie: api.cookie),
+                                   fields: machineFields(session.machineID, api.actionFields.mapValues(ActionResultValue.string)))
+            }
+        }
+        bind("cloudAPIKeyList", registry, reason: reason) { invocation in
+            let publication = try idArgument(invocation, CloudStrings.publicationRequired)
+            answer("list Cloud API keys", invocation, context) {
+                let keys = try await cloud.api.listPublicationAPIKeys(publication)
+                let lines = keys.map { key in "\(key.id) \(key.name ?? "") (…\(key.hint ?? ""))" }
+                return CloudAnswer(title: CloudStrings.apiKeysTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"), fields: ["count": .int(keys.count)])
+            }
+        }
+        bind("cloudAPIKeyRevoke", registry, reason: reason) { invocation in
+            let publication = try idArgument(invocation, CloudStrings.publicationRequired)
+            guard let keyID = invocation["key"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !keyID.isEmpty else {
+                throw ActionFailure(message: CloudStrings.apiKeyRequired)
+            }
+            answer("revoke Cloud API key", invocation, context) {
+                let key = try await cloud.api.revokePublicationAPIKey(publication, keyID: keyID)
+                return CloudAnswer(title: CloudStrings.apiKeysTitle, text: CloudStrings.apiKeyRevoked(key.id),
+                                   fields: ["api_key_id": .string(key.id), "revoked_at": .string(key.revokedAt ?? "")])
+            }
+        }
     }
 }

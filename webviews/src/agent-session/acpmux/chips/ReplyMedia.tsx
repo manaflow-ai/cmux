@@ -23,6 +23,7 @@ import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
 
 export { mediaKind } from "./mediaKind";
@@ -100,7 +101,20 @@ function useMediaLoad(source: string, auto: boolean) {
 
 /// `path` is a local file (absolute or from the session's folder); `fallback` is how it draws when
 /// the pane will not play it.
-export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
+export function ReplyMedia(props: { path: string; alt: string; fallback?: ReactNode }) {
+  // Read only (a guest), the file is on the owner's machine: its name, and nothing asks the host
+  // where it is or for its bytes.
+  const readOnly = useTranscriptReadOnly();
+  if (readOnly)
+    return (
+      <span className={`cv-media is-${mediaKind(props.path) ?? "video"}`}>
+        <span className="cv-media__name">{props.alt || pathName(props.path)}</span>
+      </span>
+    );
+  return <HostReplyMedia {...props} />;
+}
+
+function HostReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
   const kind = mediaKind(path) ?? "video";
   const { info, answered } = usePathInfo(path);
   const place = info?.place;
@@ -119,7 +133,14 @@ export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string;
 }
 
 /// Web media at `url`; `fallback` is its link, for `never` and a failed load.
-export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; fallback?: ReactNode }) {
+export function RemoteMedia(props: { url: string; alt: string; fallback?: ReactNode }) {
+  // Read only, media the owner's machine would fetch stays its link: no host load, cached or not.
+  const readOnly = useTranscriptReadOnly();
+  if (readOnly) return <>{props.fallback}</>;
+  return <HostRemoteMedia {...props} />;
+}
+
+function HostRemoteMedia({ url, alt, fallback }: { url: string; alt: string; fallback?: ReactNode }) {
   const t = useT();
   const policy = useReplyPolicy();
   const kind = mediaKind(webURL(url)?.pathname ?? "") ?? "video";
@@ -327,7 +348,7 @@ function useMediaPreviewAllowed(): boolean {
 /// A video before it plays: its poster frame (the frame just after the start, read with the
 /// metadata), a glass play button in its middle and its length in a corner. The pointer resting on
 /// it previews it muted after the shared hover-intent dwell; a click plays it from the start with
-/// sound and the player's controls. Every part a click lands on shows the pointing hand.
+/// sound and the player's controls. Every part a click lands on shows the arrow.
 export function VideoThumbnail({
   src,
   name,

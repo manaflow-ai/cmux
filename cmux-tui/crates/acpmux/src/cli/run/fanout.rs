@@ -11,7 +11,7 @@ use crate::cli::select;
 /// session here by its id, a peer's by its `peer/id` (`qualifiedSessionId`), the key the outbox
 /// routes a peer's session by (`Hub::resolve_remote`); its bare id may name nothing here, or
 /// another session.
-pub(super) fn tag_targets(
+pub(crate) fn tag_targets(
     sessions: &[Value],
     tag: &str,
     own: Option<&str>,

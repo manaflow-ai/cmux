@@ -162,7 +162,42 @@ create_keychain() {
   "$ROOT_DIR/scripts/import-apple-developer-id-intermediates.sh" "$name"
   "$SECURITY_TOOL" set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$name" >/dev/null
   "$SECURITY_TOOL" list-keychains -d user -s "$name"
+  refresh_trust_agent
   echo "Signing keychain $name is ready; it locks after ${TIMEOUT_SECONDS}s idle."
+}
+
+# codesign asks the user's trustd agent for the signer's chain, and that agent
+# finds the Developer ID intermediate only in the keychains it reads. A trustd
+# agent that has run since the Mac booted never sees a keychain added to the
+# search list after its start: codesign then warns "unable to build chain to
+# self-signed root" and fails with errSecInternalComponent (the unified log
+# says "Trust evaluate failure: [leaf MissingIntermediate]"). Two owned minis
+# failed every sign-nightly-identity-legacy job that way on 2026-10-31 while
+# minis whose agent had restarted since boot (a trust store update restarts
+# it) signed; a private three-level chain reproduced it on the same two minis
+# and not on the others. So once the keychain is in the search
+# list the agent restarts (launchd starts it again on the next request) and
+# reads it. The signing job holds the whole Mac, so nothing else is
+# mid-evaluation. Best effort: a refusal is reported and signing goes on.
+refresh_trust_agent() {
+  local launchctl="${CMUX_LAUNCHCTL_TOOL:-}" service pid
+  if [ -z "$launchctl" ]; then
+    [ "$(uname -s)" = Darwin ] || return 0
+    launchctl=/bin/launchctl
+  fi
+  service="user/$(id -u)/com.apple.trustd.agent"
+  if "$launchctl" kickstart -k "$service" >/dev/null 2>&1; then
+    echo "Restarted the trustd agent ($service) so it reads the signing keychain."
+    return 0
+  fi
+  # launchd's own record of the agent's pid, never a match by process name
+  pid="$("$launchctl" print "$service" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)" || pid=""
+  if [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null; then
+    echo "Stopped the trustd agent ($service, pid $pid); launchd starts it again reading the signing keychain."
+    return 0
+  fi
+  echo "warning: could not restart the trustd agent ($service); a stale one fails codesign with errSecInternalComponent" >&2
+  return 0
 }
 
 unlock_keychains() {

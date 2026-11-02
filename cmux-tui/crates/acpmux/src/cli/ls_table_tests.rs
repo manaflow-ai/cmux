@@ -146,8 +146,8 @@ fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
     // Wide names each rule with its number and the command that answers it.
     assert!(
         wide.contains(
-            "no-cap: lane-place rotate big --harness claude-sr2 (leo-workspace#1617); \
-             ctx 955k: acpmux send big /compact | lane-place rotate big (leo-workspace#1617); \
+            "no-cap: lane-place rotate big --harness claude-sr2; \
+             ctx 955k: acpmux send big /compact | lane-place rotate big; \
              90 sub/h: acpmux session cancel big"
         ),
         "{wide}"

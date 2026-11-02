@@ -1,8 +1,9 @@
 # cmux Cloud CLI reference
 
 The Rust `cmux` reaches Cloud machines through the app's cloud actions. The Swift
-`cmux vm …` family and its `cmux cloud` alias were removed; there is no `vm` scope,
-no `vm.*` socket method on the CLI, and no `cmux rpc`.
+`cmux vm …` family and its `cmux cloud` alias were removed: there is no `vm.*` socket
+method on the CLI and no `cmux rpc`. Today's `cmux vm` calls the cmux VM API with an
+API key and no app; see [headless.md](headless.md).
 
 ## Conventions
 
@@ -86,6 +87,7 @@ cmux cloud new-terminal-on-machine --target machine:vm-…      # a new workspac
 cmux cloud new-terminal-on-machine --target machine:vm-… --workspace <workspace-id>   # a terminal tab in that workspace
 cmux cloud rename-machine --target machine:vm-… --name <label>
 cmux cloud resize-machine --target machine:vm-… --size small|medium|large|xlarge
+cmux cloud resize-machine --target machine:vm-… --disk 100   # disk in whole GiB: 4 GiB steps, up to 256, grow-only; --size and --disk may go together
 cmux cloud machine-status --target machine:vm-…              # stats, plus hourly_rate_usd, running_since, estimated_cost_usd
 cmux cloud machine-ports --target machine:vm-…
 cmux cloud snapshot-machine --target machine:vm-…
@@ -97,6 +99,7 @@ cmux cloud kill-machine --target machine:vm-…
 cmux cloud pause-machine --target machine:vm-…
 cmux cloud resume-machine --target machine:vm-…
 cmux cloud set-idle-pause --target machine:vm-… --minutes off|15|30|60|120   # answers idle_pause_minutes
+cmux cloud set-network-access --target machine:vm-… --access full|trusted|none   # answers network_access, applied
 cmux cloud delete-snapshot --target machine:vm-… --snapshot <snapshot-id>
 cmux workspace new-on-machine --machine machine:vm-…
 ```
@@ -112,6 +115,11 @@ cmux Cloud pauses a machine after 30 idle minutes by default (no attached termin
 no running agent turn, no command still running in a terminal, no forwarded port). The
 machine's record says `pauseReason: "idle"`; opening a workspace or terminal on it, or ssh,
 resumes it. `set-idle-pause` changes the timeout per machine.
+
+A machine reaches the whole internet by default. `set-network-access` narrows it, live and with no
+restart: `trusted` allows only GitHub, the package registries and the model providers the server
+lists as presets, and `none` only the hosts cmux itself needs. The machine's own allowed ranges
+and domains (set in the dashboard) are kept. An agent may only choose `none` (turn access off).
 
 ## Shell, commands and files
 
@@ -190,12 +198,23 @@ cmux cloud firewall-list | firewall-get | firewall-create | firewall-delete   # 
 cmux cloud tunnel-attach | tunnel-detach | tunnel-rotate-key                 # attach/detach: --path <network-id>; rotate-key: a public key (see cmux action describe); this Mac
 cmux cloud domain-list
 cmux cloud publication-list
+cmux cloud provision-api --target machine:vm-… --port 3000 [--name ci]   # URL + API key, one call
+cmux cloud api-key-list --path <publication id or hostname>
+cmux cloud api-key-revoke --path <publication> --key <key-id> --confirm
 cmux cloud move          # Move to Cloud: an agent chat tab, optional --machine
 cmux cloud bring-back    # Bring Back Local: the reverse
 ```
 
-Domain and publication actions only list. Publishing, verifying or removing a
-public domain has no CLI path. Check each action's arguments with
+`provision-api` publishes a machine port behind cmux sign-in under a generated
+HTTPS hostname and mints an API key for it. It answers `url`, `key`, `cookie`,
+`publication_id` and `api_key_id`; the key is shown once. API clients send it as
+the `__Host-cmux-api-key` cookie (`curl -H 'Cookie: __Host-cmux-api-key=<key>' <url>`), which
+the machine never receives. Running it again for the same port reuses the URL
+and mints another key. `api-key-revoke` cuts a key off from the next request.
+A browser still reaches the URL by signing in to cmux.
+
+Other domain and publication actions only list. Publishing a public domain,
+verifying or removing one has no CLI path. Check each action's arguments with
 `cmux action describe` before running it.
 
 Creating, forking, restoring, resizing and killing machines need the user's
@@ -258,7 +277,8 @@ and `vm ls`. See [guest operations](guest.md).
 | `vm wait`, `vm restart`, `vm stats`, `vm base open\|reset`, `vm prompt` | none |
 | `vm snapshot\|fork\|restore\|promote-template\|rename\|rm\|handoff\|status\|resize` | the matching `cmux cloud …-machine` action |
 | `cloud domains list` | `cmux cloud domain-list`, `cmux cloud publication-list` |
-| `cloud domains publish\|verify\|access\|rm\|zones` | none |
+| `cloud domains publish` (protected, for an API) | `cmux cloud provision-api --target machine:vm-… --port <port>` |
+| `cloud domains publish\|verify\|access\|rm\|zones` (public or custom domains) | none |
 | `vpn up\|down` | `cmux cloud tunnel-attach\|tunnel-detach --path <network-id>` (no machine target) |
 | `vpn status`, `ai-accounts`, `auth login\|logout` | none on the CLI; use the app |
 | `capabilities`, `rpc <method>` | `cmux app capabilities`, `cmux action list` |

@@ -79,6 +79,8 @@ impl Daemon {
         Self::start_inner(scratch, home, None, false)
     }
 
+    /// Only the Linux allocation benchmark logs its daemon.
+    #[cfg(target_os = "linux")]
     fn start_logged(scratch: &Path, home: &Path, log: Option<&Path>) -> Self {
         Self::start_inner(scratch, home, log, false)
     }

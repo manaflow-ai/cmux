@@ -538,7 +538,9 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 pub(crate) fn public_session_snapshot_with_journal_head(
     mux: &Mux,
 ) -> Result<(Value, u64), ResourceError> {
-    mux.publish_pending_terminal_directories();
+    // No pending terminal directory is published here: a read runs no
+    // write. Terminal output, resize, reconnect and every committed graph
+    // change publish a pending one (`publish_resource_event`).
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
     // up a surface in State, so doing this inside the projection would invert
@@ -600,24 +602,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .map(|(host_id, terminal_id)| (terminal_id, host_id))
             .collect::<HashMap<_, _>>();
 
-        let workspaces = registry_snapshot
-            .workspaces
-            .iter()
-            .enumerate()
-            .map(|(index, workspace)| {
-                Ok(json!({
-                    "id": workspace.public_id,
-                    "session_id": topology.session_id,
-                    "name": workspace.name,
-                    "index": checked_index(index)?,
-                    "focused": topology.active_workspace.as_ref() == Some(&workspace.public_id),
-                    "extra": crate::resource_name::workspace_name_extra(
-                        workspace.name_source,
-                        workspace.name_revision,
-                    ),
-                }))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let workspaces = public_workspace_values(&registry_snapshot, &topology)?;
 
         let screens = topology
             .screens
@@ -844,6 +829,71 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         Ok((snapshot, journal_head))
     })
     .map_err(operation_failed)
+}
+
+/// The public workspaces before decoration, in session order: one builder
+/// for the session snapshot and the workspace list.
+fn public_workspace_values(
+    registry_snapshot: &crate::workspace_registry::RegistrySnapshot,
+    topology: &crate::workspace_registry::ResourceTopologySnapshot,
+) -> anyhow::Result<Vec<Value>> {
+    registry_snapshot
+        .workspaces
+        .iter()
+        .enumerate()
+        .map(|(index, workspace)| {
+            Ok(json!({
+                "id": workspace.public_id,
+                "session_id": topology.session_id,
+                "name": workspace.name,
+                "index": checked_index(index)?,
+                "focused": topology.active_workspace.as_ref() == Some(&workspace.public_id),
+                "extra": crate::resource_name::workspace_name_extra(
+                    workspace.name_source,
+                    workspace.name_revision,
+                ),
+            }))
+        })
+        .collect()
+}
+
+/// The session snapshot's `workspaces`, built alone (`workspace.list`, the
+/// list agents' CLI calls make most): the same decorated values, from the
+/// workspace rows and the topology frame. It reads no screens, panes, tabs,
+/// terminals, notifications, agents or live state, and holds only the
+/// registry lock, not state.
+pub(crate) fn public_workspaces(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
+    let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // One connection hold for the whole read, as the snapshot's pin: no
+    // late writer commit lands between the rows, the frame and the
+    // decorations. The registry methods below re-enter it.
+    let _connection = registry.connection.get();
+    (|| -> anyhow::Result<Vec<Value>> {
+        let registry_snapshot = registry.snapshot()?;
+        let frame = registry.resource_topology_frame()?;
+        anyhow::ensure!(
+            registry_snapshot.generation == frame.generation
+                && registry_snapshot.resource_revision == frame.revision,
+            "resource projection changed while listing workspaces"
+        );
+        let mut workspaces = public_workspace_values(&registry_snapshot, &frame)?;
+        registry.read_state(|connection| {
+            for workspace in &mut workspaces {
+                crate::state::values::decorate_value(connection, "workspace", workspace)?;
+            }
+            Ok(())
+        })?;
+        Ok(workspaces)
+    })()
+    .map_err(operation_failed)
+}
+
+/// The session snapshot's `cursor` alone (`session.ping`): the topology
+/// generation and resource revision, from the topology frame.
+pub(crate) fn public_session_cursor(mux: &Mux) -> Result<Value, ResourceError> {
+    let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let frame = registry.resource_topology_frame().map_err(operation_failed)?;
+    Ok(json!({"generation": frame.generation, "revision": frame.revision.to_string()}))
 }
 
 fn checked_index(index: usize) -> anyhow::Result<u32> {

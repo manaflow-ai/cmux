@@ -98,3 +98,76 @@ fn owner_idle_exit_leaves_hosted_terminals_alive_and_the_next_owner_readopts_the
     let records = wait_for_host_records(&harness.host_root(), 1);
     assert_eq!(records[0].1.host_pid, record.host_pid, "the terminal got a new host");
 }
+
+/// cmux issue 23086: the bundled screen detector, the owner's own journal
+/// plugin, connects back to the owner at start and stays connected. Counted
+/// as a client, it kept every DEV app owner and every Chief owner (whose
+/// session the watcher did not cover) alive for days after its app was
+/// gone. An owner with only its own plugin connected, no client and no live
+/// terminal stops by itself, for the app session and the Chief session.
+#[test]
+fn an_orphaned_dev_owner_stops_while_its_own_journal_plugin_stays_connected() {
+    let _exclusive = exclusive_process_test();
+    for session in ["cmux-app-pluginorphan", "cmux-chief-0123abcd"] {
+        let mut harness = RecoveryHarness::start_unstarted("owner-plugin-orphan");
+        harness.session = session.into();
+        let marker = harness.dir.join("plugin-connected");
+        // A journal plugin like the bundled detector: it connects to the
+        // owner's socket, asks one question (the answer proves the owner
+        // registered it) and then holds the connection until the owner
+        // closes it.
+        let plugin = harness.dir.join("plugin.py");
+        fs::write(
+            &plugin,
+            format!(
+                "import os, socket\n\
+                 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n\
+                 s.connect(os.environ['CMUX_TUI_SOCKET'])\n\
+                 s.sendall(b'{{\"id\":1,\"cmd\":\"identify\"}}\\n')\n\
+                 f = s.makefile('rb')\n\
+                 f.readline()\n\
+                 open({marker:?}, 'w').close()\n\
+                 while f.read(65536):\n    pass\n",
+                marker = marker.display().to_string(),
+            ),
+        )
+        .unwrap();
+        let config = harness.dir.join("mux.json");
+        fs::write(
+            &config,
+            serde_json::json!({"agents": {"plugin": {
+                "id": "orphan-probe",
+                "command": ["/bin/sh", "-c", "exec python3 \"$0\"", plugin.to_str().unwrap()],
+            }}})
+            .to_string(),
+        )
+        .unwrap();
+        harness.extra_env.extend([
+            ("CMUX_TUI_CONFIG".to_string(), config.to_str().unwrap().to_string()),
+            ("CMUX_TUI_TEST_DEV_ORPHAN_OWNER".to_string(), "1".to_string()),
+            ("CMUX_TUI_TEST_DEV_ORPHAN_DELAY_MS".to_string(), "1500".to_string()),
+            ("CMUX_TUI_TEST_DEV_ORPHAN_RECHECK_MS".to_string(), "200".to_string()),
+        ]);
+        harness.restart();
+
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
+        while !marker.exists() {
+            assert!(Instant::now() < deadline, "{session}: the journal plugin never connected");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let clients = request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-clients"}));
+        let others = clients.as_array().unwrap().iter().filter(|client| client["self"] != true);
+        assert_eq!(others.count(), 1, "{session}: the plugin is not connected: {clients}");
+
+        // Nothing else connects again: the owner must stop by itself.
+        let mut daemon = harness.child.take().unwrap();
+        while daemon.try_wait().unwrap().is_none() {
+            if Instant::now() >= deadline {
+                let _ = daemon.kill();
+                let _ = daemon.wait();
+                panic!("{session}: the orphaned DEV owner did not stop with its plugin connected");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}

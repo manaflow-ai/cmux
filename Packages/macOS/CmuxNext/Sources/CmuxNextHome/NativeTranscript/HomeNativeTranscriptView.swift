@@ -93,6 +93,21 @@ public final class HomeNativeTranscriptView: NSView {
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
     }
+    /// The stop button's Continue action after an accepted Chief stop.
+    public var onContinue: () -> Void = {} {
+        didSet { transcript.onContinue = { [weak self] in self?.onContinue() } }
+    }
+    /// True while the stopped Chief can be continued from the stop button.
+    public var continueAvailable: Bool {
+        get { transcript.continueAvailable }
+        set { transcript.continueAvailable = newValue }
+    }
+    /// A committed person message in a Chief conversation asks its Chief to
+    /// answer again. The host supplies the daemon's `chief.retry` bridge.
+    public var onChiefRetry: ((MessageID) -> Void)? {
+        get { transcript.onChiefRetry }
+        set { transcript.onChiefRetry = newValue }
+    }
     /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
@@ -120,6 +135,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
+    /// Chief welcomes the person in the chat itself (`ChiefWelcome`: its typing dots, then its
+    /// messages as iMessage bubbles), so the first-run panel (hero, rows and starter buttons) stays
+    /// hidden on that empty conversation (user, 2026-10-30: reuse the iMessage code).
+    public var welcomesInChat = false { didSet { if welcomesInChat != oldValue { updateFirstRun() } } }
     /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
     /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
     public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
@@ -147,12 +166,15 @@ public final class HomeNativeTranscriptView: NSView {
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
         conversationID = conversation
+        // One binding per shown conversation; it opens the conversation on
+        // the store now and `stop()` closes exactly that open, once. Before the
+        // transcript: the open brings back a kept transcript, so the transcript's
+        // first pass installs it at the newest message, as it does a chat another
+        // view holds open (https://github.com/manaflow-ai/cmux/issues/26397).
+        binding = HomeStoreBinding(store: store, conversation: conversation)
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
-        // One binding per shown conversation; it opens the conversation on
-        // the store now and `stop()` closes exactly that open, once.
-        binding = HomeStoreBinding(store: store, conversation: conversation)
         attachmentPreparer = store
         super.init(frame: .zero)
         wantsLayer = true
@@ -259,7 +281,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header views that run ``onNamePill`` (the pill and the avatar).
     public var namePillToggles: [NSView] { transcript.namePillToggles }
 
-    /// The header avatar's text; nil shows the conversation's initials.
+    /// The header avatar's text; nil shows the monogram of the header's name (`MonogramAvatar`).
     public var avatarText: String? {
         get { transcript.avatarText }
         set { transcript.avatarText = newValue }
@@ -268,7 +290,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header's name (a Chief's own name, its record's); nil shows the conversation's title.
     public var headerTitle: String? {
         get { transcript.headerTitle }
-        set { transcript.headerTitle = newValue }
+        set {
+            transcript.headerTitle = newValue
+            applyHeroFace()  // the hero's monogram follows a rename
+        }
     }
 
     /// The header avatar's picture, over its text; nil shows the text.
@@ -472,7 +497,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// The first-run panel shows only in an empty Chief conversation.
     private func updateFirstRun() {
-        firstRun.isHidden = holdsFirstRun || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
+        firstRun.isHidden = holdsFirstRun || welcomesInChat || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
     }
 
     /// The typing hold gives back what it holds while the views are still in the old window.

@@ -22,6 +22,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case dividerHitWidth
     case panelCornerRadius
     case chromeFontSize
+    /// Tab titles' text size, apart from `chromeFontSize` (which sizes all chrome); unset follows it.
+    case tabFontSize
     /// The unified titlebar height (cmux-browser's header height reads the same key).
     case titlebarHeight
 }
@@ -33,6 +35,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 @Observable
 public final class DesignSettings {
     public static let shared = DesignSettings()
+    /// Every motion-setting change, for hosts outside Observation (``Motion/changes``).
+    public let motionChanges = MotionChanges()
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
@@ -64,18 +68,19 @@ public final class DesignSettings {
     /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
     public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
         let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
-        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)');"
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.userScale)');"
             + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
-    /// `Motion.speedDidChange` for hosts outside Observation (a video wallpaper's player).
+    /// `Motion.speedDidChange` and tells `motionChanges`, for hosts outside Observation (a video
+    /// wallpaper's player).
     public var animationSpeed: MotionSpeed = .fast {
         didSet {
             guard animationSpeed != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// `ui.animations.enabled`, the master motion switch: false makes every
@@ -84,7 +89,7 @@ public final class DesignSettings {
     public var animationsEnabled = true {
         didSet {
             guard animationsEnabled != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// The categories whose `ui.animations.<category>` is false: their
@@ -92,7 +97,7 @@ public final class DesignSettings {
     public var disabledAnimationCategories: Set<MotionCategory> = [] {
         didSet {
             guard disabledAnimationCategories != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
@@ -165,10 +170,9 @@ public final class DesignSettings {
     public var calmMode: CalmMode = .off {
         didSet {
             guard calmMode != oldValue else { return }
-            let center = NotificationCenter.default
-            center.post(name: Motion.speedDidChange, object: nil)
-            center.post(name: Motion.reduceMotionDidChange, object: nil)
-            center.post(name: Self.hoverCardsDidChange, object: nil)
+            motionChanges.post(.speed)
+            motionChanges.post(.reduceMotion)
+            NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
             ThemeScope.app.store.repaintAll()
         }
     }
@@ -320,6 +324,7 @@ public final class DesignSettings {
         case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
+        case .tabFontSize: 10...18
         case .titlebarHeight: 24...56
         }
     }

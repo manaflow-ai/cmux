@@ -749,3 +749,171 @@ test("a card drops a signature naming its sender that a record still has", () =>
   expect(unsigned("[WIP] MERGED", "agent-message-style")).toBe("[WIP] MERGED");
   expect(unsigned("[lane-b] MERGED", "lane-a")).toBe("[lane-b] MERGED");
 });
+
+// acpmux's inbox notice (hub/inbox.rs `render`): its text is for the agent; the pane draws its threads.
+const NOTICE_TEXT = [
+  "[inbox] New messages from other agents in 2 threads.",
+  "- [blocker] 1 new in #28564 from ao-log-bloat: Broker refusal on #28564. (thread from:ao-log-bloat/pr:28564)",
+  '- 2 new in "plan" from lane-a, lane-c (thread topic:plan):',
+  "  > lane-a: first",
+  "  >",
+  "  > lane-c: second",
+].join("\n");
+
+test("an inbox notice is its threads, never its text for the agent", () => {
+  const incoming = incomingPrompt(NOTICE_TEXT, {
+    client: "acpmux",
+    _meta: {
+      provenance: {
+        kind: "inbox_notice",
+        noticeId: "inbox-notice-1",
+        threads: [
+          {
+            threadId: "from:ao-log-bloat/pr:28564",
+            label: "#28564",
+            new: 1,
+            from: ["ao-log-bloat"],
+            fromSession: "s-bloat",
+            promptIds: ["p1"],
+            blocker: true,
+            preview: "Broker refusal on #28564.",
+            messages: [{ promptId: "p1", from: "ao-log-bloat", at: 5, text: "Broker refusal on #28564." }],
+          },
+          {
+            threadId: "topic:plan",
+            label: '"plan"',
+            new: 2,
+            from: ["lane-a", "lane-c"],
+            promptIds: ["p2", "p3"],
+            blocker: false,
+            preview: "second",
+          },
+        ],
+      },
+    },
+  });
+  expect(incoming?.kind).toBe("inbox");
+  if (incoming?.kind !== "inbox") return;
+  const [bloat, plan] = incoming.notice.threads;
+  expect(bloat).toMatchObject({
+    label: "#28564",
+    from: ["ao-log-bloat"],
+    fromSession: "s-bloat",
+    count: 1,
+    blocker: true,
+    preview: "Broker refusal on #28564.",
+  });
+  expect(bloat?.messages).toEqual([{ promptId: "p1", from: "ao-log-bloat", at: 5, text: "Broker refusal on #28564." }]);
+  // A topic reads without the quotes the agent's text puts around it; no messages: read on open.
+  expect(plan).toMatchObject({ label: "plan", count: 2, preview: "second", promptIds: ["p2", "p3"] });
+  expect(plan?.messages).toBeUndefined();
+});
+
+test("an inbox notice logged before its threads carried a label and a preview reads them from its text", () => {
+  const old = [
+    "[inbox] New messages from other agents in 1 thread. They need no turn of your own: read a thread whole with the inbox_read tool (its thread id), answer in it with inbox_reply, or leave it for later.",
+    "- [blocker] 1 new in #28564 from ao-log-bloat: Broker refusal on #28564. The broker's GitHub returned 4… (thread from:ao-log-bloat/pr:28564)",
+  ].join("\n");
+  const incoming = incomingPrompt(old, {
+    client: "acpmux",
+    _meta: {
+      provenance: {
+        kind: "inbox_notice",
+        threads: [{ threadId: "from:ao-log-bloat/pr:28564", new: 1, from: ["ao-log-bloat"], promptIds: ["p1"] }],
+      },
+    },
+  });
+  expect(incoming?.kind).toBe("inbox");
+  if (incoming?.kind !== "inbox") return;
+  expect(incoming.notice.threads[0]).toMatchObject({
+    label: "#28564",
+    blocker: true,
+    preview: "Broker refusal on #28564. The broker's GitHub returned 4…",
+  });
+});
+
+test("an inbox notice that names no thread draws nothing", () => {
+  const incoming = incomingPrompt("[inbox] New messages", {
+    client: "acpmux",
+    _meta: { provenance: { kind: "inbox_notice", threads: [] } },
+  });
+  expect(incoming).toEqual({ kind: "hidden" });
+});
+
+test("lane report provenance becomes an incoming message with collapsed details", () => {
+  expect(
+    incomingPrompt("[builder] SHIP at abcdef123456 · no findings · turn 2, idle", {
+      _meta: {
+        provenance: {
+          kind: "lane_report",
+          from: "lane-7",
+          fromName: "builder",
+          details: { session: "gcp/builder", commits: ["abcdef1234567890", "fedcba6543210000"] },
+        },
+      },
+    }),
+  ).toEqual({
+    kind: "message",
+    message: {
+      name: "builder",
+      sessionId: "lane-7",
+      report: true,
+      details: { session: "gcp/builder", commits: ["abcdef1234567890", "fedcba6543210000"] },
+      text: "SHIP at abcdef123456 · no findings · turn 2, idle",
+      raw: "[builder] SHIP at abcdef123456 · no findings · turn 2, idle",
+    },
+  });
+});
+
+test("lane report without metadata remains a normal incoming message", () => {
+  expect(
+    incomingPrompt("[builder] turn 3 ended, idle", { _meta: { provenance: { kind: "lane_report", from: "builder" } } }),
+  ).toMatchObject({
+    kind: "message",
+    message: {
+      name: "builder",
+      sessionId: "builder",
+      report: true,
+      text: "[builder] turn 3 ended, idle",
+      raw: "[builder] turn 3 ended, idle",
+    },
+  });
+});
+
+test("hub lane reports retain their sender, report identity and structured details", () => {
+  const text = "[review-7] SHIP at 123456789abc · no findings · turn 1, idle";
+  const details = { sessionId: "lane-7", commits: ["123456789abc"] };
+  expect(
+    incomingPrompt(text, {
+      _meta: { provenance: { kind: "lane_report", from: "lane-7", fromName: "review-7", details } },
+    }),
+  ).toEqual({
+    kind: "message",
+    message: {
+      name: "review-7",
+      sessionId: "lane-7",
+      report: true,
+      details,
+      text: "SHIP at 123456789abc · no findings · turn 1, idle",
+      raw: text,
+    },
+  });
+});
+
+test("hub inbox notices keep thread identity and participants without inventing a sender session", () => {
+  const text = "[inbox] New messages from other agents in 1 thread.";
+  const incoming = incomingPrompt(text, {
+    _meta: {
+      provenance: {
+        kind: "inbox_notice",
+        threads: [{ threadId: "from:review/pr:7", from: ["review", "builder"] }, null],
+      },
+    },
+  });
+  expect(incoming?.kind).toBe("inbox");
+  if (incoming?.kind !== "inbox") return;
+  expect(incoming.notice.threads).toHaveLength(1);
+  expect(incoming.notice.threads[0]).toMatchObject({ threadId: "from:review/pr:7", from: ["review", "builder"] });
+  expect(incoming.notice.threads[0]?.fromSession).toBeUndefined();
+  expect(incomingPrompt(text, { client: "app" })).toBeUndefined();
+});

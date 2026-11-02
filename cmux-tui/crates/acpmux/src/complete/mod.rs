@@ -40,6 +40,7 @@ pub mod recipes;
 pub mod run;
 
 use crate::rpc::RpcError;
+use crate::stderr::clean_stderr_lines;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -276,12 +277,17 @@ pub fn finish(
             return Err(CompleteError::SignedOut { harness: harness.to_owned() });
         }
         let stderr = String::from_utf8_lossy(&out.stderr);
-        let last = stderr.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+        let last = clean_stderr_lines(&stderr)
+            .into_iter()
+            .rev()
+            .find(|line| !line.is_empty())
+            .unwrap_or_default();
         let detail = match out.code {
             Some(code) => format!("exit status {code}"),
             None => "killed by a signal".to_owned(),
         };
-        let detail = if last.is_empty() { detail } else { format!("{detail}: {}", cut(last, 300)) };
+        let detail =
+            if last.is_empty() { detail } else { format!("{detail}: {}", cut(&last, 300)) };
         return Err(CompleteError::Failed { harness: harness.to_owned(), detail });
     }
     let text = String::from_utf8_lossy(answer);

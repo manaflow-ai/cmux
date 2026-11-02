@@ -451,12 +451,16 @@ async fn overlapping_direct_and_queued_sends_of_one_prompt_id_record_one_outgoin
         queued.call(SEND_QUEUE, json!({"request": request})),
     );
     let delivery = delivery.unwrap()["deliveryId"].as_str().expect("a delivery id").to_owned();
+    // The acceptance that names the kept message. When the queued copy is in the receiver's
+    // ledger but not yet accepted, the direct copy's first notice is the duplicate's provisional
+    // one, unnamed; the named acceptance follows. When the queued copy was already accepted, the
+    // duplicate notice names it (`hub/message_events.rs` `name_kept_message`).
     let accepted = direct
         .notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), |p| {
-            p["promptId"] == "p-overlap"
+            p["promptId"] == "p-overlap" && p["messageId"].is_string()
         })
         .await
-        .expect("the receiver accepted the prompt id");
+        .expect("the receiver accepted the prompt id, naming the kept message");
     let status =
         queued.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000})).await.unwrap();
     assert_eq!(status["status"], "delivered", "{status}");
@@ -478,6 +482,57 @@ async fn overlapping_direct_and_queued_sends_of_one_prompt_id_record_one_outgoin
     assert!(incoming[0] == json!("p-overlap") || incoming[0] == json!(delivery), "{incoming:?}");
     assert_eq!(accepted["messageId"], incoming[0], "the acceptance names the kept message");
     assert_eq!(ids(person.message_events(&sender).await), incoming, "outgoing copies");
+}
+
+/// A direct send of a prompt id the peer already accepted from this sender's queue (the queued
+/// copy got there first) hears an acceptance that names the kept message, as the first send did:
+/// every send of one prompt id hears the one acceptance (`hub/message_events.rs`). The peer's
+/// answer to the late copy is its duplicate notice, which named no message (macOS full suites:
+/// `overlapping_direct_and_queued_sends_...` read `messageId` null, 2026-10-28 on).
+#[tokio::test]
+async fn a_direct_send_after_its_queued_copy_was_accepted_hears_the_kept_message() {
+    let (a, b, target) = busy_peer("late-direct", "lane").await;
+    let mut person = C::new(a.clone()).await;
+    let sender = person
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"name": "late-direct-sender"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut queued = C::as_session(a.clone(), &sender).await;
+    let request = prompt("b/lane", "one message", "p-late");
+    let delivery =
+        queued.call(SEND_QUEUE, json!({"request": request})).await.unwrap()["deliveryId"]
+            .as_str()
+            .expect("a delivery id")
+            .to_owned();
+    let status =
+        queued.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000})).await.unwrap();
+    assert_eq!(status["status"], "delivered", "{status}");
+    let mut receiver = C::new(b).await;
+    let kept: Vec<Value> = receiver
+        .message_events(&target)
+        .await
+        .into_iter()
+        .map(|e| e["messageId"].clone())
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    // Now the direct copy, after the peer accepted the queued one.
+    let mut direct = C::as_session(a, &sender).await;
+    direct.send(method::SESSION_PROMPT, request).await;
+    let accepted = direct
+        .notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), |p| {
+            p["promptId"] == "p-late"
+        })
+        .await
+        .expect("the direct send heard an acceptance");
+    assert_eq!(accepted["messageId"], kept[0], "the acceptance names the kept message: {accepted}");
+    assert_eq!(accepted["messageSenderId"], json!(sender), "{accepted}");
 }
 
 /// Two sessions' sends of one prompt id to one chat both hear the peer's one acceptance. The

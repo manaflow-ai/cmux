@@ -2,10 +2,11 @@
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
 //! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
 //! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
-//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the Labs-gated
+//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the
 //! team mailbox tools (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
-//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent.
+//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent. With a cmux sign-in it also saves,
+//! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
@@ -41,8 +42,12 @@ keeps running, and bg_list and bg_output read it later by its id.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 
+#[path = "acpmux_mcp_artifacts.rs"]
+pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_send.rs"]
+mod send;
 
 fn tools() -> Value {
     let mut all = base_tools();
@@ -52,27 +57,21 @@ fn tools() -> Value {
     all
 }
 
+/// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
+/// sign-in for them (`artifacts::advertised`).
+fn tools_with_artifacts(artifacts: bool) -> Value {
+    let mut all = tools();
+    if artifacts && let Some(list) = all.as_array_mut() {
+        list.extend(artifacts::definitions());
+    }
+    all
+}
+
 fn base_tools() -> Value {
-    json!([
-        {
-            "name": "send",
-            "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell. It goes through this daemon's outbox, like `acpmux send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply (read one later with last). The receiver's chat shows the message as yours. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
-                    "text": {"type": "string", "description": "The message, self-contained."},
-                    "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
-                    "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
-                    "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
-                    "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."}
-                },
-                "required": ["to", "text"]
-            }
-        },
+    let mut all = json!([
         {
             "name": "inbox_read",
-            "description": "Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours: a notice lists threads with new messages at your next tool step. With thread, that thread's messages whole, newest first, marked read; without it, every thread with its unread count.",
+            "description": "Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours and need none: a notice lists threads with new messages at your next tool step; act on one when it bears on your work, answer it with inbox_reply, or leave it for later. With thread, that thread's messages whole, newest first, marked read; without it, every thread with its unread count.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"thread": {"type": "string", "description": "A threadId, as the notice or the list names it."}}
@@ -155,26 +154,76 @@ fn base_tools() -> Value {
                 "required": ["id"]
             }
         }
-    ])
+    ]);
+    if let Some(list) = all.as_array_mut() {
+        list.insert(0, send::tool());
+    }
+    all
+}
+
+/// The tools a session may use here: every one, or under a `CMUX_MCP_TOOLS` allowlist (a
+/// Chief turn's, `agent_tools::scoped`) only those it names as `acpmux_<tool>`, the name the
+/// folding `cmux` server gives each. Folded, `cmux` applies the same list; standalone (cmux
+/// off or missing) this is the only filter, so `bg_*` and `team_*` reach no turn that does not
+/// list them, whatever the harness.
+fn allowed(all: Value, allow: Option<&str>) -> Value {
+    let Some(allow) = allow else { return all };
+    let allow: Vec<String> = allow.split(',').map(|t| t.trim().to_owned()).collect();
+    let keep = |tool: &Value| {
+        tool["name"].as_str().is_some_and(|n| allow.contains(&format!("{SERVER_NAME}_{n}")))
+    };
+    Value::Array(all.as_array().into_iter().flatten().filter(|t| keep(t)).cloned().collect())
 }
 
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
+    // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
+    let artifacts = artifacts::from_config();
+    let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
+    let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
+    // Under an allowlist, a call outside it is refused like an unknown tool.
+    let names: Option<Arc<Vec<String>>> = allow
+        .is_some()
+        .then(|| Arc::new(crate::mcp_hint::names(&tools).map(str::to_owned).collect()));
+    // The background steer only where the background tools are listed.
+    let steer =
+        crate::mcp_hint::names(&tools).any(|n| bg::TOOLS.contains(&n)).then(|| BG_STEER.to_owned());
     crate::secret_mcp::serve(
         SERVER_NAME,
         SESSION_ENV,
-        tools(),
-        Some(BG_STEER.to_owned()),
-        |daemon, session, params| async move {
-            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            if bg::TOOLS.contains(&name) {
-                return bg::call(&daemon, &session, name, &args).await;
+        tools,
+        steer,
+        move |daemon, session, params| {
+            let artifacts = artifacts.clone();
+            let names = names.clone();
+            async move {
+                let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+                if let Some(names) = &names
+                    && !names.iter().any(|n| n == name)
+                {
+                    return error_result(crate::mcp_hint::unknown_tool(
+                        name,
+                        names.iter().map(String::as_str),
+                    ));
+                }
+                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                if artifacts::TOOLS.contains(&name) {
+                    return match (&artifacts, args.is_object()) {
+                        (_, false) => error_result("arguments must be an object".to_owned()),
+                        (Some(client), true) => artifacts::call(client, name, &args).await,
+                        (None, true) => error_result(
+                            "the artifact tools need a cmux sign-in on this daemon (meshRelay), and artifacts.enabled not false".to_owned(),
+                        ),
+                    };
+                }
+                if bg::TOOLS.contains(&name) {
+                    return bg::call(&daemon, &session, name, &args).await;
+                }
+                if matches!(name, "inbox_read" | "inbox_reply") {
+                    return inbox_tool(&daemon, &session, name, &args).await;
+                }
+                call(&daemon, &params).await
             }
-            if matches!(name, "inbox_read" | "inbox_reply") {
-                return inbox_tool(&daemon, &session, name, &args).await;
-            }
-            call(&daemon, &params).await
         },
     )
     .await
@@ -198,7 +247,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
         return error_result("arguments must be an object".to_owned());
     }
     match params["name"].as_str().unwrap_or_default() {
-        "send" => send(daemon, &args).await,
+        "send" => send::send(daemon, &args).await,
         "team_send" => team_send(daemon, &args).await,
         "team_inbox" => team_inbox(daemon, &args).await,
         "team_ack" => team_ack(daemon, &args).await,
@@ -236,12 +285,14 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
                 Err(e) => refusal(e),
             }
         }
-        other => error_result(format!("unknown tool: {other}")),
+        other => {
+            error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
+        }
     }
 }
 
 /// Send a team-scoped message through the daemon's hub client. The daemon owns the
-/// caller token and Labs gate, so this MCP surface cannot bypass either one.
+/// caller token and team-messaging gate, so this MCP surface cannot bypass either one.
 async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
     let (Some(to), Some(body)) = (arg(args, "to"), args.get("body").and_then(Value::as_str)) else {
         return error_result("to and body are required".to_owned());
@@ -285,74 +336,6 @@ fn team_result_text(result: &Value) -> String {
     } else {
         serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string())
     }
-}
-
-/// `send`: what `acpmux send --no-wait` does (`cli/run/send_async.rs`): the message goes to this
-/// daemon's outbox (`_acpmux/send_queue`), which delivers it as this session (its caller token)
-/// and retries a slow target or a peer that is down. It answers with the delivery once it
-/// settles, or after [`STATUS_WAIT`] with the message on its way.
-async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
-    let (Some(to), Some(text)) = (arg(args, "to"), args.get("text").and_then(Value::as_str)) else {
-        return error_result("to and text are required".to_owned());
-    };
-    if text.trim().is_empty() {
-        return error_result("text is empty".to_owned());
-    }
-    let steer = args.get("steer").and_then(Value::as_bool).unwrap_or(true);
-    let class = match send_class(args) {
-        Ok(class) => class,
-        Err(e) => return error_result(e),
-    };
-    let key = match crate::cli::orchestrate::expand_session_key(to) {
-        Ok(key) => key,
-        Err(e) => return refusal(e),
-    };
-    let mut prompt = PromptId::new(None);
-    prompt.class = class;
-    prompt.pr = args.get("pr").and_then(Value::as_u64);
-    prompt.thread = arg(args, "thread").map(str::to_owned);
-    let request = prompt.params(&key, text, steer, None);
-    let queued = match daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await {
-        Ok(queued) => queued,
-        Err(e) => return refusal(e),
-    };
-    let delivery = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let wait = json!({"deliveryId": delivery, "waitMs": STATUS_WAIT.as_millis() as u64});
-    let status = daemon.request(method::MUX_SEND_STATUS, wait).await.unwrap_or(queued);
-    let state = status.get("status").and_then(Value::as_str).unwrap_or("queued").to_owned();
-    // A refusal the target gave at once (its folder's trust, a paused agent pair) is this
-    // send's error, as `acpmux send --no-wait` says it.
-    if matches!(state.as_str(), "failed" | "held") {
-        let error = status.get("error").and_then(Value::as_str).unwrap_or("delivery failed");
-        return error_result(format!("Not sent to {to} (delivery {delivery}): {error}"));
-    }
-    let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
-    let prompt_id = prompt.id.clone();
-    let session_id = accepted.get("sessionId").cloned().unwrap_or_else(|| json!(key));
-    let mut structured = json!({"deliveryId": delivery, "target": key, "sessionId": session_id,
-        "promptId": prompt_id, "status": state, "accepted": accepted});
-    if state != "delivered" {
-        structured["delivery"] = json!("sending");
-        return ok(
-            format!(
-                "On its way to {to} (delivery {delivery}, promptId {prompt_id}): this daemon keeps \
-delivering it, retrying while the target is slow or its peer is down. Do not send it again; info \
-{to} shows it once it arrives."
-            ),
-            structured,
-        );
-    }
-    let steered = accepted.get("steer") == Some(&json!(true));
-    let waits = accepted.get("queued") == Some(&json!(true));
-    let (how_id, how) = if steered {
-        ("next_step", "steered into its running turn: it reads it at its next tool step")
-    } else if waits {
-        ("queued", "queued behind its running turn: it reads it when that turn ends")
-    } else {
-        ("started", "it started a turn with it")
-    };
-    structured["delivery"] = json!(how_id);
-    ok(format!("Sent to {to}: {how} (promptId {prompt_id})."), structured)
 }
 
 /// `inbox_read` and `inbox_reply`, for this server's own chat (`hub/inbox.rs`).
