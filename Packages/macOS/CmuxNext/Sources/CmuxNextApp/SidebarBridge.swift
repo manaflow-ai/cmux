@@ -7,6 +7,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextSidebar
 import Observation
@@ -357,7 +358,7 @@ final class SidebarBridge {
     /// yields its name to (`AppServices.sidebarPageFace`).
     typealias PageFace = (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace?
     /// A tab's name in the sidebar (a row's title, its hover card), as its strip names it.
-    typealias TabTitle = (TabModel) -> String
+    typealias TabTitle = (WorkspaceModel, TabModel) -> String
 
     /// The tabs that show the New Tab page, named "New Tab" and badged as a page.
     static func newTabPages(_ tabs: AgentTabStore, in store: DaemonStore?) -> Set<String> {
@@ -367,7 +368,7 @@ final class SidebarBridge {
     /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab names.
     static func tabTitle(_ services: AppServices) -> TabTitle {
         let titles = TabTitleResolver(services: services)
-        return { titles.title($0) }
+        return { [weak services] workspace, tab in titles.title(tab, incognito: services?.windows.isIncognito(workspace: workspace)) }
     }
 
     static func hidesHome(_ layout: SidebarLayoutDocument) -> Bool {
