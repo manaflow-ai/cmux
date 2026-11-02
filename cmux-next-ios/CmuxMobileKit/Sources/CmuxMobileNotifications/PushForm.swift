@@ -123,6 +123,7 @@ public struct PushForm: Sendable, Equatable {
         case .completed, .failed, .chief: true
         // Text into a terminal from a notification waits for the #13742 decision (PR B).
         case .terminal: false
+        case .computerUse: false
         }
     }
 

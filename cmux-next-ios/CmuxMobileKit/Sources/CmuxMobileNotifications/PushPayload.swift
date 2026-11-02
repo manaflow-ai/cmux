@@ -3,9 +3,11 @@ import Foundation
 /// What a push from a Mac is about (PROTOCOL.md "Push notifications (API 0.12.0)").
 public enum PushKind: String, Codable, Sendable, CaseIterable {
     case question, permission, completed, failed, chief, terminal
+    /// A Computer Use question from the Mac's cmux app (docs/computer-use-approvals.md, "Phone wire (macOS)").
+    case computerUse = "computer_use"
 
     /// An ask the agent waits on.
-    public var isAsk: Bool { self == .question || self == .permission }
+    public var isAsk: Bool { self == .question || self == .permission || self == .computerUse }
 }
 
 /// One acpmux permission option (`options` of a permission push).
@@ -79,6 +81,31 @@ public struct PushQuestion: Codable, Sendable, Equatable {
     }
 }
 
+/// A Computer Use push's question (`computerUse`): the worker's request object as the
+/// Mac's app sent it, and whether the Mac allows Always Allow from a phone.
+public struct PushComputerUse: Codable, Sendable, Equatable {
+    /// The request, every field as sent (`digest` included), so the phone recomputes the digest.
+    public var request: PushJSON
+    /// The Mac's `computerUse.phoneAlwaysAllow`.
+    public var always: Bool
+
+    public init(request: PushJSON, always: Bool = false) {
+        self.request = request
+        self.always = always
+    }
+
+    enum CodingKeys: String, CodingKey { case request, always }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        request = try c.decode(PushJSON.self, forKey: .request)
+        guard case .object = request else {
+            throw DecodingError.dataCorruptedError(forKey: .request, in: c, debugDescription: "the request is not an object")
+        }
+        always = (try? c.decodeIfPresent(Bool.self, forKey: .always)) ?? false
+    }
+}
+
 /// The `cmuxMobile` object of a push (v1 from a 0.11 Worker, v2 from 0.12).
 public struct PushPayload: Codable, Sendable, Equatable {
     public static let userInfoKey = "cmuxMobile"
@@ -123,13 +150,15 @@ public struct PushPayload: Codable, Sendable, Equatable {
     public var personInstance: String?
     /// When the Mac posted it (Unix seconds; sealed pushes): an old one replayed later gets no buttons.
     public var postedAt: Int?
+    /// Kind `computer_use`: the question.
+    public var computerUse: PushComputerUse?
 
     public init(v: Int = 2, mac: String?, macName: String? = nil, kind: PushKind, eventId: String? = nil, agent: String? = nil,
                 place: String? = nil, workspace: String? = nil, workspaceId: String? = nil, tabId: String? = nil,
                 sessionId: String? = nil, permissionId: String? = nil, conversationId: String? = nil, notificationId: String? = nil,
                 title: String? = nil, body: String? = nil, options: [PushOption] = [], questions: [PushQuestion] = [],
                 tail: [String] = [], state: State? = nil, previews: Bool = true, replyable: Bool = false,
-                decisionNonce: String? = nil, personInstance: String? = nil, postedAt: Int? = nil) {
+                decisionNonce: String? = nil, personInstance: String? = nil, postedAt: Int? = nil, computerUse: PushComputerUse? = nil) {
         self.v = v
         self.mac = mac
         self.macName = macName
@@ -155,12 +184,13 @@ public struct PushPayload: Codable, Sendable, Equatable {
         self.decisionNonce = decisionNonce
         self.personInstance = personInstance
         self.postedAt = postedAt
+        self.computerUse = computerUse
     }
 
     enum CodingKeys: String, CodingKey {
         case v, mac, macName, kind, eventId, agent, place, workspace, workspaceId, tabId, sessionId, permissionId, conversationId
         case notificationId, title, body, options, questions, tail, state, previews, replyable, decisionNonce, personInstance
-        case postedAt
+        case postedAt, computerUse
     }
 
     public init(from decoder: any Decoder) throws {
@@ -203,6 +233,7 @@ public struct PushPayload: Codable, Sendable, Equatable {
         decisionNonce = text(.decisionNonce)
         personInstance = text(.personInstance)
         postedAt = try? c.decodeIfPresent(Int.self, forKey: .postedAt)
+        computerUse = try? c.decodeIfPresent(PushComputerUse.self, forKey: .computerUse)
     }
 
     /// Reads `userInfo["cmuxMobile"]`; nil for any other notification.
@@ -235,6 +266,7 @@ public struct PushPayload: Codable, Sendable, Equatable {
         case .failed: .failed
         case .chief: .chief
         case .terminal: .terminal
+        case .computerUse: .computerUse
         }
     }
 

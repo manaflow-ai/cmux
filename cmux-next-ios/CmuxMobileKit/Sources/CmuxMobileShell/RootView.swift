@@ -3,6 +3,7 @@ import CmuxMobileAuth
 import CmuxMobileArtifacts
 import CmuxMobileBrowserStream
 import CmuxMobileChief
+import CmuxMobileComputerUse
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
@@ -354,6 +355,8 @@ public struct RootView: View {
         // their approval of it (verify/persistence.md).
         auth.willSignOut = AccountSignOut().willSignOut {
             await PushRegistration.shared.unregister()
+            // The device hub stops pushing Computer Use questions to this phone.
+            await ComputerUseApprovals.shared.forgetPush()
             // Screen Sharing: end the session on screen and sign this phone out of the device hub
             // while the account can still reach it (docs/device-hub/PROTOCOL.md, sign-out).
             await ScreenSharingService.current?.signOutBeforeSessionEnds()
@@ -458,6 +461,14 @@ struct ShellView: View {
         self.live = live
     }
 
+    /// The Computer Use question on screen; held back while the app's own lock is up.
+    private var computerUseSheet: Binding<ComputerUseApprovals.Sheet?> {
+        Binding(
+            get: { NotificationRouter.shared.appLocked ? nil : ComputerUseApprovals.shared.sheet },
+            set: { if $0 == nil, !NotificationRouter.shared.appLocked, ComputerUseApprovals.shared.sheet != nil { ComputerUseApprovals.shared.dismiss() } }
+        )
+    }
+
     var body: some View {
         SidebarContainer(
             model: shell.sidebar,
@@ -467,6 +478,10 @@ struct ShellView: View {
         .ignoresSafeArea()
         .cmuxMobileToast($shell.toast)
         .modifier(LiveCallHost(shell: shell))
+        .sheet(item: computerUseSheet) { sheet in
+            ComputerUseApprovalSheet(approvals: ComputerUseApprovals.shared, sheet: sheet)
+                .presentationDetents([.medium, .large])
+        }
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }

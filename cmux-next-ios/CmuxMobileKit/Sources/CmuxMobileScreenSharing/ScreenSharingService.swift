@@ -32,6 +32,9 @@ public final class ScreenSharingService {
     @ObservationIgnored let configuration: Configuration
     /// Runs on each new viewer before its first request (tests swap its hub calls).
     @ObservationIgnored var prepareViewer: (ScreenSharingViewer) -> Void = { _ in }
+    /// Runs each time the hub registered this phone and opened its socket (Computer Use
+    /// approvals follow it and give it this phone's push token).
+    @ObservationIgnored public var onHubReady: ((DeviceHub) -> Void)?
     @ObservationIgnored private var startTask: Task<Void, Never>?
     /// Sessions this phone ended or left: a late ticket for one never starts a stream.
     @ObservationIgnored private var abandoned: Set<String> = []
@@ -107,7 +110,10 @@ public final class ScreenSharingService {
         }
         if let hub {
             // task-owner: one restart of the loaded hub (registration, then its socket)
-            Task { await hub.start() }
+            Task { [weak self] in
+                await hub.start()
+                self?.hubStarted(hub)
+            }
             return
         }
         loadStatus = .starting
@@ -125,7 +131,13 @@ public final class ScreenSharingService {
             guard let self, !Task.isCancelled else { return }
             attach(hub)
             await hub.start()
+            hubStarted(hub)
         }
+    }
+
+    private func hubStarted(_ hub: DeviceHub) {
+        guard self.hub === hub, hub.status == .ready else { return }
+        onHubReady?(hub)
     }
 
     /// Signed out: ends the session on screen, signs this phone out of the hub and forgets it.
@@ -165,7 +177,12 @@ public final class ScreenSharingService {
     /// Refetches everything (pull to refresh).
     public func refresh() async {
         guard let hub else { return start() }
-        if case .failed = status { await hub.start() } else { await hub.refreshAll() }
+        if case .failed = status {
+            await hub.start()
+            hubStarted(hub)
+        } else {
+            await hub.refreshAll()
+        }
     }
 
     private func attach(_ hub: DeviceHub) {

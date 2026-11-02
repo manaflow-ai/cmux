@@ -100,6 +100,7 @@ public struct PushBanner: Equatable, Sendable {
         case .failed: String(localized: "\(agent) stopped with an error")
         case .chief: String(localized: "Chief replied")
         case .terminal: String(localized: "Terminal")
+        case .computerUse: String(localized: "\(agent) wants to use an app")
         }
     }
 
@@ -142,6 +143,11 @@ public struct PushBanner: Equatable, Sendable {
             // A program chooses its own title: it never stands where an agent's banner would (review L6).
             title = place.map { String(localized: "Terminal · \($0)") } ?? String(localized: "Terminal")
             body = [p.title, p.body].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ": ")
+        case .computerUse:
+            // "<agent> wants to use <name>" / "<workspace> · <Mac>" (docs/computer-use-approvals.md).
+            let app = p.title ?? String(localized: "an app")
+            self.init(title: String(localized: "\(agent) wants to use \(app)"), subtitle: place.map { "\($0) · \(mac)" } ?? mac, body: "")
+            return
         }
         self.init(title: title, subtitle: place.map { "\($0) · \(mac)" } ?? mac, body: body)
     }
