@@ -379,8 +379,8 @@ function useSelection(rows: AllChatsRow[], query: string) {
  * A bulk History open reports failure without offering an unsafe all-rows replay.
  */
 export function useChatOpenFeedback(
-  onOpen: (key: string) => void | Promise<unknown>,
-  onBring?: (keys: string[]) => void | Promise<unknown>,
+  onOpen: (key: string) => unknown,
+  onBring?: (keys: string[]) => unknown,
 ) {
   const t = useT();
   const [opening, setOpening] = useState<string>();
@@ -395,7 +395,7 @@ export function useChatOpenFeedback(
     setOpening(key);
     setFailure(undefined);
     // The call begins on this person gesture; the host requires that for some actions.
-    let request: void | Promise<unknown>;
+    let request: unknown;
     try {
       request = onOpen(key);
     } catch (error) {
@@ -419,7 +419,7 @@ export function useChatOpenFeedback(
     const ticket = ++newest.current;
     setOpening(undefined);
     setFailure(undefined);
-    let request: void | Promise<unknown>;
+    let request: unknown;
     try {
       request = onBring(keys);
     } catch (error) {
@@ -448,7 +448,7 @@ export function AllChatsList({
   scrollParent,
 }: {
   load: LoadChatsPage;
-  onOpen(key: string): void | Promise<unknown>;
+  onOpen(key: string): unknown;
   active?: ActiveChat[];
   onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
@@ -456,7 +456,7 @@ export function AllChatsList({
   /// it, without running it, until Take Over (`chats.watch`, the same opener as `cmux agent view`).
   onViewOnly?(key: string): void;
   /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
-  onBring?(keys: string[]): void | Promise<unknown>;
+  onBring?(keys: string[]): unknown;
   now?: number;
   /** New Tab scrolls the whole page; History retains its own list viewport. */
   scrollParent?: string;
@@ -716,7 +716,7 @@ export function AllChatsList({
         </label>
       </header>
       {openFeedback.failure && (
-        <output className="nt-chats-empty nt-chats-failed" role="alert">
+        <div className="nt-chats-empty nt-chats-failed" role="alert">
           {openFeedback.failure.message}
           {openFeedback.failure.key && (
             <button
@@ -730,7 +730,7 @@ export function AllChatsList({
               {t("picker.tryAgain")}
             </button>
           )}
-        </output>
+        </div>
       )}
       {activeShown.length > 0 && (
         <ul className="nt-all-active" aria-label={t("sidebar.active")}>

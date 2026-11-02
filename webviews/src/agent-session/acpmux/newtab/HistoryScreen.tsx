@@ -15,7 +15,7 @@ export function HistoryScreen({
   now,
 }: {
   load: LoadChatsPage;
-  onOpen(key: string): void | Promise<unknown>;
+  onOpen(key: string): unknown;
   onOpenInTerminal?(key: string): void;
   onViewOnly?(key: string): void;
   now?: number;
@@ -30,7 +30,7 @@ export function HistoryScreen({
         load={load}
         onOpen={onOpen}
         // Each chat opens through Open Chat, as a click does: in a new workspace of this space.
-        onBring={(keys) => Promise.all(keys.map(onOpen)).then(() => undefined)}
+        onBring={(keys) => Promise.all(keys.map((key) => Promise.resolve(onOpen(key)))).then(() => undefined)}
         {...(onOpenInTerminal ? { onOpenInTerminal } : {})}
         {...(onViewOnly ? { onViewOnly } : {})}
         {...(now !== undefined ? { now } : {})}
