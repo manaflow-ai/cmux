@@ -172,7 +172,8 @@ jobs:
       # nightly jobs and listens on a full mini) takes the smoke before the shared side label, as
       # nightly-next-canary.yml's pick does. On 2026-11-02 at 15:09Z eleven smokes of successive
       # builds sat on glaeda-side-std-xcode-26.6 behind PR jobs (the oldest 3.8 h) while eight
-      # nightly-std listeners were idle. `owned` is empty unless a slot runner is idle now.
+      # nightly-std listeners were idle. `owned` is a slot label while a slot runner is idle now, or
+      # (only while every Blacksmith macOS label is stalled) a busy slot the rescue watches; else empty.
       - name: Pick an idle nightly slot
         id: slot
         if: steps.route-token.outputs.token != '' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER != '' && (github.event_name != 'schedule' || steps.in-flight.outputs.in_flight == '')
@@ -182,7 +183,7 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.route-token.outputs.token }}
           OWNED_LABELS: ${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
-          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+          CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 }}
         run: python3 scripts/ci/nightly_build_runner.py
 
       # The routing order, as cmux-next's Mac jobs take it: an idle owned Mac on the side label, else a
