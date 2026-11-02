@@ -23,13 +23,35 @@
 //! (`turns.rs` `finish_turn`). Until the turn ends the row reads `stopping`; what the ended
 //! process still had in flight never reaches the next turn (`permissions.rs`).
 //!
+//! Stop never ends a process that runs background work (2026-10-31: a Stop for one tool call
+//! killed every background shell and background subagent of a coordinator, hours of work; Leo:
+//! "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING"). Background work sends signs of work of
+//! its own after the turn stopped (a subagent's progress, its model's stream), so it reads as an
+//! agent working through the cancel, and the restart took it all down with the process. While a
+//! background process or background subagent runs ([`Hub::runs_background_work`]), the escalation
+//! sends the second cancel and then ends only acpmux's turn (`stop_escalated` step `spared`), as
+//! an agent that went quiet gets; the process and its background work run on and report when
+//! they end. Stopping them stays its own act: a process's kill (`_acpmux/process/kill`) or a
+//! subagent's stop (`_acpmux/subagent_stop`). Claude Code's own interrupt spares them too once
+//! acpmux says it stops tasks one by one (`claude_stdio/outbound.rs` `initialize_request`).
+//!
 //! The person's Stop also holds the other agents' messages queued behind the turn
 //! ([`Hub::person_stop`]): they stay queued, held, until the person's next turn completes or the
 //! queue is resumed, so they do not start a turn the moment the stopped one ends. The person's
 //! own queued prompts run next as before.
+//!
+//! A stopped turn always ends as stopped (`cancelled`), so clients offer Continue on it: also one
+//! whose adapter answers the cancel `end_turn` (`turns.rs` `finish_turn`), and one a Stop reached
+//! while the chat had no agent (it started, or a failover's fallback did): that Stop is taken, the
+//! turn reads `stopping`, and its prompt never reaches the agent that comes (`turns.rs`).
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::AtomicU64;
+
+/// Listed in `initialize`'s features by a daemon that takes a peer's person's Stop as its own
+/// person's (`server/requests/person_stop.rs`).
+pub(crate) const PERSON_STOP_FEATURE: &str = "personStop";
 
 /// How long a cancelled turn waits for its agent's answer before acpmux ends it.
 const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
@@ -43,7 +65,7 @@ const INTERRUPT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 pub(super) fn forced_answer(restarted: bool) -> Value {
     let mut mux = json!({"cancelForced": true});
     if restarted {
-        mux["restarted"] = json!(true);
+        mux.set("restarted", json!(true));
     }
     json!({"stopReason": "cancelled", "_meta": {"acpmux": mux}})
 }
@@ -98,9 +120,11 @@ impl Hub {
             // Begun under the queue lock, where a release checks and ends it (`digest.rs`).
             let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
             session.stop_hold.store(HOLDS.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+            // Named with those a failed turn held already: the Stop holds them too, and a pane
+            // shows each as held by it (`views.rs` `held_by_stop`).
             queue
                 .iter_mut()
-                .filter(|q| !q.held && q.run.agent.is_some())
+                .filter(|q| q.run.agent.is_some())
                 .map(|q| {
                     // One sent now waits too: the Stop came after it.
                     (q.held, q.sent_now) = (true, false);
@@ -172,7 +196,26 @@ impl Hub {
             Self::force_cancel(&session, &current);
             return;
         };
+        // Its background work would end with the process: only the turn ends (module docs).
+        if self.runs_background_work(&session) {
+            tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent works on after two cancels, beside background work: ending only its turn");
+            self.append(
+                &session,
+                "mux",
+                "stop_escalated",
+                json!({"turnId": turn.turn_id, "step": "spared", "reason": "background_work"}),
+            );
+            Self::force_cancel(&session, &current);
+            return;
+        }
         self.restart_stopped_agent(&session, &child, &current).await;
+    }
+
+    /// A background process (`processes.rs`) or a background subagent (`subagents.rs`) of the
+    /// session still runs: work that outlives the turn and ends with the agent's process.
+    pub(super) fn runs_background_work(&self, session: &Session) -> bool {
+        self.any_process_running(session)
+            || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
     }
 
     /// After a turn ends, with its turn lock still held: starts the agent a Stop ended
@@ -284,12 +327,20 @@ impl Hub {
         // arriving while Claude is compacting must not retarget a queued or
         // auto-resumed next turn after the first one settles.
         let turn = session.turn();
-        let child = session
-            .child
-            .lock()
-            .await
-            .clone()
-            .ok_or_else(|| RpcError::invalid_params("session has no live agent"))?;
+        let Some(child) = session.child.lock().await.clone() else {
+            // No agent runs the turn right now: it starts, or a failover's fallback does
+            // (`turns.rs`). The Stop counted above keeps the turn's prompt from that agent, and the
+            // turn then ends as cancelled; until then it reads `stopping`, so the Stop shows.
+            // With no turn there is nothing it reached: a turn a restart still recovers may be
+            // about to run, and the client keeps its Stop for it.
+            return match turn.and_then(|turn| Self::carried_on(session, &turn)) {
+                Some(turn) => {
+                    self.mark_stopping(session, &turn);
+                    Ok(())
+                }
+                None => Err(RpcError::invalid_params("session has no live agent")),
+            };
+        };
         let compacting = session.compacting.load(std::sync::atomic::Ordering::SeqCst)
             || child.translator.as_ref().is_some_and(|t| t.is_compacting());
         let sid = session

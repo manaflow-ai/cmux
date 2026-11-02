@@ -30,11 +30,17 @@ release_slot() {
     [ -n "$pid" ] && ssh "$host" "for _ in \$(seq 1 30); do kill -0 $pid 2>/dev/null || exit 0; sleep 1; done; echo 'perceived-speed: app pid $pid still up after quit' >&2"
     sock=""
   fi
+  # Stop an acquire in flight (it ends the reservation of a lease it has not granted), then release a lease it
+  # printed that this script had not read yet: a stop between the print and the read held the mini.
+  if [ -n "$acquire" ]; then
+    kill "$acquire" 2>/dev/null
+    for _ in $(seq 1 50); do kill -0 "$acquire" 2>/dev/null || break; sleep 0.2; done
+    [ -n "$lease" ] || lease=$(grep '^slot-' "$work/lease" 2>/dev/null | tail -1)
+  fi
+  acquire=""
   [ -n "$lease" ] && capture-host release "$lease" >/dev/null 2>&1
   lease=""
   [ -n "$state" ] && ssh "$host" "rm -rf $state"
-  [ -n "$acquire" ] && kill "$acquire" 2>/dev/null
-  acquire=""
 }
 cleanup() {
   release_slot
@@ -54,11 +60,18 @@ stage() {
   ssh "$1" "export PATH=\$HOME/.local/bin:\$PATH; rm -rf $cache.part && mkdir -p $cache.part && cmux-ci artifact '$job' $cache.part/app.zip >/dev/null \
     && cd $cache.part && ditto -x -k app.zip . && rm app.zip && rm -rf $cache && mv $cache.part $cache"
 }
+# Room for the exclusive drain: acquire's deadline bounds it (120 s by default; a step on the mini may run 5).
+export CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS="${CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS:-600}"
+prefer=()
 for attempt in 1 2 3; do
   # The lease lives as long as the acquire process; keep it in its own session.
-  setsid capture-host acquire --slot >"$work/lease" 2>&1 </dev/null &
+  # Exclusive: no fleet step and no other capture on the mini while it records (its timings are
+  # evidence only then; 2026-10-29 a run beside other agents' steps saw a 1-minute load of 14-24).
+  # After staging, ask for the host the app was staged on first (acquire moves one host on per call).
+  setsid capture-host acquire --slot --exclusive ${prefer[@]+"${prefer[@]}"} >"$work/lease" 2>&1 </dev/null &
   acquire=$!
-  for _ in $(seq 1 300); do grep -q '^slot-' "$work/lease" && break; sleep 2; done
+  # Until acquire prints a lease or exits: it bounds itself, an exclusive drain included.
+  while ! grep -q '^slot-' "$work/lease" && kill -0 "$acquire" 2>/dev/null; do sleep 2; done
   lease=$(grep '^slot-' "$work/lease" | tail -1)
   [ -n "$lease" ] || { echo "no capture slot: $(tail -3 "$work/lease")" >&2; exit 3; }
   eval "$(capture-host slot-info "$lease" | grep -E '^(host|slot|root)=')"
@@ -67,6 +80,7 @@ for attempt in 1 2 3; do
   capture-host release "$lease" >/dev/null 2>&1; lease=""; kill "$acquire" 2>/dev/null; acquire=""
   echo "perceived-speed: staging job $job on $host"
   stage "$host" || { echo "could not stage the app on $host" >&2; exit 3; }
+  prefer+=(--prefer "$host")
 done
 [ -n "$lease" ] || { echo "no lease on a host with the app staged" >&2; exit 3; }
 app=$(ssh "$host" "ls -d $cache/*.app | head -1")

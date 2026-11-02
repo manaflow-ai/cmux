@@ -171,6 +171,18 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
         }
     }
 
+    /// Whether a patch from `old` to `new` changes a folded ancestor's roll-up: `new` hides in a fold
+    /// and its counted state moved. A hidden session's step, title or preview (many a second while
+    /// it works) changes nothing drawn, so it lays nothing out (ask-268456b5a0). `lists` as ``hidesInFold(_:lists:)``
+    /// takes them; by default one list holding every row.
+    public func patchChangesRollUp(from old: SidebarWorkspace?, to new: SidebarWorkspace,
+                                   lists: [(WorkspaceID) -> Bool] = [{ _ in true }]) -> Bool {
+        guard hidesInFold(new.id, lists: lists) else { return false }
+        guard let old else { return true }
+        let lane = states[new.id]
+        return SidebarAgentState.of(old, lane: lane) != SidebarAgentState.of(new, lane: lane)
+    }
+
     /// What the order and the Command-numbers need: the parents and the folds.
     public var shape: SidebarSessionTreeState {
         SidebarSessionTreeState(parents: parents, collapsed: collapsed, opened: opened, foldsDeep: foldsDeep)

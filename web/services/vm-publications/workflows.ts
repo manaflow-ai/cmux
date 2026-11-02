@@ -116,13 +116,14 @@ export type PublicationInvalidReason =
   | "team_required"
   | "team_not_allowed"
   | "generated_hostname_reserved"
-  | "verification_not_required";
+  | "verification_not_required"
+  | "invalid_api_key_name";
 
 export class PublicationInputError extends Data.TaggedError(
   "PublicationInputError",
 )<{
   readonly reason: PublicationInvalidReason;
-  readonly field: "hostname" | "port" | "accessMode" | "teamId" | "email" | "expiresAt";
+  readonly field: "hostname" | "port" | "accessMode" | "teamId" | "email" | "expiresAt" | "name";
 }> {}
 
 export class PublicationConfigurationError extends Data.TaggedError(
@@ -701,7 +702,17 @@ export function updatePublicationAccess(input: {
       // A protected -> public transition commits policy before provider I/O. If
       // that I/O failed, a retry sees public policy with the old applied marker
       // and finishes detaching the edge gate without another revision bump.
+      // The interrupted switch may also have stopped before revoking the keys;
+      // revoke again (idempotent) before the edge stops withholding the cookie.
       if (wasPublic && willBePublic && publication.providerForwardAuthId !== null) {
+        yield* repository.revokePublicationSessions({
+          publicationId: publication.id,
+          now,
+        });
+        yield* repository.revokePublicationApiKeys({
+          publicationId: publication.id,
+          now,
+        });
         yield* provider.updateTlsRule(tlsRuleId, {
           hostname: target.publication.hostname,
           providerVmId,
@@ -761,6 +772,14 @@ export function updatePublicationAccess(input: {
           now,
         });
         yield* repository.revokePublicationSessions({
+          publicationId: committed.id,
+          now,
+        });
+        // A public rule has no forward auth, so the edge stops withholding the
+        // API key cookie: revoke the keys before the gate goes, so no live key
+        // ever reaches the VM and none comes back if the publication is
+        // protected again.
+        yield* repository.revokePublicationApiKeys({
           publicationId: committed.id,
           now,
         });
@@ -1195,6 +1214,23 @@ function withVmPublicationOperationLease<A, E, R>(
         now: input.now,
       }).pipe(Effect.ignore),
     ));
+  });
+}
+
+/**
+ * Make sure the account-wide forward-auth config is current, including its
+ * protected cookies, before a credential that relies on them is minted.
+ */
+export function ensurePublicationForwardAuth(input: {
+  readonly forwardAuth?: PublicationForwardAuthConfig;
+  readonly now: Date;
+}) {
+  return Effect.gen(function* () {
+    const repository = yield* CloudVmPublicationRepository;
+    const provider = yield* VmPublicationProvider;
+    return yield* ensureSharedForwardAuth({
+      repository, provider, providerId: "freestyle", config: input.forwardAuth, now: input.now,
+    });
   });
 }
 

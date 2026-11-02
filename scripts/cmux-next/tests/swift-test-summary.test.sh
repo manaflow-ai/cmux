@@ -41,6 +41,13 @@ if [[ -n "${STUB_DRIP:-}" ]]; then
 fi
 # A test that never returns: the wrapper has to end it.
 [[ -z "${STUB_SLEEP:-}" ]] || sleep "$STUB_SLEEP"
+# A run that keeps the CPU busy and finishes nothing for STUB_BUSY seconds: a spin, or a runner so
+# starved that one test takes minutes. Then STUB_AFTER's lines, the finishes it got to.
+if [[ -n "${STUB_BUSY:-}" ]]; then
+  end=$((SECONDS + STUB_BUSY))
+  while (( SECONDS < end )); do :; done
+fi
+[[ -z "${STUB_AFTER:-}" ]] || cat "$STUB_AFTER"
 exit "${STUB_STATUS:-0}"
 EOF
 chmod +x "$TMP/bin/swift"
@@ -132,6 +139,9 @@ grep -q 'hangsForever()' <<<"$summary" || fail "the step summary does not name h
 grep -q '^::error title=cmux-next swift test incomplete::' <<<"$out" || fail "a cut-short run is not titled incomplete" "$out"
 if grep -q '^::error title=cmux-next swift test ended early' <<<"$out"; then fail "a cut-short run still says ended early, not incomplete" "$out"; fi
 grep -q '^### Incomplete: ' <<<"$summary" || fail "the step summary does not say the run is incomplete" "$summary"
+grep '^::error title=cmux-next swift test cut short::' <<<"$out" \
+  | grep -q 'cut short by the test process ending before its summary (swift test exited 0): 1 tests finished (1 passed, 0 failed, 0 skipped) and 2 started and never finished' \
+  || fail "a run that ended before its summary does not count what it got done" "$out"
 
 # A crash exit without a summary keeps its status and names the unfinished test.
 run cut 139
@@ -336,6 +346,10 @@ cat > "$TMP/stuck.out" <<'EOF2'
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
 ◇ Test eachFails(n:) started.
+◇ Test case passing 1 argument n → 1 to eachFails(n:) started.
+✘ Test case passing 1 argument n → 1 to eachFails(n:) failed after 0.001 seconds with 1 issue.
+◇ Test case passing 1 argument n → 2 to eachFails(n:) started.
+✘ Test case passing 1 argument n → 2 to eachFails(n:) failed after 0.001 seconds with 1 issue.
 ✘ Test eachFails(n:) with 2 test cases failed after 0.002 seconds with 2 issues.
 ◇ Test stuckHere() started.
 EOF2
@@ -347,8 +361,47 @@ stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
 [[ -n "$stuck" ]] || fail "no stuck-test ::error line" "$out"
 grep -q 'stuckHere()' <<<"$stuck" || fail "the stuck error does not name stuckHere()" "$stuck"
 if grep -q 'aPasses\|eachFails' <<<"$stuck"; then fail "the stuck error names a finished test" "$stuck"; fi
-grep -q '1 test open at least that long' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
+grep -q '1 test open at least 2s' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
 grep -q 'stuckHere()' <<<"$summary" || fail "the step summary does not name the stuck test" "$summary"
+# Its process sat idle (a sleep): that is what makes it a hang at the stall limit.
+grep -q 'the test processes sat idle' <<<"$stuck" || fail "the stuck error does not say the processes were idle" "$stuck"
+# Cut short, the run still says what it got done: the finished tests by result, the failed one by
+# name, the one never finished. Their result lines stay in the log for test_reds.py to compare.
+cut=$(grep '^::error title=cmux-next swift test cut short::' <<<"$out" || true)
+[[ -n "$cut" ]] || fail "a run the watchdog ended printed no cut-short line" "$out"
+grep -q 'cut short by the stall rule' <<<"$cut" || fail "the cut-short line does not say the stall rule ended it" "$cut"
+grep -q '2 tests finished (1 passed, 1 failed, 0 skipped) and 1 started and never finished' <<<"$cut" \
+  || fail "the cut-short line miscounts the finished and open tests" "$cut"
+grep -q 'Failed: eachFails(n:)\.' <<<"$cut" || fail "the cut-short line does not name the failed test" "$cut"
+grep -q 'Never finished: stuckHere()' <<<"$cut" || fail "the cut-short line does not name the open test" "$cut"
+grep -q 'never a base red' <<<"$cut" || fail "the cut-short line does not say it is never a base red" "$cut"
+grep -q '^### Cut short by the stall rule: 2 tests finished' <<<"$summary" \
+  || fail "the step summary has no cut-short line" "$summary"
+
+# No test finishes for longer than the stall limit while the test process keeps using CPU: a
+# starved runner, where one test takes minutes (cmux#28497 run 41123927916, a 6 vCPU Blacksmith
+# Mac: tests under a second on an idle mini finished after 78-227 s, and the old rule cut the pass
+# at 300 s with 223 tests open). Slow, not hung: no kill before the busy limit.
+printf '%s\n' '◇ Test run started.' '◇ Test slowOnAStarvedRunner() started.' > "$TMP/busy.out"
+printf '%s\n' '✔ Test slowOnAStarvedRunner() passed after 6.000 seconds.' \
+  '✔ Test run with 1 test in 1 suite passed after 6.001 seconds.' > "$TMP/busy.after"
+STUB_BUSY=6 STUB_AFTER="$TMP/busy.after" CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=40 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run busy 0
+[[ "$out" != *"swift test stuck"* ]] || fail "the watchdog cut a slow run whose test process kept using CPU" "$out"
+[[ "$status" == 0 ]] || fail "a slow run that kept using CPU and then finished exited $status" "$out"
+grep -q 'a slow run, not a hang' <<<"$out" || fail "the watchdog did not say it waits on a busy run" "$out"
+[[ "$out" != *"cut short"* ]] || fail "a whole run printed a cut-short line" "$out"
+
+# Busy and silent past the busy limit (a spin, or a runner too starved to finish anything): ended
+# then, saying the processes were busy, and naming the open test.
+started=$SECONDS
+STUB_BUSY=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=6 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run busy 0
+(( SECONDS - started < 40 )) || fail "a busy silent run was ended only after $((SECONDS - started)) s" "$out"
+[[ "$status" != 0 ]] || fail "a busy silent run the watchdog ended exited 0" "$out"
+stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
+grep -q 'kept using CPU' <<<"$stuck" || fail "the busy stall does not say the processes kept using CPU" "$out"
+grep -q 'CMUX_NEXT_TEST_BUSY_STUCK_SECONDS 6' <<<"$stuck" || fail "the busy stall does not name its limit" "$stuck"
+grep -q 'slowOnAStarvedRunner()' <<<"$stuck" || fail "the busy stall does not name the open test" "$stuck"
 
 # The watchdog reads finishes with the same definition report() does, so the two can never
 # disagree about what "finished" means. They did: report() learned the known-issue marker and the
@@ -373,7 +426,7 @@ EOF2
 STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run stuckshapes 0
 stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
 [[ -n "$stuck" ]] || fail "no stuck-test ::error line" "$out"
-grep -q '1 test open at least that long' <<<"$stuck" \
+grep -q '1 test open at least 2s' <<<"$stuck" \
   || fail "the watchdog read a finished test as still running" "$stuck"
 grep -q 'stuckHere()' <<<"$stuck" || fail "the stuck error does not name stuckHere()" "$stuck"
 for finished in knownIssuePass knownIssueFail xKnownIssue cancelledHere skippedHere eachPasses; do

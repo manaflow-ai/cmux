@@ -340,10 +340,51 @@ class GeneratedFoldTest(unittest.TestCase):
         self.assertNotIn("macos", self.verdict["runs-on"])
         run = self.verdict["steps"][0]["run"]
         self.assertIn("fresh)", run)
-        self.assertEqual(run.count("exit 1"), 2)
+        self.assertEqual(run.count("exit 1"), 3)
         env = self.verdict["steps"][0]["env"]
         for host in HOSTS:
             self.assertIn(f"needs.{host}.outputs.generated_files", env["VERDICT"])
+
+    def run_script(self, script, **env):
+        import os, subprocess, tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            summary, output = Path(temp) / "summary", Path(temp) / "output"
+            summary.write_text(""); output.write_text("")
+            result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True,
+                                    env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_OUTPUT": str(output),
+                                         **env})
+            return result, summary.read_text(), output.read_text()
+
+    def test_a_catalog_failure_is_never_labelled_stale(self):
+        # 2026-10-29: the action checks failed with fresh exports too (judge-action-exports.sh said "a catalog failure,
+        # not a stale file"), but every summary said "Generated cmux-next files are stale" and pointed at the
+        # regenerator, which changes nothing there (#27632, the base red of #27245).
+        for host in (self.swift, self.daemon):
+            give = self.step(host, "Give the generated files verdict")
+            self.assertEqual(give["env"]["CATALOG"], "${{ steps.actions.outputs.catalog }}")
+            run = give["run"]
+            result, summary, output = self.run_script(run, ACTIONS="failure", CATALOG="failure", SETTINGS="success")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("verdict=catalog", output)
+            self.assertIn("a catalog failure, not stale files", summary)
+            self.assertNotIn("are stale", summary)
+            result, summary, output = self.run_script(run, ACTIONS="failure", CATALOG="", SETTINGS="success")
+            self.assertIn("verdict=stale", output)
+            self.assertIn("Generated cmux-next files are stale", summary)
+            result, summary, output = self.run_script(run, ACTIONS="success", CATALOG="", SETTINGS="success")
+            self.assertIn("verdict=fresh", output)
+        verdict = self.verdict["steps"][0]["run"]
+        result, _, _ = self.run_script(verdict, VERDICT="catalog", HOST="swift-test", HOST_RESULT="failure")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("a catalog failure, not stale files", result.stdout)
+        self.assertNotIn("are stale", result.stdout)
+        fail = self.step(self.generated, "Fail on stale generated files")
+        result, summary, _ = self.run_script(fail["run"], ACTIONS="failure", CATALOG="failure", SETTINGS="success")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("a catalog failure, not stale files", result.stdout + summary)
+        self.assertNotIn(STALE, result.stdout)
+        result, summary, _ = self.run_script(fail["run"], ACTIONS="failure", CATALOG="", SETTINGS="success")
+        self.assertIn(STALE, result.stdout)
 
     def test_a_folded_swift_test_pass_records_only_with_fresh_generated_files(self):
         """A folded run keys the base the generated files are compared with and records a pass only

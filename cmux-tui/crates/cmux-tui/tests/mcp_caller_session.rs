@@ -188,7 +188,11 @@ fn listen(
                         while reader.read_line(&mut line).unwrap_or(0) > 0 {
                             let request: Value = serde_json::from_str(&line).unwrap();
                             line.clear();
-                            let response = answer(&request);
+                            let response = if request["cmd"] == "set-client-info" {
+                                json!({"id": request["id"], "ok": true, "data": {}})
+                            } else {
+                                answer(&request)
+                            };
                             received.lock().unwrap().push(request);
                             if writeln!(writer, "{response}").and_then(|()| writer.flush()).is_err()
                             {

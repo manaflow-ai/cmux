@@ -1,3 +1,4 @@
+import type { Run } from "../chief-brain/brain-runs.ts"
 import type { Env } from "../env.ts"
 import { callerOf, type Fail } from "../home-attachments.ts"
 import { chiefOwnedBy } from "../chief-brain/brain-io.ts"
@@ -29,7 +30,8 @@ type Impl = "pi" | "opencode" | "durable"
 /** The brains a Chief may pick on this deployment: P always, O and D where they run. */
 const impls = (env: Env): ReadonlyArray<Impl> => ["pi", ...(opencodeOn(env) ? (["opencode"] as const) : []), ...(durableOn(env) ? (["durable"] as const) : [])]
 /** Where both a D and a P brain exist for one Chief conversation (D's first wake copied P's memory). */
-type RunsReader = { run(id: string, afterSeq: number, limit: number): Promise<{ run: { conversation: string } } | null>; runs(conversation: string, before: number | undefined, limit: number): Promise<{ runs: Array<unknown>; has_more: boolean }> }
+type RunSummary = Pick<Run, "id" | "started_at">
+type RunsReader = { run(id: string, afterSeq: number, limit: number): Promise<{ run: { conversation: string } } | null>; runs(conversation: string, before: number | undefined, limit: number): Promise<{ runs: Array<RunSummary>; has_more: boolean }> }
 const durableOf = (env: Env, agent: string, conversation: string) => env.CHIEF_DURABLE_DO!.get(env.CHIEF_DURABLE_DO!.idFromName(`${agent}/${conversation}`)) as unknown as RunsReader
 
 export const handleBrainImpl = async (request: Request, env: Env, agent: string): Promise<Response> => {
@@ -90,7 +92,7 @@ export const handleOpencodeRuns = async (request: Request, env: Env, agent: stri
   if (!(await conv.readOp(conversation, caller.principal, "conversation.history", { limit: 1 })).ok) return fail(hidden)
   const impl = await muxOf(env, agent).brainImplOf()
   if (impl === "durable" && durableOn(env)) {
-    // D's runs first; a run from before the move (P's) is read from P, and the list goes on with P's runs.
+    // A run from before the move is read from P; list pages merge both brains by timestamp.
     const d = durableOf(env, agent, conversation)
     if (run) {
       const found = await d.run(run, Math.max(0, Math.floor(num("after_seq") ?? 0)), 500)
@@ -98,11 +100,13 @@ export const handleOpencodeRuns = async (request: Request, env: Env, agent: stri
     }
     const limit = Math.min(Math.max(Math.floor(num("limit") ?? 20), 1), 100)
     const mine = await d.runs(conversation, num("before"), limit)
-    if (mine.has_more || mine.runs.length === limit) return ok(mine)
-    const older = (await (await p()).json().catch(() => null)) as { ok?: boolean; value?: { runs: Array<unknown>; has_more: boolean } } | null
+    const older = (await (await p()).json().catch(() => null)) as { ok?: boolean; value?: { runs: Array<RunSummary>; has_more: boolean } } | null
     const rest = older?.ok && older.value ? older.value : { runs: [], has_more: false }
-    const all = [...mine.runs, ...rest.runs]
-    return ok({ runs: all.slice(0, limit), has_more: all.length > limit || rest.has_more })
+    // Even a full D page may share its boundary with P. Never cut that tie with a timestamp cursor.
+    const all = [...mine.runs, ...rest.runs].sort((a, b) => b.started_at - a.started_at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+    const boundary = all[limit - 1]?.started_at
+    const runs = boundary === undefined ? all : all.filter((r) => r.started_at >= boundary)
+    return ok({ runs, has_more: all.length > runs.length || mine.has_more || rest.has_more })
   }
   if (impl !== "opencode" || !opencodeOn(env)) return p()
   const brain = brainOf(env, agent)

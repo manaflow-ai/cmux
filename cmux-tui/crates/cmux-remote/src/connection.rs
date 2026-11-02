@@ -150,6 +150,18 @@ pub struct ClientConnection {
     last_received: StdMutex<Instant>,
     closed: AtomicBool,
     close_state: watch::Sender<CloseState>,
+    /// The daemon refused a reconnect because it no longer has the session.
+    /// Permanent: the connection never dials that session again.
+    session_unavailable: AtomicBool,
+    /// After a failed recovery, when the next one may dial. Bounds redials
+    /// from heartbeats and callers that each start a recovery.
+    recovery_backoff: StdMutex<Option<RecoveryBackoff>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RecoveryBackoff {
+    retry_at: tokio::time::Instant,
+    delay: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -273,6 +285,8 @@ impl ClientConnection {
             last_received: StdMutex::new(Instant::now()),
             closed: AtomicBool::new(false),
             close_state,
+            session_unavailable: AtomicBool::new(false),
+            recovery_backoff: StdMutex::new(None),
         });
         Self::spawn_heartbeat(&connection);
         Ok(connection)
@@ -288,6 +302,14 @@ impl ClientConnection {
 
     pub fn subscribe_generation(&self) -> watch::Receiver<u64> {
         self.generation.subscribe()
+    }
+
+    /// Whether the daemon refused a reconnect because it no longer has this
+    /// session (it outlived the daemon's resume lease, or was closed there).
+    /// Permanent: every later operation fails with
+    /// [`ConnectionError::SessionUnavailable`] and nothing redials.
+    pub fn session_unavailable(&self) -> bool {
+        self.session_unavailable.load(Ordering::Acquire)
     }
 
     /// Returns a consistent, credential-free view of the last published
@@ -369,6 +391,9 @@ impl ClientConnection {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
             }
+            if self.session_unavailable() {
+                return Err(ConnectionError::SessionUnavailable);
+            }
             let session = self.session.read().await.clone();
             let generation = session.generation();
             if let Some(expected) = expected_generation
@@ -417,6 +442,9 @@ impl ClientConnection {
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Ok(None);
+            }
+            if self.session_unavailable() {
+                return Err(ConnectionError::SessionUnavailable);
             }
             if let Some(received) = self
                 .deferred_receive
@@ -537,6 +565,9 @@ impl ClientConnection {
     pub async fn reconnect(&self, group: Arc<dyn LinkGroup>) -> Result<(), ConnectionError> {
         let mut close_state = self.close_state.subscribe();
         let _reconnecting = self.lock_reconnecting(&mut close_state).await?;
+        if self.session_unavailable() {
+            return Err(ConnectionError::SessionUnavailable);
+        }
         let previous_state = self.diagnostics_state();
         self.set_diagnostics_state(ConnectionState::Reconnecting);
         let result = tokio::select! {
@@ -544,11 +575,19 @@ impl ClientConnection {
             _ = close_state.changed() => Err(ConnectionError::Closed),
             result = self.reconnect_once(group) => result,
         };
+        let gone = matches!(result, Err(ConnectionError::SessionUnavailable));
+        if gone {
+            self.session_unavailable.store(true, Ordering::Release);
+            self.retire_gone_session().await;
+        }
         // Explicit route replacement preserves the previously published
-        // carrier when setup or replay of the candidate fails.
+        // carrier when setup or replay of the candidate fails, unless the
+        // daemon said the session itself is gone.
         if !self.closed.load(Ordering::Acquire) {
             self.set_diagnostics_state(if result.is_ok() {
                 ConnectionState::Connected
+            } else if gone {
+                ConnectionState::Disconnected
             } else {
                 previous_state
             });
@@ -685,17 +724,84 @@ impl ClientConnection {
     }
 
     async fn recover(&self, observed_generation: u64) -> Result<(), ConnectionError> {
+        if self.session_unavailable() {
+            return Err(ConnectionError::SessionUnavailable);
+        }
         let mut close_state = self.close_state.subscribe();
         let _reconnecting = self.lock_reconnecting(&mut close_state).await?;
         if self.session.read().await.generation() != observed_generation {
             return Ok(());
         }
+        // A recovery that failed before ended in a typed error; the session
+        // stays gone, and nothing redials it.
+        if self.session_unavailable() {
+            return Err(ConnectionError::SessionUnavailable);
+        }
+        self.wait_for_recovery_backoff(&mut close_state).await?;
         self.set_diagnostics_state(ConnectionState::Reconnecting);
         let result = self.recover_locked(&mut close_state).await;
+        self.note_recovery_result(&result);
         if result.is_err() && !self.closed.load(Ordering::Acquire) {
             self.set_diagnostics_state(ConnectionState::Disconnected);
         }
+        if self.session_unavailable() {
+            self.retire_gone_session().await;
+        }
         result
+    }
+
+    /// Close the carrier of a session the daemon no longer has, so a reader
+    /// still blocked on it wakes and sees the typed end instead of waiting
+    /// on a link nothing will answer. Bounded and detached, as retirement is.
+    async fn retire_gone_session(&self) {
+        let current = self.session.read().await.clone();
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(TERMINAL_SHUTDOWN_TIMEOUT, current.close()).await;
+        });
+    }
+
+    /// After a failed recovery, wait until its backoff ends before dialing
+    /// again. The state stays `Disconnected` meanwhile.
+    async fn wait_for_recovery_backoff(
+        &self,
+        close_state: &mut watch::Receiver<CloseState>,
+    ) -> Result<(), ConnectionError> {
+        let retry_at = self
+            .recovery_backoff
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map(|backoff| backoff.retry_at);
+        let Some(retry_at) = retry_at else { return Ok(()) };
+        tokio::select! {
+            biased;
+            _ = close_state.changed() => Err(ConnectionError::Closed),
+            () = tokio::time::sleep_until(retry_at) => Ok(()),
+        }
+    }
+
+    /// Record how a recovery ended: success clears the backoff, a gone
+    /// session ends the connection's redials, any other failure doubles the
+    /// wait before the next recovery may dial (up to the policy's maximum).
+    fn note_recovery_result(&self, result: &Result<(), ConnectionError>) {
+        let mut backoff =
+            self.recovery_backoff.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match result {
+            Ok(()) => *backoff = None,
+            Err(ConnectionError::SessionUnavailable) => {
+                self.session_unavailable.store(true, Ordering::Release);
+            }
+            Err(ConnectionError::Closed) => {}
+            Err(_) => {
+                let policy = self.config.reconnect;
+                let delay = (*backoff).map_or(policy.initial_delay, |previous| {
+                    previous.delay.saturating_mul(2).min(policy.maximum_delay)
+                });
+                *backoff = Some(RecoveryBackoff {
+                    retry_at: tokio::time::Instant::now() + policy.retry_delay(delay),
+                    delay,
+                });
+            }
+        }
     }
 
     async fn recover_locked(
@@ -925,7 +1031,7 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             _ = close_state.changed() => return,
         }
         let Some(connection) = weak.upgrade() else { return };
-        if connection.closed.load(Ordering::Acquire) {
+        if connection.closed.load(Ordering::Acquire) || connection.session_unavailable() {
             return;
         }
         if connection
@@ -1089,9 +1195,7 @@ async fn authenticate_one(
         LinkHandshakeResponse::Rejected(LinkRejected {
             rejected: LinkRejection::SessionUnavailable,
         }) => {
-            return Err(ConnectionError::Protocol(
-                "daemon no longer has the requested logical session".into(),
-            ));
+            return Err(ConnectionError::SessionUnavailable);
         }
     };
     if ready.session != config.session || ready.generation != context.generation {
@@ -1164,12 +1268,27 @@ pub enum ConnectionError {
     Session(SessionError),
     Protocol(String),
     GenerationExhausted,
-    GenerationChanged { expected: u64, actual: u64 },
-    ReconnectExhausted { attempts: u32, last: String },
-    ReconnectAttemptTimedOut { timeout: Duration },
-    ReconnectDeadlineExceeded { attempts: u32 },
+    GenerationChanged {
+        expected: u64,
+        actual: u64,
+    },
+    ReconnectExhausted {
+        attempts: u32,
+        last: String,
+    },
+    ReconnectAttemptTimedOut {
+        timeout: Duration,
+    },
+    ReconnectDeadlineExceeded {
+        attempts: u32,
+    },
     ShutdownTimedOut,
     Closed,
+    /// The daemon refused the reconnect because it no longer has the logical
+    /// session: it outlived the daemon's resume lease, or the daemon closed
+    /// it. Not retryable: nothing can resume it, so the caller should stop
+    /// redialing and offer a new session.
+    SessionUnavailable,
 }
 
 impl ConnectionError {
@@ -1214,6 +1333,9 @@ impl fmt::Display for ConnectionError {
             }
             Self::ShutdownTimedOut => formatter.write_str("connection shutdown timed out"),
             Self::Closed => formatter.write_str("connection is closed"),
+            Self::SessionUnavailable => formatter.write_str(
+                "daemon no longer has the requested logical session (it expired or was closed)",
+            ),
         }
     }
 }

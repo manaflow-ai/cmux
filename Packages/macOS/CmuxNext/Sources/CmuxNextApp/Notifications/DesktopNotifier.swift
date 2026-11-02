@@ -55,6 +55,9 @@ final class DesktopNotifier: NSObject {
     nonisolated static let defaultCategory = "cmux.notification.default"
     nonisolated static let openAction = "cmux.notification.open"
     nonisolated static let markReadAction = "cmux.notification.markRead"
+    /// A tab an agent marked as needing the person (tab-attention-v1): Show goes to the tab.
+    nonisolated static let attentionCategory = "cmux.notification.attention"
+    nonisolated static let showAction = "cmux.notification.attention.show"
     /// The last banners asked for, newest last (bounded).
     private(set) var posted: [Posted] = []
     /// Whether this launch uses the system notification center (not in automation launches,
@@ -105,7 +108,11 @@ final class DesktopNotifier: NSObject {
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
     func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
-              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, category: String? = nil) {
+              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, category: String? = nil,
+              incognito: Bool = false) {
+        // An incognito window's banner names nothing of it (DesktopNotifier+Incognito); `posted` records what it shows.
+        let title = incognito ? Self.incognitoTitle : title, subtitle = incognito ? nil : subtitle, body = incognito ? Self.incognitoBody : body
+        let attachment = incognito ? nil : attachment, approval = approval && !incognito
         let category = category ?? (approval ? AgentApprovalBanners.category : reply ? Self.replyCategory : Self.defaultCategory)
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
@@ -165,6 +172,21 @@ final class DesktopNotifier: NSObject {
     func withdraw(_ ids: [String]) {
         guard !ids.isEmpty, let center else { return }
         for remove in [center.removeDeliveredNotifications(withIdentifiers:), center.removePendingNotificationRequests(withIdentifiers:)] { remove(ids) }
+    }
+
+    /// Finds attention requests retained across launches, without asking for notification permission.
+    func attentionBannerIDs() async -> [String] {
+        guard let center = configuredCenter() else { return [] }
+        return await withCheckedContinuation { continuation in
+            center.getDeliveredNotifications { delivered in
+                let deliveredIDs = delivered.map(\.request.identifier)
+                center.getPendingNotificationRequests { pending in
+                    continuation.resume(returning: (deliveredIDs + pending.map(\.identifier)).filter {
+                        $0.hasPrefix(AttentionBannerLifecycle.attentionBannerPrefix)
+                    })
+                }
+            }
+        }
     }
 
     /// The banner click path, also used by `debug.notifications` (click).
@@ -228,7 +250,7 @@ final class DesktopNotifier: NSObject {
             center.removeAllDeliveredNotifications()
             center.removeAllPendingNotificationRequests()
         }
-        center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), AgentApprovalBanners.notificationCategory(),
+        center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(), AgentApprovalBanners.notificationCategory(),
                                           IPhonePairNotices.notificationCategory()])
         self.center = center
         return center
@@ -276,6 +298,12 @@ final class DesktopNotifier: NSObject {
         return UNNotificationCategory(identifier: defaultCategory, actions: [open, markReadBannerAction()], intentIdentifiers: [])
     }
 
+    /// Needs you banners' category: Show, which brings cmux to the marked tab.
+    static func attentionBannerCategory() -> UNNotificationCategory {
+        let show = UNNotificationAction(identifier: showAction, title: String(localized: "notifications.attention.show", defaultValue: "Show", bundle: .module), options: [.foreground])
+        return UNNotificationCategory(identifier: attentionCategory, actions: [show], intentIdentifiers: [])
+    }
+
     /// Mark as Read: reads the banner's tab without bringing cmux forward.
     private static func markReadBannerAction() -> UNNotificationAction {
         UNNotificationAction(identifier: markReadAction,
@@ -295,7 +323,7 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         let id = info["notification"] as? String ?? response.notification.request.identifier
         let surface = (info["surface"] as? NSNumber)?.uint64Value
-        let isDefault = [UNNotificationDefaultActionIdentifier, IPhonePairNotices.reviewAction, Self.openAction].contains(response.actionIdentifier)
+        let isDefault = [UNNotificationDefaultActionIdentifier, IPhonePairNotices.reviewAction, Self.openAction, Self.showAction].contains(response.actionIdentifier)
         let markRead = response.actionIdentifier == Self.markReadAction
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         let approved = AgentApprovalBanners.decision(response.actionIdentifier)

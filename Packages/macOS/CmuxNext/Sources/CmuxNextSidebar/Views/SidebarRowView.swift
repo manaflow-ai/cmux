@@ -17,13 +17,10 @@ class SidebarRowView: NSView {
             updateAccessibilitySelection()
             fadesNextFill = false
             needsDisplay = true
-            // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
+            // A row lays its controls out again when its selection changes (cx-fo2t).
             needsLayout = true
         }
     }
-
-    /// The move whose tuck fade this tab line runs (`RowMotion.tuck`), so an older move's end leaves a newer one's.
-    var tuckMove: Int?
 
     /// The row shows as selected, the one source of its AXSelected. A row with more
     /// selection state overrides it and calls `updateAccessibilitySelection()` when that changes.
@@ -83,8 +80,6 @@ class SidebarRowView: NSView {
         fadesNextHover = false
         // A row parked mid-move does not finish that move when it comes back (cx-bqm6).
         layer?.removeAllAnimations()
-        layer?.zPosition = 0 // a tab line parked mid-tuck (`RowMotion.tuck`) draws in order again
-        tuckMove = nil
         clipsToBounds = false
         targetSize = nil
         alphaValue = 1
@@ -102,6 +97,14 @@ class SidebarRowView: NSView {
     @objc dynamic var titleFrame: NSRect { .zero }
     @objc dynamic var titleFont: NSFont { SidebarStyle.titleFont }
     @objc dynamic func setTitleHidden(_ hidden: Bool) {}
+    /// Where the title's first glyph starts on its baseline (the pen origin), in this row's
+    /// coordinates: inline rename puts the editor's text exactly there, so nothing moves as
+    /// editing starts. Nil: the row has no title to edit.
+    @objc dynamic var titlePenOrigin: NSValue? { nil }
+    /// The title's ink: the editor's text keeps it.
+    @objc dynamic var titleInk: NSColor? { nil }
+    /// Where the rename editor may end, in this row's coordinates.
+    @objc dynamic var titleEditMaxX: CGFloat { bounds.width - Metrics.space3 }
 
     @objc dynamic func hoverChanged() {
         // Hover entry is immediate; clearing a row's fill uses the `hoverOut` token (instant by
@@ -232,11 +235,11 @@ final class EmptySectionRowView: SidebarRowView {
     override func layout() {
         super.layout()
         let b = layoutBounds
-        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
+        let x = SidebarStyle.columns(rowWidth: b.width).text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
         let width = max(0, b.width - x - Metrics.space2)
         let titleHeight = ceil(label.intrinsicContentSize.height)
         guard !hint.isHidden else {
-            label.frame = NSRect(x: x, y: (b.height - titleHeight) / 2, width: width, height: titleHeight)
+            label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: width, height: titleHeight)
             hint.frame = .zero
             needsDisplay = true
             return

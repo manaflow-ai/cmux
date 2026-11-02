@@ -13,7 +13,7 @@ const LEDGER_PRUNE_BATCHES_PER_TICK: usize = 8;
 /// A scan reads every ledger page, so it runs once retention has drained the
 /// ledgers after start, then at this interval, and at once after a prune hits
 /// a corrupt page.
-const LEDGER_SCAN_INTERVAL: Duration = Duration::from_secs(60 * 60);
+pub(super) const LEDGER_SCAN_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 /// The worker's scan state; it lives on the worker thread.
 #[derive(Default)]
@@ -22,18 +22,24 @@ pub(super) struct LedgerMaintenance {
 }
 
 impl Mux {
-    pub(super) fn run_ledger_maintenance(&self, state: &mut LedgerMaintenance) {
-        if let Err(error) = self.try_ledger_maintenance(state) {
-            eprintln!("cmux-tui: mutation ledger maintenance deferred: {error:#}");
+    /// One tick's share; true while work remains (a ledger over its bound,
+    /// a corrupt ledger, a pause or an error to retry).
+    pub(super) fn run_ledger_maintenance(&self, state: &mut LedgerMaintenance) -> bool {
+        match self.try_ledger_maintenance(state) {
+            Ok(remains) => remains,
+            Err(error) => {
+                eprintln!("cmux-tui: mutation ledger maintenance deferred: {error:#}");
+                true
+            }
         }
     }
 
-    fn try_ledger_maintenance(&self, state: &mut LedgerMaintenance) -> anyhow::Result<()> {
+    fn try_ledger_maintenance(&self, state: &mut LedgerMaintenance) -> anyhow::Result<bool> {
         let mut drained = false;
         let mut corrupt = false;
         for _ in 0..LEDGER_PRUNE_BATCHES_PER_TICK {
             if self.journal_maintenance_paused() {
-                return Ok(());
+                return Ok(true);
             }
             let prune = self
                 .workspace_registry
@@ -49,7 +55,10 @@ impl Mux {
         let due = corrupt
             || (drained
                 && state.last_scan.is_none_or(|scanned| scanned.elapsed() >= LEDGER_SCAN_INTERVAL));
-        if due { self.scan_and_quarantine_ledgers(state) } else { Ok(()) }
+        if due {
+            self.scan_and_quarantine_ledgers(state)?;
+        }
+        Ok(corrupt || !drained)
     }
 
     fn scan_and_quarantine_ledgers(&self, state: &mut LedgerMaintenance) -> anyhow::Result<()> {

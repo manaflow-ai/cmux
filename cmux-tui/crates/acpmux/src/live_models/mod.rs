@@ -247,6 +247,8 @@ impl Cache {
         key: &CacheKey,
         models: &[LiveModel],
     ) -> std::io::Result<()> {
+        // A probe that ends after the home was lost never makes it again (`config::mark_home_lost`).
+        crate::config::refuse_lost_home(&self.dir).map_err(std::io::Error::other)?;
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path(harness);
         let tmp = path.with_extension("json.tmp");

@@ -1,26 +1,50 @@
 import CmuxNextDesign
 import CoreGraphics
 
-/// A list that folds its workspaces marked Done: a group's members, or a section's loose rows.
+/// A list's fold: a group's members, or a section's loose rows, that fold behind one row at the list's end.
 public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
+    /// What a fold holds.
+    public enum Kind: Hashable, Sendable {
+        /// Workspaces marked Done: the "Done (N)" row.
+        case done
+        /// Archived workspaces: the "Archived (N)" row, after the Done row (Lawrence 18470, gallery pick V2).
+        case archived
+        /// The sidebar's one Archive section (``SidebarDoneFoldID/archive``): every archived workspace and wholly
+        /// archived group, under one "Archive (N)" row at the bottom (Lawrence 19197).
+        case archive
+    }
+
     public var section: SectionID
     /// The group whose members fold; nil for the section's loose rows.
     public var group: GroupID?
+    /// What the fold holds; ``Kind/done`` by default.
+    public var kind: Kind
 
-    public init(section: SectionID, group: GroupID?) {
+    public init(section: SectionID, group: GroupID?, kind: Kind = .done) {
         self.section = section
         self.group = group
+        self.kind = kind
     }
+
+    /// The bottom "Archive (N)" row (`SidebarLayout+ArchiveSection`); its open state is kept with the folds'.
+    public static let archive = SidebarDoneFoldID(section: .pinned, group: nil, kind: .archive)
+
+    /// The same list's fold of `kind`.
+    func of(_ kind: Kind) -> SidebarDoneFoldID { SidebarDoneFoldID(section: section, group: group, kind: kind) }
 }
 
 // The "Done (N)" fold (`sidebar.doneFold`, Leo's sidebar organization): workspaces the person marked Done
 // (`SidebarTaskStatus.done`) leave their place and list behind one row at the end of their group or list, in their
-// manual order; the row opens them below it. The model's order never changes: only the drawn order does.
+// manual order; the row opens them below it. Archived workspaces (`isArchived`, `foldsArchived`) do the same behind an
+// "Archived (N)" row after it (Lawrence 18470: "better ui for archived stuff instead of just greying them out"; it
+// took a dimmed row each). The model's order never changes: only the drawn order does.
 nonisolated extension SidebarLayout {
     /// The index `foldingDone` gives the "Done (N)" row's entry (its depth is the fold's count).
     static let doneFoldIndex = -1
     /// The index `foldingDone` gives the "Show N more" row's entry (its depth is the count; 0 once opened: "Show fewer").
     static let showMoreIndex = -2
+    /// The index `foldingDone` gives the "Archived (N)" row's entry (its depth is the fold's count).
+    static let archivedFoldIndex = -3
 
     /// `drawn` with the workspaces marked Done moved behind one fold entry (`doneFoldIndex`) at the end, and after it
     /// when the person opened the fold; then, past `rowLimit`, the rest behind a "Show N more" entry (`limiting`).
@@ -33,18 +57,28 @@ nonisolated extension SidebarLayout {
         guard o.filterMatches == nil else { return drawn }
         var shown: [[(index: Int, depth: Int)]] = []
         var done: [[(index: Int, depth: Int)]] = []
+        var archived: [[(index: Int, depth: Int)]] = []
         for run in runs(drawn) {
             let holdsActive = run.contains { workspace($0.index)?.id == o.activeWorkspaceID }
-            if o.foldsDone, let ws = workspace(run[0].index), ws.taskStatus == .done, !holdsActive {
+            let ws = workspace(run[0].index)
+            if o.foldsArchived, let ws, ws.isArchived, !holdsActive {
+                archived.append(run)
+            } else if o.foldsDone, let ws, ws.taskStatus == .done, !holdsActive {
                 done.append(run)
             } else {
                 shown.append(run)
             }
         }
-        let listed = limiting(shown, workspace: workspace, limits: limits, list: id, options: o)
-        guard !done.isEmpty else { return listed }
-        let folded = done.joined()
-        return listed + [(doneFoldIndex, folded.count)] + (o.openDoneFolds.contains(id) ? Array(folded) : [])
+        var listed = limiting(shown, workspace: workspace, limits: limits, list: id, options: o)
+        if !done.isEmpty {
+            let folded = Array(done.joined())
+            listed += [(doneFoldIndex, folded.count)] + (o.openDoneFolds.contains(id.of(.done)) ? folded : [])
+        }
+        if !archived.isEmpty {
+            let folded = Array(archived.joined())
+            listed += [(archivedFoldIndex, folded.count)] + (o.openDoneFolds.contains(id.of(.archived)) ? folded : [])
+        }
+        return listed
     }
 
     /// `drawn` cut into runs: each top-level entry (depth 0) with the nested entries drawn right after it.
@@ -83,17 +117,21 @@ nonisolated extension SidebarLayout {
     /// Whether a drag of `dragged` unfolds every list: it carries a row the fold would hide or draw below it (marked
     /// Done, not the active one). Such a row would leave its slot (`displayLayout` slides the dragged rows as one), or
     /// make or drop a "Done (N)" row the drag's base rows lack, so the drag draws as it did before it kept the folds.
-    /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count.
+    /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count. Archived rows
+    /// (`foldsArchived`, or the Archive section) fold the same way.
     /// With the session tree the fold moves runs (`foldingDone`), so a drag also unfolds when it carries a row under a
-    /// Done ancestor (that root's run folds with it, and with the dragged row gone from the base rows a run that held
-    /// the active row folds too), or when a Done row sits under a dragged one (the base rows lack its parent, so it
-    /// draws as a Done top-level row the fold takes). `workspace` looks those rows up by id (the model's); the walk
+    /// folding ancestor (that root's run folds with it, and with the dragged row gone from the base rows a run that held
+    /// the active row folds too), or when a folding row sits under a dragged one (the base rows lack its parent, so it
+    /// draws as a top-level row the fold takes). `workspace` looks those rows up by id (the model's); the walk
     /// follows `parents` across lists, so it may unfold a drag the fold would not move: that drag draws as it did
     /// before drags kept the folds, never with a moved row.
     static func dragUnfolds(_ dragged: [SidebarWorkspace], workspace: (WorkspaceID) -> SidebarWorkspace? = { _ in nil },
                             options o: SidebarLayoutOptions) -> Bool {
-        guard o.foldsDone, o.filterMatches == nil else { return false }
-        let folds: (SidebarWorkspace) -> Bool = { $0.taskStatus == .done && $0.id != o.activeWorkspaceID }
+        guard o.foldsDone || o.foldsArchived || o.archiveSection, o.filterMatches == nil else { return false }
+        let folds: (SidebarWorkspace) -> Bool = {
+            $0.id != o.activeWorkspaceID
+                && ((o.foldsDone && $0.taskStatus == .done) || ((o.foldsArchived || o.archiveSection) && $0.isArchived))
+        }
         if dragged.contains(where: folds) { return true }
         guard let parents = o.sessionTree?.parents, !parents.isEmpty else { return false }
         // `id`'s parent chain, nearest first, cycle-safe.
@@ -125,11 +163,12 @@ nonisolated extension SidebarLayout {
         return drawn.first { $0.index < 0 || $0.index >= gap.index }?.index
     }
 
-    /// Appends the row of a `foldingDone` entry (`doneFoldIndex` or `showMoreIndex`) at `y`: one line, as a document
-    /// item's row.
-    static func appendFold(_ entry: Int, _ id: SidebarDoneFoldID, count: Int, parent: Int?, color: GroupColor?, last: Bool,
+    /// Appends the row of a `foldingDone` entry (`doneFoldIndex`, `archivedFoldIndex` or `showMoreIndex`) at `y`: one
+    /// line, as a document item's row.
+    static func appendFold(_ entry: Int, _ list: SidebarDoneFoldID, count: Int, parent: Int?, color: GroupColor?, last: Bool,
                            options o: SidebarLayoutOptions, to rows: inout [SidebarRow], y: inout CGFloat, metrics m: SidebarLayoutMetrics) {
         let more = entry == showMoreIndex
+        let id = list.of(entry == archivedFoldIndex ? .archived : .done)
         let open = more ? o.openShowMore.contains(id) : o.openDoneFolds.contains(id)
         let content = WorkspaceRowContent()
         let h = m.height(for: content)

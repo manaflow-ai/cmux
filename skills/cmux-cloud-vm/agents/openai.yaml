@@ -1,4 +1,4 @@
 interface:
   display_name: "cmux Cloud Machines"
   short_description: "Manage cmux Cloud machines with the app's cloud actions and drive a machine's own cmux-tui session from inside it."
-  default_prompt: "Use $cmux-cloud-vm to create, open, resize, snapshot or restore a machine with `cmux cloud <verb>` (check `cmux action describe` first), then work inside the machine with its own `cmux` resource grammar. The old `cmux vm` verbs were removed."
+  default_prompt: "Use $cmux-cloud-vm to create, open, resize, snapshot or restore a machine with `cmux cloud <verb>` (check `cmux action describe` first), then work inside the machine with its own `cmux` resource grammar. With no app (CI, a headless agent), use `cmux vm` and an API key (references/headless.md)."

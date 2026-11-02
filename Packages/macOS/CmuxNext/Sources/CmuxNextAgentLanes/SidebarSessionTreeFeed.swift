@@ -53,6 +53,7 @@ public final class SidebarSessionTreeFeed {
         guard task == nil else { return }
         let storedParents = recorded ?? self.recordedParents
         let pullRequests = pullRequests
+        let fixture = SidebarPullRequestFixture.enabled
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
@@ -61,20 +62,26 @@ public final class SidebarSessionTreeFeed {
                 guard reads || nests else { return nil }
                 // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
                 // again; with the badges on this pass ran over every workspace on every agent event.
-                let chats = Self.chats(workspaces())
+                let models = workspaces()
+                let chats = Self.chats(models)
                 var links: [String: AgentLaneLinks] = [:]
                 for (_, refs) in chats {
                     for ref in refs where ref.host == localHost {
                         if let session = ref.session, let link = lanes.links(session) { links[session] = link }
                     }
                 }
-                let pass = Self.pass(chats, links: links, remoteParentsByHost: remote.parentsByHost,
+                var pass = Self.pass(chats, links: links, remoteParentsByHost: remote.parentsByHost,
                                      hostAliases: remote.hostAliases, recordedParents: storedParents.parents,
                                      localHost: localHost, pullRequests: reads ? pullRequests.answers : [:])
-                return Self.shaped(pass, sessionTree: sections.sessionTree, nests: nests, reads: reads)
+                pass = Self.shaped(pass, sessionTree: sections.sessionTree, nests: nests, reads: reads)
+                // Captures: sample pull requests on every row, and no GitHub reads.
+                if fixture, pass.readsPullRequests {
+                    (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(models), [])
+                }
+                return pass
             }) {
                 Self.publish(pass, to: tree)
-                if let pass, pass.readsPullRequests { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
+                if let pass, pass.readsPullRequests, !fixture { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
     }
@@ -160,12 +167,15 @@ public final class SidebarSessionTreeFeed {
         var state = SidebarSessionTreeState()
         var agentStates: [SidebarWorkspaceID: SidebarAgentState] = [:]
         var asks: Set<String> = []
+        // Even daemon-provided lineage can be cyclic after a corrupted replay or two peers
+        // reporting each other as parent. Keep the same cycle guard as recorded fallbacks:
+        // the sidebar needs a forest, and a bad edge must never hide either chat.
         for (id, refs) in remote {
             if let parent = refs.lazy.compactMap({ child -> SidebarWorkspaceID? in
                 guard let session = child.session,
                       let parentID = daemonLinks(child.host)[session] else { return nil }
                 return owning(child.host, parentID)
-            }).first(where: { $0 != id }) {
+            }).first(where: { $0 != id && !Self.reaches(from: $0, to: id, in: state.parents) }) {
                 state.parents[id] = parent
             }
         }
@@ -174,7 +184,7 @@ public final class SidebarSessionTreeFeed {
             if let parent = shown.lazy.compactMap({ lane -> SidebarWorkspaceID? in
                 guard let parentID = lane.spawnedBy, let localHost else { return nil }
                 return owner[AgentSessionParents.identity(host: localHost, session: parentID)]
-            }).first(where: { $0 != id }) {
+            }).first(where: { $0 != id && !Self.reaches(from: $0, to: id, in: state.parents) }) {
                 state.parents[id] = parent
             }
             // The strongest of its agents' states: one waiting on you outranks one still running.

@@ -17,7 +17,7 @@ pub(in crate::cli) fn print(args: &[String]) -> Option<i32> {
     Some(0)
 }
 
-/// `help acp|mcp|coderouter|link` runs that command's own `--help`, so the
+/// `help acp|mcp|coderouter|billing|auth|link` runs that command's own `--help`, so the
 /// two spellings print the same text.
 fn process_help(args: &[String]) -> Option<i32> {
     let [help, scope] = args else { return None };
@@ -31,6 +31,7 @@ fn process_help(args: &[String]) -> Option<i32> {
         "mcp" => super::super::mcp::run_if_requested(&flag()),
         "coderouter" => super::super::coderouter::run_if_requested(&flag()),
         "billing" => super::super::billing::run_if_requested(&flag()),
+        "auth" => super::super::auth_token::run_if_requested(&flag()),
         _ => None,
     }
 }
@@ -54,27 +55,21 @@ fn text(args: &[String]) -> Option<String> {
             format!("{}\n", messages.browser_page_usage)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
+        ["space", ..] => return Some(super::super::scope_help::SPACE_HELP.to_owned()),
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
         ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
-        ["cloud", "exec"] => {
+        ["cloud", verb] => {
+            let japanese = crate::localization::catalog().is_japanese();
             return Some(
-                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
-                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
-                } else {
-                    "使い方: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
-                }
-                .into(),
+                super::super::cloud_help::verb_help(verb, japanese)
+                    .unwrap_or_else(|| super::super::cloud_help::overview(japanese)),
             );
         }
         ["cloud", ..] => {
-            return Some(
-                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
-                    super::super::CLOUD_HELP.to_owned()
-                } else {
-                    super::super::CLOUD_HELP_JA.to_owned()
-                },
-            );
+            return Some(super::super::cloud_help::overview(
+                crate::localization::catalog().is_japanese(),
+            ));
         }
         // The classic `cmux identify|ping|capabilities` are `cmux app …`.
         ["identify" | "ping" | "capabilities"] => {
@@ -158,12 +153,16 @@ Lists the app's AI provider accounts; secrets are never printed.";
 
 const OPEN_HELP: &str = "\
 usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
+       cmux open --as-text <file>... [--focus [true|false]] [--no-focus]
        cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
        cmux open --link [--caller <names>] [--target <target>] (<url>... | -)
 URLs open as a browser tab in the caller's pane (or the --workspace pane),
 folders in a new workspace, files in the app. `open -` reads one http(s) URL
 per stdin line, so a URL with a token never appears in argv; it checks every
 line first and stops at the first URL the app refuses.
+--as-text (or --source) opens HTML, SVG and Markdown files as their source in
+the code editor instead of rendered; Edit Source and Open as Page on a tab
+switch between the two (cmux browser edit-source, cmux file open-as-page).
 --link opens each URL the way a program's browser in a cmux terminal does
 (BROWSER=cmux-open-url): where the terminal.linkOpener setting says, a cmux
 browser tab beside the caller by default. --caller names the programs that
@@ -185,15 +184,12 @@ recent. Each list reads new log lines first unless --no-harvest. The journal
 is under ~/Library/Application Support/<bundle id>/errors, at most about 8 MB.";
 
 const TEAM_HELP: &str = "\
-usage: cmux team invite --email <address>[,<address>...] [--team <name|id>]
-                        [--role member|admin] [--reason <text>]
-Emails an invite to join a cmux team as the person signed in to the app. The
-app first shows a confirmation with who asked, the reason, the addresses, the
-team and the role; nothing is sent until the person clicks Send Invite, and
-Don't Send or 3 minutes without an answer sends nothing. An accepted invite
-adds a member, which can raise the team's bill. An agent must give --reason.
-Without --team the one shared team is used. The result lists each invitation
-with state pending.";
+usage: cmux team invite --email <address>
+       (the same as cmux home invite-to-team --email <address>)
+Opens Invite to Team for the active team in the app, prefilled with the
+address and the line that an agent asked. The dialog shows what one more
+member costs the team; nothing is sent until the person clicks Send, and the
+command waits for that answer (up to about 3 minutes).";
 
 const GHOSTTY_HELP: &str = "\
 usage: cmux ghostty diagnostics

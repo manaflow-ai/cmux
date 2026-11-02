@@ -110,12 +110,15 @@ public struct SessionArtifacts: Sendable {
             return reference
         }
 
-        mutating func add(_ reference: String, kind: TerminalArtifact.Kind? = nil, line: Int? = nil, detail: String, weight: Weight) {
+        /// `replacesKind`: a newer attachment of the same name, whose kind wins at an equal weight.
+        mutating func add(_ reference: String, kind: TerminalArtifact.Kind? = nil, line: Int? = nil, detail: String, weight: Weight,
+                          replacesKind: Bool = false) {
             let reference = kind == .link ? reference : normalize(reference)
             guard !reference.isEmpty, let kind = kind ?? Self.kind(of: reference) else { return }
             if let existing = entries[reference] {
-                guard weight > existing.weight else { return }
+                guard weight > existing.weight || (replacesKind && weight == existing.weight) else { return }
                 var artifact = existing.artifact
+                if replacesKind { artifact.kind = kind }
                 artifact.detail = detail
                 artifact.line = artifact.line ?? line
                 entries[reference] = (artifact, weight)
@@ -146,11 +149,11 @@ public struct SessionArtifacts: Sendable {
             }
             switch attachment.kind {
             case .image:
-                add(reference, kind: .image, detail: "Attached", weight: .attached)
+                add(reference, kind: .image, detail: "Attached", weight: .attached, replacesKind: true)
                 if let data = attachment.data { inline[key] = .image(data) }
             case .file:
                 let kind = Self.kind(of: attachment.name) ?? .binary
-                add(reference, kind: kind, detail: "Attached", weight: .attached)
+                add(reference, kind: kind, detail: "Attached", weight: .attached, replacesKind: true)
                 if let data = attachment.data {
                     inline[key] = (try? LinkFileArtifactSource.content(
                         for: TerminalArtifact(reference: reference, kind: kind), data: data)) ?? .binary(description: attachment.name)

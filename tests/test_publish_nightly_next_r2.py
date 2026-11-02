@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
+
+import yaml
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,13 +36,17 @@ ENV = {
 }
 
 
-def feed(*items: tuple, channel: dict | None = None) -> str:
+def feed(*items: tuple, channel: dict | None = None, source: dict | None = None) -> str:
     channel = channel or {}
+    source = source or {}
     body = "".join(
         f'<item><sparkle:version>{build}</sparkle:version>'
         + (f"<sparkle:channel>{channel[build]}</sparkle:channel>" if build in channel else "")
+        + (f"<cmux:sourceCommit>{source[build]}</cmux:sourceCommit>" if build in source else "")
         + f'<enclosure url="{url}" length="{length}" sparkle:edSignature="sig"/></item>' for build, url, length in items)
-    return ('<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
+    namespace = ' xmlns:cmux="https://cmux.com/xml-namespaces/cmux"' if source else ""
+    return ('<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"'
+            f'{namespace}>'
             f"<channel>{body}</channel></rss>")
 
 
@@ -99,13 +107,17 @@ class FeedWriteCase(unittest.TestCase):
         self.path = Path(self.dir.name) / "appcast-arm64.xml"
         self.path.write_text(feed((200, f"{BASE}/cmux-nightly-next-macos-arm64-200.dmg", 5)), encoding="utf-8")
         self.output = Path(self.dir.name) / "out"
+        compiled = mock.patch.object(r2, "compiled_artifact_source", return_value=None)
+        compiled.start()
+        self.addCleanup(compiled.stop)
         self.calls: list[list[str]] = []
         for name in ("guard_key",):
             p = mock.patch.object(r2, name, lambda key: None)
             p.start()
             self.addCleanup(p.stop)
 
-    def run_with(self, lives: list[bytes | None], codes: list[int], same_build: bool = False) -> int:
+    def run_with(self, lives: list[bytes | None], codes: list[int], same_build: bool = False,
+                 source_sha: str | None = None) -> int:
         lives_iter, codes_iter = iter(lives), iter(codes)
 
         def fake_run(args, *rest, **kwargs):
@@ -114,7 +126,7 @@ class FeedWriteCase(unittest.TestCase):
 
         with mock.patch.object(r2, "read_live", lambda key: next(lives_iter)), \
                 mock.patch.object(r2.subprocess, "run", fake_run):
-            return r2.write_feed(self.path, str(self.output), same_build)
+            return r2.write_feed(self.path, str(self.output), same_build, source_sha=source_sha)
 
 
 class WriteFeedTests(FeedWriteCase):
@@ -151,12 +163,380 @@ class WriteFeedTests(FeedWriteCase):
     def test_an_upload_failure_fails(self) -> None:
         self.assertEqual(self.run_with([feed((100, "x", 1)).encode()], [1]), 1)
 
+    def test_an_older_source_cannot_win_with_a_larger_run_build(self) -> None:
+        source_a, source_b = "a" * 40, "b" * 40
+        self.path.write_text(feed((300, "x", 1), source={300: source_a}), encoding="utf-8")
+        live = feed((200, "x", 1), source={200: source_b}).encode()
+        with mock.patch.object(r2, "source_order", return_value=False):
+            self.assertEqual(self.run_with([live], [], source_sha=source_a), 0)
+        self.assertEqual(self.calls, [])
+        self.assertIn("feed_written=false", self.output.read_text())
+        self.assertIn("publication_refused=true", self.output.read_text())
+        # A successful no-op must not authorize the GitHub release, notes or tag.
+        env = {**os.environ, "TAG_MOVE_OUTCOME": "success", "CHANNEL_RELEASE_TAG": "nightly-next",
+               "NEXT_FEED_CURRENT": "false", "GITHUB_OUTPUT": str(self.output)}
+        subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/publish-tag-outcome.sh")],
+                       env=env, check=True, capture_output=True, text=True)
+        self.assertIn("tag_status=unpublished", self.output.read_text())
+        self.assertNotIn("tag_status=updated", self.output.read_text())
+
+    def test_rerun_reuses_an_already_accepted_build_and_source_for_metadata_repair(self) -> None:
+        source = "a" * 40
+        live = feed((200, "accepted-download", 1), source={200: source}).encode()
+        self.assertEqual(self.run_with([live], [], source_sha=source), 0)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.path.read_bytes(), live)
+        self.assertIn("feed_written=false", self.output.read_text())
+        self.assertIn("feed_current=true", self.output.read_text())
+        self.assertNotIn("publication_refused=true", self.output.read_text())
+        env = {**os.environ, "TAG_MOVE_OUTCOME": "success", "CHANNEL_RELEASE_TAG": "nightly-next",
+               "NEXT_FEED_CURRENT": "true", "GITHUB_OUTPUT": str(self.output), "HEAD_SHA": source,
+               "CHANNEL_FEED_BASE": BASE, "GITHUB_STEP_SUMMARY": str(Path(self.dir.name) / "summary")}
+        subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/publish-tag-outcome.sh")],
+                       env=env, check=True, capture_output=True, text=True)
+        self.assertIn("tag_status=updated", self.output.read_text())
+
+    def test_failed_handoff_retry_reaches_checked_live_bytes_then_recreates_handoff(self) -> None:
+        from test_nightly_next_recovery import run_recheck
+
+        source = "a" * 40
+        # Attempt one commits CAS, then the artifact service fails. Nothing
+        # reached the GitHub release job; attempt two must recreate its input.
+        self.assertEqual(self.run_with([None], [0], source_sha=source), 0)
+        accepted = self.path.read_bytes()
+        self.calls.clear()
+        self.output.write_text("")
+        recheck = run_recheck(200, (200,), source="own", attempt=2)
+        self.assertEqual(recheck.returncode, 0, recheck.stderr)
+
+        job = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]["publish-nightly"]
+        values = {"needs.decide.outputs.should_publish": "true", "needs.decide.outputs.track": "nightly-next",
+                  "steps.recheck.outputs.already_published": recheck.output.get("already_published", ""),
+                  "steps.gate.outputs.refused": ""}
+
+        def runs(name):
+            condition = next(s for s in job["steps"] if s.get("name") == name)["if"]
+            for key, value in values.items():
+                condition = condition.replace(key, repr(value))
+            return eval(condition.replace("&&", "and"), {"__builtins__": {}}, {})
+
+        self.assertTrue(runs("Final publication gate"))
+        self.assertTrue(runs("Upload nightly-next appcasts to R2"))
+        # The accepted-build branch reads live bytes, without another PUT.
+        self.assertEqual(self.run_with([accepted], [], source_sha=source), 0)
+        values["steps.upload_next_appcasts.outputs.feed_current"] = "true"
+        self.assertIn("feed_current=true", self.output.read_text())
+        self.assertEqual(self.calls, [])
+        self.assertTrue(runs("Hand the published feed to the GitHub release job"))
+        self.assertTrue(runs("Upload the published feed for the GitHub release job"))
+        work = Path(self.dir.name)
+        (work / "nightly-out").mkdir()
+        (work / "nightly-out" / self.path.name).write_bytes(self.path.read_bytes())
+        env = {**os.environ, "NIGHTLY_FEEDS": self.path.name, "RUNNER_TEMP": str(work)}
+        subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/publish-next-hand-feed.sh")],
+                       cwd=work, env=env, check=True, capture_output=True, text=True)
+        self.assertEqual((work / "next-github" / self.path.name).read_bytes(), accepted)
+
+    def test_handoff_retry_rechecks_source_and_a_race_after_the_early_check(self) -> None:
+        from test_nightly_next_recovery import run_recheck
+
+        recheck = run_recheck(200, (200,), source="own", attempt=2)
+        self.assertEqual(recheck.returncode, 0, recheck.stderr)
+        self.assertNotEqual(recheck.output.get("already_published"), "true")
+        for build in (200, 300):
+            with self.subTest(live_build=build):
+                self.output.write_text("")
+                live = feed((build, "newer-source-download", 1), source={build: "b" * 40}).encode()
+                self.assertEqual(self.run_with([live], [], source_sha="a" * 40), 0)
+                self.assertEqual(self.calls, [])
+                self.assertIn("publication_refused=true", self.output.read_text())
+                self.assertNotIn("feed_current=true", self.output.read_text())
+
+    def test_the_same_build_number_with_a_different_source_is_refused(self) -> None:
+        live = feed((200, "x", 1), source={200: "b" * 40}).encode()
+        self.assertEqual(self.run_with([live], [], source_sha="a" * 40), 0)
+        self.assertEqual(self.calls, [])
+        self.assertIn("publication_refused=true", self.output.read_text())
+        self.assertNotIn("feed_current=true", self.output.read_text())
+
+    def test_markerless_live_feed_uses_the_exact_verified_notes_build(self) -> None:
+        source_a, source_b = "a" * 40, "b" * 40
+        self.path.write_text(feed((300, "x", 1)), encoding="utf-8")
+        live = feed((200, "x", 1)).encode()
+        with mock.patch.object(r2, "signed_notes_source", return_value=source_b), \
+                mock.patch.object(r2, "source_order", return_value=False):
+            self.assertEqual(self.run_with([live], [], source_sha=source_a), 0)
+        self.assertEqual(self.calls, [])
+        self.assertIn("feed_written=false", self.output.read_text())
+
+    def test_markerless_recovered_feed_can_migrate_from_its_exact_compile_receipt(self) -> None:
+        live_source, candidate = "a" * 40, "b" * 40
+        with mock.patch.object(r2, "signed_notes_source", return_value=None), \
+                mock.patch.object(r2, "compiled_artifact_source", return_value=live_source) as compiled, \
+                mock.patch.object(r2, "source_order", return_value=True) as order:
+            self.assertEqual(self.run_with([feed((100, "x", 1)).encode()], [0], source_sha=candidate), 0)
+        compiled.assert_called_once_with(100)
+        order.assert_called_once_with(live_source, candidate)
+        self.assertIn("feed_written=true", self.output.read_text())
+
+    def test_markerless_live_feed_without_verified_notes_refuses_upload(self) -> None:
+        with mock.patch.object(r2, "signed_notes_source", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "no verified signed notes head"):
+                self.run_with([feed((100, "x", 1)).encode()], [], source_sha="a" * 40)
+        self.assertEqual(self.calls, [])
+
+    def test_cas_retry_rechecks_source_even_when_racing_build_number_is_lower(self) -> None:
+        old, new, candidate = "a" * 40, "b" * 40, "c" * 40
+        first = feed((100, "x", 1), source={100: old}).encode()
+        second = feed((180, "x", 1), source={180: new}).encode()
+        with mock.patch.object(r2, "source_order", side_effect=[True, False]) as order:
+            self.assertEqual(self.run_with([first, second], [r2.CONFLICT], source_sha=candidate), 0)
+        self.assertEqual(order.call_args_list, [mock.call(old, candidate), mock.call(new, candidate)])
+        self.assertEqual(len(self.calls), 1)
+
+    def test_source_is_written_into_first_publication(self) -> None:
+        source = "a" * 40
+        self.assertEqual(self.run_with([None], [0], source_sha=source), 0)
+        self.assertEqual(r2.item_source(self.path.read_bytes(), 200), source)
+
+    def test_source_marker_survives_the_real_dev_ring_item_merger(self) -> None:
+        spec = importlib.util.spec_from_file_location("ring", ROOT / "scripts/ci/nightly_next_ring.py")
+        ring = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ring)
+        source = "a" * 40
+        marked = r2.add_source(feed((200, BASE + "/cmux-nightly-next-macos-arm64-200.dmg", 1)).encode(), source).decode()
+        fresh = feed((300, BASE + "/cmux-nightly-next-macos-arm64-300.dmg", 1))
+        merged, _ = ring.legacy(fresh, marked, "on", lambda build: "pass" if build == "200" else "pending")
+        ET.fromstring(merged)  # copied items must carry their own prefix binding
+        self.assertEqual(r2.item_source(merged.encode(), 200), source)
+        self.path.write_text(merged)
+        guard_spec = importlib.util.spec_from_file_location("guard", ROOT / "scripts/ci/nightly-next-guard.py")
+        guard = importlib.util.module_from_spec(guard_spec)
+        guard_spec.loader.exec_module(guard)
+        guard.check_appcast(self.path)
+
     def test_the_delta_revision_needs_the_live_feed_on_this_build(self) -> None:
         self.assertEqual(self.run_with([feed((300, "x", 1)).encode()], [], same_build=True), 0)
         self.assertEqual(self.run_with([feed((100, "x", 1)).encode()], [], same_build=True), 0)
         self.assertEqual(self.calls, [])
         self.assertEqual(self.run_with([feed((200, "x", 1)).encode()], [0], same_build=True), 0)
         self.assertIn("--replace-sha256", self.calls[0])
+
+    def test_same_build_delta_preserves_live_source_metadata_on_each_cas_read(self) -> None:
+        first, second = "a" * 40, "b" * 40
+        lives = [feed((200, "x", 1), source={200: source}).encode() for source in (first, second)]
+        self.assertEqual(self.run_with(lives, [r2.CONFLICT, 0], same_build=True), 0)
+        self.assertEqual(r2.item_source(self.path.read_bytes(), 200), second)
+        parsed = ET.fromstring(self.path.read_bytes())
+        self.assertEqual(parsed.find(".//{https://cmux.com/xml-namespaces/cmux}sourceCommit").text, second)
+
+    def test_root_bound_delta_and_old_feed_markers_survive_item_merges(self) -> None:
+        source = "a" * 40
+        url = BASE + "/cmux-nightly-next-macos-arm64-200.dmg"
+        root_bound = feed((200, url, 1), source={200: source})
+        self.path.write_text(root_bound)
+        self.assertEqual(self.run_with([root_bound.encode()], [0], same_build=True), 0)
+        spec = importlib.util.spec_from_file_location("ring", ROOT / "scripts/ci/nightly_next_ring.py")
+        ring = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ring)
+        fresh = feed((300, BASE + "/cmux-nightly-next-macos-arm64-300.dmg", 1))
+        for current in (root_bound, self.path.read_text()):
+            merged, _ = ring.legacy(fresh, current, "on", lambda build: "pass" if build == "200" else "pending")
+            ET.fromstring(merged)
+            self.assertEqual(r2.item_source(merged.encode(), 200), source)
+
+
+# The live feed of 2026-11-01: the newest item binds cmux: inline, an item carried
+# from an older feed uses a bare <cmux:sourceCommit>, and the <rss> root declares
+# only sparkle:. Every XML reader refused it ("unbound prefix").
+UNBOUND_LIVE = ('<?xml version="1.0" encoding="utf-8"?><rss xmlns:sparkle="http://www.andymatuschak.org/'
+                'xml-namespaces/sparkle" version="2.0"><channel><title>cmux NEXT</title>'
+                '<item><sparkle:version>150</sparkle:version><enclosure url="x" length="1" sparkle:edSignature="s"/>'
+                '<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">' + "c" * 40
+                + '</cmux:sourceCommit></item>'
+                '<item><sparkle:version>100</sparkle:version><enclosure url="x" length="1" sparkle:edSignature="s"/>'
+                '<cmux:sourceCommit>' + "b" * 40 + '</cmux:sourceCommit></item></channel></rss>').encode()
+
+
+class FeedPrefixTests(FeedWriteCase):
+    def test_a_carried_item_relying_on_the_old_root_keeps_its_prefix_bound(self) -> None:
+        # The live root declares cmux:, its item does not; this run's new item binds it
+        # inline. That inline binding must not stand in for the root's.
+        live = feed((100, "x", 1), source={100: "b" * 40}).encode()
+        with mock.patch.object(r2, "source_order", return_value=True):
+            self.assertEqual(self.run_with([live], [0], source_sha="a" * 40), 0)
+        written = self.path.read_bytes()
+        root = ET.fromstring(written)
+        self.assertIn('xmlns:cmux="https://cmux.com/xml-namespaces/cmux"', written.split(b">", 2)[1].decode())
+        self.assertEqual(len(root.findall("./channel/item")), 2)
+        self.assertEqual(r2.item_source(written, 200), "a" * 40)
+        self.assertEqual(r2.item_source(written, 100), "b" * 40)
+
+    def test_a_live_feed_with_an_unbound_prefix_is_read_and_repaired(self) -> None:
+        self.assertEqual(r2.newest_build(UNBOUND_LIVE), 150)
+        self.assertEqual(r2.item_source(UNBOUND_LIVE, 150), "c" * 40)
+        with mock.patch.object(r2, "source_order", return_value=True):
+            self.assertEqual(self.run_with([UNBOUND_LIVE], [0], source_sha="a" * 40), 0)
+        self.assertIn("feed_written=true", self.output.read_text())
+        written = self.path.read_bytes()
+        ET.fromstring(written)
+        self.assertEqual(r2.item_source(written, 200), "a" * 40)
+        self.assertEqual(r2.item_source(written, 150), "c" * 40)  # KEEP_BUILDS: 100 drops out
+
+    def test_a_feed_that_does_not_parse_is_never_uploaded(self) -> None:
+        live = feed((100, "x", 1), source={100: "b" * 40}).encode()
+        with mock.patch.object(r2, "source_order", return_value=True), \
+                mock.patch.object(r2, "bind_feed_prefixes", lambda xml: xml):
+            with self.assertRaisesRegex(RuntimeError, "does not parse"):
+                self.run_with([live], [0], source_sha="a" * 40)
+        self.assertEqual(self.calls, [])
+
+    def test_binding_is_idempotent_and_leaves_bound_feeds_alone(self) -> None:
+        bound = feed((100, "x", 1), source={100: "b" * 40}).encode()
+        self.assertEqual(r2.bind_feed_prefixes(bound), bound)
+        once = r2.bind_feed_prefixes(UNBOUND_LIVE)
+        self.assertEqual(r2.bind_feed_prefixes(once), once)
+        self.assertEqual(once.count(b'xmlns:cmux="https://cmux.com/xml-namespaces/cmux"'), 2)  # root + inline
+
+
+class CompiledSourceMigrationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.source = "a" * 40
+        self.control = "b" * 40  # workflow head differs from the compiled source
+        self.run = {"id": 123, "run_attempt": 1, "repository": {"id": 9, "full_name": "manaflow-ai/cmux"},
+                    "head_repository": {"full_name": "manaflow-ai/cmux"}, "head_sha": self.control,
+                    "head_branch": "nightly-next", "path": ".github/workflows/nightly.yml", "event": "push"}
+        self.jobs = {"total_count": 1, "jobs": [{"name": "build-nightly-app", "run_attempt": 1,
+                     "conclusion": "success", "started_at": "2026-10-31T00:01:00Z", "completed_at": "2026-10-31T00:03:00Z"}]}
+        self.artifacts = {"total_count": 1, "artifacts": [{"id": 20, "name": "nightly-next-dsyms-" + self.source,
+                          "expired": False, "digest": "sha256:" + "c" * 64, "created_at": "2026-10-31T00:02:00Z",
+                          "workflow_run": {"id": 123, "head_sha": self.control, "head_branch": "nightly-next",
+                                           "repository_id": 9, "head_repository_id": 9}}]}
+
+    def read(self, run=None, jobs=None, artifacts=None):
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "NIGHTLY_NEXT_PROVENANCE_TOKEN": "test"}), \
+                mock.patch.object(r2, "provenance_json", side_effect=[run or self.run, jobs or self.jobs,
+                                                                     artifacts or self.artifacts]) as read:
+            source = r2.compiled_artifact_source(12301)
+        self.assertEqual([call.args[0] for call in read.call_args_list], [
+            "repos/manaflow-ai/cmux/actions/runs/123/attempts/1",
+            "repos/manaflow-ai/cmux/actions/runs/123/attempts/1/jobs?per_page=100",
+            "repos/manaflow-ai/cmux/actions/runs/123/artifacts?per_page=100"])
+        return source
+
+    def test_recovered_build_uses_original_producer_receipt_not_workflow_head(self) -> None:
+        # A later signing/publication attempt retains the compiler's original
+        # daemon_build output, rather than renumbering it to the current run.
+        with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "999", "GITHUB_RUN_ATTEMPT": "3"}):
+            self.assertEqual(self.read(), self.source)
+        self.run["event"] = "workflow_dispatch"
+        self.assertEqual(self.read(), self.source)
+
+    def test_wrong_run_workflow_branch_or_repository_is_refused(self) -> None:
+        for key, value in (("id", 124), ("run_attempt", 2), ("path", "other.yml"), ("head_branch", "feature"),
+                           ("event", "pull_request"), ("repository", {"id": 10, "full_name": "fork/cmux"}),
+                           ("head_repository", {"full_name": "fork/cmux"})):
+            with self.subTest(key=key):
+                with self.assertRaises(RuntimeError):
+                    self.read(run={**self.run, key: value})
+
+    def test_missing_failed_or_wrong_attempt_producer_is_refused(self) -> None:
+        for jobs in ([], [{**self.jobs["jobs"][0], "conclusion": "failure"}],
+                     [{**self.jobs["jobs"][0], "run_attempt": 2}]):
+            with self.subTest(jobs=jobs):
+                with self.assertRaises(RuntimeError):
+                    self.read(jobs={"total_count": len(jobs), "jobs": jobs})
+
+    def test_missing_expired_ambiguous_or_outside_window_receipt_is_refused(self) -> None:
+        artifact = self.artifacts["artifacts"][0]
+        for artifacts in ([], [artifact, artifact], [{**artifact, "expired": True}],
+                          [{**artifact, "created_at": "2026-10-31T00:04:00Z"}],
+                          [{**artifact, "workflow_run": {**artifact["workflow_run"], "head_repository_id": 10}}]):
+            with self.subTest(artifacts=artifacts):
+                with self.assertRaises(RuntimeError):
+                    self.read(artifacts={"total_count": len(artifacts), "artifacts": artifacts})
+
+    def test_truncated_metadata_is_refused(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.read(jobs={**self.jobs, "total_count": 101})
+        with self.assertRaises(RuntimeError):
+            self.read(artifacts={**self.artifacts, "total_count": 101})
+
+    def test_migration_read_never_waits_for_a_rate_limit_reset(self) -> None:
+        limited = r2.urllib.error.HTTPError("https://api.github.com", 429, "limited", {"Retry-After": "3600"}, None)
+        with mock.patch.object(r2.urllib.request, "urlopen", side_effect=limited) as opened:
+            with self.assertRaisesRegex(RuntimeError, "compiled-source provenance"):
+                r2.provenance_json("repos/manaflow-ai/cmux/actions/runs/123", "test")
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(opened.call_args.kwargs["timeout"], 15)
+
+
+class PublicationBoundaryTests(unittest.TestCase):
+    def test_source_refusal_reaches_every_followup_and_handoff_uses_written_bytes(self) -> None:
+        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
+        publish = jobs["publish-nightly"]
+        self.assertIn("steps.upload_next_appcasts.outputs.publication_refused == 'true'", publish["outputs"]["refused"])
+        for name in ("publish-nightly-next-github", "generate-nightly-deltas", "republish-nightly-deltas",
+                     "sign-release-notes", "publish-release-notes"):
+            self.assertIn("needs.publish-nightly.outputs.refused != 'true'", jobs[name]["if"], name)
+        steps = publish["steps"]
+        write = next(i for i, step in enumerate(steps) if step.get("id") == "upload_next_appcasts")
+        for name in ("Hand the published feed to the GitHub release job", "Upload the published feed for the GitHub release job"):
+            i = next(i for i, step in enumerate(steps) if step.get("name") == name)
+            self.assertGreater(i, write)
+            self.assertIn("steps.upload_next_appcasts.outputs.feed_current == 'true'", steps[i]["if"])
+        outcome = next(step for step in steps if step.get("id") == "tag-outcome")
+        self.assertEqual(outcome["env"]["NEXT_FEED_CURRENT"], "${{ steps.upload_next_appcasts.outputs.feed_current }}")
+        readback = next(step for step in steps if step.get("id") == "feedcheck")
+        self.assertIn("steps.upload_next_appcasts.outputs.feed_written == 'true'", readback["if"])
+
+    def test_one_refused_feed_cannot_be_hidden_by_another_accepted_feed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            ci = directory / "ci"
+            ci.mkdir()
+            (ci / "nightly-next-guard.py").write_text("")
+            (ci / "publish-nightly-next-r2.py").write_text(
+                "import json, os, pathlib, sys\n"
+                "args=sys.argv\n"
+                "name=pathlib.Path(args[args.index('--feed')+1]).name\n"
+                "pathlib.Path(args[args.index('--github-output')+1]).write_text(json.loads(os.environ['FEED_RESULTS'])[name])\n")
+            accepted = "feed_written=true\nfeed_current=true\n"
+            refused = "feed_written=false\npublication_refused=true\n"
+            output = directory / "out"
+            env = {**os.environ, "PUBLISH_TOOLING": temp, "SOURCE_SHA": "a" * 40,
+                   "GITHUB_OUTPUT": str(output), "RELEASE_POKE_URL": "",
+                   "FEED_RESULTS": json.dumps({"accepted.xml": accepted, "refused.xml": refused})}
+            for feeds in ("accepted.xml refused.xml", "refused.xml accepted.xml"):
+                with self.subTest(feeds=feeds):
+                    output.write_text("")
+                    env["NIGHTLY_FEEDS"] = feeds
+                    subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/publish-upload-next-appcasts.sh")],
+                                   env=env, check=True, capture_output=True, text=True)
+                    self.assertEqual(dict(line.split("=", 1) for line in output.read_text().splitlines()),
+                                     {"feed_written": "true", "feed_current": "false", "publication_refused": "true"})
+
+    def test_github_writers_require_the_exact_build_on_the_live_feed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            curl = directory / "curl"
+            curl.write_text("#!/usr/bin/env python3\nimport os, pathlib, sys\npathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text(os.environ['LIVE_FEED'])\n")
+            curl.chmod(0o755)
+            output = directory / "out"
+            env = {**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+                   "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": temp, "NIGHTLY_BUILD": "300",
+                   "NIGHTLY_NEXT_FEED_BASE": BASE, "GITHUB_RUN_ID": "test"}
+            step_dir = ROOT / "scripts/ci/nightly-steps"
+            subprocess.run(["bash", str(step_dir / "github-names-install-still-newest.sh")], env=env, check=True)
+            for live_build in (200, 300, 400):
+                with self.subTest(live_build=live_build):
+                    env["LIVE_FEED"] = feed((live_build, "x", 1))
+                    output.write_text("")
+                    subprocess.run(["bash", str(step_dir / "github-publish-still-newest.sh")], env=env, check=True,
+                                   capture_output=True, text=True)
+                    self.assertEqual(output.read_text().strip(), "newest=" + str(live_build == 300).lower())
+                    mutable = subprocess.run([str(directory / "still-newest")], env=env, capture_output=True, text=True)
+                    self.assertEqual(mutable.returncode, 0 if live_build == 300 else 1)
 
 
 class KeepEarlierBuildsTests(FeedWriteCase):
@@ -252,6 +632,64 @@ class UploadTests(unittest.TestCase):
             with mock.patch.object(r2, "upload_one", fake_one):
                 self.assertEqual(r2.upload(files), 1)
             self.assertEqual(sorted(seen), sorted(f.name for f in files))
+
+
+
+class ReadbackTests(unittest.TestCase):
+    """upload_one reads the object back from R2 and compares its bytes' SHA-256 with the local
+    file's, not only the length, and still needs the public base to serve it at that length."""
+
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        for patcher in (mock.patch.dict(os.environ, ENV), mock.patch.object(r2, "guard_key", lambda key: None),
+                        mock.patch.object(r2, "_sleep", lambda seconds: None)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.path = Path(self.dir.name) / "cmux-nightly-next-macos-arm64-200.dmg"
+        self.path.write_bytes(b"the built dmg")
+        self.calls: list[list[str]] = []
+
+    def upload_storing(self, stored: bytes, public: int | None = None) -> str:
+        def fake_run(args, *rest, **kwargs):
+            self.calls.append(args)
+            if "--download-to" in args:
+                Path(args[args.index("--download-to") + 1]).write_bytes(stored)
+            return subprocess.CompletedProcess(args, 0)
+
+        served = len(stored) if public is None else public
+        with mock.patch.object(r2.subprocess, "run", fake_run), \
+                mock.patch.object(r2, "public_length", lambda url, attempts=5: served):
+            return r2.upload_one(self.path)
+
+    def test_the_same_bytes_pass_and_name_their_digest(self) -> None:
+        line = self.upload_storing(b"the built dmg")
+        self.assertIn(hashlib.sha256(b"the built dmg").hexdigest(), line)
+        readback = self.calls[-1]
+        self.assertEqual(readback[readback.index("--key") + 1], "nightly-next/next/cmux-nightly-next-macos-arm64-200.dmg")
+
+    def test_other_bytes_of_the_same_length_fail(self) -> None:
+        stale = b"a stale dmg!!"
+        self.assertEqual(len(stale), self.path.stat().st_size)
+        with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+            self.upload_storing(stale)
+
+    def test_a_short_object_fails(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.upload_storing(b"the built")
+
+    def test_a_public_base_serving_another_length_fails(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "serves"):
+            self.upload_storing(b"the built dmg", public=3)
+
+    def test_a_failed_readback_fails(self) -> None:
+        def fake_run(args, *rest, **kwargs):
+            if "--download-to" in args:
+                raise subprocess.CalledProcessError(1, args)
+            return subprocess.CompletedProcess(args, 0)
+
+        with mock.patch.object(r2.subprocess, "run", fake_run), self.assertRaises(subprocess.CalledProcessError):
+            r2.upload_one(self.path)
 
 
 if __name__ == "__main__":

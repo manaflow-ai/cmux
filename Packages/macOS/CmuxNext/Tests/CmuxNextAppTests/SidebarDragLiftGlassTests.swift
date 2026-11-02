@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20 (u5506): "when reordering groups around, we have an
 /// animation that makes it bigger, i dont like it, i think it should just
 /// stay in place, also bg of group when dragged around needs to be modern
 /// apple liquid glass (handle old macos versions well tho)".
-@MainActor @Suite(.serialized) struct SidebarDragLiftGlassTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDragLiftGlassTests {
     static let group = GroupID("g-lift-glass")
 
     static func list() -> (SidebarListView, NSWindow) {
@@ -88,6 +89,29 @@ import Testing
         case .opaque:
             #expect(!Self.descendants(lift.background).contains { $0 is NSVisualEffectView })
         }
+    }
+
+    /// Leo 2026-10-23: "when you're tracking a workspace, or you're tracking a group, the workspaces
+    /// on the sidebar, they become solid. I feel like they don't need to be solid when you pick them
+    /// up". The card's Liquid Glass is clear and untinted, so it shows the sidebar under it.
+    @Test func theLiquidGlassCardIsClearAndUntinted() throws {
+        let lift = DragLiftView(content: NSView(), count: 1, material: .liquidGlass)
+        lift.frame = NSRect(x: 0, y: 0, width: 220, height: 28)
+        lift.layout()
+        #expect(lift.background.isClear)
+        let glass = try #require(Self.descendants(lift.background).compactMap { $0 as? GlassPanelView }.first)
+        #expect(glass.style == .clear, "the lifted card is frosted glass")
+        #expect(glass.tintColor == nil, "the lifted card is tinted over the sidebar's own tint")
+    }
+
+    /// The stacked cards of a multi-item drag peek out below the clear card and are cut out under it.
+    @Test func stackedCardsAreCutOutUnderTheClearCard() throws {
+        let card = CGRect(x: -8, y: -8, width: 220, height: 28)
+        let mask = DragLiftView.peekMask(back: CGRect(x: 0, y: 0, width: 204, height: 28), card: card)
+        let path = try #require(mask.path)
+        #expect(mask.fillRule == .evenOdd)
+        #expect(!path.contains(CGPoint(x: 100, y: 10), using: .evenOdd), "a stacked card shows through the clear card")
+        #expect(path.contains(CGPoint(x: 100, y: 25), using: .evenOdd), "a stacked card's peeking edge is hidden")
     }
 
     /// With no material pinned the card follows this Mac (OS version and Reduce Transparency).

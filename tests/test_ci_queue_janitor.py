@@ -137,6 +137,12 @@ class ProtectionTests(unittest.TestCase):
             event="push", branch="exp/incremental-generation-canary-v2",
             name="Xcode incremental generation canary", path=".github/workflows/incremental-state-canary.yml")))
 
+    def test_shared_dev_dispatch_is_delivery_protected(self):
+        run = make_run(event="workflow_dispatch", branch="feat-cmux-next",
+                       path=".github/workflows/cmux-next.yml",
+                       name="cmux NEXT DEV daily · aaa")
+        self.assertIsNotNone(janitor.protected_reason(run))
+
 
 class CategoryTests(unittest.TestCase):
     def classify(self, run, pr=None, *, jobs=None, newer=False, policy="compile-only"):
@@ -645,6 +651,14 @@ class OwnedMarkerRunTests(unittest.TestCase):
             with self.subTest(why=why):
                 self.assertFalse(janitor.may_hold_owned_pool(run, []))
 
+    def test_kit_pull_request_and_push_markers_may_hold_an_owned_pool(self):
+        for event in ("pull_request", "push", "workflow_dispatch"):
+            with self.subTest(event=event):
+                run = self.run_of(event=event, path=".github/workflows/cmux-next-ios-kit.yml")
+                self.assertTrue(janitor.may_hold_owned_pool(run, []))
+        self.assertFalse(janitor.may_hold_owned_pool(
+            self.run_of(path=".github/workflows/cmux-next-ios-kit.yml", head_repository={"id": 2}), []))
+
     def test_a_first_attempt_still_in_the_queue_has_no_marker_to_list(self):
         queued = [{"status": "queued", "name": "changes", "labels": [LINUX]},
                   {"status": "waiting", "name": "deploy", "labels": [LINUX]}]
@@ -933,16 +947,31 @@ class OrphanPlanTests(unittest.TestCase):
         decisions = orphan_plan(orphans, exclude=[orphans[0].run["id"]])
         self.assertEqual(decisions, [])
 
-    def test_main_schedule_nightly_and_testflight_orphans_are_cancelled(self):
+    def test_main_schedule_and_testflight_orphans_are_cancelled(self):
         for kwargs in (
             dict(event="schedule", branch="main", name="iOS TestFlight (cmux.app)",
                  path=".github/workflows/ios-appstore-upload.yml"),
-            dict(event="push", branch="main", name="Nightly macOS build", path=".github/workflows/nightly.yml"),
             dict(event="issue_comment", branch="main", name="Claude Code", path=".github/workflows/claude.yml"),
         ):
             with self.subTest(**kwargs):
                 decisions = orphan_plan(self.orphans(1, **kwargs))
                 self.assertEqual([d.action for d in decisions], ["cancel"])
+
+    def test_delivery_orphans_are_protected_after_other_jobs_complete(self):
+        for path, name in (
+            ("nightly.yml", "Nightly macOS build"),
+            ("cmux-next.yml", "cmux NEXT DEV daily · aaa"),
+            ("cmux-next-dev-daily.yml", "DEV daily"),
+            ("promote.yml", "Promote"),
+        ):
+            for title_key in ("name", "display_title"):
+                with self.subTest(path=path, title_key=title_key):
+                    orphans = self.orphans(1, event="workflow_dispatch", branch="feat-cmux-next",
+                                           path=".github/workflows/" + path)
+                    orphans[0].run[title_key] = name
+                    decisions = orphan_plan(orphans)
+                    self.assertEqual([d.action for d in decisions], ["skip"])
+                    self.assertIn("delivery", decisions[0].note)
 
     def test_release_merge_queue_and_tag_orphans_are_only_reported(self):
         for kwargs in (

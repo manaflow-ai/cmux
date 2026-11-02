@@ -43,8 +43,6 @@ final class SidebarRegionView: NSView {
     /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
     var docSpentPress: LayoutItemID?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
-    /// A workspace tile's close x: closes that workspace (the sidebar sends `.close`).
-    var onCloseWorkspace: ((WorkspaceID) -> Void)?
     /// The sidebar's edit mode (`SidebarView.isEditingItems`): every item but a client-only one
     /// wiggles and shows its ✕, which asks `onRemoveItem` to take it out.
     var isEditing = false {
@@ -277,6 +275,7 @@ final class SidebarRegionView: NSView {
                 view.configure(info, style: style)
                 view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
                 view.activatesOnPress = item.ref.activatesOnPress
+                view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
                 edit(view, id)
@@ -370,15 +369,13 @@ final class SidebarRegionView: NSView {
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
         }
-        // A workspace tile's hover more button opens the same menu under itself; its x closes the
-        // workspace as a workspace row's x does (SidebarItemRowView+HoverActions).
+        // A workspace tile's hover more button opens the same menu under itself (SidebarItemRowView+HoverActions).
+        // A pinned item has no hover x (Lawrence msg 19392): Close Workspace is in this menu.
         view.onMore = { [weak self, weak view] in
             guard let view, let button = view.hoverMore, let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
+            view.showsMenu = true
+            defer { view.showsMenu = false }
             _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY : 0), in: button)
-        }
-        view.onClose = { [weak self, weak view] in
-            guard let workspace = view?.info.workspace else { return }
-            self?.onCloseWorkspace?(workspace)
         }
         return view
     }

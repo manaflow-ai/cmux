@@ -9,8 +9,7 @@ extension WorkspaceRowView {
         onClose = { [weak list] in list?.model.send(.close([id])) }
         onMore = list.contextMenuProvider == nil ? nil : { [weak list] in list.map { SidebarRowMenu(list: $0).show(for: id) } }
         onSelect = { [weak list] in list?.model.click(id) }
-        onToggleTabs = { [weak list] in list?.foldTabs(id) }
-        // Redraw now, like the tabs disclosure: left to the tree's observation, the fold would wait
+        // Redraw now: left to the tree's observation, the fold would wait
         // out the calm-movement hold until the pointer leaves the sidebar.
         // The row's own chevron says which way it goes: a parent below the top level starts folded.
         onToggleTree = { [weak list, weak self] in
