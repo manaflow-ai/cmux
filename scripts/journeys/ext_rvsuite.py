@@ -5,11 +5,12 @@ driver.py loads this file (load_extensions) on the mini under the stock /usr/bin
 Steps (`do`):
   try_action    {action, args?}  action.run of a set-up action that may already hold (a width preset on a column that
                 has that width): an "unavailable" answer is recorded, not a failure. Any other error fails the step.
-  sample_start  {name, seconds?: 1.0, interval_ms?: 1}  starts /usr/bin/sample on the app's pid in the background and
-                returns once it samples (its "Sampling process" line), so the next step's action is inside the sample.
+  sample_start  {name, seconds?: 1.0, interval_ms?: 1, wait_first_sample?}  starts /usr/bin/sample on the app's pid in
+                the background and returns once it samples (its "Sampling process" line comes after the first sample),
+                so the next step's action is inside the sample.
                 The report goes to <journey out>/diag-<name>.txt (run.py fetches diag-*.txt).
   sample_stop   {name}  waits for that sample to end (its seconds + 30 s at most) and records its size.
-  xtp_start     {name, seconds?: 2}  starts `xcrun xctrace record --template "Time Profiler" --attach <app pid>` for
+  xtp_start     {name, seconds?: 2, wait_first_sample?}  starts `xcrun xctrace record --template "Time Profiler" --attach <app pid>` for
                 `seconds` and returns once it records; the bundle goes to <journey out>/xtp-<name>.trace.
   xtp_stop      {name}  waits for the recording to end, then exports its time-profile table (time-stamped stacks,
                 every thread) as XML to <journey out>/diag-<name>.txt (run.py fetches diag-*.txt).
@@ -114,6 +115,10 @@ def step_xtp_start(j, step):
             continue
         seen.append(line.strip())
         if "Starting recording" in line or "Ctrl-C to stop" in line:
+            # Its first sample comes about 280 ms after this line (run rv-suite-xtp-before, 2 of 2): the step returns
+            # only after the first sample can have come, so the next step (the key) is inside the profile.
+            if step.get("wait_first_sample"):
+                time.sleep(float(step.get("first_sample_wait", 0.8)))
             t = D.now()
             _xtp(j)[name] = {"proc": proc, "bundle": bundle, "seconds": seconds, "t": t, "said": seen}
             if step.get("mark"):

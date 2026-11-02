@@ -42,7 +42,7 @@ def kit_drag(target, by, duration_ms, mark, title=None):
 
 # The TUI kit (owner 3): where its programs are on the mini, and one program per pane.
 TUIKIT = "/tmp/jr-tuikit.py"
-TUIKIT_REF = "3d744f43626c"  # TUI kit PR #31507 head (scripts/journeys/tui-kit/tuikit.py), written to TUIKIT by a file step
+TUIKIT_REF = "f224e6a7732f"  # TUI kit PR #31671 head (the 120 fps gradient spins to each frame; cmux-ad 02:55Z) (scripts/journeys/tui-kit/tuikit.py), written to TUIKIT by a file step
 
 
 def tuikit_file():
@@ -188,14 +188,13 @@ def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tai
         # The recorder's record_start stalls the main thread 48-72 ms (STATUS 4500): 0.6 s of lead before the motion.
         steps.append({"do": "wait", "seconds": 0.6, "title": "lead: the recorder's start stall passes before the motion"})
         if sample:
-            steps.append({"do": "sample_start", "name": "closesample", "seconds": 1.0, "interval_ms": 1,
+            steps.append({"do": "sample_start", "name": "closesample", "seconds": 1.0, "interval_ms": 1, "wait_first_sample": True,
                           "title": "a 1 ms main-thread sample of the app around the motion"})
         if xtp:
             # xctrace prints "Starting recording" about 280 ms before its first sample (run rv-suite-xtp-before):
             # the key comes 0.8 s after that line, so the profile holds the key's turn and the whole motion.
-            steps.append({"do": "xtp_start", "name": "xtp", "seconds": 3.0,
+            steps.append({"do": "xtp_start", "name": "xtp", "seconds": 3.0, "wait_first_sample": True,
                           "title": "xctrace Time Profiler on the app for 3 s"})
-            steps.append({"do": "wait", "seconds": 0.8, "title": "xctrace's first sample comes about 280 ms after its start line"})
         steps += play[lead:]
         if sample:
             steps.append({"do": "sample_stop", "name": "closesample"})

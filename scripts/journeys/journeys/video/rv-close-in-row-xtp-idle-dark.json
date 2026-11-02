@@ -132,12 +132,8 @@
    "do": "xtp_start",
    "name": "xtp",
    "seconds": 3.0,
+   "wait_first_sample": true,
    "title": "xctrace Time Profiler on the app for 3 s"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "xctrace's first sample comes about 280 ms after its start line"
   },
   {
    "do": "hid_key",
