@@ -30,11 +30,11 @@ import Testing
     @Test func unavailableMacDoesNotPoisonTheThumbnailMemo() async {
         let cache = ArtifactMemo<String>(costLimit: 1_024)
         let source = FlakyMake(first: .unavailable)
-        let first = await cache.value(for: artifact) { _ in try await source.make() }
+        let first = await cache.value(for: artifact, scope: "retry-fixture") { _ in try await source.make() }
         #expect(first == nil)
-        let second = await cache.value(for: artifact) { _ in try await source.make() }
+        let second = await cache.value(for: artifact, scope: "retry-fixture") { _ in try await source.make() }
         #expect(second == "ready")
-        let again = await cache.value(for: artifact) { _ in "other" }
+        let again = await cache.value(for: artifact, scope: "retry-fixture") { _ in "other" }
         #expect(again == "ready")
         #expect(cache.makesStarted == 2)
         #expect(await source.count() == 2)
@@ -43,15 +43,15 @@ import Testing
     @Test func cancelledLoadIsRetryable() async {
         let cache = ArtifactMemo<String>(costLimit: 1_024)
         let source = FlakyMake(first: .cancelled)
-        #expect(await cache.value(for: artifact) { _ in try await source.make() } == nil)
-        #expect(await cache.value(for: artifact) { _ in try await source.make() } == "ready")
+        #expect(await cache.value(for: artifact, scope: "retry-fixture") { _ in try await source.make() } == nil)
+        #expect(await cache.value(for: artifact, scope: "retry-fixture") { _ in try await source.make() } == "ready")
         #expect(cache.makesStarted == 2)
     }
 
     @Test func successfullyLoadedButUnrenderableArtifactCachesNil() async {
         let cache = ArtifactMemo<String>(costLimit: 1_024)
-        let first: String? = await cache.value(for: artifact) { _ in nil }
-        let second: String? = await cache.value(for: artifact) { _ in "unexpected" }
+        let first: String? = await cache.value(for: artifact, scope: "retry-fixture") { _ in nil }
+        let second: String? = await cache.value(for: artifact, scope: "retry-fixture") { _ in "unexpected" }
         #expect(first == nil && second == nil)
         #expect(cache.makesStarted == 1)
     }
@@ -63,6 +63,7 @@ import Testing
 @Suite struct ArtifactThumbnailRecoveryTests {
     actor Source: ArtifactSource {
         enum Mode: Sendable { case unavailableOnce, missing }
+        nonisolated let thumbnailCacheScope: String? = "retry-fixture:\(UUID().uuidString)"
         let mode: Mode
         private var calls = 0
         init(_ mode: Mode) { self.mode = mode }
