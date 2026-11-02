@@ -117,7 +117,11 @@ async function mount({
   tabCwd = "/Users/you",
   peerStart = "ok",
   peerResources,
+  startCwd,
+  folderless = false,
 }: {
+  startCwd?: string;
+  folderless?: boolean;
   previews?: boolean;
   worktree?: "ok" | "refused";
   tabCwd?: string;
@@ -139,7 +143,11 @@ async function mount({
         if (params?.peer && peerStart === "none") return undefined;
         return "session-1";
       case "environment.list":
-        return { environments: SAVED };
+        return {
+          environments: folderless
+            ? [...SAVED, { id: "empty", name: "Default folder", kind: "local", updatedAt: 1 }]
+            : SAVED,
+        };
       case "environment.save": {
         const environment = params!.environment as Record<string, unknown>;
         return { environment: { ...environment, id: "new-1", updatedAt: 9 } };
@@ -157,6 +165,7 @@ async function mount({
   const actions = newTabScreenActions({
     callNative,
     cwd: tabCwd,
+    chatCwd: startCwd,
     leave: noop,
     selectSession: noop,
     showAllChats: noop,
@@ -184,6 +193,7 @@ async function mount({
           })}
           lastAgent="claude"
           cwd={tabCwd}
+          startCwd={startCwd}
           projects={[
             { cwd: APP, label: "app" },
             { cwd: API, label: "api" },
@@ -343,7 +353,7 @@ test("a saved local environment with Use worktree asks in a new worktree of its 
   await openMachines();
   await click(row("API worktree"));
   expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
-    target: { harness: "claude", cwd: API },
+    target: { harness: "claude" },
   });
   await ask("fix the build");
   expect(started(calls).map((call) => call.method)).toEqual([
@@ -639,4 +649,15 @@ test("a direct start keeps its draft until the first prompt is accepted, includi
   finish();
   await retry;
   expect(left).toBe(1);
+});
+
+test("a folderless local environment preflights the host start folder, not the inherited tab folder", async () => {
+  const calls = await mount({ folderless: true, tabCwd: API, startCwd: APP });
+  await openMachines();
+  await click(row("Default folder"));
+  expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
+    target: { harness: "claude", cwd: APP },
+  });
+  await ask("fix the build");
+  expect(calls.find((call) => call.method === "chat.new")?.params?.cwd).toBe(APP);
 });

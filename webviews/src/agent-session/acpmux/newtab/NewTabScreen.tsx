@@ -751,7 +751,19 @@ export function NewTabScreen(props: Props) {
       : undefined
     : machine?.peer;
   const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
-  const targetCwd = environment ? environment.folder : machine ? machine.folder : chatFolder;
+  // Match screenActions: an inherited tab folder is not the host's chat start folder.
+  const localChatCwd = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
+  const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
+  const createsWorktree =
+    environment?.kind === "local" && environment.worktree && environment.folder && props.onNewWorktree;
+  // Its final directory (and project-local credentials) exists only after creation.
+  const targetCwd = createsWorktree
+    ? undefined
+    : environment
+      ? environmentCwd
+      : machine
+        ? machine.folder
+        : localChatCwd;
   // Cloud and Sandbox allocate their own destination. Local credentials say nothing about it.
   const authQuery =
     harness && !offMachine && (!remoteTarget || targetHost)
