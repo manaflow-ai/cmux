@@ -85,6 +85,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
     @ObservationIgnored var titleCoalescer = TitleCoalescer()
     @ObservationIgnored let titleTimer = DemandTimer(owner: "CEFTab.title")
+    /// The bounded wait of a document's background read before it settles (`documentDidPaint`).
+    @ObservationIgnored let settleTimer = DemandTimer(owner: "CEFTab.settle")
     @ObservationIgnored var isCreationPending = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
@@ -567,6 +569,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         agentRelay.resumeWaiters(false)
         agentFiles.withdraw()
         titleTimer.cancel()
+        settleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
         if let browserID {
