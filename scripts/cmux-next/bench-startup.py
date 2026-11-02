@@ -46,6 +46,8 @@ row per mark: median and max ms since process start, and the median gap from
 the previous row. Kills only processes started from the tag's DerivedData.
 """
 import argparse
+import ctypes
+import threading
 import glob
 import json
 import os
@@ -432,6 +434,89 @@ def stop(pids, timeout=10):
         wait_exit(pids, 5)
 
 
+# --tiers (scratch, REOPEN-F7; STATUS 7770): the core tier the app's main thread runs on, read with no profiler
+# (proc_pidinfo PROC_PIDTHREADCOUNTS, as journeys/ext_tiers.py on cp/harness-cores-kit). Never merge.
+TIERS = False
+
+
+class TierSampler(threading.Thread):
+    """Reads the per-tier CPU time of `pid`'s main thread (its lowest thread id) every ms, on the bench clock
+    (ms after `spawned_at`, time.monotonic, the clock of Launch.arrived), until stop()."""
+
+    def __init__(self, pid, spawned_at, limit_s=20.0):
+        super().__init__(daemon=True)
+        self.pid, self.spawned_at, self.limit_s = pid, spawned_at, limit_s
+        self.rows, self.levels, self.error = [], [], None
+        self.halt = threading.Event()
+
+    def run(self):
+        try:
+            lib = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+            libc = ctypes.CDLL(None)
+
+            class TB(ctypes.Structure):
+                _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
+            tb = TB()
+            libc.mach_timebase_info(ctypes.byref(tb))
+            tick = tb.numer / tb.denom
+            sysctl = lambda k: subprocess.run(["/usr/sbin/sysctl", "-n", k], capture_output=True, text=True).stdout.strip()
+            n = int(sysctl("hw.nperflevels") or 1)
+            self.levels = [sysctl(f"hw.perflevel{i}.name") for i in range(n)]
+            ids = (ctypes.c_uint64 * 4096)()
+            main = None
+            give_up = time.monotonic() + 5
+            while main is None and time.monotonic() < give_up and not self.halt.is_set():
+                got = lib.proc_pidinfo(self.pid, 28, 0, ids, ctypes.sizeof(ids))
+                live = [t for t in ids[: max(got, 0) // 8] if t]
+                if live:
+                    main = min(live)
+                else:
+                    time.sleep(0.0005)
+            if main is None:
+                self.error = "no thread list"
+                return
+            size = 8 + 40 * n + 40
+            buf = ctypes.create_string_buffer(size)
+            end = time.monotonic() + self.limit_s
+            while not self.halt.is_set() and time.monotonic() < end:
+                k = lib.proc_pidinfo(self.pid, 34, ctypes.c_uint64(main), buf, size)
+                now = time.monotonic()
+                if k <= 0:
+                    break
+                raw = buf.raw
+                f = [int.from_bytes(raw[8 + 8 * i: 16 + 8 * i], "little") for i in range(5 * n)]
+                self.rows.append([round((now - self.spawned_at) * 1000, 3)]
+                                 + [round((f[5 * l + 2] + f[5 * l + 3]) * tick / 1e6, 4) for l in range(n)])
+                time.sleep(0.001)
+        except Exception as error:  # a sampler fault never fails the launch; the run reports it
+            self.error = repr(error)
+
+    def stop(self):
+        self.halt.set()
+        self.join(5)
+
+    def window(self, start_ms, end_ms):
+        """The main thread in [start_ms, end_ms] (bench clock): the tier its first CPU time in the window ran on,
+        ms per tier, and ms from start_ms to its first time on the fastest tier (perflevel0)."""
+        if self.error or len(self.rows) < 2:
+            return {"error": self.error or "no samples"}
+        n = len(self.levels)
+        per = [0.0] * n
+        start_tier = first_fast = None
+        for a, b in zip(self.rows, self.rows[1:]):
+            if b[0] < start_ms or a[0] > end_ms:
+                continue
+            d = [b[1 + l] - a[1 + l] for l in range(n)]
+            for l in range(n):
+                per[l] += d[l]
+            if start_tier is None and max(d) > 0:
+                start_tier = self.levels[d.index(max(d))]
+            if first_fast is None and d[0] > 0:
+                first_fast = round(max(a[0] - start_ms, 0), 1)
+        return {"start_tier": start_tier, "ms": {self.levels[l]: round(per[l], 2) for l in range(n)},
+                "first_fastest_ms": first_fast, "samples": len(self.rows)}
+
+
 class Launch:
     """One app process whose launch marks arrive on a pipe."""
 
@@ -491,6 +576,9 @@ class Launch:
                 self.popen_returned_at = time.monotonic()
             print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
             os.close(write_fd)
+        self.tiers = TierSampler(self.process.pid, self.spawned_at) if TIERS and self.process else None
+        if self.tiers:
+            self.tiers.start()
         self.read_fd = read_fd
         self.buffer = b""
         self.marks = {}
@@ -1111,6 +1199,8 @@ def one_run(tag, mode, timeout, profile=None):
     daemons = None
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
+        if launch.tiers:
+            launch.tiers.stop()
         if reached and "terminal.launch_frame_shown" in launch.marks:
             # The last visible terminal's saved frame can land after the first live frame: wait briefly for it, so a
             # run never drops the reopen number (a build without the per-pane mark waits this long and has none).
@@ -1153,6 +1243,15 @@ def one_run(tag, mode, timeout, profile=None):
     print("BENCH-DAEMONS " + json.dumps({"mode": mode, **marks["daemons"]}), flush=True)
     if marks["daemons"]["verdict"] != "run":
         print(f"  {tag} {mode}: NOT RUN: " + "; ".join(marks["daemons"]["reasons"]), file=sys.stderr, flush=True)
+    if launch.tiers and "first_window_frame_committed" in launch.arrived and "main_start" in launch.marks:
+        frame_at = launch.arrived["first_window_frame_committed"]
+        main_at = frame_at - (launch.marks["first_window_frame_committed"] - launch.marks["main_start"])
+        dfl_at = (frame_at - (launch.marks["first_window_frame_committed"] - launch.marks["did_finish_launching_start"])
+                  if "did_finish_launching_start" in launch.marks else main_at)
+        marks["tiers"] = {"main_to_frame": launch.tiers.window(main_at, frame_at),
+                          "dfl_to_frame": launch.tiers.window(dfl_at, frame_at),
+                          "spawn_to_main": launch.tiers.window(0, main_at), "levels": launch.tiers.levels}
+        print("BENCH-TIERS " + json.dumps(marks["tiers"]), flush=True)
     marks["bench_clock"] = {"popen_ms": round((launch.popen_returned_at - launch.spawned_at) * 1000, 1),
                             "arrived_ms": {k: launch.arrived[k] for k in ("main_start", "first_window_frame_committed",
                                                                           FINAL_MARK, AGENT_MARK) if k in launch.arrived}}
@@ -1326,11 +1425,15 @@ def main():
                              "frontmost, active app as after a Dock click, checked with lsappinfo front at the measured "
                              "point (front_at_measure); inactive: spawned with no activation, behind and not key "
                              "(default: active for --profile stress with restore placement, else inactive)")
+    parser.add_argument("--tiers", action="store_true",
+                        help="scratch: record the core tier of the app's main thread from main() to the first frame")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
     global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WINDOW_PLACEMENT, NEW_SESSION_EACH_RUN, ACTIVATION
     HANG_THRESHOLD_MS = args.hangs
+    global TIERS
+    TIERS = args.tiers
     # STRESS measures the reopen a person gets: its windows restore where they were (#32493). The STRESS seed sizes
     # its window to 1600 x 1000; under the test placement every relaunch opened at 1100 x 720 instead, so the first
     # relaunch after a seed refused every saved frame for its size.
