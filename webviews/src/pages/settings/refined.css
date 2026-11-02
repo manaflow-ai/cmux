@@ -108,6 +108,7 @@
 
 :root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
 :root[data-settings-look="refined"] .settings .section-icon { color: var(--polish-muted); }
+:root[data-settings-look="refined"] .settings .sidebar-section-title { color: var(--polish-muted); }
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-icon { color: var(--polish-ink); }
 :root[data-settings-look="refined"] .settings .section-icon svg { width: 16px; height: 16px; }
 
@@ -178,7 +179,21 @@
   background: transparent;
   box-shadow: inset 0 1px var(--polish-edge);
 }
-:root[data-settings-look="refined"] .settings .row-main { gap: 24px; }
+:root[data-settings-look="refined"] .settings { --row-main-gap: 24px; }
+:root[data-settings-look="refined"] .settings .row-main { gap: var(--row-main-gap); }
+/* One text column (design/settings.md, "Columns"): a row's label sits one gap after its mark and
+   takes the free space itself, so space-between never pushes it right. A mark and a label with no
+   control (Accounts, Machines, Spaces) put the label wherever the leftover split fell, 40 to 90 px
+   past the mark, and a row with an active dot started its title elsewhere than its neighbours'. */
+:root[data-settings-look="refined"] .settings .row-main > .row-label { margin-right: auto; }
+/* An account's buttons and linked accounts start on its title's column: the mark and one gap with
+   a mark, the row's own edge without one (the cmux Account row has none). */
+:root[data-settings-look="refined"] .settings .accounts-row > .accounts-body {
+  padding-left: calc(var(--accounts-mark-width) + var(--row-main-gap));
+}
+:root[data-settings-look="refined"] .settings .accounts-row:not(:has(> .row-main > .accounts-mark)) > .accounts-body {
+  padding-left: 0;
+}
 /* The title and its description keep to the card's left ~60%; the control owns the right. */
 :root[data-settings-look="refined"] .settings .rows .row-label { max-width: 60%; }
 :root[data-settings-look="refined"] .settings .row-title { font-size: var(--text-body); font-weight: 500; letter-spacing: var(--text-body--letter-spacing); }
@@ -249,8 +264,11 @@
   :root[data-settings-look="refined"] .settings > .content { --content-pad-end: 32px; padding: 20px 12px var(--content-pad-end); }
   :root[data-settings-look="refined"] .settings { --settings-row-inset: 10px; }
   :root[data-settings-look="refined"] .settings .row { padding: 10px; }
-  :root[data-settings-look="refined"] .settings .row-main { gap: 8px; flex-wrap: wrap; }
-  :root[data-settings-look="refined"] .settings .rows .row-label { max-width: none; }
+  :root[data-settings-look="refined"] .settings { --row-main-gap: 8px; }
+  :root[data-settings-look="refined"] .settings .row-main { flex-wrap: wrap; }
+  /* Leave a readable label column before wrapping a wide editor below it. A zero flex basis
+     squeezed labels narrower than their words when Interface Size enlarged the controls. */
+  :root[data-settings-look="refined"] .settings .rows .row-label { flex-basis: 10rem; max-width: none; }
 }
 
 /* Icon-only and text buttons (play a sound, reset, reveal): the base hover fills with the field

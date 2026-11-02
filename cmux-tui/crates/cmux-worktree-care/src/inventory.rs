@@ -531,8 +531,9 @@ static FINISHED: LazyLock<Arc<FinishedMemo>> = LazyLock::new(|| Arc::new(Finishe
 static MERGE_TREE: LazyLock<Mutex<()>> = LazyLock::new(Mutex::default);
 /// A branch larger than this is not worth attempting a memory-heavy merge.
 pub const MAX_SQUASH_COMMITS: u64 = 128;
-/// Linux address-space ceiling for one merge-tree child. Other platforms
-/// retain the deadline and serialization without an unsupported OS limit.
+/// Linux memory ceiling (`RLIMIT_DATA`) for one merge-tree child. Other
+/// platforms retain the deadline and serialization without an unsupported
+/// OS limit.
 pub const MERGE_TREE_MEMORY: u64 = 768 << 20;
 
 /// Nonblocking host-wide lock shared by daemon and standalone scans. Busy or

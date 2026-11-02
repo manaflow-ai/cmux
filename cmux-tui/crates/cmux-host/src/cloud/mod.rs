@@ -20,25 +20,63 @@
 //! I/O), [`session`] (inputs to requests, sans I/O), [`client`] (bind and
 //! auth over the [`client::Http`] and [`client::Store`] traits), [`github`]
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
+//! [`github_repos`] (repository discovery through the platform connector),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
-//! `role` (the Linux worker).
+//! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
+//! Cloud and restored into a replacement machine, #25584),
+//! `trajectory_thread` (its thread), [`harness_login`] (one sign-in per
+//! person: a Claude or Codex login on one of their machines is kept for them
+//! and written on their next machine) and `harness_login_thread` (its
+//! thread).
 
+#[cfg(target_os = "linux")]
+mod bootstrap_role;
 pub mod client;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;
+pub mod github_repos;
 pub mod handoff;
+pub mod harness_login;
+#[cfg(unix)]
+pub mod harness_login_thread;
+pub mod private_bootstrap;
+pub mod receiver;
+#[cfg(target_os = "linux")]
+pub mod receiver_agent;
+#[cfg(target_os = "linux")]
+mod receiver_files;
+#[cfg(target_os = "linux")]
+mod receiver_lifecycle;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
 pub mod session;
+pub mod trajectory;
+#[cfg(unix)]
+pub mod trajectory_thread;
 pub mod wire;
 
 #[cfg(all(test, unix))]
 mod github_tests;
 #[cfg(all(test, unix))]
 mod handoff_tests;
+#[cfg(all(test, unix))]
+mod harness_login_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod trajectory_tests;
+
+#[cfg(test)]
+mod github_repos_tests;
+#[cfg(test)]
+mod receiver_client_tests;
+#[cfg(all(test, target_os = "linux"))]
+mod receiver_files_tests;
+#[cfg(test)]
+mod receiver_read_tests;
+#[cfg(test)]
+mod receiver_reply_tests;

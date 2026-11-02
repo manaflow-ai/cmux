@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -7,6 +8,7 @@ import Testing
 /// pointers back to cursor-default"). The shared button class registers no cursor rect of its
 /// own, enabled or not, so the arrow shows over every button that inherits it.
 /// `scripts/cmux-next/check-default-cursor.py` keeps new pointing hands out of the sources.
+@Suite(.closesItsWindows)
 @MainActor
 struct ClickableCursorTests {
     /// Records the cursor rects a button registers instead of handing them to a window.
@@ -34,6 +36,7 @@ struct ClickableCursorTests {
     @Test func anEnabledButtonRegistersNoCursorSoTheArrowShows() {
         let button = RecordingButton(frame: .zero)
         let window = host(button, at: NSRect(x: 0, y: 0, width: 40, height: 20))
+        defer { window.closeAfterTest() }
         #expect(button.recordedRects().isEmpty)
         withExtendedLifetime(window) {}
     }
@@ -41,6 +44,7 @@ struct ClickableCursorTests {
     @Test func aDisabledOrReEnabledButtonRegistersNoCursor() {
         let button = RecordingButton(frame: .zero)
         let window = host(button, at: NSRect(x: 0, y: 0, width: 40, height: 20))
+        defer { window.closeAfterTest() }
         button.isEnabled = false
         #expect(button.recordedRects().isEmpty)
         button.isEnabled = true

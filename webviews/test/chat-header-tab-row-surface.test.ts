@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
-import { PNG } from "pngjs";
 import { chromium, type Browser } from "playwright";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -59,39 +58,18 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     }
   });
 
-  test("the shipped tab-row shell leaves the native strip transparent", async () => {
-    const page = await browser.newPage({ viewport: { width: 240, height: 100 } });
-    // This is the stylesheet that build-agent-pane-web.sh inlines into the shipped agent pane.
-    // webviews/src/styles.css belongs to the page host and is deliberately not part of this fixture.
-    const shellCss = [read("agent-session/acpmux/styles.css"), read("agent-session/acpmux/header/header.css")].join(
-      "\n",
-    );
-    await page.setContent(`<!doctype html><html><head><style>
-      html, body { width: 100%; height: 100%; margin: 0; background: rgb(10, 20, 30); }
-      ${shellCss}
-    </style></head><body>
-      <section class="acpmux-shell" data-tab-row
-        style="--acpmux-tab-row-height:40px;--agent-page-bg:rgb(200,10,20)">
-        <header class="acpmux-header" data-tab-row><div id="tools"></div></header>
-      </section>
-    </body></html>`);
-    const shot = PNG.sync.read(await page.screenshot());
-    const pixel = (x: number, y: number) => {
-      const offset = (y * shot.width + x) * 4;
-      return Array.from(shot.data.subarray(offset, offset + 4));
-    };
-    // Every pixel in the offered row, including its bottom edge, is the native strip beneath it.
-    expect(pixel(20, 8)).toEqual([10, 20, 30, 255]);
-    expect(pixel(20, 39)).toEqual([10, 20, 30, 255]);
-    // The page fill starts immediately after the offered row.
-    expect(pixel(20, 50)).toEqual([200, 10, 20, 255]);
-    expect(await page.locator(".acpmux-header").evaluate((node) => getComputedStyle(node, "::after").content)).toBe(
-      "none",
-    );
-    await page.close();
-  });
-
-  for (const host of ["acpmux-floating-header", "acpmux-floating-bar", "acpmux-header-tools"]) {
+  // Every pane header that draws these buttons: the floating chat's header and folded bar, the chat
+  // header's own row, and the chat header sharing the pane's tab row (chrome.tabs.rowTools, on by default).
+  const hosts = {
+    "acpmux-floating-header": (button: string) => `<header class="acpmux-floating-header">${button}</header>`,
+    "acpmux-floating-bar": (button: string) => `<header class="acpmux-floating-bar">${button}</header>`,
+    "acpmux-header-tools": (button: string) => `<header class="acpmux-header-tools">${button}</header>`,
+    "acpmux-header-tools in the tab row": (button: string) =>
+      `<section class="acpmux-shell" data-tab-row style="--acpmux-tab-row-height:40px">` +
+      `<div class="acpmux-stage"><header class="acpmux-header" data-tab-row><div class="acpmux-handoff-header-tools">` +
+      `<div class="acpmux-header-tools">${button}</div></div></header></div></section>`,
+  } as const;
+  for (const [host, wrap] of Object.entries(hosts)) {
     for (const state of [
       "rest",
       "hover",
@@ -101,9 +79,10 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
       "focus-visible",
       "disabled",
     ] as const) {
-      // Plain at rest, on hover, with its menu open, focused or disabled. Pressed (its panel open), it
-      // takes the App's toolbar selection fill on its own square (Leo, 2026-10-29: "i literally meant the
-      // ui depicting it as toggled or not").
+      // Plain in every state: no plate at rest, on hover, with its menu open, focused, disabled or pressed
+      // (Leo, 2026-10-31: "AND THE FUCKING BACKGROUND ON THIS FUCKING BUILD ON THESE BUTTONS STILL ISN'T
+      // FUCKING REMOVESD"). Pressed (its panel open), it reads as on by the lit ink alone, as the App's pane
+      // toolbar toggles do (Leo, 2026-10-29: "i literally meant the ui depicting it as toggled or not").
       test(`${host} keeps plain icons in its ${state} state`, async () => {
         // Match the shipped cascade: the shared pane sheet supplies the important focus gradient.
         const shellCss = [
@@ -118,12 +97,13 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
             :root {
               --agent-text: rgb(240, 240, 240); --agent-muted: rgb(150, 160, 170);
               --agent-soft: rgb(100, 110, 120); --agent-accent: rgb(200, 120, 80);
+              --agent-lit-glyph: rgb(210, 130, 90);
               --acpmux-motion-hover: 0ms; --cmux-selection: rgba(255, 255, 255, 0.12);
             }
           </style></head><body>
-            <header class="${host}"><button class="acpmux-header-tool" aria-label="Panel">
+            ${wrap(`<button class="acpmux-header-tool" aria-label="Panel">
               <span class="acpmux-header-symbol" style="width:16px;height:16px"></span>
-            </button></header>
+            </button>`)}
           </body></html>`);
           const button = page.locator(".acpmux-header-tool");
           await page.mouse.move(319, 119);
@@ -131,11 +111,11 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
           if (state === "pressed" || state === "pressed-hover") {
             await button.evaluate((node) => {
               node.setAttribute("aria-pressed", "true");
-              // HeaderIcon(selected) supplies accent ink on the glyph, not the button's surface.
-              (node.firstElementChild as HTMLElement).style.color = "var(--agent-accent)";
+              // HeaderIcon(selected) supplies the lit ink on the glyph, not the button's surface.
+              (node.firstElementChild as HTMLElement).style.color = "var(--agent-lit-glyph, var(--agent-accent))";
             });
           }
-          // Hovering an open panel's toggle keeps its fill.
+          // Hovering an open panel's toggle keeps its lit ink and gains no fill.
           if (state === "pressed-hover") await button.hover();
           if (state === "popup-open") await button.evaluate((node) => node.setAttribute("data-popup-open", ""));
           if (state === "focus-visible") {
@@ -158,17 +138,18 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
           const color =
             state === "disabled"
               ? "rgb(100, 110, 120)"
-              : state === "hover" || state === "pressed" || state === "pressed-hover" || state === "popup-open"
-                ? "rgb(240, 240, 240)"
-                : "rgb(150, 160, 170)";
+              : state === "pressed" || state === "pressed-hover"
+                ? "rgb(210, 130, 90)"
+                : state === "hover" || state === "popup-open"
+                  ? "rgb(240, 240, 240)"
+                  : "rgb(150, 160, 170)";
           expect(computed).toMatchObject({
-            background:
-              state === "pressed" || state === "pressed-hover" ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0)",
+            background: "rgba(0, 0, 0, 0)",
             image: "none",
             color,
             outline: state === "focus-visible" ? "solid" : "none",
             shadow: "none",
-            glyph: state === "pressed" || state === "pressed-hover" ? "rgb(200, 120, 80)" : color,
+            glyph: color,
           });
           if (state === "focus-visible") {
             expect(parseFloat(computed.outlineWidth)).toBeGreaterThan(0);

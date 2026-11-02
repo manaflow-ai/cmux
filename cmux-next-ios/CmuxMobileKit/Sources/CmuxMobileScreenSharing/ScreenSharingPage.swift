@@ -61,7 +61,7 @@ public struct ScreenSharingPage: View {
         let macs = service.macs
         Section {
             if macs.isEmpty, service.status == .ready {
-                Text("No Macs yet. Sign in to cmux on your Mac with this account, then turn on Share This Mac in its Settings › Devices.")
+                Text("No Macs. Sign in to cmux on your Mac with this account, then turn on Share This Mac in its Settings › Devices.")
                     .font(theme.type.rowSubtitle).foregroundStyle(theme.colors.label2)
             }
             ForEach(macs) { mac in

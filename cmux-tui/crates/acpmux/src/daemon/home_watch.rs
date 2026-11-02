@@ -9,6 +9,8 @@
 //! Event-driven, never a timer: on Linux/macOS, watch the individual home/socket/lock paths
 //! and their lexical and resolved ancestors for rename/removal only. Kernel subscription masks
 //! exclude directory-entry activity, so unrelated writes under /tmp or /Users never wake us.
+//! One exception, macOS: kqueue cannot watch a socket (open(2) refuses one), so the entries of
+//! the folder that holds the socket wake a check instead (`record_watch::DirWatch`).
 //! Other Unix platforms keep a nearest-directory notify watch with event filtering.
 //! The watcher is dropped when its task ends. Home and socket have separate tasks, so losing the
 //! socket does not stop monitoring the home during shutdown.
@@ -62,6 +64,9 @@ struct OwnedPath {
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) struct Owned {
     paths: Vec<OwnedPath>,
+    /// The folder the last path given to [`Owned::now`] sits in, as resolved then: a socket
+    /// lost from the same folder may be bound again ([`Owned::only_leaf_lost`]).
+    leaf_folder: Option<(PathBuf, Identity)>,
 }
 
 impl Owned {
@@ -82,13 +87,19 @@ impl Owned {
             let id = identity(&resolved)?;
             owned.push(OwnedPath { path: path.to_path_buf(), identity: id, resolved: true });
         }
-        Some(Self { paths: owned })
+        let leaf_folder = paths.last().and_then(|leaf| {
+            let folder = leaf_folder(leaf);
+            let id = std::fs::canonicalize(&folder).ok().and_then(|p| identity(&p))?;
+            Some((folder, id))
+        });
+        Some(Self { paths: owned, leaf_folder })
     }
 
     /// These paths and `other`'s.
     #[cfg(unix)]
     fn with(mut self, other: Owned) -> Self {
         self.paths.extend(other.paths);
+        self.leaf_folder = other.leaf_folder;
         self
     }
 
@@ -118,6 +129,42 @@ impl Owned {
     }
 }
 
+impl Owned {
+    /// Whether `leaf`'s own entry is the one path lost: every ancestor is still the folder it
+    /// was, and so is the folder its resolved path sits in (a symlinked folder moved away and
+    /// made again is another folder, never this daemon's to bind into).
+    #[cfg(unix)]
+    pub(crate) fn only_leaf_lost(&self, leaf: &Path) -> bool {
+        let mut leaf_lost = false;
+        for entry in &self.paths {
+            let now = if entry.resolved {
+                std::fs::canonicalize(&entry.path).ok().and_then(|path| identity(&path))
+            } else {
+                identity(&entry.path)
+            };
+            if now == Some(entry.identity) {
+                continue;
+            }
+            // The leaf has two entries: itself as a lexical ancestor, and resolved.
+            if entry.path != leaf {
+                return false;
+            }
+            leaf_lost = true;
+        }
+        leaf_lost
+            && self.leaf_folder.as_ref().is_some_and(|(path, id)| {
+                path == &leaf_folder(leaf)
+                    && std::fs::canonicalize(path).ok().and_then(|p| identity(&p)) == Some(*id)
+            })
+    }
+}
+
+/// The folder a leaf's resolved path sits in, spelled lexically.
+#[cfg(unix)]
+fn leaf_folder(leaf: &Path) -> PathBuf {
+    leaf.parent().unwrap_or(Path::new("/")).to_path_buf()
+}
+
 /// Preserve `..` components too: resolving them lexically would change symlink semantics.
 #[cfg(unix)]
 fn lexical_ancestors(path: &Path) -> Vec<PathBuf> {
@@ -138,9 +185,19 @@ pub(crate) fn release_socket() {
     SOCKET_RELEASED.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// What the watch saw lost, and why.
+#[derive(Debug)]
+pub(crate) enum Lost {
+    /// The home, the lock, or the folder that holds the socket: the daemon stops.
+    Stop(String),
+    /// Only the socket's own entry, in the same folder of a home and lock still this daemon's:
+    /// the daemon binds it again (`daemon/socket_rebind.rs`). Nothing is fenced.
+    Socket(String),
+}
+
 /// Resolves once the home, the socket or the lock is lost; never when the watch could not be
 /// set up (it logs why). Dropping it ends the watch.
-pub(crate) type HomeGone = Pin<Box<dyn Future<Output = String> + Send>>;
+pub(crate) type HomeGone = Pin<Box<dyn Future<Output = Lost> + Send>>;
 
 /// Watch `home`, `socket` and `lock` (see the module doc).
 #[cfg(unix)]
@@ -154,7 +211,10 @@ pub(crate) fn watch(
     use notify::Watcher as _;
     // The home and lock as the daemon first held them (`held`), and the socket as bound. The
     // home watcher starts immediately after lock acquisition, before startup writes; the socket
-    // watcher is added once the socket is bound.
+    // watcher is added once the socket is bound. Keep the held set separate: a socket ancestor
+    // outside the home must never be classified as a home loss.
+    let held_for_classification = held.clone();
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let home_owned = held.is_some();
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let bound_owned = bound.is_some();
@@ -229,12 +289,12 @@ pub(crate) fn watch(
                 // A folder gone before its watch began (the home removed during the startup) is
                 // the loss itself, not a watch that could not be set up.
                 if let Some(why) = owned.lost() {
-                    if home_owned && owned.lost_except(Some(socket)).is_some() {
+                    if held_for_classification.as_ref().is_some_and(|held| held.lost().is_some()) {
                         crate::config::mark_home_lost();
                     } else {
                         crate::config::mark_socket_lost();
                     }
-                    return Box::pin(std::future::ready(why));
+                    return Box::pin(std::future::ready(Lost::Stop(why)));
                 }
                 tracing::warn!("home watch off: watch {}: {e}", dir.display());
                 return Box::pin(std::future::pending());
@@ -258,13 +318,16 @@ pub(crate) fn watch(
             }
             lost = check();
         }
+        let why = lost.unwrap_or_default();
         // At once, before the shutdown starts: no write may make the old home again.
-        if home_owned && owned.lost_except(Some(socket.as_path())).is_some() {
+        if held_for_classification.as_ref().is_some_and(|held| held.lost().is_some()) {
             crate::config::mark_home_lost();
+        } else if owned.only_leaf_lost(&socket) {
+            return Lost::Socket(why);
         } else {
             crate::config::mark_socket_lost();
         }
-        lost.unwrap_or_default()
+        Lost::Stop(why)
     })
 }
 
@@ -343,6 +406,28 @@ mod tests {
     }
 
     #[test]
+    fn a_socket_ancestor_loss_is_not_a_home_loss() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        let link = dir.path().join("socket-link");
+        std::os::unix::fs::symlink(&first, &link).unwrap();
+        let socket = link.join("s.sock");
+        std::fs::write(&socket, "").unwrap();
+        let held = Owned::now(&[home.as_path()]).unwrap();
+        let bound = Owned::now(&[socket.as_path()]).unwrap();
+        std::fs::rename(dir.path().join("second"), dir.path().join("replacement")).unwrap();
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("replacement"), &link).unwrap();
+        assert!(held.lost().is_none(), "socket ancestor changed the home identity");
+        assert!(bound.lost().is_some(), "socket ancestor replacement was not detected");
+    }
+
+    #[test]
     fn a_path_the_daemon_removes_itself_is_left_out() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
@@ -355,6 +440,29 @@ mod tests {
         assert_eq!(owned.lost_except(Some(&socket)), None, "unless the daemon removed it");
         std::fs::remove_dir_all(&home).unwrap();
         assert!(owned.lost_except(Some(&socket)).is_some(), "the home still counts");
+    }
+
+    #[test]
+    fn a_socket_lost_alone_is_bound_again_but_one_in_a_replaced_folder_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        let lock = home.join("daemon.lock");
+        let socket = home.join("acpmux.sock");
+        std::fs::write(&lock, "").unwrap();
+        std::fs::write(&socket, "").unwrap();
+        let owned =
+            Owned::now(&[&home, &lock]).unwrap().with(Owned::now(&[socket.as_path()]).unwrap());
+        assert!(!owned.only_leaf_lost(&socket), "nothing was lost");
+        // Replaced: made while the first one exists, so its inode cannot be the first one's reused.
+        std::fs::write(dir.path().join("other"), "").unwrap();
+        std::fs::rename(dir.path().join("other"), &socket).unwrap();
+        assert!(owned.only_leaf_lost(&socket), "the socket alone was replaced");
+        std::fs::remove_file(&socket).unwrap();
+        assert!(owned.only_leaf_lost(&socket), "the socket alone was removed");
+        std::fs::rename(&home, dir.path().join("moved")).unwrap();
+        std::fs::create_dir(&home).unwrap();
+        assert!(!owned.only_leaf_lost(&socket), "its folder is another one");
     }
 
     #[test]

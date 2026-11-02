@@ -347,7 +347,9 @@ fn drop_largest_projections(value: &mut Value, mut bytes: usize) -> Vec<String> 
         .into_iter()
         .map(|index| {
             let projection = projections.remove(index);
-            let field = |key: &str| projection[key].as_str().unwrap_or_default().to_string();
+            let field = |key: &str| {
+                projection.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+            };
             format!("{}/{}/{}", field("frontend"), field("scope"), field("subject_key"))
         })
         .collect()

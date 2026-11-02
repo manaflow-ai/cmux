@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// A Priority row the person drags past the drag threshold moves to where they drop it and asks the
 /// App to keep it there (`SidebarPriorityAction.place`); a click, jitter included, still opens the
 /// chat (Leo 2026-10-21: "the click and drag doesn't quite work for moving guys up").
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarPriorityDragTests {
     static let entries = ["a", "b", "c"].map { SidebarPriorityEntry(id: $0, title: $0, state: .idle) }
 
@@ -40,7 +41,7 @@ struct SidebarPriorityDragTests {
 
         func close() {
             window.contentView = nil
-            window.close()
+            window.closeAfterTest()
             Motion.reduceMotionOverride = previousReduceMotion
         }
 
@@ -81,6 +82,15 @@ struct SidebarPriorityDragTests {
         #expect(harness.actions == [.place("c", order: ["c", "a", "b"])])
         // The rows show the dropped order at once, before the App's ranking comes back with it.
         #expect(harness.panel.panel.entries.map(\.id) == ["c", "a", "b"])
+    }
+
+    @Test func rowHitTestingTargetsTheRowForDragPresses() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        let row = try #require(harness.panel.rows["b"])
+        // FlippedDocument forwards its document-space point to the row. A non-top row must
+        // convert that point before checking its local bounds.
+        #expect(row.hitTest(NSPoint(x: row.frame.midX, y: row.frame.midY)) === row)
     }
 
     @Test func draggingARowDownOneSlotPlacesItThere() throws {

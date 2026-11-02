@@ -6,7 +6,7 @@ import Foundation
 import Observation
 
 /// The sidebar's Priority view (`sidebar.priorityView.enabled`, an App Store item, off by default):
-/// every acpmux chat on this Mac, its peers and the Chief home, and every agent chat on the other
+/// personal and explicitly opened/pinned acpmux chats, and every agent chat on the other
 /// machines the app shows, ranked by what needs the person (`AgentPriorityRanking`), at the top of each window's sidebar while the titlebar bell is on
 /// (`sidebar.priorityView.shown`). Event-driven: it redraws when a lane, a mark or the setting
 /// changes, and at the next snooze end, never on a poll. The App passes the settings, the
@@ -35,13 +35,17 @@ public final class SidebarPriorityFeed {
         public var rowAction: @MainActor (SidebarPriorityAction) -> Void
         /// Runs Toggle Priority View (the bell).
         public var toggleShown: @MainActor () -> Void
+        /// Session ids in actual open tabs, read inside the panel observation.
+        public var openedSessions: @MainActor () -> Set<String>
 
         public init(shortcut: @escaping @MainActor () -> String?, open: @escaping @MainActor (AgentActivityLane) -> Void,
-                    rowAction: @escaping @MainActor (SidebarPriorityAction) -> Void, toggleShown: @escaping @MainActor () -> Void) {
+                    rowAction: @escaping @MainActor (SidebarPriorityAction) -> Void, toggleShown: @escaping @MainActor () -> Void,
+                    openedSessions: @escaping @MainActor () -> Set<String> = { [] }) {
             self.shortcut = shortcut
             self.open = open
             self.rowAction = rowAction
             self.toggleShown = toggleShown
+            self.openedSessions = openedSessions
         }
     }
 
@@ -92,7 +96,11 @@ public final class SidebarPriorityFeed {
         _ = clock.ticks
         let built = chats.snapshot()
         self.built = built
-        let entries = chats.entries(built, now: Date())
+        let opened = hooks.openedSessions()
+        let visible = Set(built.lanes.filter {
+            !$0.sidebarRequiresOpen || opened.contains($0.id) || state.pinned.contains($0.id)
+        }.map(\.id))
+        let entries = chats.entries(built, now: Date()).filter { visible.contains($0.id) }
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
                                     collapsed: state.collapsed, shortcut: hooks.shortcut())
     }

@@ -195,7 +195,17 @@ function sameAsk(left: FolderTrustAsk | undefined, right: FolderTrustAsk | undef
 /// (one gesture); Don't trust leaves it in the composer with the reason.
 export function useFolderTrustAsk(
   source: TrustSource,
-  chat: { sessionId?: string; cwd?: string; family?: string; prompts: number; authority?: unknown; visit?: unknown },
+  chat: {
+    sessionId?: string;
+    cwd?: string;
+    family?: string;
+    prompts: number;
+    authority?: unknown;
+    visit?: unknown;
+    /// Bumped to read the folder again with no other change (a New Tab page Cmd-T adopted with its screen kept:
+    /// the reads it made while parked had no tab's roots, SHORTCUT FRAMES F2).
+    reread?: number;
+  },
   canAnswer = true,
   /// The chat's folder is on this computer: only then is its answer kept by path for the next chat.
   local = true,
@@ -204,7 +214,7 @@ export function useFolderTrustAsk(
 ) {
   // A connection/host identity, stable while streaming. Equal paths on another machine are not
   // the same trust scope, even when a migration preserves the chat id.
-  const { sessionId, family, prompts, authority = source, visit = sessionId } = chat;
+  const { sessionId, family, prompts, authority = source, visit = sessionId, reread = 0 } = chat;
   // A live getter also fences the interval between the client's route change and React's render.
   const authorityValue = typeof authority === "function" ? authority() : authority;
   const visitValue = typeof visit === "function" ? visit() : visit;
@@ -231,6 +241,8 @@ export function useFolderTrustAsk(
   const [trusted, setTrusted] = useState(false);
   const [scope, setScope] = useState<TrustScope>();
   const [justTrusted, setJustTrusted] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const bumpRevision = useCallback(() => setRevision((value) => value + 1), []);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [reading, setReading] = useState(false);
   /// Bumped by `recheck` (acpmux refused a prompt the pane did not hold): read the folder again.
@@ -421,7 +433,7 @@ export function useFolderTrustAsk(
     return () => {
       live = false;
     };
-  }, [source, cwd, reads, canAnswer, remembers, sameAuthority]);
+  }, [source, cwd, reads, reread, canAnswer, remembers, sameAuthority]);
 
   useEffect(() => {
     if (
@@ -445,6 +457,7 @@ export function useFolderTrustAsk(
   const save = useCallback(
     async (level: TrustLevel, folder?: string) => {
       if ((!ask && !cwd) || saving.current || !mounted.current || !sameAuthority() || !sameVisit()) return;
+      bumpRevision();
       saving.current = true;
       const asked = { sessionId, cwd: ask?.cwd ?? cwd! };
       // The chat the answer was made in: the asked folder can be another spelling of its folder
@@ -559,6 +572,7 @@ export function useFolderTrustAsk(
       local,
       authorityEpoch,
       ownerEpoch,
+      bumpRevision,
       sameAuthority,
       sameVisit,
       visitValue,
@@ -606,10 +620,7 @@ export function useFolderTrustAsk(
 
   return {
     ask,
-    /// The trust question or Don't trust holds the chat's other asks (permission, secret, tool
-    /// cards): one question at a time. A read in flight asks nothing, so it holds nothing; the asks
-    /// keep their place while it reads (a chat switch). The daemon authorizes any prompt sent meanwhile.
-    holdsAsks: Boolean(blocked?.reason),
+    revision,
     trusted,
     /// Where the folder's answer lives (its repository, a parent folder), for the trusted grant.
     scope,
@@ -644,6 +655,7 @@ export function useFolderTrustAsk(
 
         const said = trustRefusal(error);
         if (!said) return false;
+        bumpRevision();
         const named = said.cwd;
         if (named) setRefusal({ sessionId, cwd: named, authorityEpoch });
         const refusedFolder = named ?? cwd;
@@ -675,7 +687,7 @@ export function useFolderTrustAsk(
         setReads((count) => count + 1);
         return true;
       },
-      [sessionId, cwd, family, authorityEpoch, sameAuthority, sameVisit, visitValue],
+      [sessionId, cwd, family, authorityEpoch, bumpRevision, sameAuthority, sameVisit, visitValue],
     ),
   };
 }

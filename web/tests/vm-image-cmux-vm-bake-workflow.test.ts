@@ -26,7 +26,7 @@ const step = (name: string) => {
   return found;
 };
 
-type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean; dev_tree: boolean; dev_snapshot?: string };
+type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean; dev_tree: boolean; dev_snapshot?: string; native_receiver?: boolean };
 const BASE: Inputs = { mode: "bake", clones: "2", keep_snapshot: true, probes: false, agent_tools: true, team_vm: false, dev_tree: false };
 const PROD_COPY: Inputs = { mode: "prod-copy", clones: "2", keep_snapshot: false, probes: false, agent_tools: false, team_vm: false, dev_tree: false, dev_snapshot: `sh-${"3".repeat(32)}` };
 
@@ -85,6 +85,35 @@ afterAll(() => {
 });
 
 describe("cloud-vm-image-bake.yml", () => {
+  test("Native images opt in at bake and smoke, and cannot enter direct image promotion", async () => {
+    expect(workflow.on.workflow_dispatch.inputs.native_receiver).toMatchObject({ type: "boolean", default: false });
+    const argv = ["bun", "bake.ts", "--tag", "t"];
+    expect(bakeOptionsFromArgv(argv).nativeReceiver).toBe(false);
+    expect(bakeOptionsFromArgv([...argv, "--native-receiver"]).nativeReceiver).toBe(true);
+    for (const mode of ["--promotion", "--prod-copy"]) {
+      expect(() => bakeOptionsFromArgv([...argv, "--native-receiver", mode])).toThrow(/dedicated development VM API/);
+    }
+    const dir = mkdtempSync(path.join(tmpdir(), "cmux-native-image-"));
+    dirs.push(dir);
+    const inputs = { ...BASE, native_receiver: true };
+    const bake = await runStep("Bake", inputs, dir);
+    expect(bake.result.status).toBe(0);
+    expect(bake.argv.at(-1)).toContain("--native-receiver");
+    const smoke = await runStep("Smoke", inputs, dir);
+    expect(smoke.result.status).toBe(0);
+    expect(smoke.argv.at(-1)).toContain("--native-receiver");
+    writeFileSync(path.join(bake.out, "bake-test.json"), JSON.stringify({ name: "native-test", lockSha256: "lock", nativeReceiver: true }));
+    writeFileSync(path.join(bake.out, "smoke-ci-4242-1.json"), JSON.stringify({ passed: true, checks: { root: { ok: true } } }));
+    expect((await runStep("Dev channel candidate", inputs, dir)).result.status).toBe(0);
+    const candidate = JSON.parse(readFileSync(path.join(bake.out, "native-image.json"), "utf8"));
+    expect(candidate).toMatchObject({ native_receiver: true, transport: "vm-api" });
+    expect(candidate).not.toHaveProperty("var");
+    expect(() => readFileSync(path.join(bake.out, "channel-dev.json"))).toThrow();
+    for (const mode of ["repro", "prod-copy"]) {
+      expect((await runStep("Validate the input lock", { ...inputs, mode }, dir)).result.status).not.toBe(0);
+    }
+  });
+
   test("team_vm is a boolean input that defaults to off", () => {
     expect(workflow.on.workflow_dispatch.inputs.team_vm).toMatchObject({ type: "boolean", default: false });
   });

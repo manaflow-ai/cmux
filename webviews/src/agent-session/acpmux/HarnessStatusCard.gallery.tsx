@@ -32,6 +32,15 @@ const details: Record<Props["harness"], { version: string; model: string; effort
   },
 };
 
+// acpmux's own shape for a Claude Code chat's plan limits (claude_stdio/usage_limits.rs). The weekly
+// window has no reset time, as when Claude Code does not report one. A fixed instant keeps captures stable.
+const CLAUDE_USAGE_LIMITS = {
+  windows: [
+    { id: "session", usedPercent: 38, resetsAt: Date.UTC(2026, 9, 31, 22, 0, 0) / 1000 },
+    { id: "weekly", usedPercent: 12.5 },
+  ],
+};
+
 function snapshot(harness: Props["harness"]): AcpmuxSnapshot["summary"] {
   const detail = details[harness];
   return {
@@ -45,12 +54,14 @@ function snapshot(harness: Props["harness"]): AcpmuxSnapshot["summary"] {
     model: detail.model,
     effort: detail.effort,
     usage: { used: 132_000, size: 400_000 },
+    // acpmux reports limits only for Claude Code; Codex's are not mapped yet.
+    ...(harness === "claude" ? { usageLimits: CLAUDE_USAGE_LIMITS } : {}),
     agentInfo: {
       version: detail.version,
       authSource: harness === "opencode" ? "environment route" : "managed login",
       routeName: detail.route,
       settingsSources: ["user", "project", "acpmux policy"],
-      usageLimits: harness === "opencode" ? "Not reported by ACP" : "Weekly: 62% remaining",
+      ...(harness === "opencode" ? { usageLimits: "Not reported by ACP" } : {}),
     },
   };
 }
@@ -192,7 +203,7 @@ export default componentEntry<Props>({
   load: async () => GalleryStatusCard,
   variants: {
     claude: {
-      note: "Claude status uses the same quiet two-column card for the real harness version, route label, settings sources and usage limit.",
+      note: "Claude status uses the same quiet two-column card for the real harness version, route label, settings sources and the usage limits acpmux reports: each window's share used, and its reset time with time zone only when reported.",
       props: { harness: "claude" },
     },
     codex: {

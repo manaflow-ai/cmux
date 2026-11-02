@@ -106,6 +106,7 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
       providerTlsRuleId: "tls-rule-1",
       method: "HEAD",
       sessionToken: session,
+      apiKey: null,
     });
   });
 

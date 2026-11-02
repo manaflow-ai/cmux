@@ -231,6 +231,18 @@ export default componentEntry<Props>({
     await import("./ledger.css");
   },
   variants: {
+    "stable-thread-counts": {
+      note: "Thread metadata keeps equal-width digits as reply and participant totals change.",
+      props: { select: "c-incident", thread: "c-incident-m1", longThread: true },
+    },
+    "stable-picker-counts": {
+      note: "The selected-person count uses tabular digits while choices change.",
+      props: { select: "c-release", route: { kind: "newMessage" } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-row input"));
+        await ctx.click({ selector: ".lg-form .lg-picker-row input" });
+      },
+    },
     normal: { note: "The conversation list and the page's first conversation.", props: {} },
     channel: {
       note: "The #release channel: day separator, grouped rows, a reply, a thread summary, code.",

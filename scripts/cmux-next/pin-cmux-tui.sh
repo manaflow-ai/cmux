@@ -283,15 +283,12 @@ require_target_in_tree() {
   TARGET="$target"
   if [[ "$gate_published" == true ]] && ! tree_published "$key" "$legacy"; then
     if [[ -n "$(exe_suffix)" ]]; then
-      # The Windows build is optional (cmux-tui-artifacts.yml windows_optional)
-      # and publishes after the tree (publish-tree-windows), and trees from
-      # before it have none: say what publishes it.
+      # Pushes never build Windows (cmux-tui-artifacts.yml build-windows): only
+      # a dispatch with include_windows publishes it: say so.
       {
-        echo "error: no Windows daemon published for tree $key ($(tree_asset)). A tree is published before its"
-        echo "  Windows daemon: the same cmux-tui artifacts run adds it (publish-tree-windows) once its"
-        echo "  Windows build ends, so retry a newly published tree in a few minutes. Otherwise republish"
-        echo "  This tree has no artifact yet; re-run after a trusted feat-cmux-next publication. A fleet app build can bundle its own daemon without publishing it."
-        echo "  or use a local build (CMUX2_TUI_BIN / CMUX_NEXT_TUI_BIN)."
+        echo "error: no Windows daemon published for tree $key ($(tree_asset)). Pushes publish no Windows"
+        echo "  daemon; publish it with: gh workflow run cmux-tui-artifacts.yml --ref <branch> -f include_windows=true"
+        echo "  (its publish-tree-windows adds it to the tree), or use a local build (CMUX2_TUI_BIN / CMUX_NEXT_TUI_BIN)."
       } >&2
       exit 1
     fi
@@ -1453,7 +1450,7 @@ verify_key_command() {
 # fb384d011b85's, had no such job. Every skipped commit and its reason is
 # listed on a miss.
 resolve_newest_published_tree() {
-  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit vrc tip tip_key behind=0 checked=0 distinct=0
+  local limit max_age temp_dir rev rev_time tip_time behind_hours key candidate commit vrc tip tip_key behind=0 checked=0 distinct=0
   local bad_keys=" " good_keys=" " skips=""
   local i same_path skewed skipped_skew=0 same_paths=() tip_blobs=()
   if [[ -n "${CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN:-}" ]]; then
@@ -1514,27 +1511,35 @@ resolve_newest_published_tree() {
       skipped_skew=$((skipped_skew + 1)); behind=$((behind + 1)); continue
     fi
     key="$(tree_key "$rev" 2>/dev/null)" || { skips+="  ${rev:0:12}: no tree key"$'\n'; behind=$((behind + 1)); continue; }
-    if [[ "$bad_keys" == *" $key "* ]]; then
-      skips+="  ${rev:0:12}: tree ${key:0:12} not published or unverifiable"$'\n'; behind=$((behind + 1)); continue
-    fi
-    # A verified tree is checked once.
-    commit="$(tr ' ' '\n' <<<"$good_keys" | awk -F= -v k="$key" '$1 == k { print $2; exit }')"
-    if [[ -z "$commit" ]]; then
+    # The v2 key first, then this commit's compatibility keys (v2-legacy, v1):
+    # trees published before docs-only filtering exist only under those, and
+    # they stay valid fallbacks for the nightly. key becomes the key actually
+    # published, as fetch and resolve-commit report it.
+    commit=""
+    for candidate in "$key" $(legacy_tree_key "$rev"); do
+      [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
+      [[ "$bad_keys" == *" $candidate "* ]] && continue
+      # A verified tree is checked once.
+      commit="$(tr ' ' '\n' <<<"$good_keys" | awk -F= -v k="$candidate" '$1 == k { print $2; exit }')"
+      [[ -n "$commit" ]] && { key="$candidate"; break; }
       distinct=$((distinct + 1))
       vrc=0
-      verify_published_key "$key" "$temp_dir" || vrc=$?
+      verify_published_key "$candidate" "$temp_dir" || vrc=$?
       if (( vrc == 1 )); then
-        echo "tree $key (${rev:0:12}): not published" >&2
-        skips+="  ${rev:0:12}: tree ${key:0:12} not published"$'\n'
-        bad_keys+="$key "; behind=$((behind + 1)); continue
+        echo "tree $candidate (${rev:0:12}): not published" >&2
+        bad_keys+="$candidate "; continue
       fi
       if (( vrc != 0 )); then
-        echo "warning: tree $key (${rev:0:12}) is published, but the manifest of its commit ${verified_commit:0:12} does not carry its sha256 ${verified_sha:0:12} (manifest: ${verified_manifest_sha:-none}); skipping" >&2
-        skips+="  ${rev:0:12}: tree ${key:0:12} unverifiable (manifest sha256 mismatch)"$'\n'
-        bad_keys+="$key "; behind=$((behind + 1)); continue
+        echo "warning: tree $candidate (${rev:0:12}) is published, but the manifest of its commit ${verified_commit:0:12} does not carry its sha256 ${verified_sha:0:12} (manifest: ${verified_manifest_sha:-none}); skipping" >&2
+        skips+="  ${rev:0:12}: tree ${candidate:0:12} unverifiable (manifest sha256 mismatch)"$'\n'
+        bad_keys+="$candidate "; continue
       fi
       commit="$verified_commit"
-      good_keys+="$key=$commit "
+      good_keys+="$candidate=$commit "
+      key="$candidate"; break
+    done
+    if [[ -z "$commit" ]]; then
+      skips+="  ${rev:0:12}: tree ${key:0:12} not published or unverifiable"$'\n'; behind=$((behind + 1)); continue
     fi
     echo "resolved cmux-tui tree $key from ${rev:0:12} ($behind commits and $behind_hours h behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $commit" >&2
     printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=%s\nbehind_hours=%s\n' "$commit" "$key" "$rev" "$tip_key" "$behind" "$behind_hours"

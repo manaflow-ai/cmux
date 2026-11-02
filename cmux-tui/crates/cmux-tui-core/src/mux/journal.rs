@@ -231,6 +231,14 @@ impl Mux {
         self.workspace_registry.stats().snapshot()
     }
 
+    /// The registry and state locks by site (`server-stats` `locks`).
+    pub fn lock_detail_stats(&self) -> crate::diagnostics::LocksSnapshot {
+        crate::diagnostics::LocksSnapshot {
+            registry: self.workspace_registry.stats().detail(),
+            state: self.state.stats().detail(),
+        }
+    }
+
     /// Journal writer metrics, `None` for ephemeral sessions without a
     /// durable journal.
     pub fn journal_writer_stats(&self) -> Option<crate::diagnostics::JournalWriterSnapshot> {

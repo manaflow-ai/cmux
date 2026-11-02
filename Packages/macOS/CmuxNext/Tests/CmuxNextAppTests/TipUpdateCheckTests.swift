@@ -338,7 +338,12 @@ import CmuxNextWakeupsTestSupport
         let h = Self.make(Self.nightly)
         h.sparkle.staged = "300"
         h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
-        try await h.clock.waitForSleeper()
+        // Other timers sleep on this clock too: `waitForSleeper` returned on one of those while the
+        // staged probe's task had not read the clock yet, so the advance below pushed its hour to
+        // 3900 s and the probe never ran (runs 41243133170, 41282022128, 41358792657). Wait for the
+        // probe's own deadline, an hour from now.
+        let probeAt = h.clock.now.advanced(by: .seconds(3600))
+        try #require(await eventually { h.clock.sleeperDeadlines.contains(probeAt) }, "the staged probe never slept for the person's hour")
         h.clock.advance(by: .seconds(TipUpdateCheck.interval))
         try await Task.sleep(for: .milliseconds(100))
         #expect(h.feed.fetches == 0, "a NIGHTLY probed its staged update at the tip interval")

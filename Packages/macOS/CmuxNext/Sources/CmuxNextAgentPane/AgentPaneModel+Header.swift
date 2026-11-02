@@ -16,6 +16,19 @@ public struct AgentPaneMoveTarget: Equatable, Sendable {
         self.status = status
     }
 
+    /// Whether a title-menu move for `requested` may run on a tab now showing `shown`: only the
+    /// chat whose menu was opened moves; a tab with no chat or another chat moves nothing.
+    public nonisolated static func tabStillShows(_ shown: String?, requested: String) -> Bool {
+        guard let shown, !requested.isEmpty else { return false }
+        return shown == requested
+    }
+
+    /// Whether the title menu may list Cloud move targets: signed in, with the machine list loaded
+    /// for the account signed in now (the App's `CloudService.hasLoadedCurrentMachines`).
+    public nonisolated static func offered(signedIn: Bool, loadedCurrent: Bool) -> Bool {
+        signedIn && loadedCurrent
+    }
+
     var reply: [String: Any] {
         var value: [String: Any] = ["id": id, "label": label]
         if !status.isEmpty { value["status"] = status }
@@ -210,6 +223,18 @@ extension AgentPaneModel {
             if let diffTurn = header.diffTurn { diffTurn(folder, turn, toggle) }
             else if toggle { header.toggle(Self.diffAction, folder) } else { header.run(Self.diffAction, folder) }
             return AgentPaneReply.success(["ran": true])
+        case .sessionInfo(let info):
+            sessionInfo.update(info)
+            return AgentPaneReply.success()
+        case .copyText(let text):
+            guard transport.gestures.consume() else {
+                return Self.transportFailure(.gestureRequired)
+            }
+            NSPasteboard.general.clearContents()
+            guard NSPasteboard.general.setString(text, forType: .string) else {
+                return AgentPaneReply.failure(code: "unavailable", message: "Could not copy text")
+            }
+            return AgentPaneReply.success()
         case .tabRowTools(let width):
             tabRow.report(width: CGFloat(width)) // used only while chrome.tabs.rowTools is on and the pane offered the row
             return AgentPaneReply.success()

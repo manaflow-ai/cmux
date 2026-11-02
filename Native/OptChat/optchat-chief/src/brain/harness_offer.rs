@@ -1,7 +1,8 @@
 //! chief.engine.get's `offered.harnesses`: the engines the Chief's picker
 //! lists (Leo #89 item 3: Claude Code via sr2, Codex, OpenCode, the other
 //! acpmux harnesses, UniiChat), each with what it supports and, when it
-//! cannot run a turn, why. Read from acpmux's `_acpmux/harnesses` at each
+//! cannot run a turn, why. The Chief harness (the person's chat with a
+//! Chief) is never listed. Read from acpmux's `_acpmux/harnesses` at each
 //! answer, so a harness installed or signed in since is seen at once.
 //!
 //! Row: `{"id", "displayName", "family", "chiefFamily", "kind",
@@ -70,6 +71,8 @@ pub(super) fn offered_harnesses(
     let mut rows: Vec<Value> = profiles
         .iter()
         .filter(|(_, p)| p.get("kind").and_then(Value::as_str) != Some("terminal"))
+        // The person's chat with a Chief is never an engine a Chief runs on (harness_gate).
+        .filter(|(id, _)| !crate::harness_gate::is_chief_harness(answer, id))
         .map(|(id, p)| {
             row(
                 answer,

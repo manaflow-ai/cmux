@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d8b421f4d16b40c144106ba3d62e1a36f9366e6361adf66a8f40db8a39ee1655";
+inline constexpr std::string_view kProtocolIrSha256 = "ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -161,9 +161,12 @@ struct ServerStatsConnections;
 struct ServerStatsHistogram;
 struct ServerStatsHookQueue;
 struct ServerStatsJournalWriter;
+struct ServerStatsLockDetail;
 struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
+struct ServerStatsLockSiteDetail;
 struct ServerStatsLockStall;
+struct ServerStatsLocks;
 struct ServerStatsRegistryLock;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
@@ -292,6 +295,7 @@ struct CloudConversationSubscribeRequest;
 struct CloudConversationThreadRequest;
 struct CloudConversationTypingRequest;
 struct CloudConversationUnsubscribeRequest;
+struct CloudEnvironmentRequest;
 struct CloudHostReplicaClearRequest;
 struct CloudHostReplicaSetRequest;
 struct CloudHostReplicaStatusRequest;
@@ -1770,6 +1774,14 @@ struct CloudConversationTypingRequest {
 struct CloudConversationUnsubscribeRequest {
     std::string conversation{};
     friend bool operator==(const CloudConversationUnsubscribeRequest&, const CloudConversationUnsubscribeRequest&) = default;
+};
+
+struct CloudEnvironmentRequest {
+    std::string access_token{};
+    std::string action{};
+    std::optional<JsonValue> params{};
+    std::string platform_origin{};
+    friend bool operator==(const CloudEnvironmentRequest&, const CloudEnvironmentRequest&) = default;
 };
 
 struct CloudHostReplicaClearRequest {
@@ -4888,6 +4900,38 @@ struct ServerStatsLockHolder {
     friend bool operator==(const ServerStatsLockHolder&, const ServerStatsLockHolder&) = default;
 };
 
+struct ServerStatsLockSiteDetail {
+    std::uint64_t acquisitions{};
+    std::uint64_t hold_max_us{};
+    std::uint64_t hold_p99_us{};
+    std::uint64_t hold_total_us{};
+    std::string site{};
+    std::uint64_t wait_max_us{};
+    std::uint64_t wait_p99_us{};
+    std::uint64_t wait_total_us{};
+    friend bool operator==(const ServerStatsLockSiteDetail&, const ServerStatsLockSiteDetail&) = default;
+};
+
+struct ServerStatsLockStall {
+    std::optional<std::string> blocker{};
+    std::uint64_t waited_us{};
+    std::string waiter{};
+    friend bool operator==(const ServerStatsLockStall&, const ServerStatsLockStall&) = default;
+};
+
+struct ServerStatsLockDetail {
+    std::vector<ServerStatsLockSiteDetail> by_hold_p99{};
+    std::vector<ServerStatsLockSiteDetail> by_hold_total{};
+    std::uint64_t contended_acquisitions{};
+    ServerStatsHistogram hold_us{};
+    std::optional<ServerStatsLockHolder> holder{};
+    std::optional<ServerStatsLockStall> last_stall{};
+    std::uint64_t sites{};
+    std::uint64_t stalls{};
+    ServerStatsHistogram wait_us{};
+    friend bool operator==(const ServerStatsLockDetail&, const ServerStatsLockDetail&) = default;
+};
+
 struct ServerStatsLockSite {
     std::uint64_t acquisitions{};
     std::uint64_t hold_max_us{};
@@ -4896,11 +4940,10 @@ struct ServerStatsLockSite {
     friend bool operator==(const ServerStatsLockSite&, const ServerStatsLockSite&) = default;
 };
 
-struct ServerStatsLockStall {
-    std::optional<std::string> blocker{};
-    std::uint64_t waited_us{};
-    std::string waiter{};
-    friend bool operator==(const ServerStatsLockStall&, const ServerStatsLockStall&) = default;
+struct ServerStatsLocks {
+    ServerStatsLockDetail registry{};
+    ServerStatsLockDetail state{};
+    friend bool operator==(const ServerStatsLocks&, const ServerStatsLocks&) = default;
 };
 
 struct ServerStatsRegistryLock {
@@ -4953,6 +4996,7 @@ struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsHookQueue> hook_queue{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
+    std::optional<ServerStatsLocks> locks{};
     ServerStatsRegistryLock registry_lock{};
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
@@ -6896,6 +6940,12 @@ struct Codec<ServerStatsJournalWriter> {
 };
 
 template <>
+struct Codec<ServerStatsLockDetail> {
+    static Result<Json> encode(const ServerStatsLockDetail& value);
+    static Result<ServerStatsLockDetail> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsLockHolder> {
     static Result<Json> encode(const ServerStatsLockHolder& value);
     static Result<ServerStatsLockHolder> decode(const Json& value);
@@ -6908,9 +6958,21 @@ struct Codec<ServerStatsLockSite> {
 };
 
 template <>
+struct Codec<ServerStatsLockSiteDetail> {
+    static Result<Json> encode(const ServerStatsLockSiteDetail& value);
+    static Result<ServerStatsLockSiteDetail> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsLockStall> {
     static Result<Json> encode(const ServerStatsLockStall& value);
     static Result<ServerStatsLockStall> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLocks> {
+    static Result<Json> encode(const ServerStatsLocks& value);
+    static Result<ServerStatsLocks> decode(const Json& value);
 };
 
 template <>
@@ -7679,6 +7741,12 @@ template <>
 struct Codec<CloudConversationUnsubscribeRequest> {
     static Result<Json> encode(const CloudConversationUnsubscribeRequest& value);
     static Result<CloudConversationUnsubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudEnvironmentRequest> {
+    static Result<Json> encode(const CloudEnvironmentRequest& value);
+    static Result<CloudEnvironmentRequest> decode(const Json& value);
 };
 
 template <>

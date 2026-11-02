@@ -673,6 +673,7 @@ pub(crate) fn dispatch(
                         .collect()
                 }),
                 tab: string(fields, "tab"),
+                workspace: string(fields, "workspace"),
                 fallback_pane: string(fields, "fallback_pane"),
             };
             let commit = mux
@@ -988,6 +989,7 @@ fn personal_change(
             collapsed: fields.get("collapsed").and_then(Value::as_bool).unwrap_or(false),
             room: string(fields, "room"),
             index: index(fields, "index"),
+            reuse: fields.get("reuse").and_then(Value::as_bool).unwrap_or(false),
         },
         Op::WorkspaceGroupUpdate => {
             require_any(

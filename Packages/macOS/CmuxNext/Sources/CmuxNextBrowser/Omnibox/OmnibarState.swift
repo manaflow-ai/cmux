@@ -111,6 +111,10 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
     public var keywordEntry: KeywordEntry = .space
     public var pageURL: URL?
     public var retainedText: String?
+    /// The selection in `retainedText` when focus left (Chromium
+    /// `saved_selection_for_focus_change_`): a focus that is neither a click
+    /// nor Cmd-L (Tab into the field, a return to the tab) puts it back.
+    public var savedSelection: NSRange?
     public var edit = Edit()
     public var popup = Popup()
     /// Bumped by every suggestion query; results carry it back.

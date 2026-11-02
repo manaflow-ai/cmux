@@ -43,6 +43,12 @@ final class ControlConnection: @unchecked Sendable {
     private var continuation: AsyncStream<String>.Continuation?
     private var consumer: Task<Void, Never>?
     private var hangupWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Holds the connection from `start()` until its descriptor closed. The
+    /// sources and the drain timer hold it weakly, and `ControlSocketServer.stop()`
+    /// drops its own reference before `close()` drains, so without this the
+    /// connection could be freed with a suspended read source, which
+    /// libdispatch traps on ("Release of a suspended object").
+    private var keepAlive: ControlConnection?
     /// Called once on the connection queue after the descriptor closed.
     var onClosed: (@Sendable () -> Void)?
 
@@ -59,6 +65,11 @@ final class ControlConnection: @unchecked Sendable {
         let (stream, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
         queue.async { [self] in
             self.continuation = continuation
+            guard !isClosed else {
+                continuation.finish()
+                return
+            }
+            keepAlive = self
             let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
             source.setEventHandler { [weak self] in self?.readAvailable() }
             source.setCancelHandler { [weak self] in self?.sourceCancelled() }
@@ -270,8 +281,13 @@ final class ControlConnection: @unchecked Sendable {
     }
 
     private func closeDescriptor() {
+        // Both sources are cancelled and gone; release the self-reference
+        // only when this method returns.
+        let retained = keepAlive
+        keepAlive = nil
         Darwin.close(descriptor)
         onClosed?()
         onClosed = nil
+        withExtendedLifetime(retained) {}
     }
 }

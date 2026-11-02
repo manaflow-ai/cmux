@@ -381,7 +381,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let v = match reused.clone() {
                 Some(info) => info,
-                None => match if ephemeral || probe {
+                None => match if ephemeral || probe || args.no_parent {
                     before_deadline(
                         deadline,
                         setup_name,
@@ -1007,7 +1007,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             println!("id:        {}", g("sessionId"));
             println!("agent:     {}  (agent session {})", g("harness"), g("agentSessionId"));
             println!("cwd:       {}", g("cwd"));
-            println!("status:    {}", g("status"));
+            // Its agent restarts on its profile's new launch when the turn ends.
+            let respawn = v
+                .get("respawnPending")
+                .and_then(Value::as_str)
+                .map(|why| format!("  (respawn pending: {why})"))
+                .unwrap_or_default();
+            println!("status:    {}{respawn}", g("status"));
             println!("mode:      {}", g("currentModeId"));
             println!("model:     {}", g("model"));
             println!("policy:    {}", g("policy"));

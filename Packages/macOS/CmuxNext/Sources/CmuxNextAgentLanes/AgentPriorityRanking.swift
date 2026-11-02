@@ -16,6 +16,32 @@ public nonisolated struct AgentPriorityRanking: Sendable {
 
     public init() {}
 
+    /// The chats Go to Next Agent Needing Input visits, in its order: of `waiting` (lanes the caller
+    /// read from its waiting index), the ones still at a permission prompt or question and neither
+    /// archived nor snoozed, pinned first, then the newest ask. The Priority view's needs-you tier
+    /// in its order (a dragged row's place aside), built from those lanes alone: unseen results and
+    /// failed chats never satisfy "Needs input", and nothing ranks the other chats.
+    public static func needingInput(_ waiting: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date) -> [AgentActivityLane] {
+        waiting.filter { lane in
+            lane.state == .input && !marks.archived.contains(lane.id)
+                && !marks.isSnoozed(lane.id, stamp: AgentPriorityMarks.stamp(lane), now: now)
+        }.sorted { a, b in
+            let pinnedA = marks.pinned.contains(a.id), pinnedB = marks.pinned.contains(b.id)
+            if pinnedA != pinnedB { return pinnedA }
+            let sinceA = a.since ?? .distantPast, sinceB = b.since ?? .distantPast
+            if sinceA != sinceB { return sinceA > sinceB }
+            return a.id < b.id
+        }
+    }
+
+    /// The chat after `previous` in `ids` (``needingInput(_:marks:now:)``'s order), wrapping; the
+    /// first when `previous` is nil or no longer waits; nil when none waits.
+    public static func next(after previous: String?, in ids: [String]) -> String? {
+        guard let first = ids.first else { return nil }
+        guard let previous, let index = ids.firstIndex(of: previous) else { return first }
+        return ids[(index + 1) % ids.count]
+    }
+
     /// The rows in rank order: snoozed and archived chats left out, and idle ones older than
     /// `idleHorizon` unless pinned or dragged to a place. `failingChecks` are the ids of the chats
     /// with a pull request whose checks fail; `machine` is each row's machine tag (the lane's peer
@@ -32,7 +58,9 @@ public nonisolated struct AgentPriorityRanking: Sendable {
             let kept = pinned || marks.placed[lane.id] != nil
             if state == .idle, !kept, let since = lane.since, now.timeIntervalSince(since) > idleHorizon { return nil }
             let entry = SidebarPriorityEntry(id: lane.id, title: lane.title, project: lane.project, machine: machine(lane),
-                                             preview: Self.preview(lane), state: state, unread: lane.unread && !read, pinned: pinned)
+                                             preview: Self.preview(lane), state: state, unread: lane.unread && !read, pinned: pinned,
+                                             brand: SidebarItemInfo.agentBrand(forHarness: lane.harness),
+                                             agentColor: SidebarItemInfo.stableAgentColor(for: lane.id))
             return (entry, Self.tier(state), lane.since ?? .distantPast)
         }
         var rows = ranked.filter { marks.placed[$0.entry.id] == nil }.sorted { a, b in
