@@ -47,7 +47,7 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
         // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
-        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow", "workspace.duplicate",
+        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
                                "home.messageAbout", "palette.moveWorkspaceToTop", "—",
                                "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "palette.copyWorkspaceLink", "More", "—",
                                "closeWorkspace"])
@@ -167,7 +167,8 @@ struct ContextMenuEssentialsTests {
         let registry = registry()
         let tab = rows(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t")))
         #expect(tab.suffix(6) == ["closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "palette.copySurfaceLink", "More"])
-        #expect(!["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].contains(where: tab.contains))
+        // The group rows stay at the top (Lawrence 2026-10-14, "my groups UI is lost"; check-group-menus.py).
+        #expect(["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].allSatisfy(tab.contains))
         #expect(allActions(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))).contains("renameTab") && tab.contains("palette.toggleTabPin"))
         let pane = rows(registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: "p")))
         #expect(pane.suffix(3) == ["More", "—", "closePane"])
@@ -175,14 +176,16 @@ struct ContextMenuEssentialsTests {
         #expect(pane.contains("splitRight") && pane.contains("splitDown"))
     }
 
-    /// Eight frequent actions stay prominent; groups and moves remain in More.
+    /// New Tab to the Right and the group rows (Lawrence's guard, check-group-menus.py), then the
+    /// frequent rows; moves remain in More.
     @Test func theTabMenuFollowsChromesOrder() {
         let menu = registry().makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))
         let tab = rows(menu)
-        #expect(tab == ["newTab.toRight", "reloadTab", "duplicateTab", "palette.toggleTabPin", "toggleTabAudioMute",
+        #expect(tab == ["newTab.toRight", "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab", "—",
+                        "reloadTab", "duplicateTab", "palette.toggleTabPin", "toggleTabAudioMute",
                         "closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "palette.copySurfaceLink", "More"])
         // The rest moved into More, not gone: Close Tabs to the Left (not in Chrome) and Move Tab to New Window.
-        for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart", "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"] {
+        for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart"] {
             #expect(allActions(menu).contains(id), "\(id)")
         }
     }

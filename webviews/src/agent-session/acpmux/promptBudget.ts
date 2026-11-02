@@ -1,13 +1,14 @@
-/// A prompt is one acpmux message, and acpmux refuses one over `rpc::MAX_MESSAGE_BYTES` (15 MiB) as
+/// A prompt is one acpmux message, and acpmux refuses one over `rpc::MAX_MESSAGE_BYTES` (31 MiB) as
 /// `message.too_large`. No attachment has a size cap (Leo, 2026-10-26: "arbitarrily large file
 /// sizes"), and each kind's own cap (an image preview's IMAGE_BUDGET_BYTES, a recording's
 /// MAX_AUDIO_BYTES) caps nothing about their sum: ten screenshots' previews passed it (Leo,
 /// 2026-10-31: "this is completely hardlocked bc of message size").
 import { promptBlocks, type ComposerAttachment, type InlineReadOptions, type PromptBlock } from "./attachments";
+import { withoutFrames } from "./composer/videoPrompt";
 
-/// The bytes a prompt's blocks may carry: under acpmux's 15 MiB, with room for the message's
+/// The bytes a prompt's blocks may carry: under acpmux's 31 MiB, with room for the message's
 /// envelope (its ids, `_meta`, the bubble's display parts).
-export const PROMPT_INLINE_BUDGET = 12 * 1024 * 1024;
+export const PROMPT_INLINE_BUDGET = 28 * 1024 * 1024;
 
 /// What each block adds to the message besides its own strings (its keys and quotes).
 const BLOCK_OVERHEAD = 64;
@@ -70,7 +71,13 @@ export function fitPromptBudget(
       total -= copy.data!.length + copy.mimeType.length + jsonBytes(copy.name) + BLOCK_OVERHEAD;
     }
   }
-  return attachments.map((chip) => linked.get(chip.id) ?? chip);
+  const fitted = attachments.map((chip) => linked.get(chip.id) ?? chip);
+  // Still too large: the videos' frames stay out, each video going as its link (composer/videoPrompt.ts).
+  if (total > budget && fitted.some((chip) => chip.video?.frames.length)) {
+    const bare = withoutFrames(fitted);
+    if (inlineBytes(promptBlocks(input, bare, options)) < total) return bare;
+  }
+  return fitted;
 }
 
 /// Whether a send must wait for originals still uploading (`uploading`, by chip id) before it goes:

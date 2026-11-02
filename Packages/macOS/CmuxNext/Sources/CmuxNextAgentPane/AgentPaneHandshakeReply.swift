@@ -10,6 +10,7 @@ enum AgentPaneHandshakeReply {
         // Its native tools were the old page's: they go too, so no stale button sends an old id to the new page.
         if request == .ready {
             model.tabRow.pageLoaded()
+            model.sessionInfo.pageLoaded()
             model.setTabRowTools([])
         }
         model.setCheckpointAvailable(false)
@@ -48,18 +49,19 @@ enum AgentPaneHandshakeReply {
             // A new tab page is a new chat on every host, the mock included: the page
             // never falls back to the most recent session behind it. Its chat starts in
             // the page's folder unless a seed named one.
-            if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTab {
+            if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTabForPage {
                 handshake.newTab = newTab
                 handshake.newSession = true
-                if handshake.cwd == nil { handshake.cwd = newTab.cwd }
+                if handshake.cwd == nil { handshake.cwd = model.tabsNewTabFolder }
             }
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
             handshake.linkScheme = model.linkScheme
             // A chat on another machine names that machine (its host set it), never this Mac.
             let localName = await AgentPaneModel.localMachineName?.value
             if handshake.machineName == nil { handshake.machineName = localName }
-            // This Mac's own name for the picker's This Mac row, which a seeded chat's machine never replaces.
-            handshake.localMachineName = localName
+            // The picker's local row starts a chat on the page's own acpmux: this Mac's, never replaced by a
+            // seeded chat's peer or Cloud machine, or the machine a remote route attaches the page to.
+            handshake.localMachineName = handshake.connection?.remote?.machine ?? localName
             // A pane attaches only to the exact session its tab recorded: a session the
             // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
             // available", never another chat (P1 2026-10-09).
@@ -83,6 +85,8 @@ enum AgentPaneHandshakeReply {
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
             }
             model.hasHandshake = true
+            // A handshake starts a connection: the page says when its client is ready (`pane.clientReady`).
+            model.clientReady = false
             model.acpmuxRestartOffered = nil
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
             if let cwd = handshake.cwd, !filled { model.handshakeCwd = cwd }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb. */
+/* cmux-tui mux protocol 12, IR cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c. */
 
 
 import type * as T from "./types.js";
@@ -520,6 +520,16 @@ export interface CloudConversationUnsubscribeRequest extends CmuxRequestBase {
   "conversation": string;
 }
 export type CloudConversationUnsubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudEnvironmentRequest extends CmuxRequestBase {
+  cmd: "cloud-environment";
+  "access_token": string;
+  "action": string;
+  "params": (T.JsonValue) | null;
+  "platform_origin": string;
+}
+export type CloudEnvironmentResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudHostReplicaClearRequest extends CmuxRequestBase {
@@ -2286,6 +2296,16 @@ export interface ServerStatsRequest extends CmuxRequestBase {
   "include"?: (Array<string>) | null;
 }
 
+/** Protocol v12; authority: frontend. */
+export interface SetAttachVisibilityRequest extends CmuxRequestBase {
+  cmd: "set-attach-visibility";
+  "surface": T.Id;
+  "visible": boolean;
+}
+export type SetAttachVisibilityResult = {
+  "viewers": number;
+};
+
 /** Protocol v6; authority: frontend. */
 export interface SetCellPixelsRequest extends CmuxRequestBase {
   cmd: "set-cell-pixels";
@@ -2936,6 +2956,7 @@ export type CmuxRequest =
   | CloudConversationThreadRequest
   | CloudConversationTypingRequest
   | CloudConversationUnsubscribeRequest
+  | CloudEnvironmentRequest
   | CloudHostReplicaClearRequest
   | CloudHostReplicaSetRequest
   | CloudHostReplicaStatusRequest
@@ -3111,6 +3132,7 @@ export type CmuxRequest =
   | SendRequest
   | SendKeyRequest
   | ServerStatsRequest
+  | SetAttachVisibilityRequest
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
@@ -3552,6 +3574,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-environment": {
+    request: CloudEnvironmentRequest;
+    result: CloudEnvironmentResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-environments-v1";
     stream: null;
   };
   "cloud-host-replica-clear": {
@@ -4952,6 +4982,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "server-stats-v1";
+    stream: null;
+  };
+  "set-attach-visibility": {
+    request: SetAttachVisibilityRequest;
+    result: SetAttachVisibilityResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-visibility-v1";
     stream: null;
   };
   "set-cell-pixels": {

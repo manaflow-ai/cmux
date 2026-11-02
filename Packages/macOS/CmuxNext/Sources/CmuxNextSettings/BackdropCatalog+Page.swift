@@ -24,3 +24,24 @@ public extension BackdropCatalog {
         })
     }
 }
+
+/// Memoizes the settings-page projection of a catalog. Host-list reads are
+/// observation tracked and can run for unrelated settings changes; rebuilding
+/// every wallpaper label on each read was a sizeable idle cost.
+public struct BackdropCatalogPageRowsCache: Sendable {
+    private var catalog: BackdropCatalog?
+    private var cached: JSONValue?
+    /// Number of projections built; useful to assert the cache's stop condition.
+    public private(set) var builds = 0
+
+    public init() {}
+
+    public mutating func rows(for catalog: BackdropCatalog) -> JSONValue {
+        if self.catalog != catalog {
+            self.catalog = catalog
+            cached = catalog.pageRows
+            builds += 1
+        }
+        return cached ?? .array([])
+    }
+}

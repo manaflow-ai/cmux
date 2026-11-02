@@ -17,7 +17,13 @@ final class NotificationService: UNNotificationServiceExtension {
         self.contentHandler = contentHandler
         generic = request.content
         let keys = PushKeys.current()
-        let content = ServicePush().opened(request.content, keys: keys) ?? ServicePush().inert(request.content, trust: keys?.trust()) ?? request.content
+        let service = ServicePush()
+        // The pairing key remains after sign-out, but the active-account
+        // marker does not. Strip a queued old-account push before decrypting.
+        let content = service.withheld(request.content, keys: keys)
+            ?? service.opened(request.content, keys: keys)
+            ?? service.inert(request.content, trust: keys?.trust())
+            ?? request.content
         contentHandler(content)
         self.contentHandler = nil
     }

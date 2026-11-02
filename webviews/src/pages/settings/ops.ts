@@ -29,6 +29,8 @@ export type ManagedInfo = { source: string; reason: string; team?: string | null
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
 export type ListRow = {
   key: string;
+  /** Raw user preference, null when unset; distinguishes an explicit default from absence. */
+  stored?: unknown;
   value: unknown;
   default: unknown;
   customized: boolean;
@@ -191,6 +193,8 @@ export type DevicesJoinState = {
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
+  /** Existing Debug preference, forwarded unchanged for the normal picker placement fallback. */
+  harness_placement?: string;
   /** The app is a DEV build: the Development category shows (Settings > Development). */
   dev_build?: boolean;
   rooms: HostListRow[] | null;
@@ -490,7 +494,21 @@ export type AccountsTeamList = {
 };
 
 /** The Accounts part as the host draws it (texts already localized by the app). */
+export type GitHubConnectionState = {
+  title: string;
+  detail: string;
+  busy: boolean;
+  connect: string;
+  disconnect: string;
+  confirm: string;
+  cancel: string;
+  refresh: string;
+  canConnect: boolean;
+  connections: Array<{ id: string; account: string; status: string; permissions: string[]; canDisconnect: boolean }>;
+};
+
 export type AccountsState = {
+  github?: GitHubConnectionState;
   teams: AccountsTeams | null;
   /** Older hosts omit it. */
   teamList?: AccountsTeamList | null;
@@ -908,6 +926,9 @@ export type ChannelBuild = {
   installed: boolean;
   /** This Mac kept a copy for rollback. */
   kept: boolean;
+  /** The row offers Switch (`cmux.settings.channels.switch_build`): any build but the installed
+   * and pulled ones, on an app that follows a feed. Absent from older hosts. */
+  switch?: boolean;
   prs: { number: number; url: string }[];
 };
 
@@ -943,7 +964,16 @@ export type ChannelsState = {
   title: string;
   installed: string;
   switch: ChannelSwitch | null;
-  labels: { you_are_here: string; following: string; kept: string; compare: string; commit: string; release: string };
+  labels: {
+    you_are_here: string;
+    following: string;
+    kept: string;
+    compare: string;
+    commit: string;
+    release: string;
+    /** The rows' Switch button; absent from older hosts. */
+    switch?: string;
+  };
   tracks: ChannelTrack[];
   /** The app's local acpmux daemon: its build, and whether it is up to date or restarting. */
   daemon?: { title: string; value: string } | null;
@@ -965,6 +995,9 @@ export type SettingsOps = {
   /** Native: the card's Go Back: restarts once into a kept build of a slower channel (the person's gesture only). */
   "cmux.settings.channels.go_back": [{ ring: string; build: string }, Record<string, never>];
   "cmux.settings.channels.update_machine": [{ id: string }, Record<string, never>];
+  /** Native: a build row's Switch: restarts once into that build, older or newer, downloading it
+   * first unless it is kept (the person's gesture only). */
+  "cmux.settings.channels.switch_build": [{ build: string }, Record<string, never>];
   /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: Settings > Devices' Remove: the device leaves every store that lets it in (the person's gesture only). */
@@ -1045,6 +1078,9 @@ export type SettingsOps = {
   /** Native: the bytes the person's own background images take. */
   "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number; folder?: string }];
   "cmux.settings.backdrop.image.folder": [Record<string, never>, { id: string | null }];
+  /** Native: the moving wallpaper that is the macOS screen saver; id null when it is not an aerial,
+   * `pending` while macOS has not downloaded it. Writes nothing. */
+  "cmux.settings.backdrop.image.screen_saver": [Record<string, never>, { id: string | null; pending: boolean }];
   /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */
   "cmux.settings.backdrop.wallpaper_settings": [Record<string, never>, Record<string, never>];
   /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */

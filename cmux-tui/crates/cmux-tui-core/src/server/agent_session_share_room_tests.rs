@@ -1633,6 +1633,29 @@ fn an_early_prompt_waits_for_the_attachment_and_a_hello_guest_outlives_one_left_
     assert_eq!(fake.frame()["method"], "session/prompt");
 }
 
+/// A guest frame of another protocol version (or none) starts no relay and sends no prompt.
+#[test]
+fn a_guest_frame_of_another_version_is_ignored() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-version", &room);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 2, "t": "guest_joined", "guest_id": ann}));
+    room.send(json!({"t": "guest_joined", "guest_id": ann}));
+    room.none(
+        "a snapshot for a guest_joined that is not v1",
+        |s| matches!(s, Seen::Frame { frame, .. } if frame["t"] == "snapshot"),
+    );
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    room.send(json!({"v": 2, "t": "guest_prompt", "guest_id": ann, "client_id": "v2",
+        "text": "hello"}));
+    assert!(
+        fake.next_frame(Duration::from_millis(500)).is_none_or(|f| f["method"] != "session/prompt"),
+        "a v2 prompt never reaches the daemon"
+    );
+}
+
 /// A guest relay's connection takes one of the daemon's connection permits like any client's:
 /// with none free no relay starts, and the guest's next join gets one once a permit is back.
 #[test]
@@ -1992,4 +2015,27 @@ fn a_prompt_in_flight_across_a_host_reconnect_is_sent_again() {
     gate.send(()).unwrap();
     let state = state_of(&room, conn, "c0");
     assert_eq!(state["state"], "held", "{state}");
+}
+
+/// `agent-session-share-room` names the room and the API whose install token it takes, so the app
+/// mints from the room's environment, not from its own build kind (cmux#31372).
+#[test]
+fn share_room_names_the_room_and_its_owner_api() {
+    let fake = FakeAcpmux::start("share-room-api");
+    let mux = mux_with(&fake, "share-room-api");
+    let mut owner = Client::connect(&mux, "share-room-api");
+    let ask = |owner: &mut Client| {
+        let reply = owner.request(json!({"cmd":"agent-session-share-room"}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["data"].clone()
+    };
+    assert_eq!(ask(&mut owner), json!({"room": null, "owner_api": null}));
+    let platform = crate::cloud_conversations::platform::STAGING;
+    assert!(shares(&mux).bridge.configure(Some(&format!("{platform}/")), fast()));
+    assert_eq!(
+        ask(&mut owner),
+        json!({"room": platform, "owner_api": "https://cloud-api-staging.cmux.dev"})
+    );
+    assert!(shares(&mux).bridge.configure(Some("http://127.0.0.1:9"), fast()));
+    assert_eq!(ask(&mut owner), json!({"room": "http://127.0.0.1:9", "owner_api": null}));
 }

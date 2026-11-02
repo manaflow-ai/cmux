@@ -1,24 +1,21 @@
-// Opening or closing anything in the transcript never moves the reader's view: the line they
+// Away from the bottom, opening or closing a disclosure keeps the reader's view: the line they
 // clicked (a tool group, a tool, command or MCP call, a folded thought, a settled run, "Worked for",
 // a subagent group, a failure's Details) stays where it was on screen while what it opens or closes
 // lays out and its fold plays (fold.ts). VirtualTranscript holds it (App.tsx): each placement pass
 // during the hold moves the offset by however far the line moved, and none of them follows the
 // latest row meanwhile.
 //
-// Followed to the latest row, the opened body grows down from the clicked line, so the view no
-// longer shows the latest row and stops following it (Jump to latest shows); a body that still
-// leaves the latest row in view keeps following. Closing at the transcript's end holds the line too
-// (Leo, ask-a736047107: "WHEN I EXPAND THEM IT JUMPS ME DOWN AND WHEN I COLLAPSE IT JUMPS ME UP"):
-// the click keeps the content at least as tall as the view's end (`foldRoomFor`), so what closed
-// leaves room under the rows instead of the browser clamping the offset and bringing every row down
-// by it. That room follows the view's end as the reader scrolls up and goes once the rows grow back
-// into it (`trimmedFoldRoom`); a send and Jump to latest drop it (App.tsx).
+// Tool/work disclosures clicked at or near the end instead pin the bottom and move the thread
+// as one stack (App.tsx, Leo 2026-10-31). Other disclosures keep the clicked line even when closing
+// near the end: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as the
+// reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
 import { foldMs } from "./fold";
 
 /// The disclosures a click holds in place: every control that opens or closes something in its row
 /// (a button or a `role="button"` line with `aria-expanded`: a tool or sent message's line, Show
-/// more, Show all lines, Raw, a file list's "+N more"), a `<summary>`, and the words of a line that
-/// toggle with its button (`data-interactive` inside an agent message's line). A menu's trigger
+/// more, Show all lines, Raw, a file list's "+N more"), a `<summary>`, and a header that is its
+/// toggle edge to edge (`data-header-toggle`, headerToggle.ts: an agent message's line, the edits
+/// card's header, a disclosure row's line). A menu's trigger
 /// (`aria-haspopup`) opens no body in the row and is left out. An `aria-pressed` button is held only
 /// when it says it changes its block's height (`data-fold-toggle`: Wrap lines, a tool output's Raw):
 /// a reply's Pin and Read aloud are `aria-pressed` too, and holding them would stop following a
@@ -27,7 +24,7 @@ export const FOLD_TOGGLE = [
   "button[aria-expanded]:not([aria-haspopup])",
   '[role="button"][aria-expanded]:not([aria-haspopup])',
   "summary",
-  ".cv-agentmsg__line > [data-interactive]",
+  "[data-header-toggle]",
   // Toggles that change their block's height in place: Wrap lines, Raw, a diagram's chart or code.
   "button[aria-pressed][data-fold-toggle]",
   "button.cv-diagram__toggle",
@@ -45,6 +42,11 @@ export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold,
 /// re-placed a tall prompt under the pointer and its Show less missed the click. The reader's own
 /// scroll lets go of it sooner.
 export const FOLD_HOLD_MIN_MS = 400; // motion-allow: a hold timer, not an animation
+
+/// Whether the physical scroller is at (or within the normal follow deadband of) its end.
+export function atFoldBottom(scrollTop: number, clientHeight: number, scrollHeight: number, deadband: number): boolean {
+  return scrollHeight > clientHeight + 0.5 && scrollHeight - clientHeight - scrollTop <= deadband;
+}
 
 export type FoldAnchor = {
   toggle: HTMLElement;
@@ -66,7 +68,7 @@ export function foldToggleAt(target: EventTarget | null, scroller: HTMLElement):
 
 /// The lines that open a body under themselves: a click holds the line itself.
 const HEADER_TOGGLE =
-  'button.is-toggle[aria-expanded], button.cv-subagents[aria-expanded], [role="button"][aria-expanded], summary, .cv-agentmsg__line > [data-interactive]';
+  'button.is-toggle[aria-expanded], button.cv-subagents[aria-expanded], [role="button"][aria-expanded], summary, [data-header-toggle]';
 
 /// What a click on `toggle` holds in place. A line that opens a body under itself holds itself. Any
 /// other control (Show more, Show all lines, "+N more", Raw) may sit under or beside the body it

@@ -367,6 +367,87 @@ test("attachment intake wires local link deduplication through its hook state", 
   expect(held.map((chip) => chip.path)).toEqual(["/Users/you/assets"]);
 });
 
+test("a file chosen in + > Attach files asks the host where it came from, and its chip keeps the answer", async () => {
+  const asked: unknown[] = [];
+  const shot = { name: "Screenshot", bundleId: "com.apple.screenshot.launcher" };
+  const actions = dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => unknown>;
+  };
+  actions.cmuxAcpmuxActions = {
+    "chat.attach.source": (params) => {
+      asked.push(params);
+      return { sources: [shot] };
+    },
+    "attachment.sourceIcon": () => ({ src: "data:image/png;base64,iVBORw0KGgo=" }),
+  };
+  const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/SourceBadge");
+  resetSourceIcons();
+  try {
+    const composer = await openComposer();
+    const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
+    const file = new File([PNG], "Screenshot 2026-10-29 at 10.14.02.png", { type: "image/png" });
+    // What WebKit does once the person picks in the open panel: the input holds the files, then `change`.
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => {
+      input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await until(
+      () => composer.current!.wakeState().attachments?.[0]?.source !== undefined,
+      "the chosen screenshot's chip with its source",
+    );
+    // Asked as a pick, never as a drop or paste: the host answers from the panel's own record.
+    expect(asked).toEqual([
+      { kind: "choose", names: ["Screenshot 2026-10-29 at 10.14.02.png"], gestureAt: expect.any(Number) },
+    ]);
+    expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
+    // Its tile wears the source app's icon at its top-right corner, named for screen readers.
+    await until(() => host.querySelector(".acpmux-attachment .acpmux-source-badge img") !== null, "the chip's badge");
+    expect(host.querySelector(".acpmux-attachment .acpmux-source-badge img")?.getAttribute("alt")).toBe(
+      "From Screenshot",
+    );
+  } finally {
+    delete actions.cmuxAcpmuxActions;
+    resetSourceIcons();
+  }
+});
+
+// A ready file never waits for where it came from: the source is a label, so a slow host answer
+// (up to its 1.5 s deadline) must not hold the chip, or a send, behind it. The answer, when it comes,
+// is added to the chip already staged.
+test("a slow source answer never holds a ready chip; the source is added when it comes", async () => {
+  const shot = { name: "Screenshot", bundleId: "com.apple.screenshot.launcher" };
+  let answer: (value: { sources: unknown[] }) => void = () => {};
+  const actions = dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => unknown>;
+  };
+  actions.cmuxAcpmuxActions = {
+    "chat.attach.source": () => new Promise((resolve) => (answer = resolve)),
+  };
+  try {
+    const composer = await openComposer();
+    const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
+    const file = new File([PNG], "Screenshot 2026-10-29 at 10.14.02.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    const picked = performance.now();
+    await act(async () => {
+      input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    // The host has not answered: the chip is in, with no source yet, well before the lookup's
+    // 1.5 s deadline (SOURCES_DEADLINE_MS) could have let it through.
+    await until(() => (composer.current!.wakeState().attachments ?? []).length > 0, "the chip, before the answer");
+    expect(performance.now() - picked).toBeLessThan(750);
+    expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([undefined]);
+    await act(async () => answer({ sources: [shot] }));
+    await until(
+      () => composer.current!.wakeState().attachments?.[0]?.source !== undefined,
+      "the late source on the staged chip",
+    );
+    expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
+  } finally {
+    delete actions.cmuxAcpmuxActions;
+  }
+});
+
 // Review (Codex): a loading chip cancelled and brought back by an undo is read again under its id
 // while its first read still runs. That stale read ending (here a failed upload) must leave the new
 // read's chip alone: only the read that owns the id settles it.
@@ -693,10 +774,13 @@ test("sending, undoing the clear, and resending never sends a sent attachment's 
 // prompt there.
 test("a retried attachment keeps its id and its place in the text, wherever the caret is", async () => {
   let uploads = 0;
-  // The host refuses the first upload and takes the retry.
+  // The host refuses the first upload outright (so its tile shows Retry at once, with no try again
+  // on its own) and takes the Retry.
   const upload = async (files: File[]) => {
     uploads += 1;
-    return uploads === 1 ? { error: "The upload failed." } : { paths: files.map((file) => `/tmp/${file.name}`) };
+    return uploads === 1
+      ? { error: "The disk is full.", final: true }
+      : { paths: files.map((file) => `/tmp/${file.name}`) };
   };
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
   const composer = await openComposer(sent, { upload });
@@ -810,11 +894,11 @@ test.each([
   }
 });
 
-// Review of #26545 at 81dbee21: a failed upload placed in the text is not sent; the send clears the
-// text from outside (no edit), so its node goes, and it must stay reachable: its failed chip with
-// Retry and × in the strip, never hidden as "placed" with no node to draw it.
-test("a failed attachment left out of a send stays reachable with Retry and its x", async () => {
-  const upload = async () => ({ error: "The upload failed." });
+// Review of #26545 at 81dbee21: a failed upload stays reachable with Retry and ×. Since #30572 a send
+// never goes without a file the person added (Leo, 2026-11-01: "i had to retry to get it to load???"):
+// it waits while the failed tile shows, and goes once the × takes it away.
+test("a send with a failed attachment waits until its x takes it away", async () => {
+  const upload = async () => ({ error: "The disk is full.", final: true });
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
   const composer = await openComposer(sent, { upload });
   await act(async () => composer.current!.restore("look", []));
@@ -831,15 +915,21 @@ test("a failed attachment left out of a send stays reachable with Retry and its 
   await act(async () => {
     field().dispatchEvent(event);
   });
-  await until(() => Boolean(field().querySelector('[data-state="failed"]')), "the failed tile in the text");
+  const failed = () => field().querySelector('[data-state="failed"]');
+  await until(() => Boolean(failed()), "the failed tile in the text");
   await act(async () => composer.current!.send());
-  expect(sent).toHaveLength(1);
+  await settleTurns();
+  expect(sent).toHaveLength(0);
+  // Still reachable: its Retry and its ×.
+  expect(failed()!.querySelector(".acpmux-md-inline-retry")).not.toBeNull();
+  const remove = field().querySelector<HTMLElement>("[data-inline-attachment] .acpmux-md-inline-remove");
+  expect(remove).not.toBeNull();
+  await act(async () => {
+    remove!.click();
+  });
+  await until(() => sent.length === 1, "the held send");
+  expect(sent[0]!.text).toContain("look");
   expect(sent[0]!.attachments).toEqual([]);
-  await until(() => !field().querySelector("[data-inline-attachment]"), "the cleared prompt");
-  const strip = () => document.querySelector(".acpmux-attachments");
-  await until(() => Boolean(strip()?.querySelector(".acpmux-attachment-retry")), "the failed chip in the strip");
-  expect(strip()!.querySelector(".acpmux-attachment-retry")).not.toBeNull();
-  expect(strip()!.querySelector(".acpmux-attachment-remove")).not.toBeNull();
 });
 
 // Review of #26667 (Astra), finding 1: the composer read the draft's tokens from its markdown, where
@@ -947,31 +1037,19 @@ async function withUploadingFile(onSend?: ComposerProps["onSend"]) {
   return { composer, sent, id, finish: (paths: string[]) => act(async () => finish!(paths)) };
 }
 
-test("a file still uploading when the prompt is sent stays, and goes with the next prompt", async () => {
-  // The host takes the prompt a moment later; the person types on meanwhile.
-  let take: (() => void) | undefined;
+// Before #30572 a prompt sent while its file uploaded went without it (Leo, 2026-11-01: the agent
+// answered "Nothing came through"); the send now waits for the upload and goes once, with the file.
+test("a prompt sent while its file still uploads waits for it, then goes once with it", async () => {
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
-  const upload = await withUploadingFile((text, attachments) => {
+  const upload = await withUploadingFile(async (text, attachments) => {
     sent.push({ text, attachments: attachments ?? [] });
-    return new Promise<void>((resolve) => {
-      take = resolve;
-    });
   });
   await act(async () => upload.composer.current!.send());
-  expect(sent).toHaveLength(1);
-  expect(sent[0]!.attachments).toEqual([]);
-  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
-  await act(async () => markdownField().insertTyped(" next"));
-  await act(async () => take!());
   await settleTurns();
+  expect(sent).toHaveLength(0);
   await upload.finish(["/tmp/notes.bin"]);
-  await until(
-    () => (upload.composer.current!.wakeState().attachments ?? []).some((each) => each.id === upload.id),
-    "the uploaded file, kept for the next prompt",
-  );
-  await act(async () => upload.composer.current!.send());
-  expect(sent).toHaveLength(2);
-  expect(sent[1]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
+  await until(() => sent.length === 1, "the held send");
+  expect(sent[0]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
 });
 
 test("a file still uploading whose node the person deletes is cancelled", async () => {

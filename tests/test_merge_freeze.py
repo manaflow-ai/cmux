@@ -252,6 +252,18 @@ class PaginationTests(unittest.TestCase):
         self.assertIn("pulls/1/files has more than 30 pages", stderr.getvalue())
         self.assertEqual(len(calls), freeze.MAX_PAGES)
 
+    def test_a_full_last_page_reads_one_empty_page_after_it(self):
+        gh, calls = self.fake_gh(freeze.PER_PAGE)
+        self.with_gh(gh)
+        items = freeze.gh_items("repos/x/y/pulls/1/files")
+        self.assertEqual(len(items), freeze.PER_PAGE)
+        self.assertEqual([c[1] for c in calls], [f"repos/x/y/pulls/1/files?per_page=100&page={n}" for n in (1, 2)])
+
+    def test_a_page_that_is_not_a_list_is_unreadable(self):
+        self.with_gh(lambda *args: json.dumps({"message": "refused"}))
+        with self.assertRaisesRegex(TypeError, "page 1 is not a list"):
+            freeze.gh_items("repos/x/y/pulls/1/files")
+
     def test_the_script_never_asks_gh_to_paginate(self):
         source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
         self.assertNotIn('"--paginate"', source)

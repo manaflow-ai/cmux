@@ -118,3 +118,23 @@ fn protocol_mail_send_supports_optional_reports_target() {
     assert!(required.iter().any(|field| field == "sender"));
     assert!(required.iter().any(|field| field == "body"));
 }
+
+/// Schema and typed forwarding preserve the link guest's owner-approval boundary.
+#[test]
+fn protocol_author_approval_round_trips() {
+    use super::presence::Author;
+    use serde_json::{Value, json};
+    let guest = json!({"id": "guest:one", "name": "Cy", "approval": "owner"});
+    let author: Author = serde_json::from_value(guest.clone()).unwrap();
+    assert_eq!(serde_json::to_value(author).unwrap(), guest);
+    let person = json!({"id": "user_one", "name": "Cy"});
+    let author: Author = serde_json::from_value(person.clone()).unwrap();
+    assert_eq!(serde_json::to_value(author).unwrap(), person);
+    let invalid = json!({"id": "guest:one", "name": "Cy", "approval": "anyone"});
+    assert!(serde_json::from_value::<Author>(invalid).is_err());
+    let ir: Value = serde_json::from_str(&ir_text()).unwrap();
+    let schema = &ir["types"]["Author"];
+    assert_eq!(schema["properties"]["approval"]["anyOf"][0]["$ref"], "#/types/AuthorApproval");
+    assert_eq!(ir["types"]["AuthorApproval"]["enum"], json!(["owner"]));
+    assert!(!schema["required"].as_array().unwrap().contains(&json!("approval")));
+}

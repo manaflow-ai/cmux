@@ -16,7 +16,12 @@ struct AgentPaneUploadStageTicketTests {
     }
 
     /// What the stand-in stager saw, by kind.
-    final class Staged { var requests: [AgentPaneUploadStageRequest] = [] }
+    final class Staged {
+        var requests: [AgentPaneUploadStageRequest] = []
+        /// The stager's finish fails (the copy did not complete).
+        var failFinish = false
+        var cancels: Int { requests.filter { if case .cancel = $0 { true } else { false } }.count }
+    }
 
     private func pane() async throws -> (AcpmuxStandInServer, AgentPaneModel, Int, Staged) {
         let server = AcpmuxStandInServer()
@@ -32,7 +37,9 @@ struct AgentPaneUploadStageTicketTests {
                 switch request {
                 case .begin(_, let size, _, _): return AgentPaneReply.success(["token": "t-1", "size": size, "chunkSize": 512 * 1024])
                 case .chunk(_, let offset, let data): return AgentPaneReply.success(["offset": offset + data.count])
-                case .finish: return AgentPaneReply.success(["path": "/tmp/uploads/big.pdf"])
+                case .finish:
+                    if staged.failFinish { return AgentPaneReply.failure(code: "upload.incomplete", message: "Not completed.") }
+                    return AgentPaneReply.success(["path": "/tmp/uploads/big.pdf"])
                 case .cancel: return AgentPaneReply.success()
                 }
             }
@@ -113,5 +120,61 @@ struct AgentPaneUploadStageTicketTests {
         #expect(ok(await call(model, "chat.upload.begin", ["name": "big.pdf", "size": 2].merging(send) { $1 })))
         #expect(ok(await call(model, "chat.upload.cancel", ["token": "t-1"])))
         #expect(await prompt(transport, id, ticket: ticket, frame: 2) == nil)
+    }
+
+    private func begin(_ model: AgentPaneModel, ticket: String, extra: [String: Any] = [:]) async -> [String: Any] {
+        let send: [String: Any] = ["sessionId": "s-new", "promptId": "p-1", "ticket": ticket]
+        return await call(model, "chat.upload.begin", ["name": "big.pdf", "size": 2].merging(send) { $1 }.merging(extra) { $1 })
+    }
+
+    @Test func aFinishThatFailsCancelsItsStageBeforeTheHoldEnds() async throws {
+        let (server, model, _, staged) = try await pane()
+        defer { server.stop() }
+        let transport = model.transport
+        transport.gestures.record()
+        let ticket = try sendTicket(transport)
+        staged.failFinish = true
+        #expect(ok(await begin(model, ticket: ticket)))
+        #expect(!ok(await call(model, "chat.upload.finish", ["token": "t-1"])))
+        #expect(staged.cancels == 1, "a stage whose finish failed was left to upload after its hold ended")
+        #expect(model.uploadHolds.isEmpty)
+    }
+
+    @Test func anEmptyChunkIsNoProgressAndEndsTheHeldStage() async throws {
+        let (server, model, _, staged) = try await pane()
+        defer { server.stop() }
+        let transport = model.transport
+        transport.gestures.record()
+        let ticket = try sendTicket(transport)
+        #expect(ok(await begin(model, ticket: ticket)))
+        #expect(!ok(await call(model, "chat.upload.chunk", ["token": "t-1", "offset": 0, "data": ""])))
+        #expect(!staged.requests.contains { if case .chunk = $0 { true } else { false } }, "an empty chunk reached the stager")
+        #expect(staged.cancels == 1)
+        #expect(model.uploadHolds.isEmpty)
+    }
+
+    @Test func aHeldBeginNamesNoBatch() async throws {
+        let (server, model, _, staged) = try await pane()
+        defer { server.stop() }
+        let transport = model.transport
+        transport.gestures.record()
+        let ticket = try sendTicket(transport)
+        let batch: [[String: Any]] = [["name": "big.pdf", "size": 2], ["name": "more.pdf", "size": 2]]
+        #expect(!ok(await begin(model, ticket: ticket, extra: ["batch": batch])))
+        #expect(!ok(await begin(model, ticket: ticket, extra: ["batchToken": "b-1"])))
+        #expect(staged.requests.isEmpty, "a held begin with a batch reached the stager")
+    }
+
+    @Test func aChunkAfterItsTicketEndedCancelsItsStage() async throws {
+        let (server, model, _, staged) = try await pane()
+        defer { server.stop() }
+        let transport = model.transport
+        transport.gestures.record()
+        let ticket = try sendTicket(transport)
+        #expect(ok(await begin(model, ticket: ticket)))
+        transport.gestures.clearTickets() // the page's release, a reconnect
+        #expect(!ok(await call(model, "chat.upload.chunk", ["token": "t-1", "offset": 0, "data": Data([1, 2]).base64EncodedString()])))
+        #expect(!staged.requests.contains { if case .chunk = $0 { true } else { false } }, "a chunk went after its ticket ended")
+        #expect(staged.cancels >= 1)
     }
 }

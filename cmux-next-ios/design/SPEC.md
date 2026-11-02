@@ -56,7 +56,7 @@ and are cited by file name only. Do not copy them into the repo.
 
 ### 1.3 cmux-next theming (minimal)
 
-- The cmux-next accent is neutral: `accent = textPrimary` (see `plans/cmux-next/spec-proposals/visuals/design-tokens.md`, "There is no accent hue by default"). In cmux-next-ios this is `Color.primary`: white in dark, black in light. Every "primary" control (CTA capsules, send circle, selected chip) uses it.
+- The cmux-next accent is neutral: `accent = textPrimary` (see `plans/cmux-next/spec-proposals/visuals/design-tokens.md`, "There is no accent hue by default"). In cmux-next-ios this is `Color.primary`: white in dark, black in light. Every "primary" control (CTA capsules, send circle, selected chip) uses it. That is the Default of the user's accent theme: Settings > Appearance > Accent color (`CmuxMobileAccentTheme`, `Accent.swift`) offers Default, Blue, Magenta, Cyan, Green, Yellow and Red, named as the desktop's `appearance.accent`, and every chrome tint (`accent`/`onAccent`, `Color.cmuxMobileAccent`) reads it. Never hard-code a hue in chrome (Leo, 2026-10-31: "I SAID NO BLUE AS A MATTER OF \"THIS PROBABLY NEEDS TO BE THEMED IN THE DESKTOP APP OR EXAMINED\"").
 - Chrome outside the terminal is the AI-app neutral system above (true black / white), not the terminal background. The Ghostty default `#282C34` is not used for app chrome.
 - The terminal screen (section 10) and code syntax colors take the terminal theme: `ThemeTokens.derive` from the active Ghostty theme supplies the terminal background, the composer and key bar tint on that screen, and the syntax palette (ANSI 1 to 6) for code and diffs.
 - Team colors (user-chosen, section 3.4) are the only saturated hues in chrome. Status uses system green, red and yellow.
@@ -86,8 +86,8 @@ Increase Contrast by using the "High contrast" column where given.
 | `label` | `#FFFFFF` | `#000000` | `Color.primary`. |
 | `label2` | `#EBEBF5` @ 60% | `#3C3C43` @ 60% | `Color.secondary` / `.secondaryLabel`. |
 | `label3` | `#EBEBF5` @ 30% | `#3C3C43` @ 30% | Placeholders, gutters, disabled. `.tertiaryLabel`. |
-| `accent` | `#FFFFFF` | `#000000` | Neutral cmux accent. Set as the app `tint` so system controls follow, except switches (`success`); containers with switches use `cmuxMobileNeutralControlTint()`. |
-| `onAccent` | `#000000` | `#FFFFFF` | Text and glyphs on `accent` fills. |
+| `accent` | `#FFFFFF` | `#000000` | The user's accent (Default shown; hues in `Accent.swift`). Set as the app `tint` so system controls follow, except switches (`success`); containers with switches use `cmuxMobileNeutralControlTint()`. |
+| `onAccent` | `#000000` | `#FFFFFF` | Text and glyphs on `accent` fills (the same for every accent). |
 | `success` | `#30D158` | `#34C759` | Mac online dots, connected, toggles. |
 | `danger` | `#FF453A` | `#FF3B30` | Destructive, errors, Log out. |
 | `warning` | `#FFD60A` | `#FFCC00` | Permission prompts, scanner corner guides (measured yellow, `chatgpt-08-codex-qr-scan`). |

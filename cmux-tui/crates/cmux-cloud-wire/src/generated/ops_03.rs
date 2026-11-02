@@ -216,6 +216,62 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmAttentionEmitOp {
+        name: "cloud.vm.attention.emit",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmAttentionEmitParams,
+        result: CloudVmAttentionEmitResult,
+        error: CloudVmAttentionEmitError,
+    }
+}
+
+wire_enum! {
+    CloudVmAttentionEmitParamsKind {
+        Question = "question",
+        Permission = "permission",
+        Done = "done",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmAttentionEmitParams {
+    pub machine: MachineId,
+    pub event_id: String,
+    pub kind: CloudVmAttentionEmitParamsKind,
+    pub session: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    pub occurred_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmAttentionEmitResult {
+    pub delivered: bool,
+    pub replayed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.attention.emit declares.
+    CloudVmAttentionEmitError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmEventEmitOp {
         name: "cloud.vm.event.emit",
@@ -264,6 +320,99 @@ wire_errors! {
         AuthUnauthenticated = "auth.unauthenticated",
         CloudMachineNotFound = "cloud.machine.not_found",
         CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmNetworkPolicyOp {
+        name: "cloud.vm.network_policy",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Install],
+        params: CloudVmNetworkPolicyParams,
+        result: CloudVmNetworkPolicyView,
+        error: CloudVmNetworkPolicyError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmNetworkPolicyParams {
+    pub machine: MachineId,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.network_policy declares.
+    CloudVmNetworkPolicyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring.
+    CloudVmReceiverLifecycleOp {
+        name: "cloud.vm.receiver.lifecycle",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmReceiverLifecycleParams,
+        result: CloudVmReceiverLifecycleResult,
+        error: CloudVmReceiverLifecycleError,
+    }
+}
+
+wire_enum! {
+    CloudVmReceiverLifecycleParamsPhase {
+        Read = "read",
+        Begin = "begin",
+        Ready = "ready",
+        End = "end",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmReceiverLifecycleParams {
+    pub machine: MachineId,
+    pub phase: CloudVmReceiverLifecycleParamsPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt: Option<String>,
+}
+
+wire_enum! {
+    CloudVmReceiverLifecycleResultPhase {
+        Idle = "idle",
+        Starting = "starting",
+        Ready = "ready",
+        Stopped = "stopped",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmReceiverLifecycleResult {
+    pub machine: MachineId,
+    pub generation: String,
+    pub phase: CloudVmReceiverLifecycleResultPhase,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.receiver.lifecycle declares.
+    CloudVmReceiverLifecycleError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }
 }
@@ -741,154 +890,6 @@ wire_errors! {
         NotParticipant = "not_participant",
         OwnerUnreachable = "owner.unreachable",
         UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message.
-    ConversationThreadOp {
-        name: "conversation.thread",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConversationDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: ConversationThreadParams,
-        result: ConversationThreadResult,
-        error: ConversationThreadError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationThreadParams {
-    pub conversation: ConversationId,
-    pub root: MessageId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after_seq: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationThreadResult {
-    pub root: HomeMessage,
-    pub replies: Vec<HomeMessage>,
-    pub has_more: bool,
-    pub thread: HomeThreadSummary,
-}
-
-wire_errors! {
-    /// The error codes conversation.thread declares.
-    ConversationThreadError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownMessage = "unknown_message",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned. With a user peer it spends the conversation.create budget (home.rate_limited), except when it reopens an existing DM; home.user_not_ready (not retryable) until the caller ran user.ensure once.
-    DmOpenOp {
-        name: "dm.open",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: DmOpenParams,
-        result: DmOpenResult,
-        error: DmOpenError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DmOpenParamsPeerVariant2 {
-    pub email: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DmOpenParamsPeerVariant3 {
-    pub phone: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum DmOpenParamsPeer {
-    ParticipantId(ParticipantId),
-    Variant2(DmOpenParamsPeerVariant2),
-    Variant3(DmOpenParamsPeerVariant3),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DmOpenParams {
-    pub peer: DmOpenParamsPeer,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DmOpenResult {
-    pub conversation: HomeConversationSummary,
-}
-
-wire_errors! {
-    /// The error codes dm.open declares.
-    DmOpenError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        HomeRateLimited = "home.rate_limited",
-        HomeUserNotReady = "home.user_not_ready",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        InviteLimit = "invite_limit",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        NotReachable = "not_reachable",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused.
-    DomainClaimOp {
-        name: "domain.claim",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: DomainClaimParams,
-        result: TeamDomain,
-        error: DomainClaimError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainClaimParams {
-    pub domain: EmailDomain,
-}
-
-wire_errors! {
-    /// The error codes domain.claim declares.
-    DomainClaimError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }
 }

@@ -27,11 +27,11 @@ const SHAPES = new Set([
   ".acpmux-switch",
   ".acpmux-quick-fast-toggle",
   // Session Info's Remote Control switch track (#28981), styled like Settings' ds-switch.
-  ".acpmux-chat-inspector-switch__input",
+  ".acpmux-session-info-switch__input",
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
   ".acpmux-context-card-bar",
-  ".acpmux-chat-inspector-context__bar",
+  ".acpmux-session-info-context__bar",
   // The workflow card's progress bar and its phase segments (4ad2cc9c8eff, #27019): 4 px bars.
   ".acpmux-workflow-card__progress",
   ".acpmux-workflow-card__phases > span",
