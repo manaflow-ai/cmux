@@ -40,8 +40,9 @@ impl AgentRosterFold {
     #[cfg(test)]
     fn pause_after_page_for_test(&mut self) {
         if let Some((entered, release)) = self.page_hook.take() {
-            entered.send(()).unwrap();
-            release.recv().unwrap();
+            // A test that gave up waiting dropped its ends; the fold goes on.
+            let _ = entered.send(());
+            let _ = release.recv();
         }
     }
 }
@@ -55,7 +56,8 @@ impl Mux {
         entered: SyncSender<()>,
         release: Receiver<()>,
     ) {
-        self.agent_roster_fold.lock().unwrap().page_hook = Some((entered, release));
+        self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner).page_hook =
+            Some((entered, release));
     }
 
     /// Committed agent hook events double as the live agent-status feed:
@@ -320,7 +322,7 @@ impl Mux {
         // with no daemon lock held (STATUS 6460: the read under the registry
         // lock held it 1.378 s under load); the roster lock is taken only to
         // apply each page that was read.
-        let mut fold = self.agent_roster_fold.lock().unwrap();
+        let mut fold = self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner);
         let through = match through {
             Some(through) => Ok(through),
             None => match fold.reader(&self.journal_kernel) {
@@ -335,7 +337,7 @@ impl Mux {
                 return None;
             }
         };
-        let mut cursor = self.agent_roster.lock().unwrap().cursor;
+        let mut cursor = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor;
         if through <= cursor {
             return None;
         }
@@ -358,7 +360,7 @@ impl Mux {
             };
             #[cfg(test)]
             fold.pause_after_page_for_test();
-            let mut host = self.agent_roster.lock().unwrap();
+            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
             for record in &records {
                 let changes = host.roster.apply(&RosterEvent::from_record(record));
                 // Hooks already use the durable projector, which decides
@@ -378,7 +380,7 @@ impl Mux {
             cursor = reached;
         }
         let (cursor, snapshot) = {
-            let host = self.agent_roster.lock().unwrap();
+            let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
             (host.cursor, host.roster.snapshot().to_string())
         };
         // The connection alone, never the workspace registry lock, so state
