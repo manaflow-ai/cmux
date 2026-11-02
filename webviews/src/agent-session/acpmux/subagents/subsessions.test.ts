@@ -3,7 +3,14 @@
 // (subsessions.ts), from acpmux's session summaries as the pane cuts them (sessionList.ts).
 import { expect, test } from "bun:test";
 import { sessionEntry } from "../sessionList";
-import { SubsessionStore, subagentDisplayName, subsessionDisplayName, subsessionInfo, subsessionRows, waitingLine } from "./subsessions";
+import {
+  SubsessionStore,
+  subagentDisplayName,
+  subsessionDisplayName,
+  subsessionInfo,
+  subsessionRows,
+  waitingLine,
+} from "./subsessions";
 import { translate } from "../i18n";
 
 /// A session summary as acpmux sends it, with the fields the sub-session rows read.

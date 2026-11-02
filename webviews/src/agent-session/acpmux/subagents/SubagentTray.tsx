@@ -490,8 +490,11 @@ export const SubagentTray = memo(function SubagentTray({
         stop &&
           item.agent.state === "running" &&
           !item.agent.command &&
-          stopItem(stopKey(item)!, subagentDisplayName(t, item.agent), t("subagents.stop", { name: subagentDisplayName(t, item.agent) }), () =>
-            stop(item.agent.id),
+          stopItem(
+            stopKey(item)!,
+            subagentDisplayName(t, item.agent),
+            t("subagents.stop", { name: subagentDisplayName(t, item.agent) }),
+            () => stop(item.agent.id),
           ),
       );
     if (item.kind === "command") {
