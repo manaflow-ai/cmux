@@ -621,6 +621,8 @@ import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
+import { PaneNotices } from "./PaneNotices";
+import { setPaneNotices } from "./paneNotices";
 import { isTakenOver, managedBy, takeOverManaged } from "./managedBy";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -765,6 +767,8 @@ declare global {
       applySuggestedTasks?(on: boolean): void;
       /// Session Info's Remote Control switch, `{on}` or null (remoteControl.ts), on the legacy host.
       applyRemoteControl?(value: unknown): void;
+      /// The app's notices about the chat's agent service (paneNotices.ts), on the legacy host.
+      applyPaneNotices?(value: unknown): void;
       applyHeaderState?(state: unknown): void;
       /// The pane's tab row the header's tools may sit in (header/tabRow.ts).
       applyTabRow?(row: unknown): void;
@@ -9637,6 +9641,9 @@ function AcpmuxPane() {
       applyRemoteControl(value) {
         setRemoteControl(value);
       },
+      applyPaneNotices(value) {
+        setPaneNotices(value);
+      },
       applyHeaderState(state) {
         setHeaderState(state);
       },
@@ -12582,6 +12589,7 @@ function AcpmuxPane() {
             failed={recapCard.failed}
           />
         )}
+        <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>

@@ -208,6 +208,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onChooseChatFolder: (@MainActor (_ chat: String) async -> AgentPaneChatFolderResult)?
     /// Share with Me: grants the signed-in person chats on this remote chat's Cloud machine.
     @ObservationIgnored public var onShareMachineWithMe: (@MainActor () async -> AgentPaneMachineShare)?
+    /// A native notice's button (`pane.noticeAction`): the pane runs the action of the notice `id`;
+    /// false when it shows no such notice with an enabled button.
+    @ObservationIgnored var onPaneNoticeAction: (@MainActor (_ id: String) -> Bool)?
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public internal(set) var chosenFolder: String?
@@ -608,6 +611,7 @@ public final class AgentPaneModel {
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .featureTips(let tips): return featureTipState(tips)
         case .remoteControl(let on): return await AgentPaneRemoteControl.reply(on: on, in: self, userGesture: userGesture)
+        case .paneNoticeAction(let id): return paneNoticeAction(id, userGesture: userGesture)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
