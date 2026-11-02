@@ -37,6 +37,9 @@ public final class LaunchViewQueue {
     private var held: [Waiting] = []
     /// The pane region's waiter is registered (``LaunchReveal/whenReady(_:_:)``).
     private var paneGateArmed = false
+    /// Tabs whose post ran: the next ask makes the view (the show asks again, as the app's pane does when it
+    /// shows its selection). Without it that ask posted the tab again, once a frame until completion.
+    private var released: Set<String> = []
 
     public init() {}
 
@@ -63,6 +66,7 @@ public final class LaunchViewQueue {
     public func waitsAtLaunch(_ key: String, focused: Bool, paneGate: LaunchReveal?, startup: StartupScheduler?,
                               show: @escaping @MainActor () -> Void) -> Bool {
         if isWaiting(key) { return true }
+        if released.remove(key) != nil { return false }
         guard let startup else { return false }
         switch startup.log.phase {
         case .beforeFirstFrame, .afterFirstFrame: break
@@ -94,10 +98,11 @@ public final class LaunchViewQueue {
         for entry in released { post(entry, on: startup) }
     }
 
-    /// Shows the next posted tab: the first one in the focused pane, else the first one.
+    /// Shows the next posted tab: the first one in the focused pane, else the first one. Its show makes the view.
     private func showNext() {
         guard let index = posted.firstIndex(where: \.focused) ?? posted.indices.first else { return }
         let next = posted.remove(at: index)
+        released.insert(next.key)
         next.show()
     }
 }
