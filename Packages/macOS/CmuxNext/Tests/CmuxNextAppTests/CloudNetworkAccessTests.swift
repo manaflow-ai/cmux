@@ -260,6 +260,56 @@ struct CloudNetworkAccessTests {
         #expect(try await queue.serialized("vm-fail") { 3 } == 3)
     }
 
+    /// The queue's own read-apply-write: a refusal stops every level but `none` before the read, an
+    /// applied policy that is already the level is not written again, and any other is written.
+    @Test func theQueuesSetRefusesWideningAndWritesOnlyAChange() async throws {
+        struct Refused: Error {}
+        let queue = CloudNetworkAccessQueue()
+        var reads = 0, writes: [CloudNetworkPolicy] = []
+        let read: @MainActor (String) async throws -> CloudNetworkPolicyState = { _ in reads += 1; return Self.state(CloudNetworkPolicy(mode: .none)) }
+        let write: @MainActor (String, CloudNetworkPolicy) async throws -> CloudNetworkPolicyState = { _, policy in writes.append(policy); return Self.state(policy) }
+        await #expect(throws: Refused.self) { _ = try await queue.set(.full, on: "vm", refusal: Refused(), read: read, write: write) }
+        #expect(reads == 0 && writes.isEmpty, "a refused level reads and writes nothing")
+        #expect(try await queue.set(.noInternet, on: "vm", refusal: Refused(), read: read, write: write).policy.mode == .none)
+        #expect(reads == 1 && writes.isEmpty, "the applied level is not written again")
+        #expect(try await queue.set(.full, on: "vm", refusal: nil, read: read, write: write).policy.mode == .full)
+        #expect(writes.map(\.mode) == [.full])
+    }
+
+    /// A slow server answers the caller `pending` before the control socket's deadline, and the
+    /// change still goes through (#28855).
+    @Test func aSlowServerAnswersPendingAndTheChangeGoesOn() async throws {
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-net-slow")
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID),
+                                          arguments: ["access": .string("none")], origin: .cli)
+        let gate = AsyncStream<Void>.makeStream()
+        let wrote = AsyncStream<CloudNetworkPolicy>.makeStream()
+        let run = services.registry.capturingRun {
+            do {
+                try CloudNetworkAccessActions.set(invocation, AppActionContext(services: services),
+                                                  pendingAfter: .milliseconds(50),
+                                                  read: { _ in
+                                                       var waiting = gate.stream.makeAsyncIterator()
+                                                       _ = await waiting.next()
+                                                       return Self.state(CloudNetworkPolicy(mode: .full))
+                                                   },
+                                                   write: { _, policy in
+                                                       wrote.continuation.yield(policy)
+                                                       return Self.state(policy)
+                                                   })
+            } catch { Issue.record("refused: \(error)") }
+        }
+        let task = try #require(run.results.first)
+        guard case .success(let fields) = await task.value else { Issue.record("no pending answer"); return }
+        #expect(fields["pending"] == .bool(true))
+        #expect(fields["machine_id"] == .string(session.machineID))
+        #expect(fields["network_access"] == .string("none"))
+        gate.continuation.yield(())
+        var writes = wrote.stream.makeAsyncIterator()
+        #expect(await writes.next()?.mode == CloudNetworkPolicy.Mode.none, "the PUT still runs after the pending answer")
+    }
+
     @Test(arguments: ["", "open", "allowlist", "FULLY"])
     func aLevelThatIsNotAChoiceIsRefused(text: String) {
         let services = MachineIconTests.services()

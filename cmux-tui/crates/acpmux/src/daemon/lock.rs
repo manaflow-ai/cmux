@@ -106,6 +106,61 @@ pub(super) fn lock_has_live_holder(path: &Path) -> bool {
     std::fs::File::open(path).ok().as_ref().and_then(holder_pid).is_some()
 }
 
+/// The live holder's pid of the lock at `path`, read from the pid it wrote there, without taking
+/// the lock or creating the file.
+#[cfg(unix)]
+pub(super) fn live_holder_pid(path: &Path) -> Option<u32> {
+    std::fs::File::open(path).ok().as_ref().and_then(holder_pid)
+}
+
+/// What to say of a lock holder that serves no socket: its pid, and how to recover. A holder
+/// that does not answer at its socket is never one a command can wait out (cosmic-gray,
+/// 2026-11-02: a daemon ran two hours with its socket gone), and a SIGTERM is safe: its agents
+/// outlive it and the next daemon adopts them.
+pub(super) fn not_serving_recovery(lock: &Path) -> String {
+    #[cfg(unix)]
+    if let Some(pid) = live_holder_pid(lock) {
+        return format!(
+            " (pid {pid}). To recover, stop it with `kill -TERM {pid}`: its agents outlive it and the next daemon adopts them"
+        );
+    }
+    let _ = lock;
+    ". To recover, stop the acpmux daemon process that holds it with SIGTERM: its agents outlive it and the next daemon adopts them".into()
+}
+
+/// The pid of another process that holds a daemon lock serving `socket`: this home's lock, or the
+/// one in the socket's folder (an `ACPMUX_SOCKET` that names another home's socket). Only a lock's
+/// holder may remove the socket it serves (`server::bind_unix`): a daemon of another home, or a
+/// command, that found it slow to answer took it from under a live daemon. The flock itself says
+/// whether the lock is held (a probe never keeps it); the file says by whom and for which socket.
+#[cfg(unix)]
+pub(crate) fn socket_held_by_other(socket: &Path) -> Option<u32> {
+    use std::os::unix::io::AsRawFd;
+    let mut locks = vec![crate::config::home().join("daemon.lock")];
+    if let Some(folder) = socket.parent() {
+        let lock = folder.join("daemon.lock");
+        if !locks.contains(&lock) {
+            locks.push(lock);
+        }
+    }
+    locks.into_iter().find_map(|lock| {
+        let file = std::fs::File::open(&lock).ok()?;
+        let text = std::fs::read_to_string(&lock).ok()?;
+        let mut lines = text.lines();
+        let pid: u32 = lines.next()?.trim().parse().ok()?;
+        let served = Path::new(lines.next()?.trim());
+        if pid == std::process::id() || served != socket {
+            return None;
+        }
+        // SAFETY: flock on a descriptor this function owns, released before it returns.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {
+            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+            return None;
+        }
+        Some(pid)
+    })
+}
+
 /// Windows: the lock covers the file, so its holder's pid cannot be read; ask the lock itself. A
 /// shared try fails while a daemon holds it exclusively; when none does, it is taken and dropped
 /// at once. A daemon that tries the lock in that instant reports `lockHeld`, and both starters

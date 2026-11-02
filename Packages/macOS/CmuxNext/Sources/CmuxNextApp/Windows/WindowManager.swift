@@ -59,15 +59,10 @@ final class WindowManager {
     })
     /// The "not saved for restore" toast shown for each session, so it can be taken back.
     private var notSavedToasts: [String: CmuxToastHandle] = [:]
-    /// New workspaces a window asked for before the daemon reported them:
-    /// reconcile places each in that window (opening it when it is not
-    /// registered yet) and selects it.
-    var pendingClaims: [String: String] = [:]
-    /// Pending claims not to show on arrival; windows to open behind (automation, Option).
-    var quietClaims: Set<String> = [], behindWindows: Set<String> = []
-    /// Pending claims from runs without view-change permission (an agent's or the CLI's create): they
-    /// never open a Cloud machine nobody opened here (#28609); reconcile drops them for its workspaces.
-    var backgroundClaims: Set<String> = []
+    /// New workspaces windows asked for before the daemon reported them (`WorkspaceClaims`).
+    var claims = WorkspaceClaims()
+    /// Windows to open behind (automation, Option).
+    var behindWindows: Set<String> = []
     /// While ``fileOpenedMachine(of:into:)`` re-runs reconcile: a window that pass opens files nothing again.
     var fillingOpenedMachine = false
     /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.
@@ -394,6 +389,7 @@ final class WindowManager {
             placedWindows += 1
         }
         let controller = WindowController(state: state, services: services, frame: frame)
+        controller.window?.animationBehavior = registry.isLaunching || !restored || !Motion.panes.animatesMovement ? .none : .documentWindow // REOPEN-F2: a restore shows in place, never AppKit's zoom
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         services.dragSession.installWorkspaceHandoff(on: controller)
