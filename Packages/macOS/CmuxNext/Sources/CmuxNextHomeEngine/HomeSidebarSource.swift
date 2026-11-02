@@ -243,8 +243,21 @@ public final class HomeSidebarSource {
         onMarksChanged()
     }
 
-    /// The conversations the list dots, unfiltered by the search (``HomeSidebarModel/unreadConversations``).
-    public var unreadConversations: [ConversationID] { model(query: "", now: Date()).unreadConversations }
+    /// The conversations the list dots, unfiltered by the search (``HomeSidebarModel/unreadConversations``), from the
+    /// same rows, pins and marks as ``model(now:)`` but with none of its display work (the Dock badge reads it at launch).
+    public var unreadConversations: [ConversationID] {
+        let listed = listed().filter(shows)
+        let replies = inboxes.compactMap(\.reply)
+        guard !replies.isEmpty else {
+            let (pinned, rest) = pins.split(listed)
+            return HomeSidebarModel.unreadConversations(pinned: pinned, rest: rest, unreadMarks: unreadMarks, mainChief: chiefRoster().main)
+        }
+        let list = HomeInboxMapping(owned: HomeInboxMapping.ordered(replies.map(\.rows)), listed: listed, pins: pins, unreadMarks: unreadMarks)
+        let rows = list.rows.filter(shows)
+        return HomeSidebarModel.unreadConversations(pinned: rows.filter { list.pinned.contains($0.id) },
+                                                    rest: rows.filter { !list.pinned.contains($0.id) },
+                                                    unreadMarks: list.unreadMarks, mainChief: chiefRoster().main)
+    }
 
     /// Reads this account's marks again (another source changed them).
     public func reloadMarks() {
