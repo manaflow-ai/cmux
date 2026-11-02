@@ -139,6 +139,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).not.toContain("systemctl --user restart acpmux.service");
     expect(command).toContain("stop_lock_holder()");
     expect(command).toContain('"$HOME/.acpmux/daemon.lock"');
+    expect(command).toContain('flock -n "$lock" true');
+    expect(command).toContain('readlink -f "/proc/$lock_pid/exe"');
     expect(command).toContain('kill -KILL "$lock_pid"');
   });
 
@@ -157,6 +159,13 @@ describe("cmux-tui install and daemon commands", () => {
         });
         expect(result.status).toBe(3);
       }
+      mkdirSync(join(home, ".acpmux"));
+      writeFileSync(join(home, ".acpmux", "daemon.lock"), "999999\n");
+      writeFileSync(timeout, "#!/bin/sh\nprintf '%s\\n' '{\"running\":false}'\n");
+      const stale = await runChild("/bin/sh", ["-c", script], {
+        env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+      });
+      expect(stale.status).toBe(0);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

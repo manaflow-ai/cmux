@@ -189,40 +189,40 @@ import Testing
             // A wait that runs out fails here, not as a later expectation reading a half-done state.
             if !condition() { Issue.record("timed out waiting", sourceLocation: sourceLocation) }
         }
-        let first = Task { await memo.value(for: artifact, make: make) }
-        await until { memo.waiting(for: artifact) == 1 }
-        let second = Task { await memo.value(for: artifact) { _ in "other" } }
-        await until { memo.waiting(for: artifact) == 2 }
+        let first = Task { await memo.value(for: artifact, scope: "diff-prepare-test", make: make) }
+        await until { memo.waiting(for: artifact, scope: "diff-prepare-test") == 1 }
+        let second = Task { await memo.value(for: artifact, scope: "diff-prepare-test") { _ in "other" } }
+        await until { memo.waiting(for: artifact, scope: "diff-prepare-test") == 2 }
         first.cancel()
         gate.continuation.yield()
         #expect(await second.value == "thumb")
         _ = await first.value
-        #expect(memo.cached(artifact) == .some("thumb"))
+        #expect(memo.cached(artifact, scope: "diff-prepare-test") == .some("thumb"))
         #expect(memo.makesStarted == 1)
 
         // The only tile scrolls away: the make stops and nothing is recorded, so it tries again later.
         let lone = TerminalArtifact(reference: "build/other.png", kind: .image, order: 2)
         let stopped = AsyncStream<Void>.makeStream()
-        let alone = Task { await memo.value(for: lone) { _ in
+        let alone = Task { await memo.value(for: lone, scope: "diff-prepare-test") { _ in
             for await _ in stopped.stream { break }
             return Task.isCancelled ? nil : "late"
         } }
-        await until { memo.waiting(for: lone) == 1 }
+        await until { memo.waiting(for: lone, scope: "diff-prepare-test") == 1 }
         alone.cancel()
         stopped.continuation.yield()
         _ = await alone.value
-        #expect(memo.cached(lone) == nil)
-        #expect(await memo.value(for: lone) { _ in "again" } == "again")
+        #expect(memo.cached(lone, scope: "diff-prepare-test") == nil)
+        #expect(await memo.value(for: lone, scope: "diff-prepare-test") { _ in "again" } == "again")
 
         // A new order or a non-edit detail is the same artifact; an edit makes a new thumbnail.
         let moved = TerminalArtifact(reference: "build/report.png", kind: .image, order: 9, detail: "Linked")
-        #expect(await memo.value(for: moved) { _ in "other" } == "thumb")
+        #expect(await memo.value(for: moved, scope: "diff-prepare-test") { _ in "other" } == "thumb")
         let edited = TerminalArtifact(reference: "build/report.png", kind: .image, order: 9, detail: "Edited · +12 −4")
-        #expect(await memo.value(for: edited) { _ in "edited" } == "edited")
+        #expect(await memo.value(for: edited, scope: "diff-prepare-test") { _ in "edited" } == "edited")
         // A real failure is remembered (no retry storm).
         let missing = TerminalArtifact(reference: "gone.png", kind: .image)
-        _ = await memo.value(for: missing) { _ in nil }
-        #expect(memo.cached(missing) == .some(nil))
+        _ = await memo.value(for: missing, scope: "diff-prepare-test") { _ in nil }
+        #expect(memo.cached(missing, scope: "diff-prepare-test") == .some(nil))
     }
 
     /// A cancelled make that ends late never counts against the make that replaced it: two
@@ -237,28 +237,28 @@ import Testing
         }
         // The first make ignores its cancellation until its gate opens (a decode that never checks).
         let oldGate = AsyncStream<Void>.makeStream()
-        let first = Task { await memo.value(for: artifact) { _ in
+        let first = Task { await memo.value(for: artifact, scope: "diff-prepare-test") { _ in
             await Task.detached { for await _ in oldGate.stream { break } }.value
             return nil
         } }
-        await until { memo.waiting(for: artifact) == 1 }
+        await until { memo.waiting(for: artifact, scope: "diff-prepare-test") == 1 }
         first.cancel()
-        await until { memo.waiting(for: artifact) == 0 }
+        await until { memo.waiting(for: artifact, scope: "diff-prepare-test") == 0 }
         let newGate = AsyncStream<Void>.makeStream()
         let make: @Sendable (TerminalArtifact) async -> String? = { _ in
             for await _ in newGate.stream { break }
             return Task.isCancelled ? nil : "new"
         }
-        let second = Task { await memo.value(for: artifact, make: make) }
-        await until { memo.waiting(for: artifact) == 1 }
-        let third = Task { await memo.value(for: artifact, make: make) }
-        await until { memo.waiting(for: artifact) == 2 }
+        let second = Task { await memo.value(for: artifact, scope: "diff-prepare-test", make: make) }
+        await until { memo.waiting(for: artifact, scope: "diff-prepare-test") == 1 }
+        let third = Task { await memo.value(for: artifact, scope: "diff-prepare-test", make: make) }
+        await until { memo.waiting(for: artifact, scope: "diff-prepare-test") == 2 }
         // The old make ends now, and its tile leaves for the second time.
         oldGate.continuation.yield()
         _ = await first.value
-        #expect(memo.waiting(for: artifact) == 2)
+        #expect(memo.waiting(for: artifact, scope: "diff-prepare-test") == 2)
         second.cancel()
-        await until { memo.waiting(for: artifact) == 1 }
+        await until { memo.waiting(for: artifact, scope: "diff-prepare-test") == 1 }
         newGate.continuation.yield()
         #expect(await third.value == "new")
         #expect(memo.makesStarted == 2)
