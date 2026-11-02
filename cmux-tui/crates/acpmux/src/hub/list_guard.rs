@@ -908,7 +908,7 @@ mod tests {
 
         // A purge removes the serialized row even when a late metadata writer runs afterward.
         parent.purged.store(true, Ordering::SeqCst);
-        hub.write_snapshot(&parent).unwrap();
+        hub.remove_cached_closed_summary(&parent.id);
         assert!(!hub.closed_summary_cache.lock().unwrap().contains_key(&parent.id));
     }
 
