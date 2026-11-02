@@ -43,10 +43,13 @@ final class CEFDevToolsController {
         case .toggle:
             perform(tab.devTools.isOpen ? .close : .show)
         case .show:
+            tellFrontendDockSide()
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.show, 0, 0)
         case .console:
+            tellFrontendDockSide()
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.console, 0, 0)
         case .inspectElement:
+            tellFrontendDockSide()
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.inspect, 0, 0)
         case .close:
             afterClose = nil
@@ -56,6 +59,18 @@ final class CEFDevToolsController {
         case .panel(let panel):
             _ = shim.devToolsShowPanel(browserID, panel.chromiumID)
         }
+    }
+
+    /// The DevTools frontend keeps its own dock side and applies it when it loads; the fork reports that as a dock-side
+    /// choice (`dockSideChosen`), which moved a just-opened DevTools from cmux's side to the frontend's (BROWSER VIDEO
+    /// F2: bottom, then right ~13 refreshes later). As in Chrome, one side counts: cmux writes its own into the
+    /// frontend's setting before every open, so the frontend loads on it. A closed DevTools only: an open one's
+    /// frontend already applied its side, and a later move is the person's.
+    private func tellFrontendDockSide() {
+        guard let tab, !tab.devTools.isOpen, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
+        // As `willOpen` places it: in the pane or its own cmux window, else Chromium's own window.
+        let dock = tab.container.window != nil && tab.runtime.supportsEmbeddedDevTools ? layout.dock : .window
+        _ = shim.devToolsSetFrontendDockSide(browserID, Self.forkSide(of: dock))
     }
 
     func setFocused(_ focused: Bool) {
@@ -226,6 +241,16 @@ final class CEFDevToolsController {
         case 2: .bottom
         case 3: .right
         default: nil
+        }
+    }
+
+    /// The fork's dock-side value of `dock` (the inverse of `dock(forkSide:)`).
+    nonisolated static func forkSide(of dock: BrowserDevToolsDock) -> Int32 {
+        switch dock {
+        case .window: 0
+        case .left: 1
+        case .bottom: 2
+        case .right: 3
         }
     }
 
