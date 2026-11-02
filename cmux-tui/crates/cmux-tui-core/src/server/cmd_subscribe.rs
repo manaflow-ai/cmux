@@ -30,6 +30,12 @@ pub(super) fn subscribe_activity(
     mux.activity.subscribe(mux, client, writer)
 }
 
+/// A connection that has no use for `scroll-changed` on its event stream (the Mac app: its terminals' scrollbars come
+/// from its own surfaces; a terminal's attach stream still carries the event) says this in
+/// `set-client-info`: its `subscribe` carries no `scroll-changed` (SWITCH FRAMES SF-5: every hidden busy terminal
+/// woke the app's event pump about 15 times a second for an event its store ignores).
+pub(crate) const SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY: &str = "subscribe-scroll-on-attach-v1";
+
 pub(super) fn subscribe_command(
     mux: &Arc<Mux>,
     client: u64,
@@ -50,6 +56,9 @@ pub(super) fn subscribe_command(
     };
     let event_mux = mux.clone();
     let trusted_pairing_client = mux.control_clients.is_unix(client);
+    // Read once: the handshake sends `set-client-info` before `subscribe`.
+    let scroll_on_attach =
+        mux.control_clients.supports_capability(client, SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY);
     // Conversation events go to the person's own clients: the Unix socket
     // and authenticated WebSocket connections (`ws-conversations-v1`).
     let conversation_client = mux.control_clients.is_owner_client(client);
@@ -93,6 +102,8 @@ pub(super) fn subscribe_command(
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
             let mut value = match &event {
+                // The client applies none (SWITCH FRAMES SF-5); attach streams still carry it.
+                MuxEvent::ScrollChanged { .. } if scroll_on_attach => continue,
                 MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                     if !trusted_pairing_client =>
                 {

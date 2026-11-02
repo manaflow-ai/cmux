@@ -619,6 +619,52 @@ def validate_run_rollup(name: str, children: list[dict]) -> None:
         raise Refused(f"'{name}': no failed job under its needs ({', '.join(sorted(under))}) to compare with the base")
 
 
+# A status-only check (2026-11-02, cmux#30294): a same-tree run reports its verdict as a commit status on the
+# head it tested ('cmux-next daemon tests (same-tree)', cmux-next.yml's "Report the same-tree result on the tested
+# commit"), so the head has no check run of that name and every such red was refused as "has not run on exact
+# head", even when the base failed the same tests. The status is judged by the job that gave it: the job of the
+# same name without the " (same-tree)" suffix, in the run its target_url links (else the newest run that tested
+# the head and has that job). It is then compared per test like any job; a run that cannot be found is refused.
+SAME_TREE_SUFFIX = " (same-tree)"
+
+
+def status_job(repo: str, sha: str, name: str, github) -> dict | None:
+    """The completed Actions job behind commit status NAME on SHA, or None when SHA has no status NAME."""
+    statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
+    # The combined status lists the newest per context.
+    status = next((found for found in statuses if found.get("context") == name), None)
+    if status is None:
+        return None
+    state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
+    if state == "pending":
+        raise Refused(f"'{name}': its status is still pending on {sha}")
+    url = status.get("target_url") or ""
+    match = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", url)
+    if match:
+        runs = [github.json(f"repos/{repo}/actions/runs/{match[1]}")]
+        if tested_sha(runs[0]) != sha:
+            raise Refused(f"'{name}': its status links run {match[1]}, which tested {tested_sha(runs[0])[:12]}, "
+                          f"not {sha}")
+    else:
+        listed = github.json(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100")
+        runs = [run for run in listed.get("workflow_runs") or [] if tested_sha(run) == sha]
+    for run in runs:
+        found = next((job for page in github.json(
+            f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", paginate=True)
+            for job in page.get("jobs") or [] if job.get("name") == job_name), None)
+        if found is None:
+            continue
+        if found.get("status") != "completed":
+            raise Refused(f"'{name}': job '{job_name}' in run {run['id']} has not completed")
+        if found.get("conclusion") == "success" or state == "success":
+            raise Refused(f"'{name}': its status is {state} but job '{job_name}' in run {run['id']} is "
+                          f"{found.get('conclusion')}; nothing to compare with the base")
+        return found
+    where = f"run {match[1]} (its target_url)" if match else f"any run that tested {sha}"
+    raise Refused(f"'{name}': a status ({state}: {status.get('description') or 'no description'}) with no job "
+                  f"'{job_name}' in {where} to compare with the base")
+
+
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -> list[dict]:
     jobs: dict[int, dict] = {}
     for run in runs:
@@ -648,7 +694,10 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
         aggregate_runs = []
         for name in checks:
             if name not in latest:
-                raise Refused(f"{name}: has not run on exact head {sha}")
+                if (job := status_job(repo, sha, name, github)) is None:
+                    raise Refused(f"{name}: has not run on exact head {sha}")
+                jobs[job["id"]] = job
+                continue
             job = job_for(repo, latest[name], sha, github)
             if is_aggregate(name):
                 if name in rollups()["run"]:
@@ -1076,7 +1125,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads)
         base_run, base_job = next(verdicts, (None, None))
         if base_run is None:
-            raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
+            raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
                           f"and its tip suite runs)")
         if name == GUARD_GROUP_JOB:
