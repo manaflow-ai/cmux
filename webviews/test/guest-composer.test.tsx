@@ -184,6 +184,9 @@ test("declined and refused messages read as one quiet line, the reason said", as
     await type(page.host, text);
     await enter(page.host);
   }
+  // The outbox paces rapid submits; observe the second frame instead of reading it
+  // before the 600 ms queue timer fires.
+  await fake.until(() => fake.prompts().length === 2);
   const [skip, bump] = fake.prompts();
   await fake.frame({ v: 1, t: "prompt_state", client_id: skip!.client_id, state: "declined" });
   await fake.frame({
