@@ -92,6 +92,11 @@
   },
   {
    "do": "action",
+   "action": "column.widthOneThird",
+   "title": "set-up: the focused column 1/3 of the viewport"
+  },
+  {
+   "do": "action",
    "action": "newColumn",
    "title": "set-up: newColumn"
   },
@@ -122,6 +127,11 @@
   },
   {
    "do": "action",
+   "action": "column.widthOneThird",
+   "title": "set-up: the focused column 1/3 of the viewport"
+  },
+  {
+   "do": "action",
    "action": "newColumn",
    "title": "set-up: newColumn"
   },
@@ -149,6 +159,11 @@
      "daemon_lacks": "J> "
     }
    ]
+  },
+  {
+   "do": "action",
+   "action": "column.widthOneThird",
+   "title": "set-up: the focused column 1/3 of the viewport"
   },
   {
    "do": "use_pane",
