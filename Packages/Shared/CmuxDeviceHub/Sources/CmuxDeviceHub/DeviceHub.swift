@@ -32,6 +32,10 @@ public final class DeviceHub {
     private var openedSecrets: [String: RelaySecret] = [:]
     /// Requests to this device (as host) that wait for ``decide(_:decision:scope:)``.
     public private(set) var pendingRequests: [SessionRequest] = []
+    /// Computer Use questions this device may answer, oldest first, while ``followsApprovals``
+    /// is on: `GET /v1/approvals` on every connect, `approval.request` adds, `approval.closed` drops.
+    /// What the hub said; the app fetches each again and checks it before showing it.
+    public private(set) var approvals: [ComputerUseApproval] = []
     /// Approved sessions' tickets by session id, until the session is denied, revoked or ends.
     public private(set) var tickets: [String: SessionTicket] = [:]
     /// Newest first, as last fetched by ``refreshAudit(limit:)``.
@@ -44,6 +48,10 @@ public final class DeviceHub {
     /// Session pushes (`session.*`) in the order they arrive, for the Mac Screen layer:
     /// a ticket starts signaling; a revocation or end closes the peer connection at once.
     @ObservationIgnored public var onSessionPush: ((DeviceHubPush) -> Void)?
+    /// Approval pushes (`approval.*`) in the order they arrive, for the approval UI.
+    @ObservationIgnored public var onApprovalPush: ((DeviceHubPush) -> Void)?
+    /// This device answers Computer Use questions (the iPhone app): ``approvals`` is kept.
+    @ObservationIgnored public var followsApprovals = false
     /// The name this device registers with.
     @ObservationIgnored public var deviceName: String
 
@@ -149,6 +157,7 @@ public final class DeviceHub {
         relays = []
         openedSecrets = [:]
         pendingRequests = []
+        approvals = []
         tickets = [:]
         audit = []
         lastError = nil
@@ -199,6 +208,17 @@ public final class DeviceHub {
             pendingRequests.removeAll { $0.id == id }
             tickets[id] = nil
             onSessionPush?(push)
+        case let .approvalRequest(approval):
+            if followsApprovals, approval.deviceId != identity.id {
+                if let index = approvals.firstIndex(where: { $0.id == approval.id }) { approvals[index] = approval } else { approvals.append(approval) }
+            }
+            onApprovalPush?(push)
+        case let .approvalClosed(id, _, _):
+            approvals.removeAll { $0.id == id }
+            onApprovalPush?(push)
+        case let .approvalDecided(decided):
+            approvals.removeAll { $0.id == decided.id }
+            onApprovalPush?(push)
         case .pong, .unknown:
             break
         }
@@ -214,6 +234,19 @@ public final class DeviceHub {
         await refreshDevices()
         for host in permissionHosts { await refreshPermissions(host: host) }
         await refreshRelays()
+        if followsApprovals { await refreshApprovals() }
+    }
+
+    /// The questions this device may answer now (`GET /v1/approvals`): after a reconnect,
+    /// since pushes have no backlog.
+    public func refreshApprovals() async {
+        let own = identity.id
+        await load { try await $0.pendingApprovals() } into: { hub, value in hub.approvals = value.filter { $0.deviceId != own } }
+    }
+
+    /// Drops a question this device answered or found it may not answer.
+    public func forgetApproval(_ id: String) {
+        approvals.removeAll { $0.id == id }
     }
 
     /// The hosts whose permission lists a refresh reads: this device's own, then every

@@ -254,6 +254,54 @@ public actor DeviceHubClient {
         return try await call("GET", "/v1/audit", query: query, as: Answer.self).entries
     }
 
+    // MARK: Computer Use approvals
+
+    /// The pending approvals this device may answer, oldest first (`GET /v1/approvals`).
+    public func pendingApprovals() async throws -> [ComputerUseApproval] {
+        struct Answer: Decodable { var approvals: [ComputerUseApproval] }
+        return try await call("GET", "/v1/approvals", as: Answer.self).approvals
+    }
+
+    /// One approval as the hub stores it now (`GET /v1/approvals/:id`).
+    public func approval(id: String) async throws -> ComputerUseApproval {
+        try await call("GET", "/v1/approvals/\(segment(id))", as: ApprovalAnswer.self).approval
+    }
+
+    /// Answers an approval (`POST /v1/approvals/:id/decision`), signed with this
+    /// device's key over `"cmux-cu-approval-v1\n<digest>\n<decision>"`. The caller
+    /// checks the approval first (``ComputerUseApproval/refusal(thisDeviceID:now:)``)
+    /// and passes the digest it recomputed.
+    public func decide(id: String, decision: ComputerUseDecision, digest: String) async throws -> ComputerUseApproval {
+        struct Body: Encodable { var decision: ComputerUseDecision; var digest, sig: String }
+        let sig: String
+        do { sig = try signer.identity.signApproval(digest: digest, decision: decision) } catch {
+            throw DeviceHubError.identity("\(error)")
+        }
+        return try await call("POST", "/v1/approvals/\(segment(id))/decision", body: Body(decision: decision, digest: digest, sig: sig),
+                              as: ApprovalAnswer.self).approval
+    }
+
+    /// Gives the hub this iPhone's APNs token (`PUT /v1/devices/:id/push`); nil forgets it.
+    /// `topic` is the app's bundle id.
+    public func registerPush(token: String?, topic: String, environment: DeviceHubPushEnvironment) async throws -> DeviceHubPushRegistration {
+        struct Body: Encodable {
+            var token: String?
+            var topic: String
+            var environment: DeviceHubPushEnvironment
+            enum CodingKeys: String, CodingKey { case token, topic, environment }
+            func encode(to encoder: any Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                // `{token: null}` forgets it: the key is always sent.
+                if let token { try c.encode(token, forKey: .token) } else { try c.encodeNil(forKey: .token) }
+                try c.encode(topic, forKey: .topic)
+                try c.encode(environment, forKey: .environment)
+            }
+        }
+        struct Answer: Decodable { var push: DeviceHubPushRegistration }
+        return try await call("PUT", "/v1/devices/\(segment(signer.identity.id))/push",
+                              body: Body(token: token, topic: topic, environment: environment), as: Answer.self).push
+    }
+
     /// The User DO socket's URL and headers (`GET /v1/user/ws`): the account
     /// session and the device signature, signed now.
     public func userSocketHandshake() async throws -> DeviceHubHandshake {
@@ -361,6 +409,7 @@ public actor DeviceHubClient {
 
     struct DeviceAnswer: Decodable { var device: HubDevice }
     struct SessionAnswer: Decodable { var session: HubSession }
+    struct ApprovalAnswer: Decodable { var approval: ComputerUseApproval }
     struct Empty: Decodable {}
 }
 

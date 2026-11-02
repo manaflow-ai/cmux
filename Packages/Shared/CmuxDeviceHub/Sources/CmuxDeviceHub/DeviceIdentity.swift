@@ -131,7 +131,33 @@ public struct DeviceIdentity: Sendable {
         guard let raw = Data(base64Encoded: signature), let keyData = Data(base64Encoded: signingKey),
               let key = try? P256.Signing.PublicKey(x963Representation: keyData),
               let parsed = try? P256.Signing.ECDSASignature(rawRepresentation: raw) else { return false }
-        return key.isValidSignature(parsed, for: message)
+        if key.isValidSignature(parsed, for: message) { return true }
+        // (r, s) and (r, n - s) are the same signature (PROTOCOL.md accepts high-S): try the other form.
+        guard let flipped = flippedS(raw), let other = try? P256.Signing.ECDSASignature(rawRepresentation: flipped) else { return false }
+        return key.isValidSignature(other, for: message)
+    }
+
+    /// P-256's group order n, big-endian.
+    static let curveOrder: [UInt8] = [
+        0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xBC, 0xE6, 0xFA, 0xAD, 0xA7, 0x17, 0x9E, 0x84, 0xF3, 0xB9, 0xCA, 0xC2, 0xFC, 0x63, 0x25, 0x51,
+    ]
+
+    /// A raw r||s signature with `s` replaced by `n - s`; nil when it is not 64 bytes or `s` is 0 or not below n.
+    static func flippedS(_ raw: Data) -> Data? {
+        guard raw.count == 64 else { return nil }
+        let bytes = [UInt8](raw)
+        let s = Array(bytes[32 ..< 64])
+        guard s.contains(where: { $0 != 0 }), s.lexicographicallyPrecedes(curveOrder) else { return nil }
+        var out = [UInt8](repeating: 0, count: 32)
+        var borrow = 0
+        for index in stride(from: 31, through: 0, by: -1) {
+            var digit = Int(curveOrder[index]) - Int(s[index]) - borrow
+            borrow = digit < 0 ? 1 : 0
+            if digit < 0 { digit += 256 }
+            out[index] = UInt8(digit)
+        }
+        return Data(bytes[0 ..< 32] + out)
     }
 }
 

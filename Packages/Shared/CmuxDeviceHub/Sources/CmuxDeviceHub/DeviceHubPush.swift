@@ -81,6 +81,12 @@ public enum DeviceHubPush: Sendable, Equatable {
     /// To both: end at once.
     case sessionRevoked(sessionID: String, reason: String?)
     case sessionEnded(sessionID: String, reason: String?)
+    /// To approvers: a machine asks about Computer Use. Fetch it again before showing it.
+    case approvalRequest(ComputerUseApproval)
+    /// To the asking device: an approver answered (verify `sig` before applying it).
+    case approvalDecided(ComputerUseApprovalDecided)
+    /// To every other device: drop the question (`state` decided, expired or cancelled).
+    case approvalClosed(id: String, state: ComputerUseApprovalState?, decision: ComputerUseDecision?)
     case pong
     /// A type this build does not know.
     case unknown(String)
@@ -108,6 +114,16 @@ public enum DeviceHubPush: Sendable, Equatable {
         case "session.ended":
             guard let id = envelope.sessionId else { return nil }
             self = .sessionEnded(sessionID: id, reason: envelope.reason)
+        case "approval.request":
+            guard let message = try? decoder.decode(ApprovalMessage.self, from: data) else { return nil }
+            self = .approvalRequest(message.approval)
+        case "approval.decided":
+            guard let decided = try? decoder.decode(ComputerUseApprovalDecided.self, from: data) else { return nil }
+            self = .approvalDecided(decided)
+        case "approval.closed":
+            guard let closed = try? decoder.decode(ClosedMessage.self, from: data) else { return nil }
+            self = .approvalClosed(id: closed.id, state: closed.state.flatMap(ComputerUseApprovalState.init(rawValue:)),
+                                   decision: closed.decision.flatMap(ComputerUseDecision.init(rawValue:)))
         case "pong": self = .pong
         default: self = .unknown(envelope.type)
         }
@@ -122,5 +138,15 @@ public enum DeviceHubPush: Sendable, Equatable {
 
     struct RequestMessage: Decodable {
         var session: SessionRequest
+    }
+
+    struct ApprovalMessage: Decodable {
+        var approval: ComputerUseApproval
+    }
+
+    struct ClosedMessage: Decodable {
+        var id: String
+        var state: String?
+        var decision: String?
     }
 }
