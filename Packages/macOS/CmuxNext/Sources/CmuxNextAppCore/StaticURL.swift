@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Fixed URLs the app builds from literals. `URL(string:)` is optional, so a
 /// literal goes through `url`, which never traps: a literal that did not
