@@ -762,7 +762,10 @@ fn run_ensure(
             }
         }
     } else {
-        None
+        // A wedged owner answers `identify`, so the app never sees it stuck and
+        // never asks for the replace: every ensure replaces it (#32621). A
+        // replace that fails leaves the normal ensure to report the owner.
+        crate::local_owner::replace_if_wedged(&spec).ok().flatten().map(|replaced| replaced.pid)
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     let report = |restoring: &crate::local_owner::Restoring| {

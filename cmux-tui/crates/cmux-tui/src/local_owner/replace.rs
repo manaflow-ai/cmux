@@ -19,6 +19,14 @@
 //!   threads never end, https://github.com/manaflow-ai/cmux/issues/22311),
 //! - the same process still listens after the exit watch is armed.
 //!
+//! An owner that answers `identify` is still replaced when its `server-stats`
+//! name one holder of the workspace registry lock for `WEDGED_HOLD`
+//! (`replace_if_wedged`, plain `ensure` too): a lock-order deadlock (#32405,
+//! #32621) left owners that answered `identify`, which takes no registry
+//! lock, while every workspace change waited forever; the owner outlived app
+//! quits and updates, so no new build ever reached it. No healthy owner holds
+//! the registry that long: every request holds it for one commit.
+//!
 //! The caller decides when an owner is stuck: an owner also holds connections
 //! unanswered while it restores its session (up to `RESTORE_DEADLINE`), and
 //! this probe cannot tell the two apart. Nor can it tell a wedged owner at its
@@ -50,6 +58,17 @@ mod tests;
 /// How long one `identify` may stay unanswered before the owner counts as
 /// unresponsive. Matches the lifecycle exchange bound.
 const PROBE_DEADLINE: Duration = super::ENSURE_DEADLINE;
+
+/// How long one holder of the owner's workspace registry lock makes it a
+/// wedged owner. `CMUX_TUI_DEBUG_WEDGED_HOLD_MS` shortens it for tests.
+const WEDGED_HOLD: Duration = Duration::from_secs(120);
+
+fn wedged_hold() -> Duration {
+    std::env::var("CMUX_TUI_DEBUG_WEDGED_HOLD_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map_or(WEDGED_HOLD, Duration::from_millis)
+}
 
 /// Wait for the owner to end after SIGTERM before SIGKILL.
 const TERM_GRACE: Duration = Duration::from_secs(5);
@@ -114,8 +133,30 @@ pub(crate) fn replace_if_unresponsive(spec: &OwnerSpec) -> Result<Option<Replace
     // a healthy owner never fails here.
     let key = probe.peer_process_key();
     if !unresponsive(spec, probe) {
-        return Ok(None);
+        return replace_if_wedged(spec);
     }
+    stop(spec, key)
+}
+
+/// Stops the session's owner when it answers but its workspace registry lock
+/// has had one holder for `WEDGED_HOLD` (a deadlocked owner). `Ok(None)`: no
+/// owner, an owner that does not report the lock (an older build, or one
+/// that does not answer `server-stats` in time), or one that is not wedged.
+pub(crate) fn replace_if_wedged(spec: &OwnerSpec) -> Result<Option<Replaced>, ReplaceError> {
+    let Ok(probe) =
+        cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived)
+    else {
+        return Ok(None);
+    };
+    let key = probe.peer_process_key();
+    match registry_hold(probe, Instant::now() + PROBE_DEADLINE) {
+        Some(held) if held >= wedged_hold() => stop(spec, key),
+        _ => Ok(None),
+    }
+}
+
+/// Stops the listener named by `key` (the probed connection's peer).
+fn stop(spec: &OwnerSpec, key: Option<String>) -> Result<Option<Replaced>, ReplaceError> {
     let listener = listener_of(key)?;
     require_same_user(spec)?;
     let watch = sys::ExitWatch::arm(listener.pid).map_err(ReplaceError::Signal)?;
@@ -194,6 +235,47 @@ fn listener_of(key: Option<String>) -> Result<Listener, ReplaceError> {
         return Err(ReplaceError::ListenerUnknown);
     }
     Ok(Listener { pid, version })
+}
+
+/// How long the owner's workspace registry lock has had its current holder,
+/// from one `server-stats` on `stream` (its `registry_lock.holder`). `None`:
+/// no holder, no answer before `deadline`, a refusal or an unreadable reply.
+fn registry_hold(
+    stream: Box<dyn cmux_tui_core::platform::transport::Stream>,
+    deadline: Instant,
+) -> Option<Duration> {
+    let remaining =
+        deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
+    let mut connection = BufReader::new(stream);
+    connection.get_ref().set_write_timeout(Some(remaining)).ok()?;
+    let request = serde_json::json!({"id":1,"cmd":"server-stats"});
+    writeln!(connection.get_mut(), "{request}").and_then(|()| connection.get_mut().flush()).ok()?;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return None;
+        }
+        connection.get_ref().set_read_timeout(Some(remaining)).ok()?;
+        let mut line = Vec::new();
+        let limit = super::identify::RESPONSE_LIMIT as u64 + 2;
+        match connection.by_ref().take(limit).read_until(b'\n', &mut line) {
+            Ok(0) => return None,
+            Ok(_) if !line.ends_with(b"\n") => return None,
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => return None,
+        }
+        let reply: serde_json::Value = serde_json::from_slice(&line).ok()?;
+        // Events the owner sends before the reply are not it.
+        if reply.get("id") != Some(&serde_json::json!(1)) {
+            if super::identify::is_refusal(&line) {
+                return None;
+            }
+            continue;
+        }
+        let held = reply.pointer("/data/registry_lock/holder/held_for_us")?.as_u64()?;
+        return Some(Duration::from_micros(held));
+    }
 }
 
 /// How one `identify` on a fresh connection ended.
