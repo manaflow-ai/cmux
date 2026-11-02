@@ -4,7 +4,9 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// A short forwarded-start deadline, so a hung peer's `session/new` times out in seconds.
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().with_env(&[("ACPMUX_PEER_START_SECS", "3")]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -103,6 +105,16 @@ fn run(f: impl std::future::Future<Output = ()>) {
         .block_on(f);
 }
 
+/// A forwarded start waits past the peer's own whole start budget, so a slow valid start
+/// there answers instead of being dropped and left running as an orphan.
+#[test]
+fn forwarded_start_outlasts_the_peers_own_start_budget() {
+    let default = acpmux::peer_link::START_DEFAULT;
+    assert!(default > Duration::from_secs(90 + 90 + 90 + 15), "{default:?}");
+    assert_eq!(acpmux::peer_link::LinkTimings::default().start, default);
+    assert!(default < acpmux::peer_link::LinkTimings::default().request);
+}
+
 #[test]
 fn hung_peer_session_new_returns_readable_error_within_deadline() {
     run(async {
@@ -111,15 +123,15 @@ fn hung_peer_session_new_returns_readable_error_within_deadline() {
         let task = peer(&hub, "hung", true, tx).await;
         let started = tokio::time::Instant::now();
         let reply = tokio::time::timeout(
-            Duration::from_secs(35),
+            Duration::from_secs(10),
             call(&hub, method::SESSION_NEW, json!({"_meta": {"acpmux": {"peer": "hung"}}})),
         )
         .await
         .expect("session/new must not wait for the generic 600-second peer timeout");
-        assert!(started.elapsed() >= Duration::from_secs(29));
+        assert!(started.elapsed() >= Duration::from_millis(2900));
         assert_eq!(reply["error"]["data"]["reason"], "peer_start_timeout", "{reply}");
         let message = reply["error"]["message"].as_str().unwrap();
-        assert!(message.contains("hung") && message.contains("30 seconds"), "{message}");
+        assert!(message.contains("hung") && message.contains("3 seconds"), "{message}");
         assert!(message.contains("may still") && message.contains("before retrying"), "{message}");
         let peer = hub.peer_by_name("hung").unwrap();
         assert!(peer.link().is_ready());
