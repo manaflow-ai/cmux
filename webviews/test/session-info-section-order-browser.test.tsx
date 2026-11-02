@@ -7,11 +7,11 @@
 // hover a section shows its handle, and nothing moves. CI fails the file when Chromium cannot launch
 // (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { gridTokenCss } from "./support/gridTokens";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser, Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("session-info-section-order-browser.test.tsx", async () => {
   setDefaultTimeout(60_000);
@@ -82,8 +82,12 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
   ]
     .map((file) => readFileSync(path.join(src, file), "utf8").replace(/^@import[^;]*;$/gm, ""))
     .join("\n");
-  // The panel's gaps, insets and handle width are grid tokens (#27570), which the page defines.
-  const tokens = gridTokenCss();
+  // The grid's --grid-* lengths, as the app's pane has them from pages/shared/desktop.css (generated
+  // from schemas/layout-grid/layout-grid.json). Since #27570 the section list's gaps are those tokens.
+  const gridTokens = readFileSync(path.join(src, "pages/shared/desktop.css"), "utf8")
+    .split("\n")
+    .filter((line) => /^\s*--grid-[\w-]+\s*:/.test(line))
+    .join("\n");
 
   let browser: Browser;
   beforeAll(async () => {
@@ -94,9 +98,9 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
   });
 
   // Away from the panel, so no section starts hovered.
-  const show = async (page: Page) => {
+  const show = async (page: Page, { grid = false } = {}) => {
     await page.setContent(
-      `<style>${tokens}\n${css} body { margin: 0 }</style>` +
+      `<style>${grid ? `:root {\n${gridTokens}\n}\n` : ""}${css} body { margin: 0 }</style>` +
         `<div style="position: absolute; left: 40px; top: 40px; width: 320px">${markup}</div>`,
     );
     await page.mouse.move(2, 2);
@@ -139,12 +143,15 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
       }
     });
 
-    // design/grid.md Rule 4: the inner gap (12) between a block's sections, the block gap (24) between
-    // blocks with the hairline centred in it (#27570).
-    test("the default order draws the three blocks: the inner gap inside a block, the block gap with its hairline between", async () => {
+    // Since #27570 the section list owns the spacing (sessionInfo.css, design/grid.md section 3, with
+    // 5.5's gap tokens: `--grid-gap-inner` 12 "inside a block", `--grid-gap-block` 24): one inner gap
+    // between any two sections of a block, About's included, and one block gap between blocks with
+    // the hairline centred in it. Before the grid it was 6px
+    // inside a block, none inside About, and 8px, a hairline, 8px between blocks.
+    test("the default order draws the three blocks: the inner gap inside a block, the block gap with a hairline between", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
-        await show(page);
+        await show(page, { grid: true });
         const geometry = await page.evaluate(() => {
           const box = (id: string) => document.querySelector(`[data-slot="${id}"]`)!.getBoundingClientRect();
           const rule = (id: string) => {
@@ -164,10 +171,11 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             rules: ruled.map(rule),
           };
         });
-        expect(geometry.about).toEqual([12, 12, 12]);
-        expect(geometry.made).toBeCloseTo(12, 1);
-        // The hairline is drawn in the gap, so it adds no height.
-        for (const gap of geometry.between) expect(gap).toBeCloseTo(24, 1);
+        const inner = gridLength("gap-inner");
+        for (const gap of geometry.about) expect(gap).toBeCloseTo(inner, 1);
+        expect(geometry.made).toBeCloseTo(inner, 1);
+        // The hairline is drawn inside the block gap (absolutely placed), so it adds no height.
+        for (const gap of geometry.between) expect(gap).toBeCloseTo(gridLength("gap-block"), 1);
         // The hairline over the first section of each block but the first, and nowhere else.
         expect(geometry.rules).toEqual([false, false, false, false, true, false, true, false]);
       } finally {
@@ -180,7 +188,8 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
     test("hovering a section shows its handle in the right padding, right of its title, and nothing moves", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
-        await show(page);
+        // The handle's width and the body's insets are grid tokens since #27570.
+        await show(page, { grid: true });
         const before = await boxes(page);
         const opacity = () =>
           page.evaluate(
