@@ -39,6 +39,7 @@ import {
   type RowHeights,
   paneHeader,
   placeRows,
+  withOrigin,
   transcriptRowWidth,
   mergeRowRanges,
   scrollLeadRanges,
@@ -689,6 +690,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
@@ -2390,9 +2392,10 @@ const LIVE_ROWS_PER_UPDATE = 3;
 const OLDER_LATE_VIEWPORTS = 1;
 /// Whether the reader's view is at the top of the loaded rows, read before a page lands above them.
 /// A hidden or unplaced scroller draws in place (WebKit would play a hidden page's fade on return).
-function readerAtLoadedTop(node: HTMLElement | null): boolean {
+/// `room` is the space held above the loaded rows (ConversationLayout.origin).
+function readerAtLoadedTop(node: HTMLElement | null, room: number): boolean {
   if (!node || node.clientHeight === 0) return false;
-  return node.scrollTop - scrollOrigin(node) < node.clientHeight * OLDER_LATE_VIEWPORTS;
+  return node.scrollTop - scrollOrigin(node) - room < node.clientHeight * OLDER_LATE_VIEWPORTS;
 }
 
 /// Rows from a page of older history that came late (readerAtLoadedTop) fade on their first mounted copy, including warm copies
@@ -3133,6 +3136,8 @@ export function VirtualTranscript({
   olderRows.current ??= new OlderRowFade(() => ref.current);
   // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
   if (sessionChanged) olderRows.current.clear();
+  /// The room above the rows for history not loaded yet, and the row it is held against.
+  const olderRoom = useRef<OlderReserve | undefined>(undefined);
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
   if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map((row) => row.id));
   // Scroll frames render the same rows: only a new row list can bring new rows.
@@ -3154,7 +3159,7 @@ export function VirtualTranscript({
       const row = rows[index]!;
       if (knownRows.current.has(row.id)) continue;
       if (index < oldFirst) {
-        olderLate ??= readerAtLoadedTop(ref.current);
+        olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
         if (olderLate) olderRows.current.add(row.id);
       } else arrived.push(row);
       knownRows.current.add(row.id);
@@ -3665,9 +3670,13 @@ export function VirtualTranscript({
         if (found < changed.size) kept = 0;
       }
     }
-    const layout =
+    // Placed at the room the last pass held (conversation/olderReserve.ts), so kept rows keep their
+    // places; the room is moved below only when a page lands or a row above the pin draws.
+    const placedOrigin =
+      last && last.sessionId === sessionId && last.width === rowWidth ? (last.layout.origin ?? 0) : 0;
+    const placed =
       drawn.size === 0
-        ? estimated.layout
+        ? withOrigin(estimated.layout, placedOrigin)
         : placeRows(
             estimated.layout,
             // A row keeps its last drawn height until its new version is drawn: a streaming reply's
@@ -3689,7 +3698,19 @@ export function VirtualTranscript({
               return known.height;
             },
             last && kept > 0 ? { layout: last.layout, kept } : undefined,
+            placedOrigin,
           );
+    const reserved = olderReserve(olderRoom.current, {
+      sessionId,
+      rows,
+      rowTop: (index) => placed.tops[index]! - placedOrigin,
+      rowsHeight: placed.totalHeight - placedOrigin,
+      canLoadOlder,
+      earlier: earlier?.length,
+      promptCount,
+    });
+    olderRoom.current = reserved.state;
+    const layout = withOrigin(placed, reserved.reserve);
     lastPlaced.current = {
       rows,
       drawn,
@@ -3703,7 +3724,7 @@ export function VirtualTranscript({
       held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, chatLook, scaledRowWidth]);
+  }, [estimated, drawn, registry, rows, sessionId, chatLook, scaledRowWidth, canLoadOlder, earlier, promptCount]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
@@ -3756,7 +3777,8 @@ export function VirtualTranscript({
   // (what folded, whose room the rows fill), and Jump to latest or the reader's wheel past the end
   // gives it at once (`takeRoom`, `giveTrayRoom`). A line that joins or leaves the tray, and the
   // tray coming or going, make room as before; scrolled up the room is held anyway.
-  const rowsGrew = measured.layout.totalHeight - rowsSeen.current;
+  // The rows' own growth: room taken or given above them for older history is none.
+  const rowsGrew = measured.layout.totalHeight - (measured.layout.origin ?? 0) - rowsSeen.current;
   const trayBase =
     sessionSwitched || !following || dockSpace <= 0 || !trayToggled.current
       ? dockTray
@@ -4355,7 +4377,7 @@ export function VirtualTranscript({
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
   useLayoutEffect(() => {
     foldBase.current = trayBase;
-    rowsSeen.current = measured.layout.totalHeight;
+    rowsSeen.current = measured.layout.totalHeight - (measured.layout.origin ?? 0);
     if (Math.abs(trayHold) <= 0.5 && (rowsGrew > 0.5 || !following || sessionSwitched)) trayToggled.current = false;
   });
   // The reader's wheel down at the end, over a tray list opened on it: the room under the last row
@@ -5217,7 +5239,8 @@ export function VirtualTranscript({
       olderLoadRequested.current = undefined;
       return;
     }
-    if (node.scrollTop >= node.clientHeight * OLDER_AHEAD_VIEWPORTS) {
+    // Measured from the loaded rows' top, under the room held for the history above them.
+    if (node.scrollTop - (layout.origin ?? 0) >= node.clientHeight * OLDER_AHEAD_VIEWPORTS) {
       // Allow the next visit to the threshold to request the next page, even when the first row
       // did not change while the reader was away from the top.
       olderLoadRequested.current = undefined;
@@ -5373,6 +5396,8 @@ export function VirtualTranscript({
         <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
           <div
             className="acpmux-spacer"
+            // The room held above the loaded rows for older history (conversation/olderReserve.ts).
+            data-older-room={layout.origin || undefined}
             style={{
               height: layout.totalHeight,
               width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
