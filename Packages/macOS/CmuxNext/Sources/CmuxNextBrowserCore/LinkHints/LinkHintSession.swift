@@ -108,3 +108,20 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
             && lhs.hints?.map(\.label) == rhs.hints?.map(\.label) && lhs.hints?.map(\.target) == rhs.hints?.map(\.target)
     }
 }
+
+/// The keys a link-hint session took before the page answered (``LinkHintSession/show(_:editing:)``), in order. Once
+/// it answered they are the text field's when one has the keyboard (``LinkHintSession/Outcome/passThrough``): each
+/// goes to the page once, in the order typed; otherwise they were hint keys and none goes to the page.
+public nonisolated struct LinkHintHeldKeys<Key> {
+    public private(set) var keys: [Key] = []
+
+    public init() {}
+
+    public mutating func hold(_ key: Key) { keys.append(key) }
+
+    /// The held keys the page gets now, after `outcome` (stub for the red commit: none).
+    public mutating func release(after outcome: LinkHintSession.Outcome) -> [Key] {
+        keys = []
+        return []
+    }
+}
