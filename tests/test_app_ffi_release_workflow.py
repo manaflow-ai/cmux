@@ -267,6 +267,12 @@ class RePin(unittest.TestCase):
                        "gh pr edit", "--jq '.[0].number // empty'", "--base feat-cmux-next",
                        "compare/feat-cmux-next...$branch"):
             self.assertIn(needle, script)
+        # The pin is verified before it is pushed, and committed through the contents API so the commit is the App's,
+        # signed by GitHub: the review reconciler reviews app-ffi-repin only then.
+        self.assertLess(script.index("check-app-ffi-pin.sh --verify-release"), script.index("git push --force"))
+        self.assertIn('gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/$manifest"', script)
+        self.assertIn("--input", script)
+        self.assertNotIn("git commit", script)
 
 
 if __name__ == "__main__":
