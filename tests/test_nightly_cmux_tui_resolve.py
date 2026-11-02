@@ -106,7 +106,7 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # its checkout contributes no shipped bytes.
 exempt = {"attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
-          "sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
+          "sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "verify-nightly-identity-legacy-pool",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
@@ -165,18 +165,6 @@ check("${{ github.sha }}" in twice[:start] + twice[end:],
       "dropping the tooling checkout must leave a second checkout that shares its text but adds `/*`")
 check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n") is not None,
       "publish-nightly's `sparse-checkout: scripts` is the tooling checkout")
-
-# This picker ships no source. Keep its exception narrower than a general
-# workflow-SHA checkout: exactly one checkout, only runner tooling, no token persisted.
-legacy_steps = yaml.safe_load(text)["jobs"].get("pick-legacy-identity-runner", {}).get("steps", [])
-legacy_checkouts = [step for step in legacy_steps if str(step.get("uses", "")).startswith("actions/checkout@")]
-check(len(legacy_checkouts) == 1,
-      "legacy runner picker must have exactly one tooling checkout")
-if len(legacy_checkouts) == 1:
-    check(legacy_checkouts[0].get("with") == {
-        "ref": "${{ github.sha }}", "persist-credentials": False, "sparse-checkout": "scripts/ci",
-    }, "legacy runner picker must read only scripts/ci at the workflow commit without persisted credentials")
-exempt.add("pick-legacy-identity-runner")
 
 shipping = [name for name, body in blocks.items() if name not in exempt and "actions/checkout@" in body]
 for name in ("build-nightly-app", "build-sign-notarize-nightly", "publish-nightly", "build-nightly-ghostty-cli-helper"):

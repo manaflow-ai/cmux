@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextBrowserAutomation
 import CmuxNextDaemon
 import CmuxNextHistory

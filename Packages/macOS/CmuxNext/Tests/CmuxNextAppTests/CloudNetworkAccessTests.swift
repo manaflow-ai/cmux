@@ -124,7 +124,7 @@ struct CloudNetworkAccessTests {
         let run = services.registry.capturingRun {
             do {
                 try ActionRunScope.$current.withValue(scope) {
-                try CloudNetworkAccessActions.set(invocation, AppActionContext(services: services),
+                try CloudNetworkAccessActions.set(invocation, AppActionContext(services: services), link: .legacy,
                                                   read: { id in
                                                        #expect(id == session.machineID)
                                                        return Self.state(start, applied: applied)
@@ -288,7 +288,7 @@ struct CloudNetworkAccessTests {
         let run = services.registry.capturingRun {
             do {
                 try CloudNetworkAccessActions.set(invocation, AppActionContext(services: services),
-                                                  pendingAfter: .milliseconds(50),
+                                                  pendingAfter: .milliseconds(50), link: .legacy,
                                                   read: { _ in
                                                        var waiting = gate.stream.makeAsyncIterator()
                                                        _ = await waiting.next()
@@ -318,7 +318,23 @@ struct CloudNetworkAccessTests {
                                           arguments: ["access": .string(text)], origin: .cli)
         var reads = 0
         #expect(throws: ActionFailure.self) {
-            try CloudNetworkAccessActions.set(invocation, AppActionContext(services: services),
+            try CloudNetworkAccessActions.set(invocation, AppActionContext(services: services), link: .legacy,
+                                               read: { _ in reads += 1; return Self.state(CloudNetworkPolicy(mode: .full)) },
+                                               write: { _, policy in Self.state(policy) })
+        }
+        #expect(reads == 0)
+    }
+
+    /// The policy lives on the web control plane (`/api/vm`): a machine on the app server link is
+    /// refused before anything is read (#28950 made that link the Debug default).
+    @Test func theAppServerLinkRefusesBeforeReading() {
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-net-app-link")
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID),
+                                          arguments: ["access": .string("none")], origin: .cli)
+        var reads = 0
+        #expect(throws: ActionFailure.self) {
+            try CloudNetworkAccessActions.set(invocation, AppActionContext(services: services), link: .appServer,
                                                read: { _ in reads += 1; return Self.state(CloudNetworkPolicy(mode: .full)) },
                                                write: { _, policy in Self.state(policy) })
         }
