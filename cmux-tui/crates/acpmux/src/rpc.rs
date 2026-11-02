@@ -491,6 +491,10 @@ pub mod method {
     /// An answer in an inbox thread, to its sender's inbox: `{sessionId, threadId, text}`.
     pub const MUX_INBOX_REPLY: &str = "_acpmux/inbox_reply";
     pub const MUX_TAG: &str = "_acpmux/tag";
+    /// Ends a session's link to the session that started it (`acpmux session detach`,
+    /// `hub/lane_reports.rs`): `{sessionId}` -> `{sessionId, detached}`. Its turns no longer go
+    /// to that session's chat, and its tag `lane.reportsTo` is removed.
+    pub const MUX_DETACH_PARENT: &str = "_acpmux/detach_parent";
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
     pub const MUX_ARCHIVE: &str = "_acpmux/archive";

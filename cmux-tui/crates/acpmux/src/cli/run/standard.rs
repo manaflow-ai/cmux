@@ -381,7 +381,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let v = match reused.clone() {
                 Some(info) => info,
-                None => match if ephemeral || probe {
+                None => match if ephemeral || probe || args.no_parent {
                     before_deadline(
                         deadline,
                         setup_name,
