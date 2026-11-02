@@ -24,6 +24,12 @@ async fn refusal(c: &mut TestClient, method: &str, params: Value, reason: &str) 
     }
 }
 
+/// The source's journal less its usage reports: a turn's `usage_stats` is written after the
+/// turn ends, so it can land after a snapshot taken right after the turn.
+fn source_journal(hub: &Hub, id: &str) -> Vec<EventRecord> {
+    hub.events(id, 0, 10_000).unwrap().into_iter().filter(|e| e.kind != "usage_stats").collect()
+}
+
 async fn source(hub: &Arc<Hub>, c: &mut TestClient) -> String {
     let id = new_session(c, "before-source").await;
     for text in ["first", "second", "third"] {
@@ -77,7 +83,7 @@ async fn fork_before_first_and_later_prompt_preserves_native_history_and_source(
             .await
             .unwrap();
         }
-        let original = hub.events(&id, 0, 10_000).unwrap();
+        let original = source_journal(&hub, &id);
         for (prompt_id, expected) in [("first", json!([])), ("third", json!(["first", "second"]))] {
             let reply = c.request(FORK_OP, boundary(&id, prompt_id, prompt_id)).await.unwrap();
             let fid = reply["sessionId"].as_str().unwrap();
@@ -109,7 +115,7 @@ async fn fork_before_first_and_later_prompt_preserves_native_history_and_source(
                 let model = options.iter().find(|option| option["id"] == "model").unwrap();
                 assert_eq!(model["currentValue"], "m2");
             }
-            assert_eq!(hub.events(&id, 0, 10_000).unwrap(), original);
+            assert_eq!(source_journal(&hub, &id), original);
         }
         assert_eq!(
             claude_history(&hub, &mut c, &id).await["prompts"],
@@ -254,7 +260,7 @@ async fn fork_before_refuses_invalid_unknown_ambiguous_steered_and_unreconstruct
         refusal(&mut c, FORK_OP, params, "fork.invalid_boundary").await;
     }
     refusal(&mut c, FORK_OP, boundary(&id, "not-recorded", "unknown"), "fork.unknown_prompt").await;
-    let original = hub.events(&id, 0, 10_000).unwrap();
+    let original = source_journal(&hub, &id);
     for (variant, reason) in [
         ("ambiguous", "fork.ambiguous_prompt"),
         ("steer", "fork.unsupported"),
@@ -339,15 +345,15 @@ async fn fork_before_refuses_invalid_unknown_ambiguous_steered_and_unreconstruct
             prompt.msg["inlineParts"] = json!([part]);
         })
         .await;
-        let before = altered.events(&id, 0, 10_000).unwrap();
+        let before = source_journal(&altered, &id);
         let mut client = connect(&altered).await;
         let fork = client.request(FORK_OP, boundary(&id, "first", variant)).await.unwrap();
         let child = altered.resolve(fork["sessionId"].as_str().unwrap()).unwrap();
         assert_eq!(child.meta().turn_count, 0);
-        assert_eq!(altered.events(&id, 0, 10_000).unwrap(), before);
+        assert_eq!(source_journal(&altered, &id), before);
         altered.shutdown_all().await;
     }
-    assert_eq!(hub.events(&id, 0, 10_000).unwrap(), original);
+    assert_eq!(source_journal(&hub, &id), original);
     let (other, mut client) = setup(PermissionPolicy::ApproveAll).await;
     let other_id = source(&other, &mut client).await;
     refusal(&mut client, FORK_OP, boundary(&other_id, "first", "unsupported"), "fork.unsupported")
@@ -423,7 +429,7 @@ async fn fork_before_refuses_a_truncated_or_unfinished_native_prefix() {
                 record["type"] == "assistant"
             }
         };
-        let original = hub.events(&id, 0, 10_000).unwrap();
+        let original = source_journal(&hub, &id);
         let incomplete_answers: Vec<_> = if codex {
             Vec::new()
         } else {
@@ -478,7 +484,7 @@ async fn fork_before_refuses_a_truncated_or_unfinished_native_prefix() {
             refusal(&mut c, FORK_OP, boundary(&id, prompt_id, request), "fork.unreconstructable")
                 .await;
             assert_eq!(hub.sessions().len(), 1, "a corrupt native prefix creates no child");
-            let after = hub.events(&id, 0, 10_000).unwrap();
+            let after = source_journal(&hub, &id);
             assert_eq!(&after[..original.len()], original.as_slice());
             // detach_child's exit notification can arrive after it returns. Only that
             // lifecycle tail is allowed; no conversation record or fork_child may be added.
