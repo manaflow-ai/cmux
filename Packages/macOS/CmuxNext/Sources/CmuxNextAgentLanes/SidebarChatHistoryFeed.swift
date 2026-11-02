@@ -122,10 +122,11 @@ public final class SidebarChatHistoryFeed {
         }
     }
 
-    /// A chat as the history lists it: its title, else its folder's name, else its harness.
+    /// A chat as the history lists it, named as acpmux's window names it (`label`: its title, else its
+    /// folder's name, else its harness; `chats/window.rs`). The fallback holds only for a daemon from
+    /// before labels, until the version handoff replaces it.
     static func historyChat(_ chat: AcpmuxChat) -> SidebarHistoryChat {
-        let folder = chat.cwd.map { ($0 as NSString).lastPathComponent }.flatMap { $0.isEmpty ? nil : $0 }
-        return SidebarHistoryChat(id: chat.id, title: chat.title ?? folder ?? chat.harness, updatedAt: chat.updatedAt,
-                                  harness: chat.harness)
+        SidebarHistoryChat(id: chat.id, title: chat.label ?? chat.title ?? chat.harness, updatedAt: chat.updatedAt,
+                           harness: chat.harness)
     }
 }

@@ -168,9 +168,12 @@ public struct AgentChatsPalettePage {
     static func items(_ chats: [AcpmuxChat], windows: AcpmuxChatWindows, open: @escaping @MainActor (String) -> Void) -> [PaletteItem] {
         let formatter = RelativeDateTimeFormatter()
         return chats.map { chat in
+            // acpmux names the row (`label`, with this page's word for an untitled chat) and its folder
+            // (`place`, `~` for the home folder), as its ranker matched them; the page works out neither.
+            // The fallbacks hold only for a daemon from before them, until the version handoff replaces it.
             PaletteItem(
-                id: "chat:\(chat.id)", title: chat.title ?? AgentChatsPaletteStrings.untitled,
-                subtitle: chat.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath },
+                id: "chat:\(chat.id)", title: chat.label ?? chat.title ?? "",
+                subtitle: chat.place ?? chat.cwd,
                 accessory: chat.updatedAt.timeIntervalSince1970 > 0 ? formatter.localizedString(for: chat.updatedAt, relativeTo: Date()) : nil,
                 symbol: "bubble.left", brand: chat.brand ?? AgentBrandCatalog.brand(for: chat.harness)?.rawValue,
                 keywords: [chat.harness] + (chat.cwd.map { [$0] } ?? []),

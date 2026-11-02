@@ -237,14 +237,16 @@ import Testing
         #expect(lane("claude", nil)?.chat == nil)
     }
 
-    /// acpmux's window holds no child chat (`topLevel`); the history names an untitled chat by its
-    /// folder, else its harness, and leaves out a chat an open workspace shows until acpmux's next
-    /// window excludes it too.
+    /// acpmux's window holds no child chat (`topLevel`) and names each row (`label`: an untitled chat
+    /// by its folder, else its harness; the cases are acpmux's `chats/window.rs` tests); the history
+    /// shows that name and leaves out a chat an open workspace shows until acpmux's next window
+    /// excludes it too.
     @Test func theFeedListsTheWindowAndNamesUntitledOnes() {
         let json: [[String: Any]] = [
-            ["key": "claude-code:1", "sessionId": "1", "harness": "claude-code", "title": "Fix the build", "updatedMs": 3_000],
-            ["key": "codex:2", "sessionId": "2", "harness": "codex", "cwd": "/Users/me/cmux", "updatedMs": 2_000],
-            ["key": "claude-code:4", "sessionId": "4", "harness": "claude-code", "updatedMs": 500]
+            ["key": "claude-code:1", "sessionId": "1", "harness": "claude-code", "title": "Fix the build", "label": "Fix the build",
+             "updatedMs": 3_000],
+            ["key": "codex:2", "sessionId": "2", "harness": "codex", "cwd": "/Users/me/cmux", "label": "cmux", "updatedMs": 2_000],
+            ["key": "claude-code:4", "sessionId": "4", "harness": "claude-code", "label": "claude-code", "updatedMs": 500]
         ]
         let rows = json.compactMap(AcpmuxChat.init(json:))
         let inputs = SidebarChatHistoryFeed.Inputs(live: ["claude-code:1"], pinned: [], limit: 10, folded: false)

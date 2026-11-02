@@ -24,11 +24,18 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
     /// The chat whose agent started this one (acpmux `parent`): it folds under that chat and is
     /// never listed on its own (Leo 2026-10-13).
     public var parent: String?
+    /// What a list shows for the chat, as acpmux's window names it (`label`: the title, else the
+    /// window's word for an untitled chat, else the folder's name, else the harness; `chats/window.rs`).
+    /// Nil outside a window, or from a daemon that predates it.
+    public var label: String?
+    /// The folder a list shows for the chat (`place`: the folder, `~` for the home folder), as the
+    /// palette ranker matches it; nil without a folder, outside a window or from an older daemon.
+    public var place: String?
 
     public init(id: String, sessionID: String, harness: String, title: String? = nil, cwd: String? = nil,
                 createdAt: Date? = nil, updatedAt: Date, messageCount: Int? = nil, accounts: [String] = [],
                 roots: [String] = [], sourcePath: String? = nil, brand: String? = nil, attention: String? = nil,
-                preview: String? = nil, parent: String? = nil) {
+                preview: String? = nil, parent: String? = nil, label: String? = nil, place: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.harness = harness
@@ -44,6 +51,8 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         self.attention = attention
         self.preview = preview
         self.parent = parent
+        self.label = label
+        self.place = place
     }
 
     /// Decodes the daemon's `chat_value` object. Unknown optional fields are ignored.
@@ -62,7 +71,9 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
                   accounts: json["accounts"] as? [String] ?? [], roots: json["roots"] as? [String] ?? [],
                   sourcePath: json["sourcePath"] as? String, brand: json["brand"] as? String,
                   attention: json["attention"] as? String, preview: json["preview"] as? String,
-                  parent: (json["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+                  parent: (json["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                  label: (json["label"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                  place: (json["place"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
     private static func milliseconds(_ value: Any?) -> Double? {

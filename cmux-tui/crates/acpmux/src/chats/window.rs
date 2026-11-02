@@ -169,21 +169,79 @@ pub fn rank_entry(
     harness: &str,
     home: Option<&str>,
 ) -> cmux_palette_ranker::Entry {
-    let subtitle = cwd.map(|cwd| match home {
-        Some(home) if !home.is_empty() && (cwd == home || cwd.starts_with(&format!("{home}/"))) => {
-            format!("~{}", &cwd[home.len()..])
-        }
-        _ => cwd.to_owned(),
-    });
     let mut keywords = vec![harness.to_owned()];
     keywords.extend(cwd.map(str::to_owned));
     cmux_palette_ranker::Entry {
         title: title.filter(|t| !t.is_empty()).unwrap_or(untitled).to_owned(),
         keywords,
-        subtitle,
+        subtitle: cwd.map(|cwd| place(cwd, home)),
         frecency_key: Some(format!("chat:{key}")),
         ..Default::default()
     }
+}
+
+/// The text a list shows for a chat (a row's `label`): its title; with none, the window's own word
+/// for an untitled chat (`untitled`, the palette's), else its folder's name, else its harness (the
+/// sidebar history's). For the palette this is the title its ranker matches ([`rank_entry`]).
+pub fn label(title: Option<&str>, untitled: &str, cwd: Option<&str>, harness: &str) -> String {
+    if let Some(title) = title.filter(|t| !t.is_empty()) {
+        return title.to_owned();
+    }
+    if !untitled.is_empty() {
+        return untitled.to_owned();
+    }
+    cwd.map(folder_name).filter(|name| !name.is_empty()).unwrap_or(harness).to_owned()
+}
+
+/// A folder's last part, as the Mac app's `lastPathComponent` reads it: trailing `/` dropped, and
+/// `/` for the root folder.
+fn folder_name(cwd: &str) -> &str {
+    let trimmed = cwd.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return if cwd.is_empty() { "" } else { "/" };
+    }
+    trimmed.rsplit('/').next().unwrap_or(trimmed)
+}
+
+/// The folder a list shows for a chat (a row's `place`): `cwd`, with `~` for the home folder `home`
+/// (the subtitle the palette ranker matches).
+pub fn place(cwd: &str, home: Option<&str>) -> String {
+    match home {
+        Some(home) if !home.is_empty() && (cwd == home || cwd.starts_with(&format!("{home}/"))) => {
+            format!("~{}", &cwd[home.len()..])
+        }
+        _ => cwd.to_owned(),
+    }
+}
+
+/// The user's home folder, without a trailing `/` (what [`place`] shortens to `~`).
+fn home_folder() -> Option<String> {
+    dirs::home_dir().map(|home| home.to_string_lossy().trim_end_matches('/').to_owned())
+}
+
+/// A chat's row value: the chat as `_acpmux/chats` sends it, with its activity, and the `label` and
+/// `place` the window's list shows, so no client works them out again.
+fn row_value(
+    chat: &IndexedChat,
+    spec: &WindowSpec,
+    activity: &ChatActivity,
+    home: Option<&str>,
+) -> Value {
+    let mut value = chat_value(chat);
+    activity.decorate(&mut value);
+    let entry = &chat.entry;
+    let cwd = entry.cwd.as_deref().filter(|cwd| !cwd.is_empty());
+    // The harness as the row names it (`harness`, its serialized name), which is what a list shows.
+    let harness = value.get("harness").and_then(Value::as_str).unwrap_or_default();
+    let label = label(entry.title.as_deref(), &spec.untitled, cwd, harness);
+    let place = cwd.map(|cwd| place(cwd, home));
+    if let Some(object) = value.as_object_mut() {
+        object.insert("label".into(), json!(label));
+        if let Some(place) = place {
+            object.insert("place".into(), json!(place));
+        }
+    }
+    value
 }
 
 /// The indexes of `entries` the palette ranker finds for `query`, best match first, all of them,
@@ -218,11 +276,8 @@ pub fn ranked(
 /// once the window is full and one more chat passes; a value is built only for a chat the filter
 /// and the exclusions pass.
 pub fn rows(spec: &WindowSpec, index: &ChatIndex, activity: &ChatActivity) -> WindowRows {
-    let decorated = |chat: &IndexedChat| {
-        let mut value = chat_value(chat);
-        activity.decorate(&mut value);
-        value
-    };
+    let home = home_folder();
+    let decorated = |chat: &IndexedChat| row_value(chat, spec, activity, home.as_deref());
     if let Some(keys) = &spec.keys {
         let rows = keys
             .iter()
@@ -234,7 +289,7 @@ pub fn rows(spec: &WindowSpec, index: &ChatIndex, activity: &ChatActivity) -> Wi
         return WindowRows { rows, has_more: false, total: None };
     }
     if let Some(query) = &spec.query {
-        return ranked_rows(spec, query, index, activity);
+        return ranked_rows(spec, query, index, activity, home.as_deref());
     }
     let mut window = WindowRows::default();
     for chat in index.chats() {
@@ -272,8 +327,8 @@ fn ranked_rows(
     query: &str,
     index: &ChatIndex,
     activity: &ChatActivity,
+    home: Option<&str>,
 ) -> WindowRows {
-    let home = dirs::home_dir().map(|home| home.to_string_lossy().trim_end_matches('/').to_owned());
     let mut candidates: Vec<(String, Value)> = Vec::new();
     let mut entries = Vec::new();
     for chat in index.chats() {
@@ -284,8 +339,7 @@ fn ranked_rows(
         if spec.exclude.contains(&key) {
             continue;
         }
-        let mut value = chat_value(chat);
-        activity.decorate(&mut value);
+        let value = row_value(chat, spec, activity, home);
         if spec.top_level && !value.get("parent").is_none_or(Value::is_null) {
             continue;
         }
@@ -296,7 +350,7 @@ fn ranked_rows(
             &spec.untitled,
             entry.cwd.as_deref(),
             entry.harness.id(),
-            home.as_deref(),
+            home,
         ));
         candidates.push((key, value));
     }
@@ -442,6 +496,46 @@ mod tests {
             vec![1, 0],
             "the chosen chat first"
         );
+    }
+
+    /// The Swift rules this replaces (SidebarChatHistoryFeed.historyChat, AgentChatsPalettePage.items),
+    /// as their cases: a title wins; with none the window's word, else the folder's name, else the harness.
+    #[test]
+    fn a_label_is_the_title_else_the_windows_word_else_the_folder_else_the_harness() {
+        assert_eq!(
+            label(Some("Fix the build"), "New chat", Some("/w/cmux"), "codex"),
+            "Fix the build"
+        );
+        assert_eq!(
+            label(Some(""), "New chat", Some("/w/cmux"), "codex"),
+            "New chat",
+            "an empty title is none"
+        );
+        assert_eq!(label(None, "", Some("/Users/me/cmux"), "codex"), "cmux");
+        assert_eq!(
+            label(None, "", Some("/Users/me/cmux/"), "codex"),
+            "cmux",
+            "a trailing / is dropped"
+        );
+        assert_eq!(label(None, "", Some("/"), "codex"), "/", "the root folder reads as /");
+        assert_eq!(label(None, "", None, "claude-code"), "claude-code");
+        assert_eq!(label(None, "", Some(""), "claude-code"), "claude-code");
+    }
+
+    /// The palette's subtitle (`abbreviatingWithTildeInPath` in Swift): `~` only for the home folder
+    /// itself or a folder under it.
+    #[test]
+    fn a_place_shortens_the_home_folder_to_a_tilde() {
+        let home = Some("/Users/me");
+        assert_eq!(place("/Users/me/cmux", home), "~/cmux");
+        assert_eq!(place("/Users/me", home), "~");
+        assert_eq!(
+            place("/Users/meow/cmux", home),
+            "/Users/meow/cmux",
+            "another folder that starts the same"
+        );
+        assert_eq!(place("/work/p1", home), "/work/p1");
+        assert_eq!(place("/Users/me/cmux", None), "/Users/me/cmux");
     }
 
     #[test]
