@@ -378,7 +378,8 @@ describe("production promotion lineage", () => {
 })
 
 describe("gh() retries GitHub 5xx", () => {
-  const saved = { fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN }
+  // Captured in beforeAll (after the file-level fake fetch is installed), so afterEach puts that fake back.
+  const saved: { fetch: typeof fetch; token: string | undefined } = { fetch: globalThis.fetch, token: undefined }
   const stub = (statuses: Array<number | "throw">) => {
     const calls: Array<string> = []
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -389,7 +390,11 @@ describe("gh() retries GitHub 5xx", () => {
     }) as typeof fetch
     return calls
   }
-  beforeAll(() => { process.env.GITHUB_TOKEN = "test-token" })
+  beforeAll(() => {
+    saved.fetch = globalThis.fetch
+    saved.token = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+  })
   afterEach(() => { globalThis.fetch = saved.fetch })
   afterAll(() => { if (saved.token === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = saved.token })
 
