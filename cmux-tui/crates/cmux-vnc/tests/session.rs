@@ -470,10 +470,8 @@ fn tigervnc_vencrypt_prefers_vnc_auth_to_plain() {
         server.server_init(2, 2, "TigerVNC");
         server.client_setup();
     });
-    let credentials = Credentials {
-        username: Some("bob".into()),
-        password: Some("password".into()),
-    };
+    let credentials =
+        Credentials { username: Some("bob".into()), password: Some("password".into()) };
     let session = connect(port, credentials).unwrap();
     assert_eq!(session.server_init().security, 19);
     server.join().unwrap();
