@@ -56,8 +56,8 @@ extension CEFTab {
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
-            documentDidSettle()
-            samplePageBackdrop()
+            // Read-then-settle, as at the first paint (one read per document; `documentDidPaint`).
+            documentDidPaint()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
