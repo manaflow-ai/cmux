@@ -63,6 +63,10 @@ export type IncomingMessage = {
   /// The sender's harness when the message names it (`fromHarness`: a peer's relayed message, whose
   /// chat is not listed here), for its mark.
   harness?: string;
+  /// The sender's model and thinking effort when the message names them (`fromModel`,
+  /// `fromEffort`), for its line's hover; a listed chat's own come first.
+  model?: string;
+  effort?: string;
   /// What the sender wrote.
   text: string;
   /// The prompt as the agent got it.
@@ -266,15 +270,30 @@ export function cliHost(client: unknown): string | undefined {
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
-  msg: { _meta?: { provenance?: unknown }; client?: unknown; fromHarness?: unknown } | undefined,
+  msg:
+    | {
+        _meta?: { provenance?: unknown };
+        client?: unknown;
+        fromHarness?: unknown;
+        fromModel?: unknown;
+        fromEffort?: unknown;
+      }
+    | undefined,
   context?: IncomingContext,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
   // Relayed from another machine (acpmux hub/peers.rs): its files are that machine's, on every path.
   const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
-  // The sender's harness, when acpmux names it (a relayed message's sender is not listed here).
+  // The sender's harness, model and effort, when acpmux names them (a relayed message's sender is
+  // not listed here).
   const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(msg?.fromHarness);
-  const harness = fromHarness ? { harness: fromHarness } : {};
+  const fromModel = trimmed(provenance?.fromModel) ?? trimmed(msg?.fromModel);
+  const fromEffort = trimmed(provenance?.fromEffort) ?? trimmed(msg?.fromEffort);
+  const harness = {
+    ...(fromHarness && { harness: fromHarness }),
+    ...(fromModel && { model: fromModel }),
+    ...(fromEffort && { effort: fromEffort }),
+  };
   // acpmux's notice of the chat's inbox: its threads, never its text for the agent; one that names
   // no thread is bookkeeping.
   if (provenance?.kind === "inbox_notice") {
