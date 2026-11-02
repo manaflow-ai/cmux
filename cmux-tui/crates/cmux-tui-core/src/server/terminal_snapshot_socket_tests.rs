@@ -1281,3 +1281,71 @@ fn a_hidden_snapshot_viewer_gets_output_once_a_second_and_at_once_when_shown() {
 fn surface_offset(mux: &Mux, surface: crate::SurfaceId) -> u64 {
     mux.surface(surface).expect("surface").snapshot_digest().expect("digest").offset
 }
+
+/// Review of #32446: a hidden terminal's scroll position moves once per daemon frame while it prints, and each
+/// `scroll-changed` on its attach stream woke the app's reader as an output frame did. A hidden snapshot viewer gets
+/// none while hidden, and the newest one at once when it is shown again.
+#[test]
+fn a_hidden_snapshot_viewer_gets_no_scroll_changed_until_shown() {
+    let mux = Mux::new_for_test("snapshot-hidden-scroll", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let version = ghostty_vt::snapshot_version();
+    handle_command(
+        &mux,
+        client,
+        command(json!({
+            "cmd": "attach-surface", "surface": surface.id,
+            "snapshot": "ghostsnp", "snapshot_version": version,
+        })),
+        &writer,
+    )
+    .unwrap();
+    while next_event(&outbound, Duration::from_millis(300)).is_some() {}
+    handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": false})),
+        &writer,
+    )
+    .unwrap();
+
+    for offset in 1..=20 {
+        mux.emit_terminal_scroll(surface.id, offset, true);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut scrolls = 0;
+    while let Some(event) = next_event(&outbound, Duration::from_millis(300)) {
+        if event["event"] == "scroll-changed" {
+            scrolls += 1;
+        }
+    }
+    assert_eq!(
+        scrolls, 0,
+        "{scrolls} scroll-changed events reached a hidden viewer: each wakes the app"
+    );
+
+    handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "set-attach-visibility", "surface": surface.id, "visible": true})),
+        &writer,
+    )
+    .unwrap();
+    let mut last = None;
+    while let Some(event) = next_event(&outbound, Duration::from_millis(300)) {
+        if event["event"] == "scroll-changed" {
+            last = Some(event);
+        }
+    }
+    let last = last.expect("a shown viewer got no scroll position");
+    assert_eq!(
+        last["offset"].as_u64(),
+        Some(20),
+        "the shown viewer's scroll position is not the newest: {last}"
+    );
+
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
