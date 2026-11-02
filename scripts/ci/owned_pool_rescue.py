@@ -257,7 +257,10 @@ push run) only the stall-aware failover moves it, with the placement re-run a
 pull request run gets; a refused job's failed jobs are still re-run. A
 superseded one is never re-run, and is cancelled only while no job of it is
 running or held by a runner (superseded_push_cancel()): its queued job holds
-the branch's job group the newer run's job waits behind.
+the branch's job group the newer run's job waits behind. A queued side-lane
+run whose watch ended (its watch limit, a hold) is watched again at the next
+listing, back to QUEUED_MAX_AGE_SECONDS, so a push superseded hours later still
+frees its group.
 
 Nightly builds (NIGHTLY_WORKFLOW_PATH) are watched like a side lane: there is
 no picker, and attempt 1 of a push or schedule run on main (or a push on
@@ -4954,6 +4957,11 @@ SWEEP_SECONDS = 5 * 60 * 60
 # finished (a refusal) during a handover is still inside it, so the next
 # sweeper re-runs it.
 SWEEP_MAX_AGE_SECONDS = E2E_WATCH_LIMIT_SECONDS
+# The queued side-lane listing (GitHub.queued_side_runs()) looks back this far instead: a job waits up to a day
+# for a runner before GitHub cancels it, and a run still queued is never past its watch, only past the one that
+# ended. Runs 41456110862 and 41461805617 (cmux-next pushes, 2026-11-02) sat superseded on
+# glaeda-side-std-xcode-26.6 for hours, each holding a branch job group the newer push waited behind.
+QUEUED_MAX_AGE_SECONDS = 24 * 60 * 60
 # A marker listing page covers this many runs, newest first by artifact id.
 # One page held about two hours of owned placements on 2026-09-25 but only one
 # on 2026-09-27 (87 an hour), and an artifact's id trails its upload time by
@@ -5229,13 +5237,20 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             # a pull request) waited over five hours on glaeda-side-std-xcode-26.6 on 2026-10-30, never watched.
             if hasattr(client, "queued_side_runs"):
                 try:
-                    queued = client.queued_side_runs(SWEEP_LISTING, oldest, SWEEP_LISTING_PAGES)
+                    queued = client.queued_side_runs(SWEEP_LISTING, now() - dt.timedelta(
+                        seconds=QUEUED_MAX_AGE_SECONDS), SWEEP_LISTING_PAGES)
                 except READ_ERRORS as error:
                     log(f"could not list queued side-lane runs ({error}); a later tick")
                     queued = []
                 for run_id, attempt in queued:
-                    if (run_id, attempt) in queued_seen or (run_id, attempt) in rerun_seen \
-                            or attempt <= 1 and run_id in seen:
+                    # A run still queued once its watch ended (the watch limit, a hold for a stalled Blacksmith
+                    # label, a push run left at its tip) is watched again: its label may since have gone quiet
+                    # (the open-head failover), or a newer push superseded it (superseded_push_cancel()). Before,
+                    # nothing looked at it again, and a later sweeper's listing no longer reached it.
+                    ended = run_id in watching and not watching[run_id].is_alive()
+                    followed = (run_id, attempt) in queued_seen or (run_id, attempt) in rerun_seen \
+                        or attempt <= 1 and run_id in seen
+                    if followed and not ended:
                         continue
                     if adopt(run_id, False, refusals_known=refusals_listed):
                         queued_seen.add((run_id, attempt))  # not before: a read that failed is tried again
