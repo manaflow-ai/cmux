@@ -153,6 +153,35 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       await page.close();
     });
 
+    test("a new chat whose tab opens another chat leaves its typed text for the window's next new chat (cmux#32276)", async () => {
+      const page = await newChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("left in a new chat");
+      expect(await lastUnsent(page, "left in a new chat")).toBe("left in a new chat");
+      // The sidebar's pick (`chat.select`) opens another chat in this tab: the host's copy of the
+      // new chat's text is cleared on that session change, so the page leaves it first.
+      await page.evaluate(() =>
+        (window as unknown as { cmuxAcpmuxActions: Record<string, (params: unknown) => Promise<unknown>> })
+          .cmuxAcpmuxActions["chat.select"]!({ sessionId: "mock-tab-strip" })
+          .catch(() => undefined),
+      );
+      await page.waitForFunction(
+        () =>
+          (window as unknown as { nativeCalls: { method: string }[] }).nativeCalls.some(
+            ({ method }) => method === "chat.leftover",
+          ),
+        undefined,
+        { timeout: 10_000 },
+      );
+      const calls = await page.evaluate(
+        () => (window as unknown as { nativeCalls: { method: string; params: Record<string, unknown> }[] }).nativeCalls,
+      );
+      expect(calls.filter(({ method }) => method === "chat.leftover").map(({ params }) => params.text)).toEqual([
+        "left in a new chat",
+      ]);
+      await page.close();
+    });
+
     test("a signed-out fresh chat shows Log In before send and keeps its draft", async () => {
       const page = await newChat();
       const prompt = page.locator(".acpmux-composer-prompt .ProseMirror");

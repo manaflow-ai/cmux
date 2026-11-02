@@ -40,6 +40,38 @@ struct UnsentDraftTests {
         withExtendedLifetime(drafts) {}
     }
 
+    /// cmux#32276: a new chat whose tab opens another chat leaves its text (typed, and prompts held
+    /// for a trust answer) in its window's one slot, on disk: a second leftover adds to it, the
+    /// window's next new chat takes it once, and nothing sends it.
+    @Test func aNewChatsTextLeftWhenItsTabOpensAnotherChatWaitsForTheWindowsNextNewChat() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
+        let drafts = AgentUnsentDrafts(file: file, files: files)
+        drafts.windowOfTab = { $0 == "tab-1" || $0 == "tab-2" ? "window-1" : nil }
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(model) { "tab-1" }
+        _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "typed here"]))
+        _ = await model.respond(to: Self.request("chat.leftover", ["text": "held prompt\n\ntyped here"]))
+        // The tab opens chat B: its own copy goes, the window's slot stays.
+        _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-b"]))
+        // A chat with a session leaves nothing.
+        _ = await model.respond(to: Self.request("chat.leftover", ["text": "not a new chat's"]))
+        // Another new chat of the same window leaves its own: it adds to the first.
+        let other = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(other) { "tab-2" }
+        _ = await other.respond(to: Self.request("chat.leftover", ["text": "second"]))
+
+        // After a quit: the window's next new chat takes both, once; no other window has any.
+        let relaunched = AgentUnsentDrafts(file: file, files: files)
+        #expect(relaunched.seed(for: "tab-1", session: nil) == nil, "the left text is no tab's draft")
+        #expect(relaunched.takeLeftover(inWindow: "window-2") == nil)
+        #expect(relaunched.takeLeftover(inWindow: "window-1") == "held prompt\n\ntyped here\n\nsecond")
+        #expect(relaunched.takeLeftover(inWindow: "window-1") == nil, "a leftover seeds one new chat")
+        #expect(AgentUnsentDrafts(file: file, files: files).takeLeftover(inWindow: "window-1") == nil)
+        withExtendedLifetime(drafts) {}
+    }
+
     static func directory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
