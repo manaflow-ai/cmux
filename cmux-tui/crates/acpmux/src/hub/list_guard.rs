@@ -785,6 +785,16 @@ mod tests {
             .collect();
         super::super::session_pages::sort_session_summaries(&mut uncached);
         assert_eq!(hub.all_session_summaries(), uncached);
+
+        let mut uncached_list: Vec<Value> = hub
+            .sessions()
+            .iter()
+            .map(|session| hub.session_list_summary(session))
+            .collect();
+        super::super::session_pages::sort_session_summaries(&mut uncached_list);
+        let mut cached_list = Vec::new();
+        hub.visit_session_summaries(false, |row| cached_list.push(row));
+        assert_eq!(cached_list, uncached_list);
     }
 
     /// Closed rows are serialized once, but every metadata and list-visible runtime change must
@@ -826,6 +836,21 @@ mod tests {
         hub.set_status(&parent, SessionStatus::Closed);
         cached_rows_equal_uncached(&hub); // close and the parent's folded child preview
 
+        // A list build followed by the full form keeps both serialized rows coherent.
+        hub.visit_session_summaries(false, |_| {});
+        cached_rows_equal_uncached(&hub);
+
+        // Appending after close changes the event-visible preview without a metadata write.
+        hub.append(&parent, "mux", "message", json!({"text": "after close"}));
+        hub.visit_session_summaries(false, |_| {});
+        cached_rows_equal_uncached(&hub);
+
+        // Opening a closed chat changes attached/shown fields in its full row.
+        hub.attach_count(&parent, 1, true);
+        cached_rows_equal_uncached(&hub);
+        hub.attach_count(&parent, -1, true);
+        cached_rows_equal_uncached(&hub);
+
         parent.meta.lock().unwrap().name = "renamed".into();
         hub.save_meta_answered(&parent).unwrap(); // rename
         cached_rows_equal_uncached(&hub);
@@ -847,12 +872,31 @@ mod tests {
         .unwrap(); // archive tag
         cached_rows_equal_uncached(&hub);
 
+        parent.meta.lock().unwrap().tags.insert(
+            "expires".into(),
+            crate::store::Tag { value: "soon".into(), expires_at: Some(crate::store::now_ms() + 20) },
+        );
+        hub.save_meta_answered(&parent).unwrap();
+        cached_rows_equal_uncached(&hub);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        cached_rows_equal_uncached(&hub); // time-expiring tags invalidate without an event
+
         hub.set_visible(&parent, true); // mark-seen
         cached_rows_equal_uncached(&hub);
 
         parent.meta.lock().unwrap().usage = Some(json!({"inputTokens": 12, "size": 4096}));
         hub.save_meta_answered(&parent).unwrap(); // usage metadata
         cached_rows_equal_uncached(&hub);
+
+        std::thread::scope(|scope| {
+            for title in ["writer-a", "writer-b"] {
+                scope.spawn(|| {
+                    parent.meta.lock().unwrap().title = Some(title.into());
+                    hub.save_meta(&parent);
+                });
+            }
+        });
+        cached_rows_equal_uncached(&hub); // concurrent metadata writers
 
         hub.set_status(&child, SessionStatus::Closed); // child count/fold changes
         cached_rows_equal_uncached(&hub);
@@ -861,6 +905,11 @@ mod tests {
         cached_rows_equal_uncached(&hub);
         hub.set_status(&parent, SessionStatus::Closed);
         cached_rows_equal_uncached(&hub);
+
+        // A purge removes the serialized row even when a late metadata writer runs afterward.
+        parent.purged.store(true, Ordering::SeqCst);
+        hub.write_snapshot(&parent).unwrap();
+        assert!(!hub.closed_summary_cache.lock().unwrap().contains_key(&parent.id));
     }
 
     #[test]
