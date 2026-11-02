@@ -164,14 +164,14 @@ fn bare_roster_joins_acpmux_sessions_with_message_addresses() {
     let result = shape(rows, &[], AgentRosterView::default(), NOW);
     let agents = result["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 2);
-    assert_eq!(agents[0]["address"], "term_1");
-    assert_eq!(agents[0]["kind"], "terminal");
-    assert_eq!(agents[0]["queued_messages"], 2);
-    assert_eq!(agents[1]["address"], "acp:acp-1");
-    assert_eq!(agents[1]["kind"], "acp");
-    assert_eq!(agents[1]["agent"], "claude");
-    assert_eq!(agents[1]["state"], "blocked");
-    assert_eq!(agents[1]["queued_messages"], 0);
+    let terminal = agents.iter().find(|row| row["address"] == "term_1").unwrap();
+    assert_eq!(terminal["kind"], "terminal");
+    assert_eq!(terminal["queued_messages"], 2);
+    let acp = agents.iter().find(|row| row["address"] == "acp:acp-1").unwrap();
+    assert_eq!(acp["kind"], "acp");
+    assert_eq!(acp["agent"], "claude");
+    assert_eq!(acp["state"], "blocked");
+    assert_eq!(acp["queued_messages"], 0);
     assert_eq!(result["counts"]["total"], 2);
 }
 
