@@ -148,14 +148,6 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
                 ),
                 command
             )
-        case .transcriptResyncFailed(_, let command):
-            return String(
-                format: String(
-                    localized: "notification.claudeAccountSwitch.transcriptResyncFailed.message",
-                    defaultValue: "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, run this command in the terminal:\n\n%@"
-                ),
-                command
-            )
         default:
             return message
         }
@@ -191,10 +183,12 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
                 command
             )
         case .transcriptResyncFailed(_, let command):
+            // Names no button: the alert drops Type Resume Command when the pane closed while the
+            // switch waited for the old Claude to exit.
             return String(
                 format: String(
                     localized: "dialog.claudeAccountSwitch.transcriptResyncFailed.message",
-                    defaultValue: "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, choose Type Resume Command, or run:\n\n%@"
+                    defaultValue: "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, run this command in the terminal:\n\n%@"
                 ),
                 command
             )

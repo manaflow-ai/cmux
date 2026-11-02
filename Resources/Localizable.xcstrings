@@ -674327,131 +674327,6 @@
         }
       }
     },
-    "notification.claudeAccountSwitch.transcriptResyncFailed.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, run this command in the terminal:\n\n%@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر على cmux نسخ أحدث رسائل المحادثة إلى هذا الحساب، لذا لم يستأنف المحادثة: قد تفتقد النسخة الموجودة هنا هذه الرسائل. للمتابعة من هذه النسخة على أي حال، شغّل هذا الأمر في الطرفية:\n\n%@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux nije mogao kopirati najnovije poruke razgovora na ovaj račun, pa nije nastavio razgovor: kopiji ovdje one možda nedostaju. Da ipak nastavite od ove kopije, pokrenite ovu naredbu u terminalu:\n\n%@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux kunne ikke kopiere samtalens nyeste beskeder til denne konto, så samtalen blev ikke genoptaget: kopien her mangler dem muligvis. Kør denne kommando i terminalen for at fortsætte fra denne kopi alligevel:\n\n%@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux konnte die neuesten Nachrichten der Unterhaltung nicht in dieses Konto kopieren und hat die Unterhaltung daher nicht fortgesetzt: In der Kopie hier fehlen sie möglicherweise. Um trotzdem mit dieser Kopie fortzufahren, führen Sie diesen Befehl im Terminal aus:\n\n%@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux no pudo copiar los mensajes más recientes de la conversación a esta cuenta, así que no la reanudó: es posible que falten en la copia de aquí. Para continuar igualmente desde esta copia, ejecuta este comando en la terminal:\n\n%@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux n'a pas pu copier les derniers messages de la conversation dans ce compte ; il n'a donc pas repris la conversation, car la copie ici risque de ne pas les contenir. Pour poursuivre quand même à partir de cette copie, exécutez cette commande dans le terminal :\n\n%@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux non è riuscito a copiare gli ultimi messaggi della conversazione in questo account, quindi non l'ha ripresa: la copia qui potrebbe non contenerli. Per continuare comunque da questa copia, esegui questo comando nel terminale:\n\n%@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux は会話の最新メッセージをこのアカウントにコピーできなかったため、会話を再開しませんでした。ここにあるコピーにはそれらが含まれていない可能性があります。それでもこのコピーから続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux មិនអាចចម្លងសារចុងក្រោយបំផុតរបស់ការសន្ទនាទៅគណនីនេះបានទេ ដូច្នេះវាមិនបានបន្តការសន្ទនាទេ៖ ច្បាប់ចម្លងនៅទីនេះប្រហែលជាខ្វះសារទាំងនោះ។ ដើម្បីបន្តពីច្បាប់ចម្លងនេះទោះយ៉ាងណាក៏ដោយ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖\n\n%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux가 대화의 최신 메시지를 이 계정으로 복사하지 못해 대화를 재개하지 않았습니다. 여기 있는 사본에는 해당 메시지가 없을 수 있습니다. 그래도 이 사본에서 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux kunne ikke kopiere de nyeste meldingene i samtalen til denne kontoen, så samtalen ble ikke gjenopptatt: kopien her kan mangle dem. For å fortsette fra denne kopien likevel, kjør denne kommandoen i terminalen:\n\n%@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux nie mógł skopiować najnowszych wiadomości z rozmowy na to konto, więc jej nie wznowił: w tutejszej kopii może ich brakować. Aby mimo to kontynuować od tej kopii, uruchom to polecenie w terminalu:\n\n%@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O cmux não conseguiu copiar as mensagens mais recentes da conversa para esta conta, então não a retomou: a cópia aqui pode não ter essas mensagens. Para continuar a partir desta cópia mesmo assim, execute este comando no terminal:\n\n%@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux не удалось скопировать последние сообщения разговора в эту учётную запись, поэтому разговор не возобновлён: в копии здесь их может не быть. Чтобы всё равно продолжить с этой копии, выполните эту команду в терминале:\n\n%@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux คัดลอกข้อความล่าสุดของการสนทนาไปยังบัญชีนี้ไม่ได้ จึงไม่ได้ดำเนินการสนทนาต่อ: สำเนาที่นี่อาจไม่มีข้อความเหล่านั้น หากต้องการดำเนินการต่อจากสำเนานี้อยู่ดี ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:\n\n%@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux, konuşmanın en son mesajlarını bu hesaba kopyalayamadığı için konuşmayı sürdürmedi: buradaki kopyada bu mesajlar eksik olabilir. Yine de bu kopyadan devam etmek için bu komutu terminalde çalıştırın:\n\n%@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux не вдалося скопіювати останні повідомлення розмови в цей обліковий запис, тому розмову не відновлено: у копії тут їх може не бути. Щоб усе одно продовжити з цієї копії, виконайте цю команду в терміналі:\n\n%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 无法将对话的最新消息复制到此账户，因此没有继续对话：这里的副本可能缺少这些消息。如仍要从此副本继续，请在终端中运行此命令：\n\n%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 無法將對話的最新訊息複製到此帳號，因此沒有繼續對話：這裡的副本可能缺少這些訊息。若仍要從此副本繼續，請在終端機中執行此指令：\n\n%@"
-          }
-        }
-      }
-    },
     "notification.claudeAccountSwitch.title": {
       "extractionState": "manual",
       "localizations": {
@@ -675458,121 +675333,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, choose Type Resume Command, or run:\n\n%@"
+            "value": "cmux couldn't copy the conversation's latest messages to this account, so it didn't resume the conversation: the copy here may be missing them. To continue from this copy anyway, run this command in the terminal:\n\n%@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر على cmux نسخ أحدث رسائل المحادثة إلى هذا الحساب، لذا لم يستأنف المحادثة: قد تفتقد النسخة الموجودة هنا هذه الرسائل. للمتابعة من هذه النسخة على أي حال، اختر «كتابة أمر الاستئناف» أو شغّل:\n\n%@"
+            "value": "تعذّر على cmux نسخ أحدث رسائل المحادثة إلى هذا الحساب، لذا لم يستأنف المحادثة: قد تفتقد النسخة الموجودة هنا هذه الرسائل. للمتابعة من هذه النسخة على أي حال، شغّل هذا الأمر في الطرفية:\n\n%@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nije mogao kopirati najnovije poruke razgovora na ovaj račun, pa nije nastavio razgovor: kopiji ovdje one možda nedostaju. Da ipak nastavite od ove kopije, odaberite „Upiši naredbu za nastavak“ ili pokrenite:\n\n%@"
+            "value": "cmux nije mogao kopirati najnovije poruke razgovora na ovaj račun, pa nije nastavio razgovor: kopiji ovdje one možda nedostaju. Da ipak nastavite od ove kopije, pokrenite ovu naredbu u terminalu:\n\n%@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke kopiere samtalens nyeste beskeder til denne konto, så samtalen blev ikke genoptaget: kopien her mangler dem muligvis. Vælg »Indtast genoptagelseskommando« eller kør følgende for at fortsætte fra denne kopi alligevel:\n\n%@"
+            "value": "cmux kunne ikke kopiere samtalens nyeste beskeder til denne konto, så samtalen blev ikke genoptaget: kopien her mangler dem muligvis. Kør denne kommando i terminalen for at fortsætte fra denne kopi alligevel:\n\n%@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux konnte die neuesten Nachrichten der Unterhaltung nicht in dieses Konto kopieren und hat die Unterhaltung daher nicht fortgesetzt: In der Kopie hier fehlen sie möglicherweise. Um trotzdem mit dieser Kopie fortzufahren, wählen Sie „Fortsetzungsbefehl eingeben“ oder führen Sie Folgendes aus:\n\n%@"
+            "value": "cmux konnte die neuesten Nachrichten der Unterhaltung nicht in dieses Konto kopieren und hat die Unterhaltung daher nicht fortgesetzt: In der Kopie hier fehlen sie möglicherweise. Um trotzdem mit dieser Kopie fortzufahren, führen Sie diesen Befehl im Terminal aus:\n\n%@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no pudo copiar los mensajes más recientes de la conversación a esta cuenta, así que no la reanudó: es posible que falten en la copia de aquí. Para continuar igualmente desde esta copia, elige «Escribir comando de reanudación» o ejecuta:\n\n%@"
+            "value": "cmux no pudo copiar los mensajes más recientes de la conversación a esta cuenta, así que no la reanudó: es posible que falten en la copia de aquí. Para continuar igualmente desde esta copia, ejecuta este comando en la terminal:\n\n%@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux n'a pas pu copier les derniers messages de la conversation dans ce compte ; il n'a donc pas repris la conversation, car la copie ici risque de ne pas les contenir. Pour poursuivre quand même à partir de cette copie, choisissez « Saisir la commande de reprise » ou exécutez :\n\n%@"
+            "value": "cmux n'a pas pu copier les derniers messages de la conversation dans ce compte ; il n'a donc pas repris la conversation, car la copie ici risque de ne pas les contenir. Pour poursuivre quand même à partir de cette copie, exécutez cette commande dans le terminal :\n\n%@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux non è riuscito a copiare gli ultimi messaggi della conversazione in questo account, quindi non l'ha ripresa: la copia qui potrebbe non contenerli. Per continuare comunque da questa copia, scegli «Digita il comando di ripresa» oppure esegui:\n\n%@"
+            "value": "cmux non è riuscito a copiare gli ultimi messaggi della conversazione in questo account, quindi non l'ha ripresa: la copia qui potrebbe non contenerli. Per continuare comunque da questa copia, esegui questo comando nel terminale:\n\n%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は会話の最新メッセージをこのアカウントにコピーできなかったため、会話を再開しませんでした。ここにあるコピーにはそれらが含まれていない可能性があります。それでもこのコピーから続けるには、「再開コマンドを入力」を選択するか、次を実行してください:\n\n%@"
+            "value": "cmux は会話の最新メッセージをこのアカウントにコピーできなかったため、会話を再開しませんでした。ここにあるコピーにはそれらが含まれていない可能性があります。それでもこのコピーから続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux មិនអាចចម្លងសារចុងក្រោយបំផុតរបស់ការសន្ទនាទៅគណនីនេះបានទេ ដូច្នេះវាមិនបានបន្តការសន្ទនាទេ៖ ច្បាប់ចម្លងនៅទីនេះប្រហែលជាខ្វះសារទាំងនោះ។ ដើម្បីបន្តពីច្បាប់ចម្លងនេះទោះយ៉ាងណាក៏ដោយ សូមជ្រើសរើស «វាយពាក្យបញ្ជាបន្ត» ឬដំណើរការ៖\n\n%@"
+            "value": "cmux មិនអាចចម្លងសារចុងក្រោយបំផុតរបស់ការសន្ទនាទៅគណនីនេះបានទេ ដូច្នេះវាមិនបានបន្តការសន្ទនាទេ៖ ច្បាប់ចម្លងនៅទីនេះប្រហែលជាខ្វះសារទាំងនោះ។ ដើម្បីបន្តពីច្បាប់ចម្លងនេះទោះយ៉ាងណាក៏ដោយ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖\n\n%@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 대화의 최신 메시지를 이 계정으로 복사하지 못해 대화를 재개하지 않았습니다. 여기 있는 사본에는 해당 메시지가 없을 수 있습니다. 그래도 이 사본에서 계속하려면 '재개 명령 입력'을 선택하거나 다음을 실행하세요:\n\n%@"
+            "value": "cmux가 대화의 최신 메시지를 이 계정으로 복사하지 못해 대화를 재개하지 않았습니다. 여기 있는 사본에는 해당 메시지가 없을 수 있습니다. 그래도 이 사본에서 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke kopiere de nyeste meldingene i samtalen til denne kontoen, så samtalen ble ikke gjenopptatt: kopien her kan mangle dem. For å fortsette fra denne kopien likevel, velg «Skriv inn gjenopptakskommandoen» eller kjør:\n\n%@"
+            "value": "cmux kunne ikke kopiere de nyeste meldingene i samtalen til denne kontoen, så samtalen ble ikke gjenopptatt: kopien her kan mangle dem. For å fortsette fra denne kopien likevel, kjør denne kommandoen i terminalen:\n\n%@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nie mógł skopiować najnowszych wiadomości z rozmowy na to konto, więc jej nie wznowił: w tutejszej kopii może ich brakować. Aby mimo to kontynuować od tej kopii, wybierz „Wpisz polecenie wznowienia” lub uruchom:\n\n%@"
+            "value": "cmux nie mógł skopiować najnowszych wiadomości z rozmowy na to konto, więc jej nie wznowił: w tutejszej kopii może ich brakować. Aby mimo to kontynuować od tej kopii, uruchom to polecenie w terminalu:\n\n%@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux não conseguiu copiar as mensagens mais recentes da conversa para esta conta, então não a retomou: a cópia aqui pode não ter essas mensagens. Para continuar a partir desta cópia mesmo assim, escolha “Digitar comando de retomada” ou execute:\n\n%@"
+            "value": "O cmux não conseguiu copiar as mensagens mais recentes da conversa para esta conta, então não a retomou: a cópia aqui pode não ter essas mensagens. Para continuar a partir desta cópia mesmo assim, execute este comando no terminal:\n\n%@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux не удалось скопировать последние сообщения разговора в эту учётную запись, поэтому разговор не возобновлён: в копии здесь их может не быть. Чтобы всё равно продолжить с этой копии, выберите «Ввести команду возобновления» или выполните:\n\n%@"
+            "value": "cmux не удалось скопировать последние сообщения разговора в эту учётную запись, поэтому разговор не возобновлён: в копии здесь их может не быть. Чтобы всё равно продолжить с этой копии, выполните эту команду в терминале:\n\n%@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux คัดลอกข้อความล่าสุดของการสนทนาไปยังบัญชีนี้ไม่ได้ จึงไม่ได้ดำเนินการสนทนาต่อ: สำเนาที่นี่อาจไม่มีข้อความเหล่านั้น หากต้องการดำเนินการต่อจากสำเนานี้อยู่ดี ให้เลือก \"พิมพ์คำสั่งดำเนินการต่อ\" หรือเรียกใช้:\n\n%@"
+            "value": "cmux คัดลอกข้อความล่าสุดของการสนทนาไปยังบัญชีนี้ไม่ได้ จึงไม่ได้ดำเนินการสนทนาต่อ: สำเนาที่นี่อาจไม่มีข้อความเหล่านั้น หากต้องการดำเนินการต่อจากสำเนานี้อยู่ดี ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:\n\n%@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux, konuşmanın en son mesajlarını bu hesaba kopyalayamadığı için konuşmayı sürdürmedi: buradaki kopyada bu mesajlar eksik olabilir. Yine de bu kopyadan devam etmek için \"Devam Komutunu Yaz\" seçeneğini seçin veya şunu çalıştırın:\n\n%@"
+            "value": "cmux, konuşmanın en son mesajlarını bu hesaba kopyalayamadığı için konuşmayı sürdürmedi: buradaki kopyada bu mesajlar eksik olabilir. Yine de bu kopyadan devam etmek için bu komutu terminalde çalıştırın:\n\n%@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux не вдалося скопіювати останні повідомлення розмови в цей обліковий запис, тому розмову не відновлено: у копії тут їх може не бути. Щоб усе одно продовжити з цієї копії, виберіть «Ввести команду відновлення» або виконайте:\n\n%@"
+            "value": "cmux не вдалося скопіювати останні повідомлення розмови в цей обліковий запис, тому розмову не відновлено: у копії тут їх може не бути. Щоб усе одно продовжити з цієї копії, виконайте цю команду в терміналі:\n\n%@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 无法将对话的最新消息复制到此账户，因此没有继续对话：这里的副本可能缺少这些消息。如仍要从此副本继续，请选择“输入继续命令”，或运行：\n\n%@"
+            "value": "cmux 无法将对话的最新消息复制到此账户，因此没有继续对话：这里的副本可能缺少这些消息。如仍要从此副本继续，请在终端中运行此命令：\n\n%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 無法將對話的最新訊息複製到此帳號，因此沒有繼續對話：這裡的副本可能缺少這些訊息。若仍要從此副本繼續，請選擇「輸入繼續指令」，或執行：\n\n%@"
+            "value": "cmux 無法將對話的最新訊息複製到此帳號，因此沒有繼續對話：這裡的副本可能缺少這些訊息。若仍要從此副本繼續，請在終端機中執行此指令：\n\n%@"
           }
         }
       }
