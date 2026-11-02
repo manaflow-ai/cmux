@@ -445,6 +445,18 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
     return entry
 
 
+def typed_terminal(builder, workspace_id, pane):
+    """The terminal STRESS types into: the selected terminal of the measured workspace's last pane. A chat opens
+    late (perf-stress-session add_tab), so the last pane's agent chat can take the selection after its terminal was
+    added and the pane shows the chat: then the pane's last terminal is selected, as the builder's busy terminals
+    fall back to it, and this waits until the pane shows it. Exits when the pane has no terminal or does not show it."""
+    tabs = pane.get("tabs") or []
+    terminal = next((t for t in tabs if t.get("kind") == "terminal" and t.get("selected")), None)
+    if terminal is not None:
+        return terminal
+    sys.exit(f"STRESS: the measured workspace's last pane {pane.get('id')} shows no terminal")  # the old rule
+
+
 def main():
     global SOCKET, CONFIG
     # One launch path for GUI benches (bench_launch.py): the console-session check, the tag's socket in the state
@@ -494,9 +506,7 @@ def main():
             # in its first 10 panes), turned into `cat` so the tty echoes each key; the grid stays on screen.
             typed_id = builder.measured
             pane = builder.panes(builder.workspace(typed_id))[-1]
-            terminal = next((t for t in pane.get("tabs") or [] if t.get("kind") == "terminal" and t.get("selected")), None)
-            if terminal is None:
-                sys.exit(f"STRESS: the measured workspace's last pane {pane.get('id')} shows no terminal")
+            terminal = typed_terminal(builder, typed_id, pane)
             builder.send(terminal["id"], "exec cat\r")
             builder.show(typed_id)
             builder.focus_pane(pane["id"])
@@ -545,4 +555,5 @@ def main():
                      f"{opts.gate_p95_ms} ms or idle + {opts.gate_delta_ms} ms")
 
 
-main()
+if __name__ == "__main__":
+    main()
