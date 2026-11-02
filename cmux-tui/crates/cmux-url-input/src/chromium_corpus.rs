@@ -62,9 +62,27 @@ fn routes() {
         ("chrome://extensions", Chromium("chrome://extensions/".to_string())),
     ] {
         assert_eq!(chromium_page_route(url).as_ref(), Some(&route), "url {url:?}");
-        assert_eq!(route.is_cmux_owned(), !matches!(route, Chromium(_)), "owned {url:?}");
     }
     for url in ["chrome-extension://abc/options.html", "https://example.com", "about:blank"] {
         assert_eq!(chromium_page_route(url), None, "url {url:?}");
+    }
+}
+
+/// `ChromiumPageRoute.isCmuxOwned`: a WebKit tab opens only the pages cmux
+/// shows itself (history, bookmarks, Browser settings, Passwords).
+#[test]
+fn cmux_owned_pages() {
+    for (url, owned) in [
+        ("chrome://history", true),
+        ("chrome://bookmarks", true),
+        ("chrome://settings", true),
+        ("chrome://settings/passwords", true),
+        ("chrome://password-manager", true),
+        ("chrome://settings/content", false),
+        ("chrome://extensions", false),
+        ("chrome://version", false),
+    ] {
+        let route = chromium_page_route(url);
+        assert_eq!(route.map(|route| route.is_cmux_owned()), Some(owned), "url {url:?}");
     }
 }
