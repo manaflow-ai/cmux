@@ -621,8 +621,9 @@ def step_record_start_sample(j, step):
     import subprocess
     out = []
     vdir = _vdir(j)
+    tag = step.get("tag", "")
     for n in range(int(step.get("runs", 2))):
-        path = vdir / f"record-start-sample-{n}.txt"
+        path = vdir / f"record-start-sample-{tag}{n}.txt"
         proc = subprocess.Popen(["/usr/bin/sample", str(j.app.pid), "2", "1", "-mayDie", "-file", str(path)],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         said = []
@@ -637,7 +638,8 @@ def step_record_start_sample(j, step):
         time.sleep(0.15)  # the first samples are taken before the call
         movie = vdir / f".sample-{n}.mov"
         # The same call's per-frame main-thread time (debug.frames), so the profile and the busy number pair up.
-        frames = _main_cost(j, lambda: _motion(j, "record_start", path=str(movie), window=0, seconds=10), settle=1.0)
+        frames = _main_cost(j, lambda: _motion(j, "record_start", path=str(movie), window=0, seconds=10,
+                                                filter=step.get("filter", "display")), settle=1.0)
         try:
             proc.communicate(timeout=30)
         except subprocess.TimeoutExpired:

@@ -1,0 +1,111 @@
+{
+ "id": "video-record-start-chromium",
+ "priority": "P1",
+ "title": "Recorder: does record_start wake Chromium on the main thread? display vs window filter, with and without the Home chat page",
+ "why": "rv-rsprof2: record_start's main-thread time is the CEF message pump, not recorder code. This round separates the filter and the Chromium page.",
+ "source": "handoff/resize-videos (harness owner)",
+ "budget_seconds": 240,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window fills the screen",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rvq2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "record_start_sample",
+   "runs": 2,
+   "tag": "homedisplay",
+   "filter": "display"
+  },
+  {
+   "do": "record_start_sample",
+   "runs": 2,
+   "tag": "homewindow",
+   "filter": "window"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "a workspace with no Home chat page"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "record_start_sample",
+   "runs": 2,
+   "tag": "wsdisplay",
+   "filter": "display"
+  },
+  {
+   "do": "record_start_sample",
+   "runs": 2,
+   "tag": "wswindow",
+   "filter": "window"
+  },
+  {
+   "do": "type",
+   "text": "echo rvq2-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "the app still answers",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "rvq2-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "rvq2-done-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
