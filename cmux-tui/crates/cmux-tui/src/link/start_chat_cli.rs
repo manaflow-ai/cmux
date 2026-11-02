@@ -67,7 +67,7 @@ const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
 cmux link start-chat ensure --workspace ID --key KEY --repo OWNER/NAME [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH]";
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--environment env_ID]";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -919,6 +919,7 @@ pub(super) struct StartCopy {
     pub(super) local: String,
     /// The chat's folder inside `local`; empty for `local` itself.
     pub(super) subpath: String,
+    pub(super) environment: Option<String>,
     /// The machine's folders for copies, in the order they are tried.
     pub(super) work_roots: Vec<String>,
     /// This Mac's acpmux home (`--acpmux-home`) for `source_trusted`; none: never trusted.
@@ -931,11 +932,13 @@ impl StartCopy {
         let subpath = flags.one("--subpath").unwrap_or("").trim_matches('/').to_string();
         let work_roots: Vec<String> =
             flags.all("--work-root").into_iter().map(str::to_string).collect();
+        let environment = flags.one("--environment").map(str::to_string);
         if !local.starts_with('/')
             || local == "/"
             || subpath.split('/').any(|part| part == "..")
             || work_roots.is_empty()
             || work_roots.iter().any(|root| !root.starts_with('/'))
+            || environment.as_deref().is_some_and(|id| !valid_environment(id))
         {
             return None;
         }
@@ -946,6 +949,7 @@ impl StartCopy {
             socket: PathBuf::from(flags.one("--socket")?),
             local: local.to_string(),
             subpath,
+            environment,
             work_roots,
             acpmux_home: trust::acpmux_home(flags),
         })
