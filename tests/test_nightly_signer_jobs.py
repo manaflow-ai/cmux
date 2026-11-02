@@ -405,7 +405,10 @@ class LegacyPool(unittest.TestCase):
         mac = JOBS["sign-nightly-identity-legacy"]
         self.assertIn("publish-nightly", needs(mac))
         self.assertIn("legacy-signer-dmg", needs(mac))
-        self.assertIn("needs.legacy-signer-dmg.outputs.signed_ok != 'true'", mac["if"])
+        # The macOS signer also takes over when the pool signed but its DMG did not verify (no tested digest).
+        self.assertIn("verify-nightly-identity-legacy-pool", needs(mac))
+        self.assertIn("(needs.legacy-signer-dmg.outputs.signed_ok != 'true' || "
+                      "needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 == '')", mac["if"])
         self.assertTrue(mac["if"].startswith("!cancelled() && "))
         # The pool's outputs exist only when it signed: set by its last steps, after the upload.
         dmg = JOBS["legacy-signer-dmg"]
@@ -424,18 +427,18 @@ class LegacyPool(unittest.TestCase):
         for name in ("publish-nightly-identity-legacy", "nightly-identity-legacy-published"):
             self.assertLessEqual({"legacy-signer-dmg", "verify-nightly-identity-legacy-pool"}, set(needs(JOBS[name])))
         for output in ("skip", "signed_ok"):
-            expression = (f"needs.legacy-signer-dmg.outputs.{output} || "
+            expression = (f"(needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.{output}) || "
                           f"needs.sign-nightly-identity-legacy.outputs.{output}")
             self.assertIn(expression, publish)
             self.assertIn(expression, gate)
         for output in ("dmg_sha256", "minimum_system_version", "notarize", "apple", "requirement_refused"):
-            self.assertIn(f"needs.legacy-signer-dmg.outputs.{output} || needs.sign-nightly-identity-legacy.outputs.{output}",
-                          publish)
+            self.assertIn(f"(needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.{output}) || "
+                          f"needs.sign-nightly-identity-legacy.outputs.{output}", publish)
         tested = ("needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 || "
                   "needs.verify-nightly-identity-legacy.outputs.tested_sha256")
         self.assertIn(tested, publish)
         self.assertIn(tested, gate)
-        self.assertIn("SIGN_RESULT: ${{ needs.legacy-signer-dmg.outputs.signed_ok == 'true' && 'success' || "
+        self.assertIn("SIGN_RESULT: ${{ needs.verify-nightly-identity-legacy-pool.outputs.tested_sha256 != '' && needs.legacy-signer-dmg.outputs.signed_ok == 'true' && 'success' || "
                       "needs.sign-nightly-identity-legacy.result }}", publish)
         # Publication still waits for the exact build publish-nightly published.
         self.assertIn("publish-nightly", needs(JOBS["publish-nightly-identity-legacy"]))

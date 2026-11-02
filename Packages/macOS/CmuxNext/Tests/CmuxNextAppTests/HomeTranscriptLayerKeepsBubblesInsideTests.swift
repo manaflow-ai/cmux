@@ -79,28 +79,30 @@ import Testing
     }
 
     /// Every layer between the transcript frame and my rows has the transcript's width,
-    /// and every row of mine was laid out for it and ends inside it.
+    /// and every row of mine was laid out for it and ends inside it. Inside the zoomed
+    /// MessagesLabHomeView that width is in its own points: the frame over the chat's zoom.
     static func check(_ rig: Rig, width: CGFloat, _ step: String) {
         let lab = rig.view.transcript
+        let inner = width / lab.zoom
         #expect(lab.frame.width == width, "\(step): MessagesLabHomeView \(lab.frame.width) pt in a \(width) pt transcript")
-        #expect(lab.controller.host.frame.width == width, "\(step): host \(lab.controller.host.frame.width) pt in \(width) pt")
+        #expect(lab.controller.host.frame.width == inner, "\(step): host \(lab.controller.host.frame.width) pt in \(inner) pt")
         guard let demo = lab.controller.demo else {
             Issue.record("\(step): no transcript")
             return
         }
-        #expect(demo.bounds.width == width, "\(step): demo \(demo.bounds.width) pt in \(width) pt")
-        #expect(demo.clip.frame.width == width, "\(step): clip \(demo.clip.frame.width) pt in \(width) pt")
-        #expect(demo.clipMask.bounds.width == width, "\(step): clip mask \(demo.clipMask.bounds.width) pt in \(width) pt")
-        #expect(demo.collection.frame.width == width, "\(step): list \(demo.collection.frame.width) pt in \(width) pt")
+        #expect(demo.bounds.width == inner, "\(step): demo \(demo.bounds.width) pt in \(inner) pt")
+        #expect(demo.clip.frame.width == inner, "\(step): clip \(demo.clip.frame.width) pt in \(inner) pt")
+        #expect(demo.clipMask.bounds.width == inner, "\(step): clip mask \(demo.clipMask.bounds.width) pt in \(inner) pt")
+        #expect(demo.collection.frame.width == inner, "\(step): list \(demo.collection.frame.width) pt in \(inner) pt")
         for cell in demo.collection.visibleCells where !cell.isHidden {
-            #expect(cell.frame.maxX <= width + 0.5, "\(step): a row cell ends at \(cell.frame.maxX) pt, past \(width) pt")
+            #expect(cell.frame.maxX <= inner + 0.5, "\(step): a row cell ends at \(cell.frame.maxX) pt, past \(inner) pt")
         }
         var mine = 0
         for row in demo.model.rows {
             guard case let .part(p) = row.spec.kind, p.outgoing else { continue }
             mine += 1
-            #expect(row.spec.width == width, "\(step): my row laid out for \(row.spec.width) pt in \(width) pt")
-            #expect(row.spec.metrics.rightEdge <= width, "\(step): my bubble ends at \(row.spec.metrics.rightEdge) pt, past \(width) pt")
+            #expect(row.spec.width == inner, "\(step): my row laid out for \(row.spec.width) pt in \(inner) pt")
+            #expect(row.spec.metrics.rightEdge <= inner, "\(step): my bubble ends at \(row.spec.metrics.rightEdge) pt, past \(inner) pt")
         }
         #expect(mine > 0, "\(step): my message is not shown")
     }
