@@ -52,9 +52,10 @@ struct PaletteReopenRowsTests {
         #expect(second.builtRows == 1, "one row changed; the reopen built \(second.builtRows)")
         let row = try #require(after.first { $0.actionID == "newWindow" }, "the changed row left the list")
         #expect(!row.isEnabled, "the changed row shows its old state")
-        // A row that cannot run lists after every row that can (`RegistryPaletteProvider.arranged`).
+        // An action row that cannot run lists after every action row that can (`RegistryPaletteProvider.arranged`); the
+        // root's family rows come after the sorted rows (`curatedRootItems`).
         let index = try #require(after.firstIndex { $0.actionID == "newWindow" })
-        let enabledAfter = after[index...].contains { $0.isEnabled }
+        let enabledAfter = after[index...].contains { $0.isEnabled && $0.actionID != nil }
         #expect(!enabledAfter, "the disabled row lists before an enabled one")
         let sameRows = Set(after.map { $0.id }) == Set(before.map { $0.id })
         #expect(sameRows, "the reopen lists other rows")
