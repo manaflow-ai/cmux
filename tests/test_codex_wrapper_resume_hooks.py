@@ -189,7 +189,7 @@ exit 1
         else:
             env["CMUX_CODEX_LAUNCH_COMMAND"] = {
                 "__script__": str(launcher_script),
-                "__shim__": str(wrapper_dir / "codex"),
+                "__shim__": str(shim),
             }.get(launch_command, launch_command)
         env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
         env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"

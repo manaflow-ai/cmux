@@ -681,10 +681,16 @@ unset CMUX_AGENT_RESUME_LAUNCH
 if [[ "$IN_CMUX" == "1" && -n "$cmux_codex_launch_command" ]]; then
     export CMUX_CODEX_LAUNCH_COMMAND_ACTIVE=1
     # Absolute restore entrypoints may not carry the managed-shim variable.
-    # Recover the sibling codex entrypoint before login files or an executable
-    # launcher can resolve native Codex ahead of this wrapper.
+    # Recover a separate managed entrypoint or the sibling codex before login
+    # files or an executable launcher can resolve native Codex first.
     if [[ ! -x "${CMUX_CODEX_WRAPPER_SHIM:-}" ]]; then
-        cmux_codex_launch_shim="$(cd "$(dirname "$0")" && pwd)/codex"
+        cmux_codex_launch_shim=""
+        if [[ -n "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}" ]]; then
+            cmux_codex_launch_shim="${CMUX_CODEX_WRAPPER_SHIM_ROOT%/}/codex"
+        fi
+        if [[ ! -x "$cmux_codex_launch_shim" ]]; then
+            cmux_codex_launch_shim="$(cd "$(dirname "$0")" && pwd)/codex"
+        fi
         if [[ -x "$cmux_codex_launch_shim" ]] && cmux_codex_wrapper_is_self_or_shim "$cmux_codex_launch_shim"; then
             export CMUX_CODEX_WRAPPER_SHIM="$cmux_codex_launch_shim"
         fi

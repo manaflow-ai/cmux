@@ -182,10 +182,14 @@ public struct CodexResumePermissionPolicy: Sendable {
                         sandboxConfig = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
                             .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
                     }
-                case "sandbox_workspace_write", "sandbox_workspace_write.network_access":
-                    // A parent TOML table is authoritative even when its exact
-                    // networking field cannot be parsed safely here.
+                case "sandbox_workspace_write.network_access":
                     network = true
+                case "sandbox_workspace_write":
+                    let keys = parts.count == 2
+                        ? CodexInlineTableKeyParser().parse(String(parts[1])) : nil
+                    // Preserve unparseable overrides. A valid roots-only table
+                    // does not specify network policy; string values are not keys.
+                    network = network || (keys?.contains("network_access") ?? true)
                 default:
                     break
                 }
