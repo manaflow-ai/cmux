@@ -33,7 +33,8 @@ extension AgentPaneView {
     /// (``AgentPaneModel/becomeNewTab(_:)``): the page shows it at once.
     public func becomeNewTab(_ page: AgentPaneNewTab) {
         model.becomeNewTab(page)
-        show(page)
+        // With what a new chat of the window left, as a handshake gives it (cmux#32276).
+        show(page, sending: model.newTabForPage)
     }
 
     /// The open tabs and workspaces changed while this page shows (Leo 2026-10-11: rows for New
