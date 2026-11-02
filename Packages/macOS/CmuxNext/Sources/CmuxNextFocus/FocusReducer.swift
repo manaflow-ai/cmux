@@ -1,9 +1,10 @@
 import CCmuxLayoutReducerFFI
 public import Foundation
 
-/// The per-key focus rules that stay JSON calls into `cmux-focus-core`
-/// (`focus_type_ahead`, `focus_child_window_key`): one call per queued key or
-/// child-window key change, not per focus event.
+/// The rules that stay JSON calls into `cmux-focus-core` over the app FFI:
+/// the per-key focus rules (`focus_type_ahead`, `focus_child_window_key`, one
+/// call per queued key or child-window key change, not per focus event) and the
+/// agent cursor visibility (`agent_cursor_visibility`, through `call(_:json:)`).
 public nonisolated struct FocusReducer {
     public nonisolated init() {}
 
