@@ -149,15 +149,15 @@ final class CloseUndoToasts {
     static func close(_ parts: [(pane: PaneController, ids: [StripTabID])]) {
         // A tab still being created is cancelled now and leaves the gesture: no question, read or daemon close for it (CancelledCreation).
         let pending = Set(parts.flatMap { part in part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) } })
-        for part in parts { part.pane.close(part.ids.filter(pending.contains)) }
+        let resolved: [(pane: PaneController, ids: [StripTabID])] = parts.map { part in part.pane.close(part.ids.filter(pending.contains)); return (part.pane, part.ids.map { part.pane.tab($0).map { StripTabID($0.id) } ?? $0 }) } // a stand-in the store replaced: its tab's id, so that tab's page decides its close (#31837)
         // A tab already closing left the store's visible records with its close intent, so a
         // second close of it (before the daemon answered the first) finds nothing to close.
         // A page's own close of its tab, after a close of several tabs waited for it, joins that close.
         let undoToasts = parts.first?.pane.services.closedTabs?.undoToasts
         // A close of a tab whose page was deciding (the page's own close after it decided, a close
         // button): that decision is over; the close below starts a new one if the page decides again.
-        for part in parts { for id in part.ids { undoToasts?.pageClosing.end(id.rawValue) } }
-        let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).map { part in (pane: part.pane, ids: part.ids.filter { !pending.contains($0) }) }.filter { !$0.ids.isEmpty }
+        for part in resolved { for id in part.ids { undoToasts?.pageClosing.end(id.rawValue) } }
+        let parts = (undoToasts?.pageDecidedCloses.absorb(resolved) ?? resolved).map { part in (pane: part.pane, ids: part.ids.filter { !pending.contains($0) }) }.filter { !$0.ids.isEmpty }
         guard let first = parts.first?.pane else { return }
         let user = isUserClose, services = first.services, daemon = first.daemon
         let tabs = parts.flatMap { part in part.ids.compactMap(part.pane.tab) }

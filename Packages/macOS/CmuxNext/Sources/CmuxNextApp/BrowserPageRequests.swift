@@ -170,7 +170,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
                                                          entries: services.registry.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
-            let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
+            let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id), machineID: services.daemon(for: pane).machineID,
                                                      services: services) + host.items + PageShareMenu.items(for: page.state.url)
             host.removeAllItems()
             // The engine's menu holds the page rows: Customize Menu… ends it as it ends every whole menu.

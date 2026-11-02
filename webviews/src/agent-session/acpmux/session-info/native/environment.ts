@@ -10,6 +10,7 @@ import { machineOf, type ProjectRowLook } from "../EnvironmentSection";
 import type { AttachedCloudRepo, PendingCloudRepo } from "../CloudRepositoryPicker";
 import type { NativeInfoRect } from "./model";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
+import { nativeExternalUrl } from "./links";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -44,6 +45,7 @@ export function environmentSection(
   t: Translate,
 ): NativeInfoSection | undefined {
   const { summary, repository, remoteControl, onOpenFolder, onOpenUrl, projectLook = "name", grants = [] } = input;
+  const openUrl = nativeExternalUrl(onOpenUrl);
   const machine = machineOf(summary, input.machineName, input.peerKinds);
   const branch = summary?.branch;
   const project = chatProject(summary, repository);
@@ -128,9 +130,9 @@ export function environmentSection(
       id: "repository",
       symbol: "chevron.left.forwardslash.chevron.right",
       title: repository,
-      ...(onOpenUrl && repositoryUrl
+      ...(repositoryUrl
         ? {
-            action: actions.add("environment.openRepository", () => onOpenUrl(repositoryUrl)),
+            action: actions.add("environment.openRepository", () => openUrl(repositoryUrl)),
           }
         : {}),
     });
@@ -139,9 +141,9 @@ export function environmentSection(
       id: "branch",
       symbol: "arrow.triangle.branch",
       title: branch,
-      ...(onOpenUrl && branchUrl
+      ...(branchUrl
         ? {
-            action: actions.add("environment.openBranch", () => onOpenUrl(branchUrl)),
+            action: actions.add("environment.openBranch", () => openUrl(branchUrl)),
           }
         : {}),
     });
@@ -153,6 +155,7 @@ export function environmentSection(
       id: "remoteControl",
       symbol: "cursorarrow.click",
       title: label,
+      help: t("sessionInfo.environment.remoteControl.help"),
       tone: remoteControl.on ? "accent" : undefined,
       action: toggle,
       toggle: remoteControl.on,
