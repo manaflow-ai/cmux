@@ -1,6 +1,6 @@
 public import CmuxNextDaemon
 import CmuxNextCompat
-import Observation
+public import Observation
 
 /// The Cloud approval holds (G8, cx-wb5.65) the person has answered, as their feed shows them. The
 /// backend posts each hold as an approve item in the person's `FeedDO`; the item closes in the same
