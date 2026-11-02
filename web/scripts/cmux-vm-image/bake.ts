@@ -327,7 +327,10 @@ export const APT_UPDATE_COMMAND = [
   "  if timeout \"${timeout_s}s\" apt-get update -q --error-on=any >/tmp/apt-update.log 2>&1; then exit 0; fi;",
   "  [ \"$attempt\" -eq 2 ] || sleep 5;",
   "done;",
-  "tail -30 /tmp/apt-update.log; exit 1",
+  "echo 'apt-update: snapshot mirror unavailable; falling back to archive.ubuntu.com/security.ubuntu.com' | tee -a /tmp/apt-update.log;",
+  "cp /etc/apt/sources.list.d/ubuntu.sources /tmp/ubuntu.sources.snapshot;",
+  "printf %s VHlwZXM6IGRlYgpVUklzOiBodHRwOi8vYXJjaGl2ZS51YnVudHUuY29tL3VidW50dS8KU3VpdGVzOiBub2JsZSBub2JsZS11cGRhdGVzIG5vYmxlLWJhY2twb3J0cwpDb21wb25lbnRzOiBtYWluIHJlc3RyaWN0ZWQgdW5pdmVyc2UgbXVsdGl2ZXJzZQpTaWduZWQtQnk6IC91c3Ivc2hhcmUva2V5cmluZ3MvdWJ1bnR1LWFyY2hpdmUta2V5cmluZy5ncGcKClR5cGVzOiBkZWIKVVJJczogaHR0cDovL3NlY3VyaXR5LnVidW50dS5jb20vdWJ1bnR1LwpTdWl0ZXM6IG5vYmxlLXNlY3VyaXR5CkNvbXBvbmVudHM6IG1haW4gcmVzdHJpY3RlZCB1bml2ZXJzZSBtdWx0aXZlcnNlClNpZ25lZC1CeTogL3Vzci9zaGFyZS9rZXlyaW5ncy91YnVudHUtYXJjaGl2ZS1rZXlyaW5nLmdwZwo= | base64 -d > /etc/apt/sources.list.d/ubuntu.sources",
+  "apt-get update -q --error-on=any >>/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }",
 ].join(" ");
 
 /** `pkg=version size` for every locked package, from the updated apt index (Size: field). */

@@ -89,6 +89,9 @@ describe("cmux VM image apt index", () => {
     expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=240");
     expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=45");
     expect(bake.APT_UPDATE_COMMAND).toContain("sleep 5");
+    expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
+    expect(bake.APT_UPDATE_COMMAND).toContain("archive.ubuntu.com/ubuntu");
+    expect(bake.APT_UPDATE_COMMAND).toContain("security.ubuntu.com/ubuntu");
     await bashSyntax(bake.APT_UPDATE_COMMAND);
   });
 
