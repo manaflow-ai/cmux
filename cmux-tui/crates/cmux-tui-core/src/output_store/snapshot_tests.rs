@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::super::{LogState, OutputStore, TerminalLog};
-use super::{Seen, flush_tail};
+use super::{Plan, Seen, flush_tail};
 use crate::resource::TerminalPublicId;
 
 fn directory(name: &str) -> std::path::PathBuf {
@@ -115,4 +115,27 @@ fn a_redraw_of_exactly_the_stored_bytes_waits_in_memory() {
     let _ = std::fs::remove_dir_all(&directory);
     assert_eq!(stored, b"screen");
     assert_eq!(pending, redraw.len(), "the redraw is kept for the next change or snapshot");
+}
+
+/// A disk that refuses writes (a full disk; here the store folder is a
+/// plain file) must not make the next pass build a whole snapshot replay
+/// under the parser lock, fail, and ask again 100 ms later, for good (review
+/// of #31643 at 8aed6172b46).
+#[test]
+fn a_failing_disk_does_not_retry_the_snapshot_on_the_next_pass() {
+    let root = directory("failing");
+    let not_a_folder = root.join("store");
+    std::fs::write(&not_a_folder, b"a file where the store folder goes").unwrap();
+    let store = OutputStore::new(None);
+    let log = log(b"output");
+    flush_tail(&store, &not_a_folder, &log, Seen { digest: 1, settled: true, end: 6 }, false);
+    let wants = Plan::of(&log, std::time::Duration::from_secs(30)).wants_snapshot(
+        2,
+        (80, 24),
+        false,
+        true,
+        false,
+    );
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(!wants, "the pass right after a failed write asks for a snapshot again");
 }
