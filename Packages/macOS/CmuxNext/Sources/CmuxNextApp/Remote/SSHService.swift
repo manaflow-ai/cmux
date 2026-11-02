@@ -31,6 +31,8 @@ final class SSHService {
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
     /// Runs `remote.install` through the registry's confirmation (set by the handlers).
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
+    /// The acting window (`WindowManager.active`): a connect records it as `connectingWindow`.
+    @ObservationIgnored var actingWindow: () -> String? = { nil }
     /// A written Forget's acpmux peer removal (HQ #4877 break 8); tests replace its `remove`.
     @ObservationIgnored let peerForgets: SSHPeerForgets
     /// Forgotten machines, so a stale registry echo does not bring them back.
@@ -160,6 +162,7 @@ final class SSHService {
         // the list for the same host, user and port is reused, never added twice (cx-k21v).
         if nonEmpty(name) == nil, nonEmpty(binary) == nil, nonEmpty(stateDir) == nil, let saved = existing(destination) {
             saved.autoConnect = true
+            saved.connectingWindow = actingWindow()
             rememberHost(saved)
             saved.offersInstall = offerInstall
             if offerInstall { offerInstallWhenOld(saved) }
@@ -191,6 +194,7 @@ final class SSHService {
         if !byPerson, session.waitsForUser { return session }
         // Saved now, before the first connect succeeds (no session id yet).
         session.autoConnect = true
+        session.connectingWindow = actingWindow()
         rememberHost(session)
         session.offersInstall = offerInstall
         if offerInstall { offerInstallWhenOld(session) }

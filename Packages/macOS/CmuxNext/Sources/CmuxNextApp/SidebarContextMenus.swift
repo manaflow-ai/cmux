@@ -16,7 +16,7 @@ enum SidebarContextMenus {
         switch target {
         case .workspaces(let ids):
             // A connecting SSH machine's row (cx-gaq9) has its machine's menu: Reconnect, Disconnect, Forget.
-            if ids.count == 1, let machine = ids.first.flatMap(SSHConnectingRows.machine(of:)) {
+            if ids.count == 1, let machine = ids.first.flatMap { ConnectingRowWindows.machine(of: $0.rawValue) } {
                 return registry.makeContextMenu(for: .sshMachine, target: ActionTargetRef(kind: .machine, id: machine)).themeRows(in: scope)
             }
             // A placeholder row is no workspace yet: no menu, not one that does nothing.
