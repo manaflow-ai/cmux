@@ -8,7 +8,10 @@ set -euo pipefail
 : "${SHA:?SHA is required}"
 
 if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-  git fetch --quiet --no-tags --depth=1 origin "$BEFORE" 2>/dev/null || {
+  # Bound the fetch only in a checkout that is already shallow, so a full clone stays full.
+  depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+  git fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} origin "$BEFORE" 2>/dev/null || {
     echo "::error title=Runner pools::unable to fetch the push's previous commit ($BEFORE)" >&2
     exit 1
   }
