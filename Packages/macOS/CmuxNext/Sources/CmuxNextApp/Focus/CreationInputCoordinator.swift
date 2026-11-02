@@ -327,19 +327,16 @@ final class CreationInputCoordinator {
 }
 
 extension CreationInputCoordinator {
-    /// The focused terminal when its surface is not shown in its pane yet: the focus names a live terminal tab of the
-    /// shown workspace, and its pane has no view yet or shows something else (a reopened window comes forward before
-    /// its panes' surfaces, which come one per frame). A key typed now would reach no view. Nil otherwise.
+    /// The focused content a key typed now would miss (``AwaitedContent``), with the lane its keys go to: the focused
+    /// terminal when its surface is not shown in its pane yet. Nil otherwise.
     static func awaitedSurface(_ controller: WindowController) -> CreationInputBuffer.HeldLane? {
         let state = controller.focus.currentState()
         guard case .terminal(let pane, let tab) = state.resolved, let content = controller.content, content.workspace.id == state.topology.workspace else { return nil }
-        if let shown = content.paneController(key: pane) {
-            // The common case first (every key-down asks): the terminal shows.
-            if shown.currentTabKey == tab, case .terminal? = shown.currentContent { return nil }
-            guard shown.stripModel.selectedID?.rawValue == tab, shown.showsLiveTerminal else { return nil }
-        } else if !state.topology.panes.contains(where: { $0.id == pane }) {
-            return nil
+        let shown = content.paneController(key: pane).map { shown in
+            AwaitedContent.Pane(selectedTab: shown.stripModel.selectedID?.rawValue, shownTab: shown.currentTabKey,
+                                shownKind: { if case .terminal? = shown.currentContent { .terminal } else { nil } }(), selectedIsLiveTerminal: shown.showsLiveTerminal)
         }
+        guard AwaitedContent.awaited(.terminal, tab: tab, pane: shown, paneInTopology: state.topology.panes.contains { $0.id == pane }) != nil else { return nil }
         return CreationInputBuffer.HeldLane(tab: tab, machine: content.daemon.machineID)
     }
 

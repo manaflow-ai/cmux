@@ -1,0 +1,45 @@
+/// The focused content that a key typed now would miss (REOPEN-F4): the focus names it, but its pane does not show it
+/// yet. A reopened window comes forward before its panes' surfaces, which come one a frame, and a workspace shown cold
+/// makes its surfaces again. The window's key hold waits for it (`CreationInputCoordinator`).
+public struct AwaitedContent: Equatable, Sendable {
+    /// What the focus names.
+    public enum Kind: Equatable, Sendable {
+        case terminal
+    }
+
+    /// The focused tab.
+    public let tab: String
+    public let kind: Kind
+
+    public init(tab: String, kind: Kind) {
+        (self.tab, self.kind) = (tab, kind)
+    }
+
+    /// The focused pane's controller now.
+    public struct Pane: Equatable, Sendable {
+        /// The tab its strip selects.
+        public var selectedTab: String?
+        /// The tab whose content it shows, and that content's kind (nil: none, or another kind).
+        public var shownTab: String?
+        public var shownKind: Kind?
+        /// The selected tab is a terminal that will draw (not a dead one).
+        public var selectedIsLiveTerminal: Bool
+
+        public init(selectedTab: String?, shownTab: String?, shownKind: Kind?, selectedIsLiveTerminal: Bool) {
+            (self.selectedTab, self.shownTab, self.shownKind, self.selectedIsLiveTerminal) = (selectedTab, shownTab, shownKind, selectedIsLiveTerminal)
+        }
+    }
+
+    /// The content a key typed now would miss: the focus names `tab` of `kind`, and its pane (`pane`; nil: the pane has
+    /// no controller yet, `paneInTopology` says whether the focus's topology lists it) does not show it. Nil otherwise.
+    public static func awaited(_ kind: Kind, tab: String, pane: Pane?, paneInTopology: Bool) -> AwaitedContent? {
+        if let pane {
+            // The common case first (every key-down asks): the content shows.
+            if pane.shownTab == tab, pane.shownKind == kind { return nil }
+            guard pane.selectedTab == tab, pane.selectedIsLiveTerminal else { return nil }
+        } else if !paneInTopology {
+            return nil
+        }
+        return AwaitedContent(tab: tab, kind: kind)
+    }
+}
