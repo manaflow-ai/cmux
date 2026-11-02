@@ -128,13 +128,14 @@ public final class CreationInputBuffer {
     /// has not left it yet) gets no lane: its keys run as typed. `stays`: the person cancelled the close's question, and its
     /// keys go to the terminal it asked about (the one focused at the Cmd-W).
     /// A close that ends with no question while another close still reads or asks (two quick Cmd-Ws): its keys become that
-    /// close's. Every key keeps its place in the window's one typing order, whichever close answers first.
+    /// close's; a question answered Close while another close still reads: that close's. Cancel never hands them on. Every
+    /// key keeps its place in the window's one typing order, whichever close answers first.
     public func settleClose(_ ticket: Ticket, keysTo tab: String?, stays: Bool = false, machine: String?) {
         guard ticket.owner == ObjectIdentifier(self) else { return }
         let answered = answering.removeValue(forKey: ticket.id)
         guard let closing = closingTabs.removeValue(forKey: ticket.id) ?? answered else { return }
         everyKeyCloses.remove(ticket.id)
-        if answered == nil, let next = Set(closingTabs.keys).union(answering.keys).max() {
+        if !stays, let next = Set(closingTabs.keys).union(answered == nil ? Array(answering.keys) : []).max() {
             events = events.map { $0.creation == ticket.id ? ($0.event, next) : $0 }
             return resolve(ticket, awaitsFocus: false)
         }
