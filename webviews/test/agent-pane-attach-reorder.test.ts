@@ -117,8 +117,35 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
         .locator(".acpmux-attachments .acpmux-attachment-slot[data-dragging] .acpmux-attachment")
         .evaluate((chip) => getComputedStyle(chip).transform),
     ).not.toBe("none");
+    // Leo, 2026-10-26: "there's no click-and-drag animation or whatever. Like, it has to just look
+    // like a drag-and-drop". The chip rides the pointer: grabbed at its center, it is still centered
+    // under the pointer (clamped inside the strip), not parked in its new slot.
+    const pointerX = last.x + last.width - 4;
+    const ride = await page.evaluate(() => {
+      const strip = document.querySelector(".acpmux-attachments")!.getBoundingClientRect();
+      const chip = document
+        .querySelector(".acpmux-attachments .acpmux-attachment-slot[data-dragging] .acpmux-attachment")!
+        .getBoundingClientRect();
+      return { center: chip.left + chip.width / 2, right: chip.right, stripRight: strip.right };
+    });
+    expect(Math.abs(ride.center - pointerX) < 2 || Math.abs(ride.right - ride.stripRight) < 2).toBe(true);
+    // The chips it passed slide to their new slots instead of jumping there.
+    expect(
+      await page.evaluate(
+        () =>
+          [...document.querySelectorAll(".acpmux-attachments .acpmux-attachment-slot:not([data-dragging]) .acpmux-attachment")]
+            .flatMap((chip) => chip.getAnimations())
+            .length,
+      ),
+    ).toBeGreaterThan(0);
     await page.mouse.up();
     expect(await order(page)).toEqual(["400", "500", "300"]);
+    // Released, it settles into its slot and keeps no offset of its own.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll<HTMLElement>(".acpmux-attachments .acpmux-attachment")].every(
+        (chip) => chip.style.translate === "" && chip.getAnimations().length === 0,
+      ),
+    );
     expect(await page.locator(".acpmux-attachments .acpmux-attachment-slot[data-dragging]").count()).toBe(0);
     // Assistive technology hears where it went, while the announcement stays out of the
     // visual strip. Leo, 2026-10-26: the movement hint and status must not be visible UI.
