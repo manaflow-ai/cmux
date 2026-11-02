@@ -32,8 +32,11 @@ struct GateState {
     /// adoption that ended first); `serving` steps over them.
     abandoned: BTreeSet<u64>,
     /// Counts every wake-up, so a waiter that checked outside the lock
-    /// ([`StartupAdoptionGate::turn_or_jump`]) sees one it would have missed.
+    /// ([`StartupAdoptionGate::turn_first_if`]) sees one it would have missed.
     wakes: u64,
+    /// Waiters the person now sees: they take the next free slot before any
+    /// ticket in line ([`StartupAdoptionGate::turn_first_if`]).
+    first: usize,
 }
 
 impl GateState {
@@ -50,20 +53,9 @@ pub(crate) struct StartupAdoptionGate {
     state: Mutex<GateState>,
     changed: Condvar,
     slots: usize,
-    /// Threads in [`Self::turn`] or [`Self::turn_or_jump`]: a wake-up with
+    /// Threads in [`Self::turn`] or [`Self::turn_first_if`]: a wake-up with
     /// none waiting takes no lock ([`Self::wake_waiters`]).
     waiting: AtomicUsize,
-}
-
-/// How [`StartupAdoptionGate::turn_or_jump`] let a waiter go.
-pub(crate) enum Admission<'a> {
-    /// Its turn: it holds a slot until the turn drops.
-    Turn(Turn<'a>),
-    /// It went first, with no turn and no slot (a terminal the person now
-    /// waits on).
-    Jumped,
-    /// It gave up (shutdown); its place went to the next ticket.
-    GaveUp,
 }
 
 impl Default for StartupAdoptionGate {
@@ -123,51 +115,71 @@ impl StartupAdoptionGate {
     /// or [`Self::wake_all`] runs; then no turn is taken. It runs under the
     /// gate's lock, so it may take only leaf locks.
     pub(super) fn turn(&self, ticket: Ticket, give_up: impl Fn() -> bool) -> Option<Turn<'_>> {
-        match self.turn_or_jump(ticket, give_up, || false) {
-            Admission::Turn(turn) => Some(turn),
-            Admission::Jumped | Admission::GaveUp => None,
-        }
+        self.turn_first_if(ticket, give_up, || false)
     }
 
-    /// [`Self::turn`], and `jump` may let the waiter go first, with no turn,
-    /// whenever it cannot take its turn at once: it runs with the gate's lock
-    /// released (it may take the mux's locks), at the start and after each
-    /// wake-up. A wake-up while it runs is not
-    /// lost: the waiter checks again before it sleeps.
-    pub(super) fn turn_or_jump(
+    /// [`Self::turn`], and once `first` holds the waiter takes the next free
+    /// slot before every ticket in line (the person now sees its terminal).
+    /// It still takes a slot: the slots bound the waiters that go first too.
+    /// `first` runs with the gate's lock released (it may take the mux's
+    /// locks), at the start and after each wake-up, until it holds; a wake-up
+    /// while it runs is not lost (the waiter checks again before it sleeps).
+    pub(super) fn turn_first_if(
         &self,
         mut ticket: Ticket,
         give_up: impl Fn() -> bool,
-        jump: impl Fn() -> bool,
-    ) -> Admission<'_> {
+        first: impl Fn() -> bool,
+    ) -> Option<Turn<'_>> {
         self.waiting.fetch_add(1, Ordering::AcqRel);
         let _waiting = WaitingGuard(&self.waiting);
+        let mut goes_first = false;
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if give_up() {
+                if goes_first {
+                    state.first -= 1;
+                    state.wakes += 1;
+                    self.changed.notify_all();
+                }
                 // The ticket's drop gives its place up.
                 drop(state);
-                return Admission::GaveUp;
+                return None;
             }
-            if state.serving == ticket.number && state.active < self.slots {
+            let admitted = state.active < self.slots
+                && (goes_first || (state.first == 0 && state.serving == ticket.number));
+            if admitted {
                 ticket.used = true;
-                state.serving += 1;
+                if goes_first {
+                    state.first -= 1;
+                }
+                // Out of order (a waiter that goes first): `serving` steps over
+                // this place when it gets there.
+                if state.serving == ticket.number {
+                    state.serving += 1;
+                } else {
+                    state.abandoned.insert(ticket.number);
+                }
                 state.skip_abandoned();
                 state.active += 1;
                 state.wakes += 1;
                 self.changed.notify_all();
-                return Admission::Turn(Turn(self));
+                return Some(Turn(self));
             }
-            let wakes = state.wakes;
-            drop(state);
-            if jump() {
-                // The ticket's drop gives its place up.
-                return Admission::Jumped;
+            if !goes_first {
+                let wakes = state.wakes;
+                drop(state);
+                let now_first = first();
+                state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                if now_first {
+                    goes_first = true;
+                    state.first += 1;
+                    continue;
+                }
+                if state.wakes != wakes {
+                    continue;
+                }
             }
-            state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            if state.wakes == wakes {
-                state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
-            }
+            state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
         }
     }
 

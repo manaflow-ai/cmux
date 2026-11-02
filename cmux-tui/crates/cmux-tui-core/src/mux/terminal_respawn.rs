@@ -278,18 +278,15 @@ impl Mux {
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
             let stopping =
                 || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
-            // A terminal the person sees never waits behind hidden ones: when
-            // it cannot take its turn at once (turn_or_jump checks that first),
-            // it goes without one. That holds however it got its place: shown
-            // when it took it, or selected while it waits, or lost while the
-            // hidden respawns of a kill of everything still wait. The cap
-            // bounds the hidden respawns only.
+            // A terminal the person sees (shown when it took its place,
+            // selected while it waits, or lost while hidden respawns still
+            // wait) takes the next free slot before the hidden ones. It still
+            // takes a slot: the cap bounds it too.
             let shown_now = || mux.respawn_slot_shown(plan.slot);
             let turn = match ticket {
-                Some(ticket) => match gate.turn_or_jump(ticket, stopping, shown_now) {
-                    startup_adoption_gate::Admission::Turn(turn) => Some(turn),
-                    startup_adoption_gate::Admission::Jumped => None,
-                    startup_adoption_gate::Admission::GaveUp => {
+                Some(ticket) => match gate.turn_first_if(ticket, stopping, shown_now) {
+                    Some(turn) => Some(turn),
+                    None => {
                         mux.abandon_terminal_respawn(&plan.terminal_id);
                         return;
                     }
