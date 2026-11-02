@@ -253,7 +253,7 @@ test("a send the call does not say went reads only who it was for", async () => 
   expect(row.textContent).toBe("Message to lane · and 2 more commands Pushed.");
 });
 
-test("a batch's message names its recipient and the file its words came from; Raw keeps the whole shell body", async () => {
+test("a batch's message names its recipient and the file its words came from; opening one shows the whole shell body at once", async () => {
   const command =
     'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s nightly escalate.md; s owner relay.md';
   const tool = bash(command, { output: "queued\nqueued" });
@@ -276,6 +276,36 @@ test("a batch's message names its recipient and the file its words came from; Ra
   await act(async () => rows[1]!.click());
   expect(rows[0]!.getAttribute("aria-expanded")).toBe("false");
   expect(rows[1]!.getAttribute("aria-expanded")).toBe("true");
-  await act(async () => container.querySelector<HTMLButtonElement>(".cv-subsession__toggle")!.click());
+  // Its words are not in the transcript: it opens straight to the call, with no Raw to click
+  // (Leo 2026-10-26: "I EXPAND THEN ALL I SEE IS ... RAW").
+  expect(container.querySelector(".cv-subsession__toggle")).toBeNull();
   expect(container.querySelector(".cv-shell")?.textContent).toContain("s(){ acpmux send --no-wait");
+});
+
+test("a send of a file the agent wrote with Write opens to that message rendered, its command behind Raw", async () => {
+  // Leo's row (2026-10-26): the message written by Write, then sent from the file through bash -c.
+  const write: Tool = {
+    id: "write",
+    kind: "edit",
+    status: "completed",
+    title: "Write /tmp/claude-sr2/m1276.txt",
+    diffs: [{ path: "/tmp/claude-sr2/m1276.txt", newText: "## Composer\n\n- **ship** it\n" }],
+    startedAt: 1,
+    endedAt: 2,
+  };
+  const tool = bash(
+    `bash -c '"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux" send --no-wait --from claude-sr2 big-red/nx-composer - < /tmp/claude-sr2/m1276.txt 2>&1 | tail -1'`,
+    { output: "queued for delivery 01a17aa5", startedAt: 3, endedAt: 4 },
+  );
+  const groups = toolGroups([write, tool].map((call) => ({ kind: "tool" as const, text: call.title, tool: call })));
+  const send = groups.flatMap((group) => (group.type === "send" ? [group.send] : []))[0]!;
+  const container = await render(<AcpmuxSendLine tool={tool} send={send} />);
+  const row = container.querySelector<HTMLElement>(".cv-sent")!;
+  expect(row.textContent).toContain("Composer");
+  await act(async () => row.click());
+  expect(container.querySelector(".cv-subsession__markdown h2")?.textContent).toBe("Composer");
+  expect(container.querySelector(".cv-subsession__markdown strong")?.textContent).toBe("ship");
+  // The command waits behind Raw.
+  expect(container.querySelector(".cv-shell")).toBeNull();
+  expect(container.querySelector(".cv-subsession__toggle")).not.toBeNull();
 });
