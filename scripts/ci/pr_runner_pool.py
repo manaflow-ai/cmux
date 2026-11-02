@@ -2311,7 +2311,8 @@ def document_queue_snapshot(document: Mapping[str, Any], *, now: dt.datetime,
         return None
     created = parse_time(str(artifact.get("created_at") or ""))
     generated = parse_time(str(snapshot.get("generated_at") or ""))
-    if created is None or generated is None:
+    if (created is None or generated is None
+            or created.tzinfo is None or generated.tzinfo is None):
         return None
     created_age = (now - created).total_seconds()
     if (created_age < -QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS
