@@ -12,7 +12,8 @@ export type UploadCancelled = ((index: number) => boolean) & {
 /// `final`: the host refused the file outright (the app could not save it), so trying again would
 /// fail the same way; any other error (a link down, a timeout) may pass on the next try.
 export type UploadResult =
-  | { paths: string[]; error?: string; final?: boolean }
+  | { paths: string[] }
+  | { paths: string[]; error: string; final?: boolean }
   | { error: string; final?: boolean }
   | undefined;
 /// How much of file `index` of an upload reached the host, 0 to 1 (its tile's progress ring).
