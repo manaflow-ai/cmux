@@ -67,7 +67,10 @@ pub(super) fn refusal(session: &SessionSummary) -> Option<String> {
 /// Refuse a tell when the current daemon cannot verify its target's identity.
 /// A name-to-id lookup and the subsequent info read are separate requests; the
 /// session may have ended or its peer may have gone away between them.
-fn checked_tell_target(id: &str, summary: Option<SessionSummary>) -> Result<SessionSummary, String> {
+fn checked_tell_target(
+    id: &str,
+    summary: Option<SessionSummary>,
+) -> Result<SessionSummary, String> {
     let session = summary.ok_or_else(|| {
         format!("tell: cannot verify acpmux session {id}; refresh control(action: \"sessions\")")
     })?;
@@ -335,7 +338,10 @@ mod tests {
         assert!(first.contains("- session:lane-059"), "{first}");
         assert!(!first.contains("- session:lane-060"), "{first}");
         assert!(first.contains("Showing 1-60 of 300"), "{first}");
-        assert!(first.contains("control(action: \"sessions\", n: 60)"), "{first}");
+        assert!(
+            first.contains("control(action: \"sessions\", n: 60)"),
+            "{first}"
+        );
 
         let middle = sessions_list(&sessions, 120);
         assert_eq!(middle.matches("- session:").count(), 60);
@@ -363,10 +369,7 @@ mod tests {
         let independent = summary("unique", json!({}));
         let list = sessions_list(&[first, second, independent], 0);
         assert_eq!(list.matches("[ambiguous name:").count(), 2, "{list}");
-        assert!(
-            list.contains("- session:unique (claude, idle)"),
-            "{list}"
-        );
+        assert!(list.contains("- session:unique (claude, idle)"), "{list}");
         assert!(
             !list.contains("session:unique (claude, idle) [ambiguous"),
             "{list}"
@@ -376,20 +379,26 @@ mod tests {
     #[test]
     fn tell_refuses_a_missing_mismatched_or_chief_internal_target() {
         let lane = summary("lane-a", json!({}));
-        assert!(checked_tell_target("id-lane-a", None)
-            .unwrap_err()
-            .contains("cannot verify"));
-        assert!(checked_tell_target("id-another", Some(lane.clone()))
-            .unwrap_err()
-            .contains("identity changed"));
+        assert!(
+            checked_tell_target("id-lane-a", None)
+                .unwrap_err()
+                .contains("cannot verify")
+        );
+        assert!(
+            checked_tell_target("id-another", Some(lane.clone()))
+                .unwrap_err()
+                .contains("identity changed")
+        );
         assert_eq!(
             checked_tell_target("id-lane-a", Some(lane)).unwrap().name,
             "lane-a"
         );
         let chief = summary("turn-1", json!({crate::acpmux::CHIEF_TAG: "home"}));
-        assert!(checked_tell_target("id-turn-1", Some(chief))
-            .unwrap_err()
-            .contains("Chief's own"));
+        assert!(
+            checked_tell_target("id-turn-1", Some(chief))
+                .unwrap_err()
+                .contains("Chief's own")
+        );
     }
 
     #[test]
