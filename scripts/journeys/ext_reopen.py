@@ -339,6 +339,25 @@ def post_key(keycode=KEYCODE_X):
     return before, after
 
 
+# US ANSI virtual key codes (Carbon kVK_*) of the lowercase letters and digits a marker uses.
+_HID_KEYCODES = {**dict(zip("asdfhgzxcvbqweryt", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17])),
+                 "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23, "9": 25, "7": 26, "8": 28, "0": 29,
+                 "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46}
+
+
+def post_text(text, gap=0.011):
+    """TEXT (lowercase letters and digits) as HID key downs and ups (kCGHIDEventTap, post_key), GAP seconds apart (a
+    fast typist; CuaDriver's desktop keys take about 11 ms each). Returns each key's wall times around its down."""
+    if not re.fullmatch(r"[a-z0-9]+", text):
+        raise D.StepError(f"post_text: only lowercase letters and digits, not {text!r}")
+    times = []
+    for index, ch in enumerate(text):
+        if index:
+            time.sleep(gap)
+        times.append(post_key(_HID_KEYCODES[ch]))
+    return times
+
+
 # ---- the logout quit: the Apple event loginwindow sends (kAEQuitApplication, kAEQuitReason kAEReallyLogOut) ----
 
 class AEDesc(ctypes.Structure):
@@ -1118,6 +1137,13 @@ def step_hid_line(j, step):
         raise D.StepError(f"hid_line: the app is not the front app (front pid {front_pid()}): keys would go elsewhere")
     if step.get("mark"):
         j.marks[step["mark"]] = D.now()
+    if step.get("path") == "hid":
+        # CGEventPost at the HID tap (the path a USB keyboard's events take into the window server), letters and digits
+        # only; no Return.
+        if step.get("enter", True) or " " in text:
+            raise D.StepError("hid_line: path hid types letters and digits only (enter false, no spaces)")
+        times = post_text(text)
+        return {"typed": text, "keys": len(times), "path": "CGEventPost HID"}
     cua = Cua()
     sent = []
     try:
@@ -1308,7 +1334,8 @@ def step_reopen_browser_keys(j, step):
     """A real Cmd-Q (Keep), the reopen through LaunchServices as reopen_video does (no socket read while the app
     launches), and AS SOON AS the reopened app's main window is listed: a real Cmd-L, then the marker TEXT with real
     keys (desktop scope, front-app checked). With `cmd_l: false` no Cmd-L: the marker TEXT only, plain keys with no
-    modifier, so they must reach the restored view that had the keyboard (a page's text field). Only then the socket:
+    modifier, so they must reach the restored view that had the keyboard (a page's text field); `path: hid` types
+    the marker with CGEventPost at the HID tap (post_text) instead of CuaDriver. Only then the socket:
     the app settles and is identified again. Records the first key's time from the new process's main() (kernel
     start + the app's main_start mark)."""
     text = j.sub(step.get("text", ""))
@@ -1338,7 +1365,9 @@ def step_reopen_browser_keys(j, step):
         record["cmd_l"] = bool(cmd_l)
         if cmd_l:
             record["cmdl_wall"] = _desktop_key(keys, "l", ["cmd"])
-        record["marker_wall"] = [_desktop_key(keys, ch) for ch in text]
+        record["key_path"] = "CGEventPost HID" if step.get("path") == "hid" else "cua desktop"
+        record["marker_wall"] = (post_text(text) if step.get("path") == "hid" and text
+                                 else [_desktop_key(keys, ch) for ch in text])
         record["first_key_wall"] = record["cmdl_wall"] if cmd_l else (record["marker_wall"][0] if text else None)
     finally:
         keys.close()
@@ -1368,7 +1397,7 @@ def step_reopen_browser_keys(j, step):
         j.marks[step["mark"]] = D.now()
     if not record["pid_matches"]:
         raise D.StepError(f"reopen_browser_keys: the app that answers is not the reopened process: {record.get('new_pid')} vs {j.app.pid}")
-    return {k: record.get(k) for k in ("new_pid", "settled", "cmd_l", "window_ms", "window_listed_ms_from_main_provisional",
+    return {k: record.get(k) for k in ("new_pid", "settled", "cmd_l", "key_path", "window_ms", "window_listed_ms_from_main_provisional",
                                        "first_key_ms_from_main_provisional", "dialog")}
 
 

@@ -225,38 +225,32 @@
    "do": "hid_click",
    "x": 520,
    "y": 165,
-   "title": "set-up: a real click in the page's text field (the page is at the window's top left: field at 216-824 x 146-184 points)"
+   "mark": "click4",
+   "title": "set-up: a real click in the page's text field (the page starts at the window's top left under the tab and address bars: field at 216-824 x 146-184 points in a 1100 x 720 window)"
   },
   {
    "do": "wait",
    "seconds": 0.5
   },
   {
-   "do": "hid_key",
-   "key": "a",
-   "modifiers": [],
-   "mark": "su4a"
-  },
-  {
-   "do": "hid_key",
-   "key": "b",
-   "modifiers": [],
-   "mark": "su4b"
-  },
-  {
-   "do": "hid_key",
-   "key": "c",
-   "modifiers": [],
-   "mark": "su4c"
+   "do": "hid_line",
+   "text": "fieldkeysok",
+   "enter": false,
+   "path": "hid",
+   "mark": "su4a",
+   "title": "set-up: a set-up word with real HID keys (CGEventPost at the HID tap)"
   },
   {
    "do": "expect",
-   "title": "set-up: real plain keys reach the page and its field (the page shows them reversed)",
+   "title": "set-up: the field has the keyboard (it shows the word) and the page got every key in order (shown reversed)",
    "since": "su4a",
    "timeout": 10,
    "all": [
     {
-     "frame_text": "seencba"
+     "frame_text": "fieldkeysok"
+    },
+    {
+     "frame_text": "seenkosyekdleif"
     },
     {
      "key_window_focus": {
@@ -271,7 +265,8 @@
    "do": "reopen_browser_keys",
    "cmd_l": false,
    "mark": "reopenedA",
-   "title": "cycle A: a real Cmd-Q (Keep) and reopen; no key until the restored page has loaded"
+   "title": "cycle A: a real Cmd-Q (Keep) and reopen; no key until the restored page has loaded",
+   "path": "hid"
   },
   {
    "do": "expect",
@@ -296,7 +291,8 @@
    "text": "latekeysca",
    "enter": false,
    "mark": "lateA",
-   "title": "cycle A: then plain keys only (a marker, no modifier) with real keys"
+   "title": "cycle A: then plain keys only (a marker, no modifier) with real keys",
+   "path": "hid"
   },
   {
    "do": "expect",
@@ -324,7 +320,8 @@
    "text": "earlykeyscb",
    "cmd_l": false,
    "mark": "reopenedB",
-   "title": "cycle B: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed only plain keys (a marker, no modifier)"
+   "title": "cycle B: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed only plain keys (a marker, no modifier)",
+   "path": "hid"
   },
   {
    "do": "expect",
