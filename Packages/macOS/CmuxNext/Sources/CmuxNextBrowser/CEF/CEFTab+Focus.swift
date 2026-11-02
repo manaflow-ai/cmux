@@ -61,9 +61,18 @@ extension CEFTab {
     /// Gives the page focus on cmux's behalf. CEF asks back through
     /// `chromiumRequestsFocus` inside this call (the shim's calls run on
     /// CEF's UI thread, the main thread).
+    ///
+    /// Chromium's model is one key window per browser window, which hands its keys to the focused page. Here the page
+    /// is a child window that must itself be key, and CEF's SetFocus is the one call that makes it so. When it gives
+    /// the page focus but moves no key (seen after an address-bar load in a fresh launch), the cmux window that shows
+    /// the page keeps the keys with itself as first responder, and a typed key reaches no view: the page window takes
+    /// them here, in the grant every path uses (a direct grant, one after the browser exists, one after the page
+    /// shows). Still one key change per request (#24913); never from another window or an inactive app.
     func grantFocus(_ browser: Int32) {
         isGrantingFocus = true
         defer { isGrantingFocus = false }
         runtime.shim?.setFocus(browser, 1)
+        guard let window = pageWindow, let key = keyWindows.keyWindow(), key !== window, window.parent === key else { return }
+        keyWindows.makeKey(window)
     }
 }
