@@ -1262,16 +1262,12 @@ fn a_hidden_snapshot_viewer_gets_output_once_a_second_and_at_once_when_shown() {
     assert_eq!(reply["viewers"], 1, "{reply}");
     let mut flushed = false;
     while shown_at.elapsed() < Duration::from_millis(250) {
-        if let Some(event) = next_event(&outbound, Duration::from_millis(5)) {
-            if event["event"] == "output" {
-                offset += decoded_len(&event);
-                assert_eq!(
-                    event["offset"].as_u64(),
-                    Some(offset),
-                    "offsets are contiguous: {event}"
-                );
-                flushed = true;
-            }
+        if let Some(event) = next_event(&outbound, Duration::from_millis(5))
+            && event["event"] == "output"
+        {
+            offset += decoded_len(&event);
+            assert_eq!(event["offset"].as_u64(), Some(offset), "offsets are contiguous: {event}");
+            flushed = true;
         }
     }
     assert!(flushed, "a shown viewer got its waiting output only at the next second");

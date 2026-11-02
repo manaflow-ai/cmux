@@ -7,7 +7,7 @@
 //! reach the viewer as a new READY snapshot taken under the terminal lock, so
 //! the snapshot and the live bytes after it never overlap or leave a gap.
 
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 
 use ghostty_vt::SnapshotPhase;
 use sha2::{Digest, Sha256};
@@ -157,7 +157,7 @@ pub(crate) struct SnapshotRequestGate {
     state: Arc<Mutex<GateState>>,
     /// The viewer does not show the terminal (`set-attach-visibility`, `attach-visibility-v1`): its worker sends
     /// output once per wall-clock second instead of per frame.
-    hidden: Arc<std::sync::atomic::AtomicBool>,
+    hidden: Arc<AtomicBool>,
 }
 
 impl SnapshotRequestGate {
@@ -166,7 +166,7 @@ impl SnapshotRequestGate {
         Self {
             handle,
             state: Arc::new(Mutex::new(GateState { pending: true, ..Default::default() })),
-            hidden: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            hidden: Arc::new(AtomicBool::new(false)),
         }
     }
 
