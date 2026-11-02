@@ -11,7 +11,7 @@
  "steps": [
   {
    "do": "settings_file",
-   "title": "set-up: theme Builtin Dark, no close warning, columns a third of the window",
+   "title": "set-up: theme Builtin Dark, no close warning, new columns share the strip",
    "set": {
     "appearance": {
      "theme": "Builtin Dark",
@@ -21,7 +21,7 @@
      "warnBeforeClosingTab": false
     },
     "layout": {
-     "defaultColumnWidth": 0.3333
+     "newColumnWidth": "fitScreen"
     }
    }
   },
@@ -76,7 +76,19 @@
    "do": "type",
    "text": "python3 /tmp/jr-tuikit.py gradient --seed 1000 --fps 120",
    "enter": true,
-   "title": "set-up: load in pane p0"
+   "title": "set-up: load in pane p0",
+   "mark": "load0"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the load program runs in p0 (its alternate screen hides the prompt)",
+   "since": "load0",
+   "timeout": 8,
+   "all": [
+    {
+     "daemon_lacks": "J> "
+    }
+   ]
   },
   {
    "do": "action",
@@ -94,7 +106,19 @@
    "do": "type",
    "text": "python3 /tmp/jr-tuikit.py sigwinch --seed 1001",
    "enter": true,
-   "title": "set-up: load in pane p1"
+   "title": "set-up: load in pane p1",
+   "mark": "load1"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the load program runs in p1 (its alternate screen hides the prompt)",
+   "since": "load1",
+   "timeout": 8,
+   "all": [
+    {
+     "daemon_lacks": "J> "
+    }
+   ]
   },
   {
    "do": "action",
@@ -112,7 +136,19 @@
    "do": "type",
    "text": "python3 /tmp/jr-tuikit.py top --seed 1002",
    "enter": true,
-   "title": "set-up: load in pane p2"
+   "title": "set-up: load in pane p2",
+   "mark": "load2"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the load program runs in p2 (its alternate screen hides the prompt)",
+   "since": "load2",
+   "timeout": 8,
+   "all": [
+    {
+     "daemon_lacks": "J> "
+    }
+   ]
   },
   {
    "do": "wait",
