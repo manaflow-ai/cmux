@@ -479,8 +479,8 @@ fn the_chat_relay_hides_an_incognito_workspace_in_any_key_spelling() {
         private_key.replace('-', ""),
         private_key.replace('-', "").to_uppercase(),
     ] {
-        assert!(crate::server::mobile_chat::hides_workspace(&mux, &spelling), "{spelling}");
+        assert!(mobile_chat::hides_workspace(&mux, &spelling), "{spelling}");
     }
-    assert!(!crate::server::mobile_chat::hides_workspace(&mux, &normal_key));
-    assert!(!crate::server::mobile_chat::hides_workspace(&mux, &normal_key.to_uppercase()));
+    assert!(!mobile_chat::hides_workspace(&mux, &normal_key));
+    assert!(!mobile_chat::hides_workspace(&mux, &normal_key.to_uppercase()));
 }
