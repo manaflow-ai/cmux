@@ -22,16 +22,16 @@
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  padding: 6px 8px;
+  padding: 4px 8px;
   border: 1px solid var(--agent-border);
   border-radius: 6px;
   background: var(--agent-input-bg);
   color: inherit;
   font: inherit;
+  outline: none;
 }
-.acpmux-add-account input:focus-visible {
-  outline: 2px solid var(--agent-text);
-  outline-offset: 1px;
+.acpmux-add-account input:focus {
+  border-color: var(--agent-text);
 }
 .acpmux-add-account p {
   margin: 0;

@@ -92,6 +92,7 @@ export function AddAccountDialog({
             <span>{t(field.label)}</span>
             <input
               name={field.name}
+              aria-label={t(field.label)}
               value={values[field.name] ?? ""}
               required={field.required}
               maxLength={field.name === "id" ? 128 : 4096}
