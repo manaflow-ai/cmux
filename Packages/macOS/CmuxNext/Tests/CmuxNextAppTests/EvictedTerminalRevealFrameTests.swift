@@ -89,8 +89,8 @@ import Testing
         window.contentView = host
         window.orderFrontRegardless()
         var frames = TerminalLastFrames()
-        // The warm set of a 16 GB Mac (WarmSetBudget.forMemory: 8) and its eviction order: 9 terminals leave it.
-        let capacity = TerminalLastFrames.capacity(warm: 8, physicalBytes: 16 << 30)
+        // The warm set of a 16 GB Mac (WarmSetBudget.forMemory: 8): 9 terminals leave it.
+        let capacity = 8
         for index in 0..<9 {
             let io = ScriptedTerminalIO()
             ios.append(io)
@@ -106,6 +106,6 @@ import Testing
             session.view.removeFromSuperview()
             session.close()
         }
-        #expect(frames["tab-0"] != nil, "the first evicted terminal's frame was dropped after 8 more evictions (capacity \(capacity)): \(frames.report)")
+        #expect(frames["tab-0"] != nil, "the first evicted terminal's frame was dropped after 8 more evictions (warm capacity \(capacity)): \(frames.report)")
     }
 }
