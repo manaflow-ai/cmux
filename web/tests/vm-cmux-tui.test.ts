@@ -124,6 +124,13 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("kill -0");
     expect(command).toContain("XDG_RUNTIME_DIR=\"/run/user/$(id -u)\"");
     expect(command).toContain("exit 3");
+    const lines = command.split("\n");
+    expect(lines).toContain(
+      cmuxTuiAsDaemonUser(
+        'XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" timeout 15s "$CMUX_TUI_HOME/.local/bin/acpmux" daemon shutdown --keep-agents >/dev/null 2>&1 || true',
+      ),
+    );
+    expect(command).toContain("acpmux daemon did not stop before service start");
     expect(settle).toBeGreaterThan(shutdown);
     expect(enable).toBeGreaterThan(settle);
     expect(command).not.toContain("systemctl --user restart acpmux.service");
