@@ -111,10 +111,13 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
 /// goes to the page once, in the order typed; otherwise they were hint keys and none goes to the page.
 public nonisolated struct LinkHintHeldKeys<Key> {
     public private(set) var keys: [Key] = []
+    /// When the session started (the event clock, seconds since boot).
+    private let startedAt: TimeInterval
 
-    public init() {}
+    public init(startedAt: TimeInterval) { self.startedAt = startedAt }
 
-    public mutating func hold(_ key: Key) { keys.append(key) }
+    /// `key`, typed at `typedAt` (its event's timestamp). Stub for the red commit: when it was typed is not read.
+    public mutating func hold(_ key: Key, typedAt: TimeInterval) { keys.append(key) }
 
     /// The held keys the page gets now, after `outcome`: all of them, once, for ``LinkHintSession/Outcome/passThrough``.
     public mutating func release(after outcome: LinkHintSession.Outcome) -> [Key] {
