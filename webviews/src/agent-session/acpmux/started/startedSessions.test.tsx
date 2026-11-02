@@ -98,7 +98,12 @@ describe("startedPullRequests", () => {
       pullRequests: ["https://github.com/o/alpha/pull/7", "https://github.com/o/beta/pull/7"],
       pullRequest: { number: 7, title: "x", state: "open" },
     });
-    expect(startedPullRequests(entry)).toEqual({ count: 2, tone: "open", number: 7, others: [{ number: 7, repo: "alpha" }] });
+    expect(startedPullRequests(entry)).toEqual({
+      count: 2,
+      tone: "open",
+      number: 7,
+      others: [{ number: 7, repo: "alpha" }],
+    });
   });
 });
 
@@ -302,7 +307,13 @@ describe("StartedSessionCards", () => {
         sessionId: "b",
         title: "Switch gh-merge-green to merge-freeze issues",
         state: "running",
-        pullRequests: { count: 2, tone: "failing", number: 22092, repo: "cmux", others: [{ number: 22093, repo: "cmux" }] },
+        pullRequests: {
+          count: 2,
+          tone: "failing",
+          number: 22092,
+          repo: "cmux",
+          others: [{ number: 22093, repo: "cmux" }],
+        },
       },
     );
     expect(html.match(/class="acpmux-started"/g)?.length).toBe(1);
