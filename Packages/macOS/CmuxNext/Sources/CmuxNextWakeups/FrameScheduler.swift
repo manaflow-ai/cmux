@@ -375,7 +375,11 @@ public final class FrameScheduler: NSObject {
         lastTick = ranAt
         ticksOffLink = offLink
         let now = timestamp ?? ranAt
-        let elapsed = lastTimestamp.map { now - $0 } ?? (1.0 / 60.0)
+        // The first frame after the link was idle has no previous one: it steps by the display's own refresh
+        // period (one frame of motion, as every frame after it), not 1/60 s, which put the first moving frame of
+        // every animation from rest two refreshes along its curve at 120 Hz. A synthesized frame has none: 1/60.
+        let firstElapsed = refreshInterval.flatMap { $0 > 0 && $0.isFinite ? $0 : nil } ?? (1.0 / 60.0)
+        let elapsed = lastTimestamp.map { now - $0 } ?? firstElapsed
         lastTimestamp = now
         if let refreshInterval { lastRefreshInterval = refreshInterval }
         if !offLink, ticksOnLink, let timestamp, let refreshInterval {
