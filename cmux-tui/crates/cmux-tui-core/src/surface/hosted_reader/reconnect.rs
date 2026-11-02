@@ -309,6 +309,11 @@ impl HostedReader {
             // not in the journal: record that gap before any new
             // output (surface/journal_reconnect.rs).
             pty.journal_host_reconnect_gap(&reconnect_mux);
+            // The output store's tail must not continue across that gap
+            // either: the next snapshot takes the replaced screen.
+            if let Some(terminal_id) = pty.terminal_public_id.as_deref() {
+                reconnect_mux.output_store.stream_gap(terminal_id);
+            }
             reconnect_mux
                 .reconcile_deferred_cell_pixel_ack(surface.id, replacement_snapshot.cell_pixels);
             surface.publish_pending_directory();

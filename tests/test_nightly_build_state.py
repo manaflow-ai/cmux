@@ -170,6 +170,15 @@ class DedicatedBuilder(unittest.TestCase):
         self.commit({'cmux-tui/rust-toolchain.toml': '[toolchain]\n'})
         self.assertEqual(self.build(toolchain='Xcode 26.7')[0], 'mode=clean')
 
+    def test_a_cargo_lock_change_stays_incremental(self):
+        # The Release build's cargo phases rerun on their own lockfile inputs and build separate executables,
+        # so a Cargo.lock change leaves the kept Swift objects valid.
+        self.build()
+        self.commit({'cmux-tui/Cargo.lock': '# changed\n', 'Native/DiffSidecar/Cargo.lock': '# changed\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'cmux-tui/rust-toolchain.toml': '[toolchain]\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+
     def test_a_module_or_link_structure_change_makes_it_clean(self):
         for name in ('Packages/macOS/CmuxNext/Package.swift', 'cmux.xcodeproj/project.pbxproj', 'Config/Release.xcconfig',
                      'Sources/module.modulemap'):

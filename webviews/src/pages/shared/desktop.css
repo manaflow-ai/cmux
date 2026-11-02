@@ -644,6 +644,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-gap-block: calc(24px * var(--cmux-interface-scale, 1)); /* Gap between transcript blocks. */
   --grid-gap-turn: calc(32px * var(--cmux-interface-scale, 1)); /* Gap between transcript turns (settled-spacing: turn-gap). */
   --grid-gap-inner: calc(12px * var(--cmux-interface-scale, 1)); /* Gap inside a transcript tool group. */
+  --grid-gap-run: calc(16px * var(--cmux-interface-scale, 1)); /* Gap between a run of one-line rows and the prose over or under it. */
   --grid-gap-composer: calc(16px * var(--cmux-interface-scale, 1)); /* Gap from the last transcript block to the composer. */
   --grid-gap-foot: calc(4px * var(--cmux-interface-scale, 1)); /* Gap from the composer box to its quiet row. */
   --grid-transcript-action-control: calc(28px * var(--cmux-interface-scale, 1)); /* Row action box ending on the column edge. */
