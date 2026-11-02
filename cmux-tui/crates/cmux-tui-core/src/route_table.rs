@@ -7,8 +7,14 @@
 //! or any other change of which surface an id routes to makes the next key look its terminal up
 //! again, so a key never goes to a terminal that no longer owns the id. Reads deref to the map;
 //! the only writes are [`RouteTable::insert`] and [`RouteTable::remove`], so the compiler finds
-//! every write and none can skip the generation. A whole table replaced (a rollback `*state = before`, a projected
-//! state swapped in) drops the table it replaces, and a drop moves the generation too, so no replace skips it.
+//! every write and none can skip the generation. A whole-state replace (a rollback `*state = before`, a projected
+//! state swapped in) happens under the same state guard as the insert or remove it undoes or installs, so a key either
+//! looked its terminal up before that guard (and its kept generation is stale now) or after it (and keeps the route
+//! that is live). Clones and drops of the state route nothing and leave the generation alone: every durable mutation
+//! clones the state, and moving it there would send every key back to the session lock (the F4 delay).
+//!
+//! The generation is process-wide: a daemon runs one `Mux`, and the test runner (nextest) runs each test in its own
+//! process, so no other mux moves it under a test.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -60,25 +66,11 @@ impl<K: Eq + Hash, V> RouteTable<K, V> {
     }
 }
 
-impl<K, V> Drop for RouteTable<K, V> {
-    fn drop(&mut self) {
-        // The table this one routed is gone: a rollback or a projection replaced it.
-        route_changed();
-    }
-}
-
 impl<K, V> Deref for RouteTable<K, V> {
     type Target = HashMap<K, V>;
 
     fn deref(&self) -> &HashMap<K, V> {
         &self.0
-    }
-}
-
-impl<K: Eq + Hash, V> FromIterator<(K, V)> for RouteTable<K, V> {
-    fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-        route_changed();
-        Self(iter.into_iter().collect())
     }
 }
 

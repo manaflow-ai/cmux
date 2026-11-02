@@ -916,12 +916,6 @@ impl Mux {
         self.state.lock().unwrap().surfaces.remove(&id)
     }
 
-    /// Replaces the whole state, as a rollback (`*state = before`) does.
-    #[cfg(test)]
-    pub(crate) fn replace_state_for_test(&self, state: State) {
-        *self.state.lock().unwrap() = state;
-    }
-
     #[cfg(test)]
     pub(crate) fn insert_surface_runtime_for_test(&self, surface: Arc<Surface>) {
         let previous = self.state.lock().unwrap().surfaces.insert(surface.id, surface);
