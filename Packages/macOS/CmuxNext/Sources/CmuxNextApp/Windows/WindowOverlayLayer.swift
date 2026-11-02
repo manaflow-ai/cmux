@@ -312,6 +312,7 @@ final class WindowOverlayLayer {
             syncCatchers()
         }
         if placement == .overlayWindow { enforceOrder() }
+        if catchers.pagesMoved, !planes.contains(where: { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }) { syncCatchers() }
     }
 
     private func showPanel() {
@@ -373,8 +374,7 @@ final class WindowOverlayLayer {
             }
         }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
-        let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked)
+        catchers.update(catcherAreas, active: placement == .overlayWindow && WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow != true)
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
