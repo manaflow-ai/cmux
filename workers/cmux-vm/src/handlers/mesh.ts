@@ -90,7 +90,8 @@ const now = Effect.map(Clock.currentTimeMillis, (ms) => new Date(ms));
 const meshEnabledFor = (tenantId: Principal["tenantId"], actor: string) =>
   Effect.gen(function* () {
     const config = yield* MeshConfig;
-    if (!config.experiment || config.enabledFor(tenantId, actor)) return true;
+    if (!config.experiment) return false;
+    if (config.enabledFor(tenantId, actor)) return true;
     if (actor.startsWith("service:")) return false;
     const ownership = yield* OwnershipStore;
     const meshes = yield* ownership

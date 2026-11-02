@@ -91,9 +91,16 @@ it("admits the tenant's user and an installed device after a listed service make
 
 it("keeps the 404 when the only mesh was made by a tenant caller", async () => {
   const harness = await start();
-  const ownerKey = await harness.addKey(TEAM, ALL_SCOPES);
-  const created = await harness.request("/v1/meshes", bearer(ownerKey), { method: "POST", body: {} });
+  const key = await service(harness);
+  const created = await harness.request("/v1/mesh-creations", as(key, { "idempotency-key": "cloud-team-network" }), {
+    method: "POST",
+    body: { labels: { role: "cloud" } },
+  });
   expect(created.status).toBe(201);
+  const mesh = Schema.decodeUnknownSync(Mesh)(await created.json()).id;
+  const row = harness.resources.find((resource) => resource.kind === "mesh" && resource.cmuxId === mesh);
+  if (row === undefined) throw new Error("service mesh was not recorded");
+  Object.assign(row, { createdBy: "key:tenant-caller" });
   const user = "user_without_service_mesh";
   harness.addMember(TEAM, user);
   const userHeaders = { ...bearer(await harness.sessionToken(user)), "x-cmux-team-id": TEAM };
