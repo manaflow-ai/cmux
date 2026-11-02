@@ -15,7 +15,7 @@ Steps (`do`):
   bv_scroll      {page, y?: 400}
   bv_state       {page, note}                 the page's innerWidth, innerHeight, scrollY, devicePixelRatio and color
                                             scheme, plus debug.cef's DevTools frames; kept in the recording's notes
-  bv_action      {action, note?, args?}        action.run with origin user; its send time kept under `note`
+  bv_action      {action, note?, args?, fallback_key?}  action.run (origin script); its send time kept under `note`
   bv_devtools    {page, open?: true, timeout?: 5, quiet?: 0.6}  waits for the DevTools state; a StepError when it does not come
   bv_agent       {action, note?, ...params}   debug.agent_pane ACTION (stream, readiness, focus_composer, ...); the reply is
                                             kept in the recording's notes under `note`
@@ -140,10 +140,21 @@ def step_bv_agent(j, step):
 
 
 def step_bv_action(j, step):
-    """`action.run` ACTION (origin user, as a menu or palette pick) with its send time kept in the recording's notes
-    under `note` (the judge counts refreshes from it, as from a hid_key's t_sent)."""
+    """`action.run` ACTION (origin script) with its send time kept in the recording's notes under `note` (the judge
+    counts refreshes from it, as from a hid_key's t_sent). `fallback_key` {key, modifiers}: a real key sent instead
+    when the app refuses the action (its reply notes the refusal)."""
     sent = D.now()
-    reply = j.app.rpc("action.run", {"action": step["action"], "origin": "user", "args": step.get("args") or {}})
+    try:
+        # A socket's action.run takes origin cli, mcp, script or remote (never user).
+        reply = j.app.rpc("action.run", {"action": step["action"], "origin": "script", "args": step.get("args") or {}})
+    except Exception as error:  # noqa: BLE001  refused (for example a focus requirement): the fallback key, if any
+        fallback = step.get("fallback_key")
+        if not fallback:
+            raise
+        import ext_realkey
+        sent = D.now()
+        answer = ext_realkey.press(j, fallback["key"], fallback.get("modifiers", []))
+        reply = {"refused": str(error)[:300], "fallback_key": fallback, "answer": answer}
     value = {"t_sent": sent, "t_returned": D.now(), "action": step["action"], "reply": reply}
     if step.get("note"):
         _note(j, step["note"], value)
@@ -157,9 +168,10 @@ def step_bv_devtools(j, step):
     want = bool(step.get("open", True))
 
     def match():
-        rows = (j.app.rpc("debug.cef") or {}).get("devtools") or []
-        row = next((r for r in rows if isinstance(r, dict) and (not tab or r.get("tab") == tab)), None)
-        return row if row is not None and bool(row.get("open")) == want else None
+        rows = [r for r in (j.app.rpc("debug.cef") or {}).get("devtools") or [] if isinstance(r, dict)]
+        # The page's own row when its id is the tab's; else any shown Chromium tab (these journeys show one).
+        own = [r for r in rows if tab and r.get("tab") == tab] or rows
+        return next((r for r in own if bool(r.get("open")) == want), None)
     # No socket call in the first `quiet` s after the key: the frames under test are not shared with a main-actor report.
     time.sleep(float(step.get("quiet", 0.6)))
     row = _wait(match, float(step.get("timeout", 5)), 0.1)

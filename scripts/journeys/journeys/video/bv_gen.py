@@ -29,7 +29,8 @@ def devtools(dock, page, theme, rounds=5, mbps=80):
                   {"do": "video_start", "name": name, "mbps": mbps, "seconds": 20},
                   {"do": "bv_state", "page": page, "note": "before"}, {"do": "wait", "seconds": 0.3}]
         if r == 0:
-            steps.append({"do": "bv_action", "action": DOCK_ACTION[dock], "note": "open"})
+            steps.append({"do": "bv_action", "action": DOCK_ACTION[dock], "note": "open",
+                          "fallback_key": {"key": "i", "modifiers": ["cmd", "option"]}})
         else:
             steps.append(dict(OPEN_KEY, mark=f"open-r{r}", title="open DevTools: real Cmd-Opt-I"))
         steps += [{"do": "bv_devtools", "page": page, "open": True, "timeout": 5},

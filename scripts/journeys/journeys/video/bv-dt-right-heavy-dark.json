@@ -65,7 +65,14 @@
   {
    "do": "bv_action",
    "action": "devtools.openDockedRight",
-   "note": "open"
+   "note": "open",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
   },
   {
    "do": "bv_devtools",
