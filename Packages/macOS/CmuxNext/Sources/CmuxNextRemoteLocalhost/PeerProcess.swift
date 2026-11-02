@@ -105,21 +105,27 @@ enum PeerProcess {
             if let settled { continuation.resume(returning: settled) }
         }
 
-        func finish(_ trusted: Bool) { settle(trusted) }
-
-        func cancel() {
-            state.withLock { $0.cancelled = true }
-            settle(false)
+        func finish(_ trusted: Bool) {
+            let waiting = state.withLock { Self.settle(&$0, trusted) }
+            waiting?.resume(returning: trusted)
         }
 
-        private func settle(_ value: Bool) {
+        /// Marks the request cancelled and answers false in one critical section, so a scan that finishes
+        /// at the same time sees either "cancelled and settled" or "not yet cancelled", never a mix.
+        func cancel() {
             let waiting = state.withLock { state -> CheckedContinuation<Bool, Never>? in
-                guard state.result == nil else { return nil }
-                state.result = value
-                defer { state.continuation = nil }
-                return state.continuation
+                state.cancelled = true
+                return Self.settle(&state, false)
             }
-            waiting?.resume(returning: value)
+            waiting?.resume(returning: false)
+        }
+
+        /// Records the answer once and hands back the waiter to resume, if it is armed already.
+        private static func settle(_ state: inout State, _ value: Bool) -> CheckedContinuation<Bool, Never>? {
+            guard state.result == nil else { return nil }
+            state.result = value
+            defer { state.continuation = nil }
+            return state.continuation
         }
     }
 

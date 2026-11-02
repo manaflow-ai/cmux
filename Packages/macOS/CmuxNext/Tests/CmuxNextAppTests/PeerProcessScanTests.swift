@@ -13,6 +13,7 @@ nonisolated struct PeerProcessScanTests {
         private var _peak = 0
         private var _started = 0
         private let release = DispatchSemaphore(value: 0)
+        private let stalledStarted = DispatchSemaphore(value: 0)
 
         var peak: Int { lock.withLock { _peak } }
         var started: Int { lock.withLock { _started } }
@@ -31,11 +32,22 @@ nonisolated struct PeerProcessScanTests {
         /// A scan that does not finish until `unblock()`.
         func stalledScan() -> Bool {
             lock.withLock { _started += 1 }
+            stalledStarted.signal()
             release.wait()
             return true
         }
 
         func unblock() { release.signal() }
+
+        /// Returns once a stalled scan is running on the queue (without holding a cooperative thread).
+        func waitUntilStalled() async {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().async {
+                    self.stalledStarted.wait()
+                    continuation.resume()
+                }
+            }
+        }
     }
 
     private static func check(timeout: Duration = .seconds(5), _ scan: @escaping @Sendable () -> Bool) async -> Bool {
@@ -75,19 +87,19 @@ nonisolated struct PeerProcessScanTests {
     /// are skipped, so they hold no connection slot and add no work once the stall ends.
     @Test func aStalledScanDoesNotHoldTheCallersBehindIt() async {
         let gauge = Gauge()
+        let stalled = Task { await Self.check(timeout: .seconds(30)) { gauge.stalledScan() } }
+        await gauge.waitUntilStalled()
         let started = ContinuousClock.now
         let answers = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
-            group.addTask { await Self.check(timeout: .milliseconds(150)) { gauge.stalledScan() } }
-            // Let the stalled scan reach the queue first.
-            try? await Task.sleep(for: .milliseconds(50))
             for _ in 0..<5 { group.addTask { await Self.check(timeout: .milliseconds(150)) { gauge.slowScan() } } }
             var all: [Bool] = []
             for await answer in group { all.append(answer) }
             return all
         }
-        #expect(answers == [Bool](repeating: false, count: 6))
+        #expect(answers == [Bool](repeating: false, count: 5))
         #expect(ContinuousClock.now - started < .seconds(2), "the callers waited for the stalled scan")
         gauge.unblock()
+        #expect(await stalled.value)
         // The queue is serial: when this sentinel answers, everything queued before it has run or been skipped.
         let sentinel = await Self.check { true }
         #expect(sentinel)
@@ -96,10 +108,10 @@ nonisolated struct PeerProcessScanTests {
 
     @Test func aCancelledCallerAnswersAtOnceAndItsScanIsSkipped() async {
         let gauge = Gauge()
-        let blocker = Task { await Self.check { gauge.stalledScan() } }
-        try? await Task.sleep(for: .milliseconds(50))
-        let waiter = Task { await Self.check { gauge.slowScan() } }
-        try? await Task.sleep(for: .milliseconds(50))
+        let blocker = Task { await Self.check(timeout: .seconds(30)) { gauge.stalledScan() } }
+        await gauge.waitUntilStalled()
+        let waiter = Task { await Self.check(timeout: .seconds(30)) { gauge.slowScan() } }
+        // Cancelling before the waiter reaches the queue is fine too: it answers false either way.
         waiter.cancel()
         #expect(await waiter.value == false)
         gauge.unblock()
