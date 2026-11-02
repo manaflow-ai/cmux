@@ -22,7 +22,7 @@ const snapshot = chat(
 );
 
 /** How far each variant lifts the button over the prose (the app keeps it 12 px over the composer). */
-const LIFT_PX = 140;
+const LIFT_PX = 150;
 
 const park =
   (strength?: FisheyeStrength): Play =>

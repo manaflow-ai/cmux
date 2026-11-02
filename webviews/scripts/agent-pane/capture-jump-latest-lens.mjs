@@ -2,8 +2,8 @@
 // Chromium, cropped round the button: each strength, and the shared glass without the lens (before).
 // Usage: bun capture-jump-latest-lens.mjs OUT_DIR [dark|light]
 // Writes each PNG to OUT_DIR, prints one JPEG sheet of the four discs as SHEET lines (a fleet log's
-// tail carries it back) and, per variant, how
-// many of the disc's pixels differ from the before capture (0 means the lens drew nothing).
+// tail carries it back) and, per variant, whether its disc differs from the before capture (same
+// means the lens drew nothing).
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";

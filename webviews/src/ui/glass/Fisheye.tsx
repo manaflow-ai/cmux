@@ -100,8 +100,11 @@ export const FisheyeFilters = memo(function FisheyeFilters({ size }: { size: num
             scale={2 * MAP_REACH * (size / 2) * FISHEYE_STRENGTHS[strength]}
             xChannelSelector="R"
             yChannelSelector="G"
-            result="bent"
+            result="moved"
           />
+          {/* feDisplacementMap takes the nearest source pixel, which leaves text under the bend
+              jagged; a quarter-pixel blur smooths it without frosting the words. */}
+          <feGaussianBlur in="moved" stdDeviation="0.35" result="bent" />
           <feFlood style={{ floodColor: "var(--glass-surface)" }} result="surface" />
           <feMerge>
             <feMergeNode in="surface" />
