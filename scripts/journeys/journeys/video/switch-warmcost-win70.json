@@ -1,10 +1,10 @@
 {
- "id": "switch-warmcost-win70",
  "priority": "P2",
- "title": "SWITCH FRAMES SF-2: app footprint per warm hidden terminal, window 70% of the visible frame",
- "why": "Lead 10:4xZ: size WarmSetBudget.terminalCostBytes from a measurement on a 2x display at the person's window size; record the scale and window; check that pressure evicts the warm set at once. Gate (lead 12:0xZ): hidden busy terminals must not raise app CPU or wakeups at the new warm-set size.",
  "source": "SWITCH FRAMES SF-2; handoff/resize-videos/SWITCH-FRAMES.md",
- "budget_seconds": 1500,
+ "id": "switch-warmcost-win70",
+ "budget_seconds": 250,
+ "title": "SWITCH FRAMES SF-2: app footprint per warm hidden terminal, window 70% of the visible frame",
+ "why": "Lead 10:4xZ: size WarmSetBudget.terminalCostBytes from a measurement on a 2x display at the window size; record the scale and window; pressure evicts the warm set at once.",
  "steps": [
   {
    "do": "window_place",
@@ -20,21 +20,39 @@
    "do": "switch_warmcost",
    "title": "open 32 terminal workspaces one by one; footprint and warm set at each count; then pressure",
    "prefix": "wc-${nonce}",
-   "settle": 10
-  },
-  {
-   "do": "switch_warmbusy",
-   "title": "busy gate: app CPU and wakeups with 0, 4, 8, 16, 24 hidden terminals printing 20 lines/s",
-   "prefix": "wb-${nonce}",
+   "settle": 8,
    "counts": [
-    0,
+    1,
+    2,
     4,
     8,
+    12,
     16,
-    24
-   ],
-   "hz": 20,
-   "window": 20
+    24,
+    32
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "the shown marker workspace prints WARMCOST-MARK in the daemon, the app and on screen",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "WARMCOST-MARK"
+    },
+    {
+     "app_text_contains": "WARMCOST-MARK"
+    },
+    {
+     "frame_text": "WARMCOST-MARK"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
   }
  ]
 }

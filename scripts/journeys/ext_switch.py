@@ -792,6 +792,11 @@ def step_switch_warmcost(j, step):
             a, b, c = (round(m[i][3] / m[i][i], 2) for i in range(3))
             report["fit"] = {"base_mb": a, "per_live_terminal_mb": b, "per_evicted_terminal_mb": c,
                              "warm_minus_evicted_mb": round(b - c, 2), "points": len(pts)}
+    # The journey's expect step reads a marker in the app, the daemon and the frame: one last workspace prints it.
+    mark = "%s-mark" % prefix
+    j.app.rpc("action.run", {"action": "newTab", "args": {"name": mark, "focus": True,
+                                                            "command": "/bin/sh -c 'echo WARMCOST-MARK; exec sleep 3600'"}})
+    _shows(j, _wait(lambda: _ws_named(j, mark), 20, "workspace %s did not appear" % mark), mark)
     (j.out / "video").mkdir(exist_ok=True)
     (j.out / "video" / "warmcost.json").write_text(json.dumps(report, indent=1, default=str))
     print("WARMCOST-REPORT " + json.dumps({"display": display, "fit": report.get("fit")}, default=str), flush=True)
@@ -827,7 +832,9 @@ def step_switch_warmbusy(j, step):
 
     def show_quiet():
         if not _ws_named(j, quiet):
-            j.app.rpc("action.run", {"action": "newTab", "args": {"name": quiet, "focus": True}})
+            # Prints its marker once (the journey's expect step), then stays quiet.
+            j.app.rpc("action.run", {"action": "newTab", "args": {"name": quiet, "focus": True,
+                                                                    "command": "/bin/sh -c 'echo WARMBUSY-QUIET; exec sleep 3600'"}})
         ws = _wait(lambda: _ws_named(j, quiet), 20, "workspace %s did not appear" % quiet)
         j.app.rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws.get("id")}, "focus": True})
         _shows(j, ws, quiet)
