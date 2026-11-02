@@ -124,9 +124,18 @@ class Log:
             self.f = None
 
 
+def nonnegative(kind):
+    def parse(text):
+        value = kind(text)
+        if value < 0:
+            raise argparse.ArgumentTypeError("must be 0 or more")
+        return value
+    return parse
+
+
 def parse_size(text):
     m = re.fullmatch(r"(\d+)x(\d+)", text or "")
-    if not m:
+    if not m or int(m.group(1)) < 1 or int(m.group(2)) < 1:
         raise argparse.ArgumentTypeError("size is COLSxROWS, for example 120x40")
     return int(m.group(1)), int(m.group(2))
 
@@ -302,13 +311,15 @@ def cmd_build_bins(a):
     if not os.access(cargo, os.X_OK):
         sys.stderr.write("build-bins: no cargo on PATH or in ~/.cargo/bin\n")
         return 69
+    # --target-dir: a CARGO_TARGET_DIR or build.target elsewhere would put the programs where rust_bin()
+    # does not look
     done = subprocess.run([cargo, "build", "--release", "--offline", "--manifest-path",
-                           os.path.join(RUST_DIR, "Cargo.toml")])
+                           os.path.join(RUST_DIR, "Cargo.toml"), "--target-dir", os.path.join(RUST_DIR, "target")])
     if done.returncode != 0:
         return done.returncode
-    print(json.dumps({"bin_dir": os.path.join(RUST_DIR, "target", "release"),
-                      "tk-gradient": rust_bin("tk-gradient")}))
-    return 0
+    built = {name: rust_bin(name) for name in RUST_PROGRAMS}
+    print(json.dumps(dict(bin_dir=os.path.join(RUST_DIR, "target", "release"), **built)))
+    return 0 if all(built.values()) else 1
 
 
 def cmd_describe(a):
@@ -396,6 +407,7 @@ class Gradient:
 
 RUST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rust")
 RATE_FLOOR = 0.95  # cmux-ad 03:40Z: a run below 95 % of its target rate is NOT RUN
+RUST_PROGRAMS = ("tk-gradient", "tk-storm")
 
 
 def rust_bin(name):
@@ -462,7 +474,7 @@ def cmd_gradient(a):
             # late_ms: how late the frame starts after its wait (a sleep that woke late counts);
             # before_ms: how late it already was before the wait (the frame before took too long).
             log.event("frame", frame=k, late_ms=round(late * 1000, 3), before_ms=round(pacer.before * 1000, 3),
-                      bytes=len(text), draw_ms=round((time.monotonic() - drawn) * 1000, 3), mono=drawn,
+                      bytes=len(text.encode()), draw_ms=round((time.monotonic() - drawn) * 1000, 3), mono=drawn,
                       wall=drawn_wall)
             k += 1
     except Quit:
@@ -1351,8 +1363,8 @@ def pace_args(p, default):
 
 def common(p, duration=30.0, size=False):
     p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--duration", type=float, default=duration, help="seconds; 0 runs until a signal")
-    p.add_argument("--frames", type=int, default=0, help="stop after N frames (ticks); 0: no limit")
+    p.add_argument("--duration", type=nonnegative(float), default=duration, help="seconds; 0 runs until a signal")
+    p.add_argument("--frames", type=nonnegative(int), default=0, help="stop after N frames (ticks); 0: no limit")
     p.add_argument("--fake-clock", action="store_true", help="shown times come from the frame index (tests)")
     p.add_argument("--log", help="JSON lines of events with wall and mono stamps")
     if size:
