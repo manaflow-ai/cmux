@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4147112615101",
+  "notes": "notes/4147112615101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32215,
+      "title": "cmux NEXT debug: a palette window snapshot keeps the normalized path (rest of #24336)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32419,
+      "title": "ci(nightly): publish fails closed when the parallel launch smoke path ran and the final image came through empty",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32379,
+      "title": "test(focus): keys typed as the focus moves to a cold browser tab never reach the terminal that had the keyboard",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32374,
+      "title": "cmux NEXT: the host pressure warning is off by default; Show / Hide Host Pressure Warning in the palette",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32378,
+      "title": "ci(nightly): the launch smoke runs beside signer-dmg on the unsigned DMG; publish still needs it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32373,
+      "title": "fix(next): phone terminal streams are keyed by the canonical surface id and bounded in grid size and count",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32399,
+      "title": "cmux-vm staging: list cloud-platform-staging for the cloud-native image and the mesh gate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32404,
+      "title": "Make two #32213 helpers instantiable for the iOS package conventions lint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32388,
+      "title": "perf(sidebar): a destination row draws its glyph again only when the glyph changes (REOPEN-F7 part A1)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32394,
+      "title": "ci(base-red): judge a status-only check by the job behind its status",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32396,
+      "title": "Cloud: say plainly what the machine is and how long its files last (Session Info and agent)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32400,
+      "title": "test(webviews runner): the shared retry budget test leaves room for a second's tick",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32371,
+      "title": "Agent pane: a held guest message's line has no gray patch at rest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32386,
+      "title": "refactor(app): one browser rule for a tab's workspace-name input (TYPING FIX 2, #31908 follow-up)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32376,
+      "title": "fix(next panes): a pane a springing close retired leaves the window's shown panes in the close's turn (base red from #31811)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32395,
+      "title": "base red: nightly_publish_guard reads run jobs one bounded page at a time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32350,
+      "title": "Chief: prove coordinator contact end to end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32288,
+      "title": "fix(cmux-tui): a respawn the person now sees goes first instead of waiting for the waves ahead of it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
