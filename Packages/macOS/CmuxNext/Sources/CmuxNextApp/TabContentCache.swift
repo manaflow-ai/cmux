@@ -486,7 +486,7 @@ final class TabContentCache {
     }
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
-        if displacing, holdsForClose(key) { return } // a closing pane's terminal goes after the landing (F1)
+        if let pane = withdrawnBy.removeValue(forKey: key)?.value ?? presenter(of: key), displacing, terminals[key] != nil, browsers[key] == nil, (pane as? PaneController)?.holdsRelease(of: key, { [weak self] in self?.release(key) }) == true { return } // F1: a closing pane's terminal goes after its landing; a page goes now (its audio and scripts stop with the close)
         onRelease?(key)
         // A closed tab is mirrored nowhere any more (`TabMirrors`); a stand-in moving to its daemon tab keeps nothing to drop.
         if displacing { pageRequests.services?.tabMirrors.remove(key) }

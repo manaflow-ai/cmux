@@ -14,15 +14,6 @@ import CmuxNextBrowser
 /// current. That is what keeps a late completion from hiding, showing or
 /// reparenting the view of a newer selection.
 extension TabContentCache {
-    /// True when `key`'s release waits for its closing pane's landing (RESIZE VIDEOS F1): only a terminal's. A page's runs
-    /// now, so a closed page's audio, capture and scripts stop with the close, as Chrome's do. A close takes the tab out of
-    /// its strip first, so the pane that withdrew it is asked too.
-    func holdsForClose(_ key: String) -> Bool {
-        let withdrew = withdrawnBy.removeValue(forKey: key)?.value
-        guard terminals[key] != nil, browsers[key] == nil, let pane = (withdrew ?? presenter(of: key)) as? PaneController else { return false }
-        return pane.holdsRelease(of: key) { [weak self] in self?.release(key) }
-    }
-
     // MARK: Presentation
 
     /// `presenter` shows `key` (its view is, or is about to be, in the

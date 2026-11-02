@@ -47,9 +47,5 @@ extension PaneController {
             workspace.layoutModel.settlePaneClose(close)
         }
     }
-
-    /// While this pane leaves in a close that still springs, its tab's release waits for the landing (`LayoutRootView.afterClosing`).
-    func holdsRelease(of key: String, _ release: @escaping @MainActor () -> Void) -> Bool {
-        workspace?.layoutView.afterClosing(layoutPaneID, id: key, release) == true
-    }
+    func holdsRelease(of key: String, _ release: @escaping @MainActor () -> Void) -> Bool { workspace?.layoutView.afterClosing(layoutPaneID, id: key, release) == true } // a closing pane's release waits for its landing
 }
