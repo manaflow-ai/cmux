@@ -39,6 +39,9 @@ final class ThreadStackSampler: @unchecked Sendable {
     private let record: UnsafeMutablePointer<UInt>
     private let recordAddress: vm_address_t
     private let recordSize: vm_size_t
+    /// This task's port, read here: a Debug build checks every read of the C global `mach_task_self_` for
+    /// exclusive access (`swift_beginAccess`), a runtime call.
+    private let task: vm_map_read_t
 
     init(thread: thread_act_t, maxFrames: Int = 64) {
         self.thread = thread
@@ -72,6 +75,7 @@ final class ThreadStackSampler: @unchecked Sendable {
         record.initialize(repeating: 0, count: 2)
         recordAddress = vm_address_t(UInt(bitPattern: record))
         recordSize = vm_size_t(2 * word)
+        task = mach_task_self_
     }
 
     deinit {
@@ -125,7 +129,7 @@ final class ThreadStackSampler: @unchecked Sendable {
         }
         while fp != 0, fp & 0x7 == 0, frames < maxFrames {
             var size: vm_size_t = 0
-            guard vm_read_overwrite(mach_task_self_, fp, recordSize, recordAddress, &size) == KERN_SUCCESS else { break }
+            guard vm_read_overwrite(task, fp, recordSize, recordAddress, &size) == KERN_SUCCESS else { break }
             let next = record.pointee
             let returnAddress = (record + 1).pointee
             guard returnAddress != 0 else { break }
