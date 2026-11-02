@@ -551,6 +551,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// when the tab's content view enters a window).
     var isContentHidden: Bool { isOccluded }
 
+    public func snapshot() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.png) }
+    public func thumbnail() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.params) }
+
     public func setZoom(_ zoom: Double) {
         machine.apply(.zoomChanged(zoom))
         browserID.map { runtime.shim?.setZoomLevel($0, CEFZoom.level(forFactor: zoom)) }
