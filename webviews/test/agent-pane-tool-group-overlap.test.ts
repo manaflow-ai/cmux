@@ -103,6 +103,7 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
   });
   test("tool output has no floating duplicate and its copy stays clear of text", async () => {
     const page = await browser.newPage({ viewport: { width: 480, height: 520 } });
+    await installPaintedFrames(page);
     try {
       await page.addInitScript(() => {
         globalThis.cmuxExperiments = { "hover-actions": "all" };
@@ -116,6 +117,37 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
       await row.locator("button.cv-tool").click();
       await row.locator(".cv-tool-output-card").waitFor();
       await row.locator("button.cv-tool").focus();
+      // The click returns while the body's fold plays and the transcript holds the header in place,
+      // re-placing the rows under it on each pass (useAnchoredCollapse.ts, foldAnchor.ts). A hover
+      // aimed during that lands on whatever row is passing under the box's centre. Hover once the
+      // fold has ended and the box has painted at the same place for several frames in a row.
+      await page.waitForFunction(() => {
+        const open = document.querySelector('[data-row-id="copy-tool"] .cv-anchored-collapse');
+        if (open?.getAttribute("data-open") !== "true") return false;
+        return !document
+          .getAnimations()
+          .some(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            let last = "";
+            let same = 0;
+            window.cmuxAfterPaint(() => {
+              const box = document.querySelector('[data-row-id="copy-tool"] .cv-tool-output__box');
+              const rect = box?.getBoundingClientRect();
+              const at = rect ? `${rect.left},${rect.top},${rect.width},${rect.height}` : "";
+              same = at && at === last ? same + 1 : 0;
+              last = at;
+              if (same < 3) return true;
+              resolve();
+              return false;
+            });
+          }),
+      );
       // Output actions reveal when the output block is hovered; hovering the row header leaves them hidden.
       await row.locator(".cv-tool-output__box").hover();
       const capture = process.env.CMUX_COPY_CAPTURE ?? path.resolve(import.meta.dir, "../artifacts/copy-controls.jpg");
