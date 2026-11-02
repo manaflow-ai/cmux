@@ -131,10 +131,14 @@ def settled_drift(data, settled, read):
             findings.append(f'{SETTLED}: pin {pin.get("id")!r} lacks {", ".join(missing)}')
             continue
         name, value, source = pin['id'], pin['value'], pin['source']
+        if not isinstance(source, dict) or ('grid' in source) == ('file' in source):
+            findings.append(f'{SETTLED}: {name} source must be {{"grid": NAME}} or {{"file": PATH, "pattern": RE}}')
+            continue
         if name in seen:
             findings.append(f'{SETTLED}: pin {name} is listed twice')
         seen.add(name)
         tag = f'settled-spacing: {name}'
+        tagged = re.compile(re.escape(tag) + r'(?![\w-])')
         why = f'Leo settled {name} = {value:g} on {pin["date"]} ("{pin["words"]}", {pin["spec"]})'
         if 'grid' in source:
             metric = by_name.get(source['grid'])
@@ -142,14 +146,22 @@ def settled_drift(data, settled, read):
                 findings.append(f'{SETTLED}: {name} names no layout-grid metric {source["grid"]!r}')
             elif metric['pt'] != value:
                 findings.append(f'{SOURCE}: {source["grid"]} is {metric["pt"]:g}; {why}')
-            elif tag not in metric['description']:
+            elif not tagged.search(metric['description']):
                 findings.append(f'{SOURCE}: {source["grid"]} description lost "({tag})"')
             continue
         text = read(source.get('file', ''))
         if text is None:
             findings.append(f'{SETTLED}: {name} reads a missing file {source.get("file")!r}')
             continue
-        matches = list(re.finditer(source['pattern'], text, re.MULTILINE))
+        try:
+            pattern = re.compile(source.get('pattern', ''), re.MULTILINE)
+        except re.error as error:
+            findings.append(f'{SETTLED}: {name} pattern does not compile ({error})')
+            continue
+        if pattern.groups != 1:
+            findings.append(f'{SETTLED}: {name} pattern needs exactly one group, the value')
+            continue
+        matches = list(pattern.finditer(text))
         if len(matches) != 1:
             findings.append(f'{source["file"]}: {name} pattern matches {len(matches)} times, not once')
             continue
@@ -157,7 +169,7 @@ def settled_drift(data, settled, read):
             findings.append(f'{source["file"]}: {name} is {matches[0].group(1)}; {why}')
         line = text.count('\n', 0, matches[0].start())
         nearby = text.split('\n')[max(0, line - SETTLED_COMMENT_REACH):line + 1]
-        if not any(tag in row for row in nearby):
+        if not any(tagged.search(row) for row in nearby):
             findings.append(f'{source["file"]}:{line + 1}: {name} lost its "{tag}" comment')
     return findings
 

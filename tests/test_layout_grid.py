@@ -109,6 +109,19 @@ class SettledSpacingTests(unittest.TestCase):
         self.pin('rest-gap')['source']['pattern'] = r'const (\d+)'
         self.assertTrue(any('matches 0 times' in f for f in self.drift()))
 
+    def test_malformed_pins_are_findings_not_crashes(self):
+        rest = self.pin('rest-gap')
+        for pattern, message in ((r'REST_GAP = \d+;', 'exactly one group'), (r'REST_GAP = (\d+', 'does not compile')):
+            rest['source']['pattern'] = pattern
+            self.assertTrue(any(message in f for f in self.drift()), pattern)
+        self.pin('turn-gap')['source'] = 'gap-turn'
+        self.assertTrue(any('source must be' in f for f in self.drift()))
+
+    def test_a_longer_id_does_not_stand_in_for_the_tag(self):
+        path = self.pin('rest-gap')['source']['file']
+        self.files[path] = grid.read_file(path).replace('settled-spacing: rest-gap', 'settled-spacing: rest-gap-wide')
+        self.assertIn('lost its "settled-spacing: rest-gap" comment', self.drift()[0])
+
 
 if __name__ == '__main__':
     unittest.main()
