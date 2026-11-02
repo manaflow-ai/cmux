@@ -1385,6 +1385,11 @@ impl Hub {
         };
         if session.status() == SessionStatus::Closed {
             let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
+            // A summary may have been built while purge was unregistering the session. Recheck
+            // the tombstone while holding the cache lock so a late reader cannot recreate it.
+            if session.purged.load(Ordering::SeqCst) {
+                return row;
+            }
             let entry = cache.entry(id).or_insert_with(|| ClosedSummaryCacheEntry {
                 list_generation: 0,
                 list_next_expiry: 0,
