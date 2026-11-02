@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4150891005901",
+  "notes": "notes/4150891005901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32471,
+      "title": "P0 RESIZE KEYS K4: Ctrl-Shift-J/K and Ctrl-Cmd-Down/Up move a row edge one exact step",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32461,
+      "title": "cmux-tui: splits on one connection share a creation group (SPLIT BURST 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27781,
+      "title": "Make built-in density toggles discoverable in Customize",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32487,
+      "title": "acpmux: resolve and peer notices read only the peer rows they need (daemon at a core with 8k peer rows)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32529,
+      "title": "ci(nightly): clear the release-notary guard reds (warm sources, universal nightly workflow)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
