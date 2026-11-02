@@ -452,8 +452,8 @@ test("a pick from a new chat pauses its held prompts until it lands, then takes 
   expect(acpmux.sent).toEqual([]);
 
   // A pick that fails only resumes: the new chat's prompts go as before, once.
-  await act(async () => shown!.hold("third", []));
   await act(async () => void (resume = shown!.pauseNewChat()));
+  await act(async () => shown!.hold("third", []));
   await settle();
   expect(acpmux.sent).toEqual([]);
   await act(async () => {
