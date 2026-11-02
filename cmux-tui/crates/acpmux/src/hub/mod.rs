@@ -51,6 +51,7 @@ mod shutdown_scan_tests;
 mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
+pub(crate) mod fork_before;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
@@ -1209,6 +1210,7 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
+            fork_lock: Mutex::new(()),
             close_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
