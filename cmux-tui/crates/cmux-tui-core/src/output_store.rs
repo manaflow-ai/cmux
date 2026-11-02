@@ -21,8 +21,17 @@
 //!   - `snapshot` (default): one compressed file per terminal (screen plus
 //!     recent scrollback), replaced atomically, written only when the
 //!     terminal's content changed (cursor redraws write nothing), at most
-//!     every [`SNAPSHOT_INTERVAL`] and at quit. A respawn after a reboot
-//!     seeds the new shell with it.
+//!     every [`SNAPSHOT_INTERVAL`] and at quit, and the output after it in
+//!     an append-only tail file written every [`TAIL_FLUSH_INTERVAL`]
+//!     (`output_store/tail.rs`; the snapshot is its compaction). A respawn
+//!     after the daemon and its hosts died (a crash, a reboot) seeds the new
+//!     shell with the snapshot plus its tail (REOPEN-F3). What a kill of
+//!     every process loses: the output of the last [`TAIL_FLUSH_INTERVAL`]
+//!     and one writer pass, plus bytes that changed nothing the content
+//!     digest sees (text, size, screen, history, cursor position: a cursor
+//!     redrawn in place, a color-only change), which wait in memory up to
+//!     [`TAIL_IDLE_BYTES`] so an idle TUI writes nothing. An OS crash can
+//!     lose up to [`TAIL_SYNC_INTERVAL`] more.
 //!   - `full`: the snapshot plus every output byte in per-terminal
 //!     compressed segment files (see `output_store/segments.rs`).
 //!
@@ -34,6 +43,7 @@
 mod memory_budget;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
+mod tail;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -60,6 +70,34 @@ const SNAPSHOT_INTERVAL_ENV: &str = "CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS";
 pub(crate) const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(30);
 /// Full mode: how long new output waits before it goes to a segment file.
 pub(crate) const FULL_FLUSH_INTERVAL: Duration = Duration::from_secs(3);
+/// Snapshot mode: how long new output waits before it goes to the tail
+/// file. The most output a kill of the daemon and its hosts loses.
+pub(crate) const TAIL_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
+/// Snapshot mode: a tail file written since is fsynced at most this often
+/// (the most an OS crash adds to [`TAIL_FLUSH_INTERVAL`]).
+pub(crate) const TAIL_SYNC_INTERVAL: Duration = Duration::from_secs(1);
+/// Snapshot mode: tail bytes past which the next pass writes a snapshot
+/// (the compaction), so a restore replays about this much over it.
+const TAIL_MAX_BYTES: u64 = 1024 * 1024;
+/// Snapshot mode: the most raw bytes one tail file takes while snapshots
+/// fail; past it the bytes wait in memory (capped) for a snapshot. Below
+/// what a restore reads (`tail.rs` MAX_TAIL_FILE_BYTES, compressed).
+const TAIL_HARD_MAX_BYTES: u64 = 32 * 1024 * 1024;
+/// Snapshot mode: bytes of unchanged content (cursor redraws) a terminal
+/// keeps in memory instead of the tail; past it a snapshot replaces them.
+const TAIL_IDLE_BYTES: usize = 1024 * 1024;
+/// Snapshot mode: unwritten tail bytes one terminal keeps while its writes
+/// fail; past it the oldest go and the next snapshot starts the tail again.
+const TAIL_MAX_UNWRITTEN_BYTES: usize = 8 * 1024 * 1024;
+/// Snapshot mode: how long a resized terminal's size must hold before its
+/// snapshot at the new size is written. Output in that window is not in the
+/// tail (it continues a snapshot of the old size): the most a kill loses
+/// right after a resize.
+const RESIZE_SETTLE: Duration = Duration::from_secs(1);
+/// The first and the longest wait before a snapshot is tried again after a
+/// failed write.
+const STORE_RETRY_MIN: Duration = Duration::from_secs(1);
+const STORE_RETRY_MAX: Duration = Duration::from_secs(30);
 /// Snapshot mode keeps the screen plus about this many recent lines.
 pub(crate) const SNAPSHOT_HISTORY_LINES: usize = 2_000;
 /// Snapshot mode: total disk across terminals; the oldest terminals go first.
@@ -219,9 +257,136 @@ struct LogState {
     /// The log left the store (`OutputStore::forget`): no measurement may
     /// add to the total for it any more.
     forgotten: bool,
+    /// The stored snapshot's stream offset, generation and size (written
+    /// by this daemon; `None` before its first one).
+    snapshot_end: Option<u64>,
+    snapshot_generation: Option<Arc<str>>,
+    snapshot_size: Option<(u16, u16)>,
+    /// Snapshot mode: the stream offset after the last byte in the tail file
+    /// (the snapshot's offset when the tail is empty).
+    tail_end: Option<u64>,
+    /// Snapshot mode: raw bytes in the tail file.
+    tail_bytes: u64,
+    /// Snapshot mode: content digest at the last stored byte.
+    tail_digest: Option<u64>,
+    /// Snapshot mode: when the tail file was last fsynced, and whether a
+    /// write followed.
+    tail_synced_at: Option<Instant>,
+    tail_unsynced: bool,
+    /// The next pass writes a snapshot whether or not the content changed
+    /// (a gap in the tail, cleared history, a mode change).
+    force_snapshot: bool,
+    /// A snapshot or tail write failed and was reported; cleared by the next
+    /// success (one report per failing stretch, not one per pass).
+    store_error: bool,
+    /// Snapshot mode, while writes fail: no snapshot is tried before this
+    /// time, and the delay doubles per failure up to [`STORE_RETRY_MAX`]
+    /// (a full disk must not cost a whole replay per terminal every pass).
+    retry_at: Option<Instant>,
+    retry_delay: Duration,
+    /// Snapshot mode: the size the last capture saw and since when; a
+    /// resized terminal is snapshotted once its size has held for
+    /// [`RESIZE_SETTLE`] (a divider drag does not write a snapshot per pass).
+    size_seen: Option<((u16, u16), Instant)>,
 }
 
 impl LogState {
+    /// A log of `generation` whose stream continues at offset `start`.
+    fn new(generation: Arc<str>, start: u64) -> Self {
+        Self {
+            generation,
+            tail_start: start,
+            tail: VecDeque::new(),
+            dirty: false,
+            snapshot_digest: None,
+            snapshot_at: None,
+            segment_digest: None,
+            last_output: Instant::now(),
+            pending: Vec::new(),
+            pending_start: start,
+            resident: 0,
+            measured_rows: None,
+            measure_due: false,
+            forgotten: false,
+            snapshot_end: None,
+            snapshot_generation: None,
+            snapshot_size: None,
+            tail_end: None,
+            tail_bytes: 0,
+            tail_digest: None,
+            tail_synced_at: None,
+            tail_unsynced: false,
+            force_snapshot: false,
+            store_error: false,
+            retry_at: None,
+            retry_delay: Duration::ZERO,
+            size_seen: None,
+        }
+    }
+
+    /// Snapshot mode: the unwritten bytes cannot continue the tail (a gap, a
+    /// failed write, a flood past the cap, a resize, an unknown privacy).
+    /// They are dropped: the next snapshot is taken from the live terminal
+    /// and covers their effect on the screen and its recent history, so
+    /// nothing waits in memory for it.
+    fn fall_back_to_snapshot(&mut self) {
+        self.pending = Vec::new();
+        self.pending_start = self.next_offset();
+        self.tail_end = None;
+        self.tail_digest = None;
+        self.force_snapshot = true;
+    }
+
+    /// Record the size a capture saw; whether it has held for
+    /// [`RESIZE_SETTLE`].
+    fn note_size(&mut self, size: (u16, u16)) -> bool {
+        match self.size_seen {
+            Some((seen, since)) if seen == size => since.elapsed() >= RESIZE_SETTLE,
+            _ => {
+                self.size_seen = Some((size, Instant::now()));
+                false
+            }
+        }
+    }
+
+    /// A snapshot or tail write failed: the next snapshot waits out the
+    /// backoff. Returns the wait.
+    fn store_failed(&mut self) -> Duration {
+        self.retry_delay = (self.retry_delay * 2).clamp(STORE_RETRY_MIN, STORE_RETRY_MAX);
+        self.retry_at = Some(Instant::now() + self.retry_delay);
+        self.retry_delay
+    }
+
+    /// A write went through: the disk takes writes again.
+    fn store_succeeded(&mut self) {
+        self.store_error = false;
+        self.retry_at = None;
+        self.retry_delay = Duration::ZERO;
+    }
+
+    /// The time left before a snapshot may be tried again, if any.
+    fn retry_wait(&self) -> Option<Duration> {
+        self.retry_at
+            .and_then(|at| at.checked_duration_since(Instant::now()))
+            .filter(|left| !left.is_zero())
+    }
+
+    /// Drop the oldest unwritten bytes past `max`. The stored stream then has
+    /// a gap: in snapshot mode the tail no longer continues and the next
+    /// snapshot starts it again (full mode's segment reads report the gap).
+    fn cap_pending(&mut self, max: usize) {
+        if self.pending.len() <= max {
+            return;
+        }
+        // Down to 3/4 of the cap: a flood does not move the whole buffer on
+        // every pass.
+        let excess = self.pending.len() - max / 4 * 3;
+        self.pending.drain(..excess);
+        self.pending_start += excess as u64;
+        self.tail_end = None;
+        self.force_snapshot = true;
+    }
+
     fn next_offset(&self) -> u64 {
         self.tail_start + self.tail.len() as u64
     }
@@ -333,6 +498,11 @@ pub(crate) struct OutputStore {
     logs: Mutex<HashMap<TerminalPublicId, Arc<TerminalLog>>>,
     writer: snapshot::Writer,
     full: segments::Segments,
+    /// Snapshot mode: output after the snapshot goes to its tail file.
+    tail: std::sync::atomic::AtomicBool,
+    /// The last memory budget pass of a write pass (they run at most once per
+    /// snapshot interval, not on every tail flush).
+    last_enforce: Mutex<Option<Instant>>,
     snapshot_interval: Duration,
     /// The policy the writer read last (the quit pass has no settings owner
     /// handle).
@@ -382,6 +552,8 @@ impl OutputStore {
             logs: Mutex::new(HashMap::new()),
             writer: snapshot::Writer::default(),
             full: segments::Segments::default(),
+            tail: std::sync::atomic::AtomicBool::new(false),
+            last_enforce: Mutex::new(None),
             snapshot_interval,
             policy: Mutex::new(None),
             pass: Mutex::new(()),
@@ -419,12 +591,21 @@ impl OutputStore {
         self.cache_policy(policy);
         self.set_resident_trigger(memory_budget::effective(policy.memory_total_bytes));
         self.full.set_enabled(policy.mode == PersistenceMode::Full);
+        self.set_tail_enabled(policy.mode == PersistenceMode::Snapshot);
         {
             let _pass = self.lock_pass();
             snapshot::prune(mux, self, policy);
         }
-        *self.resume.lock().unwrap_or_else(PoisonError::into_inner) =
-            snapshot::stream_ends(directory);
+        let mut resume = snapshot::stream_ends(directory);
+        // A tail reaches past its snapshot: a re-adopted terminal's stream
+        // continues after it, so no stored offset is used twice.
+        for (terminal_id, (generation, end)) in tail::stream_ends(directory) {
+            let known = resume.entry(terminal_id).or_insert_with(|| (generation.clone(), end));
+            if known.0 == generation {
+                known.1 = known.1.max(end);
+            }
+        }
+        *self.resume.lock().unwrap_or_else(PoisonError::into_inner) = resume;
         if policy.mode == PersistenceMode::Full {
             *self.segment_resume.lock().unwrap_or_else(PoisonError::into_inner) =
                 segments::all_stream_ends(directory);
@@ -460,22 +641,7 @@ impl OutputStore {
         let start = snapshot_end.into_iter().chain(segment_end).max().unwrap_or(0);
         let log = Arc::new(TerminalLog {
             terminal_id: terminal_id.clone(),
-            state: Mutex::new(LogState {
-                generation: generation.clone(),
-                tail_start: start,
-                tail: VecDeque::new(),
-                dirty: false,
-                snapshot_digest: None,
-                snapshot_at: None,
-                segment_digest: None,
-                last_output: Instant::now(),
-                pending: Vec::new(),
-                pending_start: start,
-                resident: 0,
-                measured_rows: None,
-                measure_due: false,
-                forgotten: false,
-            }),
+            state: Mutex::new(LogState::new(generation.clone(), start)),
         });
         logs.insert(terminal_id.clone(), log.clone());
         log
@@ -523,12 +689,20 @@ impl OutputStore {
         state.tail_start += overflow as u64 + skipped;
         state.tail.extend(bytes.get(bytes.len().saturating_sub(keep)..).unwrap_or_default());
         state.last_output = Instant::now();
-        if self.full.enabled() {
+        if self.full.enabled() || self.tail_enabled() {
             if state.pending.is_empty() {
                 state.pending_start = state.next_offset() - bytes.len() as u64;
             }
+            let before = state.pending.len();
             state.pending.extend_from_slice(bytes);
-            if state.pending.len() >= FULL_PENDING_WAKE_BYTES {
+            // A flood wakes the writer once, when its unwritten bytes cross
+            // the threshold, not on every chunk after it; never while a
+            // snapshot-mode write backoff holds them (the writer's own
+            // retry time wakes it).
+            if before < FULL_PENDING_WAKE_BYTES
+                && state.pending.len() >= FULL_PENDING_WAKE_BYTES
+                && (self.full.enabled() || state.retry_wait().is_none())
+            {
                 state.dirty = true;
                 drop(state);
                 self.writer.mark_dirty(Duration::ZERO);
@@ -546,10 +720,18 @@ impl OutputStore {
     fn mark_dirty(&self) {
         let interval = if self.full.enabled() {
             FULL_FLUSH_INTERVAL.min(self.snapshot_interval)
+        } else if self.tail_enabled() {
+            TAIL_FLUSH_INTERVAL.min(self.snapshot_interval)
         } else {
             self.snapshot_interval
         };
         self.writer.mark_dirty(interval);
+    }
+
+    /// Put a log back for a pass `delay` from now (a write backoff).
+    fn mark_log_dirty_after(&self, log: &TerminalLog, delay: Duration) {
+        log.state.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
+        self.writer.mark_dirty(delay);
     }
 
     /// Put a log back for the next pass (full mode spaces snapshots out).
@@ -653,10 +835,18 @@ impl OutputStore {
             state.snapshot_digest = None;
             state.snapshot_at = None;
             state.segment_digest = None;
+            state.tail_end = None;
+            state.tail_bytes = 0;
+            state.tail_digest = None;
+            state.force_snapshot = true;
             state.dirty = true;
         }
         if let Some(directory) = self.directory.as_deref() {
             segments::remove(directory, terminal_id);
+            tail::remove(directory, terminal_id);
+            // The cleared lines leave the disk now, not when the next
+            // snapshot is written (which a write backoff can delay).
+            snapshot::remove(directory, terminal_id);
         }
         self.writer.mark_dirty(Duration::ZERO);
     }
@@ -702,14 +892,15 @@ impl OutputStore {
         if self.memory_only() {
             return None;
         }
-        let (snapshot, generation) = snapshot::read(directory, terminal_id)?;
+        let (snapshot, generation, snapshot_end) = snapshot::read(directory, terminal_id)?;
         if self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Full)
             && let Some(rebuilt) =
                 segments::rebuild(directory, terminal_id, &generation, snapshot.cols, snapshot.rows)
         {
             return Some(rebuilt);
         }
-        Some(snapshot)
+        // Snapshot mode: the output after the snapshot, from its tail.
+        Some(tail::restore(directory, terminal_id, &generation, snapshot_end, snapshot))
     }
 
     /// The logs whose terminal printed since the writer last looked; their
@@ -806,6 +997,31 @@ impl OutputStore {
         self.resident_trigger.store(trigger, std::sync::atomic::Ordering::Release);
     }
 
+    fn tail_enabled(&self) -> bool {
+        self.tail.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn set_tail_enabled(&self, enabled: bool) {
+        self.tail.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether a write pass runs the memory budget now: at most once per
+    /// interval of the mode (the growth trigger covers the time between,
+    /// `memory_budget.rs`).
+    fn enforce_due(&self, full: bool) -> bool {
+        let interval = if full {
+            FULL_FLUSH_INTERVAL.min(self.snapshot_interval)
+        } else {
+            self.snapshot_interval
+        };
+        let mut last = self.last_enforce.lock().unwrap_or_else(PoisonError::into_inner);
+        if last.is_some_and(|at| at.elapsed() < interval) {
+            return false;
+        }
+        *last = Some(Instant::now());
+        true
+    }
+
     fn lock_pass(&self) -> std::sync::MutexGuard<'_, ()> {
         self.pass.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -840,6 +1056,7 @@ impl OutputStore {
             let _pass = self.lock_pass();
             snapshot::remove(directory, terminal_id);
             segments::remove(directory, terminal_id);
+            tail::remove(directory, terminal_id);
         }
     }
 
@@ -943,7 +1160,15 @@ impl OutputStore {
                     false
                 }
                 None => {
-                    log.state.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
+                    let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                    state.dirty = true;
+                    // Bounded while the registry cannot place the terminal
+                    // (snapshot mode: the snapshot covers the bytes).
+                    if self.tail_enabled() {
+                        state.fall_back_to_snapshot();
+                    } else {
+                        state.cap_pending(TAIL_MAX_UNWRITTEN_BYTES);
+                    }
                     unknown = true;
                     false
                 }

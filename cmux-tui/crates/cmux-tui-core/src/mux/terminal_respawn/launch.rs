@@ -351,4 +351,16 @@ mod tests {
         ];
         assert_eq!(usable_env(&env), vec![("CMUX_TAG".to_string(), "dev".to_string())]);
     }
+
+    /// Failure-mode table, "unreplayable screen": a previous screen that ends
+    /// inside a control string (a Kitty upload the lost program never ended)
+    /// does not swallow the reset and the marker line. (Coverage: it held
+    /// before this PR too; the parser leaves the string at the reset's ESC.)
+    #[test]
+    fn a_screen_that_ends_inside_a_control_string_keeps_the_marker_line() {
+        let seed =
+            respawn_seed(Some(b"text\r\n\x1b_Ga=t,f=100,m=1;AAAA".to_vec()), Some("restored"));
+        let rows = shown(40, 5, &seed);
+        assert!(rows.iter().any(|row| row == "restored"), "the marker was swallowed: {rows:?}");
+    }
 }
