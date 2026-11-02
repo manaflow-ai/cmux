@@ -17,9 +17,38 @@
    "do": "smoke_make_key"
   },
   {
+   "do": "window_place",
+   "title": "set-up: the window fills the screen (3 columns fit, no strip scroll)",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "hid_probe"
+  },
+  {
    "do": "new_terminal",
    "via": "key",
    "name": "rv"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case (Home docks an agent chat as its main pane)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
   },
   {
    "do": "neutral_prompt"
@@ -170,6 +199,12 @@
      "pane_frame_text": "rv-done-${nonce}"
     }
    ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
   }
  ]
 }

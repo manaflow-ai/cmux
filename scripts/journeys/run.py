@@ -373,6 +373,7 @@ def kit_tar(specs):
         tar.add(BUILD_NAMES, arcname="build_names.py")
         tar.add(HERE / "smoke_hog.py", arcname="smoke_hog.py")  # run only with --hog-swap-gb
         tar.add(HERE / "vdisplay120.m", arcname="vdisplay120.m")  # built only with --vdisplay
+        tar.add(HERE / "sck_probe.swift", arcname="sck_probe.swift")  # built only by ext_video's sck_probe step
         tar.add(OCR_SOURCE, arcname="ocr.swift")
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
         info = tarfile.TarInfo("journeys.json")
@@ -597,7 +598,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
                                  ident=ident), out, ident.get("harness"), harness)
 
 
-VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json))")
+VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/(?:[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json)|crash-[A-Za-z0-9_.-]+\.ips\.txt))")
 VIDEO_MAX_BYTES = 4 << 30
 
 

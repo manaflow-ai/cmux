@@ -58,6 +58,15 @@ def publish(run_out, label, dest_root, journey_ids):
     return cases
 
 
+def refuse_cua_recording(journey_ids):
+    """KIT.md hard rule (cmux-ad 01:30Z): no journey of a video round may call CuaDriver's screen recorder."""
+    for jid in journey_ids:
+        for path in (HERE / "journeys").rglob("*.json"):
+            text = path.read_text()
+            if f'"id": "{jid}"' in text and any(t in text for t in ("start_recording", "record_screen", "cua_record")):
+                raise SystemExit(f"video-go: journey {jid} ({path}) calls a CuaDriver recorder: refused (CuaDriver is input only)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--spec", required=True)
@@ -65,6 +74,8 @@ def main():
     ap.add_argument("--journey", action="append", required=True)
     ap.add_argument("--label", required=True, help="the folder name under PUBLISH (the build's name)")
     ap.add_argument("--rounds", type=int, default=1)
+    ap.add_argument("--hog-swap-gb", type=float, default=0.0, help="run.py --hog-swap-gb (the 15 GB memory hog case)")
+    ap.add_argument("--spec-file", help="a lease-round spec JSON to hand to the mini scheduler once the build is done")
     ap.add_argument("--vdisplay", default="120x1", help="HZxSCALE of the lease's own main display (run.py --vdisplay); "
                     "'none' keeps the mini's own 60 Hz display (geometry only, never pacing evidence)")
     ap.add_argument("--publish", default="/Users/lawrence/fun/wt/handoff/resize-videos")
@@ -73,6 +84,24 @@ def main():
     opts = ap.parse_args()
     if not os.environ.get("CMUX_AGENT_ID"):
         ap.error("export CMUX_AGENT_ID first (capture leases carry their owner)")
+    refuse_cua_recording(opts.journey)
+    # The build first: a GO is a mini held for this round now, never while the build still runs (the scheduler
+    # withdraws a GO with no lease after 240 s). A wait timeout leaves the job running: wait again, never resubmit.
+    while True:
+        state = json.loads(subprocess.run(["cmux-ci", "status", opts.build], capture_output=True, text=True).stdout or "{}").get("state")
+        if state == "done":
+            break
+        if state in ("failed", "cancelled", "superseded"):
+            print(f"build {opts.build} is {state}: no round", flush=True)
+            return 75
+        subprocess.run(["cmux-ci", "wait", opts.build], capture_output=True)
+        time.sleep(20)
+    if opts.spec_file:
+        # The lease-round spec goes to the scheduler only now that the build is done.
+        specs = gate.SCHED_ROUNDS.parent / "specs"
+        shutil.copy2(opts.spec_file, specs / f"{opts.spec}.json.tmp")
+        os.replace(specs / f"{opts.spec}.json.tmp", specs / f"{opts.spec}.json")
+        print(f"spec {opts.spec} handed to the mini scheduler", flush=True)
     used, deadline, not_run = set(), time.time() + opts.go_wait_hours * 3600, 0
     for n in range(opts.rounds):
         go, why = gate.await_go(opts.spec, MINIS, used, deadline)
@@ -88,6 +117,8 @@ def main():
         # --frame-interval 60: the driver's clip snapshots run on the app's main thread; none may fall in a recording.
         cmd = [sys.executable, str(HERE / "run.py"), "--build", opts.build, "--whole-host", "--exclusive", "--frame-interval", "60",
                "--hosts", host, "--out", str(out)]
+        if opts.hog_swap_gb > 0:
+            cmd += ["--hog-swap-gb", str(opts.hog_swap_gb)]
         if opts.vdisplay != "none":
             cmd += ["--vdisplay", opts.vdisplay]
         for jid in opts.journey:
@@ -99,7 +130,15 @@ def main():
         cases = publish(out, f"{opts.label}-{opts.vdisplay}", opts.publish, opts.journey) if out.is_dir() else []
         if (out / "display.json").is_file():
             shutil.copy2(out / "display.json", Path(opts.publish) / f"{opts.label}-{opts.vdisplay}" / "display.json")
-        print(json.dumps({"round": n + 1, "host": host, "status": status, "out": str(out), "published": cases}), flush=True)
+        smoke_env = []
+        for meta in sorted(out.glob("*/video/*.meta.json")):
+            m = json.loads(meta.read_text())
+            if m.get("smoke_env"):
+                smoke_env.append(m.get("name"))
+        if smoke_env:
+            status = "smoke env"  # a CuaDriver consent dialog was on screen: not a result (KIT.md)
+        print(json.dumps({"round": n + 1, "host": host, "status": status, "out": str(out), "published": cases,
+                          "smoke_env": smoke_env}), flush=True)
         not_run += status == "not run"
     return 75 if not_run else 0
 
