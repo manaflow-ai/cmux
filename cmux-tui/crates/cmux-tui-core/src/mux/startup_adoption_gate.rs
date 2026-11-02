@@ -17,6 +17,7 @@
 //! up and adopts at once, without a turn.
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 /// First adoption attempts that run at once after a start.
@@ -30,6 +31,9 @@ struct GateState {
     /// Tickets dropped before their turn (a thread that never started, an
     /// adoption that ended first); `serving` steps over them.
     abandoned: BTreeSet<u64>,
+    /// Counts every wake-up, so a waiter that checked outside the lock
+    /// ([`StartupAdoptionGate::turn_or_jump`]) sees one it would have missed.
+    wakes: u64,
 }
 
 impl GateState {
@@ -46,6 +50,20 @@ pub(crate) struct StartupAdoptionGate {
     state: Mutex<GateState>,
     changed: Condvar,
     slots: usize,
+    /// Threads in [`Self::turn`] or [`Self::turn_or_jump`]: a wake-up with
+    /// none waiting takes no lock ([`Self::wake_waiters`]).
+    waiting: AtomicUsize,
+}
+
+/// How [`StartupAdoptionGate::turn_or_jump`] let a waiter go.
+pub(crate) enum Admission<'a> {
+    /// Its turn: it holds a slot until the turn drops.
+    Turn(Turn<'a>),
+    /// It went first, with no turn and no slot (a terminal the person now
+    /// waits on).
+    Jumped,
+    /// It gave up (shutdown); its place went to the next ticket.
+    GaveUp,
 }
 
 impl Default for StartupAdoptionGate {
@@ -74,6 +92,7 @@ impl Drop for Ticket {
             state.abandoned.insert(self.number);
         }
         state.skip_abandoned();
+        state.wakes += 1;
         self.gate.changed.notify_all();
     }
 }
@@ -84,7 +103,12 @@ pub(crate) struct Turn<'a>(&'a StartupAdoptionGate);
 impl StartupAdoptionGate {
     /// A gate that lets `slots` turns run at once (at least one).
     pub(super) fn with_slots(slots: usize) -> Self {
-        Self { state: Mutex::default(), changed: Condvar::new(), slots: slots.max(1) }
+        Self {
+            state: Mutex::default(),
+            changed: Condvar::new(),
+            slots: slots.max(1),
+            waiting: AtomicUsize::new(0),
+        }
     }
 
     pub(super) fn ticket(self: &Arc<Self>) -> Ticket {
@@ -98,30 +122,68 @@ impl StartupAdoptionGate {
     /// a request waits on this terminal) is checked whenever the gate changes
     /// or [`Self::wake_all`] runs; then no turn is taken. It runs under the
     /// gate's lock, so it may take only leaf locks.
-    pub(super) fn turn(&self, mut ticket: Ticket, give_up: impl Fn() -> bool) -> Option<Turn<'_>> {
+    pub(super) fn turn(&self, ticket: Ticket, give_up: impl Fn() -> bool) -> Option<Turn<'_>> {
+        match self.turn_or_jump(ticket, give_up, || false) {
+            Admission::Turn(turn) => Some(turn),
+            Admission::Jumped | Admission::GaveUp => None,
+        }
+    }
+
+    /// [`Self::turn`], and `jump` may let the waiter go first, with no turn:
+    /// it runs with the gate's lock released (it may take the mux's locks),
+    /// at the start and after each wake-up. A wake-up while it runs is not
+    /// lost: the waiter checks again before it sleeps.
+    pub(super) fn turn_or_jump(
+        &self,
+        mut ticket: Ticket,
+        give_up: impl Fn() -> bool,
+        jump: impl Fn() -> bool,
+    ) -> Admission<'_> {
+        self.waiting.fetch_add(1, Ordering::AcqRel);
+        let _waiting = WaitingGuard(&self.waiting);
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if give_up() {
                 // The ticket's drop gives its place up.
                 drop(state);
-                return None;
+                return Admission::GaveUp;
             }
             if state.serving == ticket.number && state.active < self.slots {
                 ticket.used = true;
                 state.serving += 1;
                 state.skip_abandoned();
                 state.active += 1;
+                state.wakes += 1;
                 self.changed.notify_all();
-                return Some(Turn(self));
+                return Admission::Turn(Turn(self));
             }
+            // Stub (red): `jump` is not consulted yet.
+            let _ = &jump;
             state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
         }
     }
 
     /// Wakes waiters so they re-check `give_up` (shutdown, a waited-on terminal).
     pub(super) fn wake_all(&self) {
-        let _state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.wakes += 1;
         self.changed.notify_all();
+    }
+
+    /// [`Self::wake_all`] when a thread waits; otherwise one atomic load and
+    /// no lock (it runs on every tree change).
+    pub(super) fn wake_waiters(&self) {
+        if self.waiting.load(Ordering::Acquire) > 0 {
+            self.wake_all();
+        }
+    }
+}
+
+struct WaitingGuard<'a>(&'a AtomicUsize);
+
+impl Drop for WaitingGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -129,6 +191,7 @@ impl Drop for Turn<'_> {
     fn drop(&mut self) {
         let mut state = self.0.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.active = state.active.saturating_sub(1);
+        state.wakes += 1;
         self.0.changed.notify_all();
     }
 }
