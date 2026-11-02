@@ -158,8 +158,10 @@ extension ScreenContentView {
             // off the grid for the whole camera motion and its content was resampled). Two edges a whole number
             // of pixels apart (a pane and the divider beside it, both on the one spring) stay that far apart.
             let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane)).pixelEdges(scale)
-            // Before the frame moves: chrome that re-checks itself on the move reads the rest.
+            // Before the frame moves: chrome that re-checks itself on the move reads the rest. On the pixel grid as the
+            // placed frame is, so a pane at rest under a camera resting between pixels has a zero rest offset.
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+                .pixelEdges(scale)
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
             if host.restOffset != restOffset { host.restOffset = restOffset }
             // A new rest size (a split's new pane has none before its first one) on a running spring.
@@ -267,11 +269,14 @@ extension ScreenContentView {
 }
 
 extension CGRect {
-    /// This rect with each edge on the nearest device pixel (`scale` pixels per point).
+    /// This rect with each edge on the nearest device pixel (`scale` pixels per point). A tie goes up on both edges
+    /// (`floor(v + 0.5)`, not away from zero), so a rect whose edges are whole pixels apart keeps its size under any
+    /// shift, a camera offset of exactly half a pixel across the screen's edge included: a move never resizes.
     func pixelEdges(_ scale: CGFloat) -> CGRect {
         guard scale > 0 else { return self }
-        let minX = (self.minX * scale).rounded() / scale, maxX = (self.maxX * scale).rounded() / scale
-        let minY = (self.minY * scale).rounded() / scale, maxY = (self.maxY * scale).rounded() / scale
+        func edge(_ value: CGFloat) -> CGFloat { (value * scale + 0.5).rounded(.down) / scale }
+        let minX = edge(self.minX), maxX = edge(self.maxX)
+        let minY = edge(self.minY), maxY = edge(self.maxY)
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
