@@ -46,6 +46,8 @@ ALLOWED_LISTENERS = {
     "focus lane); reads no data",
     (f"{ACPMUX}/newtab/NewTabScreen.tsx", "focus"): "the field takes the keyboard back when the "
     "page is focused with nothing in it focused (#22456), as composerFocus.ts does; reads no data",
+    (f"{ACPMUX}/paintReport.ts", "visibilitychange"): "a page hidden while its paint report waits "
+    "for a frame reports at once (a hidden page draws none); once, then the listener goes; reads no data",
     (f"{ACPMUX}/threadMinimap/scrollMotion.ts", "visibilitychange"): "cancels the wheel's own "
     "motion when the page hides; reads no data",
     (f"{ACPMUX}/threadMinimap/ThreadMinimap.tsx", "visibilitychange"): "clears the occluded "
