@@ -100,8 +100,7 @@ struct ComputerUseApprovalTests {
         let handled = ComputerUseHelperV2Consent.handle(["type": "app_approval", "id": 4, "request": Self.requestObject()],
                                                         send: { sink.yield($0) }, consent: { nil }, refused: { _ in })
         #expect(handled)
-        var iterator = lines.makeAsyncIterator()
-        let line = try #require(await iterator.next(isolation: #isolation))
+        let line = try #require(await Inbox(lines).next())
         #expect(try Self.json(line) as NSDictionary == ["type": "app_approval", "id": 4, "ok": false])
     }
 
@@ -183,17 +182,51 @@ struct ComputerUseApprovalTests {
         func done(digest: String) { finished.append(digest) }
     }
 
+    /// The lines the broker sends on one link, read in order on the main actor.
+    final class Inbox {
+        private var queued: [Data] = []
+        private var waiter: CheckedContinuation<Data?, Never>?
+        private var ended = false
+        private var reader: Task<Void, Never>?
+
+        init(_ stream: AsyncStream<Data>) {
+            reader = Task { [weak self] in
+                for await line in stream { self?.take(line) }
+                self?.finish()
+            }
+        }
+
+        private func take(_ line: Data) {
+            if let waiter {
+                self.waiter = nil
+                waiter.resume(returning: line)
+            } else {
+                queued.append(line)
+            }
+        }
+
+        private func finish() {
+            ended = true
+            waiter?.resume(returning: nil)
+            waiter = nil
+        }
+
+        func next() async -> Data? {
+            if !queued.isEmpty { return queued.removeFirst() }
+            if ended { return nil }
+            return await withCheckedContinuation { waiter = $0 }
+        }
+    }
+
     struct Rig {
         let broker: ComputerUseApprovalBroker
         let presenter: FakePresenter
         let phone: FakePhone
         let link: Int
-        var lines: AsyncStream<Data>.AsyncIterator
+        let inbox: Inbox
 
-        mutating func next() async throws -> [String: Any] {
-            // On this actor: the iterator is never sent anywhere.
-            let line = await lines.next(isolation: #isolation)
-            return try ComputerUseApprovalTests.json(try #require(line))
+        func next() async throws -> [String: Any] {
+            try ComputerUseApprovalTests.json(try #require(await inbox.next()))
         }
     }
 
@@ -207,11 +240,11 @@ struct ComputerUseApprovalTests {
         broker.phone = phone
         let (lines, sink) = AsyncStream<Data>.makeStream()
         let link = broker.attach(sink)
-        return Rig(broker: broker, presenter: presenter, phone: phone, link: link, lines: lines.makeAsyncIterator())
+        return Rig(broker: broker, presenter: presenter, phone: phone, link: link, inbox: Inbox(lines))
     }
 
     @Test(.timeLimit(.minutes(1))) func aCardPressAnswersOnceAndOnlyOnce() async throws {
-        var rig = await makeRig()
+        let rig = await makeRig()
         #expect(try await rig.next()["type"] as? String == "approved_apps")
         let request = try Self.request()
         rig.broker.receive(.question(id: 7, request: request), link: rig.link)
@@ -235,7 +268,7 @@ struct ComputerUseApprovalTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func alwaysOnTheCardSavesTheAppAndTellsTheWorker() async throws {
-        var rig = await makeRig()
+        let rig = await makeRig()
         _ = try await rig.next()
         let request = try Self.request()
         rig.broker.receive(.question(id: 1, request: request), link: rig.link)
@@ -255,7 +288,7 @@ struct ComputerUseApprovalTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func questionsOutsideThisClientOrTimeAreRefused() async throws {
-        var rig = await makeRig()
+        let rig = await makeRig()
         _ = try await rig.next()
         rig.broker.receive(.question(id: 2, request: try Self.request(Self.requestObject(client: "com.cmuxterm.app"))), link: rig.link)
         #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 2, "ok": false])
@@ -269,7 +302,7 @@ struct ComputerUseApprovalTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func cmuxItselfAndOverlongWindowsAreNeverAsked() async throws {
-        var rig = await makeRig()
+        let rig = await makeRig()
         _ = try await rig.next()
         rig.broker.receive(.question(id: 1, request: try Self.request(Self.requestObject(bundleID: Self.client))), link: rig.link)
         #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 1, "ok": false])
@@ -281,7 +314,7 @@ struct ComputerUseApprovalTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func expiryAndCancelWithdrawWithoutADecision() async throws {
-        var rig = await makeRig()
+        let rig = await makeRig()
         _ = try await rig.next()
         let first = try Self.request()
         let second = try Self.request(Self.requestObject(bundleID: "com.apple.Notes", nonce: String(repeating: "b", count: 32)))
@@ -301,7 +334,7 @@ struct ComputerUseApprovalTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func promptShowsTheCardAgainAndNeverDecides() async throws {
-        var rig = await makeRig()
+        let rig = await makeRig()
         _ = try await rig.next()
         let request = try Self.request()
         rig.broker.receive(.question(id: 1, request: request), link: rig.link)
@@ -326,7 +359,7 @@ struct ComputerUseApprovalTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func aPhoneAllowCountsOnlyWithThatPhonesFaceIDSignature() async throws {
-        var rig = await makeRig()
+        let rig = await makeRig()
         _ = try await rig.next()
         let key = P256.Signing.PrivateKey()
         let stranger = P256.Signing.PrivateKey()
@@ -354,7 +387,7 @@ struct ComputerUseApprovalTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func aPhoneDenyNeedsNoSignature() async throws {
-        var rig = await makeRig()
+        let rig = await makeRig()
         _ = try await rig.next()
         let request = try Self.request()
         rig.broker.receive(.question(id: 1, request: request), link: rig.link)
@@ -364,7 +397,7 @@ struct ComputerUseApprovalTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func aPhoneAlwaysNeedsTheSettingAndFaceID() async throws {
-        var rig = await makeRig()
+        let rig = await makeRig()
         _ = try await rig.next()
         let key = P256.Signing.PrivateKey()
         rig.broker.phoneApprovalKey = { _ in Self.hex(key) }
@@ -409,7 +442,7 @@ struct ComputerUseApprovalTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func aPressOnTheCardDecidesThroughTheBroker() async throws {
-        var rig = await makeRig()
+        let rig = await makeRig()
         _ = try await rig.next()
         let cards = ComputerUseApprovalCards(panels: false)
         rig.broker.presenter = cards
