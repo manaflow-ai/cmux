@@ -169,6 +169,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
               };
             };
             const column = document.querySelector('[data-row-id="upper"]')!.getBoundingClientRect();
+            const below = document.querySelector('[data-row-id="lower"]')!.getBoundingClientRect();
             const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
             return {
               upper: line("upper"),
@@ -180,6 +181,9 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
                   .getBoundingClientRect();
                 return { top: rect.top, bottom: rect.bottom };
               })(),
+              // The row's bottom edge and the next row's top: the stack's placed gap lies between them.
+              rowBottom: column.bottom,
+              nextTop: below.top,
               xs: [
                 (view.left + column.left) / 2,
                 (column.left + column.right) / 2,
@@ -190,7 +194,10 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           expect(box.upper.direction).toBe(lineDirection);
           expect(box.lower.direction).toBe(lineDirection);
           expect(box.lower.top - box.upper.bottom).toBeGreaterThan(4);
-          expect(box.gap.bottom - box.gap.top).toBe(64);
+          // The gap target spans the row's 64px bottom padding and the gap the stack places under the
+          // row (design/grid.md 5.5), down to the next row.
+          expect(box.gap.top).toBeCloseTo(box.rowBottom - 64, 1);
+          expect(box.gap.bottom).toBeCloseTo(box.nextTop, 1);
           expect(box.gap.bottom).toBeLessThanOrEqual(box.lower.top);
           expect(box.gap.top - box.upper.bottom).toBeLessThan(box.lower.top - box.gap.top);
           expect(box.lower.top - box.gap.bottom).toBeLessThan(box.gap.bottom - box.upper.bottom);

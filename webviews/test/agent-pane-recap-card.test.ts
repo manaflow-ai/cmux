@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { restRoom } from "../src/agent-session/acpmux/model";
+import { restBand } from "../src/agent-session/acpmux/transcriptGrid";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -287,9 +288,11 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     await atRest(page);
     // Font metrics differ between hosts: the pane is sized from the chat as drawn, with 4px of
     // spare room under its last row beyond the rest room the transcript keeps under it over the
-    // floating stack (model.ts restRoom, #30297), which is part of the chat's height.
+    // floating stack (model.ts restRoom, #30297), which is part of the chat's height. On the grid the
+    // turn's footer is laid in a band under its reply and the rest gap starts under that band
+    // (transcriptGrid.ts restBand, design/grid.md 5.5), so the band is part of it too.
     const { spare } = await view();
-    await page.setViewportSize({ width: 900, height: 760 - spare + restRoom() + 4 });
+    await page.setViewportSize({ width: 900, height: 760 - spare + restRoom() + restBand(true) + 4 });
     await atRest(page);
     expect(await view()).toMatchObject({ overflows: false, below: 0 });
     await setSessionStatus(page);

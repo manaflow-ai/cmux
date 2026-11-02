@@ -73,11 +73,22 @@ export default componentEntry<Record<string, never>>({
     };
     return function GalleryRetryModelMenu() {
       return (
-        // Retry shows on the last ended turn's prompt (VirtualTranscript marks its row retryable).
-        <div className="acpmux-row cv-user" data-retryable="" style={{ position: "relative", padding: "16px 16px 0" }}>
-          <TurnActionsContext.Provider value={actions}>
-            <UserBubble row={prompt} text={prompt.text} />
-          </TurnActionsContext.Provider>
+        // Retry shows on the last ended turn's prompt (VirtualTranscript marks its row retryable). The
+        // prompt's action row is laid in the turn gap under the row, overhanging the column's edge
+        // (design/grid.md 5.5), so the row is the column, as the transcript's article rows are: the
+        // stage's inset is a wrapper's (the row's own --cv-inset offset is cleared), and the row keeps
+        // layout containment alone (paint containment, styles.css .acpmux-row, would clip the action
+        // row away).
+        <div style={{ padding: "16px 16px 0" }}>
+          <div
+            className="acpmux-row cv-user"
+            data-retryable=""
+            style={{ position: "relative", insetInline: 0, contain: "layout" }}
+          >
+            <TurnActionsContext.Provider value={actions}>
+              <UserBubble row={prompt} text={prompt.text} />
+            </TurnActionsContext.Provider>
+          </div>
         </div>
       );
     };
